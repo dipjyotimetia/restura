@@ -1,30 +1,18 @@
 # Restura
 
-[![CI](https://github.com/dipjyotimetia/restura/actions/workflows/ci.yml/badge.svg)](https://github.com/dipjyotimetia/restura/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node Version](https://img.shields.io/badge/node-20+-green.svg)](https://nodejs.org/)
+⚡ Fast, lightweight API client supporting REST, GraphQL, gRPC & more. Built for developers who value speed and simplicity.
 
-A modern, full-stack multi-protocol API client for HTTP and gRPC testing, similar to Postman. Features both web and desktop (Electron) applications with comprehensive testing capabilities.
+**RESTURA** is a full-featured API client that makes testing and debugging APIs effortless. Whether you're working with REST, GraphQL, gRPC, or WebSockets, RESTURA provides an intuitive interface with powerful features that developers actually need.
 
-## Features
+## ✨ Why RESTURA?
 
-### Web Client
-
-- **HTTP Request Builder**: Support for GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD methods
-- **Query Parameters**: Dynamic query string builder with enable/disable toggles
-- **Headers Management**: Custom headers with validation
-- **Request Body**: JSON, XML, Text, Form Data, x-www-form-urlencoded support
-- **Authentication**: Basic, Bearer, API Key, OAuth 2.0, Digest, AWS Signature v4
-- **Environment Variables**: Multiple environments with `{{variable}}` syntax
-- **Collections**: Organize requests into collections and folders
-- **Import/Export**: Postman v2.1 and Insomnia collection support
-- **Code Generation**: Generate cURL, JavaScript, Python, Go, Rust, PHP, Ruby code
-- **Response Viewer**: Monaco Editor with syntax highlighting
-- **Request History**: Track and favorite past requests
-- **Dark/Light Theme**: System-aware theming
-- **Keyboard Shortcuts**: Command palette for quick actions
-- **Pre-request Scripts**: JavaScript-based request preprocessing
-- **Test Scripts**: Automated response validation
+- 🚀 **Multi-protocol support**: HTTP/REST, GraphQL, gRPC, WebSockets, and more
+- ⚡ **Lightning fast**: Built with performance in mind
+- 🔒 **Privacy-first**: Your data stays on your machine
+- 🎨 **Beautiful UI**: Clean, modern interface that doesn't get in your way
+- 🔌 **Extensible**: Plugin system for custom functionality
+- 💻 **Cross-platform**: Works on macOS, Windows, and Linux
+- 🆓 **Forever free**: No premium tiers, no feature gates
 
 ### Desktop Client (Electron)
 
@@ -47,8 +35,7 @@ All web features plus:
 
 ### Prerequisites
 
-- Node.js 20+
-- npm 9+
+- Node.js 22+
 
 ### Web Client
 
@@ -155,23 +142,6 @@ npm run test:ui
 - [Contributing](CONTRIBUTING.md) - Contribution guidelines
 - [Security](SECURITY.md) - Security policy
 - [Code of Conduct](CODE_OF_CONDUCT.md) - Community guidelines
-
-## CI/CD
-
-- **GitHub Actions**: Automated testing and builds
-- **CodeQL**: Security scanning
-- **Dependabot**: Automated dependency updates
-
-## Roadmap
-
-- [ ] Complete gRPC support
-- [ ] WebSocket testing
-- [ ] GraphQL support
-- [ ] Cloud sync for collections
-- [ ] Team collaboration
-- [ ] Plugin system
-- [ ] Performance profiling
-- [ ] API documentation generation
 
 ## Contributing
 
