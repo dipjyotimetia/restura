@@ -1,0 +1,47 @@
+import type { Metadata } from 'next';
+import './globals.css';
+import { ThemeProvider } from '@/components/ThemeProvider';
+import { PlatformProvider } from '@/components/PlatformProvider';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { Toaster } from 'sonner';
+
+export const metadata: Metadata = {
+  title: 'Restura - Multi-Protocol API Testing Tool',
+  description: 'Restura - A modern API client for testing HTTP and gRPC endpoints',
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body className="antialiased">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <ErrorBoundary>
+            <PlatformProvider>{children}</PlatformProvider>
+          </ErrorBoundary>
+          <Toaster
+            position="bottom-right"
+            richColors
+            closeButton
+            theme="system"
+            toastOptions={{
+              style: {
+                background: 'hsl(var(--background))',
+                border: '1px solid hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+              },
+            }}
+          />
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}

@@ -1,0 +1,49 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  - package-ecosystem: "npm"
+    directory: "/web-client"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "11:00"
+      timezone: Australia/Melbourne
+    rebase-strategy: "auto"
+    labels:
+      - "security"
+      - "dependencies"
+      - "npm"
+      - "frontend"
+    open-pull-requests-limit: 15
+    versioning-strategy: "increase"
+    groups:
+      react-ecosystem:
+        patterns:
+          - "react*"
+          - "@types/react*"
+      radix-ui:
+        patterns:
+          - "@radix-ui/*"
+      testing:
+        patterns:
+          - "@testing-library/*"
+          - "vitest"
+          - "@vitejs/*"
+      build-tools:
+        patterns:
+          - "typescript"
+          - "eslint*"
+          - "prettier"
+          - "tailwindcss*"
+      protobuf:
+        patterns:
+          - "@bufbuild/*"
+          - "@connectrpc/*"
+          - "@protobuf-ts/*"
