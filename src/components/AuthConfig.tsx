@@ -31,6 +31,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                   })
                 }
                 placeholder="Enter username"
+                className="glass-subtle border-white/10 dark:border-white/5"
               />
             </div>
             <div>
@@ -45,6 +46,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                   })
                 }
                 placeholder="Enter password"
+                className="glass-subtle border-white/10 dark:border-white/5"
               />
             </div>
           </div>
@@ -64,7 +66,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                   })
                 }
                 placeholder="Enter bearer token"
-                className="font-mono"
+                className="font-mono glass-subtle border-white/10 dark:border-white/5"
               />
             </div>
           </div>
@@ -265,7 +267,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
       <div>
         <label className="text-sm font-medium mb-2 block">Auth Type</label>
         <Select value={auth.type} onValueChange={(value) => handleTypeChange(value as AuthType)}>
-          <SelectTrigger>
+          <SelectTrigger className="glass-subtle border-white/10 dark:border-white/5">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

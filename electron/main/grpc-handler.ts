@@ -31,8 +31,14 @@ interface GrpcResponse {
   details?: string;
 }
 
+interface ActiveCall {
+  cancel: () => void;
+  write: (msg: unknown) => void;
+  end: () => void;
+}
+
 // Store active calls for streaming
-const activeCalls = new Map<string, any>();
+const activeCalls = new Map<string, ActiveCall>();
 
 // Helper to cleanup temp files
 const cleanupTemp = (dir: string) => {
@@ -62,18 +68,18 @@ const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
 };
 
 // Create a dynamic service definition for Connect
-function createDynamicService(serviceName: string, methodName: string, protoDef: any) {
+function createDynamicService(serviceName: string, methodName: string, protoDef: grpc.GrpcObject) {
   const serviceParts = serviceName.split('.');
-  let serviceDef: any = protoDef;
+  let serviceDef: unknown = protoDef;
   for (const part of serviceParts) {
-    serviceDef = serviceDef?.[part];
+    serviceDef = (serviceDef as Record<string, unknown>)?.[part];
   }
   
   if (!serviceDef || !serviceDef[methodName]) {
     throw new Error(`Method ${methodName} not found in service ${serviceName}`);
   }
 
-  const methodDef = serviceDef[methodName];
+  const methodDef = serviceDef[methodName] as grpc.MethodDefinition<unknown, unknown>;
   
   let methodKind = "unary";
   if (methodDef.requestStream && methodDef.responseStream) {
@@ -88,23 +94,23 @@ function createDynamicService(serviceName: string, methodName: string, protoDef:
   const InputType = {
     typeName: 'Input', // We don't have the full name easily, but it shouldn't matter for dynamic
     binaryRead: (bytes: Uint8Array) => methodDef.requestDeserialize(Buffer.from(bytes)),
-    binaryWrite: (msg: any) => methodDef.requestSerialize(msg),
-    fromJson: (json: any) => json,
-    toJson: (msg: any) => msg,
-    create: (val: any) => val || {},
-    equals: (a: any, b: any) => a === b,
-    clone: (a: any) => ({...a}),
+    binaryWrite: (msg: unknown) => methodDef.requestSerialize(msg),
+    fromJson: (json: unknown) => json,
+    toJson: (msg: unknown) => msg,
+    create: (val: unknown) => val || {},
+    equals: (a: unknown, b: unknown) => a === b,
+    clone: (a: unknown) => ({...(a as object)}),
   };
 
   const OutputType = {
     typeName: 'Output',
     binaryRead: (bytes: Uint8Array) => methodDef.responseDeserialize(Buffer.from(bytes)),
-    binaryWrite: (msg: any) => methodDef.responseSerialize(msg),
-    fromJson: (json: any) => json,
-    toJson: (msg: any) => msg,
-    create: (val: any) => val || {},
-    equals: (a: any, b: any) => a === b,
-    clone: (a: any) => ({...a}),
+    binaryWrite: (msg: unknown) => methodDef.responseSerialize(msg),
+    fromJson: (json: unknown) => json,
+    toJson: (msg: unknown) => msg,
+    create: (val: unknown) => val || {},
+    equals: (a: unknown, b: unknown) => a === b,
+    clone: (a: unknown) => ({...(a as object)}),
   };
 
   return {
@@ -160,19 +166,20 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
           trailers: {},
           message: response
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         cleanupTemp(tempDir);
+        const error = err as { code?: number; message?: string; details?: string };
         return {
-          status: err.code || 2, // UNKNOWN
-          statusText: err.message || 'Unknown Error',
+          status: error.code || 2, // UNKNOWN
+          statusText: error.message || 'Unknown Error',
           headers: {},
           trailers: {},
-          error: err.message,
-          details: err.details
+          error: error.message,
+          details: error.details
         };
       }
     } else if (config.methodType === 'server-streaming') {
-      const messages: any[] = [];
+      const messages: unknown[] = [];
       try {
         for await (const response of client[method](config.message, { headers })) {
           messages.push(response);
@@ -185,15 +192,16 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
           trailers: {},
           messages
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
         cleanupTemp(tempDir);
+        const error = err as { code?: number; message?: string; details?: string };
         return {
-          status: err.code || 2,
-          statusText: err.message,
+          status: error.code || 2,
+          statusText: error.message,
           headers: {},
           trailers: {},
           messages,
-          error: err.message
+          error: error.message
         };
       }
     } else {
@@ -201,14 +209,15 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       throw new Error(`Method type ${config.methodType} not supported in unary mode`);
     }
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     cleanupTemp(tempDir);
+    const error = err instanceof Error ? err : new Error(String(err));
     return {
       status: 2, // UNKNOWN
       statusText: 'Internal Error',
       headers: {},
       trailers: {},
-      error: `gRPC setup failed: ${err.message}`
+      error: `gRPC setup failed: ${error.message}`
     };
   }
 }
@@ -241,15 +250,16 @@ export function registerGrpcHandlerIPC(): void {
       const headers = { ...config.metadata };
       const controller = new AbortController();
 
-      const handleData = (data: any) => {
+      const handleData = (data: unknown) => {
         event.sender.send(`grpc:data:${requestId}`, data);
       };
 
-      const handleError = (err: any) => {
-        if (err.name === 'AbortError') return; // Ignore aborts
+      const handleError = (err: unknown) => {
+        const error = err as { name?: string; code?: number; message?: string };
+        if (error.name === 'AbortError') return; // Ignore aborts
         event.sender.send(`grpc:error:${requestId}`, {
-          status: err.code || 2,
-          details: err.message
+          status: error.code || 2,
+          details: error.message
         });
         cleanup();
       };
@@ -288,7 +298,7 @@ export function registerGrpcHandlerIPC(): void {
         });
 
       } else if (config.methodType === 'client-streaming' || config.methodType === 'bidirectional-streaming') {
-        const inputQueue: any[] = [];
+        const inputQueue: unknown[] = [];
         let notifyInput: (() => void) | null = null;
         let finished = false;
 
@@ -330,7 +340,7 @@ export function registerGrpcHandlerIPC(): void {
             finished = true;
             if (notifyInput) notifyInput();
           },
-          write: (msg: any) => {
+          write: (msg: unknown) => {
             inputQueue.push(msg);
             if (notifyInput) notifyInput();
           },
@@ -341,16 +351,17 @@ export function registerGrpcHandlerIPC(): void {
         });
       }
 
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
       event.sender.send(`grpc:error:${requestId}`, {
         status: 2,
-        details: err.message
+        details: error.message
       });
       cleanupTemp(tempDir);
     }
   });
 
-  ipcMain.on('grpc:send-message', (_event, requestId: string, message: any) => {
+  ipcMain.on('grpc:send-message', (_event, requestId: string, message: unknown) => {
     const call = activeCalls.get(requestId);
     if (call) {
       call.write(message);

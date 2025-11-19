@@ -142,8 +142,8 @@ export default function ResponseViewer() {
 
   if (!currentResponse) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl relative z-20 noise-texture">
-        <div className="text-center p-8 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-600 max-w-md shadow-elevation-1">
+      <div className="flex-1 flex items-center justify-center bg-white/5 dark:bg-white/5 backdrop-blur-xl relative z-20 noise-texture border-l border-white/10 dark:border-white/5">
+        <div className="text-center p-8 rounded-xl bg-white/10 dark:bg-white/5 border border-dashed border-white/20 dark:border-white/10 max-w-md shadow-glass">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-gradient-to-br from-slate-blue-100 to-indigo-100 dark:from-slate-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
             <Zap className="h-7 w-7 text-slate-blue-600 dark:text-slate-blue-400" />
           </div>
@@ -169,13 +169,13 @@ export default function ResponseViewer() {
     <TooltipProvider delayDuration={300}>
       <div
         className={cn(
-          "flex-1 flex flex-col bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl relative z-20 noise-texture transition-all duration-300",
+          "flex-1 flex flex-col bg-white/5 dark:bg-white/5 backdrop-blur-xl relative z-20 noise-texture transition-all duration-300 border-l border-white/10 dark:border-white/5",
           showAnimation && isSuccess && "animate-success-pulse",
           showAnimation && isError && "animate-error-shake"
         )}
       >
         {/* Response Info Bar */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/10 dark:border-white/5 bg-transparent">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Status</span>
             <Tooltip>

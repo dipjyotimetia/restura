@@ -21,7 +21,7 @@ export default function RequestBodyEditor({
     <div className="space-y-4">
       <div className="flex items-center gap-4">
         <Select value={body.type} onValueChange={(value) => onBodyTypeChange(value as RequestBody['type'])}>
-          <SelectTrigger className="w-48 border-slate-blue-500/20">
+          <SelectTrigger className="w-48 border-white/10 dark:border-white/5">
             <SelectValue placeholder="Select body type" />
           </SelectTrigger>
           <SelectContent>

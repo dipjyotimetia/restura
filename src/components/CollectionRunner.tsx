@@ -135,11 +135,11 @@ export default function CollectionRunner() {
           break;
         }
 
-      } catch (error: any) {
+      } catch (error: unknown) {
         setResults(prev => prev.map((r, idx) => idx === i ? { 
           ...r, 
           status: 'failed',
-          error: error.message
+          error: error instanceof Error ? error.message : String(error)
         } : r));
 
         if (stopOnError) break;

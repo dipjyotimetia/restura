@@ -212,9 +212,9 @@ export default function Home() {
             </Button>
           )}
 
-          <main className="flex flex-1 flex-col relative bg-background/50">
-            {/* Subtle dot pattern background */}
-            <div className="absolute inset-0 opacity-[0.1] pointer-events-none">
+          <main className="flex flex-1 flex-col relative bg-transparent">
+            {/* Subtle dot pattern background - reduced opacity */}
+            <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
               <div className="absolute inset-0" style={{
                 backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)`,
                 backgroundSize: '24px 24px'

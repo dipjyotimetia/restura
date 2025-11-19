@@ -366,8 +366,8 @@ export default function RequestBuilder() {
 
       {/* Request Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-muted/30">
-          <TabsList className="h-10 bg-background/60 backdrop-blur-sm border border-slate-blue-500/10">
+        <div className="px-4 py-2 border-b border-white/10 dark:border-white/5 bg-transparent">
+          <TabsList className="h-10 bg-white/5 dark:bg-white/5 backdrop-blur-md border border-white/10 dark:border-white/5">
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>

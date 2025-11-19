@@ -1,4 +1,4 @@
-import { HttpRequest, Response as ApiResponse, RequestSettings } from '@/types';
+import { HttpRequest, Response as ApiResponse, RequestSettings, AppSettings } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import axios, { AxiosRequestConfig } from 'axios';
 import { Cookie } from 'tough-cookie';
@@ -20,7 +20,7 @@ export interface RequestExecutionResult {
 export interface RequestExecutorOptions {
   request: HttpRequest;
   envVars: Record<string, string>;
-  globalSettings: any;
+  globalSettings: AppSettings;
   resolveVariables: (text: string, vars?: Record<string, string>) => string;
 }
 
@@ -219,7 +219,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
         time: endTime - startTime,
         timestamp: Date.now(),
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       const endTime = Date.now();
       const isAxiosError = axios.isAxiosError(error);
       const errorMessage = error instanceof Error ? error.message : 'Request failed';

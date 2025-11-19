@@ -423,7 +423,7 @@ export async function makeElectronGrpcRequest(
     const api = getElectronAPI();
     if (!api) throw new Error('Electron API not available');
 
-    const response = await (api as any).grpc.request({
+    const response = await api.grpc.request({
       url: prepared.url,
       service: request.service,
       method: request.method,
@@ -432,7 +432,7 @@ export async function makeElectronGrpcRequest(
       message: prepared.message,
       protoContent,
       protoFileName,
-    });
+    }) as any; // Cast to any because IPC returns unknown
 
     const endTime = Date.now();
 
@@ -449,10 +449,10 @@ export async function makeElectronGrpcRequest(
       grpcStatus: response.status,
       grpcStatusText: response.statusText,
       trailers: response.trailers,
-      messages: response.messages ? response.messages.map((m: any) => JSON.stringify(m)) : undefined,
+      messages: response.messages ? response.messages.map((m: unknown) => JSON.stringify(m)) : undefined,
       isStreaming: !!response.messages,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return createErrorResponse(request.id, error, startTime);
   }
 }
@@ -464,12 +464,12 @@ export function startElectronGrpcStream(
   protoFileName: string,
   resolveVariables: (text: string) => string,
   callbacks: {
-    onData: (data: any) => void;
-    onError: (error: any) => void;
-    onStatus: (status: any) => void;
+    onData: (data: unknown) => void;
+    onError: (error: unknown) => void;
+    onStatus: (status: unknown) => void;
   }
 ): {
-  sendMessage: (message: any) => void;
+  sendMessage: (message: unknown) => void;
   endStream: () => void;
   cancelStream: () => void;
 } {
@@ -488,12 +488,12 @@ export function startElectronGrpcStream(
   const errorChannel = `grpc:error:${requestId}`;
   const statusChannel = `grpc:status:${requestId}`;
 
-  (api as any).grpc.on(dataChannel, callbacks.onData);
-  (api as any).grpc.on(errorChannel, callbacks.onError);
-  (api as any).grpc.on(statusChannel, callbacks.onStatus);
+  api.grpc.on(dataChannel, callbacks.onData);
+  api.grpc.on(errorChannel, callbacks.onError);
+  api.grpc.on(statusChannel, callbacks.onStatus);
 
   // Start stream
-  (api as any).grpc.startStream({
+  api.grpc.startStream({
     id: requestId,
     url: prepared.url,
     service: request.service,
@@ -506,17 +506,17 @@ export function startElectronGrpcStream(
   });
 
   return {
-    sendMessage: (message: any) => {
-      (api as any).grpc.sendMessage(requestId, message);
+    sendMessage: (message: unknown) => {
+      api.grpc.sendMessage(requestId, message);
     },
     endStream: () => {
-      (api as any).grpc.endStream(requestId);
+      api.grpc.endStream(requestId);
     },
     cancelStream: () => {
-      (api as any).grpc.cancelStream(requestId);
-      (api as any).grpc.removeListener(dataChannel, callbacks.onData);
-      (api as any).grpc.removeListener(errorChannel, callbacks.onError);
-      (api as any).grpc.removeListener(statusChannel, callbacks.onStatus);
+      api.grpc.cancelStream(requestId);
+      api.grpc.removeListener(dataChannel, callbacks.onData);
+      api.grpc.removeListener(errorChannel, callbacks.onError);
+      api.grpc.removeListener(statusChannel, callbacks.onStatus);
     }
   };
 }

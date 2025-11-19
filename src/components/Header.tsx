@@ -115,7 +115,7 @@ export default function Header({
   }
 
   return (
-    <header className="relative z-50 flex h-14 items-center justify-between border-b border-border bg-background/80 backdrop-blur-md px-6 supports-[backdrop-filter]:bg-background/60">
+    <header className="relative z-50 flex h-14 items-center justify-between border-b border-white/10 dark:border-white/5 bg-background/30 dark:bg-background/40 backdrop-blur-xl px-6 shadow-sm">
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">

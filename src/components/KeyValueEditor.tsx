@@ -52,7 +52,7 @@ export default function KeyValueEditor({
         {items.map((item) => (
           <div
             key={item.id}
-            className="flex items-center gap-3 group p-2 rounded-lg hover:bg-slate-blue-500/5 transition-colors"
+            className="flex items-center gap-3 group p-2 rounded-lg hover:bg-white/5 dark:hover:bg-white/5 transition-colors"
           >
             <Tooltip>
               <TooltipTrigger asChild>
@@ -73,14 +73,14 @@ export default function KeyValueEditor({
               value={item.key}
               onChange={(e) => onUpdate(item.id, { key: e.target.value })}
               placeholder={keyPlaceholder}
-              className="flex-1 glass-subtle border-slate-blue-500/20 focus:border-slate-blue-500/40 transition-colors"
+              className="flex-1 glass-subtle border-white/10 dark:border-white/5 focus:border-slate-blue-500/40 transition-colors"
               aria-label={`${itemType} key`}
             />
             <Input
               value={item.value}
               onChange={(e) => onUpdate(item.id, { value: e.target.value })}
               placeholder={valuePlaceholder}
-              className="flex-1 glass-subtle border-slate-blue-500/20 focus:border-slate-blue-500/40 transition-colors"
+              className="flex-1 glass-subtle border-white/10 dark:border-white/5 focus:border-slate-blue-500/40 transition-colors"
               aria-label={`${itemType} value`}
             />
             <AlertDialog>
@@ -127,7 +127,7 @@ export default function KeyValueEditor({
               onClick={onAdd}
               variant="outline"
               size="sm"
-              className="border-slate-blue-500/20 hover:border-slate-blue-500/40"
+              className="border-white/10 dark:border-white/5 hover:border-white/20 dark:hover:border-white/10"
             >
               <Plus className="mr-2 h-4 w-4" />
               {addButtonText}
