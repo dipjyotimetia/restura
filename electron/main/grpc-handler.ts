@@ -50,10 +50,71 @@ interface ActiveCall {
   cancel: () => void;
   write: (msg: unknown) => void;
   end: () => void;
+  createdAt: number; // Timestamp for stale connection detection
+  requestId: string; // Request ID for tracking
 }
 
-// Store active calls for streaming
+// Store active calls for streaming with improved management
 const activeCalls = new Map<string, ActiveCall>();
+
+// Timeout for stale streams (5 minutes)
+const STREAM_TIMEOUT_MS = 5 * 60 * 1000;
+
+// Clean up stale streams periodically
+const cleanupStaleStreams = () => {
+  const now = Date.now();
+  const staleIds: string[] = [];
+
+  activeCalls.forEach((call, id) => {
+    if (now - call.createdAt > STREAM_TIMEOUT_MS) {
+      staleIds.push(id);
+      try {
+        call.cancel();
+      } catch (error) {
+        console.error(`Error canceling stale stream ${id}:`, error);
+      }
+    }
+  });
+
+  staleIds.forEach((id) => {
+    activeCalls.delete(id);
+    console.log(`Cleaned up stale stream: ${id}`);
+  });
+};
+
+// Run cleanup every minute
+let cleanupInterval: NodeJS.Timeout | null = null;
+
+export function startStreamCleanup(): void {
+  if (cleanupInterval) return; // Already running
+  cleanupInterval = setInterval(cleanupStaleStreams, 60 * 1000);
+}
+
+export function stopStreamCleanup(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+}
+
+// Safe method to add a stream with collision detection
+const addActiveCall = (id: string, call: Omit<ActiveCall, 'createdAt' | 'requestId'>): boolean => {
+  if (activeCalls.has(id)) {
+    console.warn(`Stream with ID ${id} already exists, rejecting duplicate`);
+    return false;
+  }
+  activeCalls.set(id, {
+    ...call,
+    createdAt: Date.now(),
+    requestId: id,
+  });
+  return true;
+};
+
+// Safe method to remove a stream
+const removeActiveCall = (id: string): boolean => {
+  return activeCalls.delete(id);
+};
 
 // Helper to cleanup temp files
 const cleanupTemp = (dir: string) => {
@@ -297,6 +358,9 @@ export function registerGrpcHandlerIPC(): void {
   // Initialize and clean up old temp directories on startup
   initializeGrpcTempDir();
 
+  // Start periodic cleanup of stale streams
+  startStreamCleanup();
+
   ipcMain.handle('grpc:request', async (_event, config: GrpcRequestConfig) => {
     return makeGrpcRequest(config);
   });
@@ -345,10 +409,8 @@ export function registerGrpcHandlerIPC(): void {
       };
 
       const cleanup = () => {
-        if (activeCalls.has(requestId)) {
-          activeCalls.delete(requestId);
-          cleanupTemp(tempDir);
-        }
+        removeActiveCall(requestId);
+        cleanupTemp(tempDir);
       };
 
       if (config.methodType === 'server-streaming') {
@@ -363,11 +425,20 @@ export function registerGrpcHandlerIPC(): void {
           }
         })();
 
-        activeCalls.set(requestId, {
+        const added = addActiveCall(requestId, {
           cancel: () => controller.abort(),
           write: () => {},
           end: () => {}
         });
+
+        if (!added) {
+          event.sender.send(`grpc:error:${requestId}`, {
+            status: 13, // INTERNAL
+            details: `Stream with ID ${requestId} already exists`
+          });
+          cleanup();
+          return;
+        }
 
       } else if (config.methodType === 'client-streaming' || config.methodType === 'bidirectional-streaming') {
         const inputQueue: unknown[] = [];
@@ -406,7 +477,7 @@ export function registerGrpcHandlerIPC(): void {
           }
         })();
 
-        activeCalls.set(requestId, {
+        const added = addActiveCall(requestId, {
           cancel: () => {
             controller.abort();
             finished = true;
@@ -421,6 +492,15 @@ export function registerGrpcHandlerIPC(): void {
             if (notifyInput) notifyInput();
           }
         });
+
+        if (!added) {
+          event.sender.send(`grpc:error:${requestId}`, {
+            status: 13, // INTERNAL
+            details: `Stream with ID ${requestId} already exists`
+          });
+          cleanup();
+          return;
+        }
       }
 
     } catch (err: unknown) {
