@@ -3,6 +3,7 @@ import './globals.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { PlatformProvider } from '@/components/PlatformProvider';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import AriaLiveAnnouncerProvider from '@/components/AriaLiveAnnouncer';
 import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
@@ -25,7 +26,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <ErrorBoundary>
-            <PlatformProvider>{children}</PlatformProvider>
+            <AriaLiveAnnouncerProvider>
+              <PlatformProvider>{children}</PlatformProvider>
+            </AriaLiveAnnouncerProvider>
           </ErrorBoundary>
           <Toaster
             position="bottom-right"

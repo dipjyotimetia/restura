@@ -10,6 +10,9 @@ import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import CommandPalette from '@/components/CommandPalette';
 import ClientHydration from '@/components/ClientHydration';
+import StatusBar from '@/components/StatusBar';
+import KeyboardShortcutsPanel from '@/components/KeyboardShortcutsPanel';
+import WelcomeOnboarding from '@/components/WelcomeOnboarding';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { Button } from '@/components/ui/button';
@@ -279,6 +282,9 @@ export default function Home() {
         </div>
       </ClientHydration>
 
+      {/* Status Bar */}
+      <StatusBar />
+
       {/* Command Palette */}
       <CommandPalette
         onOpenEnvironments={() => setEnvManagerOpen(true)}
@@ -287,6 +293,12 @@ export default function Home() {
         onSendRequest={handleSendRequest}
         onChangeMode={setRequestMode}
       />
+
+      {/* Keyboard Shortcuts Panel */}
+      <KeyboardShortcutsPanel />
+
+      {/* Welcome Onboarding for First-Time Users */}
+      <WelcomeOnboarding />
     </div>
   );
 }

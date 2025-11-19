@@ -84,6 +84,30 @@ const electronAPI = {
     }> => ipcRenderer.invoke('http:request', config),
   },
 
+  // Native notifications
+  notification: {
+    isSupported: (): Promise<boolean> => ipcRenderer.invoke('notification:isSupported'),
+
+    show: (options: {
+      title: string;
+      body: string;
+      silent?: boolean;
+      urgency?: 'normal' | 'critical' | 'low';
+    }): Promise<{ success: boolean }> => ipcRenderer.invoke('notification:show', options),
+
+    requestComplete: (data: {
+      status: number;
+      time: number;
+      url: string;
+    }): Promise<{ success: boolean }> => ipcRenderer.invoke('notification:requestComplete', data),
+
+    updateAvailable: (version: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('notification:updateAvailable', version),
+
+    error: (message: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('notification:error', message),
+  },
+
   // Events
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const validChannels = ['menu:import', 'menu:export', 'menu:new-request', 'app:focus'];

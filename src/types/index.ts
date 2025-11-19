@@ -52,6 +52,14 @@ export type RequestType = 'http' | 'grpc';
 // Body Types
 export type BodyType = 'none' | 'json' | 'xml' | 'form-data' | 'x-www-form-urlencoded' | 'binary' | 'protobuf' | 'graphql' | 'text';
 
+// Request Body Type (extracted for reusability)
+export interface RequestBody {
+  type: BodyType;
+  raw?: string;
+  formData?: FormDataItem[];
+  binary?: File;
+}
+
 // Authentication Types
 export type AuthType = 'none' | 'basic' | 'bearer' | 'api-key' | 'oauth2' | 'digest' | 'aws-signature';
 
@@ -110,12 +118,7 @@ export interface HttpRequest {
   url: string;
   headers: KeyValue[];
   params: KeyValue[];
-  body: {
-    type: BodyType;
-    raw?: string;
-    formData?: FormDataItem[];
-    binary?: File;
-  };
+  body: RequestBody;
   auth: AuthConfig;
   preRequestScript?: string;
   testScript?: string;
@@ -356,6 +359,9 @@ export interface AppSettings {
   allowLocalhost?: boolean;
   allowPrivateIPs?: boolean;
 }
+
+// Alias for backwards compatibility and clarity
+export type GlobalSettings = AppSettings;
 
 // Postman Collection Format (simplified)
 export interface PostmanVariable {
