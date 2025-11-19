@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import * as http from 'http';
 import * as https from 'https';
+import { HttpRequestConfigSchema, createValidatedHandler } from './ipc-validators';
 
 interface ProxyConfig {
   enabled: boolean;
@@ -179,7 +180,10 @@ function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<
 }
 
 export function registerHttpHandlerIPC(): void {
-  ipcMain.handle('http:request', async (_event, config: HttpRequestConfig) => {
-    return makeHttpRequest(config);
-  });
+  ipcMain.handle(
+    'http:request',
+    createValidatedHandler('http:request', HttpRequestConfigSchema, async (config: HttpRequestConfig) => {
+      return makeHttpRequest(config);
+    })
+  );
 }

@@ -1,6 +1,14 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  DialogOptionsSchema,
+  FilePathSchema,
+  WriteFileSchema,
+  AppPathNameSchema,
+  ShellUrlSchema,
+  createValidatedHandler,
+} from './ipc-validators';
 
 // Security: Maximum file size to prevent memory exhaustion
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -50,79 +58,97 @@ export function isPathSafe(filePath: string): boolean {
 
 export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | null): void {
   // Dialog handlers
-  ipcMain.handle('dialog:openFile', async (_event, options) => {
-    const mainWindow = getMainWindow();
-    if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      filters: options?.filters || [
-        { name: 'JSON Files', extensions: ['json'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-      ...options,
-    });
-    return result;
-  });
+  ipcMain.handle(
+    'dialog:openFile',
+    createValidatedHandler('dialog:openFile', DialogOptionsSchema.optional(), async (options) => {
+      const mainWindow = getMainWindow();
+      if (!mainWindow) return null;
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        filters: options?.filters || [
+          { name: 'JSON Files', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        ...options,
+      });
+      return result;
+    })
+  );
 
-  ipcMain.handle('dialog:saveFile', async (_event, options) => {
-    const mainWindow = getMainWindow();
-    if (!mainWindow) return null;
-    const result = await dialog.showSaveDialog(mainWindow, {
-      filters: options?.filters || [
-        { name: 'JSON Files', extensions: ['json'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-      ...options,
-    });
-    return result;
-  });
+  ipcMain.handle(
+    'dialog:saveFile',
+    createValidatedHandler('dialog:saveFile', DialogOptionsSchema.optional(), async (options) => {
+      const mainWindow = getMainWindow();
+      if (!mainWindow) return null;
+      const result = await dialog.showSaveDialog(mainWindow, {
+        filters: options?.filters || [
+          { name: 'JSON Files', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        ...options,
+      });
+      return result;
+    })
+  );
 
   // File system handlers
-  ipcMain.handle('fs:readFile', async (_event, filePath: string) => {
-    try {
-      if (!isPathSafe(filePath)) {
-        return { success: false, error: 'Access denied: Path is outside allowed directories' };
+  ipcMain.handle(
+    'fs:readFile',
+    createValidatedHandler('fs:readFile', FilePathSchema, async (filePath: string) => {
+      try {
+        if (!isPathSafe(filePath)) {
+          return { success: false, error: 'Access denied: Path is outside allowed directories' };
+        }
+
+        const stats = fs.statSync(filePath);
+        if (stats.size > MAX_FILE_SIZE_BYTES) {
+          return { success: false, error: `File too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB` };
+        }
+
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return { success: true, content };
+      } catch (error) {
+        return { success: false, error: String(error) };
       }
+    })
+  );
 
-      const stats = fs.statSync(filePath);
-      if (stats.size > MAX_FILE_SIZE_BYTES) {
-        return { success: false, error: `File too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB` };
+  ipcMain.handle(
+    'fs:writeFile',
+    createValidatedHandler('fs:writeFile', WriteFileSchema, async ([filePath, content]: [string, string]) => {
+      try {
+        if (!isPathSafe(filePath)) {
+          return { success: false, error: 'Access denied: Path is outside allowed directories' };
+        }
+
+        if (content.length > MAX_FILE_SIZE_BYTES) {
+          return { success: false, error: `Content too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB` };
+        }
+
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
       }
-
-      const content = fs.readFileSync(filePath, 'utf-8');
-      return { success: true, content };
-    } catch (error) {
-      return { success: false, error: String(error) };
-    }
-  });
-
-  ipcMain.handle('fs:writeFile', async (_event, filePath: string, content: string) => {
-    try {
-      if (!isPathSafe(filePath)) {
-        return { success: false, error: 'Access denied: Path is outside allowed directories' };
-      }
-
-      if (content.length > MAX_FILE_SIZE_BYTES) {
-        return { success: false, error: `Content too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB` };
-      }
-
-      fs.writeFileSync(filePath, content, 'utf-8');
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: String(error) };
-    }
-  });
+    })
+  );
 
   // App info handlers
-  ipcMain.handle('app:getPath', (_event, name: string) => {
-    return app.getPath(name as Parameters<typeof app.getPath>[0]);
-  });
+  ipcMain.handle(
+    'app:getPath',
+    createValidatedHandler('app:getPath', AppPathNameSchema, (name) => {
+      return app.getPath(name as Parameters<typeof app.getPath>[0]);
+    })
+  );
 
   ipcMain.handle('app:getVersion', () => {
     return app.getVersion();
   });
 
-  ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-    await shell.openExternal(url);
-  });
+  ipcMain.handle(
+    'shell:openExternal',
+    createValidatedHandler('shell:openExternal', ShellUrlSchema, async (url: string) => {
+      await shell.openExternal(url);
+    })
+  );
 }

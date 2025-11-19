@@ -7,6 +7,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  GrpcRequestConfigSchema,
+  GrpcStreamRequestIdSchema,
+  GrpcSendMessageSchema,
+  createValidatedHandler,
+  createValidatedListener,
+  validateIpcInput,
+} from './ipc-validators';
 
 // Use app's userData directory for proto temp files (more secure than os.tmpdir())
 // This will be something like ~/Library/Application Support/restura/grpc-temp on macOS
@@ -361,14 +369,19 @@ export function registerGrpcHandlerIPC(): void {
   // Start periodic cleanup of stale streams
   startStreamCleanup();
 
-  ipcMain.handle('grpc:request', async (_event, config: GrpcRequestConfig) => {
-    return makeGrpcRequest(config);
-  });
+  ipcMain.handle(
+    'grpc:request',
+    createValidatedHandler('grpc:request', GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
+      return makeGrpcRequest(config);
+    })
+  );
 
-  ipcMain.on('grpc:start-stream', (event, config: GrpcRequestConfig) => {
-    // Re-implement startGrpcStream with proper signal handling for server streaming
-    const requestId = config.id;
-    if (!requestId) return;
+  ipcMain.on(
+    'grpc:start-stream',
+    createValidatedListener('grpc:start-stream', GrpcRequestConfigSchema, (event, config: GrpcRequestConfig) => {
+      // Re-implement startGrpcStream with proper signal handling for server streaming
+      const requestId = config.id;
+      if (!requestId) return;
 
     const tempDir = path.join(GRPC_TEMP_BASE, requestId);
     fs.mkdirSync(tempDir, { recursive: true });
@@ -511,26 +524,36 @@ export function registerGrpcHandlerIPC(): void {
       });
       cleanupTemp(tempDir);
     }
-  });
+    })
+  );
 
-  ipcMain.on('grpc:send-message', (_event, requestId: string, message: unknown) => {
-    const call = activeCalls.get(requestId);
-    if (call) {
-      call.write(message);
-    }
-  });
+  ipcMain.on(
+    'grpc:send-message',
+    createValidatedListener('grpc:send-message', GrpcSendMessageSchema, (_event, [requestId, message]) => {
+      const call = activeCalls.get(requestId);
+      if (call) {
+        call.write(message);
+      }
+    })
+  );
 
-  ipcMain.on('grpc:end-stream', (_event, requestId: string) => {
-    const call = activeCalls.get(requestId);
-    if (call) {
-      call.end();
-    }
-  });
+  ipcMain.on(
+    'grpc:end-stream',
+    createValidatedListener('grpc:end-stream', GrpcStreamRequestIdSchema, (_event, requestId: string) => {
+      const call = activeCalls.get(requestId);
+      if (call) {
+        call.end();
+      }
+    })
+  );
 
-  ipcMain.on('grpc:cancel-stream', (_event, requestId: string) => {
-    const call = activeCalls.get(requestId);
-    if (call) {
-      call.cancel();
-    }
-  });
+  ipcMain.on(
+    'grpc:cancel-stream',
+    createValidatedListener('grpc:cancel-stream', GrpcStreamRequestIdSchema, (_event, requestId: string) => {
+      const call = activeCalls.get(requestId);
+      if (call) {
+        call.cancel();
+      }
+    })
+  );
 }

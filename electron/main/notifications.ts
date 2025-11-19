@@ -1,6 +1,13 @@
 import { Notification, ipcMain, BrowserWindow, app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import {
+  NotificationOptionsSchema,
+  NotificationRequestCompleteSchema,
+  NotificationVersionSchema,
+  NotificationMessageSchema,
+  createValidatedHandler,
+} from './ipc-validators';
 
 function getResourcePath(resource: string, isDev: boolean): string {
   if (isDev) {
@@ -58,58 +65,71 @@ export function registerNotificationIPC(getMainWindow: () => BrowserWindow | nul
   });
 
   // Show a native notification
-  ipcMain.handle('notification:show', async (_event, options: NotificationOptions) => {
-    const mainWindow = getMainWindow();
-    showNativeNotification(options, mainWindow, isDev);
-    return { success: true };
-  });
+  ipcMain.handle(
+    'notification:show',
+    createValidatedHandler('notification:show', NotificationOptionsSchema, async (options: NotificationOptions) => {
+      const mainWindow = getMainWindow();
+      showNativeNotification(options, mainWindow, isDev);
+      return { success: true };
+    })
+  );
 
   // Show request completed notification
   ipcMain.handle(
     'notification:requestComplete',
-    async (_event, data: { status: number; time: number; url: string }) => {
+    createValidatedHandler(
+      'notification:requestComplete',
+      NotificationRequestCompleteSchema,
+      async (data: { status: number; time: number; url: string }) => {
+        const mainWindow = getMainWindow();
+        const statusEmoji = data.status >= 200 && data.status < 300 ? '✅' : '❌';
+        showNativeNotification(
+          {
+            title: `${statusEmoji} Request Complete`,
+            body: `Status: ${data.status} | Time: ${data.time}ms\n${data.url}`,
+            urgency: data.status >= 400 ? 'critical' : 'normal',
+          },
+          mainWindow,
+          isDev
+        );
+        return { success: true };
+      }
+    )
+  );
+
+  // Show update available notification
+  ipcMain.handle(
+    'notification:updateAvailable',
+    createValidatedHandler('notification:updateAvailable', NotificationVersionSchema, async (version: string) => {
       const mainWindow = getMainWindow();
-      const statusEmoji = data.status >= 200 && data.status < 300 ? '✅' : '❌';
       showNativeNotification(
         {
-          title: `${statusEmoji} Request Complete`,
-          body: `Status: ${data.status} | Time: ${data.time}ms\n${data.url}`,
-          urgency: data.status >= 400 ? 'critical' : 'normal',
+          title: '🚀 Update Available',
+          body: `Version ${version} is available for download`,
+          urgency: 'normal',
         },
         mainWindow,
         isDev
       );
       return { success: true };
-    }
+    })
   );
 
-  // Show update available notification
-  ipcMain.handle('notification:updateAvailable', async (_event, version: string) => {
-    const mainWindow = getMainWindow();
-    showNativeNotification(
-      {
-        title: '🚀 Update Available',
-        body: `Version ${version} is available for download`,
-        urgency: 'normal',
-      },
-      mainWindow,
-      isDev
-    );
-    return { success: true };
-  });
-
   // Show error notification
-  ipcMain.handle('notification:error', async (_event, message: string) => {
-    const mainWindow = getMainWindow();
-    showNativeNotification(
-      {
-        title: '⚠️ Error',
-        body: message,
-        urgency: 'critical',
-      },
-      mainWindow,
-      isDev
-    );
-    return { success: true };
-  });
+  ipcMain.handle(
+    'notification:error',
+    createValidatedHandler('notification:error', NotificationMessageSchema, async (message: string) => {
+      const mainWindow = getMainWindow();
+      showNativeNotification(
+        {
+          title: '⚠️ Error',
+          body: message,
+          urgency: 'critical',
+        },
+        mainWindow,
+        isDev
+      );
+      return { success: true };
+    })
+  );
 }
