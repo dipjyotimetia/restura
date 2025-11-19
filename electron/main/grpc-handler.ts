@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, app } from 'electron';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { createGrpcTransport } from '@connectrpc/connect-node';
@@ -7,6 +7,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+
+// Use app's userData directory for proto temp files (more secure than os.tmpdir())
+// This will be something like ~/Library/Application Support/restura/grpc-temp on macOS
+const getGrpcTempDir = () => {
+  try {
+    // Try to use app.getPath if available (Electron environment)
+    const userDataPath = app.getPath('userData');
+    return path.join(userDataPath, 'grpc-temp');
+  } catch {
+    // Fallback to os.tmpdir() if app is not available (e.g., in tests)
+    return path.join(os.tmpdir(), 'restura-grpc');
+  }
+};
+
+const GRPC_TEMP_BASE = getGrpcTempDir();
 
 interface GrpcRequestConfig {
   id?: string; // Request ID for streaming
@@ -50,6 +65,27 @@ const cleanupTemp = (dir: string) => {
     console.error('Failed to cleanup temp dir:', e);
   }
 };
+
+// Clean up old temp directories on startup
+export function initializeGrpcTempDir(): void {
+  try {
+    // Ensure base directory exists
+    if (!fs.existsSync(GRPC_TEMP_BASE)) {
+      fs.mkdirSync(GRPC_TEMP_BASE, { recursive: true });
+    }
+
+    // Clean up any existing temp directories from previous sessions
+    const entries = fs.readdirSync(GRPC_TEMP_BASE, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const dirPath = path.join(GRPC_TEMP_BASE, entry.name);
+        cleanupTemp(dirPath);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to initialize gRPC temp directory:', e);
+  }
+}
 
 // Helper to load proto
 const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
@@ -127,43 +163,76 @@ function createDynamicService(serviceName: string, methodName: string, protoDef:
 }
 
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
-  const tempDir = path.join(os.tmpdir(), 'restura-grpc', uuidv4());
+  // Use request ID if available, otherwise generate one
+  const requestId = config.id || uuidv4();
+  const tempDir = path.join(GRPC_TEMP_BASE, requestId);
   fs.mkdirSync(tempDir, { recursive: true });
-  
+
   try {
     const protoDef = loadProto(config, tempDir);
     const serviceDef = createDynamicService(config.service, config.method, protoDef);
-    
-    // Create Connect transport
-    // We use useBinaryFormat: true because we are using the grpc-js serializers which produce binary
-    // But wait, if we use binaryWrite, we are producing binary.
-    // If we use useBinaryFormat: false (JSON), Connect will use toJson/fromJson.
-    // Since our toJson/fromJson are identity, it will send the raw message object as JSON.
-    // This is good for Connect protocol or gRPC-JSON transcoding.
-    // But for standard gRPC, we MUST use binary.
-    // So we should use useBinaryFormat: true (default).
+
+    // Storage for captured headers and trailers
+    const capturedHeaders: Record<string, string> = {};
+    const capturedTrailers: Record<string, string> = {};
+
+    // Create interceptor to capture headers and trailers
+    const headerInterceptor = (next: any) => async (req: any) => {
+      try {
+        const response = await next(req);
+
+        // Capture headers from request (these are response headers in Connect)
+        if (req.header) {
+          req.header.forEach((value: string, key: string) => {
+            capturedHeaders[key] = value;
+          });
+        }
+
+        // Capture trailers from response
+        if (response.trailer) {
+          response.trailer.forEach((value: string, key: string) => {
+            capturedTrailers[key] = value;
+          });
+        }
+
+        return response;
+      } catch (error) {
+        // Even on error, try to capture trailers
+        if (error && typeof error === 'object' && 'trailer' in error) {
+          const err = error as any;
+          if (err.trailer) {
+            err.trailer.forEach((value: string, key: string) => {
+              capturedTrailers[key] = value;
+            });
+          }
+        }
+        throw error;
+      }
+    };
+
+    // Create Connect transport with interceptor
     const transport = createGrpcTransport({
       baseUrl: config.url,
-      interceptors: [],
+      interceptors: [headerInterceptor],
     });
 
     const client = createClient(serviceDef as any, transport) as any;
-    
+
     // Add metadata
     const headers: Record<string, string> = { ...config.metadata };
-    
+
     const method = config.method;
-    
+
     if (config.methodType === 'unary') {
       try {
         const response = await client[method](config.message, { headers });
-        
+
         cleanupTemp(tempDir);
         return {
           status: 0, // OK
           statusText: 'OK',
-          headers: {}, // TODO: Extract headers from response
-          trailers: {},
+          headers: capturedHeaders,
+          trailers: capturedTrailers,
           message: response
         };
       } catch (err: unknown) {
@@ -172,8 +241,8 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
         return {
           status: error.code || 2, // UNKNOWN
           statusText: error.message || 'Unknown Error',
-          headers: {},
-          trailers: {},
+          headers: capturedHeaders,
+          trailers: capturedTrailers,
           error: error.message,
           details: error.details
         };
@@ -188,8 +257,8 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
         return {
           status: 0,
           statusText: 'OK',
-          headers: {},
-          trailers: {},
+          headers: capturedHeaders,
+          trailers: capturedTrailers,
           messages
         };
       } catch (err: unknown) {
@@ -198,8 +267,8 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
         return {
           status: error.code || 2,
           statusText: error.message,
-          headers: {},
-          trailers: {},
+          headers: capturedHeaders,
+          trailers: capturedTrailers,
           messages,
           error: error.message
         };
@@ -225,6 +294,9 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
 
 
 export function registerGrpcHandlerIPC(): void {
+  // Initialize and clean up old temp directories on startup
+  initializeGrpcTempDir();
+
   ipcMain.handle('grpc:request', async (_event, config: GrpcRequestConfig) => {
     return makeGrpcRequest(config);
   });
@@ -234,7 +306,7 @@ export function registerGrpcHandlerIPC(): void {
     const requestId = config.id;
     if (!requestId) return;
 
-    const tempDir = path.join(os.tmpdir(), 'restura-grpc', requestId);
+    const tempDir = path.join(GRPC_TEMP_BASE, requestId);
     fs.mkdirSync(tempDir, { recursive: true });
 
     try {

@@ -32,7 +32,7 @@ interface HttpResponse {
   data: unknown;
 }
 
-function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse> {
+function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
     try {
       // Parse URL and add query params
@@ -96,6 +96,49 @@ function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse> {
             }
           });
 
+          const statusCode = res.statusCode || 0;
+
+          // Handle redirects (3xx status codes)
+          const isRedirect = statusCode >= 300 && statusCode < 400;
+          const maxRedirects = config.maxRedirects ?? 5; // Default to 5 if not specified
+
+          if (isRedirect && headers.location && redirectCount < maxRedirects) {
+            // Follow redirect
+            const locationHeader = Array.isArray(headers.location)
+              ? headers.location[0]
+              : headers.location;
+
+            try {
+              // Resolve relative URLs
+              const redirectUrl = new URL(locationHeader, config.url).href;
+
+              // For 301, 302, 303: Change POST to GET
+              // For 307, 308: Keep original method
+              const newMethod = (statusCode === 301 || statusCode === 302 || statusCode === 303)
+                && config.method?.toUpperCase() === 'POST'
+                ? 'GET'
+                : config.method;
+
+              // Make redirect request
+              makeHttpRequest(
+                {
+                  ...config,
+                  url: redirectUrl,
+                  method: newMethod,
+                  // Clear body for GET requests
+                  data: newMethod === 'GET' ? undefined : config.data,
+                },
+                redirectCount + 1
+              )
+                .then(resolve)
+                .catch(reject);
+              return;
+            } catch (err) {
+              // If redirect URL is invalid, return current response
+              console.error('Invalid redirect URL:', err);
+            }
+          }
+
           // Try to parse JSON response
           let responseData: unknown = data;
           try {
@@ -105,7 +148,7 @@ function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse> {
           }
 
           resolve({
-            status: res.statusCode || 0,
+            status: statusCode,
             statusText: res.statusMessage || '',
             headers,
             data: responseData,

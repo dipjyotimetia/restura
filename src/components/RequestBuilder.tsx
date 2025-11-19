@@ -8,7 +8,8 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { HttpMethod, KeyValue, AuthConfig as AuthConfigType, RequestSettings, RequestBody } from '@/types';
 import { Settings } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import axios from 'axios';
+import axios, { AxiosProxyConfig } from 'axios';
+import https from 'https';
 import AuthConfiguration from '@/components/AuthConfig';
 import ScriptExecutor from '@/lib/scriptExecutor';
 import CodeGeneratorDialog from '@/components/CodeGeneratorDialog';
@@ -233,12 +234,42 @@ export default function RequestBuilder() {
           headers[h.key] = resolveVariables(h.value);
         });
 
+      // Get effective settings (merge request-specific with global settings)
+      const effectiveSettings = getEffectiveSettings();
+
+      // Configure HTTPS agent for SSL verification
+      const httpsAgent = new https.Agent({
+        rejectUnauthorized: effectiveSettings.verifySsl,
+      });
+
+      // Configure proxy if enabled
+      let proxyConfig: AxiosProxyConfig | false = false;
+      if (effectiveSettings.proxy?.enabled) {
+        proxyConfig = {
+          host: effectiveSettings.proxy.host,
+          port: effectiveSettings.proxy.port,
+          protocol: effectiveSettings.proxy.type,
+          ...(effectiveSettings.proxy.auth && {
+            auth: {
+              username: effectiveSettings.proxy.auth.username,
+              password: effectiveSettings.proxy.auth.password,
+            },
+          }),
+        };
+      }
+
       const response = await axios({
         method: currentRequest.method,
         url: resolvedUrl,
         params,
         headers,
         data: currentRequest.body.type !== 'none' ? currentRequest.body.raw : undefined,
+        timeout: effectiveSettings.timeout,
+        maxRedirects: effectiveSettings.followRedirects ? effectiveSettings.maxRedirects : 0,
+        httpsAgent,
+        proxy: proxyConfig,
+        // Always capture response status (don't throw on non-2xx)
+        validateStatus: () => true,
       });
 
       const endTime = Date.now();

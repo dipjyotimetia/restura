@@ -436,20 +436,30 @@ export async function makeElectronGrpcRequest(
 
     const endTime = Date.now();
 
+    const bodyStr = JSON.stringify(response.message || response.messages || {}, null, 2);
+    const messagesStrs = response.messages ? response.messages.map((m: unknown) => JSON.stringify(m)) : undefined;
+
+    // Calculate total response size (body + messages if streaming)
+    const bodySize = new Blob([bodyStr]).size;
+    const messagesSize = messagesStrs
+      ? messagesStrs.reduce((acc: number, msg: string) => acc + new Blob([msg]).size, 0)
+      : 0;
+    const totalSize = bodySize + messagesSize;
+
     return {
       id: uuidv4(),
       requestId: request.id,
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
-      body: JSON.stringify(response.message || response.messages || {}, null, 2),
-      size: 0, // TODO: Calculate size
+      body: bodyStr,
+      size: totalSize,
       time: endTime - startTime,
       timestamp: Date.now(),
       grpcStatus: response.status,
       grpcStatusText: response.statusText,
       trailers: response.trailers,
-      messages: response.messages ? response.messages.map((m: unknown) => JSON.stringify(m)) : undefined,
+      messages: messagesStrs,
       isStreaming: !!response.messages,
     };
   } catch (error: unknown) {

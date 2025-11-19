@@ -86,8 +86,15 @@ export const useRequestStore = create<RequestState>()(
       updateRequest: (updates) => {
         const current = get().currentRequest;
         if (current) {
-          const validated = validateRequestUpdate(current, updates);
-          set({ currentRequest: validated });
+          try {
+            const validated = validateRequestUpdate(current, updates);
+            set({ currentRequest: validated });
+          } catch (error) {
+            // If validation fails, still apply the update but log the error
+            console.error('Request update validation failed:', error);
+            // Apply updates without validation (for partial edits)
+            set({ currentRequest: { ...current, ...updates } as typeof current });
+          }
         }
       },
 

@@ -108,16 +108,60 @@ export default function GrpcRequestBuilder() {
     return result.valid;
   }, []);
 
+  // Helper function to calculate JSON object depth
+  const calculateJsonDepth = (obj: unknown, currentDepth = 0): number => {
+    if (obj === null || typeof obj !== 'object') {
+      return currentDepth;
+    }
+
+    const values = Array.isArray(obj) ? obj : Object.values(obj);
+    if (values.length === 0) {
+      return currentDepth + 1;
+    }
+
+    return Math.max(...values.map((value) => calculateJsonDepth(value, currentDepth + 1)));
+  };
+
   const validateMessage = useCallback((message: string) => {
     if (!message || message.trim() === '') {
       setValidation((prev) => ({ ...prev, message: { valid: true } }));
       return true;
     }
+
+    // Check size limit (10MB)
+    const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+    const sizeBytes = new Blob([message]).size;
+    if (sizeBytes > MAX_SIZE_BYTES) {
+      setValidation((prev) => ({
+        ...prev,
+        message: {
+          valid: false,
+          error: `Message size (${(sizeBytes / 1024 / 1024).toFixed(2)}MB) exceeds maximum allowed size of 10MB`,
+        },
+      }));
+      return false;
+    }
+
     try {
-      JSON.parse(message);
+      const parsed = JSON.parse(message);
+
+      // Check depth limit (maximum 20 levels)
+      const MAX_DEPTH = 20;
+      const depth = calculateJsonDepth(parsed);
+      if (depth > MAX_DEPTH) {
+        setValidation((prev) => ({
+          ...prev,
+          message: {
+            valid: false,
+            error: `JSON depth (${depth}) exceeds maximum allowed depth of ${MAX_DEPTH} levels`,
+          },
+        }));
+        return false;
+      }
+
       setValidation((prev) => ({ ...prev, message: { valid: true } }));
       return true;
-    } catch {
+    } catch (e) {
       setValidation((prev) => ({
         ...prev,
         message: { valid: false, error: 'Invalid JSON format' },
@@ -226,14 +270,18 @@ export default function GrpcRequestBuilder() {
           }
 
           // Auto-select first service and method
-          const firstService = result.services[0]!;
-          setSelectedReflectionService(firstService);
-          handleSelectReflectionService(firstService);
+          const firstService = result.services[0];
+          if (firstService) {
+            setSelectedReflectionService(firstService);
+            handleSelectReflectionService(firstService);
 
-          if (firstService.methods.length > 0) {
-            const firstMethod = firstService.methods[0]!;
-            setSelectedReflectionMethod(firstMethod);
-            handleSelectReflectionMethod(firstMethod);
+            if (firstService.methods.length > 0) {
+              const firstMethod = firstService.methods[0];
+              if (firstMethod) {
+                setSelectedReflectionMethod(firstMethod);
+                handleSelectReflectionMethod(firstMethod);
+              }
+            }
           }
         }
       } else {
@@ -288,6 +336,20 @@ export default function GrpcRequestBuilder() {
 
     return () => clearTimeout(timer);
   }, [grpcRequest.url, handleDiscoverServices, reflectionResult?.serverUrl]);
+
+  // Cleanup active streams on component unmount
+  useEffect(() => {
+    return () => {
+      // Cancel any active stream when component unmounts
+      if (streamControl) {
+        try {
+          streamControl.cancelStream();
+        } catch (error) {
+          console.error('Error canceling stream on unmount:', error);
+        }
+      }
+    };
+  }, [streamControl]);
 
   const handleSelectReflectionService = (service: ReflectionServiceInfo) => {
     setSelectedReflectionService(service);
@@ -346,26 +408,30 @@ export default function GrpcRequestBuilder() {
 
       // Auto-fill service if available
       if (parsed.services.length > 0) {
-        const firstService = parsed.services[0]!;
-        updateRequest({ service: firstService.fullName });
-        validateService(firstService.fullName);
+        const firstService = parsed.services[0];
+        if (firstService) {
+          updateRequest({ service: firstService.fullName });
+          validateService(firstService.fullName);
 
-        // Auto-fill first method if available
-        if (firstService.methods.length > 0) {
-          const firstMethod = firstService.methods[0]!;
-          updateRequest({ method: firstMethod.name });
-          validateMethod(firstMethod.name);
+          // Auto-fill first method if available
+          if (firstService.methods.length > 0) {
+            const firstMethod = firstService.methods[0];
+            if (firstMethod) {
+              updateRequest({ method: firstMethod.name });
+              validateMethod(firstMethod.name);
 
-          // Set method type based on streaming config
-          let methodType: GrpcMethodType = 'unary';
-          if (firstMethod.clientStreaming && firstMethod.serverStreaming) {
-            methodType = 'bidirectional-streaming';
-          } else if (firstMethod.serverStreaming) {
-            methodType = 'server-streaming';
-          } else if (firstMethod.clientStreaming) {
-            methodType = 'client-streaming';
+              // Set method type based on streaming config
+              let methodType: GrpcMethodType = 'unary';
+              if (firstMethod.clientStreaming && firstMethod.serverStreaming) {
+                methodType = 'bidirectional-streaming';
+              } else if (firstMethod.serverStreaming) {
+                methodType = 'server-streaming';
+              } else if (firstMethod.clientStreaming) {
+                methodType = 'client-streaming';
+              }
+              updateRequest({ methodType });
+            }
           }
-          updateRequest({ methodType });
         }
 
         toast.success('Proto file parsed', {
