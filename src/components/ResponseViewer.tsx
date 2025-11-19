@@ -26,8 +26,9 @@ const formatJson = (body: string): string => {
   }
 };
 
-const detectLanguage = (body: string, headers: Record<string, string>): string => {
-  const contentType = headers['content-type'] || headers['Content-Type'] || '';
+const detectLanguage = (body: string, headers: Record<string, string | string[]>): string => {
+  const contentTypeHeader = headers['content-type'] || headers['Content-Type'];
+  const contentType = (Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : (contentTypeHeader || '')) || '';
 
   if (contentType.includes('application/json')) return 'json';
   if (contentType.includes('application/xml') || contentType.includes('text/xml')) return 'xml';
@@ -266,7 +267,9 @@ export default function ResponseViewer() {
                   className="group flex gap-3 p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 text-xs transition-all"
                 >
                   <span className="font-semibold min-w-[180px] text-slate-blue-700 dark:text-slate-blue-300 truncate">{key}:</span>
-                  <span className="text-slate-600 dark:text-slate-400 break-all flex-1">{value}</span>
+                  <span className="text-slate-600 dark:text-slate-400 break-all flex-1">
+                    {Array.isArray(value) ? value.join(', ') : value}
+                  </span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button

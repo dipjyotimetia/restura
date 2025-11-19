@@ -64,19 +64,19 @@ const config: Config = {
           2: 'hsl(var(--surface-2))',
           3: 'hsl(var(--surface-3))',
         },
-        // Slate-blue color scale for sophistication
+        // Slate-blue color scale for sophistication - refined for sharp look
         'slate-blue': {
-          50: '#f0f4f8',
-          100: '#d9e2ec',
-          200: '#bcccdc',
-          300: '#9fb3c8',
-          400: '#829ab1',
-          500: '#627d98',
-          600: '#486581',
-          700: '#334e68',
-          800: '#243b53',
-          900: '#102a43',
-          950: '#0a1929',
+          50: '#f8fafc',
+          100: '#f1f5f9',
+          200: '#e2e8f0',
+          300: '#cbd5e1',
+          400: '#94a3b8',
+          500: '#64748b',
+          600: '#475569',
+          700: '#334155',
+          800: '#1e293b',
+          900: '#0f172a',
+          950: '#020617',
         },
         // Keep purple for legacy support
         purple: {

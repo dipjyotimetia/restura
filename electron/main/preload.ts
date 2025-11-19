@@ -84,6 +84,25 @@ const electronAPI = {
     }> => ipcRenderer.invoke('http:request', config),
   },
 
+  // gRPC operations
+  grpc: {
+    request: (config: any): Promise<any> => ipcRenderer.invoke('grpc:request', config),
+    startStream: (config: any) => ipcRenderer.send('grpc:start-stream', config),
+    sendMessage: (requestId: string, message: any) => ipcRenderer.send('grpc:send-message', requestId, message),
+    endStream: (requestId: string) => ipcRenderer.send('grpc:end-stream', requestId),
+    cancelStream: (requestId: string) => ipcRenderer.send('grpc:cancel-stream', requestId),
+    on: (channel: string, callback: (...args: any[]) => void) => {
+      if (channel.startsWith('grpc:')) {
+        ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+      }
+    },
+    removeListener: (channel: string, callback: (...args: any[]) => void) => {
+      if (channel.startsWith('grpc:')) {
+        ipcRenderer.removeListener(channel, callback);
+      }
+    }
+  },
+
   // Native notifications
   notification: {
     isSupported: (): Promise<boolean> => ipcRenderer.invoke('notification:isSupported'),

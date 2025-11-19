@@ -13,6 +13,7 @@ import {
   ProtoFieldDefinition,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { getElectronAPI, isElectron } from './platform';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {
@@ -401,6 +402,122 @@ export function prepareGrpcRequest(
     metadata,
     message: parsedMessage,
     methodType: request.methodType,
+  };
+}
+
+// Make gRPC request via Electron IPC
+export async function makeElectronGrpcRequest(
+  request: GrpcRequest,
+  protoContent: string,
+  protoFileName: string,
+  resolveVariables: (text: string) => string
+): Promise<GrpcResponse> {
+  if (!isElectron()) {
+    throw new Error('Electron environment required for full gRPC support');
+  }
+
+  const prepared = prepareGrpcRequest(request, resolveVariables);
+  const startTime = Date.now();
+
+  try {
+    const api = getElectronAPI();
+    if (!api) throw new Error('Electron API not available');
+
+    const response = await (api as any).grpc.request({
+      url: prepared.url,
+      service: request.service,
+      method: request.method,
+      methodType: request.methodType,
+      metadata: prepared.metadata,
+      message: prepared.message,
+      protoContent,
+      protoFileName,
+    });
+
+    const endTime = Date.now();
+
+    return {
+      id: uuidv4(),
+      requestId: request.id,
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+      body: JSON.stringify(response.message || response.messages || {}, null, 2),
+      size: 0, // TODO: Calculate size
+      time: endTime - startTime,
+      timestamp: Date.now(),
+      grpcStatus: response.status,
+      grpcStatusText: response.statusText,
+      trailers: response.trailers,
+      messages: response.messages ? response.messages.map((m: any) => JSON.stringify(m)) : undefined,
+      isStreaming: !!response.messages,
+    };
+  } catch (error: any) {
+    return createErrorResponse(request.id, error, startTime);
+  }
+}
+
+// Start gRPC stream via Electron IPC
+export function startElectronGrpcStream(
+  request: GrpcRequest,
+  protoContent: string,
+  protoFileName: string,
+  resolveVariables: (text: string) => string,
+  callbacks: {
+    onData: (data: any) => void;
+    onError: (error: any) => void;
+    onStatus: (status: any) => void;
+  }
+): {
+  sendMessage: (message: any) => void;
+  endStream: () => void;
+  cancelStream: () => void;
+} {
+  if (!isElectron()) {
+    throw new Error('Electron environment required for full gRPC support');
+  }
+
+  const api = getElectronAPI();
+  if (!api) throw new Error('Electron API not available');
+
+  const prepared = prepareGrpcRequest(request, resolveVariables);
+  const requestId = request.id;
+
+  // Setup listeners
+  const dataChannel = `grpc:data:${requestId}`;
+  const errorChannel = `grpc:error:${requestId}`;
+  const statusChannel = `grpc:status:${requestId}`;
+
+  (api as any).grpc.on(dataChannel, callbacks.onData);
+  (api as any).grpc.on(errorChannel, callbacks.onError);
+  (api as any).grpc.on(statusChannel, callbacks.onStatus);
+
+  // Start stream
+  (api as any).grpc.startStream({
+    id: requestId,
+    url: prepared.url,
+    service: request.service,
+    method: request.method,
+    methodType: request.methodType,
+    metadata: prepared.metadata,
+    message: prepared.message,
+    protoContent,
+    protoFileName,
+  });
+
+  return {
+    sendMessage: (message: any) => {
+      (api as any).grpc.sendMessage(requestId, message);
+    },
+    endStream: () => {
+      (api as any).grpc.endStream(requestId);
+    },
+    cancelStream: () => {
+      (api as any).grpc.cancelStream(requestId);
+      (api as any).grpc.removeListener(dataChannel, callbacks.onData);
+      (api as any).grpc.removeListener(errorChannel, callbacks.onError);
+      (api as any).grpc.removeListener(statusChannel, callbacks.onStatus);
+    }
   };
 }
 

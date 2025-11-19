@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -20,16 +20,16 @@ import { v4 as uuidv4 } from 'uuid';
 import AuthConfiguration from '@/components/AuthConfig';
 import dynamic from 'next/dynamic';
 import {
-  prepareGrpcRequest,
-  createErrorResponse,
-  createSuccessResponse,
-  parseProtoFile,
-  validateGrpcUrl,
-  validateServiceName,
   validateMethodName,
   getMethodTypeDescription,
   GrpcClientError,
   buildAuthMetadata,
+  makeElectronGrpcRequest,
+  startElectronGrpcStream,
+  parseProtoFile,
+  validateGrpcUrl,
+  validateServiceName,
+  createErrorResponse,
 } from '@/lib/grpcClient';
 import {
   GrpcReflectionClient,
@@ -62,6 +62,12 @@ export default function GrpcRequestBuilder() {
     message: { valid: true },
   });
   const [streamingMessages, setStreamingMessages] = useState<string[]>([]);
+
+  const [streamControl, setStreamControl] = useState<{
+    sendMessage: (msg: any) => void;
+    endStream: () => void;
+    cancelStream: () => void;
+  } | null>(null);
 
   // Reflection state
   const [isDiscovering, setIsDiscovering] = useState(false);
@@ -171,43 +177,53 @@ export default function GrpcRequestBuilder() {
     updateRequest({ auth });
   };
 
-  const handleDiscoverServices = async () => {
+  const handleDiscoverServices = useCallback(async (silent = false) => {
     if (!grpcRequest.url) {
-      toast.error('URL required', {
-        description: 'Please enter a gRPC server URL before discovering services',
-      });
+      if (!silent) {
+        toast.error('URL required', {
+          description: 'Please enter a gRPC server URL before discovering services',
+        });
+      }
       return;
     }
 
     const urlValidation = validateGrpcUrl(grpcRequest.url);
     if (!urlValidation.valid) {
-      toast.error('Invalid URL', {
-        description: urlValidation.error,
-      });
+      if (!silent) {
+        toast.error('Invalid URL', {
+          description: urlValidation.error,
+        });
+      }
       return;
     }
 
     setIsDiscovering(true);
-    setReflectionResult(null);
-    setSelectedReflectionService(null);
-    setSelectedReflectionMethod(null);
+    // Don't clear result immediately on auto-discovery to avoid flickering if it fails
+    if (!silent) {
+      setReflectionResult(null);
+      setSelectedReflectionService(null);
+      setSelectedReflectionMethod(null);
+    }
 
     try {
       const resolvedUrl = resolveVariables(grpcRequest.url);
       const client = new GrpcReflectionClient(resolvedUrl);
       const result = await client.discoverServices();
 
-      setReflectionResult(result);
-
       if (result.success) {
+        setReflectionResult(result);
         if (result.services.length === 0) {
-          toast.warning('No services found', {
-            description: 'The server has reflection enabled but no services were discovered',
-          });
+          if (!silent) {
+            toast.warning('No services found', {
+              description: 'The server has reflection enabled but no services were discovered',
+            });
+          }
         } else {
-          toast.success('Services discovered', {
-            description: `Found ${result.services.length} service(s) with ${result.services.reduce((sum, s) => sum + s.methods.length, 0)} method(s)`,
-          });
+          if (!silent) {
+            toast.success('Services discovered', {
+              description: `Found ${result.services.length} service(s) with ${result.services.reduce((sum, s) => sum + s.methods.length, 0)} method(s)`,
+            });
+          }
 
           // Auto-select first service and method
           const firstService = result.services[0]!;
@@ -221,26 +237,57 @@ export default function GrpcRequestBuilder() {
           }
         }
       } else {
-        toast.error('Discovery failed', {
-          description: result.error || 'Failed to discover services via reflection',
-        });
+        if (!silent) {
+          toast.error('Discovery failed', {
+            description: result.error || 'Failed to discover services via reflection',
+          });
+        }
+        // If silent (auto) and failed, we don't update state to error, just keep previous or null
+        if (!silent) {
+           setReflectionResult({
+            success: false,
+            services: [],
+            error: result.error,
+            serverUrl: grpcRequest.url,
+            timestamp: Date.now(),
+          });
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      toast.error('Discovery failed', {
-        description: errorMessage,
-      });
-      setReflectionResult({
-        success: false,
-        services: [],
-        error: errorMessage,
-        serverUrl: grpcRequest.url,
-        timestamp: Date.now(),
-      });
+      if (!silent) {
+        toast.error('Discovery failed', {
+          description: errorMessage,
+        });
+        setReflectionResult({
+          success: false,
+          services: [],
+          error: errorMessage,
+          serverUrl: grpcRequest.url,
+          timestamp: Date.now(),
+        });
+      }
     } finally {
       setIsDiscovering(false);
     }
-  };
+  }, [grpcRequest.url, resolveVariables]);
+
+  // Auto-discover services when URL changes
+  useEffect(() => {
+    if (!grpcRequest.url) return;
+    const { valid } = validateGrpcUrl(grpcRequest.url);
+    if (!valid) return;
+
+    // Debounce discovery
+    const timer = setTimeout(() => {
+      // Only discover if we haven't already or if it's a new URL
+      if (reflectionResult?.serverUrl !== grpcRequest.url) {
+        handleDiscoverServices(true);
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [grpcRequest.url, handleDiscoverServices, reflectionResult?.serverUrl]);
 
   const handleSelectReflectionService = (service: ReflectionServiceInfo) => {
     setSelectedReflectionService(service);
@@ -357,81 +404,70 @@ export default function GrpcRequestBuilder() {
     const startTime = Date.now();
 
     try {
-      // Prepare the request
-      const prepared = prepareGrpcRequest(grpcRequest, resolveVariables);
-
-      // Log the prepared request for debugging
-      console.log('Prepared gRPC Request:', {
-        url: prepared.url,
-        path: prepared.path,
-        metadata: prepared.metadata,
-        message: prepared.message,
-        methodType: prepared.methodType,
-      });
-
-      // Note: Full gRPC implementation would use Connect-Web here
-      // For now, we simulate based on the prepared request
-
-      // Check if it's a streaming request
-      const isStreaming =
-        grpcRequest.methodType === 'server-streaming' ||
-        grpcRequest.methodType === 'bidirectional-streaming';
-
-      if (isStreaming) {
-        // Simulate streaming response
-        const messages: string[] = [];
-        const numMessages = Math.floor(Math.random() * 5) + 2;
-
-        for (let i = 0; i < numMessages; i++) {
-          const streamMessage = {
-            index: i + 1,
-            data: `Stream message ${i + 1}`,
-            timestamp: Date.now(),
-          };
-          messages.push(JSON.stringify(streamMessage));
-          setStreamingMessages((prev) => [...prev, JSON.stringify(streamMessage, null, 2)]);
-          // Simulate delay between messages
-          await new Promise((resolve) => setTimeout(resolve, 300));
-        }
-
-        const response = createSuccessResponse(
-          grpcRequest.id,
-          { streamComplete: true, totalMessages: numMessages },
-          prepared.metadata,
-          { 'grpc-status': '0', 'grpc-message': '' },
-          startTime,
-          messages
-        );
-
-        setCurrentResponse(response);
-        addHistoryItem(grpcRequest, response);
-        toast.success('Streaming complete', {
-          description: `Received ${numMessages} messages`,
+      // Check if we have a proto file
+      if (!protoFile) {
+        toast.error('Proto file required', {
+          description: 'Please upload a .proto file to send requests.',
         });
-      } else {
-        // Simulate unary response
-        const mockResponse = {
-          success: true,
-          requestPath: prepared.path,
-          requestMessage: prepared.message,
-          serverUrl: prepared.url,
-          metadata: prepared.metadata,
-          responseTime: Date.now() - startTime,
-          note: 'This is a simulated response. Full gRPC support requires server-side implementation.',
-        };
+        setLoading(false);
+        return;
+      }
 
-        const response = createSuccessResponse(
-          grpcRequest.id,
-          mockResponse,
-          prepared.metadata,
-          { 'grpc-status': '0', 'grpc-message': '' },
-          startTime
+      const protoContent = await protoFile.text();
+
+      // Handle streaming requests
+      if (grpcRequest.methodType !== 'unary') {
+        const control = startElectronGrpcStream(
+          grpcRequest,
+          protoContent,
+          protoFile.name,
+          resolveVariables,
+          {
+            onData: (data) => {
+              setStreamingMessages((prev) => [...prev, JSON.stringify(data, null, 2)]);
+            },
+            onError: (error) => {
+              toast.error(`gRPC Error: ${error.status}`, {
+                description: error.details || 'Unknown error',
+              });
+              setLoading(false);
+              setStreamControl(null);
+            },
+            onStatus: (status) => {
+              if (status.status === 0) {
+                toast.success('Stream completed');
+              }
+              setLoading(false);
+              setStreamControl(null);
+            }
+          }
         );
+        setStreamControl(control);
+        return;
+      }
 
-        setCurrentResponse(response);
-        addHistoryItem(grpcRequest, response);
+      // Handle Unary requests
+      const response = await makeElectronGrpcRequest(
+        grpcRequest,
+        protoContent,
+        protoFile.name,
+        resolveVariables
+      );
+
+      setCurrentResponse(response);
+      addHistoryItem(grpcRequest, response);
+
+      if (response.grpcStatus === 0) {
         toast.success('Request completed', {
           description: `${grpcRequest.methodType} call to ${grpcRequest.service}/${grpcRequest.method}`,
+        });
+        
+        if (response.messages) {
+           setStreamingMessages(response.messages);
+        }
+      } else {
+        toast.error(`gRPC Error: ${response.grpcStatus}`, {
+          description: response.grpcStatusText || 'Unknown error',
         });
       }
     } catch (error: unknown) {
@@ -451,7 +487,9 @@ export default function GrpcRequestBuilder() {
         });
       }
     } finally {
-      setLoading(false);
+      if (grpcRequest.methodType === 'unary') {
+        setLoading(false);
+      }
     }
   };
 
@@ -518,10 +556,20 @@ export default function GrpcRequestBuilder() {
             )}
           </div>
 
-          <Button onClick={handleSendRequest} disabled={isLoading || !isFormValid()}>
+          <Button onClick={handleSendRequest} disabled={isLoading && !streamControl || !isFormValid()}>
             <Send className="mr-2 h-4 w-4" />
             {isLoading ? 'Invoking...' : 'Invoke'}
           </Button>
+          
+          {streamControl && (
+            <Button variant="destructive" onClick={() => {
+              streamControl.cancelStream();
+              setStreamControl(null);
+              setLoading(false);
+            }}>
+              Cancel Stream
+            </Button>
+          )}
         </div>
 
         <div className="flex gap-2">
@@ -538,7 +586,7 @@ export default function GrpcRequestBuilder() {
                   <SelectValue placeholder="Select service" />
                 </SelectTrigger>
                 <SelectContent>
-                  {reflectionResult.services.map((service) => (
+                  {reflectionResult.services.filter(s => s.fullName).map((service) => (
                     <SelectItem key={service.fullName} value={service.fullName}>
                       {service.fullName}
                     </SelectItem>
@@ -574,7 +622,7 @@ export default function GrpcRequestBuilder() {
                   <SelectValue placeholder="Select method" />
                 </SelectTrigger>
                 <SelectContent>
-                  {selectedReflectionService.methods.map((method) => (
+                  {selectedReflectionService.methods.filter(m => m.name).map((method) => (
                     <SelectItem key={method.name} value={method.name}>
                       {method.name}
                       {method.clientStreaming || method.serverStreaming ? (
@@ -608,7 +656,7 @@ export default function GrpcRequestBuilder() {
 
           <Button
             variant="outline"
-            onClick={handleDiscoverServices}
+            onClick={() => handleDiscoverServices(false)}
             disabled={isDiscovering || !grpcRequest.url}
             title="Discover services via gRPC reflection"
           >

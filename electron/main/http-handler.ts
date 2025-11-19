@@ -28,7 +28,7 @@ interface HttpRequestConfig {
 interface HttpResponse {
   status: number;
   statusText: string;
-  headers: Record<string, string>;
+  headers: Record<string, string | string[]>;
   data: unknown;
 }
 
@@ -89,12 +89,10 @@ function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse> {
 
         res.on('end', () => {
           // Parse response headers
-          const headers: Record<string, string> = {};
+          const headers: Record<string, string | string[]> = {};
           Object.entries(res.headers).forEach(([key, value]) => {
-            if (typeof value === 'string') {
+            if (value !== undefined) {
               headers[key] = value;
-            } else if (Array.isArray(value)) {
-              headers[key] = value.join(', ');
             }
           });
 

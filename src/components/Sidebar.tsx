@@ -25,13 +25,13 @@ import { cn } from '@/lib/utils';
 
 // Method color mapping for badges - more refined colors
 const methodColors: Record<string, string> = {
-  GET: 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800',
-  POST: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800',
-  PUT: 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800',
-  DELETE: 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800',
-  PATCH: 'bg-slate-blue-50 dark:bg-slate-blue-950/30 text-slate-blue-700 dark:text-slate-blue-400 border border-slate-blue-200 dark:border-slate-blue-800',
-  OPTIONS: 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-400 border border-slate-200 dark:border-slate-700',
-  HEAD: 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-400 border border-slate-200 dark:border-slate-700',
+  GET: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20',
+  POST: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20',
+  PUT: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20',
+  DELETE: 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20',
+  PATCH: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20',
+  OPTIONS: 'bg-muted text-muted-foreground border border-border',
+  HEAD: 'bg-muted text-muted-foreground border border-border',
 };
 
 interface SidebarProps {
@@ -138,16 +138,16 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
     <TooltipProvider delayDuration={300}>
       <aside
         className={cn(
-          "border-r border-slate-200/60 dark:border-slate-700/50 bg-white/60 dark:bg-slate-900/55 backdrop-blur-xl flex flex-col shadow-elevation-2 relative z-40 transition-all duration-300 ease-out noise-texture",
+          "border-r border-border bg-background/95 backdrop-blur-xl flex flex-col relative z-40 transition-all duration-300 ease-out",
           isCollapsed ? "w-16" : "w-72"
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="flex items-center justify-between p-3 border-b border-border bg-muted/30">
           {!isCollapsed && (
             <div className="flex items-center gap-2">
-              <div className="h-1.5 w-1.5 rounded-full bg-linear-to-r from-slate-blue-500 to-indigo-500 animate-glow-pulse" />
-              <h2 className="font-semibold text-sm tracking-tight text-slate-700 dark:text-slate-200">Workspace</h2>
+              <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+              <h2 className="font-semibold text-sm tracking-tight text-foreground">Workspace</h2>
             </div>
           )}
           <div className={cn("flex items-center gap-1", isCollapsed && "w-full justify-center")}>
@@ -159,6 +159,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                     size="icon"
                     onClick={onToggleCollapse}
                     aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    className="h-7 w-7"
                   >
                     {isCollapsed ? (
                       <PanelLeftOpen className="h-4 w-4" />
@@ -175,7 +176,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
             {!isCollapsed && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close sidebar">
+                  <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close sidebar" className="h-7 w-7">
                     <X className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
@@ -196,7 +197,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                   variant={activeTab === 'collections' ? 'secondary' : 'ghost'}
                   size="icon"
                   onClick={() => setActiveTab('collections')}
-                  className="h-10 w-10"
+                  className="h-9 w-9"
                 >
                   <FolderPlus className="h-4 w-4" />
                 </Button>
@@ -211,7 +212,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                   variant={activeTab === 'history' ? 'secondary' : 'ghost'}
                   size="icon"
                   onClick={() => setActiveTab('history')}
-                  className="h-10 w-10"
+                  className="h-9 w-9"
                 >
                   <History className="h-4 w-4" />
                 </Button>
@@ -226,9 +227,9 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                   variant="ghost"
                   size="icon"
                   onClick={handleNewCollection}
-                  className="h-10 w-10 mt-auto"
+                  className="h-9 w-9 mt-auto"
                 >
-                  <FolderPlus className="h-4 w-4 text-slate-blue-600 dark:text-slate-blue-400" />
+                  <FolderPlus className="h-4 w-4 text-primary" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="right">
@@ -239,49 +240,49 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
         ) : (
           <>
             {/* Search Input */}
-            <div className="p-3 border-b border-slate-200/60 dark:border-slate-700/40">
+            <div className="p-3 border-b border-border">
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 h-8 text-xs bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 focus:border-slate-blue-300 dark:focus:border-slate-blue-700"
+                  className="pl-8 h-8 text-xs bg-muted/50 border-transparent focus:bg-background focus:border-primary/20"
                 />
                 {searchQuery && (
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear search"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-3 w-3" />
                   </Button>
                 )}
               </div>
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-              <TabsList className="w-full rounded-none border-b border-slate-200/60 dark:border-slate-700/40 bg-transparent p-0 h-10">
+              <TabsList className="w-full rounded-none border-b border-border bg-transparent p-0 h-10">
                 <TabsTrigger
                   value="collections"
-                  className="flex-1 rounded-none h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-slate-blue-500 data-[state=active]:bg-slate-blue-50/50 dark:data-[state=active]:bg-slate-blue-950/20 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300 transition-all"
+                  className="flex-1 rounded-none h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-muted/30 data-[state=active]:text-primary transition-all"
                 >
                   Collections
                   {filteredCollections.length > 0 && (
-                    <span className="ml-1.5 text-xs bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 px-1.5 py-0.5 rounded-full tabular-nums font-medium">
+                    <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums font-medium">
                       {filteredCollections.length}
                     </span>
                   )}
                 </TabsTrigger>
                 <TabsTrigger
                   value="history"
-                  className="flex-1 rounded-none h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-slate-blue-500 data-[state=active]:bg-slate-blue-50/50 dark:data-[state=active]:bg-slate-blue-950/20 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300 transition-all"
+                  className="flex-1 rounded-none h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-muted/30 data-[state=active]:text-primary transition-all"
                 >
                   History
                   {filteredHistory.length > 0 && (
-                    <span className="ml-1.5 text-xs bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 px-1.5 py-0.5 rounded-full tabular-nums font-medium">
+                    <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums font-medium">
                       {filteredHistory.length}
                     </span>
                   )}
@@ -294,19 +295,19 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                     onClick={handleNewCollection}
                     variant="outline"
                     size="sm"
-                    className="w-full justify-start h-8 text-xs"
+                    className="w-full justify-start h-8 text-xs border-dashed"
                   >
-                    <FolderPlus className="mr-2 h-3.5 w-3.5 text-slate-blue-600 dark:text-slate-blue-400" />
+                    <FolderPlus className="mr-2 h-3.5 w-3.5 text-primary" />
                     New Collection
                   </Button>
 
                   {filteredCollections.length === 0 ? (
-                    <div className="text-center text-xs text-slate-500 dark:text-slate-400 py-10 px-3">
+                    <div className="text-center text-xs text-muted-foreground py-10 px-3">
                       <FolderPlus className="mx-auto h-10 w-10 mb-2 opacity-20" />
                       <p className="font-medium">
                         {searchQuery ? 'No collections found' : 'No collections yet'}
                       </p>
-                      <p className="text-xs mt-1 text-slate-400 dark:text-slate-500">
+                      <p className="text-xs mt-1 text-muted-foreground/70">
                         {searchQuery ? 'Try a different search term' : 'Create one to organize your requests'}
                       </p>
                     </div>
@@ -315,13 +316,13 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                       {filteredCollections.map((collection) => (
                         <div
                           key={collection.id}
-                          className="group p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 cursor-pointer flex items-center justify-between transition-all shadow-sm hover:shadow-elevation-1"
+                          className="group p-2.5 rounded-md bg-card border border-border hover:border-primary/30 hover:bg-accent/50 cursor-pointer flex items-center justify-between transition-all shadow-sm"
                         >
                           <div className="flex-1 flex items-center gap-2 min-w-0">
-                            <FolderPlus className="h-3.5 w-3.5 text-slate-blue-600 dark:text-slate-blue-400 shrink-0" />
+                            <FolderPlus className="h-3.5 w-3.5 text-primary shrink-0" />
                             <div className="min-w-0">
                               <span className="text-xs font-medium block truncate">{collection.name}</span>
-                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                              <span className="text-[10px] text-muted-foreground">
                                 {collection.items.length} {collection.items.length === 1 ? 'item' : 'items'}
                               </span>
                             </div>
@@ -331,20 +332,20 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 opacity-0 group-hover:opacity-100 shrink-0"
+                                className="h-7 w-7 opacity-0 group-hover:opacity-100 shrink-0"
                                 onClick={(e) => e.stopPropagation()}
                                 aria-label="Collection options"
                               >
-                                <MoreVertical className="h-4 w-4" />
+                                <MoreVertical className="h-3.5 w-3.5" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-slate-200 dark:border-slate-700">
+                            <DropdownMenuContent align="end">
                               <DropdownMenuSub>
                                 <DropdownMenuSubTrigger className="text-xs">
                                   <Download className="mr-2 h-3.5 w-3.5" />
                                   Export
                                 </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-slate-200 dark:border-slate-700">
+                                <DropdownMenuSubContent>
                                   <DropdownMenuItem onClick={() => handleExportCollection(collection.id, 'postman')} className="text-xs">
                                     Postman Collection
                                   </DropdownMenuItem>
@@ -387,7 +388,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                     <Button
                       variant={methodFilter === null ? 'secondary' : 'ghost'}
                       size="sm"
-                      className="h-7 text-xs px-2.5"
+                      className="h-6 text-[10px] px-2"
                       onClick={() => setMethodFilter(null)}
                     >
                       All
@@ -398,7 +399,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                         variant={methodFilter === method ? 'secondary' : 'ghost'}
                         size="sm"
                         className={cn(
-                          'h-7 text-xs font-mono px-2.5',
+                          'h-6 text-[10px] font-mono px-2',
                           methodFilter === method && methodColors[method]
                         )}
                         onClick={() => setMethodFilter(methodFilter === method ? null : method)}
@@ -410,12 +411,12 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                 )}
 
                 {filteredHistory.length === 0 ? (
-                  <div className="text-center text-xs text-slate-500 dark:text-slate-400 py-10 px-3">
+                  <div className="text-center text-xs text-muted-foreground py-10 px-3">
                     <History className="mx-auto h-10 w-10 mb-2 opacity-20" />
                     <p className="font-medium">
                       {searchQuery || methodFilter ? 'No matching requests' : 'No history yet'}
                     </p>
-                    <p className="text-xs mt-1 text-slate-400 dark:text-slate-500">
+                    <p className="text-xs mt-1 text-muted-foreground/70">
                       {searchQuery || methodFilter
                         ? 'Try adjusting your filters'
                         : 'Send a request to see it here'}
@@ -426,14 +427,14 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                     {filteredHistory.slice(0, 50).map((item) => (
                       <div
                         key={item.id}
-                        className="group p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 cursor-pointer transition-all shadow-sm hover:shadow-elevation-1"
+                        className="group p-2.5 rounded-md bg-card border border-border hover:border-primary/30 hover:bg-accent/50 cursor-pointer transition-all shadow-sm"
                         onClick={() => handleLoadHistoryItem(item.id)}
                       >
                         <div className="flex items-center gap-1.5 mb-1.5">
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8"
+                            className="h-6 w-6"
                             onClick={(e) => {
                               e.stopPropagation();
                               toggleFavorite(item.id);
@@ -442,19 +443,19 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                           >
                             <Star
                               className={cn(
-                                "h-4 w-4 transition-all",
+                                "h-3.5 w-3.5 transition-all",
                                 favorites.includes(item.id)
                                   ? 'text-amber-500 fill-amber-500 scale-110'
-                                  : 'text-slate-400 group-hover:text-amber-500'
+                                  : 'text-muted-foreground/50 group-hover:text-amber-500'
                               )}
                             />
                           </Button>
                           <span
                             className={cn(
-                              'text-xs font-mono font-semibold px-1.5 py-0.5 rounded',
+                              'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded',
                               item.request.type === 'http'
-                                ? methodColors[item.request.method] || 'bg-slate-blue-50 dark:bg-slate-blue-950/30 text-slate-blue-700 dark:text-slate-blue-400'
-                                : 'bg-slate-blue-50 dark:bg-slate-blue-950/30 text-slate-blue-700 dark:text-slate-blue-400'
+                                ? methodColors[item.request.method] || 'bg-muted text-muted-foreground border border-border'
+                                : 'bg-muted text-muted-foreground border border-border'
                             )}
                           >
                             {item.request.type === 'http' ? item.request.method : 'gRPC'}
@@ -462,22 +463,22 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                           {item.response && (
                             <span
                               className={cn(
-                                'text-xs font-mono font-semibold px-1.5 py-0.5 rounded tabular-nums',
+                                'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded tabular-nums',
                                 item.response.status >= 200 && item.response.status < 300
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
+                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                                   : item.response.status >= 400
-                                  ? 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400'
-                                  : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
+                                  ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                               )}
                             >
                               {item.response.status}
                             </span>
                           )}
                         </div>
-                        <p className="text-xs font-medium truncate pl-6 mb-1">
+                        <p className="text-xs font-medium truncate pl-6 mb-1 text-foreground">
                           {item.request.type === 'http' ? item.request.url : item.request.service}
                         </p>
-                        <span className="text-xs text-slate-500 dark:text-slate-400 pl-6 flex items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground pl-6 flex items-center gap-1">
                           <History className="h-3 w-3" />
                           {new Date(item.timestamp).toLocaleString()}
                         </span>

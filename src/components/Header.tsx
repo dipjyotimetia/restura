@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import EnvironmentManager from './EnvironmentManager';
 import ImportDialog from './ImportDialog';
 import SettingsDialog from './SettingsDialog';
+import CollectionRunner from './CollectionRunner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 
@@ -55,13 +56,21 @@ export default function Header({
   const settingsOpen = externalSettingsOpen ?? internalSettingsOpen;
   const setSettingsOpen = externalSetSettingsOpen ?? setInternalSettingsOpen;
 
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore();
   const { createNewHttpRequest, createNewGrpcRequest } = useRequestStore();
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const toggleTheme = () => {
+    if (theme === 'dark' || resolvedTheme === 'dark') {
+      setTheme('light');
+    } else {
+      setTheme('dark');
+    }
+  };
 
   const handleRequestModeChange = (mode: RequestMode) => {
     onRequestModeChange(mode);
@@ -76,58 +85,53 @@ export default function Header({
   if (!mounted) {
     // Return skeleton to maintain layout during SSR
     return (
-      <header className="relative z-50 flex h-14 items-center justify-between border-b border-slate-200/60 dark:border-slate-700/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl px-6 shadow-inner-bottom noise-texture">
-        <div className="flex items-center gap-8">
+      <header className="relative z-50 flex h-14 items-center justify-between border-b border-border bg-background/80 backdrop-blur-md px-6 supports-[backdrop-filter]:bg-background/60">
+        <div className="flex items-center gap-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-slate-blue-500 to-indigo-600 shadow-lg shadow-slate-blue-500/20">
-              <span className="text-base font-bold text-white">R</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
+              <span className="text-base font-bold">R</span>
             </div>
             <div className="flex flex-col gap-0">
-              <h1 className="text-base font-semibold tracking-tighter bg-gradient-to-r from-slate-blue-600 to-indigo-600 dark:from-slate-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">Restura</h1>
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400 tracking-wide uppercase">Multi-Protocol</span>
+              <h1 className="text-sm font-semibold tracking-tight">Restura</h1>
             </div>
           </div>
-          <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
+          <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Mode</span>
-            <div className="w-[140px] h-8 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse" />
+            <div className="w-[130px] h-8 bg-muted rounded-md animate-pulse" />
           </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Env</span>
-            <div className="w-[160px] h-8 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse" />
-            <div className="w-8 h-8 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse" />
+            <div className="w-[150px] h-8 bg-muted rounded-md animate-pulse" />
+            <div className="w-8 h-8 bg-muted rounded-md animate-pulse" />
           </div>
-          <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
-          <div className="w-20 h-8 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse" />
-          <div className="w-8 h-8 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse" />
-          <div className="w-8 h-8 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse" />
+          <div className="h-4 w-px bg-border mx-1" />
+          <div className="w-20 h-8 bg-muted rounded-md animate-pulse" />
+          <div className="w-8 h-8 bg-muted rounded-md animate-pulse" />
+          <div className="w-8 h-8 bg-muted rounded-md animate-pulse" />
         </div>
       </header>
     );
   }
 
   return (
-    <header className="relative z-50 flex h-14 items-center justify-between border-b border-slate-200/60 dark:border-slate-700/50 bg-white/80 dark:bg-[hsl(var(--background)_/_0.75)] backdrop-blur-md px-6 shadow-inner-bottom noise-texture">
-      <div className="flex items-center gap-8">
+    <header className="relative z-50 flex h-14 items-center justify-between border-b border-border bg-background/80 backdrop-blur-md px-6 supports-[backdrop-filter]:bg-background/60">
+      <div className="flex items-center gap-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-slate-blue-500 to-indigo-600 shadow-lg shadow-slate-blue-500/20 transition-transform hover:scale-105">
-            <span className="text-base font-bold text-white">R</span>
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
+            <span className="text-base font-bold">R</span>
           </div>
           <div className="flex flex-col gap-0">
-            <h1 className="text-base font-semibold tracking-tighter bg-gradient-to-r from-slate-blue-600 to-indigo-600 dark:from-slate-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">Restura</h1>
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 tracking-wide uppercase">Multi-Protocol</span>
+            <h1 className="text-sm font-semibold tracking-tight">Restura</h1>
           </div>
         </div>
 
-        <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
+        <div className="h-4 w-px bg-border" />
 
         {/* Request Mode Selector */}
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Mode</span>
           <Select value={requestMode} onValueChange={(v) => handleRequestModeChange(v as RequestMode)}>
-            <SelectTrigger className="w-[140px] h-8 bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 shadow-sm transition-all hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:shadow-elevation-1 text-sm">
+            <SelectTrigger className="h-8 w-[130px] border-0 bg-transparent px-2 text-xs font-medium hover:bg-accent hover:text-accent-foreground focus:ring-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-slate-200 dark:border-slate-700">
@@ -143,21 +147,20 @@ export default function Header({
         <div className="flex items-center gap-2">
           {/* Environment Selector */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Env</span>
             <Select
               value={activeEnvironmentId || 'none'}
               onValueChange={(value) => setActiveEnvironment(value === 'none' ? null : value)}
             >
-              <SelectTrigger className="w-[160px] h-8 bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 shadow-sm transition-all hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:shadow-elevation-1 text-sm">
+              <SelectTrigger className="h-8 w-[150px] border-0 bg-transparent px-2 text-xs font-medium hover:bg-accent hover:text-accent-foreground focus:ring-0">
                 <SelectValue placeholder="No Environment" />
               </SelectTrigger>
-              <SelectContent className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-slate-200 dark:border-slate-700">
+              <SelectContent>
                 <SelectItem value="none">No Environment</SelectItem>
                 {environments.map((env) => (
                   <SelectItem key={env.id} value={env.id}>
                     <div className="flex items-center gap-2">
                       {env.name}
-                      <Badge variant="outline" className="text-xs px-1.5 py-0 h-5 bg-slate-blue-50 dark:bg-slate-blue-950/30 border-slate-blue-200 dark:border-slate-blue-800 text-slate-blue-700 dark:text-slate-blue-300">
+                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
                         {env.variables.filter(v => v.enabled).length}
                       </Badge>
                     </div>
@@ -170,6 +173,7 @@ export default function Header({
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="h-8 w-8"
                   onClick={() => setEnvManagerOpen(true)}
                   aria-label="Manage environments"
                 >
@@ -182,18 +186,21 @@ export default function Header({
             </Tooltip>
           </div>
 
-          <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
+          <div className="h-4 w-px bg-border mx-1" />
+
+          {/* Collection Runner */}
+          <CollectionRunner />
 
           {/* Import Collection Button */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={() => setImportDialogOpen(true)}
-                className="h-8 text-xs"
+                className="h-8 text-xs font-medium"
               >
-                <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                <FolderOpen className="mr-2 h-3.5 w-3.5" />
                 Import
               </Button>
             </TooltipTrigger>
@@ -205,8 +212,8 @@ export default function Header({
           {/* Command Palette Hint */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-xs font-medium cursor-help hover:border-slate-blue-300 dark:hover:border-slate-blue-700 transition-colors">
-                <Command className="h-3.5 w-3.5" />
+              <div className="hidden md:flex items-center gap-1 px-2 py-1 rounded-md bg-muted text-muted-foreground text-[10px] font-medium cursor-help">
+                <Command className="h-3 w-3" />
                 <span>K</span>
               </div>
             </TooltipTrigger>
@@ -221,6 +228,7 @@ export default function Header({
               <Button
                 variant="ghost"
                 size="icon"
+                className="h-8 w-8"
                 onClick={onOpenSettings || (() => setSettingsOpen(true))}
                 aria-label="Open settings"
               >
@@ -238,10 +246,11 @@ export default function Header({
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                className="h-8 w-8"
+                onClick={toggleTheme}
+                aria-label="Toggle theme"
               >
-                {theme === 'dark' ? (
+                {mounted && (theme === 'dark' || resolvedTheme === 'dark') ? (
                   <Sun className="h-4 w-4 transition-transform duration-300 hover:rotate-180" />
                 ) : (
                   <Moon className="h-4 w-4 transition-transform duration-300 hover:-rotate-12" />
@@ -249,7 +258,7 @@ export default function Header({
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}</p>
+              <p>Toggle theme</p>
             </TooltipContent>
           </Tooltip>
         </div>
