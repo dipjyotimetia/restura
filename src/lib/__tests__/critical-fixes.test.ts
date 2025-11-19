@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { validateRequest, validateEnvironment, validateCollection } from '../store-validators';
 import type { HttpRequest, GrpcRequest } from '@/types';
 
@@ -87,8 +87,6 @@ describe('Critical Fixes Verification', () => {
       for (let i = 0; i < 24; i++) {
         deepObject = { nested: deepObject };
       }
-
-      const jsonString = JSON.stringify(deepObject);
 
       // This would be validated in GrpcRequestBuilder.validateMessage
       // Testing the depth calculation logic
