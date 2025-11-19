@@ -230,24 +230,24 @@ export default function ResponseViewer() {
 
         {/* Response Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-          <TabsList className="w-full rounded-none border-b border-slate-200/60 dark:border-slate-700/40 bg-transparent px-3 h-10">
+          <TabsList className="w-full rounded-none border-b border-border bg-transparent px-3 h-10">
             <TabsTrigger
               value="body"
-              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-slate-blue-500 data-[state=active]:bg-slate-blue-50/50 dark:data-[state=active]:bg-slate-blue-950/20 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300 transition-all"
+              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-primary/5 data-[state=active]:text-primary transition-all"
             >
               Body
               {language !== 'text' && (
-                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-xs bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 border-0">
+                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-xs bg-primary/10 text-primary border-0">
                   {language.toUpperCase()}
                 </Badge>
               )}
             </TabsTrigger>
             <TabsTrigger
               value="headers"
-              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-slate-blue-500 data-[state=active]:bg-slate-blue-50/50 dark:data-[state=active]:bg-slate-blue-950/20 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300 transition-all"
+              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-primary/5 data-[state=active]:text-primary transition-all"
             >
               Headers
-              <Badge variant="secondary" className="ml-1.5 h-5 min-w-5 px-1.5 text-xs bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 border-0 tabular-nums">
+              <Badge variant="secondary" className="ml-1.5 h-5 min-w-5 px-1.5 text-xs bg-primary/10 text-primary border-0 tabular-nums">
                 {Object.keys(currentResponse.headers).length}
               </Badge>
             </TabsTrigger>

@@ -757,34 +757,48 @@ export default function GrpcRequestBuilder() {
 
       {/* Request Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <TabsList className="w-full rounded-none border-b border-white/10 dark:border-white/5 bg-transparent px-4">
-          <TabsTrigger value="message">
-            Message
-            {!validation.message.valid && (
-              <AlertCircle className="ml-1 h-3 w-3 text-red-500" />
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="metadata">
-            Metadata
-            <span className="ml-1 text-xs text-muted-foreground">
-              ({grpcRequest.metadata.filter((m) => m.enabled).length})
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="auth">
-            Auth
-            {grpcRequest.auth.type !== 'none' && (
-              <CheckCircle className="ml-1 h-3 w-3 text-green-500" />
-            )}
-          </TabsTrigger>
-          {streamingMessages.length > 0 && (
-            <TabsTrigger value="streaming">
-              Stream
+        <div className="px-4 py-2 border-b bg-muted/20">
+          <TabsList className="h-9 w-full justify-start bg-muted/50 p-1 text-muted-foreground">
+            <TabsTrigger
+              value="message"
+              className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+            >
+              Message
+              {!validation.message.valid && (
+                <AlertCircle className="ml-1 h-3 w-3 text-red-500" />
+              )}
+            </TabsTrigger>
+            <TabsTrigger
+              value="metadata"
+              className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+            >
+              Metadata
               <span className="ml-1 text-xs text-muted-foreground">
-                ({streamingMessages.length})
+                ({grpcRequest.metadata.filter((m) => m.enabled).length})
               </span>
             </TabsTrigger>
-          )}
-        </TabsList>
+            <TabsTrigger
+              value="auth"
+              className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+            >
+              Auth
+              {grpcRequest.auth.type !== 'none' && (
+                <CheckCircle className="ml-1 h-3 w-3 text-green-500" />
+              )}
+            </TabsTrigger>
+            {streamingMessages.length > 0 && (
+              <TabsTrigger
+                value="streaming"
+                className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+              >
+                Stream
+                <span className="ml-1 text-xs text-muted-foreground">
+                  ({streamingMessages.length})
+                </span>
+              </TabsTrigger>
+            )}
+          </TabsList>
+        </div>
 
         <TabsContent value="message" className="flex-1 overflow-auto p-4">
           <div className="space-y-2">

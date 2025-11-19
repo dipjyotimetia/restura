@@ -366,18 +366,18 @@ export default function RequestBuilder() {
 
       {/* Request Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <div className="px-4 py-2 border-b border-white/10 dark:border-white/5 bg-transparent">
-          <TabsList className="h-10 bg-white/5 dark:bg-white/5 backdrop-blur-md border border-white/10 dark:border-white/5">
+        <div className="px-4 py-2 border-b bg-muted/20">
+          <TabsList className="h-9 w-full justify-start bg-muted/50 p-1 text-muted-foreground">
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="params"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Params
                     {currentRequest.params.filter((p) => p.enabled && p.key).length > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 tabular-nums">
+                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-primary/10 text-primary tabular-nums">
                         {currentRequest.params.filter((p) => p.enabled && p.key).length}
                       </span>
                     )}
@@ -392,11 +392,11 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="headers"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Headers
                     {currentRequest.headers.filter((h) => h.enabled && h.key).length > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 tabular-nums">
+                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-primary/10 text-primary tabular-nums">
                         {currentRequest.headers.filter((h) => h.enabled && h.key).length}
                       </span>
                     )}
@@ -411,7 +411,7 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="body"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Body
                     {currentRequest.body.type !== 'none' && currentRequest.body.raw && (
@@ -428,7 +428,7 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="auth"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Auth
                     {currentRequest.auth.type !== 'none' && (
@@ -445,7 +445,7 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="scripts"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Scripts
                     {(currentRequest.preRequestScript || currentRequest.testScript) && (
@@ -462,7 +462,7 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="settings"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     <Settings className="h-3.5 w-3.5 mr-1" />
                     Settings
