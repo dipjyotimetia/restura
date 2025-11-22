@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { onMenuEvent, isElectron } from '@/lib/platform';
+import { onMenuEvent, isElectron } from '@/lib/shared/platform';
 
 type MenuEventHandler = () => void;
 
