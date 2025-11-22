@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
+import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
 import WebSocketClient from '@/features/websocket/components/WebSocketClient';
 import ResponseViewer from '@/components/shared/ResponseViewer';
 import ConsolePane from '@/components/shared/ConsolePane';
@@ -19,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { PanelLeft, ChevronDown, ChevronUp, GripHorizontal } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 
-type RequestMode = 'http' | 'grpc' | 'websocket';
+type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
 
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -145,6 +146,13 @@ export default function Home() {
         return (
           <ResizableLayout>
             <GrpcRequestBuilder />
+            <ResponseViewer />
+          </ResizableLayout>
+        );
+      case 'graphql':
+        return (
+          <ResizableLayout>
+            <GraphQLRequestBuilder />
             <ResponseViewer />
           </ResizableLayout>
         );
