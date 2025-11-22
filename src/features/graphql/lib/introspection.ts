@@ -1,4 +1,5 @@
 import { GraphQLSchema, IntrospectionResult } from '../types';
+import { buildClientSchema, type GraphQLSchema as GQLSchema, type IntrospectionQuery } from 'graphql';
 
 // Standard GraphQL introspection query
 const INTROSPECTION_QUERY = `
@@ -242,4 +243,37 @@ export function getEnumValues(schema: GraphQLSchema, typeName: string) {
 // Get type by name
 export function getTypeByName(schema: GraphQLSchema, name: string) {
   return schema.types.find((t) => t.name === name);
+}
+
+// Convert introspection result to executable GraphQL schema
+export function buildSchemaFromIntrospection(
+  introspectionResult: IntrospectionResult
+): GQLSchema | null {
+  if (!introspectionResult.success || !introspectionResult.schema) {
+    return null;
+  }
+
+  try {
+    // Convert our schema format to IntrospectionQuery format
+    const introspectionQuery = {
+      __schema: {
+        queryType: introspectionResult.schema.queryType
+          ? { name: introspectionResult.schema.queryType.name! }
+          : null,
+        mutationType: introspectionResult.schema.mutationType
+          ? { name: introspectionResult.schema.mutationType.name! }
+          : null,
+        subscriptionType: introspectionResult.schema.subscriptionType
+          ? { name: introspectionResult.schema.subscriptionType.name! }
+          : null,
+        types: introspectionResult.schema.types,
+        directives: introspectionResult.schema.directives,
+      },
+    } as unknown as IntrospectionQuery;
+
+    return buildClientSchema(introspectionQuery);
+  } catch (error) {
+    console.error('Failed to build schema from introspection:', error);
+    return null;
+  }
 }
