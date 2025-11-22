@@ -274,17 +274,27 @@ export default function RequestBuilder() {
 
       const endTime = Date.now();
 
+      const bodyContent = typeof response.data === 'string'
+        ? response.data
+        : JSON.stringify(response.data, null, 2);
       const responseData = {
         id: uuidv4(),
         requestId: currentRequest.id,
         status: response.status,
         statusText: response.statusText,
-        headers: response.headers as Record<string, string>,
-        body: typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2),
-        size: new Blob([JSON.stringify(response.data)]).size,
+        headers: response.headers as Record<string, string | string[]>,
+        body: bodyContent,
+        size: new Blob([bodyContent]).size,
         time: endTime - startTime,
         timestamp: Date.now(),
       };
+
+      console.log('[RequestBuilder] Response data created:', {
+        bodyLength: bodyContent?.length,
+        bodyPreview: bodyContent?.substring(0, 100),
+        size: responseData.size,
+        status: responseData.status,
+      });
 
       let testResult;
       if (currentRequest.testScript) {
@@ -301,7 +311,12 @@ export default function RequestBuilder() {
           response: {
             status: response.status,
             statusText: response.statusText,
-            headers: response.headers as Record<string, string>,
+            headers: Object.fromEntries(
+              Object.entries(response.headers).map(([key, value]) => [
+                key,
+                Array.isArray(value) ? value.join(', ') : value
+              ])
+            ),
             body: response.data,
             time: endTime - startTime,
             size: responseData.size,
@@ -311,6 +326,11 @@ export default function RequestBuilder() {
         setScriptResult({ preRequest: preRequestResult, test: testResult });
       }
 
+      console.log('[RequestBuilder] Setting response in store:', {
+        id: responseData.id,
+        bodyLength: responseData.body?.length,
+        hasBody: !!responseData.body,
+      });
       setCurrentResponse(responseData);
       addHistoryItem(currentRequest, responseData);
 
@@ -324,7 +344,7 @@ export default function RequestBuilder() {
       const isAxiosError = (
         err: unknown
       ): err is {
-        response?: { status?: number; statusText?: string; headers?: Record<string, string>; data?: unknown };
+        response?: { status?: number; statusText?: string; headers?: Record<string, string | string[]>; data?: unknown };
         message?: string;
       } => {
         return typeof err === 'object' && err !== null && ('response' in err || 'message' in err);
@@ -333,14 +353,17 @@ export default function RequestBuilder() {
       const axiosError = isAxiosError(error) ? error : null;
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
 
+      const errorBody = axiosError?.response?.data
+        ? JSON.stringify(axiosError.response.data, null, 2)
+        : errorMessage;
       const errorResponse = {
         id: uuidv4(),
         requestId: currentRequest.id,
         status: axiosError?.response?.status || 0,
         statusText: axiosError?.response?.statusText || 'Error',
         headers: axiosError?.response?.headers || {},
-        body: axiosError?.response?.data ? JSON.stringify(axiosError.response.data, null, 2) : errorMessage,
-        size: 0,
+        body: errorBody,
+        size: new Blob([errorBody]).size,
         time: endTime - startTime,
         timestamp: Date.now(),
       };

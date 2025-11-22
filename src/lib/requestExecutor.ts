@@ -127,7 +127,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     validateStatus: () => true,
   };
 
-  let responseData: ApiResponse;
+  let responseData: ApiResponse | undefined;
 
   // Apply proxy configuration if enabled
   const proxyConfig = effectiveSettings.proxy;
@@ -202,20 +202,21 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
   }
 
   // If responseData is not set (Electron failed or not Electron), use Axios
-  if (typeof responseData! === 'undefined') {
+  if (typeof responseData === 'undefined') {
     try {
       const response = await axios(axiosConfig);
       const endTime = Date.now();
+      const bodyContent = typeof response.data === 'string'
+        ? response.data
+        : JSON.stringify(response.data, null, 2);
       responseData = {
         id: uuidv4(),
         requestId: request.id,
         status: response.status,
         statusText: response.statusText,
         headers: response.headers as Record<string, string | string[]>,
-        body: typeof response.data === 'string'
-            ? response.data
-            : JSON.stringify(response.data, null, 2),
-        size: new Blob([JSON.stringify(response.data)]).size,
+        body: bodyContent,
+        size: new Blob([bodyContent]).size,
         time: endTime - startTime,
         timestamp: Date.now(),
       };
@@ -238,6 +239,11 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
         timestamp: Date.now(),
       };
     }
+  }
+
+  // Ensure responseData is defined
+  if (!responseData) {
+    throw new Error('Failed to execute request: no response data available');
   }
 
   // Execute test script if exists

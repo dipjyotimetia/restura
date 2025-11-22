@@ -67,7 +67,14 @@ export const useRequestStore = create<RequestState>()(
 
       setCurrentRequest: (request) => set({ currentRequest: request }),
 
-      setCurrentResponse: (response) => set({ currentResponse: response }),
+      setCurrentResponse: (response) => {
+        console.log('[useRequestStore] setCurrentResponse called:', {
+          hasResponse: !!response,
+          bodyLength: response?.body?.length,
+          bodyPreview: response?.body?.substring(0, 100),
+        });
+        set({ currentResponse: response });
+      },
 
       setScriptResult: (result) => set({ scriptResult: result }),
 

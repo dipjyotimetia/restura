@@ -540,22 +540,23 @@ export function createErrorResponse(
   const endTime = Date.now();
 
   if (error instanceof GrpcClientError) {
+    const errorBody = JSON.stringify(
+      {
+        error: error.message,
+        details: error.details,
+        metadata: error.metadata,
+      },
+      null,
+      2
+    );
     return {
       id: uuidv4(),
       requestId,
       status: error.statusCode,
       statusText: GrpcStatusCodeName[error.statusCode] || 'UNKNOWN',
       headers: {},
-      body: JSON.stringify(
-        {
-          error: error.message,
-          details: error.details,
-          metadata: error.metadata,
-        },
-        null,
-        2
-      ),
-      size: 0,
+      body: errorBody,
+      size: new Blob([errorBody]).size,
       time: endTime - startTime,
       timestamp: Date.now(),
       grpcStatus: error.statusCode,
@@ -565,6 +566,7 @@ export function createErrorResponse(
   }
 
   const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+  const errorBody = JSON.stringify({ error: errorMessage }, null, 2);
 
   return {
     id: uuidv4(),
@@ -572,8 +574,8 @@ export function createErrorResponse(
     status: GrpcStatusCode.UNKNOWN,
     statusText: 'UNKNOWN',
     headers: {},
-    body: JSON.stringify({ error: errorMessage }, null, 2),
-    size: 0,
+    body: errorBody,
+    size: new Blob([errorBody]).size,
     time: endTime - startTime,
     timestamp: Date.now(),
     grpcStatus: GrpcStatusCode.UNKNOWN,

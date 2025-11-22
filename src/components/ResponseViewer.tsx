@@ -101,6 +101,13 @@ export default function ResponseViewer() {
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [showAnimation, setShowAnimation] = useState(false);
 
+  console.log('[ResponseViewer] Render:', {
+    hasResponse: !!currentResponse,
+    isLoading,
+    bodyLength: currentResponse?.body?.length,
+    bodyPreview: currentResponse?.body?.substring(0, 100),
+  });
+
   // useMemo hooks MUST be before any early returns to follow Rules of Hooks
   const language = useMemo(
     () => (currentResponse ? detectLanguage(currentResponse.body, currentResponse.headers) : 'json'),
