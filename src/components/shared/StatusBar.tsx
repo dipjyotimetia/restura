@@ -45,7 +45,7 @@ export default function StatusBar() {
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="h-7 bg-muted/80 border-t border-border/50 flex items-center justify-between px-3 text-[11px] text-muted-foreground select-none backdrop-blur-sm"
+        className="h-7 bg-muted border-t border-border flex items-center justify-between px-3 text-[11px] text-muted-foreground select-none"
         role="status"
         aria-live="polite"
         aria-label="Application status bar"
