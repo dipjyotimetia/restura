@@ -403,7 +403,7 @@ export default function RequestBuilder() {
   }, [handleSendRequest]);
 
   return (
-    <div className="flex-1 flex flex-col border-b border-slate-blue-500/10 glass relative z-30">
+    <div className="flex-1 flex flex-col border-b border-border bg-background relative z-30">
       {/* Request Line */}
       <RequestLine
         method={currentRequest.method}

@@ -205,7 +205,7 @@ export default function Home() {
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(true)}
-              className="absolute left-2 top-1/2 -translate-y-1/2 z-20 h-8 w-8 bg-background/90 backdrop-blur-md border border-border shadow-sm hover:shadow-md transition-all"
+              className="absolute left-2 top-1/2 -translate-y-1/2 z-20 h-8 w-8 bg-background border border-border shadow-sm hover:shadow-md transition-all"
               title="Open sidebar (⌘B)"
             >
               <PanelLeft className="h-4 w-4" />
@@ -235,7 +235,7 @@ export default function Home() {
               )}>
                 {/* Console toggle header */}
                 <div
-                  className="absolute top-0 left-0 right-0 h-9 flex items-center justify-between px-3 bg-muted/50 backdrop-blur-sm cursor-pointer hover:bg-muted transition-colors"
+                  className="absolute top-0 left-0 right-0 h-9 flex items-center justify-between px-3 bg-muted cursor-pointer hover:bg-muted/80 transition-colors"
                   onClick={() => setConsoleExpanded(!consoleExpanded)}
                 >
                   <span className="text-xs font-medium text-muted-foreground flex items-center gap-2">

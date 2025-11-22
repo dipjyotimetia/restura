@@ -10,23 +10,21 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'bg-gradient-to-r from-slate-blue-600 to-indigo-600 text-white shadow-lg shadow-slate-blue-500/20 hover:shadow-xl hover:shadow-slate-blue-500/30 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-slate-blue-500/50 focus-visible:ring-offset-2 backdrop-blur-sm border border-white/10',
+          'bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 hover:bg-primary/90 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-primary/20',
         destructive:
-          'bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg shadow-red-500/20 hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 backdrop-blur-sm border border-white/10',
+          'bg-destructive text-destructive-foreground shadow-lg shadow-destructive/20 hover:shadow-xl hover:shadow-destructive/30 hover:bg-destructive/90 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-destructive/20',
         outline:
-          'border-2 border-slate-blue-200 dark:border-slate-blue-800 bg-white/30 dark:bg-slate-blue-950/30 backdrop-blur-md text-slate-blue-700 dark:text-slate-blue-300 shadow-md hover:bg-white/50 dark:hover:bg-slate-blue-900/50 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:shadow-lg hover:shadow-slate-blue-500/10 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-slate-blue-500/50 focus-visible:ring-offset-2',
+          'border-2 border-border bg-background text-foreground shadow-md hover:bg-accent hover:text-accent-foreground hover:border-border/80 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         secondary:
-          'bg-gradient-to-r from-purple-500/80 to-indigo-500/80 backdrop-blur-md text-white border border-white/20 dark:border-white/10 shadow-md shadow-purple-500/10 hover:from-purple-500 hover:to-indigo-500 hover:shadow-lg hover:shadow-purple-500/20 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-purple-500/50 focus-visible:ring-offset-2',
+          'bg-secondary text-secondary-foreground border border-border shadow-md hover:bg-secondary/80 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         ghost:
-          'text-slate-blue-700 dark:text-slate-blue-300 hover:bg-white/40 dark:hover:bg-slate-blue-900/40 hover:backdrop-blur-md hover:shadow-md active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-slate-blue-500/30',
+          'text-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-md active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring/30',
         link:
-          'text-slate-blue-600 dark:text-slate-blue-400 underline-offset-4 hover:underline hover:text-slate-blue-700 dark:hover:text-slate-blue-300 active:scale-[0.98]',
-        glass:
-          'bg-white/30 dark:bg-slate-blue-950/30 backdrop-blur-xl border border-white/30 dark:border-white/10 shadow-glass text-slate-blue-900 dark:text-white hover:bg-white/40 dark:hover:bg-slate-blue-900/40 hover:border-white/40 dark:hover:border-white/20 hover:shadow-glass-lg hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-slate-blue-500/30 focus-visible:ring-offset-2',
+          'text-primary underline-offset-4 hover:underline hover:text-primary/80 active:scale-[0.98]',
         success:
-          'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/30 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-green-500/50 focus-visible:ring-offset-2 backdrop-blur-sm border border-white/10',
+          'bg-green-600 dark:bg-green-600 text-white shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/30 hover:bg-green-700 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-green-500/20',
         error:
-          'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg shadow-red-500/20 hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 backdrop-blur-sm border border-white/10',
+          'bg-red-600 dark:bg-red-600 text-white shadow-lg shadow-red-500/20 hover:shadow-xl hover:shadow-red-500/30 hover:bg-red-700 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-red-500/20',
       },
       size: {
         default: 'h-10 px-5 py-2 text-sm rounded-lg',

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
+import { Stagger, StaggerItem } from '@/components/ui/motion';
 
 interface ConsoleLog {
   type: 'log' | 'error' | 'warn' | 'info';
@@ -67,11 +68,11 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex flex-col h-full border-t border-white/10 dark:border-white/5 shadow-glass-lg glass relative z-10">
+      <div className="flex flex-col h-full border-t border-border shadow-lg bg-background relative z-10">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-white/10 dark:border-white/5 bg-transparent shadow-sm">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-transparent shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-white/10 dark:bg-white/5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
               <Terminal className="h-4 w-4 text-slate-blue-500 dark:text-slate-blue-400" />
             </div>
             <span className="text-sm font-semibold tracking-tight">Console</span>
@@ -119,7 +120,7 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
                 size="sm"
                 onClick={onClear}
                 disabled={logs.length === 0}
-                className="hover:bg-white/10 dark:hover:bg-white/5 hover:text-slate-blue-600 dark:hover:text-slate-blue-400 transition-colors"
+                className="hover:bg-accent hover:text-foreground transition-colors"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Clear
@@ -144,13 +145,14 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
             <>
               {/* Test Results */}
               {tests && tests.length > 0 && (
-                <div className="mb-4 space-y-2">
+                <div className="mb-4">
                   <div className="text-muted-foreground font-semibold mb-3 flex items-center gap-2">
                     <div className="h-1 w-1 rounded-full bg-primary" />
                     Test Results
                   </div>
+                  <Stagger className="space-y-2">
                   {tests.map((test, index) => (
-                    <div
+                    <StaggerItem
                       key={index}
                       className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
                         test.passed
@@ -173,14 +175,16 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
                           </div>
                         )}
                       </div>
-                    </div>
+                    </StaggerItem>
                   ))}
+                  </Stagger>
                 </div>
               )}
 
               {/* Console Logs */}
+              <Stagger show={logs.length > 0}>
               {logs.map((log, index) => (
-                <div
+                <StaggerItem
                   key={index}
                   className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-primary/5 transition-all border border-transparent hover:border-primary/10"
                 >
@@ -191,8 +195,9 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
                   <pre className={`flex-1 whitespace-pre-wrap break-words ${getLogColor(log.type)} leading-relaxed`}>
                     {log.message}
                   </pre>
-                </div>
+                </StaggerItem>
               ))}
+              </Stagger>
             </>
           )}
         </div>

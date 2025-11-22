@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,14 +26,14 @@ export default function SettingsDialog({ open, onOpenChange }: SettingsDialogPro
   const [activeTab, setActiveTab] = useState('general');
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-xl overflow-hidden flex flex-col">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
             <Settings2 className="h-5 w-5" />
             Application Settings
-          </DialogTitle>
-        </DialogHeader>
+          </SheetTitle>
+        </SheetHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
           <TabsList className="w-full justify-start">
@@ -183,7 +183,7 @@ export default function SettingsDialog({ open, onOpenChange }: SettingsDialogPro
           </div>
         </Tabs>
 
-        <div className="flex justify-between pt-4 border-t">
+        <div className="flex justify-between pt-4 border-t mt-auto">
           <Button
             variant="outline"
             onClick={() => {
@@ -196,7 +196,7 @@ export default function SettingsDialog({ open, onOpenChange }: SettingsDialogPro
           </Button>
           <Button onClick={() => onOpenChange(false)}>Done</Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

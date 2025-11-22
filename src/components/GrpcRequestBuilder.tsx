@@ -590,15 +590,15 @@ export default function GrpcRequestBuilder() {
   };
 
   return (
-    <div className="flex-1 flex flex-col border-b border-white/10 dark:border-white/5">
+    <div className="flex-1 flex flex-col border-b border-border">
       {/* Request Line */}
-      <div className="p-4 border-b border-white/10 dark:border-white/5 space-y-2">
+      <div className="p-4 border-b border-border space-y-2">
         <div className="flex gap-2">
           <Select
             value={grpcRequest.methodType}
             onValueChange={(value) => handleMethodTypeChange(value as GrpcMethodType)}
           >
-            <SelectTrigger className="w-48 glass-subtle border-white/10 dark:border-white/5">
+            <SelectTrigger className="w-48 bg-background border-border">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -614,7 +614,7 @@ export default function GrpcRequestBuilder() {
               value={grpcRequest.url}
               onChange={(e) => handleUrlChange(e.target.value)}
               placeholder="Enter gRPC server URL (e.g., https://api.example.com)"
-              className={`flex-1 glass-subtle border-white/10 dark:border-white/5 ${!validation.url.valid ? 'border-red-500' : ''}`}
+              className={`flex-1 bg-background border-border ${!validation.url.valid ? 'border-red-500' : ''}`}
             />
             {!validation.url.valid && validation.url.error && (
               <div className="text-xs text-red-500 mt-1 flex items-center gap-1">
@@ -650,7 +650,7 @@ export default function GrpcRequestBuilder() {
                   if (service) handleSelectReflectionService(service);
                 }}
               >
-                <SelectTrigger className={`glass-subtle border-white/10 dark:border-white/5 ${!validation.service.valid ? 'border-red-500' : ''}`}>
+                <SelectTrigger className={`bg-background border-border ${!validation.service.valid ? 'border-red-500' : ''}`}>
                   <SelectValue placeholder="Select service" />
                 </SelectTrigger>
                 <SelectContent>
@@ -666,7 +666,7 @@ export default function GrpcRequestBuilder() {
                 value={grpcRequest.service}
                 onChange={(e) => handleServiceChange(e.target.value)}
                 placeholder="Service name (e.g., greet.v1.GreetService)"
-                className={`glass-subtle border-white/10 dark:border-white/5 ${!validation.service.valid ? 'border-red-500' : ''}`}
+                className={`bg-background border-border ${!validation.service.valid ? 'border-red-500' : ''}`}
               />
             )}
             {!validation.service.valid && validation.service.error && (
@@ -686,7 +686,7 @@ export default function GrpcRequestBuilder() {
                   if (method) handleSelectReflectionMethod(method);
                 }}
               >
-                <SelectTrigger className={`glass-subtle border-white/10 dark:border-white/5 ${!validation.method.valid ? 'border-red-500' : ''}`}>
+                <SelectTrigger className={`bg-background border-border ${!validation.method.valid ? 'border-red-500' : ''}`}>
                   <SelectValue placeholder="Select method" />
                 </SelectTrigger>
                 <SelectContent>
@@ -711,7 +711,7 @@ export default function GrpcRequestBuilder() {
                 value={grpcRequest.method}
                 onChange={(e) => handleMethodChange(e.target.value)}
                 placeholder="Method name (e.g., Greet)"
-                className={`glass-subtle border-white/10 dark:border-white/5 ${!validation.method.valid ? 'border-red-500' : ''}`}
+                className={`bg-background border-border ${!validation.method.valid ? 'border-red-500' : ''}`}
               />
             )}
             {!validation.method.valid && validation.method.error && (
@@ -807,7 +807,7 @@ export default function GrpcRequestBuilder() {
 
         {/* Proto file info */}
         {protoInfo && (
-          <div className="bg-white/5 dark:bg-white/5 p-2 rounded text-xs space-y-1 border border-white/10 dark:border-white/5">
+          <div className="bg-muted p-2 rounded text-xs space-y-1 border border-border">
             <div className="flex items-center gap-1 font-medium">
               <FileText className="h-3 w-3" />
               Proto File Info
@@ -924,7 +924,7 @@ export default function GrpcRequestBuilder() {
 
             {/* Auth metadata preview */}
             {grpcRequest.auth.type !== 'none' && (
-              <div className="mt-4 p-3 bg-white/5 dark:bg-white/5 rounded border border-white/10 dark:border-white/5">
+              <div className="mt-4 p-3 bg-muted rounded border border-border">
                 <div className="text-xs font-medium mb-1">Auth Metadata (auto-injected)</div>
                 <pre className="text-xs text-muted-foreground whitespace-pre-wrap">
                   {getAuthPreview()}
@@ -949,7 +949,7 @@ export default function GrpcRequestBuilder() {
               </div>
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {streamingMessages.map((message, index) => (
-                  <div key={index} className="bg-white/5 dark:bg-white/5 p-2 rounded border border-white/10 dark:border-white/5">
+                  <div key={index} className="bg-muted p-2 rounded border border-border">
                     <div className="text-xs font-medium mb-1">Message {index + 1}</div>
                     <pre className="text-xs whitespace-pre-wrap">{message}</pre>
                   </div>

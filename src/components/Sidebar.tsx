@@ -22,6 +22,7 @@ import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, P
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/lib/exporters';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { cn } from '@/lib/utils';
+import { Stagger, StaggerItem } from '@/components/ui/motion';
 
 // Method color mapping for badges - more refined colors
 const methodColors: Record<string, string> = {
@@ -138,12 +139,12 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
     <TooltipProvider delayDuration={300}>
       <aside
         className={cn(
-          "border-r border-white/10 dark:border-white/5 bg-background/30 dark:bg-background/40 backdrop-blur-2xl flex flex-col relative z-40 transition-all duration-300 ease-out shadow-glass",
+          "border-r border-border bg-background flex flex-col relative z-40 transition-all duration-300 ease-out shadow-md",
           isCollapsed ? "w-16" : "w-72"
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-white/10 dark:border-white/5 bg-transparent">
+        <div className="flex items-center justify-between p-3 border-b border-border bg-transparent">
           {!isCollapsed && (
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
@@ -312,11 +313,11 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-1.5">
+                    <Stagger className="space-y-1.5">
                       {filteredCollections.map((collection) => (
-                        <div
+                        <StaggerItem
                           key={collection.id}
-                          className="group p-2.5 rounded-md bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/5 hover:border-primary/30 hover:bg-white/10 dark:hover:bg-white/10 cursor-pointer flex items-center justify-between transition-all shadow-sm"
+                          className="group p-2.5 rounded-md bg-muted border border-border hover:border-primary/30 hover:bg-accent cursor-pointer flex items-center justify-between transition-all shadow-sm"
                         >
                           <div className="flex-1 flex items-center gap-2 min-w-0">
                             <FolderPlus className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -364,9 +365,9 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
-                        </div>
+                        </StaggerItem>
                       ))}
-                    </div>
+                    </Stagger>
                   )}
                 </div>
                 <ConfirmDialog
@@ -423,11 +424,11 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
+                  <Stagger className="space-y-1.5">
                     {filteredHistory.slice(0, 50).map((item) => (
-                      <div
+                      <StaggerItem
                         key={item.id}
-                        className="group p-2.5 rounded-md bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/5 hover:border-primary/30 hover:bg-white/10 dark:hover:bg-white/10 cursor-pointer transition-all shadow-sm"
+                        className="group p-2.5 rounded-md bg-muted border border-border hover:border-primary/30 hover:bg-accent cursor-pointer transition-all shadow-sm"
                         onClick={() => handleLoadHistoryItem(item.id)}
                       >
                         <div className="flex items-center gap-1.5 mb-1.5">
@@ -482,9 +483,9 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                           <History className="h-3 w-3" />
                           {new Date(item.timestamp).toLocaleString()}
                         </span>
-                      </div>
+                      </StaggerItem>
                     ))}
-                  </div>
+                  </Stagger>
                 )}
               </TabsContent>
             </Tabs>

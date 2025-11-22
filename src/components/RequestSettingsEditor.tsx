@@ -57,7 +57,7 @@ export default function RequestSettingsEditor({
               min={1000}
               max={600000}
               step={1000}
-              className="w-48 glass-subtle border-white/10 dark:border-white/5"
+              className="w-48 bg-background border-border"
             />
             <p className="text-xs text-muted-foreground">
               Current: {(getEffectiveSettings().timeout / 1000).toFixed(0)}s
@@ -78,7 +78,7 @@ export default function RequestSettingsEditor({
           </div>
 
           {getEffectiveSettings().followRedirects && (
-            <div className="space-y-2 pl-4 border-l-2 border-white/10 dark:border-white/5">
+            <div className="space-y-2 pl-4 border-l-2 border-border">
               <Label htmlFor="maxRedirects">Max Redirects</Label>
               <Input
                 id="maxRedirects"
@@ -87,7 +87,7 @@ export default function RequestSettingsEditor({
                 onChange={(e) => onSettingsChange({ maxRedirects: parseInt(e.target.value) || 10 })}
                 min={1}
                 max={50}
-                className="w-32 glass-subtle border-white/10 dark:border-white/5"
+                className="w-32 bg-background border-border"
               />
             </div>
           )}
@@ -106,7 +106,7 @@ export default function RequestSettingsEditor({
           </div>
 
           {/* Proxy Override */}
-          <div className="space-y-4 rounded-lg border border-white/10 dark:border-white/5 p-4 glass-subtle">
+          <div className="space-y-4 rounded-lg border border-border p-4 bg-background">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-base font-medium">Custom Proxy for this Request</Label>
@@ -148,7 +148,7 @@ export default function RequestSettingsEditor({
                             })
                           }
                           placeholder="proxy.example.com"
-                          className="glass-subtle border-white/10 dark:border-white/5"
+                          className="bg-background border-border"
                         />
                       </div>
                       <div className="space-y-2">
@@ -168,12 +168,12 @@ export default function RequestSettingsEditor({
                           placeholder="8080"
                           min={1}
                           max={65535}
-                          className="glass-subtle border-white/10 dark:border-white/5"
+                          className="bg-background border-border"
                         />
                       </div>
                     </div>
 
-                    <div className="rounded-lg bg-white/5 dark:bg-white/5 p-3 border border-white/10 dark:border-white/5">
+                    <div className="rounded-lg bg-muted p-3 border border-border">
                       <p className="text-xs text-muted-foreground">
                         <strong>Proxy URL:</strong>{' '}
                         <code className="bg-black/5 dark:bg-white/10 px-1 rounded">
@@ -188,7 +188,7 @@ export default function RequestSettingsEditor({
           </div>
         </>
       ) : (
-        <div className="rounded-lg bg-white/5 dark:bg-white/5 p-4 border border-white/10 dark:border-white/5">
+        <div className="rounded-lg bg-muted p-4 border border-border">
           <p className="text-sm text-muted-foreground mb-3">
             Using global settings. Enable override above to customize for this request.
           </p>
