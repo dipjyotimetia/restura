@@ -4,9 +4,40 @@ import axios, { AxiosRequestConfig } from 'axios';
 import { Cookie } from 'tough-cookie';
 import ScriptExecutor, { ScriptResult } from '@/lib/scriptExecutor';
 import { isElectron, getElectronAPI } from '@/lib/platform';
-import { shouldBypassProxy, toAxiosProxyConfig } from '@/lib/proxyHelper';
+import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/lib/proxyHelper';
 import { validateURL } from '@/lib/urlValidator';
 import { useCookieStore } from '@/store/useCookieStore';
+
+// Execute request via CORS proxy (browser mode)
+async function executeViaCorsProxy(
+  config: AxiosRequestConfig,
+  startTime: number,
+  requestId: string
+): Promise<ApiResponse> {
+  const response = await axios.post('/api/proxy', {
+    method: config.method,
+    url: config.url,
+    headers: config.headers,
+    params: config.params,
+    data: config.data,
+    timeout: config.timeout,
+  });
+
+  const proxyResponse = response.data;
+  const endTime = Date.now();
+
+  return {
+    id: uuidv4(),
+    requestId,
+    status: proxyResponse.status,
+    statusText: proxyResponse.statusText,
+    headers: proxyResponse.headers,
+    body: proxyResponse.data,
+    size: proxyResponse.size || new Blob([proxyResponse.data]).size,
+    time: endTime - startTime,
+    timestamp: Date.now(),
+  };
+}
 
 export interface RequestExecutionResult {
   response: ApiResponse;
@@ -129,9 +160,47 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
 
   let responseData: ApiResponse | undefined;
 
-  // Apply proxy configuration if enabled
+  // Check if we should use CORS proxy (browser mode)
+  if (shouldUseCorsProxy(globalSettings)) {
+    try {
+      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id);
+    } catch (error: unknown) {
+      const endTime = Date.now();
+      const isAxiosError = axios.isAxiosError(error);
+      const errorMessage = error instanceof Error ? error.message : 'CORS proxy request failed';
+
+      // Check if it's a proxy-specific error
+      if (isAxiosError && error.response?.data?.error) {
+        responseData = {
+          id: uuidv4(),
+          requestId: request.id,
+          status: error.response.status,
+          statusText: 'Proxy Error',
+          headers: {},
+          body: error.response.data.error,
+          size: 0,
+          time: endTime - startTime,
+          timestamp: Date.now(),
+        };
+      } else {
+        responseData = {
+          id: uuidv4(),
+          requestId: request.id,
+          status: 0,
+          statusText: 'Error',
+          headers: {},
+          body: errorMessage,
+          size: 0,
+          time: endTime - startTime,
+          timestamp: Date.now(),
+        };
+      }
+    }
+  }
+
+  // Apply proxy configuration if enabled (for Electron)
   const proxyConfig = effectiveSettings.proxy;
-  if (proxyConfig?.enabled && proxyConfig.host && !shouldBypassProxy(resolvedUrl, proxyConfig.bypassList)) {
+  if (!responseData && proxyConfig?.enabled && proxyConfig.host && !shouldBypassProxy(resolvedUrl, proxyConfig.bypassList)) {
     if (isElectron()) {
       const electronAPI = getElectronAPI();
       if (electronAPI && 'http' in electronAPI) {

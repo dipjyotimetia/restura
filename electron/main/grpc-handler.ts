@@ -13,7 +13,7 @@ import {
   GrpcSendMessageSchema,
   createValidatedHandler,
   createValidatedListener,
-  validateIpcInput,
+  GrpcRequestConfig,
 } from './ipc-validators';
 
 // Use app's userData directory for proto temp files (more secure than os.tmpdir())
@@ -30,18 +30,6 @@ const getGrpcTempDir = () => {
 };
 
 const GRPC_TEMP_BASE = getGrpcTempDir();
-
-interface GrpcRequestConfig {
-  id?: string; // Request ID for streaming
-  url: string;
-  service: string;
-  method: string;
-  methodType: string;
-  metadata: Record<string, string>;
-  message: unknown;
-  protoContent: string;
-  protoFileName: string;
-}
 
 interface GrpcResponse {
   status: number;
@@ -67,6 +55,68 @@ const activeCalls = new Map<string, ActiveCall>();
 
 // Timeout for stale streams (5 minutes)
 const STREAM_TIMEOUT_MS = 5 * 60 * 1000;
+
+// Maximum response size (10MB)
+const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
+
+// Maximum queue size for client streaming (100 messages)
+const MAX_STREAM_QUEUE_SIZE = 100;
+
+// Helper to estimate object size in bytes
+function estimateSize(obj: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(obj), 'utf8');
+  } catch {
+    return 0;
+  }
+}
+
+// Type guard for gRPC/Connect errors
+interface GrpcError {
+  name?: string;
+  code?: number;
+  message?: string;
+  details?: string;
+}
+
+function isGrpcError(err: unknown): err is GrpcError {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    ('code' in err || 'message' in err || 'name' in err)
+  );
+}
+
+function toGrpcError(err: unknown): GrpcError {
+  if (isGrpcError(err)) {
+    return err;
+  }
+  if (err instanceof Error) {
+    return { message: err.message, name: err.name };
+  }
+  return { message: String(err) };
+}
+
+// Sanitize error messages to remove internal details
+function sanitizeErrorMessage(message: string | undefined): string {
+  if (!message) return 'Unknown error';
+
+  // Remove file paths
+  let sanitized = message.replace(/\/[^\s]+\.(ts|js|proto)/g, '[file]');
+
+  // Remove stack traces
+  sanitized = sanitized.replace(/\s+at\s+.+/g, '');
+
+  // Remove internal error codes/references
+  sanitized = sanitized.replace(/\[internal:[^\]]+\]/gi, '');
+
+  // Truncate very long messages
+  if (sanitized.length > 500) {
+    sanitized = sanitized.substring(0, 500) + '...';
+  }
+
+  return sanitized || 'Unknown error';
+}
 
 // Clean up stale streams periodically
 const cleanupStaleStreams = () => {
@@ -156,9 +206,20 @@ export function initializeGrpcTempDir(): void {
   }
 }
 
+// Sanitize proto filename to prevent path traversal
+function sanitizeProtoFileName(fileName: string): string {
+  // Remove any path separators and get just the base name
+  const baseName = path.basename(fileName);
+  // Remove any characters that could be problematic
+  const sanitized = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  // Ensure it ends with .proto
+  return sanitized.endsWith('.proto') ? sanitized : `${sanitized}.proto`;
+}
+
 // Helper to load proto
 const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
-  const protoPath = path.join(tempDir, config.protoFileName || 'service.proto');
+  const sanitizedFileName = sanitizeProtoFileName(config.protoFileName || 'service.proto');
+  const protoPath = path.join(tempDir, sanitizedFileName);
   fs.writeFileSync(protoPath, config.protoContent);
 
   const packageDefinition = protoLoader.loadSync(protoPath, {
@@ -175,12 +236,12 @@ const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
 // Create a dynamic service definition for Connect
 function createDynamicService(serviceName: string, methodName: string, protoDef: grpc.GrpcObject) {
   const serviceParts = serviceName.split('.');
-  let serviceDef: unknown = protoDef;
+  let serviceDef: Record<string, unknown> = protoDef as Record<string, unknown>;
   for (const part of serviceParts) {
-    serviceDef = (serviceDef as Record<string, unknown>)?.[part];
+    serviceDef = serviceDef?.[part] as Record<string, unknown>;
   }
-  
-  if (!serviceDef || !serviceDef[methodName]) {
+
+  if (!serviceDef || !(methodName in serviceDef)) {
     throw new Error(`Method ${methodName} not found in service ${serviceName}`);
   }
 
@@ -306,20 +367,36 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
         };
       } catch (err: unknown) {
         cleanupTemp(tempDir);
-        const error = err as { code?: number; message?: string; details?: string };
+        const error = toGrpcError(err);
         return {
           status: error.code || 2, // UNKNOWN
-          statusText: error.message || 'Unknown Error',
+          statusText: sanitizeErrorMessage(error.message),
           headers: capturedHeaders,
           trailers: capturedTrailers,
-          error: error.message,
-          details: error.details
+          error: sanitizeErrorMessage(error.message),
+          details: sanitizeErrorMessage(error.details)
         };
       }
     } else if (config.methodType === 'server-streaming') {
       const messages: unknown[] = [];
+      let accumulatedSize = 0;
       try {
         for await (const response of client[method](config.message, { headers })) {
+          const responseSize = estimateSize(response);
+          accumulatedSize += responseSize;
+
+          if (accumulatedSize > MAX_RESPONSE_SIZE) {
+            cleanupTemp(tempDir);
+            return {
+              status: 8, // RESOURCE_EXHAUSTED
+              statusText: 'Response size exceeded limit',
+              headers: capturedHeaders,
+              trailers: capturedTrailers,
+              messages,
+              error: `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
+            };
+          }
+
           messages.push(response);
         }
         cleanupTemp(tempDir);
@@ -332,14 +409,14 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
         };
       } catch (err: unknown) {
         cleanupTemp(tempDir);
-        const error = err as { code?: number; message?: string; details?: string };
+        const error = toGrpcError(err);
         return {
           status: error.code || 2,
-          statusText: error.message,
+          statusText: sanitizeErrorMessage(error.message),
           headers: capturedHeaders,
           trailers: capturedTrailers,
           messages,
-          error: error.message
+          error: sanitizeErrorMessage(error.message)
         };
       }
     } else {
@@ -398,17 +475,30 @@ export function registerGrpcHandlerIPC(): void {
       const method = config.method;
       const headers = { ...config.metadata };
       const controller = new AbortController();
+      let accumulatedSize = 0;
 
       const handleData = (data: unknown) => {
+        const dataSize = estimateSize(data);
+        accumulatedSize += dataSize;
+
+        if (accumulatedSize > MAX_RESPONSE_SIZE) {
+          controller.abort();
+          event.sender.send(`grpc:error:${requestId}`, {
+            status: 8, // RESOURCE_EXHAUSTED
+            details: `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
+          });
+          return;
+        }
+
         event.sender.send(`grpc:data:${requestId}`, data);
       };
 
       const handleError = (err: unknown) => {
-        const error = err as { name?: string; code?: number; message?: string };
+        const error = toGrpcError(err);
         if (error.name === 'AbortError') return; // Ignore aborts
         event.sender.send(`grpc:error:${requestId}`, {
           status: error.code || 2,
-          details: error.message
+          details: sanitizeErrorMessage(error.message)
         });
         cleanup();
       };
@@ -497,6 +587,10 @@ export function registerGrpcHandlerIPC(): void {
             if (notifyInput) notifyInput();
           },
           write: (msg: unknown) => {
+            if (inputQueue.length >= MAX_STREAM_QUEUE_SIZE) {
+              console.warn(`[gRPC] Stream queue full (${MAX_STREAM_QUEUE_SIZE} messages), dropping message`);
+              return;
+            }
             inputQueue.push(msg);
             if (notifyInput) notifyInput();
           },

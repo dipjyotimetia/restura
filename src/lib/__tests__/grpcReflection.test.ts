@@ -179,7 +179,7 @@ describe('GrpcReflectionClient', () => {
       const result = await client.discoverServices();
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('failed');
+      expect(result.error?.toLowerCase()).toContain('failed');
     });
 
     it('should handle reflection error responses', async () => {
