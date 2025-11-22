@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { ThemeProvider } from '@/components/ThemeProvider';
-import { PlatformProvider } from '@/components/PlatformProvider';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import AriaLiveAnnouncerProvider from '@/components/AriaLiveAnnouncer';
+import { ThemeProvider } from '@/components/providers/ThemeProvider';
+import { PlatformProvider } from '@/components/providers/PlatformProvider';
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
+import AriaLiveAnnouncerProvider from '@/components/shared/AriaLiveAnnouncer';
 import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
