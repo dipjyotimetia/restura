@@ -9,7 +9,6 @@ import { HttpMethod, AuthConfig as AuthConfigType, RequestSettings, RequestBody 
 import { Settings } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import axios, { AxiosProxyConfig } from 'axios';
-import https from 'https';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import CodeGeneratorDialog from '@/components/shared/CodeGeneratorDialog';
@@ -34,6 +33,30 @@ function RequestBuilder() {
   const { settings: globalSettings } = useSettingsStore();
   const [activeTab, setActiveTab] = useState('params');
   const [codeGenOpen, setCodeGenOpen] = useState(false);
+
+  // Check if we have a valid HTTP request
+  const isHttpRequest = currentRequest?.type === 'http';
+  const httpRequest = isHttpRequest ? currentRequest : null;
+
+  // Use shared hooks for key-value collection management
+  // These must be called unconditionally to follow Rules of Hooks
+  const {
+    handleAdd: handleAddParam,
+    handleUpdate: handleUpdateParam,
+    handleDelete: handleDeleteParam,
+  } = useKeyValueCollection(
+    httpRequest?.params ?? [],
+    (params) => updateRequest({ params })
+  );
+
+  const {
+    handleAdd: handleAddHeader,
+    handleUpdate: handleUpdateHeader,
+    handleDelete: handleDeleteHeader,
+  } = useKeyValueCollection(
+    httpRequest?.headers ?? [],
+    (headers) => updateRequest({ headers })
+  );
 
   // Keyboard shortcuts for tab switching
   useEffect(() => {
@@ -63,27 +86,15 @@ function RequestBuilder() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  if (!currentRequest || currentRequest.type !== 'http') {
+  // Early return after all hooks
+  if (!httpRequest) {
     return null;
   }
 
-  // Use shared hooks for key-value collection management
-  const {
-    handleAdd: handleAddParam,
-    handleUpdate: handleUpdateParam,
-    handleDelete: handleDeleteParam,
-  } = useKeyValueCollection(currentRequest.params, (params) => updateRequest({ params }));
-
-  const {
-    handleAdd: handleAddHeader,
-    handleUpdate: handleUpdateHeader,
-    handleDelete: handleDeleteHeader,
-  } = useKeyValueCollection(currentRequest.headers, (headers) => updateRequest({ headers }));
-
-  // Settings handlers
-  const getEffectiveSettings = (): RequestSettings => {
+  // Settings handlers - memoized for performance
+  const getEffectiveSettings = useCallback((): RequestSettings => {
     return (
-      currentRequest.settings || {
+      httpRequest.settings || {
         timeout: globalSettings.defaultTimeout,
         followRedirects: globalSettings.followRedirects,
         maxRedirects: globalSettings.maxRedirects,
@@ -91,10 +102,10 @@ function RequestBuilder() {
         proxy: globalSettings.proxy,
       }
     );
-  };
+  }, [httpRequest.settings, globalSettings]);
 
   const handleSettingsChange = (updates: Partial<RequestSettings>) => {
-    const currentSettings = currentRequest.settings || getEffectiveSettings();
+    const currentSettings = httpRequest.settings || getEffectiveSettings();
     updateRequest({
       settings: { ...currentSettings, ...updates },
     });
@@ -114,7 +125,7 @@ function RequestBuilder() {
         proxy: { ...globalSettings.proxy },
       });
     } else {
-      const currentSettings = currentRequest.settings;
+      const currentSettings = httpRequest.settings;
       if (currentSettings) {
         const { proxy: _, ...rest } = currentSettings;
         updateRequest({ settings: { ...rest, proxy: undefined } });
@@ -133,12 +144,12 @@ function RequestBuilder() {
 
   // Body handlers
   const handleBodyTypeChange = (type: RequestBody['type']) => {
-    updateRequest({ body: { ...currentRequest.body, type } });
+    updateRequest({ body: { ...httpRequest.body, type } });
   };
 
   const handleBodyContentChange = (raw: string) => {
     updateRequest({
-      body: { ...currentRequest.body, raw },
+      body: { ...httpRequest.body, raw },
     });
   };
 
@@ -158,7 +169,7 @@ function RequestBuilder() {
 
   // Send request handler
   const handleSendRequest = useCallback(async () => {
-    if (!currentRequest?.url || isLoading) return;
+    if (!httpRequest?.url || isLoading) return;
 
     setLoading(true);
     const startTime = Date.now();
@@ -177,16 +188,16 @@ function RequestBuilder() {
       }
 
       let preRequestResult;
-      if (currentRequest.preRequestScript) {
+      if (httpRequest.preRequestScript) {
         const executor = new ScriptExecutor(envVars, {});
-        preRequestResult = await executor.executeScript(currentRequest.preRequestScript, {
+        preRequestResult = await executor.executeScript(httpRequest.preRequestScript, {
           request: {
-            url: currentRequest.url,
-            method: currentRequest.method,
-            headers: currentRequest.headers
+            url: httpRequest.url,
+            method: httpRequest.method,
+            headers: httpRequest.headers
               .filter((h) => h.enabled)
               .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {}),
-            body: currentRequest.body.raw,
+            body: httpRequest.body.raw,
           },
         });
 
@@ -199,17 +210,17 @@ function RequestBuilder() {
         setScriptResult({ preRequest: preRequestResult });
       }
 
-      const resolvedUrl = resolveVariables(currentRequest.url);
+      const resolvedUrl = resolveVariables(httpRequest.url);
 
       const params: Record<string, string> = {};
-      currentRequest.params
+      httpRequest.params
         .filter((p) => p.enabled && p.key)
         .forEach((p) => {
           params[p.key] = resolveVariables(p.value);
         });
 
       const headers: Record<string, string> = {};
-      currentRequest.headers
+      httpRequest.headers
         .filter((h) => h.enabled && h.key)
         .forEach((h) => {
           headers[h.key] = resolveVariables(h.value);
@@ -217,11 +228,6 @@ function RequestBuilder() {
 
       // Get effective settings (merge request-specific with global settings)
       const effectiveSettings = getEffectiveSettings();
-
-      // Configure HTTPS agent for SSL verification
-      const httpsAgent = new https.Agent({
-        rejectUnauthorized: effectiveSettings.verifySsl,
-      });
 
       // Configure proxy if enabled
       let proxyConfig: AxiosProxyConfig | false = false;
@@ -240,14 +246,13 @@ function RequestBuilder() {
       }
 
       const response = await axios({
-        method: currentRequest.method,
+        method: httpRequest.method,
         url: resolvedUrl,
         params,
         headers,
-        data: currentRequest.body.type !== 'none' ? currentRequest.body.raw : undefined,
+        data: httpRequest.body.type !== 'none' ? httpRequest.body.raw : undefined,
         timeout: effectiveSettings.timeout,
         maxRedirects: effectiveSettings.followRedirects ? effectiveSettings.maxRedirects : 0,
-        httpsAgent,
         proxy: proxyConfig,
         // Always capture response status (don't throw on non-2xx)
         validateStatus: () => true,
@@ -260,7 +265,7 @@ function RequestBuilder() {
         : JSON.stringify(response.data, null, 2);
       const responseData = {
         id: uuidv4(),
-        requestId: currentRequest.id,
+        requestId: httpRequest.id,
         status: response.status,
         statusText: response.statusText,
         headers: response.headers as Record<string, string | string[]>,
@@ -271,16 +276,16 @@ function RequestBuilder() {
       };
 
       let testResult;
-      if (currentRequest.testScript) {
+      if (httpRequest.testScript) {
         const executor = new ScriptExecutor(envVars, {});
-        testResult = await executor.executeScript(currentRequest.testScript, {
+        testResult = await executor.executeScript(httpRequest.testScript, {
           request: {
-            url: currentRequest.url,
-            method: currentRequest.method,
-            headers: currentRequest.headers
+            url: httpRequest.url,
+            method: httpRequest.method,
+            headers: httpRequest.headers
               .filter((h) => h.enabled)
               .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {}),
-            body: currentRequest.body.raw,
+            body: httpRequest.body.raw,
           },
           response: {
             status: response.status,
@@ -301,7 +306,7 @@ function RequestBuilder() {
       }
 
       setCurrentResponse(responseData);
-      addHistoryItem(currentRequest, responseData);
+      addHistoryItem(httpRequest, responseData);
 
       toast.success(`Request completed: ${response.status} ${response.statusText}`, {
         id: 'request',
@@ -327,7 +332,7 @@ function RequestBuilder() {
         : errorMessage;
       const errorResponse = {
         id: uuidv4(),
-        requestId: currentRequest.id,
+        requestId: httpRequest.id,
         status: axiosError?.response?.status || 0,
         statusText: axiosError?.response?.statusText || 'Error',
         headers: axiosError?.response?.headers || {},
@@ -338,7 +343,7 @@ function RequestBuilder() {
       };
 
       setCurrentResponse(errorResponse);
-      addHistoryItem(currentRequest, errorResponse);
+      addHistoryItem(httpRequest, errorResponse);
 
       toast.error(`Request failed: ${errorMessage}`, {
         id: 'request',
@@ -348,7 +353,7 @@ function RequestBuilder() {
       setLoading(false);
     }
   }, [
-    currentRequest,
+    httpRequest,
     isLoading,
     setLoading,
     getActiveEnvironment,
@@ -356,6 +361,7 @@ function RequestBuilder() {
     setScriptResult,
     setCurrentResponse,
     addHistoryItem,
+    getEffectiveSettings,
   ]);
 
   // Keyboard shortcut for sending request
@@ -375,8 +381,8 @@ function RequestBuilder() {
     <div className="flex-1 flex flex-col border-b border-border bg-background relative z-30">
       {/* Request Line */}
       <RequestLine
-        method={currentRequest.method}
-        url={currentRequest.url}
+        method={httpRequest.method}
+        url={httpRequest.url}
         isLoading={isLoading}
         onMethodChange={handleMethodChange}
         onUrlChange={handleUrlChange}
@@ -385,7 +391,7 @@ function RequestBuilder() {
       />
 
       {/* Code Generator Dialog */}
-      <CodeGeneratorDialog open={codeGenOpen} onOpenChange={setCodeGenOpen} request={currentRequest} />
+      <CodeGeneratorDialog open={codeGenOpen} onOpenChange={setCodeGenOpen} request={httpRequest} />
 
       {/* Request Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
@@ -394,14 +400,16 @@ function RequestBuilder() {
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="params" className="flex-1 sm:flex-none">
-                    Params
-                    {currentRequest.params.filter((p) => p.enabled && p.key).length > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
-                        {currentRequest.params.filter((p) => p.enabled && p.key).length}
-                      </span>
-                    )}
-                  </TabsTrigger>
+                  <span>
+                    <TabsTrigger value="params" className="flex-1 sm:flex-none">
+                      Params
+                      {httpRequest.params.filter((p) => p.enabled && p.key).length > 0 && (
+                        <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
+                          {httpRequest.params.filter((p) => p.enabled && p.key).length}
+                        </span>
+                      )}
+                    </TabsTrigger>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Query Parameters (⌥1)</p>
@@ -410,14 +418,16 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="headers" className="flex-1 sm:flex-none">
-                    Headers
-                    {currentRequest.headers.filter((h) => h.enabled && h.key).length > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
-                        {currentRequest.headers.filter((h) => h.enabled && h.key).length}
-                      </span>
-                    )}
-                  </TabsTrigger>
+                  <span>
+                    <TabsTrigger value="headers" className="flex-1 sm:flex-none border-r border-border/50 pr-3 mr-1">
+                      Headers
+                      {httpRequest.headers.filter((h) => h.enabled && h.key).length > 0 && (
+                        <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
+                          {httpRequest.headers.filter((h) => h.enabled && h.key).length}
+                        </span>
+                      )}
+                    </TabsTrigger>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Request Headers (⌥2)</p>
@@ -426,12 +436,14 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="body" className="flex-1 sm:flex-none">
-                    Body
-                    {currentRequest.body.type !== 'none' && currentRequest.body.raw && (
-                      <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
-                    )}
-                  </TabsTrigger>
+                  <span>
+                    <TabsTrigger value="body" className="flex-1 sm:flex-none">
+                      Body
+                      {httpRequest.body.type !== 'none' && httpRequest.body.raw && (
+                        <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
+                      )}
+                    </TabsTrigger>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Request Body (⌥3)</p>
@@ -440,12 +452,14 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="auth" className="flex-1 sm:flex-none">
-                    Auth
-                    {currentRequest.auth.type !== 'none' && (
-                      <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
-                    )}
-                  </TabsTrigger>
+                  <span>
+                    <TabsTrigger value="auth" className="flex-1 sm:flex-none border-r border-border/50 pr-3 mr-1">
+                      Auth
+                      {httpRequest.auth.type !== 'none' && (
+                        <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
+                      )}
+                    </TabsTrigger>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Authentication (⌥4)</p>
@@ -454,12 +468,14 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="scripts" className="flex-1 sm:flex-none">
-                    Scripts
-                    {(currentRequest.preRequestScript || currentRequest.testScript) && (
-                      <span className="ml-2 h-1.5 w-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20" />
-                    )}
-                  </TabsTrigger>
+                  <span>
+                    <TabsTrigger value="scripts" className="flex-1 sm:flex-none">
+                      Scripts
+                      {(httpRequest.preRequestScript || httpRequest.testScript) && (
+                        <span className="ml-2 h-1.5 w-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20" />
+                      )}
+                    </TabsTrigger>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Pre-request & Test Scripts (⌥5)</p>
@@ -468,11 +484,13 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="settings" className="flex-1 sm:flex-none">
-                    <Settings className="h-3.5 w-3.5 mr-1.5 opacity-70" />
-                    Settings
-                    {currentRequest.settings && <span className="ml-2 h-1.5 w-1.5 rounded-full bg-blue-500 ring-2 ring-blue-500/20" />}
-                  </TabsTrigger>
+                  <span>
+                    <TabsTrigger value="settings" className="flex-1 sm:flex-none">
+                      <Settings className="h-3.5 w-3.5 mr-1.5 opacity-70" />
+                      Settings
+                      {httpRequest.settings && <span className="ml-2 h-1.5 w-1.5 rounded-full bg-blue-500 ring-2 ring-blue-500/20" />}
+                    </TabsTrigger>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Request Settings (⌥6)</p>
@@ -484,7 +502,7 @@ function RequestBuilder() {
 
         <TabsContent value="params" className="flex-1 overflow-auto p-4">
           <KeyValueEditor
-            items={currentRequest.params}
+            items={httpRequest.params}
             onAdd={handleAddParam}
             onUpdate={handleUpdateParam}
             onDelete={handleDeleteParam}
@@ -497,7 +515,7 @@ function RequestBuilder() {
 
         <TabsContent value="headers" className="flex-1 overflow-auto p-4">
           <KeyValueEditor
-            items={currentRequest.headers}
+            items={httpRequest.headers}
             onAdd={handleAddHeader}
             onUpdate={handleUpdateHeader}
             onDelete={handleDeleteHeader}
@@ -510,21 +528,21 @@ function RequestBuilder() {
 
         <TabsContent value="body" className="flex-1 overflow-auto p-4">
           <RequestBodyEditor
-            body={currentRequest.body}
+            body={httpRequest.body}
             onBodyTypeChange={handleBodyTypeChange}
             onBodyContentChange={handleBodyContentChange}
-            url={currentRequest.url}
+            url={httpRequest.url}
           />
         </TabsContent>
 
         <TabsContent value="auth" className="flex-1 overflow-auto p-4">
-          <AuthConfiguration auth={currentRequest.auth} onChange={handleAuthChange} />
+          <AuthConfiguration auth={httpRequest.auth} onChange={handleAuthChange} />
         </TabsContent>
 
         <TabsContent value="scripts" className="flex-1 overflow-auto p-4">
           <ScriptsEditor
-            preRequestScript={currentRequest.preRequestScript || ''}
-            testScript={currentRequest.testScript || ''}
+            preRequestScript={httpRequest.preRequestScript || ''}
+            testScript={httpRequest.testScript || ''}
             onPreRequestScriptChange={handlePreRequestScriptChange}
             onTestScriptChange={handleTestScriptChange}
           />
@@ -532,7 +550,7 @@ function RequestBuilder() {
 
         <TabsContent value="settings" className="flex-1 overflow-auto p-4">
           <RequestSettingsEditor
-            settings={currentRequest.settings}
+            settings={httpRequest.settings}
             globalSettings={globalSettings}
             onSettingsChange={handleSettingsChange}
             onToggleOverride={handleToggleOverride}

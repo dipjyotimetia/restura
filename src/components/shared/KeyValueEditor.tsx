@@ -3,9 +3,8 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, ListPlus } from 'lucide-react';
 import { KeyValue } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   AlertDialog,
@@ -45,9 +44,12 @@ export default function KeyValueEditor({
     <TooltipProvider delayDuration={300}>
       <div className="space-y-3">
         {items.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground">
-            <p className="text-sm">No {itemType}s added yet</p>
-            <p className="text-xs mt-1">Click the button below to add your first {itemType}</p>
+          <div className="text-center py-10 px-4">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center shadow-sm">
+              <ListPlus className="h-6 w-6 text-slate-500 dark:text-slate-400" />
+            </div>
+            <p className="text-sm font-medium text-foreground mb-1">No {itemType}s added yet</p>
+            <p className="text-xs text-muted-foreground">Click the button below to add your first {itemType}</p>
           </div>
         )}
         <Stagger show={items.length > 0}>
@@ -130,7 +132,7 @@ export default function KeyValueEditor({
               onClick={onAdd}
               variant="outline"
               size="sm"
-              className="border-border hover:border-border"
+              className="border-border hover:border-slate-blue-500/50 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/30 hover:text-slate-blue-700 dark:hover:text-slate-blue-300 transition-all duration-200 shadow-sm hover:shadow"
             >
               <Plus className="mr-2 h-4 w-4" />
               {addButtonText}
@@ -143,14 +145,4 @@ export default function KeyValueEditor({
       </div>
     </TooltipProvider>
   );
-}
-
-// Helper function to create a new KeyValue item
-export function createKeyValueItem(): KeyValue {
-  return {
-    id: uuidv4(),
-    key: '',
-    value: '',
-    enabled: true,
-  };
 }
