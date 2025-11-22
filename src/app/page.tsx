@@ -1,23 +1,23 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import RequestBuilder from '@/components/RequestBuilder';
-import GrpcRequestBuilder from '@/components/GrpcRequestBuilder';
-import WebSocketClient from '@/components/WebSocketClient';
-import ResponseViewer from '@/components/ResponseViewer';
-import ConsolePane from '@/components/ConsolePane';
-import Sidebar from '@/components/Sidebar';
-import Header from '@/components/Header';
-import CommandPalette from '@/components/CommandPalette';
-import ClientHydration from '@/components/ClientHydration';
-import StatusBar from '@/components/StatusBar';
-import KeyboardShortcutsPanel from '@/components/KeyboardShortcutsPanel';
-import WelcomeOnboarding from '@/components/WelcomeOnboarding';
+import RequestBuilder from '@/features/http/components/RequestBuilder';
+import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
+import WebSocketClient from '@/features/websocket/components/WebSocketClient';
+import ResponseViewer from '@/components/shared/ResponseViewer';
+import ConsolePane from '@/components/shared/ConsolePane';
+import Sidebar from '@/features/collections/components/Sidebar';
+import Header from '@/components/shared/Header';
+import CommandPalette from '@/components/shared/CommandPalette';
+import ClientHydration from '@/components/shared/ClientHydration';
+import StatusBar from '@/components/shared/StatusBar';
+import KeyboardShortcutsPanel from '@/components/shared/KeyboardShortcutsPanel';
+import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { Button } from '@/components/ui/button';
 import { PanelLeft, ChevronDown, ChevronUp, GripHorizontal } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/shared/utils';
 
 type RequestMode = 'http' | 'grpc' | 'websocket';
 
