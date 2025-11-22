@@ -45,7 +45,7 @@ export default function StatusBar() {
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="h-6 bg-gradient-to-r from-slate-blue-900/90 to-indigo-900/90 border-t border-slate-blue-500/20 flex items-center justify-between px-3 text-xs text-slate-300 select-none"
+        className="h-7 bg-muted/80 border-t border-border/50 flex items-center justify-between px-3 text-[11px] text-muted-foreground select-none backdrop-blur-sm"
         role="status"
         aria-live="polite"
         aria-label="Application status bar"
@@ -55,13 +55,13 @@ export default function StatusBar() {
           {/* Environment indicator */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5 cursor-default">
-                <Globe className="h-3 w-3 text-slate-blue-400" />
+              <div className="flex items-center gap-1.5 cursor-default hover:text-foreground transition-colors">
+                <Globe className="h-3 w-3" />
                 <span className="font-medium">
                   {activeEnv?.name || 'No Environment'}
                 </span>
                 {activeEnv && (
-                  <span className="text-slate-500">
+                  <span className="opacity-70">
                     ({activeEnv.variables.filter((v) => v.enabled).length} vars)
                   </span>
                 )}
@@ -75,8 +75,8 @@ export default function StatusBar() {
           {/* Request count */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5 cursor-default">
-                <Database className="h-3 w-3 text-slate-blue-400" />
+              <div className="flex items-center gap-1.5 cursor-default hover:text-foreground transition-colors">
+                <Database className="h-3 w-3" />
                 <span>{todayRequests} requests today</span>
               </div>
             </TooltipTrigger>
@@ -89,8 +89,8 @@ export default function StatusBar() {
           {lastActivityTime && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex items-center gap-1.5 cursor-default">
-                  <Clock className="h-3 w-3 text-slate-blue-400" />
+                <div className="flex items-center gap-1.5 cursor-default hover:text-foreground transition-colors">
+                  <Clock className="h-3 w-3" />
                   <span>Last: {lastActivityTime}</span>
                 </div>
               </TooltipTrigger>
@@ -105,7 +105,7 @@ export default function StatusBar() {
         <div className="flex items-center gap-4">
           {/* Loading indicator */}
           {isLoading && (
-            <div className="flex items-center gap-1.5 text-amber-400 animate-pulse">
+            <div className="flex items-center gap-1.5 text-amber-500 animate-pulse font-medium">
               <Circle className="h-2 w-2 fill-current" />
               <span>Sending...</span>
             </div>
@@ -116,12 +116,12 @@ export default function StatusBar() {
             <TooltipTrigger asChild>
               <div
                 className={cn(
-                  'flex items-center gap-1.5 cursor-default',
-                  isOnline ? 'text-emerald-400' : 'text-red-400'
+                  'flex items-center gap-1.5 cursor-default transition-colors',
+                  isOnline ? 'text-emerald-500' : 'text-red-500'
                 )}
               >
                 {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                <span>{isOnline ? 'Online' : 'Offline'}</span>
+                <span className="font-medium">{isOnline ? 'Online' : 'Offline'}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top">
@@ -135,12 +135,12 @@ export default function StatusBar() {
               <TooltipTrigger asChild>
                 <div
                   className={cn(
-                    'flex items-center gap-1.5 cursor-default',
+                    'flex items-center gap-1.5 cursor-default font-medium',
                     currentResponse.status >= 200 && currentResponse.status < 300
-                      ? 'text-emerald-400'
+                      ? 'text-emerald-500'
                       : currentResponse.status >= 400
-                        ? 'text-red-400'
-                        : 'text-yellow-400'
+                        ? 'text-red-500'
+                        : 'text-amber-500'
                   )}
                 >
                   <Circle className="h-2 w-2 fill-current" />

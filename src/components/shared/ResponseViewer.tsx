@@ -68,7 +68,7 @@ const getStatusIcon = (status: number) => {
 
 function ResponseSkeleton() {
   return (
-    <Scale className="flex-1 flex flex-col bg-background relative z-20">
+    <Scale className="h-full flex flex-col bg-background relative z-20">
       <div className="flex items-center gap-4 px-4 py-2.5 border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/50 dark:bg-slate-800/50">
         <Skeleton className="h-7 w-28 rounded-md" />
         <div className="h-5 w-px bg-slate-200 dark:bg-slate-700" />
@@ -151,7 +151,7 @@ function ResponseViewer() {
 
   if (!currentResponse) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-background relative z-20 border-l border-border">
+      <div className="h-full flex items-center justify-center bg-background relative z-20 border-l border-border">
         <div className="text-center p-8 rounded-xl bg-muted border border-dashed border-border max-w-md shadow-md">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-gradient-to-br from-slate-blue-100 to-indigo-100 dark:from-slate-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
             <Zap className="h-7 w-7 text-slate-blue-600 dark:text-slate-blue-400" />
@@ -178,7 +178,7 @@ function ResponseViewer() {
     <TooltipProvider delayDuration={300}>
       <div
         className={cn(
-          "flex-1 flex flex-col bg-background relative z-20 transition-all duration-300 border-l border-border",
+          "h-full flex flex-col bg-background relative z-20 transition-all duration-300 border-l border-border",
           showAnimation && isSuccess && "animate-success-pulse",
           showAnimation && isError && "animate-error-shake"
         )}
@@ -238,38 +238,43 @@ function ResponseViewer() {
         </div>
 
         {/* Response Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-          <TabsList className="w-full rounded-none border-b border-border bg-transparent px-3 h-10">
-            <TabsTrigger
-              value="body"
-              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-primary/5 data-[state=active]:text-primary transition-all"
-            >
-              Body
-              {language !== 'text' && (
-                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-xs bg-primary/10 text-primary border-0">
-                  {language.toUpperCase()}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+          <div className="px-4 py-2 border-b border-border/40">
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="body">
+                Body
+                {language !== 'text' && (
+                  <Badge variant="secondary" className="ml-2 h-4 px-1 text-[10px]">
+                    {language.toUpperCase()}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="headers">
+                Headers
+                <Badge variant="secondary" className="ml-2 h-4 min-w-4 px-1 text-[10px] tabular-nums">
+                  {Object.keys(currentResponse.headers).length}
                 </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="headers"
-              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-primary/5 data-[state=active]:text-primary transition-all"
-            >
-              Headers
-              <Badge variant="secondary" className="ml-1.5 h-5 min-w-5 px-1.5 text-xs bg-primary/10 text-primary border-0 tabular-nums">
-                {Object.keys(currentResponse.headers).length}
-              </Badge>
-            </TabsTrigger>
-          </TabsList>
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-          <TabsContent value="body" className="flex-1 relative p-0 m-0">
-            <div className="absolute inset-0 p-3">
-              <CodeEditor value={formattedBody} language={language} readOnly height="100%" showCopyButton />
+          <TabsContent value="body" className="flex-1 relative p-0 m-0 min-h-0 border-none outline-none data-[state=active]:block h-full">
+            <div className="absolute inset-0">
+              {formattedBody ? (
+                 <CodeEditor value={formattedBody} language={language} readOnly height="100%" showCopyButton />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm">
+                  <div className="p-4 rounded-full bg-muted/50 mb-3">
+                    <Database className="h-6 w-6 opacity-20" />
+                  </div>
+                  <p>No body content returned</p>
+                </div>
+              )}
             </div>
           </TabsContent>
 
-          <TabsContent value="headers" className="flex-1 overflow-auto p-3 m-0">
-            <div className="space-y-1.5">
+          <TabsContent value="headers" className="flex-1 overflow-auto p-0 m-0 min-h-0">
+            <div className="p-4 space-y-2">
               {Object.entries(currentResponse.headers).map(([key, value]) => (
                 <div
                   key={key}

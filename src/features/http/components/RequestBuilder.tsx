@@ -400,19 +400,16 @@ function RequestBuilder() {
       <CodeGeneratorDialog open={codeGenOpen} onOpenChange={setCodeGenOpen} request={currentRequest} />
 
       {/* Request Details Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <div className="px-4 py-2 border-b bg-muted/20">
-          <TabsList className="h-9 w-full justify-start bg-muted/50 p-1 text-muted-foreground">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+        <div className="px-4 py-2 border-b border-border/40">
+          <TabsList className="w-full justify-start h-10 bg-muted/50 p-1">
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger
-                    value="params"
-                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                  >
+                  <TabsTrigger value="params" className="flex-1 sm:flex-none">
                     Params
                     {currentRequest.params.filter((p) => p.enabled && p.key).length > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-primary/10 text-primary tabular-nums">
+                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
                         {currentRequest.params.filter((p) => p.enabled && p.key).length}
                       </span>
                     )}
@@ -425,13 +422,10 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger
-                    value="headers"
-                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                  >
+                  <TabsTrigger value="headers" className="flex-1 sm:flex-none">
                     Headers
                     {currentRequest.headers.filter((h) => h.enabled && h.key).length > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-primary/10 text-primary tabular-nums">
+                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
                         {currentRequest.headers.filter((h) => h.enabled && h.key).length}
                       </span>
                     )}
@@ -444,13 +438,10 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger
-                    value="body"
-                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                  >
+                  <TabsTrigger value="body" className="flex-1 sm:flex-none">
                     Body
                     {currentRequest.body.type !== 'none' && currentRequest.body.raw && (
-                      <span className="ml-1.5 h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
                     )}
                   </TabsTrigger>
                 </TooltipTrigger>
@@ -461,13 +452,10 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger
-                    value="auth"
-                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                  >
+                  <TabsTrigger value="auth" className="flex-1 sm:flex-none">
                     Auth
                     {currentRequest.auth.type !== 'none' && (
-                      <span className="ml-1.5 h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
                     )}
                   </TabsTrigger>
                 </TooltipTrigger>
@@ -478,13 +466,10 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger
-                    value="scripts"
-                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                  >
+                  <TabsTrigger value="scripts" className="flex-1 sm:flex-none">
                     Scripts
                     {(currentRequest.preRequestScript || currentRequest.testScript) && (
-                      <span className="ml-1.5 h-2 w-2 rounded-full bg-amber-500" />
+                      <span className="ml-2 h-1.5 w-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20" />
                     )}
                   </TabsTrigger>
                 </TooltipTrigger>
@@ -495,13 +480,10 @@ function RequestBuilder() {
 
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger
-                    value="settings"
-                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                  >
-                    <Settings className="h-3.5 w-3.5 mr-1" />
+                  <TabsTrigger value="settings" className="flex-1 sm:flex-none">
+                    <Settings className="h-3.5 w-3.5 mr-1.5 opacity-70" />
                     Settings
-                    {currentRequest.settings && <span className="ml-1.5 h-2 w-2 rounded-full bg-blue-500" />}
+                    {currentRequest.settings && <span className="ml-2 h-1.5 w-1.5 rounded-full bg-blue-500 ring-2 ring-blue-500/20" />}
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent>

@@ -263,56 +263,52 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
         ) : (
           <>
             {/* Search Input */}
-            <div className="p-3 border-b border-border">
+            <div className="p-3 border-b border-border/40 bg-muted/10">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 h-8 text-xs bg-muted/50 border-transparent focus:bg-background focus:border-primary/20"
+                  className="pl-8 h-9 text-xs bg-background border-border/60 focus:bg-background focus:border-primary/30 transition-all"
                 />
                 {searchQuery && (
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 hover:bg-transparent"
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear search"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
                   </Button>
                 )}
               </div>
             </div>
 
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-              <TabsList className="w-full rounded-none border-b border-border bg-transparent p-0 h-10">
-                <TabsTrigger
-                  value="collections"
-                  className="flex-1 rounded-none h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-muted/30 data-[state=active]:text-primary transition-all"
-                >
-                  Collections
-                  {filteredCollections.length > 0 && (
-                    <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums font-medium">
-                      {filteredCollections.length}
-                    </span>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="history"
-                  className="flex-1 rounded-none h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-muted/30 data-[state=active]:text-primary transition-all"
-                >
-                  History
-                  {filteredHistory.length > 0 && (
-                    <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums font-medium">
-                      {filteredHistory.length}
-                    </span>
-                  )}
-                </TabsTrigger>
-              </TabsList>
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+              <div className="px-3 py-2 border-b border-border/40">
+                <TabsList className="w-full grid grid-cols-2">
+                  <TabsTrigger value="collections">
+                    Collections
+                    {filteredCollections.length > 0 && (
+                      <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums font-bold">
+                        {filteredCollections.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="history">
+                    History
+                    {filteredHistory.length > 0 && (
+                      <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums font-bold">
+                        {filteredHistory.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
-              <TabsContent value="collections" className="flex-1 overflow-auto p-3 mt-0">
+              <TabsContent value="collections" className="flex-1 overflow-auto p-3 mt-0 min-h-0">
                 <div className="flex flex-col gap-2">
                   <Button
                     onClick={handleNewCollection}

@@ -119,14 +119,14 @@ export default function Home() {
           {children[0]}
         </div>
         <div
-          className="h-2 bg-border/40 hover:bg-primary/10 cursor-row-resize flex items-center justify-center transition-colors group shrink-0"
+          className="h-1.5 bg-border/20 hover:bg-primary/20 cursor-row-resize flex items-center justify-center transition-all duration-200 group shrink-0 relative z-50"
           onMouseDown={handleResizeStart}
           role="separator"
           aria-orientation="horizontal"
           aria-label="Resize panels"
           tabIndex={0}
         >
-          <GripHorizontal className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
+          <div className="h-1 w-8 rounded-full bg-border group-hover:bg-primary/50 transition-colors" />
         </div>
         <div style={{ height: `${100 - splitPosition}%` }} className="min-h-0 overflow-hidden">
           {children[1]}
@@ -220,14 +220,9 @@ export default function Home() {
             </Button>
           )}
 
-          <main className="flex flex-1 flex-col relative bg-transparent">
-            {/* Subtle dot pattern background - reduced opacity */}
-            <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
-              <div className="absolute inset-0" style={{
-                backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)`,
-                backgroundSize: '24px 24px'
-              }} />
-            </div>
+          <main className="flex flex-1 flex-col relative bg-background/50">
+            {/* Premium noise texture background */}
+            <div className="absolute inset-0 noise-texture opacity-10 pointer-events-none" />
 
             <div className="flex flex-1 overflow-hidden relative z-10">
               <div className="flex flex-col flex-1">
