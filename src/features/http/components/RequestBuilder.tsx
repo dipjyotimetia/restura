@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { HttpMethod, KeyValue, AuthConfig as AuthConfigType, RequestSettings, RequestBody } from '@/types';
+import { HttpMethod, AuthConfig as AuthConfigType, RequestSettings, RequestBody } from '@/types';
 import { Settings } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import axios, { AxiosProxyConfig } from 'axios';
@@ -16,15 +16,17 @@ import CodeGeneratorDialog from '@/components/shared/CodeGeneratorDialog';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 // New modular components
-import KeyValueEditor, { createKeyValueItem } from '@/components/shared/KeyValueEditor';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import RequestBodyEditor from '@/features/http/components/RequestBodyEditor';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
 import RequestLine from '@/features/http/components/RequestLine';
 
-export default function RequestBuilder() {
+function RequestBuilder() {
   const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading, setScriptResult } =
     useRequestStore();
   const { addHistoryItem } = useHistoryStore();
@@ -64,6 +66,19 @@ export default function RequestBuilder() {
   if (!currentRequest || currentRequest.type !== 'http') {
     return null;
   }
+
+  // Use shared hooks for key-value collection management
+  const {
+    handleAdd: handleAddParam,
+    handleUpdate: handleUpdateParam,
+    handleDelete: handleDeleteParam,
+  } = useKeyValueCollection(currentRequest.params, (params) => updateRequest({ params }));
+
+  const {
+    handleAdd: handleAddHeader,
+    handleUpdate: handleUpdateHeader,
+    handleDelete: handleDeleteHeader,
+  } = useKeyValueCollection(currentRequest.headers, (headers) => updateRequest({ headers }));
 
   // Settings handlers
   const getEffectiveSettings = (): RequestSettings => {
@@ -114,40 +129,6 @@ export default function RequestBuilder() {
 
   const handleUrlChange = (url: string) => {
     updateRequest({ url });
-  };
-
-  // Params handlers
-  const handleAddParam = () => {
-    updateRequest({ params: [...currentRequest.params, createKeyValueItem()] });
-  };
-
-  const handleUpdateParam = (id: string, updates: Partial<KeyValue>) => {
-    updateRequest({
-      params: currentRequest.params.map((p) => (p.id === id ? { ...p, ...updates } : p)),
-    });
-  };
-
-  const handleDeleteParam = (id: string) => {
-    updateRequest({
-      params: currentRequest.params.filter((p) => p.id !== id),
-    });
-  };
-
-  // Headers handlers
-  const handleAddHeader = () => {
-    updateRequest({ headers: [...currentRequest.headers, createKeyValueItem()] });
-  };
-
-  const handleUpdateHeader = (id: string, updates: Partial<KeyValue>) => {
-    updateRequest({
-      headers: currentRequest.headers.map((h) => (h.id === id ? { ...h, ...updates } : h)),
-    });
-  };
-
-  const handleDeleteHeader = (id: string) => {
-    updateRequest({
-      headers: currentRequest.headers.filter((h) => h.id !== id),
-    });
   };
 
   // Body handlers
@@ -591,3 +572,5 @@ export default function RequestBuilder() {
     </div>
   );
 }
+
+export default withErrorBoundary(RequestBuilder);

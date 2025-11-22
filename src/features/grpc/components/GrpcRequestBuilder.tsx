@@ -9,14 +9,12 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import {
-  KeyValue,
   AuthConfig as AuthConfigType,
   GrpcMethodType,
   GrpcRequest,
   ProtoFileInfo,
 } from '@/types';
-import { Send, Plus, Trash2, Upload, FileText, AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
+import { Send, Plus, Trash2, AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import dynamic from 'next/dynamic';
 import {
@@ -26,7 +24,6 @@ import {
   buildAuthMetadata,
   makeElectronGrpcRequest,
   startElectronGrpcStream,
-  parseProtoFile,
   validateGrpcUrl,
   validateServiceName,
   createErrorResponse,
@@ -40,6 +37,10 @@ import {
 } from '@/features/grpc/lib/grpcReflection';
 import { toast } from 'sonner';
 import { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
+import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
+import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
 
 const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
 
@@ -50,7 +51,7 @@ interface ValidationState {
   message: { valid: boolean; error?: string };
 }
 
-export default function GrpcRequestBuilder() {
+function GrpcRequestBuilder() {
   const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore();
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables } = useEnvironmentStore();
@@ -83,6 +84,13 @@ export default function GrpcRequestBuilder() {
   }
 
   const grpcRequest = currentRequest as GrpcRequest;
+
+  // Use shared hook for metadata collection management
+  const {
+    handleAdd: handleAddMetadata,
+    handleUpdate: handleUpdateMetadata,
+    handleDelete: handleDeleteMetadata,
+  } = useKeyValueCollection(grpcRequest.metadata, (metadata) => updateRequest({ metadata }));
 
   const validateUrl = useCallback((url: string) => {
     const result = validateGrpcUrl(url);
@@ -195,28 +203,6 @@ export default function GrpcRequestBuilder() {
   const handleMessageChange = (message: string) => {
     updateRequest({ message });
     validateMessage(message);
-  };
-
-  const handleAddMetadata = () => {
-    const newMetadata: KeyValue = {
-      id: uuidv4(),
-      key: '',
-      value: '',
-      enabled: true,
-    };
-    updateRequest({ metadata: [...grpcRequest.metadata, newMetadata] });
-  };
-
-  const handleUpdateMetadata = (id: string, updates: Partial<KeyValue>) => {
-    updateRequest({
-      metadata: grpcRequest.metadata.map((m) => (m.id === id ? { ...m, ...updates } : m)),
-    });
-  };
-
-  const handleDeleteMetadata = (id: string) => {
-    updateRequest({
-      metadata: grpcRequest.metadata.filter((m) => m.id !== id),
-    });
   };
 
   const handleAuthChange = (auth: AuthConfigType) => {
@@ -387,69 +373,6 @@ export default function GrpcRequestBuilder() {
       toast.info('Request template generated', {
         description: `Generated template for ${method.inputMessageSchema.name}`,
       });
-    }
-  };
-
-  const handleProtoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.endsWith('.proto')) {
-      toast.error('Invalid file type', {
-        description: 'Please upload a .proto file',
-      });
-      return;
-    }
-
-    setProtoFile(file);
-
-    try {
-      const content = await file.text();
-      const parsed = parseProtoFile(content);
-      setProtoInfo(parsed);
-
-      // Auto-fill service if available
-      if (parsed.services.length > 0) {
-        const firstService = parsed.services[0];
-        if (firstService) {
-          updateRequest({ service: firstService.fullName });
-          validateService(firstService.fullName);
-
-          // Auto-fill first method if available
-          if (firstService.methods.length > 0) {
-            const firstMethod = firstService.methods[0];
-            if (firstMethod) {
-              updateRequest({ method: firstMethod.name });
-              validateMethod(firstMethod.name);
-
-              // Set method type based on streaming config
-              let methodType: GrpcMethodType = 'unary';
-              if (firstMethod.clientStreaming && firstMethod.serverStreaming) {
-                methodType = 'bidirectional-streaming';
-              } else if (firstMethod.serverStreaming) {
-                methodType = 'server-streaming';
-              } else if (firstMethod.clientStreaming) {
-                methodType = 'client-streaming';
-              }
-              updateRequest({ methodType });
-            }
-          }
-        }
-
-        toast.success('Proto file parsed', {
-          description: `Found ${parsed.services.length} service(s) and ${Object.keys(parsed.messages).length} message type(s)`,
-        });
-      } else {
-        toast.warning('No services found', {
-          description: 'The proto file does not contain any service definitions',
-        });
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to parse proto file';
-      toast.error('Proto parsing failed', {
-        description: errorMessage,
-      });
-      setProtoInfo(null);
     }
   };
 
@@ -642,15 +565,14 @@ export default function GrpcRequestBuilder() {
             {isLoading ? 'Invoking...' : 'Invoke'}
           </Button>
           
-          {streamControl && (
-            <Button variant="destructive" onClick={() => {
-              streamControl.cancelStream();
+          <GrpcStreamingControls
+            streamControl={streamControl}
+            onCancel={() => {
+              streamControl?.cancelStream();
               setStreamControl(null);
               setLoading(false);
-            }}>
-              Cancel Stream
-            </Button>
-          )}
+            }}
+          />
         </div>
 
         <div className="flex gap-2">
@@ -749,19 +671,20 @@ export default function GrpcRequestBuilder() {
             {isDiscovering ? 'Discovering...' : 'Discover'}
           </Button>
 
-          <div className="relative">
-            <input
-              type="file"
-              accept=".proto"
-              onChange={handleProtoUpload}
-              className="hidden"
-              id="proto-upload"
-            />
-            <Button variant="outline" onClick={() => document.getElementById('proto-upload')?.click()}>
-              <Upload className="mr-2 h-4 w-4" />
-              {protoFile ? protoFile.name : 'Upload .proto'}
-            </Button>
-          </div>
+          <GrpcProtoUploader
+            protoFile={protoFile}
+            onProtoFileChange={setProtoFile}
+            onProtoInfoChange={setProtoInfo}
+            onServiceChange={(service) => {
+              updateRequest({ service });
+              validateService(service);
+            }}
+            onMethodChange={(method) => {
+              updateRequest({ method });
+              validateMethod(method);
+            }}
+            onMethodTypeChange={(methodType) => updateRequest({ methodType })}
+          />
         </div>
 
         {/* Method type description */}
@@ -830,19 +753,7 @@ export default function GrpcRequestBuilder() {
         )}
 
         {/* Proto file info */}
-        {protoInfo && (
-          <div className="bg-muted p-2 rounded text-xs space-y-1 border border-border">
-            <div className="flex items-center gap-1 font-medium">
-              <FileText className="h-3 w-3" />
-              Proto File Info
-            </div>
-            <div>Package: {protoInfo.package || 'default'}</div>
-            <div>
-              Services: {protoInfo.services.map((s) => s.name).join(', ') || 'None'}
-            </div>
-            <div>Messages: {Object.keys(protoInfo.messages).join(', ') || 'None'}</div>
-          </div>
-        )}
+        <GrpcProtoInfo protoInfo={protoInfo} />
       </div>
 
       {/* Request Details Tabs */}
@@ -967,22 +878,12 @@ export default function GrpcRequestBuilder() {
 
         {streamingMessages.length > 0 && (
           <TabsContent value="streaming" className="flex-1 overflow-auto p-4">
-            <div className="space-y-2">
-              <div className="text-sm text-muted-foreground mb-2">
-                Streaming messages received: {streamingMessages.length}
-              </div>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {streamingMessages.map((message, index) => (
-                  <div key={index} className="bg-muted p-2 rounded border border-border">
-                    <div className="text-xs font-medium mb-1">Message {index + 1}</div>
-                    <pre className="text-xs whitespace-pre-wrap">{message}</pre>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <GrpcStreamingMessages messages={streamingMessages} />
           </TabsContent>
         )}
       </Tabs>
     </div>
   );
 }
+
+export default withErrorBoundary(GrpcRequestBuilder);

@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/shared/utils';
 import { Scale, Stagger, StaggerItem } from '@/components/ui/motion';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
 
@@ -96,7 +97,7 @@ function ResponseSkeleton() {
   );
 }
 
-export default function ResponseViewer() {
+function ResponseViewer() {
   const { currentResponse, isLoading } = useRequestStore();
   const [activeTab, setActiveTab] = useState('body');
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
@@ -306,3 +307,5 @@ export default function ResponseViewer() {
     </TooltipProvider>
   );
 }
+
+export default withErrorBoundary(ResponseViewer);
