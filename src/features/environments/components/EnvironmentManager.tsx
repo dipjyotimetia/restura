@@ -10,13 +10,14 @@ import { KeyValue } from '@/types';
 import { Plus, Trash2, Edit, Globe } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 interface EnvironmentManagerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export default function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
+function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
   const {
     environments,
     activeEnvironmentId,
@@ -331,3 +332,5 @@ export default function EnvironmentManager({ open, onOpenChange }: EnvironmentMa
     </Dialog>
   );
 }
+
+export default withErrorBoundary(EnvironmentManager);

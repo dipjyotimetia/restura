@@ -14,6 +14,7 @@ import { CollectionItem, HttpRequest, Response as ApiResponse } from '@/types';
 import { Play, StopCircle, CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { toast } from 'sonner';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 interface RunnerResult {
   itemId: string;
@@ -24,7 +25,7 @@ interface RunnerResult {
   error?: string;
 }
 
-export default function CollectionRunner() {
+function CollectionRunner() {
   const { collections } = useCollectionStore();
   const { environments, activeEnvironmentId } = useEnvironmentStore();
   const { settings: globalSettings } = useSettingsStore();
@@ -303,3 +304,5 @@ export default function CollectionRunner() {
     </Dialog>
   );
 }
+
+export default withErrorBoundary(CollectionRunner);
