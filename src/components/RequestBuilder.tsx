@@ -8,7 +8,8 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { HttpMethod, KeyValue, AuthConfig as AuthConfigType, RequestSettings, RequestBody } from '@/types';
 import { Settings } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import axios from 'axios';
+import axios, { AxiosProxyConfig } from 'axios';
+import https from 'https';
 import AuthConfiguration from '@/components/AuthConfig';
 import ScriptExecutor from '@/lib/scriptExecutor';
 import CodeGeneratorDialog from '@/components/CodeGeneratorDialog';
@@ -233,27 +234,67 @@ export default function RequestBuilder() {
           headers[h.key] = resolveVariables(h.value);
         });
 
+      // Get effective settings (merge request-specific with global settings)
+      const effectiveSettings = getEffectiveSettings();
+
+      // Configure HTTPS agent for SSL verification
+      const httpsAgent = new https.Agent({
+        rejectUnauthorized: effectiveSettings.verifySsl,
+      });
+
+      // Configure proxy if enabled
+      let proxyConfig: AxiosProxyConfig | false = false;
+      if (effectiveSettings.proxy?.enabled) {
+        proxyConfig = {
+          host: effectiveSettings.proxy.host,
+          port: effectiveSettings.proxy.port,
+          protocol: effectiveSettings.proxy.type,
+          ...(effectiveSettings.proxy.auth && {
+            auth: {
+              username: effectiveSettings.proxy.auth.username,
+              password: effectiveSettings.proxy.auth.password,
+            },
+          }),
+        };
+      }
+
       const response = await axios({
         method: currentRequest.method,
         url: resolvedUrl,
         params,
         headers,
         data: currentRequest.body.type !== 'none' ? currentRequest.body.raw : undefined,
+        timeout: effectiveSettings.timeout,
+        maxRedirects: effectiveSettings.followRedirects ? effectiveSettings.maxRedirects : 0,
+        httpsAgent,
+        proxy: proxyConfig,
+        // Always capture response status (don't throw on non-2xx)
+        validateStatus: () => true,
       });
 
       const endTime = Date.now();
 
+      const bodyContent = typeof response.data === 'string'
+        ? response.data
+        : JSON.stringify(response.data, null, 2);
       const responseData = {
         id: uuidv4(),
         requestId: currentRequest.id,
         status: response.status,
         statusText: response.statusText,
-        headers: response.headers as Record<string, string>,
-        body: typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2),
-        size: new Blob([JSON.stringify(response.data)]).size,
+        headers: response.headers as Record<string, string | string[]>,
+        body: bodyContent,
+        size: new Blob([bodyContent]).size,
         time: endTime - startTime,
         timestamp: Date.now(),
       };
+
+      console.log('[RequestBuilder] Response data created:', {
+        bodyLength: bodyContent?.length,
+        bodyPreview: bodyContent?.substring(0, 100),
+        size: responseData.size,
+        status: responseData.status,
+      });
 
       let testResult;
       if (currentRequest.testScript) {
@@ -270,7 +311,12 @@ export default function RequestBuilder() {
           response: {
             status: response.status,
             statusText: response.statusText,
-            headers: response.headers as Record<string, string>,
+            headers: Object.fromEntries(
+              Object.entries(response.headers).map(([key, value]) => [
+                key,
+                Array.isArray(value) ? value.join(', ') : value
+              ])
+            ),
             body: response.data,
             time: endTime - startTime,
             size: responseData.size,
@@ -280,6 +326,11 @@ export default function RequestBuilder() {
         setScriptResult({ preRequest: preRequestResult, test: testResult });
       }
 
+      console.log('[RequestBuilder] Setting response in store:', {
+        id: responseData.id,
+        bodyLength: responseData.body?.length,
+        hasBody: !!responseData.body,
+      });
       setCurrentResponse(responseData);
       addHistoryItem(currentRequest, responseData);
 
@@ -293,7 +344,7 @@ export default function RequestBuilder() {
       const isAxiosError = (
         err: unknown
       ): err is {
-        response?: { status?: number; statusText?: string; headers?: Record<string, string>; data?: unknown };
+        response?: { status?: number; statusText?: string; headers?: Record<string, string | string[]>; data?: unknown };
         message?: string;
       } => {
         return typeof err === 'object' && err !== null && ('response' in err || 'message' in err);
@@ -302,14 +353,17 @@ export default function RequestBuilder() {
       const axiosError = isAxiosError(error) ? error : null;
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
 
+      const errorBody = axiosError?.response?.data
+        ? JSON.stringify(axiosError.response.data, null, 2)
+        : errorMessage;
       const errorResponse = {
         id: uuidv4(),
         requestId: currentRequest.id,
         status: axiosError?.response?.status || 0,
         statusText: axiosError?.response?.statusText || 'Error',
         headers: axiosError?.response?.headers || {},
-        body: axiosError?.response?.data ? JSON.stringify(axiosError.response.data, null, 2) : errorMessage,
-        size: 0,
+        body: errorBody,
+        size: new Blob([errorBody]).size,
         time: endTime - startTime,
         timestamp: Date.now(),
       };
@@ -366,18 +420,18 @@ export default function RequestBuilder() {
 
       {/* Request Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-muted/30">
-          <TabsList className="h-10 bg-background/60 backdrop-blur-sm border border-slate-blue-500/10">
+        <div className="px-4 py-2 border-b bg-muted/20">
+          <TabsList className="h-9 w-full justify-start bg-muted/50 p-1 text-muted-foreground">
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="params"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Params
                     {currentRequest.params.filter((p) => p.enabled && p.key).length > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 tabular-nums">
+                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-primary/10 text-primary tabular-nums">
                         {currentRequest.params.filter((p) => p.enabled && p.key).length}
                       </span>
                     )}
@@ -392,11 +446,11 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="headers"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Headers
                     {currentRequest.headers.filter((h) => h.enabled && h.key).length > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 tabular-nums">
+                      <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[11px] font-medium rounded-full bg-primary/10 text-primary tabular-nums">
                         {currentRequest.headers.filter((h) => h.enabled && h.key).length}
                       </span>
                     )}
@@ -411,7 +465,7 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="body"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Body
                     {currentRequest.body.type !== 'none' && currentRequest.body.raw && (
@@ -428,7 +482,7 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="auth"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Auth
                     {currentRequest.auth.type !== 'none' && (
@@ -445,7 +499,7 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="scripts"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     Scripts
                     {(currentRequest.preRequestScript || currentRequest.testScript) && (
@@ -462,7 +516,7 @@ export default function RequestBuilder() {
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="settings"
-                    className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+                    className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
                     <Settings className="h-3.5 w-3.5 mr-1" />
                     Settings

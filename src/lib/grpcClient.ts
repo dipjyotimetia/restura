@@ -13,6 +13,7 @@ import {
   ProtoFieldDefinition,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { getElectronAPI, isElectron } from './platform';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {
@@ -404,6 +405,132 @@ export function prepareGrpcRequest(
   };
 }
 
+// Make gRPC request via Electron IPC
+export async function makeElectronGrpcRequest(
+  request: GrpcRequest,
+  protoContent: string,
+  protoFileName: string,
+  resolveVariables: (text: string) => string
+): Promise<GrpcResponse> {
+  if (!isElectron()) {
+    throw new Error('Electron environment required for full gRPC support');
+  }
+
+  const prepared = prepareGrpcRequest(request, resolveVariables);
+  const startTime = Date.now();
+
+  try {
+    const api = getElectronAPI();
+    if (!api) throw new Error('Electron API not available');
+
+    const response = await api.grpc.request({
+      url: prepared.url,
+      service: request.service,
+      method: request.method,
+      methodType: request.methodType,
+      metadata: prepared.metadata,
+      message: prepared.message,
+      protoContent,
+      protoFileName,
+    }) as any; // Cast to any because IPC returns unknown
+
+    const endTime = Date.now();
+
+    const bodyStr = JSON.stringify(response.message || response.messages || {}, null, 2);
+    const messagesStrs = response.messages ? response.messages.map((m: unknown) => JSON.stringify(m)) : undefined;
+
+    // Calculate total response size (body + messages if streaming)
+    const bodySize = new Blob([bodyStr]).size;
+    const messagesSize = messagesStrs
+      ? messagesStrs.reduce((acc: number, msg: string) => acc + new Blob([msg]).size, 0)
+      : 0;
+    const totalSize = bodySize + messagesSize;
+
+    return {
+      id: uuidv4(),
+      requestId: request.id,
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+      body: bodyStr,
+      size: totalSize,
+      time: endTime - startTime,
+      timestamp: Date.now(),
+      grpcStatus: response.status,
+      grpcStatusText: response.statusText,
+      trailers: response.trailers,
+      messages: messagesStrs,
+      isStreaming: !!response.messages,
+    };
+  } catch (error: unknown) {
+    return createErrorResponse(request.id, error, startTime);
+  }
+}
+
+// Start gRPC stream via Electron IPC
+export function startElectronGrpcStream(
+  request: GrpcRequest,
+  protoContent: string,
+  protoFileName: string,
+  resolveVariables: (text: string) => string,
+  callbacks: {
+    onData: (data: unknown) => void;
+    onError: (error: unknown) => void;
+    onStatus: (status: unknown) => void;
+  }
+): {
+  sendMessage: (message: unknown) => void;
+  endStream: () => void;
+  cancelStream: () => void;
+} {
+  if (!isElectron()) {
+    throw new Error('Electron environment required for full gRPC support');
+  }
+
+  const api = getElectronAPI();
+  if (!api) throw new Error('Electron API not available');
+
+  const prepared = prepareGrpcRequest(request, resolveVariables);
+  const requestId = request.id;
+
+  // Setup listeners
+  const dataChannel = `grpc:data:${requestId}`;
+  const errorChannel = `grpc:error:${requestId}`;
+  const statusChannel = `grpc:status:${requestId}`;
+
+  api.grpc.on(dataChannel, callbacks.onData);
+  api.grpc.on(errorChannel, callbacks.onError);
+  api.grpc.on(statusChannel, callbacks.onStatus);
+
+  // Start stream
+  api.grpc.startStream({
+    id: requestId,
+    url: prepared.url,
+    service: request.service,
+    method: request.method,
+    methodType: request.methodType,
+    metadata: prepared.metadata,
+    message: prepared.message,
+    protoContent,
+    protoFileName,
+  });
+
+  return {
+    sendMessage: (message: unknown) => {
+      api.grpc.sendMessage(requestId, message);
+    },
+    endStream: () => {
+      api.grpc.endStream(requestId);
+    },
+    cancelStream: () => {
+      api.grpc.cancelStream(requestId);
+      api.grpc.removeListener(dataChannel, callbacks.onData);
+      api.grpc.removeListener(errorChannel, callbacks.onError);
+      api.grpc.removeListener(statusChannel, callbacks.onStatus);
+    }
+  };
+}
+
 // Create error response
 export function createErrorResponse(
   requestId: string,
@@ -413,22 +540,23 @@ export function createErrorResponse(
   const endTime = Date.now();
 
   if (error instanceof GrpcClientError) {
+    const errorBody = JSON.stringify(
+      {
+        error: error.message,
+        details: error.details,
+        metadata: error.metadata,
+      },
+      null,
+      2
+    );
     return {
       id: uuidv4(),
       requestId,
       status: error.statusCode,
       statusText: GrpcStatusCodeName[error.statusCode] || 'UNKNOWN',
       headers: {},
-      body: JSON.stringify(
-        {
-          error: error.message,
-          details: error.details,
-          metadata: error.metadata,
-        },
-        null,
-        2
-      ),
-      size: 0,
+      body: errorBody,
+      size: new Blob([errorBody]).size,
       time: endTime - startTime,
       timestamp: Date.now(),
       grpcStatus: error.statusCode,
@@ -438,6 +566,7 @@ export function createErrorResponse(
   }
 
   const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+  const errorBody = JSON.stringify({ error: errorMessage }, null, 2);
 
   return {
     id: uuidv4(),
@@ -445,8 +574,8 @@ export function createErrorResponse(
     status: GrpcStatusCode.UNKNOWN,
     statusText: 'UNKNOWN',
     headers: {},
-    body: JSON.stringify({ error: errorMessage }, null, 2),
-    size: 0,
+    body: errorBody,
+    size: new Blob([errorBody]).size,
     time: endTime - startTime,
     timestamp: Date.now(),
     grpcStatus: GrpcStatusCode.UNKNOWN,

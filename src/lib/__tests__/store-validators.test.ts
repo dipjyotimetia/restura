@@ -47,14 +47,13 @@ describe('store-validators', () => {
       expect(result.type).toBe('grpc');
     });
 
-    it('should return original request if validation fails', () => {
+    it('should throw error if validation fails', () => {
       const invalidRequest = {
         id: 'invalid',
         // missing required fields
       };
 
-      const result = validateRequest(invalidRequest);
-      expect(result).toEqual(invalidRequest);
+      expect(() => validateRequest(invalidRequest)).toThrow('Request validation failed');
     });
   });
 

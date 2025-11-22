@@ -23,16 +23,19 @@ export function validateRequest(request: unknown): Request {
     return grpcResult.data as Request;
   }
 
-  // Return original if validation fails (for backward compatibility)
-  // Log the error in development
-  if (process.env.NODE_ENV === 'development') {
-    console.warn('Request validation failed:', {
-      httpErrors: httpResult.error?.errors,
-      grpcErrors: grpcResult.error?.errors,
-    });
-  }
+  // Validation failed for both HTTP and gRPC schemas
+  const errorDetails = {
+    httpErrors: httpResult.error?.errors,
+    grpcErrors: grpcResult.error?.errors,
+  };
 
-  return request as Request;
+  console.error('Request validation failed:', errorDetails);
+
+  // Throw error to prevent invalid data from entering the store
+  throw new Error(
+    `Request validation failed. Neither HTTP nor gRPC schema matched. ` +
+    `Errors: ${JSON.stringify(errorDetails)}`
+  );
 }
 
 /**
@@ -55,11 +58,12 @@ export function validateEnvironment(env: unknown): Environment {
     return result.data;
   }
 
-  if (process.env.NODE_ENV === 'development') {
-    console.warn('Environment validation failed:', result.error?.errors);
-  }
+  console.error('Environment validation failed:', result.error?.errors);
 
-  return env as Environment;
+  // Throw error to prevent invalid data from entering the store
+  throw new Error(
+    `Environment validation failed: ${result.error?.errors.map((e) => e.message).join(', ')}`
+  );
 }
 
 /**
@@ -71,11 +75,12 @@ export function validateCollection(collection: unknown): Collection {
     return result.data;
   }
 
-  if (process.env.NODE_ENV === 'development') {
-    console.warn('Collection validation failed:', result.error?.errors);
-  }
+  console.error('Collection validation failed:', result.error?.errors);
 
-  return collection as Collection;
+  // Throw error to prevent invalid data from entering the store
+  throw new Error(
+    `Collection validation failed: ${result.error?.errors.map((e) => e.message).join(', ')}`
+  );
 }
 
 /**

@@ -26,8 +26,9 @@ const formatJson = (body: string): string => {
   }
 };
 
-const detectLanguage = (body: string, headers: Record<string, string>): string => {
-  const contentType = headers['content-type'] || headers['Content-Type'] || '';
+const detectLanguage = (body: string, headers: Record<string, string | string[]>): string => {
+  const contentTypeHeader = headers['content-type'] || headers['Content-Type'];
+  const contentType = (Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : (contentTypeHeader || '')) || '';
 
   if (contentType.includes('application/json')) return 'json';
   if (contentType.includes('application/xml') || contentType.includes('text/xml')) return 'xml';
@@ -100,6 +101,13 @@ export default function ResponseViewer() {
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [showAnimation, setShowAnimation] = useState(false);
 
+  console.log('[ResponseViewer] Render:', {
+    hasResponse: !!currentResponse,
+    isLoading,
+    bodyLength: currentResponse?.body?.length,
+    bodyPreview: currentResponse?.body?.substring(0, 100),
+  });
+
   // useMemo hooks MUST be before any early returns to follow Rules of Hooks
   const language = useMemo(
     () => (currentResponse ? detectLanguage(currentResponse.body, currentResponse.headers) : 'json'),
@@ -141,8 +149,8 @@ export default function ResponseViewer() {
 
   if (!currentResponse) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl relative z-20 noise-texture">
-        <div className="text-center p-8 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-600 max-w-md shadow-elevation-1">
+      <div className="flex-1 flex items-center justify-center bg-white/5 dark:bg-white/5 backdrop-blur-xl relative z-20 noise-texture border-l border-white/10 dark:border-white/5">
+        <div className="text-center p-8 rounded-xl bg-white/10 dark:bg-white/5 border border-dashed border-white/20 dark:border-white/10 max-w-md shadow-glass">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-gradient-to-br from-slate-blue-100 to-indigo-100 dark:from-slate-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
             <Zap className="h-7 w-7 text-slate-blue-600 dark:text-slate-blue-400" />
           </div>
@@ -168,13 +176,13 @@ export default function ResponseViewer() {
     <TooltipProvider delayDuration={300}>
       <div
         className={cn(
-          "flex-1 flex flex-col bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl relative z-20 noise-texture transition-all duration-300",
+          "flex-1 flex flex-col bg-white/5 dark:bg-white/5 backdrop-blur-xl relative z-20 noise-texture transition-all duration-300 border-l border-white/10 dark:border-white/5",
           showAnimation && isSuccess && "animate-success-pulse",
           showAnimation && isError && "animate-error-shake"
         )}
       >
         {/* Response Info Bar */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/10 dark:border-white/5 bg-transparent">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Status</span>
             <Tooltip>
@@ -229,24 +237,24 @@ export default function ResponseViewer() {
 
         {/* Response Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-          <TabsList className="w-full rounded-none border-b border-slate-200/60 dark:border-slate-700/40 bg-transparent px-3 h-10">
+          <TabsList className="w-full rounded-none border-b border-border bg-transparent px-3 h-10">
             <TabsTrigger
               value="body"
-              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-slate-blue-500 data-[state=active]:bg-slate-blue-50/50 dark:data-[state=active]:bg-slate-blue-950/20 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300 transition-all"
+              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-primary/5 data-[state=active]:text-primary transition-all"
             >
               Body
               {language !== 'text' && (
-                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-xs bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 border-0">
+                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-xs bg-primary/10 text-primary border-0">
                   {language.toUpperCase()}
                 </Badge>
               )}
             </TabsTrigger>
             <TabsTrigger
               value="headers"
-              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-slate-blue-500 data-[state=active]:bg-slate-blue-50/50 dark:data-[state=active]:bg-slate-blue-950/20 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300 transition-all"
+              className="h-10 text-xs font-medium data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:bg-primary/5 data-[state=active]:text-primary transition-all"
             >
               Headers
-              <Badge variant="secondary" className="ml-1.5 h-5 min-w-5 px-1.5 text-xs bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 border-0 tabular-nums">
+              <Badge variant="secondary" className="ml-1.5 h-5 min-w-5 px-1.5 text-xs bg-primary/10 text-primary border-0 tabular-nums">
                 {Object.keys(currentResponse.headers).length}
               </Badge>
             </TabsTrigger>
@@ -266,7 +274,9 @@ export default function ResponseViewer() {
                   className="group flex gap-3 p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 text-xs transition-all"
                 >
                   <span className="font-semibold min-w-[180px] text-slate-blue-700 dark:text-slate-blue-300 truncate">{key}:</span>
-                  <span className="text-slate-600 dark:text-slate-400 break-all flex-1">{value}</span>
+                  <span className="text-slate-600 dark:text-slate-400 break-all flex-1">
+                    {Array.isArray(value) ? value.join(', ') : value}
+                  </span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button

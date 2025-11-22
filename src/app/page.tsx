@@ -118,14 +118,14 @@ export default function Home() {
           {children[0]}
         </div>
         <div
-          className="h-2 bg-slate-200/60 dark:bg-slate-700/40 hover:bg-slate-blue-300 dark:hover:bg-slate-blue-700 cursor-row-resize flex items-center justify-center transition-colors group shrink-0"
+          className="h-2 bg-border/40 hover:bg-primary/10 cursor-row-resize flex items-center justify-center transition-colors group shrink-0"
           onMouseDown={handleResizeStart}
           role="separator"
           aria-orientation="horizontal"
           aria-label="Resize panels"
           tabIndex={0}
         >
-          <GripHorizontal className="h-3 w-3 text-slate-400 group-hover:text-slate-blue-600 dark:group-hover:text-slate-blue-400" />
+          <GripHorizontal className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
         </div>
         <div style={{ height: `${100 - splitPosition}%` }} className="min-h-0 overflow-hidden">
           {children[1]}
@@ -159,13 +159,6 @@ export default function Home() {
 
   return (
     <div className="flex h-screen flex-col bg-background relative overflow-hidden">
-      {/* Animated gradient mesh background for glassmorphism */}
-      <div className="gradient-mesh-bg">
-        <div className="gradient-orb gradient-orb-1" />
-        <div className="gradient-orb gradient-orb-2" />
-        <div className="gradient-orb gradient-orb-3" />
-      </div>
-
       <Header
         requestMode={requestMode}
         onRequestModeChange={setRequestMode}
@@ -182,10 +175,10 @@ export default function Home() {
       <ClientHydration
         fallback={
           <div className="flex flex-1 overflow-hidden">
-            <div className="w-72 bg-slate-100 dark:bg-slate-800 animate-pulse" />
+            <div className="w-72 bg-muted animate-pulse" />
             <main className="flex flex-1 flex-col relative">
               <div className="flex flex-1 items-center justify-center">
-                <div className="text-slate-500 dark:text-slate-400 text-sm">Loading...</div>
+                <div className="text-muted-foreground text-sm">Loading...</div>
               </div>
             </main>
           </div>
@@ -194,7 +187,7 @@ export default function Home() {
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar with collapsible mode */}
           <div className={cn(
-            "relative transition-all duration-300 ease-out",
+            "relative transition-all duration-300 ease-out border-r border-border",
             sidebarOpen ? (sidebarCollapsed ? "w-16" : "w-72") : "w-0"
           )}>
             {sidebarOpen && (
@@ -212,19 +205,19 @@ export default function Home() {
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(true)}
-              className="absolute left-2 top-1/2 -translate-y-1/2 z-20 h-8 w-8 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all"
+              className="absolute left-2 top-1/2 -translate-y-1/2 z-20 h-8 w-8 bg-background/90 backdrop-blur-md border border-border shadow-sm hover:shadow-md transition-all"
               title="Open sidebar (⌘B)"
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
           )}
 
-          <main className="flex flex-1 flex-col relative">
-            {/* Subtle dot pattern background */}
-            <div className="absolute inset-0 opacity-[0.015] dark:opacity-[0.03] pointer-events-none">
+          <main className="flex flex-1 flex-col relative bg-transparent">
+            {/* Subtle dot pattern background - reduced opacity */}
+            <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
               <div className="absolute inset-0" style={{
-                backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 0.5px, transparent 0)`,
-                backgroundSize: '20px 20px'
+                backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)`,
+                backgroundSize: '24px 24px'
               }} />
             </div>
 
@@ -237,18 +230,18 @@ export default function Home() {
             {/* Console pane with toggle */}
             {requestMode !== 'websocket' && hasConsoleContent && (
               <div className={cn(
-                "shrink-0 relative z-10 transition-all duration-300 ease-out border-t border-slate-200/60 dark:border-slate-700/40",
+                "shrink-0 relative z-10 transition-all duration-300 ease-out border-t border-border",
                 consoleExpanded ? "h-56" : "h-9"
               )}>
                 {/* Console toggle header */}
                 <div
-                  className="absolute top-0 left-0 right-0 h-9 flex items-center justify-between px-3 bg-slate-50/80 dark:bg-slate-800/80 backdrop-blur-sm cursor-pointer hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 transition-colors"
+                  className="absolute top-0 left-0 right-0 h-9 flex items-center justify-between px-3 bg-muted/50 backdrop-blur-sm cursor-pointer hover:bg-muted transition-colors"
                   onClick={() => setConsoleExpanded(!consoleExpanded)}
                 >
-                  <span className="text-xs font-medium text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground flex items-center gap-2">
                     Console
                     {allLogs.length > 0 && (
-                      <span className="text-xs bg-slate-blue-100 dark:bg-slate-blue-900/40 text-slate-blue-700 dark:text-slate-blue-300 px-1.5 py-0.5 rounded-full tabular-nums">
+                      <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums">
                         {allLogs.length} {allLogs.length === 1 ? 'log' : 'logs'}
                       </span>
                     )}
@@ -256,8 +249,8 @@ export default function Home() {
                       <span className={cn(
                         "text-xs px-1.5 py-0.5 rounded-full tabular-nums",
                         allTests.every(t => t.passed)
-                          ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"
-                          : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "bg-red-500/10 text-red-600 dark:text-red-400"
                       )}>
                         {allTests.filter(t => t.passed).length}/{allTests.length} tests
                       </span>

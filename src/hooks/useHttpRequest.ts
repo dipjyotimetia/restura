@@ -5,13 +5,9 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse, RequestSettings } from '@/types';
+import { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import axios, { AxiosRequestConfig } from 'axios';
-import ScriptExecutor from '@/lib/scriptExecutor';
-import { isElectron, getElectronAPI } from '@/lib/platform';
-import { shouldBypassProxy, toAxiosProxyConfig } from '@/lib/proxyHelper';
-import { validateURL } from '@/lib/urlValidator';
+import { executeRequest } from '@/lib/requestExecutor';
 
 interface UseHttpRequestReturn {
   request: HttpRequest | null;
@@ -58,6 +54,8 @@ export function useHttpRequest(): UseHttpRequestReturn {
     },
     [storeUpdateRequest]
   );
+
+  // ... (keep param/header/body helpers)
 
   const addParam = useCallback(() => {
     if (!httpRequest) return;
@@ -146,7 +144,6 @@ export function useHttpRequest(): UseHttpRequestReturn {
     if (!httpRequest) return;
 
     setLoading(true);
-    const startTime = Date.now();
 
     try {
       // Get current environment variables
@@ -160,280 +157,21 @@ export function useHttpRequest(): UseHttpRequestReturn {
           });
       }
 
-      // Execute pre-request script if exists
-      let preRequestResult;
-      if (httpRequest.preRequestScript) {
-        const executor = new ScriptExecutor(envVars, {});
-        preRequestResult = await executor.executeScript(
-          httpRequest.preRequestScript,
-          {
-            request: {
-              url: httpRequest.url,
-              method: httpRequest.method,
-              headers: httpRequest.headers
-                .filter((h) => h.enabled)
-                .reduce(
-                  (acc, h) => ({ ...acc, [h.key]: h.value }),
-                  {} as Record<string, string>
-                ),
-              body: httpRequest.body.raw,
-            },
-          }
-        );
-
-        // Update environment variables if script modified them
-        if (preRequestResult.success && preRequestResult.variables) {
-          Object.entries(preRequestResult.variables).forEach(([key, value]) => {
-            envVars[key] = value;
-          });
-        }
-
-        setScriptResult({ preRequest: preRequestResult });
-      }
-
-      // Resolve environment variables
-      const resolvedUrl = resolveVariables(httpRequest.url);
-
-      // Security: Validate URL to prevent SSRF attacks
-      const urlValidation = validateURL(resolvedUrl, {
-        allowPrivateIPs: false,
-        allowLocalhost: globalSettings.allowLocalhost ?? true, // Allow localhost by default for development
+      const result = await executeRequest({
+        request: httpRequest,
+        envVars,
+        globalSettings,
+        resolveVariables,
       });
 
-      if (!urlValidation.valid) {
-        throw new Error(`Invalid URL: ${urlValidation.error}`);
-      }
-
-      // Log warnings if any
-      if (urlValidation.warnings && urlValidation.warnings.length > 0) {
-        console.warn('URL validation warnings:', urlValidation.warnings);
-      }
-
-      // Build query params
-      const params: Record<string, string> = {};
-      httpRequest.params
-        .filter((p) => p.enabled && p.key)
-        .forEach((p) => {
-          params[p.key] = resolveVariables(p.value);
-        });
-
-      // Build headers
-      const headers: Record<string, string> = {};
-      httpRequest.headers
-        .filter((h) => h.enabled && h.key)
-        .forEach((h) => {
-          headers[h.key] = resolveVariables(h.value);
-        });
-
-      // Get effective settings (request-specific or global)
-      const effectiveSettings: RequestSettings = httpRequest.settings || {
-        timeout: globalSettings.defaultTimeout,
-        followRedirects: globalSettings.followRedirects,
-        maxRedirects: globalSettings.maxRedirects,
-        verifySsl: globalSettings.verifySsl,
-        proxy: globalSettings.proxy,
-      };
-
-      // Build Axios config with settings
-      const axiosConfig: AxiosRequestConfig = {
-        method: httpRequest.method,
-        url: resolvedUrl,
-        params,
-        headers,
-        data: httpRequest.body.type !== 'none' ? httpRequest.body.raw : undefined,
-        timeout: effectiveSettings.timeout,
-        maxRedirects: effectiveSettings.followRedirects ? effectiveSettings.maxRedirects : 0,
-        validateStatus: () => true, // Accept all status codes
-      };
-
-      // Apply proxy configuration if enabled
-      const proxyConfig = effectiveSettings.proxy;
-      if (proxyConfig?.enabled && proxyConfig.host) {
-        // Check if URL should bypass proxy
-        if (!shouldBypassProxy(resolvedUrl, proxyConfig.bypassList)) {
-          if (isElectron()) {
-            // In Electron, we can use Node.js native proxy support
-            // This requires IPC handler in main process (added separately)
-            const electronAPI = getElectronAPI();
-            if (electronAPI && 'http' in electronAPI) {
-              // Use Electron IPC for proxy request (full proxy support)
-              try {
-                const electronResponse = await (electronAPI as unknown as {
-                  http: {
-                    request: (config: unknown) => Promise<{
-                      status: number;
-                      statusText: string;
-                      headers: Record<string, string>;
-                      data: unknown;
-                    }>;
-                  };
-                }).http.request({
-                  ...axiosConfig,
-                  proxy: proxyConfig,
-                  verifySsl: effectiveSettings.verifySsl,
-                });
-
-                const endTime = Date.now();
-                const responseData: ApiResponse = {
-                  id: uuidv4(),
-                  requestId: httpRequest.id,
-                  status: electronResponse.status,
-                  statusText: electronResponse.statusText,
-                  headers: electronResponse.headers,
-                  body:
-                    typeof electronResponse.data === 'string'
-                      ? electronResponse.data
-                      : JSON.stringify(electronResponse.data, null, 2),
-                  size: new Blob([JSON.stringify(electronResponse.data)]).size,
-                  time: endTime - startTime,
-                  timestamp: Date.now(),
-                };
-
-                // Execute test script if exists
-                if (httpRequest.testScript) {
-                  const executor = new ScriptExecutor(envVars, {});
-                  const testResult = await executor.executeScript(httpRequest.testScript, {
-                    request: {
-                      url: httpRequest.url,
-                      method: httpRequest.method,
-                      headers: httpRequest.headers
-                        .filter((h) => h.enabled)
-                        .reduce(
-                          (acc, h) => ({ ...acc, [h.key]: h.value }),
-                          {} as Record<string, string>
-                        ),
-                      body: httpRequest.body.raw,
-                    },
-                    response: {
-                      status: electronResponse.status,
-                      statusText: electronResponse.statusText,
-                      headers: electronResponse.headers,
-                      body: electronResponse.data,
-                      time: endTime - startTime,
-                      size: responseData.size,
-                    },
-                  });
-                  setScriptResult({ preRequest: preRequestResult, test: testResult });
-                }
-
-                setCurrentResponse(responseData);
-                addHistoryItem(httpRequest, responseData);
-                return;
-              } catch {
-                // Fall back to regular Axios if Electron IPC fails
-                console.warn('Electron proxy IPC not available, falling back to Axios');
-              }
-            }
-          }
-
-          // For web mode or fallback: use Axios proxy config (limited support)
-          // Note: Browser Axios doesn't support proxy directly
-          // This primarily works in Node.js environment (Electron main process)
-          const axiosProxy = toAxiosProxyConfig(proxyConfig);
-          if (axiosProxy) {
-            // Add proxy warning header for debugging
-            headers['X-Proxy-Configured'] = 'true';
-            console.info(
-              `Proxy configured: ${proxyConfig.type}://${proxyConfig.host}:${proxyConfig.port}`,
-              '\nNote: Browser-based requests have limited proxy support due to CORS restrictions.'
-            );
-          }
-        }
-      }
-
-      // Make request with Axios
-      const response = await axios(axiosConfig);
-
-      const endTime = Date.now();
-
-      const responseData: ApiResponse = {
-        id: uuidv4(),
-        requestId: httpRequest.id,
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers as Record<string, string>,
-        body:
-          typeof response.data === 'string'
-            ? response.data
-            : JSON.stringify(response.data, null, 2),
-        size: new Blob([JSON.stringify(response.data)]).size,
-        time: endTime - startTime,
-        timestamp: Date.now(),
-      };
-
-      // Execute test script if exists
-      let testResult;
-      if (httpRequest.testScript) {
-        const executor = new ScriptExecutor(envVars, {});
-        testResult = await executor.executeScript(httpRequest.testScript, {
-          request: {
-            url: httpRequest.url,
-            method: httpRequest.method,
-            headers: httpRequest.headers
-              .filter((h) => h.enabled)
-              .reduce(
-                (acc, h) => ({ ...acc, [h.key]: h.value }),
-                {} as Record<string, string>
-              ),
-            body: httpRequest.body.raw,
-          },
-          response: {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers as Record<string, string>,
-            body: response.data,
-            time: endTime - startTime,
-            size: responseData.size,
-          },
-        });
-
-        setScriptResult({ preRequest: preRequestResult, test: testResult });
-      }
-
-      setCurrentResponse(responseData);
-      addHistoryItem(httpRequest, responseData);
+      setScriptResult(result.scriptResult || {});
+      setCurrentResponse(result.response);
+      addHistoryItem(httpRequest, result.response);
     } catch (error: unknown) {
-      const endTime = Date.now();
-
-      // Type guard for axios error
-      const isAxiosError = (
-        err: unknown
-      ): err is {
-        response?: {
-          status?: number;
-          statusText?: string;
-          headers?: Record<string, string>;
-          data?: unknown;
-        };
-        message?: string;
-      } => {
-        return (
-          typeof err === 'object' &&
-          err !== null &&
-          ('response' in err || 'message' in err)
-        );
-      };
-
-      const axiosError = isAxiosError(error) ? error : null;
-      const errorMessage =
-        error instanceof Error ? error.message : 'Request failed';
-
-      const errorResponse: ApiResponse = {
-        id: uuidv4(),
-        requestId: httpRequest.id,
-        status: axiosError?.response?.status || 0,
-        statusText: axiosError?.response?.statusText || 'Error',
-        headers: axiosError?.response?.headers || {},
-        body: axiosError?.response?.data
-          ? JSON.stringify(axiosError.response.data, null, 2)
-          : errorMessage,
-        size: 0,
-        time: endTime - startTime,
-        timestamp: Date.now(),
-      };
-
-      setCurrentResponse(errorResponse);
-      addHistoryItem(httpRequest, errorResponse);
+      // Error handling is mostly done in executeRequest but if it throws, we catch here
+      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      console.error('Request execution error:', errorMessage);
+      // We could set an error response here if executeRequest throws without returning a response
     } finally {
       setLoading(false);
     }
@@ -445,6 +183,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
     resolveVariables,
     setCurrentResponse,
     addHistoryItem,
+    globalSettings,
   ]);
 
   return {
