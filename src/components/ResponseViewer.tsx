@@ -67,7 +67,7 @@ const getStatusIcon = (status: number) => {
 
 function ResponseSkeleton() {
   return (
-    <Scale className="flex-1 flex flex-col bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl relative z-20 noise-texture">
+    <Scale className="flex-1 flex flex-col bg-background relative z-20">
       <div className="flex items-center gap-4 px-4 py-2.5 border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/50 dark:bg-slate-800/50">
         <Skeleton className="h-7 w-28 rounded-md" />
         <div className="h-5 w-px bg-slate-200 dark:bg-slate-700" />
@@ -150,8 +150,8 @@ export default function ResponseViewer() {
 
   if (!currentResponse) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-white/5 dark:bg-white/5 backdrop-blur-xl relative z-20 noise-texture border-l border-white/10 dark:border-white/5">
-        <div className="text-center p-8 rounded-xl bg-white/10 dark:bg-white/5 border border-dashed border-white/20 dark:border-white/10 max-w-md shadow-glass">
+      <div className="flex-1 flex items-center justify-center bg-background relative z-20 border-l border-border">
+        <div className="text-center p-8 rounded-xl bg-muted border border-dashed border-border max-w-md shadow-md">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-gradient-to-br from-slate-blue-100 to-indigo-100 dark:from-slate-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
             <Zap className="h-7 w-7 text-slate-blue-600 dark:text-slate-blue-400" />
           </div>
@@ -177,13 +177,13 @@ export default function ResponseViewer() {
     <TooltipProvider delayDuration={300}>
       <div
         className={cn(
-          "flex-1 flex flex-col bg-white/5 dark:bg-white/5 backdrop-blur-xl relative z-20 noise-texture transition-all duration-300 border-l border-white/10 dark:border-white/5",
+          "flex-1 flex flex-col bg-background relative z-20 transition-all duration-300 border-l border-border",
           showAnimation && isSuccess && "animate-success-pulse",
           showAnimation && isError && "animate-error-shake"
         )}
       >
         {/* Response Info Bar */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/10 dark:border-white/5 bg-transparent">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-transparent">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Status</span>
             <Tooltip>

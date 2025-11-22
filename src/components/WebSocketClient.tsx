@@ -155,7 +155,7 @@ export default function WebSocketClient() {
   return (
     <div className="flex-1 flex flex-col">
       {/* Connection Bar */}
-      <div className="p-4 border-b border-white/10 dark:border-white/5">
+      <div className="p-4 border-b border-border">
         <div className="flex gap-2 items-center mb-2">
           <Circle
             className={`h-3 w-3 ${isConnected ? 'fill-green-500 text-green-500' : 'fill-gray-400 text-gray-400'}`}
@@ -169,7 +169,7 @@ export default function WebSocketClient() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="ws://localhost:8080 or wss://example.com/socket"
-            className="flex-1 glass-subtle border-white/10 dark:border-white/5"
+            className="flex-1 bg-background border-border"
             disabled={isConnected}
           />
           {!isConnected ? (
@@ -186,7 +186,7 @@ export default function WebSocketClient() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <TabsList className="w-full rounded-none border-b border-white/10 dark:border-white/5 bg-transparent px-4">
+        <TabsList className="w-full rounded-none border-b border-border bg-transparent px-4">
           <TabsTrigger value="messages">Messages</TabsTrigger>
           <TabsTrigger value="headers">Headers</TabsTrigger>
         </TabsList>
@@ -201,7 +201,7 @@ export default function WebSocketClient() {
                 </div>
               ) : (
                 messages.map((msg) => (
-                  <div key={msg.id} className="flex gap-3 p-2 rounded hover:bg-white/5 dark:hover:bg-white/5">
+                  <div key={msg.id} className="flex gap-3 p-2 rounded hover:bg-accent">
                     <span className="text-[10px] text-muted-foreground flex-shrink-0 mt-0.5">
                       {formatTime(msg.timestamp)}
                     </span>
@@ -220,7 +220,7 @@ export default function WebSocketClient() {
           </ScrollArea>
 
           {/* Message Input */}
-          <div className="p-4 border-t border-white/10 dark:border-white/5">
+          <div className="p-4 border-t border-border">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium">Send Message</span>
               <Button
@@ -238,7 +238,7 @@ export default function WebSocketClient() {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="Enter message to send..."
-                className="flex-1 glass-subtle border-white/10 dark:border-white/5"
+                className="flex-1 bg-background border-border"
                 rows={3}
                 disabled={!isConnected}
                 onKeyDown={(e) => {

@@ -88,7 +88,7 @@ export default function WelcomeOnboarding() {
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogContent className="max-w-lg glass">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Rocket className="h-6 w-6 text-slate-blue-500" />

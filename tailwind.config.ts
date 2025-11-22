@@ -51,12 +51,6 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // Glassmorphism purple-blue palette
-        glass: {
-          DEFAULT: 'hsl(var(--glass))',
-          border: 'hsl(var(--glass-border))',
-          glow: 'hsl(var(--glass-glow))',
-        },
         // Semantic surface elevation colors
         surface: {
           0: 'hsl(var(--surface-0))',
@@ -136,8 +130,6 @@ const config: Config = {
       },
       backdropBlur: {
         xs: '2px',
-        glass: '10px',
-        'glass-strong': '16px',
       },
       // Typography refinements
       letterSpacing: {
@@ -233,9 +225,6 @@ const config: Config = {
         'glow-border': 'glow-border 2s ease-in-out infinite',
       },
       boxShadow: {
-        'glass': '0 8px 32px 0 rgba(59, 90, 128, 0.10)',
-        'glass-lg': '0 8px 32px 0 rgba(59, 90, 128, 0.18)',
-        'glass-glow': '0 0 40px rgba(59, 90, 128, 0.18)',
         // Elevation system
         'elevation-1': '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)',
         'elevation-2': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)',
