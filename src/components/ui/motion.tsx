@@ -9,7 +9,7 @@ import {
   AnimatePresence,
 } from 'framer-motion';
 
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/shared/utils';
 
 // Animation variants for common patterns
 export const fadeIn: Variants = {

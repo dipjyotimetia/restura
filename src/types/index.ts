@@ -50,7 +50,15 @@ export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
 export type RequestType = 'http' | 'grpc';
 
 // Body Types
-export type BodyType = 'none' | 'json' | 'xml' | 'form-data' | 'x-www-form-urlencoded' | 'binary' | 'protobuf' | 'graphql' | 'text';
+export type BodyType = 'none' | 'json' | 'xml' | 'form-data' | 'x-www-form-urlencoded' | 'binary' | 'protobuf' | 'graphql' | 'text' | 'multipart-mixed';
+
+// Multipart Mixed Part
+export interface MultipartPart {
+  id: string;
+  contentType: string;
+  content: string;
+  headers?: Record<string, string>;
+}
 
 // Request Body Type (extracted for reusability)
 export interface RequestBody {
@@ -58,6 +66,7 @@ export interface RequestBody {
   raw?: string;
   formData?: FormDataItem[];
   binary?: File;
+  multipartParts?: MultipartPart[];
 }
 
 // Authentication Types
