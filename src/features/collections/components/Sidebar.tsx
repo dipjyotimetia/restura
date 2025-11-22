@@ -15,9 +15,11 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useShallow } from 'zustand/react/shallow';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
 import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -41,15 +43,29 @@ interface SidebarProps {
   onToggleCollapse?: () => void;
 }
 
+const HISTORY_PAGE_SIZE = 20;
+
 export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProps) {
   const { collections, createNewCollection, addCollection, deleteCollection } = useCollectionStore();
-  const { history, favorites, toggleFavorite } = useHistoryStore();
+
+  // Use granular selectors for history to minimize re-renders
+  const toggleFavorite = useHistoryStore(state => state.toggleFavorite);
+  const getHistoryById = useHistoryStore(state => state.getHistoryById);
+  const favorites = useHistoryStore(useShallow(selectFavoriteIds));
+  const totalHistoryCount = useHistoryStore(selectHistoryCount);
+
   const { setCurrentRequest } = useRequestStore();
   const [activeTab, setActiveTab] = useState('collections');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(HISTORY_PAGE_SIZE);
+
+  // Get visible history items using selector
+  const visibleHistory = useHistoryStore(
+    useShallow((state) => state.history.slice(0, visibleHistoryCount))
+  );
 
   // Filter collections based on search query
   const filteredCollections = useMemo(() => {
@@ -64,7 +80,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
 
   // Filter history based on search query and method filter
   const filteredHistory = useMemo(() => {
-    let filtered = history;
+    let filtered = visibleHistory;
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -89,7 +105,13 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
     }
 
     return filtered;
-  }, [history, searchQuery, methodFilter]);
+  }, [visibleHistory, searchQuery, methodFilter]);
+
+  const hasMoreHistory = visibleHistoryCount < totalHistoryCount;
+
+  const handleLoadMore = useCallback(() => {
+    setVisibleHistoryCount(prev => prev + HISTORY_PAGE_SIZE);
+  }, []);
 
   const handleNewCollection = useCallback(() => {
     const newCollection = createNewCollection('New Collection');
@@ -127,12 +149,12 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
 
   const handleLoadHistoryItem = useCallback(
     (itemId: string) => {
-      const item = history.find((h) => h.id === itemId);
+      const item = getHistoryById(itemId);
       if (item) {
         setCurrentRequest(item.request);
       }
     },
-    [history, setCurrentRequest]
+    [getHistoryById, setCurrentRequest]
   );
 
   return (
@@ -425,7 +447,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                   </div>
                 ) : (
                   <Stagger className="space-y-1.5">
-                    {filteredHistory.slice(0, 50).map((item) => (
+                    {filteredHistory.map((item) => (
                       <StaggerItem
                         key={item.id}
                         className="group p-2.5 rounded-md bg-muted border border-border hover:border-primary/30 hover:bg-accent cursor-pointer transition-all shadow-sm"
@@ -486,6 +508,16 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                       </StaggerItem>
                     ))}
                   </Stagger>
+                )}
+                {hasMoreHistory && !searchQuery && !methodFilter && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-3 text-xs"
+                    onClick={handleLoadMore}
+                  >
+                    Load More ({totalHistoryCount - visibleHistoryCount} remaining)
+                  </Button>
                 )}
               </TabsContent>
             </Tabs>
