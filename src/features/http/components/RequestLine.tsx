@@ -121,7 +121,7 @@ export default function RequestLine({
             onChange={(e) => handleUrlChange(e.target.value)}
             placeholder="Enter request URL (e.g., https://api.example.com/users)"
             className={cn(
-              'w-full font-mono text-sm bg-background focus:border-slate-blue-500/40 border-border',
+              'w-full font-mono text-sm bg-background focus:border-slate-blue-500/40 border-border placeholder:text-muted-foreground/70',
               urlError
                 ? 'border-red-500/50 focus:border-red-500/70 bg-red-50/50 dark:bg-red-950/20'
                 : 'border-border'
@@ -151,7 +151,7 @@ export default function RequestLine({
         <Button
           onClick={onSend}
           disabled={isLoading || !url || !!urlError}
-          className="min-w-[120px] bg-primary disabled:bg-primary/70"
+          className="min-w-[120px] bg-primary disabled:bg-muted disabled:text-muted-foreground disabled:border-border"
           aria-label={isLoading ? 'Sending request' : 'Send request'}
         >
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
