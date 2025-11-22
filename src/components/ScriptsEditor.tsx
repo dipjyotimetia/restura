@@ -80,10 +80,10 @@ export default function ScriptsEditor({
     <div className="space-y-4">
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'pre-request' | 'test')}>
         <div className="flex items-center justify-between">
-          <TabsList className="bg-muted/50 border border-slate-blue-500/10">
+          <TabsList className="bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/5">
             <TabsTrigger
               value="pre-request"
-              className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+              className="data-[state=active]:bg-white/10 dark:data-[state=active]:bg-white/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
             >
               Pre-request Script
               {preRequestScript && (
@@ -92,7 +92,7 @@ export default function ScriptsEditor({
             </TabsTrigger>
             <TabsTrigger
               value="test"
-              className="data-[state=active]:bg-slate-blue-500/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
+              className="data-[state=active]:bg-white/10 dark:data-[state=active]:bg-white/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
             >
               Test Script
               {testScript && (
@@ -106,7 +106,7 @@ export default function ScriptsEditor({
               variant="outline"
               size="sm"
               onClick={handleInsertTemplate}
-              className="border-slate-blue-500/20 hover:border-slate-blue-500/40 text-xs"
+              className="border-white/10 dark:border-white/5 hover:border-white/20 dark:hover:border-white/10 text-xs"
             >
               <Play className="mr-1.5 h-3 w-3" />
               Insert Template
@@ -124,23 +124,23 @@ export default function ScriptsEditor({
         </div>
 
         <TabsContent value="pre-request" className="space-y-2 mt-4">
-          <div className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
+          <div className="rounded-lg bg-white/5 dark:bg-white/5 p-3 text-sm text-muted-foreground border border-white/10 dark:border-white/5">
             <p className="font-medium mb-1">Pre-request Script</p>
             <p className="text-xs">
               Execute JavaScript code before sending the request. Access and modify variables using:
             </p>
             <ul className="text-xs mt-2 space-y-1 ml-4 list-disc">
               <li>
-                <code className="bg-muted px-1 rounded">pm.variables.get(&quot;key&quot;)</code> - Get variable
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.variables.get(&quot;key&quot;)</code> - Get variable
               </li>
               <li>
-                <code className="bg-muted px-1 rounded">pm.variables.set(&quot;key&quot;, value)</code> - Set variable
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.variables.set(&quot;key&quot;, value)</code> - Set variable
               </li>
               <li>
-                <code className="bg-muted px-1 rounded">pm.request.url</code> - Access request URL
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.request.url</code> - Access request URL
               </li>
               <li>
-                <code className="bg-muted px-1 rounded">pm.request.headers</code> - Access headers
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.request.headers</code> - Access headers
               </li>
             </ul>
           </div>
@@ -153,26 +153,26 @@ export default function ScriptsEditor({
         </TabsContent>
 
         <TabsContent value="test" className="space-y-2 mt-4">
-          <div className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
+          <div className="rounded-lg bg-white/5 dark:bg-white/5 p-3 text-sm text-muted-foreground border border-white/10 dark:border-white/5">
             <p className="font-medium mb-1">Test Script</p>
             <p className="text-xs">
               Execute JavaScript code after receiving the response. Write assertions using:
             </p>
             <ul className="text-xs mt-2 space-y-1 ml-4 list-disc">
               <li>
-                <code className="bg-muted px-1 rounded">pm.test(&quot;name&quot;, () =&gt; {'{...}'})</code> - Define test
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.test(&quot;name&quot;, () =&gt; {'{...}'})</code> - Define test
               </li>
               <li>
-                <code className="bg-muted px-1 rounded">pm.expect(value).to.equal(expected)</code> - Assertions
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.expect(value).to.equal(expected)</code> - Assertions
               </li>
               <li>
-                <code className="bg-muted px-1 rounded">pm.response.status</code> - HTTP status code
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.response.status</code> - HTTP status code
               </li>
               <li>
-                <code className="bg-muted px-1 rounded">pm.response.json()</code> - Parse JSON body
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.response.json()</code> - Parse JSON body
               </li>
               <li>
-                <code className="bg-muted px-1 rounded">pm.response.time</code> - Response time (ms)
+                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.response.time</code> - Response time (ms)
               </li>
             </ul>
           </div>

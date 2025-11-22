@@ -150,7 +150,7 @@ export interface Response {
   requestId: string;
   status: number;
   statusText: string;
-  headers: Record<string, string>;
+  headers: Record<string, string | string[]>;
   body: string;
   size: number;
   time: number;

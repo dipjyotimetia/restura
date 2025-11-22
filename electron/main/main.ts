@@ -3,6 +3,7 @@ import { setupAutoUpdater, registerAutoUpdaterIPC } from './auto-updater';
 import { createMainWindow } from './window-manager';
 import { registerFileOperationsIPC } from './file-operations';
 import { registerHttpHandlerIPC } from './http-handler';
+import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
 import { registerWindowControlsIPC } from './window-controls';
 import { createSystemTray, destroyTray } from './system-tray';
 import { registerNotificationIPC } from './notifications';
@@ -23,6 +24,7 @@ function registerIPCHandlers(): void {
   registerAutoUpdaterIPC(isDev);
   registerFileOperationsIPC(getMainWindow);
   registerHttpHandlerIPC();
+  registerGrpcHandlerIPC();
   registerWindowControlsIPC(getMainWindow);
   registerNotificationIPC(getMainWindow, isDev);
 }
@@ -104,6 +106,7 @@ app.on('window-all-closed', () => {
 
 // Cleanup on quit
 app.on('will-quit', () => {
+  stopStreamCleanup(); // Stop gRPC stream cleanup interval
   destroyTray();
 });
 

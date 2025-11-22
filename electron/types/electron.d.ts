@@ -110,6 +110,16 @@ interface ElectronHttpAPI {
   request: (config: ElectronHttpRequestConfig) => Promise<ElectronHttpResponse>;
 }
 
+interface ElectronGrpcAPI {
+  request: (config: unknown) => Promise<unknown>;
+  startStream: (config: unknown) => void;
+  sendMessage: (requestId: string, message: unknown) => void;
+  endStream: (requestId: string) => void;
+  cancelStream: (requestId: string) => void;
+  on: (channel: string, callback: (...args: unknown[]) => void) => void;
+  removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -119,6 +129,7 @@ interface ElectronAPI {
   shell: ElectronShellAPI;
   window: ElectronWindowAPI;
   http: ElectronHttpAPI;
+  grpc: ElectronGrpcAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
 }
