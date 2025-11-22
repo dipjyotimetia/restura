@@ -5,34 +5,34 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/shared/utils';
 
 export const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium tracking-tight transition-all duration-200 ease-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative overflow-hidden',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium tracking-tight transition-all duration-200 ease-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative overflow-hidden active:scale-[0.98]',
   {
     variants: {
       variant: {
         default:
-          'bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 hover:bg-primary/90 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-primary/20',
+          'bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 border border-transparent hover:-translate-y-0.5',
         destructive:
-          'bg-destructive text-destructive-foreground shadow-lg shadow-destructive/20 hover:shadow-xl hover:shadow-destructive/30 hover:bg-destructive/90 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-destructive/20',
+          'bg-destructive text-destructive-foreground shadow-md hover:shadow-lg hover:bg-destructive/90 border border-transparent hover:-translate-y-0.5',
         outline:
-          'border-2 border-border bg-background text-foreground shadow-md hover:bg-accent hover:text-accent-foreground hover:border-border/80 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground hover:border-accent-foreground/20',
         secondary:
-          'bg-secondary text-secondary-foreground border border-border shadow-md hover:bg-secondary/80 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 border border-transparent',
         ghost:
-          'text-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-md active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring/30',
+          'hover:bg-accent hover:text-accent-foreground',
         link:
-          'text-primary underline-offset-4 hover:underline hover:text-primary/80 active:scale-[0.98]',
-        success:
-          'bg-green-600 dark:bg-green-600 text-white shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/30 hover:bg-green-700 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-green-500/20',
-        error:
-          'bg-red-600 dark:bg-red-600 text-white shadow-lg shadow-red-500/20 hover:shadow-xl hover:shadow-red-500/30 hover:bg-red-700 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-red-500/20',
+          'text-primary underline-offset-4 hover:underline',
+        // New Premium Variants
+        shine:
+          'bg-primary text-primary-foreground shadow-md hover:shadow-xl hover:-translate-y-0.5 overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent before:-translate-x-full hover:before:animate-[shimmer_1.5s_infinite] border border-transparent',
+        subtle: 
+          'bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 shadow-sm',
       },
       size: {
-        default: 'h-10 px-5 py-2 text-sm rounded-lg',
-        sm: 'h-8 px-3 py-1.5 text-xs rounded-md',
-        lg: 'h-12 px-8 py-3 text-base rounded-xl',
-        icon: 'h-10 w-10 rounded-lg',
+        default: 'h-9 px-4 py-2 text-sm rounded-md',
+        sm: 'h-8 rounded-md px-3 text-xs',
+        lg: 'h-10 rounded-md px-8',
+        icon: 'h-9 w-9 rounded-md',
         'icon-sm': 'h-8 w-8 rounded-md',
-        'icon-lg': 'h-12 w-12 rounded-xl',
       },
     },
     defaultVariants: {

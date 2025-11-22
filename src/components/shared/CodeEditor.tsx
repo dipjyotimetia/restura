@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import { useTheme } from 'next-themes';
 import type * as Monaco from 'monaco-editor';
@@ -30,6 +30,7 @@ export default function CodeEditor({
 }: CodeEditorProps) {
   const { theme } = useTheme();
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
@@ -48,7 +49,7 @@ export default function CodeEditor({
       scrollBeyondLastLine: false,
       wordWrap: 'on',
       wrappingIndent: 'indent',
-      automaticLayout: true,
+      automaticLayout: false, // We will handle layout manually with ResizeObserver for better performance/reliability
       tabSize: 2,
       readOnly,
     });
@@ -61,7 +62,27 @@ export default function CodeEditor({
         // Ignore formatting errors
       }
     }
+    
+    // Initial layout
+    editor.layout();
   };
+
+  // Handle resizing
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (editorRef.current) {
+        editorRef.current.layout();
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
 
   const handleChange = (value: string | undefined) => {
     if (onChange && value !== undefined) {
@@ -81,7 +102,7 @@ export default function CodeEditor({
   };
 
   return (
-    <div className="relative border border-border rounded-lg overflow-hidden group h-full bg-background">
+    <div ref={containerRef} className="relative border border-border rounded-lg overflow-hidden group h-full bg-background">
       {showCopyButton && value && (
         <Button
           variant="ghost"
