@@ -5,6 +5,7 @@ import { HistoryItem, Request, Response } from '@/types';
 interface HistoryState {
   history: HistoryItem[];
   favorites: string[]; // IDs of favorite history items
+  pageSize: number;
 
   // Actions
   addHistoryItem: (request: Request, response?: Response) => void;
@@ -12,15 +13,22 @@ interface HistoryState {
   clearHistory: () => void;
   toggleFavorite: (id: string) => void;
   getHistoryById: (id: string) => HistoryItem | undefined;
+  setPageSize: (size: number) => void;
+
+  // Computed
+  getTotalPages: () => number;
+  getPage: (page: number) => HistoryItem[];
 }
 
 const MAX_HISTORY_ITEMS = 100;
+const DEFAULT_PAGE_SIZE = 20;
 
 export const useHistoryStore = create<HistoryState>()(
   persist(
     (set, get) => ({
       history: [],
       favorites: [],
+      pageSize: DEFAULT_PAGE_SIZE,
 
       addHistoryItem: (request, response) =>
         set((state) => {
@@ -60,6 +68,18 @@ export const useHistoryStore = create<HistoryState>()(
         }),
 
       getHistoryById: (id) => get().history.find((item) => item.id === id),
+
+      setPageSize: (size) => set({ pageSize: size }),
+
+      getTotalPages: () => {
+        const { history, pageSize } = get();
+        return Math.ceil(history.length / pageSize);
+      },
+
+      getPage: (page) => {
+        const { history, pageSize } = get();
+        return history.slice(page * pageSize, (page + 1) * pageSize);
+      },
     }),
     {
       name: 'history-storage',
