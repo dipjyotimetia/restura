@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateURL } from '@/lib/urlValidator';
+import { validateURL } from '@/features/http/lib/urlValidator';
 
 // Headers that should not be forwarded
 const BLOCKED_REQUEST_HEADERS = [
