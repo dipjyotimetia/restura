@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AppSettings, ProxyConfig } from '@/types';
+import { AppSettings, ProxyConfig, CorsProxyConfig } from '@/types';
 
 interface SettingsState {
   settings: AppSettings;
@@ -14,6 +14,9 @@ interface SettingsState {
   clearProxyAuth: () => void;
   addBypassHost: (host: string) => void;
   removeBypassHost: (host: string) => void;
+  // CORS proxy actions
+  updateCorsProxy: (updates: Partial<CorsProxyConfig>) => void;
+  setCorsProxyEnabled: (enabled: boolean) => void;
 }
 
 const defaultProxyConfig: ProxyConfig = {
@@ -23,6 +26,11 @@ const defaultProxyConfig: ProxyConfig = {
   port: 8080,
   auth: undefined,
   bypassList: ['localhost', '127.0.0.1', '::1'],
+};
+
+const defaultCorsProxyConfig: CorsProxyConfig = {
+  enabled: true, // Enable by default for browser mode
+  autoDetect: true,
 };
 
 const defaultSettings: AppSettings = {
@@ -37,6 +45,8 @@ const defaultSettings: AppSettings = {
   // Security settings - allow localhost by default for development convenience
   allowLocalhost: true,
   allowPrivateIPs: false,
+  // CORS proxy settings for web mode
+  corsProxy: defaultCorsProxyConfig,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -117,6 +127,22 @@ export const useSettingsStore = create<SettingsState>()(
                 (h) => h !== host
               ),
             },
+          },
+        })),
+
+      updateCorsProxy: (updates) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            corsProxy: { ...state.settings.corsProxy, ...updates },
+          },
+        })),
+
+      setCorsProxyEnabled: (enabled) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            corsProxy: { ...state.settings.corsProxy, enabled },
           },
         })),
     }),
