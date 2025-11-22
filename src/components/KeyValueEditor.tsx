@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import { Stagger, StaggerItem } from '@/components/ui/motion';
 
 interface KeyValueEditorProps {
   items: KeyValue[];
@@ -49,8 +50,9 @@ export default function KeyValueEditor({
             <p className="text-xs mt-1">Click the button below to add your first {itemType}</p>
           </div>
         )}
+        <Stagger show={items.length > 0}>
         {items.map((item) => (
-          <div
+          <StaggerItem
             key={item.id}
             className="flex items-center gap-3 group p-2 rounded-lg hover:bg-white/5 dark:hover:bg-white/5 transition-colors"
           >
@@ -119,8 +121,9 @@ export default function KeyValueEditor({
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </div>
+          </StaggerItem>
         ))}
+        </Stagger>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

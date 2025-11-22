@@ -22,6 +22,7 @@ import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, P
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/lib/exporters';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { cn } from '@/lib/utils';
+import { Stagger, StaggerItem } from '@/components/ui/motion';
 
 // Method color mapping for badges - more refined colors
 const methodColors: Record<string, string> = {
@@ -312,9 +313,9 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-1.5">
+                    <Stagger className="space-y-1.5">
                       {filteredCollections.map((collection) => (
-                        <div
+                        <StaggerItem
                           key={collection.id}
                           className="group p-2.5 rounded-md bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/5 hover:border-primary/30 hover:bg-white/10 dark:hover:bg-white/10 cursor-pointer flex items-center justify-between transition-all shadow-sm"
                         >
@@ -364,9 +365,9 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
-                        </div>
+                        </StaggerItem>
                       ))}
-                    </div>
+                    </Stagger>
                   )}
                 </div>
                 <ConfirmDialog
@@ -423,9 +424,9 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
+                  <Stagger className="space-y-1.5">
                     {filteredHistory.slice(0, 50).map((item) => (
-                      <div
+                      <StaggerItem
                         key={item.id}
                         className="group p-2.5 rounded-md bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/5 hover:border-primary/30 hover:bg-white/10 dark:hover:bg-white/10 cursor-pointer transition-all shadow-sm"
                         onClick={() => handleLoadHistoryItem(item.id)}
@@ -482,9 +483,9 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                           <History className="h-3 w-3" />
                           {new Date(item.timestamp).toLocaleString()}
                         </span>
-                      </div>
+                      </StaggerItem>
                     ))}
-                  </div>
+                  </Stagger>
                 )}
               </TabsContent>
             </Tabs>

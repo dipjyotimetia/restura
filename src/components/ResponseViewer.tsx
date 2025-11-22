@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { Scale, Stagger, StaggerItem } from '@/components/ui/motion';
 
 const CodeEditor = dynamic(() => import('@/components/CodeEditor'), { ssr: false });
 
@@ -66,7 +67,7 @@ const getStatusIcon = (status: number) => {
 
 function ResponseSkeleton() {
   return (
-    <div className="flex-1 flex flex-col bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl relative z-20 noise-texture">
+    <Scale className="flex-1 flex flex-col bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl relative z-20 noise-texture">
       <div className="flex items-center gap-4 px-4 py-2.5 border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/50 dark:bg-slate-800/50">
         <Skeleton className="h-7 w-28 rounded-md" />
         <div className="h-5 w-px bg-slate-200 dark:bg-slate-700" />
@@ -76,9 +77,9 @@ function ResponseSkeleton() {
       </div>
       {/* Code-shaped skeleton */}
       <div className="flex-1 p-4">
-        <div className="space-y-2 font-mono text-sm">
-          <Skeleton className="h-3.5 w-12 rounded" />
-          <div className="pl-4 space-y-2">
+        <Stagger className="space-y-2 font-mono text-sm">
+          <StaggerItem><Skeleton className="h-3.5 w-12 rounded" /></StaggerItem>
+          <StaggerItem className="pl-4 space-y-2">
             <Skeleton className="h-3.5 w-3/4 rounded" />
             <Skeleton className="h-3.5 w-1/2 rounded" />
             <div className="pl-4 space-y-2">
@@ -87,11 +88,11 @@ function ResponseSkeleton() {
               <Skeleton className="h-3.5 w-1/3 rounded" />
             </div>
             <Skeleton className="h-3.5 w-2/5 rounded" />
-          </div>
-          <Skeleton className="h-3.5 w-8 rounded" />
-        </div>
+          </StaggerItem>
+          <StaggerItem><Skeleton className="h-3.5 w-8 rounded" /></StaggerItem>
+        </Stagger>
       </div>
-    </div>
+    </Scale>
   );
 }
 
