@@ -14,7 +14,7 @@ import CollectionRunner from '@/features/collections/components/CollectionRunner
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 
-type RequestMode = 'http' | 'grpc' | 'websocket';
+type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
 
 interface HeaderProps {
   requestMode: RequestMode;
@@ -136,6 +136,7 @@ export default function Header({
             </SelectTrigger>
             <SelectContent className="bg-popover border-border">
               <SelectItem value="http">HTTP/REST</SelectItem>
+              <SelectItem value="graphql">GraphQL</SelectItem>
               <SelectItem value="grpc">gRPC</SelectItem>
               <SelectItem value="websocket">WebSocket</SelectItem>
             </SelectContent>
