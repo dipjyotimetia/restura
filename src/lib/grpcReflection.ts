@@ -21,6 +21,7 @@ import {
 } from '@/types';
 import { GrpcClientError } from './grpcClient';
 import { GrpcStatusCode } from '@/types';
+import { isElectron } from './platform';
 
 // Reflection service constants
 const REFLECTION_SERVICE_V1 = 'grpc.reflection.v1.ServerReflection';
@@ -124,10 +125,25 @@ interface OneofDescriptorProto {
   name?: string;
 }
 
+// Cache limits to prevent memory leaks
+const MAX_FILE_DESCRIPTOR_CACHE = 100;
+const MAX_MESSAGE_SCHEMA_CACHE = 500;
+const MAX_ENUM_SCHEMA_CACHE = 200;
+
 // Cache for parsed file descriptors
 const fileDescriptorCache = new Map<string, FileDescriptorProto>();
 const messageSchemaCache = new Map<string, MessageSchema>();
 const enumSchemaCache = new Map<string, EnumSchema>();
+
+// Helper to add to cache with size limit (simple LRU-like behavior)
+function addToCache<T>(cache: Map<string, T>, key: string, value: T, maxSize: number): void {
+  // If cache is full, remove oldest entries (first 10%)
+  if (cache.size >= maxSize) {
+    const keysToDelete = Array.from(cache.keys()).slice(0, Math.ceil(maxSize * 0.1));
+    keysToDelete.forEach(k => cache.delete(k));
+  }
+  cache.set(key, value);
+}
 
 /**
  * Main reflection client class
@@ -254,7 +270,7 @@ export class GrpcReflectionClient {
 
       // Cache the descriptor
       if (descriptor.name) {
-        fileDescriptorCache.set(descriptor.name, descriptor);
+        addToCache(fileDescriptorCache, descriptor.name, descriptor, MAX_FILE_DESCRIPTOR_CACHE);
       }
 
       // Cache message and enum schemas
@@ -286,6 +302,12 @@ export class GrpcReflectionClient {
     reflectionServiceName: string,
     request: unknown
   ): Promise<RawReflectionResponse> {
+    // In web mode, use the Next.js proxy to avoid CORS issues
+    if (!isElectron()) {
+      return this.sendReflectionRequestViaProxy(request);
+    }
+
+    // In Electron mode, make direct request
     const path = `/${reflectionServiceName}/ServerReflectionInfo`;
     const url = `${this.baseUrl}${path}`;
 
@@ -313,6 +335,68 @@ export class GrpcReflectionClient {
       }
 
       const responseData = await response.json();
+      return responseData as RawReflectionResponse;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof GrpcClientError) {
+        throw error;
+      }
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new GrpcClientError(
+          'Reflection request timed out',
+          GrpcStatusCode.DEADLINE_EXCEEDED
+        );
+      }
+      throw new GrpcClientError(
+        `Failed to connect to reflection service: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        GrpcStatusCode.UNAVAILABLE
+      );
+    }
+  }
+
+  /**
+   * Send reflection request via Next.js proxy (for web mode)
+   */
+  private async sendReflectionRequestViaProxy(
+    request: unknown
+  ): Promise<RawReflectionResponse> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch('/api/grpc/reflection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: this.baseUrl,
+          request,
+          timeout: this.timeout,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new GrpcClientError(
+          errorData.error || `Reflection request failed: ${response.statusText}`,
+          this.httpStatusToGrpcStatus(response.status)
+        );
+      }
+
+      const responseData = await response.json();
+
+      // Check for error in response
+      if (responseData.error) {
+        throw new GrpcClientError(
+          responseData.error,
+          GrpcStatusCode.INTERNAL
+        );
+      }
+
       return responseData as RawReflectionResponse;
     } catch (error) {
       clearTimeout(timeoutId);
@@ -892,8 +976,8 @@ export class GrpcReflectionClient {
               number: v.number || 0,
             })) || [],
         };
-        enumSchemaCache.set(fullName, enumSchema);
-        enumSchemaCache.set(`.${fullName}`, enumSchema);
+        addToCache(enumSchemaCache, fullName, enumSchema, MAX_ENUM_SCHEMA_CACHE);
+        addToCache(enumSchemaCache, `.${fullName}`, enumSchema, MAX_ENUM_SCHEMA_CACHE);
       }
     }
   }
@@ -922,8 +1006,8 @@ export class GrpcReflectionClient {
       fields,
     };
 
-    messageSchemaCache.set(fullName, schema);
-    messageSchemaCache.set(`.${fullName}`, schema);
+    addToCache(messageSchemaCache, fullName, schema, MAX_MESSAGE_SCHEMA_CACHE);
+    addToCache(messageSchemaCache, `.${fullName}`, schema, MAX_MESSAGE_SCHEMA_CACHE);
 
     // Cache nested messages
     if (msgType.nestedType) {
@@ -945,8 +1029,8 @@ export class GrpcReflectionClient {
               number: v.number || 0,
             })) || [],
         };
-        enumSchemaCache.set(enumFullName, enumSchema);
-        enumSchemaCache.set(`.${enumFullName}`, enumSchema);
+        addToCache(enumSchemaCache, enumFullName, enumSchema, MAX_ENUM_SCHEMA_CACHE);
+        addToCache(enumSchemaCache, `.${enumFullName}`, enumSchema, MAX_ENUM_SCHEMA_CACHE);
       }
     }
   }
@@ -1406,4 +1490,104 @@ export function getCachedMessageSchema(typeName: string): MessageSchema | undefi
  */
 export function getCachedEnumSchema(typeName: string): EnumSchema | undefined {
   return enumSchemaCache.get(typeName);
+}
+
+/**
+ * Generate proto content from reflection data
+ * This creates a minimal .proto file that can be used by grpc-handler
+ */
+export function generateProtoFromReflection(
+  serviceName: string,
+  serviceInfo: ReflectionServiceInfo
+): string {
+  const lines: string[] = [];
+
+  // Add syntax declaration
+  lines.push('syntax = "proto3";');
+  lines.push('');
+
+  // Extract package name from service full name
+  const packageParts = serviceName.split('.');
+  const serviceShortName = packageParts.pop() || serviceName;
+  const packageName = packageParts.join('.');
+
+  if (packageName) {
+    lines.push(`package ${packageName};`);
+    lines.push('');
+  }
+
+  // Collect all message types needed
+  const messageTypes = new Set<string>();
+  for (const method of serviceInfo.methods) {
+    if (method.inputMessageSchema) {
+      collectMessageTypes(method.inputMessageSchema, messageTypes);
+    }
+    if (method.outputMessageSchema) {
+      collectMessageTypes(method.outputMessageSchema, messageTypes);
+    }
+  }
+
+  // Generate message definitions
+  for (const typeName of messageTypes) {
+    const schema = messageSchemaCache.get(typeName);
+    if (schema) {
+      lines.push(generateMessageDefinition(schema));
+      lines.push('');
+    }
+  }
+
+  // Generate service definition
+  lines.push(`service ${serviceShortName} {`);
+  for (const method of serviceInfo.methods) {
+    const inputType = method.inputType.split('.').pop() || method.inputType;
+    const outputType = method.outputType.split('.').pop() || method.outputType;
+    const clientStream = method.clientStreaming ? 'stream ' : '';
+    const serverStream = method.serverStreaming ? 'stream ' : '';
+    lines.push(`  rpc ${method.name} (${clientStream}${inputType}) returns (${serverStream}${outputType});`);
+  }
+  lines.push('}');
+
+  return lines.join('\n');
+}
+
+/**
+ * Collect all message types recursively
+ */
+function collectMessageTypes(schema: MessageSchema, types: Set<string>): void {
+  if (types.has(schema.fullName)) {
+    return;
+  }
+  types.add(schema.fullName);
+
+  for (const field of schema.fields) {
+    if (field.type === 'TYPE_MESSAGE' && field.typeName) {
+      const nestedSchema = messageSchemaCache.get(field.typeName);
+      if (nestedSchema) {
+        collectMessageTypes(nestedSchema, types);
+      }
+    }
+  }
+}
+
+/**
+ * Generate a single message definition
+ */
+function generateMessageDefinition(schema: MessageSchema): string {
+  const lines: string[] = [`message ${schema.name} {`];
+
+  for (const field of schema.fields) {
+    const label = field.label === 'LABEL_REPEATED' ? 'repeated ' : '';
+    let type: string;
+
+    if (field.type === 'TYPE_MESSAGE' || field.type === 'TYPE_ENUM') {
+      type = field.typeName?.split('.').pop() || 'string';
+    } else {
+      type = getProtoTypeName(field.type);
+    }
+
+    lines.push(`  ${label}${type} ${field.name} = ${field.number};`);
+  }
+
+  lines.push('}');
+  return lines.join('\n');
 }

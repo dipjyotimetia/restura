@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildAuthMetadata,
   parseProtoFile,
@@ -91,19 +91,22 @@ describe('grpcClient', () => {
       });
     });
 
-    it('should handle digest auth', () => {
+    it('should handle digest auth (not supported for gRPC)', () => {
       const auth: AuthConfig = {
         type: 'digest',
         digest: { username: 'user', password: 'pass' },
       };
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const result = buildAuthMetadata(auth);
-      expect(result).toEqual({
-        'x-digest-username': 'user',
-        'x-digest-password': 'pass',
-      });
+      // Digest auth is not supported for gRPC - should return empty metadata
+      expect(result).toEqual({});
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.'
+      );
+      consoleSpy.mockRestore();
     });
 
-    it('should handle AWS signature auth', () => {
+    it('should handle AWS signature auth (not implemented for gRPC)', () => {
       const auth: AuthConfig = {
         type: 'aws-signature',
         awsSignature: {
@@ -113,12 +116,14 @@ describe('grpcClient', () => {
           service: 's3',
         },
       };
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const result = buildAuthMetadata(auth);
-      expect(result).toEqual({
-        'x-aws-access-key': 'AKIAIOSFODNN7EXAMPLE',
-        'x-aws-region': 'us-east-1',
-        'x-aws-service': 's3',
-      });
+      // AWS Signature auth is not yet implemented for gRPC - should return empty metadata
+      expect(result).toEqual({});
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.'
+      );
+      consoleSpy.mockRestore();
     });
   });
 

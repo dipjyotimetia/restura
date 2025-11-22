@@ -33,6 +33,12 @@ interface HttpResponse {
   data: unknown;
 }
 
+// Maximum response size (10MB)
+const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
+
+// Connection timeout (10 seconds)
+const CONNECTION_TIMEOUT = 10000;
+
 function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
     try {
@@ -75,20 +81,37 @@ function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<
       }
 
       // Configure SSL verification
-      if (isHttps && !config.verifySsl) {
+      if (isHttps && config.verifySsl === false) {
         (requestOptions as https.RequestOptions).rejectUnauthorized = false;
+        console.warn(`[HTTP] SSL verification disabled for ${url.hostname} - this is insecure`);
       }
 
       // Create request
       const protocol = isHttps ? https : http;
       const req = protocol.request(requestOptions, (res) => {
-        let data = '';
+        const chunks: Buffer[] = [];
+        let totalSize = 0;
 
-        res.on('data', (chunk) => {
-          data += chunk;
+        // Check Content-Length header for early rejection
+        const contentLength = res.headers['content-length'];
+        if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
+          req.destroy();
+          reject(new Error(`Response size (${contentLength} bytes) exceeds maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`));
+          return;
+        }
+
+        res.on('data', (chunk: Buffer) => {
+          totalSize += chunk.length;
+          if (totalSize > MAX_RESPONSE_SIZE) {
+            req.destroy();
+            reject(new Error(`Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`));
+            return;
+          }
+          chunks.push(chunk);
         });
 
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
           // Parse response headers
           const headers: Record<string, string | string[]> = {};
           Object.entries(res.headers).forEach(([key, value]) => {
@@ -165,6 +188,18 @@ function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<
       req.on('timeout', () => {
         req.destroy();
         reject(new Error('Request timeout'));
+      });
+
+      // Connection timeout (separate from request timeout)
+      const connectionTimer = setTimeout(() => {
+        req.destroy();
+        reject(new Error(`Connection timeout after ${CONNECTION_TIMEOUT}ms`));
+      }, CONNECTION_TIMEOUT);
+
+      req.on('socket', (socket) => {
+        socket.on('connect', () => {
+          clearTimeout(connectionTimer);
+        });
       });
 
       // Send request body if present
