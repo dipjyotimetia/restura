@@ -29,8 +29,23 @@ import {
   Search,
   RefreshCw,
   Binary,
+  Download,
 } from 'lucide-react';
 import { KeyValue } from '@/types';
+
+// Helper to format duration
+const formatDuration = (ms: number): string => {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`;
+  }
+  return `${seconds}s`;
+};
 
 export default function WebSocketClient() {
   const [message, setMessage] = useState('');
@@ -54,6 +69,8 @@ export default function WebSocketClient() {
     setMessageFilter,
     setSearchQuery,
     getFilteredMessages,
+    addMessage,
+    setProtocols,
   } = useWebSocketStore();
 
   // Get or create active connection
@@ -65,6 +82,15 @@ export default function WebSocketClient() {
       createConnection();
     }
   }, [activeConnectionId, createConnection]);
+
+  // Cleanup WebSocket connection on component unmount
+  useEffect(() => {
+    return () => {
+      if (activeConnectionId) {
+        websocketManager.disconnect(activeConnectionId);
+      }
+    };
+  }, [activeConnectionId]);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -102,14 +128,19 @@ export default function WebSocketClient() {
       try {
         const buffer = websocketManager.hexToArrayBuffer(message);
         websocketManager.send(activeConnectionId, buffer);
+        setMessage('');
       } catch {
-        // Invalid hex format, send as text instead
-        websocketManager.send(activeConnectionId, message);
+        // Show error for invalid hex format
+        addMessage(
+          activeConnectionId,
+          'system',
+          `Invalid hex format: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}". Expected space-separated hex bytes (e.g., "48 65 6c 6c 6f")`
+        );
       }
     } else {
       websocketManager.send(activeConnectionId, message);
+      setMessage('');
     }
-    setMessage('');
   };
 
   const handleClearMessages = () => {
@@ -127,6 +158,39 @@ export default function WebSocketClient() {
   const handleDeleteHeader = (id: string) => {
     deleteHeader(activeConnectionId, id);
   };
+
+  const handleExportMessages = () => {
+    const messages = connection.messages.map((msg) => ({
+      timestamp: new Date(msg.timestamp).toISOString(),
+      type: msg.type,
+      dataType: msg.dataType,
+      content: msg.content,
+    }));
+
+    const exportData = {
+      url: connection.url,
+      protocols: connection.protocols,
+      exportedAt: new Date().toISOString(),
+      messageCount: messages.length,
+      messages,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `websocket-messages-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Calculate connection duration
+  const connectionDuration =
+    isConnected && connection.lastConnectedAt
+      ? Date.now() - connection.lastConnectedAt
+      : 0;
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -231,6 +295,25 @@ export default function WebSocketClient() {
               Auto-reconnect
             </Label>
           </div>
+          <div className="flex items-center gap-2 flex-1">
+            <Label htmlFor="protocols" className="text-xs whitespace-nowrap">
+              Subprotocols:
+            </Label>
+            <Input
+              id="protocols"
+              value={connection.protocols.join(', ')}
+              onChange={(e) => {
+                const protocols = e.target.value
+                  .split(',')
+                  .map((p) => p.trim())
+                  .filter((p) => p.length > 0);
+                setProtocols(activeConnectionId, protocols);
+              }}
+              placeholder="e.g., graphql-ws, chat"
+              className="h-7 text-xs flex-1"
+              disabled={isConnected || isConnecting}
+            />
+          </div>
         </div>
       </div>
 
@@ -269,6 +352,23 @@ export default function WebSocketClient() {
                 className="pl-8 h-8"
               />
             </div>
+            {/* Metrics */}
+            <div className="text-xs text-muted-foreground flex items-center gap-3">
+              <span>{connection.messages.length} msgs</span>
+              {connectionDuration > 0 && (
+                <span>{formatDuration(connectionDuration)}</span>
+              )}
+            </div>
+            {/* Export */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExportMessages}
+              disabled={connection.messages.length === 0}
+              title="Export messages as JSON"
+            >
+              <Download className="h-4 w-4" />
+            </Button>
           </div>
 
           {/* Messages Area */}
@@ -364,9 +464,10 @@ export default function WebSocketClient() {
 
         <TabsContent value="headers" className="flex-1 overflow-auto p-4 m-0">
           <div className="space-y-2">
-            <div className="text-sm text-muted-foreground mb-4">
-              Note: Headers can only be set before connection. WebSocket protocol has limited
-              header support.
+            <div className="text-sm text-muted-foreground mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
+              <strong>⚠️ Browser Limitation:</strong> The browser WebSocket API does not support
+              custom headers. These headers are saved for reference only and are not sent with
+              the connection. For header support, use the Electron desktop app.
             </div>
             {connection.headers.map((header) => (
               <div key={header.id} className="flex items-center gap-2">

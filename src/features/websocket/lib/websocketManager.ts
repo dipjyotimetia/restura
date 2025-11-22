@@ -4,12 +4,43 @@ import { useWebSocketStore } from '@/store/useWebSocketStore';
 class WebSocketManager {
   private connections: Map<string, WebSocket> = new Map();
   private reconnectTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private connectionTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private static DEFAULT_CONNECTION_TIMEOUT = 30000; // 30 seconds
+
+  // Validate WebSocket URL
+  private validateUrl(url: string): { valid: boolean; error?: string } {
+    if (!url || !url.trim()) {
+      return { valid: false, error: 'URL is required' };
+    }
+
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+        return {
+          valid: false,
+          error: `Invalid protocol "${parsed.protocol}". URL must start with ws:// or wss://`,
+        };
+      }
+      return { valid: true };
+    } catch {
+      return { valid: false, error: 'Invalid URL format' };
+    }
+  }
 
   connect(connectionId: string, url: string, protocols?: string[]): void {
     // Close existing connection if any
     this.disconnect(connectionId, false);
 
     const store = useWebSocketStore.getState();
+
+    // Validate URL before attempting connection
+    const validation = this.validateUrl(url);
+    if (!validation.valid) {
+      store.addMessage(connectionId, 'system', `Connection failed: ${validation.error}`);
+      store.updateConnectionStatus(connectionId, 'disconnected');
+      return;
+    }
+
     store.updateConnectionStatus(connectionId, 'connecting');
     store.setReconnectAttempts(connectionId, 0);
 
@@ -18,10 +49,34 @@ class WebSocketManager {
         ? new WebSocket(url, protocols)
         : new WebSocket(url);
 
+      // Set connection timeout
+      const timeoutId = setTimeout(() => {
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+          store.addMessage(
+            connectionId,
+            'system',
+            `Connection timeout after ${WebSocketManager.DEFAULT_CONNECTION_TIMEOUT / 1000}s`
+          );
+          store.updateConnectionStatus(connectionId, 'disconnected');
+          this.connections.delete(connectionId);
+          this.connectionTimeouts.delete(connectionId);
+        }
+      }, WebSocketManager.DEFAULT_CONNECTION_TIMEOUT);
+
+      this.connectionTimeouts.set(connectionId, timeoutId);
+
       // Set binary type to arraybuffer for binary message support
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
+        // Clear connection timeout
+        const timeout = this.connectionTimeouts.get(connectionId);
+        if (timeout) {
+          clearTimeout(timeout);
+          this.connectionTimeouts.delete(connectionId);
+        }
+
         const state = useWebSocketStore.getState();
         state.updateConnectionStatus(connectionId, 'connected');
         state.setReconnectAttempts(connectionId, 0);
@@ -73,7 +128,8 @@ class WebSocketManager {
           event.code !== 1001 && // Going away
           connection.reconnectAttempts < connection.maxReconnectAttempts
         ) {
-          this.scheduleReconnect(connectionId, url, protocols);
+          // Use current URL from connection state (in case it was updated)
+          this.scheduleReconnect(connectionId);
         } else {
           state.updateConnectionStatus(connectionId, 'disconnected');
         }
@@ -99,6 +155,13 @@ class WebSocketManager {
         clearTimeout(timeout);
         this.reconnectTimeouts.delete(connectionId);
       }
+    }
+
+    // Clear connection timeout
+    const connectionTimeout = this.connectionTimeouts.get(connectionId);
+    if (connectionTimeout) {
+      clearTimeout(connectionTimeout);
+      this.connectionTimeouts.delete(connectionId);
     }
 
     const ws = this.connections.get(connectionId);
@@ -139,11 +202,7 @@ class WebSocketManager {
     return ws?.readyState === WebSocket.OPEN;
   }
 
-  private scheduleReconnect(
-    connectionId: string,
-    url: string,
-    protocols?: string[]
-  ): void {
+  private scheduleReconnect(connectionId: string): void {
     const state = useWebSocketStore.getState();
     const connection = state.connections[connectionId];
     if (!connection) return;
@@ -167,7 +226,13 @@ class WebSocketManager {
 
     const timeout = setTimeout(() => {
       this.reconnectTimeouts.delete(connectionId);
-      this.connect(connectionId, url, protocols);
+      // Get current URL and protocols from store (they may have been updated)
+      const currentState = useWebSocketStore.getState();
+      const currentConnection = currentState.connections[connectionId];
+      if (currentConnection) {
+        const protocols = currentConnection.protocols.length > 0 ? currentConnection.protocols : undefined;
+        this.connect(connectionId, currentConnection.url, protocols);
+      }
     }, delay);
 
     this.reconnectTimeouts.set(connectionId, timeout);
