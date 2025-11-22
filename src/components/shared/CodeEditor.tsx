@@ -7,6 +7,7 @@ import type * as Monaco from 'monaco-editor';
 import { Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { registerGraphQLLanguage } from '@/features/graphql/lib/monacoGraphql';
 
 interface CodeEditorProps {
   value: string;
@@ -31,8 +32,13 @@ export default function CodeEditor({
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const handleEditorDidMount: OnMount = (editor, _monaco) => {
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+
+    // Register GraphQL language if needed
+    if (language === 'graphql') {
+      registerGraphQLLanguage(monaco);
+    }
 
     // Configure editor options
     editor.updateOptions({
