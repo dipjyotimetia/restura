@@ -73,7 +73,7 @@ export default function CommandPalette({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="overflow-hidden p-0 glass-strong border-slate-blue-500/20 shadow-glass-lg max-w-[640px]">
+      <DialogContent className="overflow-hidden p-0 bg-popover border-border shadow-lg max-w-[640px]">
         <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-slate-blue-600 dark:[&_[cmdk-group-heading]]:text-slate-blue-400 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
           <div className="flex items-center border-b border-slate-blue-500/20 px-3 bg-gradient-to-r from-slate-blue-500/5 to-indigo-500/5">
             <Code2 className="mr-2 h-4 w-4 shrink-0 text-slate-blue-500" />

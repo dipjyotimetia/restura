@@ -54,7 +54,7 @@ export default function KeyValueEditor({
         {items.map((item) => (
           <StaggerItem
             key={item.id}
-            className="flex items-center gap-3 group p-2 rounded-lg hover:bg-white/5 dark:hover:bg-white/5 transition-colors"
+            className="flex items-center gap-3 group p-2 rounded-lg hover:bg-accent transition-colors"
           >
             <Tooltip>
               <TooltipTrigger asChild>
@@ -75,14 +75,14 @@ export default function KeyValueEditor({
               value={item.key}
               onChange={(e) => onUpdate(item.id, { key: e.target.value })}
               placeholder={keyPlaceholder}
-              className="flex-1 glass-subtle border-white/10 dark:border-white/5 focus:border-slate-blue-500/40 transition-colors"
+              className="flex-1 bg-background border-border focus:border-slate-blue-500/40 transition-colors"
               aria-label={`${itemType} key`}
             />
             <Input
               value={item.value}
               onChange={(e) => onUpdate(item.id, { value: e.target.value })}
               placeholder={valuePlaceholder}
-              className="flex-1 glass-subtle border-white/10 dark:border-white/5 focus:border-slate-blue-500/40 transition-colors"
+              className="flex-1 bg-background border-border focus:border-slate-blue-500/40 transition-colors"
               aria-label={`${itemType} value`}
             />
             <AlertDialog>
@@ -103,7 +103,7 @@ export default function KeyValueEditor({
                   <p>Delete {itemType}</p>
                 </TooltipContent>
               </Tooltip>
-              <AlertDialogContent className="glass">
+              <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete {itemType.charAt(0).toUpperCase() + itemType.slice(1)}</AlertDialogTitle>
                   <AlertDialogDescription>
@@ -130,7 +130,7 @@ export default function KeyValueEditor({
               onClick={onAdd}
               variant="outline"
               size="sm"
-              className="border-white/10 dark:border-white/5 hover:border-white/20 dark:hover:border-white/10"
+              className="border-border hover:border-border"
             >
               <Plus className="mr-2 h-4 w-4" />
               {addButtonText}

@@ -68,11 +68,11 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex flex-col h-full border-t border-white/10 dark:border-white/5 shadow-glass-lg glass relative z-10">
+      <div className="flex flex-col h-full border-t border-border shadow-lg bg-background relative z-10">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-white/10 dark:border-white/5 bg-transparent shadow-sm">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-transparent shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-white/10 dark:bg-white/5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
               <Terminal className="h-4 w-4 text-slate-blue-500 dark:text-slate-blue-400" />
             </div>
             <span className="text-sm font-semibold tracking-tight">Console</span>
@@ -120,7 +120,7 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
                 size="sm"
                 onClick={onClear}
                 disabled={logs.length === 0}
-                className="hover:bg-white/10 dark:hover:bg-white/5 hover:text-slate-blue-600 dark:hover:text-slate-blue-400 transition-colors"
+                className="hover:bg-accent hover:text-foreground transition-colors"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Clear
