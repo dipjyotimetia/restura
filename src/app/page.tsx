@@ -17,7 +17,7 @@ import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { Button } from '@/components/ui/button';
-import { PanelLeft, ChevronDown, ChevronUp, GripHorizontal } from 'lucide-react';
+import { PanelLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 
 type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
