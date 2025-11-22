@@ -314,7 +314,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                     onClick={handleNewCollection}
                     variant="outline"
                     size="sm"
-                    className="w-full justify-start h-8 text-xs border-dashed"
+                    className="w-full justify-start h-8 text-xs border-border hover:border-primary/50"
                   >
                     <FolderPlus className="mr-2 h-3.5 w-3.5 text-primary" />
                     New Collection

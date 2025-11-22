@@ -141,7 +141,7 @@ export default function RequestLine({
           variant="outline"
           onClick={onOpenCodeGen}
           disabled={!url}
-          className="border-border hover:border-border"
+          className="border-border hover:border-border disabled:bg-muted disabled:border-border"
           aria-label="Generate code snippet"
         >
           <Code2 className="mr-2 h-4 w-4" />
@@ -151,7 +151,7 @@ export default function RequestLine({
         <Button
           onClick={onSend}
           disabled={isLoading || !url || !!urlError}
-          className="min-w-[120px]"
+          className="min-w-[120px] bg-primary disabled:bg-primary/70"
           aria-label={isLoading ? 'Sending request' : 'Send request'}
         >
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
