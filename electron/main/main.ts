@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, session, crashReporter } from 'electron';
 import { setupAutoUpdater, registerAutoUpdaterIPC } from './auto-updater';
 import { createMainWindow } from './window-manager';
 import { registerFileOperationsIPC } from './file-operations';
@@ -7,6 +7,21 @@ import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
 import { registerWindowControlsIPC } from './window-controls';
 import { createSystemTray, destroyTray } from './system-tray';
 import { registerNotificationIPC } from './notifications';
+
+// Initialize crash reporter early (before app.whenReady)
+crashReporter.start({
+  productName: 'Restura',
+  companyName: 'Restura',
+  submitURL: '', // Set your crash report server URL here, or leave empty for local-only
+  uploadToServer: false, // Set to true when you have a crash server configured
+  ignoreSystemCrashHandler: false,
+  compress: true,
+  extra: {
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+  },
+});
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {

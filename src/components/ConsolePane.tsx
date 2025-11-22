@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
+import { Stagger, StaggerItem } from '@/components/ui/motion';
 
 interface ConsoleLog {
   type: 'log' | 'error' | 'warn' | 'info';
@@ -144,13 +145,14 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
             <>
               {/* Test Results */}
               {tests && tests.length > 0 && (
-                <div className="mb-4 space-y-2">
+                <div className="mb-4">
                   <div className="text-muted-foreground font-semibold mb-3 flex items-center gap-2">
                     <div className="h-1 w-1 rounded-full bg-primary" />
                     Test Results
                   </div>
+                  <Stagger className="space-y-2">
                   {tests.map((test, index) => (
-                    <div
+                    <StaggerItem
                       key={index}
                       className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
                         test.passed
@@ -173,14 +175,16 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
                           </div>
                         )}
                       </div>
-                    </div>
+                    </StaggerItem>
                   ))}
+                  </Stagger>
                 </div>
               )}
 
               {/* Console Logs */}
+              <Stagger show={logs.length > 0}>
               {logs.map((log, index) => (
-                <div
+                <StaggerItem
                   key={index}
                   className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-primary/5 transition-all border border-transparent hover:border-primary/10"
                 >
@@ -191,8 +195,9 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
                   <pre className={`flex-1 whitespace-pre-wrap break-words ${getLogColor(log.type)} leading-relaxed`}>
                     {log.message}
                   </pre>
-                </div>
+                </StaggerItem>
               ))}
+              </Stagger>
             </>
           )}
         </div>
