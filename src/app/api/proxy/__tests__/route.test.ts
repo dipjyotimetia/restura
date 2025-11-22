@@ -170,7 +170,8 @@ describe('Proxy Route', () => {
 
       expect(json.status).toBe(200);
       const callArgs = mockFetch.mock.calls[0];
-      const formData = callArgs[1].body as FormData;
+      expect(callArgs).toBeDefined();
+      const formData = callArgs![1].body as FormData;
       expect(formData.get('description')).toBe('My file');
       expect(formData.get('file')).toBeInstanceOf(Blob);
     });
@@ -218,7 +219,7 @@ describe('Proxy Route', () => {
         })
       );
       // Body should be undefined for GET
-      expect(mockFetch.mock.calls[0][1].body).toBeUndefined();
+      expect(mockFetch.mock.calls[0]?.[1]?.body).toBeUndefined();
     });
 
     it('should preserve user-specified Content-Type header', async () => {
