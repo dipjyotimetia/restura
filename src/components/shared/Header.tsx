@@ -1,10 +1,10 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import { Moon, Sun, FolderOpen, Globe, Settings2, Command } from 'lucide-react';
+import { Moon, Sun, FolderOpen, Globe, Settings2 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import EnvironmentManager from '@/features/environments/components/EnvironmentManager';
@@ -59,7 +59,7 @@ export default function Header({
 
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore();
-  const { createNewHttpRequest, createNewGrpcRequest } = useRequestStore();
+  const { switchToHttp, switchToGrpc } = useRequestStore();
 
   useEffect(() => {
     setMounted(true);
@@ -75,12 +75,13 @@ export default function Header({
 
   const handleRequestModeChange = (mode: RequestMode) => {
     onRequestModeChange(mode);
-    if (mode === 'http') {
-      createNewHttpRequest();
+    // Switch to the appropriate request type, preserving state
+    if (mode === 'http' || mode === 'graphql') {
+      switchToHttp();
     } else if (mode === 'grpc') {
-      createNewGrpcRequest();
+      switchToGrpc();
     }
-    // WebSocket doesn't use the request store
+    // WebSocket uses its own store
   };
 
   if (!mounted) {
@@ -129,16 +130,16 @@ export default function Header({
         <div className="h-6 w-px bg-border/60 hidden sm:block" />
 
         {/* Request Mode Selector - Segmented Control Style */}
-        <div className="flex items-center rounded-md bg-muted/50 p-1 border border-border/50">
+        <div className="flex items-center rounded-md bg-muted p-1 border border-border">
             {['http', 'graphql', 'grpc', 'websocket'].map((mode) => (
               <button
                 key={mode}
                 onClick={() => handleRequestModeChange(mode as RequestMode)}
                 className={cn(
-                  "relative px-3 py-1 text-xs font-medium rounded-sm transition-all duration-200",
-                  requestMode === mode 
-                    ? "bg-background text-foreground shadow-sm" 
-                    : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                  "relative px-3 py-1.5 text-xs font-medium rounded-sm transition-all duration-200",
+                  requestMode === mode
+                    ? "bg-background text-foreground shadow-sm border border-border/50"
+                    : "text-muted-foreground hover:text-foreground hover:bg-background/80"
                 )}
               >
                 {mode === 'http' ? 'HTTP' : mode === 'graphql' ? 'GraphQL' : mode === 'grpc' ? 'gRPC' : 'WS'}
@@ -185,6 +186,7 @@ export default function Header({
                   size="icon-sm"
                   onClick={() => setEnvManagerOpen(true)}
                   className="h-8 w-8 text-muted-foreground"
+                  aria-label="Manage Environments"
                 >
                   <Settings2 className="h-3.5 w-3.5" />
                 </Button>
@@ -207,6 +209,7 @@ export default function Header({
                   size="icon-sm"
                   onClick={() => setImportDialogOpen(true)}
                   className="h-8 w-8 text-muted-foreground"
+                  aria-label="Import collection"
                 >
                   <FolderOpen className="h-4 w-4" />
                 </Button>
@@ -221,6 +224,7 @@ export default function Header({
                   size="icon-sm"
                   onClick={onOpenSettings || (() => setSettingsOpen(true))}
                   className="h-8 w-8 text-muted-foreground"
+                  aria-label="Settings"
                 >
                   <Settings2 className="h-4 w-4" />
                 </Button>
@@ -235,6 +239,7 @@ export default function Header({
                   size="icon-sm"
                   onClick={toggleTheme}
                   className="h-8 w-8 text-muted-foreground"
+                  aria-label="Toggle theme"
                 >
                    {mounted && (theme === 'dark' || resolvedTheme === 'dark') ? (
                     <Sun className="h-4 w-4" />

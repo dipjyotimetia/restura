@@ -5,7 +5,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/shared/utils';
 
 export const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium tracking-tight transition-all duration-200 ease-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative overflow-hidden active:scale-[0.98]',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium tracking-tight transition-all duration-200 ease-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative overflow-hidden active:scale-[0.98]',
   {
     variants: {
       variant: {
@@ -14,9 +14,9 @@ export const buttonVariants = cva(
         destructive:
           'bg-destructive text-destructive-foreground shadow-md hover:shadow-lg hover:bg-destructive/90 border border-transparent hover:-translate-y-0.5',
         outline:
-          'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground hover:border-accent-foreground/20',
+          'border border-border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground hover:border-accent-foreground/30',
         secondary:
-          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 border border-transparent',
+          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 border border-border/50',
         ghost:
           'hover:bg-accent hover:text-accent-foreground',
         link:
@@ -24,7 +24,7 @@ export const buttonVariants = cva(
         // New Premium Variants
         shine:
           'bg-primary text-primary-foreground shadow-md hover:shadow-xl hover:-translate-y-0.5 overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent before:-translate-x-full hover:before:animate-[shimmer_1.5s_infinite] border border-transparent',
-        subtle: 
+        subtle:
           'bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 shadow-sm',
       },
       size: {

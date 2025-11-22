@@ -98,17 +98,12 @@ function ResponseSkeleton() {
 }
 
 function ResponseViewer() {
-  const { currentResponse, isLoading } = useRequestStore();
+  // Use selectors to only subscribe to needed state, reducing re-renders
+  const currentResponse = useRequestStore((state) => state.currentResponse);
+  const isLoading = useRequestStore((state) => state.isLoading);
   const [activeTab, setActiveTab] = useState('body');
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [showAnimation, setShowAnimation] = useState(false);
-
-  console.log('[ResponseViewer] Render:', {
-    hasResponse: !!currentResponse,
-    isLoading,
-    bodyLength: currentResponse?.body?.length,
-    bodyPreview: currentResponse?.body?.substring(0, 100),
-  });
 
   // useMemo hooks MUST be before any early returns to follow Rules of Hooks
   const language = useMemo(
@@ -152,7 +147,7 @@ function ResponseViewer() {
   if (!currentResponse) {
     return (
       <div className="h-full flex items-center justify-center bg-background relative z-20 border-l border-border">
-        <div className="text-center p-8 rounded-xl bg-muted border border-dashed border-border max-w-md shadow-md">
+        <div className="text-center p-8 rounded-xl bg-muted/80 border border-border max-w-md shadow-lg">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-gradient-to-br from-slate-blue-100 to-indigo-100 dark:from-slate-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
             <Zap className="h-7 w-7 text-slate-blue-600 dark:text-slate-blue-400" />
           </div>

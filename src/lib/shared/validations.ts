@@ -25,6 +25,28 @@ export const keyValueSchema = z.object({
   description: z.string().optional(),
 });
 
+// Proxy Config Schema
+export const proxyConfigSchema = z.object({
+  enabled: z.boolean(),
+  type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']),
+  host: z.string(),
+  port: z.number(),
+  auth: z.object({
+    username: z.string(),
+    password: z.string(),
+  }).optional(),
+  bypassList: z.array(z.string()).optional(),
+});
+
+// Request Settings Schema
+export const requestSettingsSchema = z.object({
+  timeout: z.number(),
+  followRedirects: z.boolean(),
+  maxRedirects: z.number(),
+  verifySsl: z.boolean(),
+  proxy: proxyConfigSchema.optional(),
+});
+
 // Auth Schema
 export const authConfigSchema = z.object({
   type: z.enum(['none', 'basic', 'bearer', 'api-key', 'oauth2', 'digest', 'aws-signature']),
@@ -74,18 +96,20 @@ export const httpRequestSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   type: z.literal('http'),
   method: httpMethodSchema,
-  url: z.string().min(1, 'URL is required'),
+  url: z.string(),
   headers: z.array(keyValueSchema),
   params: z.array(keyValueSchema),
   body: z.object({
-    type: z.enum(['none', 'json', 'xml', 'form-data', 'x-www-form-urlencoded', 'binary', 'text', 'graphql']),
+    type: z.enum(['none', 'json', 'xml', 'form-data', 'x-www-form-urlencoded', 'binary', 'text', 'graphql', 'protobuf', 'multipart-mixed']),
     raw: z.string().optional(),
     formData: z.array(z.any()).optional(),
     binary: z.any().optional(),
+    multipartParts: z.array(z.any()).optional(),
   }),
   auth: authConfigSchema,
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
+  settings: requestSettingsSchema.optional(),
 });
 
 // gRPC Request Schema
@@ -94,9 +118,9 @@ export const grpcRequestSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   type: z.literal('grpc'),
   methodType: z.enum(['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming']),
-  url: z.string().min(1, 'URL is required'),
-  service: z.string().min(1, 'Service is required'),
-  method: z.string().min(1, 'Method is required'),
+  url: z.string(),
+  service: z.string(),
+  method: z.string(),
   metadata: z.array(keyValueSchema),
   message: z.string(),
   auth: authConfigSchema,

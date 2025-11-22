@@ -270,13 +270,6 @@ function RequestBuilder() {
         timestamp: Date.now(),
       };
 
-      console.log('[RequestBuilder] Response data created:', {
-        bodyLength: bodyContent?.length,
-        bodyPreview: bodyContent?.substring(0, 100),
-        size: responseData.size,
-        status: responseData.status,
-      });
-
       let testResult;
       if (currentRequest.testScript) {
         const executor = new ScriptExecutor(envVars, {});
@@ -307,11 +300,6 @@ function RequestBuilder() {
         setScriptResult({ preRequest: preRequestResult, test: testResult });
       }
 
-      console.log('[RequestBuilder] Setting response in store:', {
-        id: responseData.id,
-        bodyLength: responseData.body?.length,
-        hasBody: !!responseData.body,
-      });
       setCurrentResponse(responseData);
       addHistoryItem(currentRequest, responseData);
 
@@ -402,7 +390,7 @@ function RequestBuilder() {
       {/* Request Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
         <div className="px-4 py-2 border-b border-border/40">
-          <TabsList className="w-full justify-start h-10 bg-muted/50 p-1">
+          <TabsList className="w-full justify-start h-10 bg-muted p-1 border border-border/50">
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
