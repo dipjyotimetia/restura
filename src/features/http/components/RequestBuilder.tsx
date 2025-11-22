@@ -543,6 +543,7 @@ function RequestBuilder() {
             body={currentRequest.body}
             onBodyTypeChange={handleBodyTypeChange}
             onBodyContentChange={handleBodyContentChange}
+            url={currentRequest.url}
           />
         </TabsContent>
 

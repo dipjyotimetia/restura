@@ -5,17 +5,24 @@ import { RequestBody } from '@/types';
 import dynamic from 'next/dynamic';
 
 const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
+const GraphQLBodyEditor = dynamic(() => import('@/features/graphql/components/GraphQLBodyEditor'), { ssr: false });
 
 interface RequestBodyEditorProps {
   body: RequestBody;
   onBodyTypeChange: (type: RequestBody['type']) => void;
   onBodyContentChange: (content: string) => void;
+  url?: string;
+  graphqlVariables?: string;
+  onGraphQLVariablesChange?: (variables: string) => void;
 }
 
 export default function RequestBodyEditor({
   body,
   onBodyTypeChange,
   onBodyContentChange,
+  url = '',
+  graphqlVariables = '{}',
+  onGraphQLVariablesChange,
 }: RequestBodyEditorProps) {
   return (
     <div className="space-y-4">
@@ -29,6 +36,7 @@ export default function RequestBodyEditor({
             <SelectItem value="json">JSON</SelectItem>
             <SelectItem value="xml">XML</SelectItem>
             <SelectItem value="text">Text</SelectItem>
+            <SelectItem value="graphql">GraphQL</SelectItem>
             <SelectItem value="form-data">Form Data</SelectItem>
             <SelectItem value="x-www-form-urlencoded">x-www-form-urlencoded</SelectItem>
           </SelectContent>
@@ -45,6 +53,14 @@ export default function RequestBodyEditor({
           <p className="text-sm">No body content</p>
           <p className="text-xs mt-1">Select a body type above to add request body</p>
         </div>
+      ) : body.type === 'graphql' ? (
+        <GraphQLBodyEditor
+          query={body.raw || ''}
+          variables={graphqlVariables}
+          url={url}
+          onQueryChange={onBodyContentChange}
+          onVariablesChange={onGraphQLVariablesChange || (() => {})}
+        />
       ) : (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
