@@ -39,7 +39,27 @@ npm run electron:dist:linux    # Build Linux app
 ### Dual-Platform Design
 - **Web Client**: Next.js 16 App Router at `src/app/`
 - **Desktop Client**: Electron main process at `electron/main/`
-- Shared renderer code in `src/components/` and `src/lib/`
+- Shared renderer code organized by feature in `src/features/`
+
+### Feature-Based Organization
+Code is organized by feature for better scalability:
+```
+src/features/
+├── http/           # RequestBuilder, requestExecutor, useHttpRequest, useCookieStore
+├── grpc/           # GrpcRequestBuilder, grpcClient, grpcReflection
+├── websocket/      # WebSocketClient
+├── collections/    # Sidebar, CollectionRunner, importers, exporters
+├── environments/   # EnvironmentManager
+├── auth/           # AuthConfig (shared by HTTP & gRPC)
+└── scripts/        # ScriptsEditor, scriptExecutor
+
+src/components/
+├── ui/             # Radix UI primitives (shadcn/ui patterns)
+├── shared/         # Header, ResponseViewer, KeyValueEditor, CodeEditor, etc.
+└── providers/      # PlatformProvider, ThemeProvider
+
+src/lib/shared/     # utils, encryption, storage, platform, validations
+```
 
 ### State Management (Zustand)
 Four persisted stores manage application state:
@@ -49,7 +69,7 @@ Four persisted stores manage application state:
 - `useHistoryStore` - Request history
 - `useSettingsStore` - App preferences
 
-All stores use `zustand/middleware/persist` for localStorage persistence. Stores are validated with Zod schemas in `src/lib/store-validators.ts`.
+All stores use `zustand/middleware/persist` for localStorage persistence. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`.
 
 ### Request Type System
 The app handles multiple protocols through a discriminated union pattern:
@@ -57,7 +77,7 @@ The app handles multiple protocols through a discriminated union pattern:
 type Request = HttpRequest | GrpcRequest;  // src/types/index.ts:145
 ```
 
-Each request type has its own builder component (`RequestBuilder` for HTTP, `GrpcRequestBuilder` for gRPC).
+Each request type has its own builder component in its feature folder (`src/features/http/components/RequestBuilder` for HTTP, `src/features/grpc/components/GrpcRequestBuilder` for gRPC).
 
 ### Electron IPC Architecture
 Main process modules are separated by concern in `electron/main/`:
@@ -81,14 +101,15 @@ IPC handlers are registered centrally in `registerIPCHandlers()`.
 
 **UI Components**: Built on Radix UI primitives with custom styling via Tailwind CSS 4. Components in `src/components/ui/` follow shadcn/ui patterns.
 
-**Script Execution**: Pre-request and test scripts run in QuickJS sandbox (`src/lib/scriptExecutor.ts`) for security isolation.
+**Script Execution**: Pre-request and test scripts run in QuickJS sandbox (`src/features/scripts/lib/scriptExecutor.ts`) for security isolation.
 
-**Import/Export**: Supports Postman and Insomnia collection formats via `src/lib/importers.ts` and `src/lib/exporters.ts`.
+**Import/Export**: Supports Postman and Insomnia collection formats via `src/features/collections/lib/importers.ts` and `src/features/collections/lib/exporters.ts`.
 
 ## Testing
 
 Tests are colocated with source files using `*.test.ts` pattern:
-- `src/lib/__tests__/` - Utility tests
+- `src/features/*/lib/__tests__/` - Feature-specific tests (HTTP, gRPC, scripts, etc.)
+- `src/lib/shared/__tests__/` - Shared utility tests
 - `src/store/__tests__/` - Store logic tests
 
 Test setup is in `tests/setup.ts`. Vitest runs in jsdom environment with React Testing Library.
