@@ -27,12 +27,6 @@
     --success: 142 71% 45%;
     --warning: 38 92% 50%;
     --info: 199 89% 48%;
-    
-    /* Glassmorphism variables - refined */
-    --glass: 0 0% 100%;
-    --glass-border: 240 5.9% 90%;
-    --glass-glow: 240 5.9% 10%;
-    
     /* Surface elevation system */
     --surface-0: 0 0% 100%;
     --surface-1: 240 4.8% 98%;
@@ -66,12 +60,6 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
-    
-    /* Glassmorphism variables - dark */
-    --glass: 240 10% 3.9%;
-    --glass-border: 240 3.7% 15.9%;
-    --glass-glow: 0 0% 98%;
-    
     /* Surface elevation system */
     --surface-0: 240 10% 3.9%;
     --surface-1: 240 10% 6%;
@@ -287,42 +275,6 @@ textarea {
   animation: shimmer 1.5s infinite;
 }
 
-/* Glassmorphism utility classes - simplified for cleaner UI */
-.glass {
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.dark .glass {
-  background: rgba(9, 9, 11, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.glass-strong {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.dark .glass-strong {
-  background: rgba(9, 9, 11, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.glass-subtle {
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.dark .glass-subtle {
-  background: rgba(9, 9, 11, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
 
 /* Animated gradient mesh background */
 .gradient-mesh-bg {
@@ -341,7 +293,7 @@ textarea {
   will-change: transform;
 }
 
-/* Subtle colorful orbs for soft glassmorphism effect */
+/* Subtle colorful orbs for soft ambient background effect */
 .gradient-orb-1 {
   width: 500px;
   height: 500px;
@@ -428,6 +380,16 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .gradient-orb {
     animation: none !important;
+  }
+
+  .animate-shimmer {
+    animation: none !important;
+  }
+
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

@@ -78,19 +78,19 @@ export default function RequestLine({
   };
 
   return (
-    <div className="p-4 border-b border-white/10 dark:border-white/5 bg-transparent">
+    <div className="p-4 border-b border-border bg-transparent">
       <div className="flex gap-2">
         <Select value={method} onValueChange={(value) => onMethodChange(value as HttpMethod)}>
           <SelectTrigger
             className={cn(
-              'w-32 font-mono font-semibold border-2 transition-colors glass-subtle border-white/10 dark:border-white/5',
+              'w-32 font-mono font-semibold border-2 transition-colors bg-background border-border',
               methodColors[method]
             )}
             aria-label="HTTP Method"
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="glass border-white/20 dark:border-white/10">
+          <SelectContent className="bg-popover border-border">
             {Object.keys(methodColors).map((m) => (
               <SelectItem key={m} value={m} className="font-mono font-semibold">
                 <span className="flex items-center gap-2">
@@ -121,10 +121,10 @@ export default function RequestLine({
             onChange={(e) => handleUrlChange(e.target.value)}
             placeholder="Enter request URL (e.g., https://api.example.com/users)"
             className={cn(
-              'w-full font-mono text-sm glass-subtle focus:border-slate-blue-500/40 border-white/10 dark:border-white/5',
+              'w-full font-mono text-sm bg-background focus:border-slate-blue-500/40 border-border',
               urlError
                 ? 'border-red-500/50 focus:border-red-500/70 bg-red-50/50 dark:bg-red-950/20'
-                : 'border-white/10 dark:border-white/5'
+                : 'border-border'
             )}
             aria-invalid={!!urlError}
             aria-describedby={urlError ? 'url-error' : undefined}
@@ -141,7 +141,7 @@ export default function RequestLine({
           variant="outline"
           onClick={onOpenCodeGen}
           disabled={!url}
-          className="border-white/10 dark:border-white/5 hover:border-white/20 dark:hover:border-white/10"
+          className="border-border hover:border-border"
           aria-label="Generate code snippet"
         >
           <Code2 className="mr-2 h-4 w-4" />

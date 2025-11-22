@@ -75,12 +75,12 @@ export default function CodeEditor({
   };
 
   return (
-    <div className="relative border border-slate-blue-500/20 rounded-lg overflow-hidden group h-full glass-subtle">
+    <div className="relative border border-border rounded-lg overflow-hidden group h-full bg-background">
       {showCopyButton && value && (
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-2 right-2 z-10 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity glass border border-slate-blue-500/20 hover:bg-slate-blue-500/10 hover:border-slate-blue-500/40 shadow-glass"
+          className="absolute top-2 right-2 z-10 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity bg-background border border-border hover:bg-accent shadow-md"
           onClick={handleCopy}
           title="Copy to clipboard"
         >
