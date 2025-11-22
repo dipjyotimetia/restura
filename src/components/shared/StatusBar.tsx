@@ -45,13 +45,13 @@ export default function StatusBar() {
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="h-7 bg-muted border-t border-border flex items-center justify-between px-3 text-[11px] text-muted-foreground select-none"
+        className="h-8 bg-gradient-to-r from-muted/80 via-muted to-muted/80 border-t border-border/60 flex items-center justify-between px-4 text-[11px] text-muted-foreground select-none backdrop-blur-sm shadow-inner"
         role="status"
         aria-live="polite"
         aria-label="Application status bar"
       >
         {/* Left section */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Environment indicator */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -72,6 +72,8 @@ export default function StatusBar() {
             </TooltipContent>
           </Tooltip>
 
+          <span className="h-3 w-px bg-border/60" />
+
           {/* Request count */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -87,28 +89,63 @@ export default function StatusBar() {
 
           {/* Last activity */}
           {lastActivityTime && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-1.5 cursor-default hover:text-foreground transition-colors">
-                  <Clock className="h-3 w-3" />
-                  <span>Last: {lastActivityTime}</span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>Last request time</p>
-              </TooltipContent>
-            </Tooltip>
+            <>
+              <span className="h-3 w-px bg-border/60" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1.5 cursor-default hover:text-foreground transition-colors">
+                    <Clock className="h-3 w-3" />
+                    <span>Last: {lastActivityTime}</span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>Last request time</p>
+                </TooltipContent>
+              </Tooltip>
+            </>
           )}
         </div>
 
         {/* Right section */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Loading indicator */}
           {isLoading && (
-            <div className="flex items-center gap-1.5 text-amber-500 animate-pulse font-medium">
-              <Circle className="h-2 w-2 fill-current" />
-              <span>Sending...</span>
-            </div>
+            <>
+              <div className="flex items-center gap-1.5 text-amber-500 animate-pulse font-medium">
+                <Circle className="h-2 w-2 fill-current" />
+                <span>Sending...</span>
+              </div>
+              <span className="h-3 w-px bg-border/60" />
+            </>
+          )}
+
+          {/* Response status */}
+          {currentResponse && !isLoading && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div
+                    className={cn(
+                      'flex items-center gap-1.5 cursor-default font-medium',
+                      currentResponse.status >= 200 && currentResponse.status < 300
+                        ? 'text-emerald-500'
+                        : currentResponse.status >= 400
+                          ? 'text-red-500'
+                          : 'text-amber-500'
+                    )}
+                  >
+                    <Circle className="h-2 w-2 fill-current" />
+                    <span>
+                      {currentResponse.status} | {currentResponse.time}ms
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>Last response: {currentResponse.statusText}</p>
+                </TooltipContent>
+              </Tooltip>
+              <span className="h-3 w-px bg-border/60" />
+            </>
           )}
 
           {/* Connection status */}
@@ -128,32 +165,6 @@ export default function StatusBar() {
               <p>{isOnline ? 'Internet connection available' : 'No internet connection'}</p>
             </TooltipContent>
           </Tooltip>
-
-          {/* Response status */}
-          {currentResponse && !isLoading && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className={cn(
-                    'flex items-center gap-1.5 cursor-default font-medium',
-                    currentResponse.status >= 200 && currentResponse.status < 300
-                      ? 'text-emerald-500'
-                      : currentResponse.status >= 400
-                        ? 'text-red-500'
-                        : 'text-amber-500'
-                  )}
-                >
-                  <Circle className="h-2 w-2 fill-current" />
-                  <span>
-                    {currentResponse.status} | {currentResponse.time}ms
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>Last response: {currentResponse.statusText}</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
         </div>
       </div>
     </TooltipProvider>

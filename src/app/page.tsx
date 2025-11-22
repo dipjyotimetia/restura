@@ -170,9 +170,7 @@ export default function Home() {
       <Header
         requestMode={requestMode}
         onRequestModeChange={setRequestMode}
-        onOpenEnvironments={() => setEnvManagerOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
-        onOpenImport={() => setImportDialogOpen(true)}
         envManagerOpen={envManagerOpen}
         setEnvManagerOpen={setEnvManagerOpen}
         settingsOpen={settingsOpen}

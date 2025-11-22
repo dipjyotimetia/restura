@@ -314,19 +314,21 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                     onClick={handleNewCollection}
                     variant="outline"
                     size="sm"
-                    className="w-full justify-start h-8 text-xs border-border hover:border-primary/50"
+                    className="w-full justify-start h-8 text-xs border-border hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all duration-200 shadow-sm hover:shadow"
                   >
                     <FolderPlus className="mr-2 h-3.5 w-3.5 text-primary" />
                     New Collection
                   </Button>
 
                   {filteredCollections.length === 0 ? (
-                    <div className="text-center text-xs text-muted-foreground py-10 px-3">
-                      <FolderPlus className="mx-auto h-10 w-10 mb-2 opacity-20" />
-                      <p className="font-medium">
+                    <div className="text-center text-xs py-10 px-3">
+                      <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                        <FolderPlus className="h-6 w-6 text-primary/60" />
+                      </div>
+                      <p className="font-medium text-foreground">
                         {searchQuery ? 'No collections found' : 'No collections yet'}
                       </p>
-                      <p className="text-xs mt-1 text-muted-foreground/70">
+                      <p className="text-xs mt-1 text-muted-foreground">
                         {searchQuery ? 'Try a different search term' : 'Create one to organize your requests'}
                       </p>
                     </div>
@@ -402,7 +404,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
 
               <TabsContent value="history" className="flex-1 overflow-auto p-3 mt-0">
                 {/* Method filter buttons */}
-                {history.length > 0 && (
+                {totalHistoryCount > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     <Button
                       variant={methodFilter === null ? 'secondary' : 'ghost'}
@@ -430,12 +432,14 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                 )}
 
                 {filteredHistory.length === 0 ? (
-                  <div className="text-center text-xs text-muted-foreground py-10 px-3">
-                    <History className="mx-auto h-10 w-10 mb-2 opacity-20" />
-                    <p className="font-medium">
+                  <div className="text-center text-xs py-10 px-3">
+                    <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
+                      <History className="h-6 w-6 text-muted-foreground/60" />
+                    </div>
+                    <p className="font-medium text-foreground">
                       {searchQuery || methodFilter ? 'No matching requests' : 'No history yet'}
                     </p>
-                    <p className="text-xs mt-1 text-muted-foreground/70">
+                    <p className="text-xs mt-1 text-muted-foreground">
                       {searchQuery || methodFilter
                         ? 'Try adjusting your filters'
                         : 'Send a request to see it here'}

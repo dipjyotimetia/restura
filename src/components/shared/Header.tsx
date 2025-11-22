@@ -20,9 +20,7 @@ type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
 interface HeaderProps {
   requestMode: RequestMode;
   onRequestModeChange: (mode: RequestMode) => void;
-  onOpenEnvironments?: () => void;
   onOpenSettings?: () => void;
-  onOpenImport?: () => void;
   envManagerOpen?: boolean;
   setEnvManagerOpen?: (open: boolean) => void;
   settingsOpen?: boolean;
@@ -34,9 +32,7 @@ interface HeaderProps {
 export default function Header({
   requestMode,
   onRequestModeChange,
-  onOpenEnvironments: _onOpenEnvironments,
   onOpenSettings,
-  onOpenImport: _onOpenImport,
   envManagerOpen: externalEnvManagerOpen,
   setEnvManagerOpen: externalSetEnvManagerOpen,
   settingsOpen: externalSettingsOpen,
@@ -130,16 +126,16 @@ export default function Header({
         <div className="h-6 w-px bg-border/60 hidden sm:block" />
 
         {/* Request Mode Selector - Segmented Control Style */}
-        <div className="flex items-center rounded-md bg-muted p-1 border border-border">
+        <div className="flex items-center rounded-lg bg-muted/80 p-1 border border-border/40 shadow-sm backdrop-blur-sm">
             {['http', 'graphql', 'grpc', 'websocket'].map((mode) => (
               <button
                 key={mode}
                 onClick={() => handleRequestModeChange(mode as RequestMode)}
                 className={cn(
-                  "relative px-3 py-1.5 text-xs font-medium rounded-sm transition-all duration-200",
+                  "relative px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200",
                   requestMode === mode
-                    ? "bg-background text-foreground shadow-sm border border-border/50"
-                    : "text-muted-foreground hover:text-foreground hover:bg-background/80"
+                    ? "bg-background text-foreground shadow border border-border/50"
+                    : "text-muted-foreground hover:text-foreground hover:bg-background/50"
                 )}
               >
                 {mode === 'http' ? 'HTTP' : mode === 'graphql' ? 'GraphQL' : mode === 'grpc' ? 'gRPC' : 'WS'}
