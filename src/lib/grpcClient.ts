@@ -67,24 +67,16 @@ export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
       break;
 
     case 'digest':
-      // Digest auth requires challenge-response, not directly applicable to metadata
-      // Would need server challenge first
-      if (auth.digest?.username && auth.digest?.password) {
-        // Store credentials for potential use in interceptor
-        metadata['x-digest-username'] = auth.digest.username;
-        metadata['x-digest-password'] = auth.digest.password;
-      }
+      // Digest auth requires challenge-response, not directly applicable to gRPC metadata
+      // This auth type is not supported for gRPC - use Basic or Bearer auth instead
+      console.warn('Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.');
       break;
 
     case 'aws-signature':
-      // AWS SigV4 signing requires request details and timestamp
-      // This would be handled in an interceptor
-      if (auth.awsSignature) {
-        metadata['x-aws-access-key'] = auth.awsSignature.accessKey;
-        metadata['x-aws-region'] = auth.awsSignature.region;
-        metadata['x-aws-service'] = auth.awsSignature.service;
-        // Secret key should not be sent in metadata, handled by signing interceptor
-      }
+      // AWS SigV4 signing is not currently implemented for gRPC
+      // Full implementation would require signing the request body and headers
+      // with AWS Signature Version 4 algorithm
+      console.warn('AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.');
       break;
 
     case 'none':
@@ -110,8 +102,9 @@ export function createMetadataInterceptor(metadata: Record<string, string>): Int
 // Create timeout interceptor
 export function createTimeoutInterceptor(timeoutMs: number): Interceptor {
   return (next) => async (req) => {
-    // Set deadline
-    req.header.set('grpc-timeout', `${timeoutMs}m`); // milliseconds
+    // Set deadline using seconds format (more reliable for larger values)
+    const timeoutSec = Math.ceil(timeoutMs / 1000);
+    req.header.set('grpc-timeout', `${timeoutSec}S`);
     return await next(req);
   };
 }
@@ -378,6 +371,31 @@ export function prepareGrpcRequest(
   // Add auth metadata (may override user metadata)
   const authMetadata = buildAuthMetadata(request.auth);
   Object.assign(metadata, authMetadata);
+
+  // Validate metadata size limits
+  const MAX_METADATA_SIZE = 8 * 1024; // 8KB total
+  const MAX_HEADER_SIZE = 1024; // 1KB per header
+  let totalSize = 0;
+
+  for (const [key, value] of Object.entries(metadata)) {
+    const headerSize = key.length + value.length;
+    if (headerSize > MAX_HEADER_SIZE) {
+      throw new GrpcClientError(
+        `Metadata header '${key}' exceeds maximum size of ${MAX_HEADER_SIZE} bytes`,
+        GrpcStatusCode.INVALID_ARGUMENT,
+        'Reduce the size of metadata headers'
+      );
+    }
+    totalSize += headerSize;
+  }
+
+  if (totalSize > MAX_METADATA_SIZE) {
+    throw new GrpcClientError(
+      `Total metadata size (${totalSize} bytes) exceeds maximum of ${MAX_METADATA_SIZE} bytes`,
+      GrpcStatusCode.INVALID_ARGUMENT,
+      'Reduce the number or size of metadata headers'
+    );
+  }
 
   // Parse and validate message
   let parsedMessage: unknown = {};
@@ -664,5 +682,53 @@ export function getSuggestedAction(statusCode: GrpcStatusCode): string {
       return 'Rate limit exceeded - wait before retrying';
     default:
       return 'Check the error details for more information';
+  }
+}
+
+// Make gRPC request via server proxy
+export async function makeProxyGrpcRequest(
+  request: GrpcRequest,
+  resolveVariables: (text: string) => string
+): Promise<GrpcResponse> {
+  const prepared = prepareGrpcRequest(request, resolveVariables);
+  const startTime = Date.now();
+
+  try {
+    const response = await fetch('/api/grpc', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: prepared.url,
+        service: request.service,
+        method: request.method,
+        metadata: prepared.metadata,
+        message: prepared.message,
+        timeout: 30000,
+      }),
+    });
+
+    const result = await response.json();
+    const endTime = Date.now();
+
+    const bodyStr = JSON.stringify(result.data || {}, null, 2);
+
+    return {
+      id: uuidv4(),
+      requestId: request.id,
+      status: result.grpcStatus,
+      statusText: result.grpcStatusText,
+      headers: result.headers || {},
+      body: bodyStr,
+      size: result.size || new Blob([bodyStr]).size,
+      time: endTime - startTime,
+      timestamp: Date.now(),
+      grpcStatus: result.grpcStatus,
+      grpcStatusText: result.grpcStatusText,
+      trailers: result.trailers || {},
+    };
+  } catch (error: unknown) {
+    return createErrorResponse(request.id, error, startTime);
   }
 }

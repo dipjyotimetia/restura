@@ -31,10 +31,12 @@ import {
   validateServiceName,
   createErrorResponse,
 } from '@/lib/grpcClient';
+import { isElectron } from '@/lib/platform';
 import {
   GrpcReflectionClient,
   generateRequestTemplate,
   formatMessageSchemaForDisplay,
+  generateProtoFromReflection,
 } from '@/lib/grpcReflection';
 import { toast } from 'sonner';
 import { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
@@ -470,23 +472,34 @@ export default function GrpcRequestBuilder() {
     const startTime = Date.now();
 
     try {
-      // Check if we have a proto file
-      if (!protoFile) {
-        toast.error('Proto file required', {
-          description: 'Please upload a .proto file to send requests.',
+      // Get proto content from file or generate from reflection
+      let protoContent: string;
+      let protoFileName: string;
+
+      if (protoFile) {
+        protoContent = await protoFile.text();
+        protoFileName = protoFile.name;
+      } else if (reflectionResult?.success && selectedReflectionService) {
+        // Generate proto from reflection data
+        protoContent = generateProtoFromReflection(
+          grpcRequest.service,
+          selectedReflectionService
+        );
+        protoFileName = 'generated.proto';
+      } else {
+        toast.error('Proto file or reflection required', {
+          description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
         });
         setLoading(false);
         return;
       }
-
-      const protoContent = await protoFile.text();
 
       // Handle streaming requests
       if (grpcRequest.methodType !== 'unary') {
         const control = startElectronGrpcStream(
           grpcRequest,
           protoContent,
-          protoFile.name,
+          protoFileName,
           resolveVariables,
           {
             onData: (data: unknown) => {
@@ -518,7 +531,7 @@ export default function GrpcRequestBuilder() {
       const response = await makeElectronGrpcRequest(
         grpcRequest,
         protoContent,
-        protoFile.name,
+        protoFileName,
         resolveVariables
       );
 
@@ -755,6 +768,17 @@ export default function GrpcRequestBuilder() {
         <div className="text-xs text-muted-foreground">
           {getMethodTypeDescription(grpcRequest.methodType)}
         </div>
+
+        {/* Web mode streaming limitation warning */}
+        {!isElectron() && grpcRequest.methodType !== 'unary' && (
+          <div className="flex items-center gap-2 p-2 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs">
+            <AlertCircle className="h-3 w-3 flex-shrink-0" />
+            <span>
+              Streaming methods require the desktop app. In web mode, only unary calls are supported.
+              Please download the desktop app for full streaming support.
+            </span>
+          </div>
+        )}
 
         {/* Reflection result info */}
         {reflectionResult && (

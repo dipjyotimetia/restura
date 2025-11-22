@@ -1,4 +1,4 @@
-import { ProxyConfig, RequestSettings } from '@/types';
+import { ProxyConfig, RequestSettings, AppSettings } from '@/types';
 import { isElectron, getElectronAPI } from './platform';
 
 /**
@@ -203,4 +203,63 @@ export function formatProxyInfo(proxy: ProxyConfig): string {
 
   const auth = proxy.auth?.username ? `${proxy.auth.username}@` : '';
   return `${proxy.type}://${auth}${proxy.host}:${proxy.port}`;
+}
+
+/**
+ * Check if we should use the CORS proxy for browser requests
+ * Returns true if:
+ * - Running in web browser (not Electron)
+ * - CORS proxy is enabled in settings
+ */
+export function shouldUseCorsProxy(settings: AppSettings): boolean {
+  // Only use CORS proxy in browser mode
+  if (isElectron()) {
+    return false;
+  }
+
+  // Check if CORS proxy is enabled
+  return settings.corsProxy?.enabled ?? true;
+}
+
+/**
+ * Check if a CORS error occurred (for auto-detect feature)
+ */
+export function isCorsError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('cors') ||
+      message.includes('cross-origin') ||
+      message.includes('network error') ||
+      message.includes('failed to fetch')
+    );
+  }
+  return false;
+}
+
+/**
+ * Get CORS proxy status for display
+ */
+export function getCorsProxyStatus(settings: AppSettings): {
+  active: boolean;
+  message: string;
+} {
+  if (isElectron()) {
+    return {
+      active: false,
+      message: 'Desktop mode - direct requests enabled',
+    };
+  }
+
+  if (settings.corsProxy?.enabled) {
+    return {
+      active: true,
+      message: 'CORS proxy active - requests routed through server',
+    };
+  }
+
+  return {
+    active: false,
+    message: 'CORS proxy disabled - requests may fail due to CORS restrictions',
+  };
 }
