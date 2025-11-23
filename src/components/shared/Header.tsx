@@ -14,8 +14,7 @@ import CollectionRunner from '@/features/collections/components/CollectionRunner
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/shared/utils';
-
-type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
+import type { RequestMode } from '@/types';
 
 interface HeaderProps {
   requestMode: RequestMode;
@@ -126,13 +125,13 @@ export default function Header({
         <div className="h-6 w-px bg-border/60 hidden sm:block" />
 
         {/* Request Mode Selector - Segmented Control Style */}
-        <div className="flex items-center rounded-lg bg-muted/80 p-1 border border-border/40 shadow-sm backdrop-blur-sm">
+        <div className="flex items-center rounded-lg bg-muted/80 p-0.5 lg:p-1 border border-border/40 shadow-sm backdrop-blur-sm">
             {['http', 'graphql', 'grpc', 'websocket'].map((mode) => (
               <button
                 key={mode}
                 onClick={() => handleRequestModeChange(mode as RequestMode)}
                 className={cn(
-                  "relative px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200",
+                  "relative px-2 lg:px-3 py-1 lg:py-1.5 text-[10px] lg:text-xs font-medium rounded-md transition-all duration-200",
                   requestMode === mode
                     ? "bg-background text-foreground shadow border border-border/50"
                     : "text-muted-foreground hover:text-foreground hover:bg-background/50"
@@ -148,14 +147,14 @@ export default function Header({
         <div className="flex items-center gap-2">
           
           {/* Environment Selector */}
-          <div className="flex items-center gap-1 mr-2">
+          <div className="flex items-center gap-1 mr-1 lg:mr-2">
             <Select
               value={activeEnvironmentId || 'none'}
               onValueChange={(value) => setActiveEnvironment(value === 'none' ? null : value)}
             >
-              <SelectTrigger className="h-8 w-[160px] border-transparent bg-muted/30 hover:bg-muted/50 focus:ring-0 text-xs">
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <SelectTrigger className="h-7 lg:h-8 w-[120px] lg:w-[160px] border-transparent bg-muted/30 hover:bg-muted/50 focus:ring-0 text-[10px] lg:text-xs">
+                <div className="flex items-center gap-1.5 lg:gap-2 overflow-hidden">
+                  <Globe className="h-3 lg:h-3.5 w-3 lg:w-3.5 text-muted-foreground shrink-0" />
                   <span className="truncate">{activeEnvironmentId ? environments.find(e => e.id === activeEnvironmentId)?.name : 'No Environment'}</span>
                 </div>
               </SelectTrigger>
@@ -181,10 +180,10 @@ export default function Header({
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => setEnvManagerOpen(true)}
-                  className="h-8 w-8 text-muted-foreground"
+                  className="h-7 w-7 lg:h-8 lg:w-8 text-muted-foreground"
                   aria-label="Manage Environments"
                 >
-                  <Settings2 className="h-3.5 w-3.5" />
+                  <Settings2 className="h-3 w-3 lg:h-3.5 lg:w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Manage Environments</TooltipContent>
@@ -192,22 +191,22 @@ export default function Header({
           </div>
 
           {/* Divider */}
-          <div className="h-5 w-px bg-border/60 mx-1" />
+          <div className="h-4 lg:h-5 w-px bg-border/60 mx-0.5 lg:mx-1" />
 
           {/* Actions Group */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5 lg:gap-1">
             <CollectionRunner />
-            
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => setImportDialogOpen(true)}
-                  className="h-8 w-8 text-muted-foreground"
+                  className="h-7 w-7 lg:h-8 lg:w-8 text-muted-foreground"
                   aria-label="Import collection"
                 >
-                  <FolderOpen className="h-4 w-4" />
+                  <FolderOpen className="h-3.5 w-3.5 lg:h-4 lg:w-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Import (⌘I)</TooltipContent>
@@ -219,10 +218,10 @@ export default function Header({
                   variant="ghost"
                   size="icon-sm"
                   onClick={onOpenSettings || (() => setSettingsOpen(true))}
-                  className="h-8 w-8 text-muted-foreground"
+                  className="h-7 w-7 lg:h-8 lg:w-8 text-muted-foreground"
                   aria-label="Settings"
                 >
-                  <Settings2 className="h-4 w-4" />
+                  <Settings2 className="h-3.5 w-3.5 lg:h-4 lg:w-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Settings (⌘,)</TooltipContent>
@@ -234,13 +233,13 @@ export default function Header({
                   variant="ghost"
                   size="icon-sm"
                   onClick={toggleTheme}
-                  className="h-8 w-8 text-muted-foreground"
+                  className="h-7 w-7 lg:h-8 lg:w-8 text-muted-foreground"
                   aria-label="Toggle theme"
                 >
                    {mounted && (theme === 'dark' || resolvedTheme === 'dark') ? (
-                    <Sun className="h-4 w-4" />
+                    <Sun className="h-3.5 w-3.5 lg:h-4 lg:w-4" />
                   ) : (
-                    <Moon className="h-4 w-4" />
+                    <Moon className="h-3.5 w-3.5 lg:h-4 lg:w-4" />
                   )}
                 </Button>
               </TooltipTrigger>

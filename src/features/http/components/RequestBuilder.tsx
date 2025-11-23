@@ -422,13 +422,13 @@ function RequestBuilder() {
 
       {/* Request Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <div className="px-4 py-2 border-b border-border/40">
-          <TabsList className="w-full justify-start h-10 bg-muted p-1 border border-border/50">
+        <div className="px-3 lg:px-4 py-1.5 lg:py-2 border-b border-border/40">
+          <TabsList className="w-full justify-start h-8 lg:h-10 bg-muted p-0.5 lg:p-1 border border-border/50">
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <TabsTrigger value="params" className="flex-1 sm:flex-none">
+                    <TabsTrigger value="params" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3">
                       Params
                       {httpRequest.params.filter((p) => p.enabled && p.key).length > 0 && (
                         <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
@@ -446,7 +446,7 @@ function RequestBuilder() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <TabsTrigger value="headers" className="flex-1 sm:flex-none border-r border-border/50 pr-3 mr-1">
+                    <TabsTrigger value="headers" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3 border-r border-border/50 lg:pr-3 lg:mr-1">
                       Headers
                       {httpRequest.headers.filter((h) => h.enabled && h.key).length > 0 && (
                         <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
@@ -464,7 +464,7 @@ function RequestBuilder() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <TabsTrigger value="body" className="flex-1 sm:flex-none">
+                    <TabsTrigger value="body" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3">
                       Body
                       {httpRequest.body.type !== 'none' && httpRequest.body.raw && (
                         <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
@@ -480,7 +480,7 @@ function RequestBuilder() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <TabsTrigger value="auth" className="flex-1 sm:flex-none border-r border-border/50 pr-3 mr-1">
+                    <TabsTrigger value="auth" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3 border-r border-border/50 lg:pr-3 lg:mr-1">
                       Auth
                       {httpRequest.auth.type !== 'none' && (
                         <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
@@ -496,7 +496,7 @@ function RequestBuilder() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <TabsTrigger value="scripts" className="flex-1 sm:flex-none">
+                    <TabsTrigger value="scripts" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3">
                       Scripts
                       {(httpRequest.preRequestScript || httpRequest.testScript) && (
                         <span className="ml-2 h-1.5 w-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20" />
@@ -512,8 +512,8 @@ function RequestBuilder() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <TabsTrigger value="settings" className="flex-1 sm:flex-none">
-                      <Settings className="h-3.5 w-3.5 mr-1.5 opacity-70" />
+                    <TabsTrigger value="settings" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3">
+                      <Settings className="h-3 w-3 lg:h-3.5 lg:w-3.5 mr-1 lg:mr-1.5 opacity-70" />
                       Settings
                       {httpRequest.settings && <span className="ml-2 h-1.5 w-1.5 rounded-full bg-blue-500 ring-2 ring-blue-500/20" />}
                     </TabsTrigger>
