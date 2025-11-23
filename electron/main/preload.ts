@@ -127,6 +127,58 @@ const electronAPI = {
       ipcRenderer.invoke('notification:error', message),
   },
 
+  // Collection file operations (Git-native collections)
+  collections: {
+    loadFromDirectory: (directoryPath: string): Promise<{
+      success: boolean;
+      collection?: unknown;
+      error?: string;
+    }> => ipcRenderer.invoke('collection:load-directory', directoryPath),
+
+    saveToDirectory: (collection: unknown, directoryPath: string): Promise<{
+      success: boolean;
+      error?: string;
+    }> => ipcRenderer.invoke('collection:save-directory', collection, directoryPath),
+
+    watchDirectory: (directoryPath: string): Promise<{
+      success: boolean;
+      error?: string;
+    }> => ipcRenderer.invoke('collection:watch', directoryPath),
+
+    unwatchDirectory: (directoryPath: string): Promise<{
+      success: boolean;
+    }> => ipcRenderer.invoke('collection:unwatch', directoryPath),
+
+    selectDirectory: (): Promise<{
+      canceled: boolean;
+      filePaths?: string[];
+    }> => ipcRenderer.invoke('collection:select-directory'),
+
+    openInExplorer: (directoryPath: string): Promise<{
+      success: boolean;
+      error?: string;
+    }> => ipcRenderer.invoke('collection:open-in-explorer', directoryPath),
+
+    getFileInfo: (filePath: string): Promise<{
+      exists: boolean;
+      lastModified?: number;
+      size?: number;
+    }> => ipcRenderer.invoke('collection:get-file-info', filePath),
+
+    onFileChanged: (callback: (event: {
+      type: 'modified' | 'added' | 'deleted';
+      filePath: string;
+      directoryPath: string;
+      lastModified?: number;
+    }) => void) => {
+      ipcRenderer.on('collection:file-changed', (_event, data) => callback(data));
+    },
+
+    removeFileChangedListener: () => {
+      ipcRenderer.removeAllListeners('collection:file-changed');
+    },
+  },
+
   // Events
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const validChannels = ['menu:import', 'menu:export', 'menu:new-request', 'app:focus'];

@@ -7,6 +7,7 @@ import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
 import { registerWindowControlsIPC } from './window-controls';
 import { createSystemTray, destroyTray } from './system-tray';
 import { registerNotificationIPC } from './notifications';
+import { registerCollectionManagerIPC, cleanupCollectionWatchers } from './collection-manager';
 
 // Initialize crash reporter early (before app.whenReady)
 crashReporter.start({
@@ -42,6 +43,7 @@ function registerIPCHandlers(): void {
   registerGrpcHandlerIPC();
   registerWindowControlsIPC(getMainWindow);
   registerNotificationIPC(getMainWindow, isDev);
+  registerCollectionManagerIPC(getMainWindow);
 }
 
 // Setup Content Security Policy for production
@@ -122,6 +124,7 @@ app.on('window-all-closed', () => {
 // Cleanup on quit
 app.on('will-quit', () => {
   stopStreamCleanup(); // Stop gRPC stream cleanup interval
+  cleanupCollectionWatchers(); // Stop file watchers
   destroyTray();
 });
 
