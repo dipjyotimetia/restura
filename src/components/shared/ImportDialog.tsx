@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import { importPostmanCollection, importInsomniaCollection } from '@/features/collections/lib/importers';
+import { importPostmanCollection, importInsomniaCollection, importOpenAPICollection } from '@/features/collections/lib/importers';
 import { FileJson, Upload, CheckCircle, AlertCircle } from 'lucide-react';
+import YAML from 'yaml';
 
 interface ImportDialogProps {
   open: boolean;
@@ -19,98 +20,114 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   const [errorMessage, setErrorMessage] = useState('');
   const [activeTab, setActiveTab] = useState('postman');
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, type: 'postman' | 'insomnia') => {
+  // Parse file content based on extension (JSON or YAML)
+  const parseFileContent = (text: string, fileName: string): unknown => {
+    if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
+      return YAML.parse(text);
+    }
+    return JSON.parse(text);
+  };
+
+  // Process imported file and return collection
+  const processImportFile = async (file: File, type: 'postman' | 'insomnia' | 'openapi') => {
+    const text = await file.text();
+    const data = parseFileContent(text, file.name);
+
+    if (type === 'postman') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return importPostmanCollection(data as any);
+    } else if (type === 'insomnia') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return importInsomniaCollection(data as any);
+    } else {
+      return importOpenAPICollection(data);
+    }
+  };
+
+  // Handle successful import
+  const handleImportSuccess = (collection: ReturnType<typeof importPostmanCollection>) => {
+    addCollection(collection);
+    setImportStatus('success');
+    setTimeout(() => {
+      onOpenChange(false);
+      setImportStatus('idle');
+    }, 1500);
+  };
+
+  // Handle import error
+  const handleImportError = (error: unknown) => {
+    setImportStatus('error');
+    const message = error instanceof Error ? error.message : 'Failed to import collection';
+    setErrorMessage(message);
+    setTimeout(() => setImportStatus('idle'), 3000);
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, type: 'postman' | 'insomnia' | 'openapi') => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-
-      let collection;
-      if (type === 'postman') {
-        collection = importPostmanCollection(data);
-      } else {
-        collection = importInsomniaCollection(data);
-      }
-
-      addCollection(collection);
-      setImportStatus('success');
-      setTimeout(() => {
-        onOpenChange(false);
-        setImportStatus('idle');
-      }, 1500);
+      const collection = await processImportFile(file, type);
+      handleImportSuccess(collection);
     } catch (error: unknown) {
-      setImportStatus('error');
-      const errorMessage = error instanceof Error ? error.message : 'Failed to import collection';
-      setErrorMessage(errorMessage);
-      setTimeout(() => setImportStatus('idle'), 3000);
+      handleImportError(error);
     }
 
     // Reset input
     event.target.value = '';
   };
 
-  const handleDrop = async (event: React.DragEvent<HTMLDivElement>, type: 'postman' | 'insomnia') => {
+  const handleDrop = async (event: React.DragEvent<HTMLDivElement>, type: 'postman' | 'insomnia' | 'openapi') => {
     event.preventDefault();
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
 
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-
-      let collection;
-      if (type === 'postman') {
-        collection = importPostmanCollection(data);
-      } else {
-        collection = importInsomniaCollection(data);
-      }
-
-      addCollection(collection);
-      setImportStatus('success');
-      setTimeout(() => {
-        onOpenChange(false);
-        setImportStatus('idle');
-      }, 1500);
+      const collection = await processImportFile(file, type);
+      handleImportSuccess(collection);
     } catch (error: unknown) {
-      setImportStatus('error');
-      const errorMessage = error instanceof Error ? error.message : 'Failed to import collection';
-      setErrorMessage(errorMessage);
-      setTimeout(() => setImportStatus('idle'), 3000);
+      handleImportError(error);
     }
   };
 
-  const DropZone = ({ type }: { type: 'postman' | 'insomnia' }) => (
-    <div
-      onDrop={(e) => handleDrop(e, type)}
-      onDragOver={(e) => e.preventDefault()}
-      className="border-2 border-dashed rounded-lg p-12 text-center hover:border-primary transition-colors"
-    >
-      <input
-        type="file"
-        accept=".json"
-        onChange={(e) => handleFileUpload(e, type)}
-        className="hidden"
-        id={`file-upload-${type}`}
-      />
-      <label htmlFor={`file-upload-${type}`} className="cursor-pointer">
-        <div className="flex flex-col items-center gap-4">
-          <FileJson className="h-12 w-12 text-muted-foreground" />
-          <div>
-            <p className="text-lg font-medium">
-              Drop {type === 'postman' ? 'Postman' : 'Insomnia'} collection here
-            </p>
-            <p className="text-sm text-muted-foreground mt-1">or click to browse</p>
+  const DropZone = ({ type }: { type: 'postman' | 'insomnia' | 'openapi' }) => {
+    const typeLabels = {
+      postman: 'Postman',
+      insomnia: 'Insomnia',
+      openapi: 'OpenAPI/Swagger',
+    };
+
+    return (
+      <div
+        onDrop={(e) => handleDrop(e, type)}
+        onDragOver={(e) => e.preventDefault()}
+        className="border-2 border-dashed rounded-lg p-12 text-center hover:border-primary transition-colors"
+      >
+        <input
+          type="file"
+          accept=".json,.yaml,.yml"
+          onChange={(e) => handleFileUpload(e, type)}
+          className="hidden"
+          id={`file-upload-${type}`}
+        />
+        <label htmlFor={`file-upload-${type}`} className="cursor-pointer">
+          <div className="flex flex-col items-center gap-4">
+            <FileJson className="h-12 w-12 text-muted-foreground" />
+            <div>
+              <p className="text-lg font-medium">
+                Drop {typeLabels[type]} collection here
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">or click to browse</p>
+            </div>
+            <Button variant="outline" size="sm" type="button">
+              <Upload className="mr-2 h-4 w-4" />
+              Choose File
+            </Button>
           </div>
-          <Button variant="outline" size="sm" type="button">
-            <Upload className="mr-2 h-4 w-4" />
-            Choose File
-          </Button>
-        </div>
-      </label>
-    </div>
-  );
+        </label>
+      </div>
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -118,7 +135,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
         <DialogHeader>
           <DialogTitle>Import Collection</DialogTitle>
           <DialogDescription>
-            Import your API collections from Postman or Insomnia
+            Import your API collections from Postman, Insomnia, or OpenAPI/Swagger
           </DialogDescription>
         </DialogHeader>
 
@@ -140,9 +157,10 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="postman">Postman</TabsTrigger>
             <TabsTrigger value="insomnia">Insomnia</TabsTrigger>
+            <TabsTrigger value="openapi">OpenAPI</TabsTrigger>
           </TabsList>
 
           <TabsContent value="postman" className="space-y-4">
@@ -171,6 +189,22 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
                 <li>Headers and parameters</li>
                 <li>Request body</li>
                 <li>Authentication (Basic, Bearer, API Key, OAuth2)</li>
+              </ul>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="openapi" className="space-y-4">
+            <DropZone type="openapi" />
+            <div className="text-sm text-muted-foreground space-y-2">
+              <p className="font-medium">Supported OpenAPI/Swagger features:</p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li>OpenAPI 3.x and Swagger 2.0 specifications</li>
+                <li>Paths and operations (all HTTP methods)</li>
+                <li>Query, header, and path parameters</li>
+                <li>Request bodies with example generation</li>
+                <li>Tag-based folder organization</li>
+                <li>Security schemes (Basic, Bearer, API Key, OAuth2)</li>
+                <li>Server URL configuration</li>
               </ul>
             </div>
           </TabsContent>
