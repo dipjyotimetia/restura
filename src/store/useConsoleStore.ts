@@ -35,6 +35,7 @@ interface ConsoleState {
   isExpanded: boolean;
   panelHeight: number;
   activeTab: 'network' | 'scripts';
+  searchFilter: string;
 
   // Actions
   addEntry: (entry: Omit<ConsoleEntry, 'id'>) => void;
@@ -43,6 +44,7 @@ interface ConsoleState {
   setExpanded: (expanded: boolean) => void;
   setPanelHeight: (height: number) => void;
   setActiveTab: (tab: 'network' | 'scripts') => void;
+  setSearchFilter: (filter: string) => void;
 }
 
 export const useConsoleStore = create<ConsoleState>()(
@@ -53,6 +55,7 @@ export const useConsoleStore = create<ConsoleState>()(
       isExpanded: true,
       panelHeight: 250,
       activeTab: 'network',
+      searchFilter: '',
 
       addEntry: (entry) =>
         set((state) => {
@@ -81,6 +84,8 @@ export const useConsoleStore = create<ConsoleState>()(
       setPanelHeight: (height) => set({ panelHeight: height }),
 
       setActiveTab: (tab) => set({ activeTab: tab }),
+
+      setSearchFilter: (filter) => set({ searchFilter: filter }),
     }),
     {
       name: 'console-storage',
