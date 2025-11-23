@@ -29,7 +29,7 @@ export interface ProgressProps
     VariantProps<typeof progressVariants> {}
 
 const Progress = React.forwardRef<
-  React.ElementRef<typeof ProgressPrimitive.Root>,
+  React.ComponentRef<typeof ProgressPrimitive.Root>,
   ProgressProps
 >(({ className, value, variant, ...props }, ref) => (
   <ProgressPrimitive.Root
