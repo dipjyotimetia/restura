@@ -442,17 +442,19 @@ describe('importOpenAPICollection', () => {
 
       const collection = await importOpenAPICollection(openApiDoc);
 
-      // Both operations should have the path parameter
+      // Both operations should have the path parameter interpolated in URL
       const getItem = collection.items.find(i => asHttpRequest(i.request).method === 'GET');
       const deleteItem = collection.items.find(i => asHttpRequest(i.request).method === 'DELETE');
 
       const getRequest = asHttpRequest(getItem!.request);
       const deleteRequest = asHttpRequest(deleteItem!.request);
 
-      expect(getRequest.params).toHaveLength(1);
-      expect(getRequest.params[0]!.key).toBe('id');
-      expect(deleteRequest.params).toHaveLength(1);
-      expect(deleteRequest.params[0]!.key).toBe('id');
+      // Path parameters are interpolated in URL, not in params array
+      expect(getRequest.url).toContain('{{id}}');
+      expect(deleteRequest.url).toContain('{{id}}');
+      // Params should be empty (only query params go there)
+      expect(getRequest.params).toHaveLength(0);
+      expect(deleteRequest.params).toHaveLength(0);
     });
   });
 

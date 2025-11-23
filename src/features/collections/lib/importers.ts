@@ -16,12 +16,27 @@ export function importPostmanCollection(postmanData: PostmanCollection): Collect
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sdkCollection = new PostmanSDKCollection(postmanData as any);
 
+  // Extract collection variables
+  const variables: KeyValue[] = [];
+  if (sdkCollection.variables) {
+    sdkCollection.variables.each((variable: Variable) => {
+      variables.push({
+        id: uuidv4(),
+        key: variable.key || '',
+        value: variable.value?.toString() || '',
+        enabled: !variable.disabled,
+        description: getDescriptionContent(variable.description),
+      });
+    });
+  }
+
   const collection: Collection = {
     id: uuidv4(),
     name: sdkCollection.name || 'Imported Collection',
     description: getDescriptionContent(sdkCollection.description),
     items: [],
     auth: sdkCollection.auth ? convertPostmanSDKAuth(sdkCollection.auth) : undefined,
+    variables: variables.length > 0 ? variables : undefined,
   };
 
   // Convert items recursively
@@ -163,13 +178,17 @@ function convertPostmanSDKBody(body: RequestBody | undefined): HttpRequest['body
     case 'formdata': {
       const formData: FormDataItem[] = [];
       body.formdata?.each((param: FormParam) => {
+        // Check if this is a file type parameter
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const paramAny = param as any;
+        const isFile = paramAny.type === 'file';
         formData.push({
           id: uuidv4(),
           key: param.key || '',
-          value: param.value || '',
+          value: isFile ? (paramAny.src || '') : (param.value || ''),
           enabled: !param.disabled,
           description: getDescriptionContent(param.description),
-          type: 'text',
+          type: isFile ? 'file' : 'text',
         });
       });
       return { type: 'form-data', formData };
@@ -294,13 +313,32 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Coll
   const workspaces = insomniaData.resources.filter((r) => r._type === 'workspace');
   const requests = insomniaData.resources.filter((r) => r._type === 'request');
   const folders = insomniaData.resources.filter((r) => r._type === 'request_group');
+  const environments = insomniaData.resources.filter((r) => r._type === 'environment');
 
   const workspace = workspaces[0];
+
+  // Extract variables from base environment (one without parentId or with workspace as parent)
+  const variables: KeyValue[] = [];
+  const baseEnv = environments.find(
+    (env) => !env.parentId || (workspace && env.parentId === workspace._id)
+  );
+
+  if (baseEnv?.data && typeof baseEnv.data === 'object') {
+    for (const [key, value] of Object.entries(baseEnv.data)) {
+      variables.push({
+        id: uuidv4(),
+        key,
+        value: String(value ?? ''),
+        enabled: true,
+      });
+    }
+  }
 
   const collection: Collection = {
     id: uuidv4(),
     name: workspace?.name || 'Imported Collection',
     items: [],
+    variables: variables.length > 0 ? variables : undefined,
   };
 
   // Build folder structure with proper nesting support
@@ -340,8 +378,8 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Coll
     // Add to parent folder if it exists
     if (req.parentId && folderMap.has(req.parentId)) {
       folderMap.get(req.parentId)!.items!.push(item);
-    } else if (!req.parentId || (workspace && req.parentId === workspace._id)) {
-      // Add to root if no parent or parent is workspace
+    } else {
+      // Add to root if no parent, parent is workspace, or parent not found (orphaned)
       collection.items.push(item);
     }
   });
@@ -355,8 +393,8 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Coll
     if (folder.parentId && folderMap.has(folder.parentId)) {
       // Add to parent folder
       folderMap.get(folder.parentId)!.items!.push(item);
-    } else if (!folder.parentId || (workspace && folder.parentId === workspace._id)) {
-      // Add to root if no parent or parent is workspace
+    } else {
+      // Add to root if no parent, parent is workspace, or parent not found (orphaned)
       collection.items.push(item);
     }
   });
@@ -615,7 +653,6 @@ function convertOpenAPIOperation(
   // Separate parameters by type
   const queryParams = parameters.filter(p => p.in === 'query');
   const headerParams = parameters.filter(p => p.in === 'header');
-  const pathParams = parameters.filter(p => p.in === 'path');
   const cookieParams = parameters.filter(p => p.in === 'cookie');
 
   // Convert headers including cookie params
@@ -624,7 +661,10 @@ function convertOpenAPIOperation(
   // Add Cookie header if there are cookie parameters
   if (cookieParams.length > 0) {
     const cookieValue = cookieParams
-      .map(p => `${p.name}=${p.schema?.example || p.schema?.default || p.example || p.default || ''}`)
+      .map(p => {
+        const value = p.schema?.example?.toString() || p.example?.toString() || p.schema?.default?.toString() || p.default?.toString() || '';
+        return `${p.name}=${value}`;
+      })
       .join('; ');
     headers.push({
       id: uuidv4(),
@@ -635,6 +675,32 @@ function convertOpenAPIOperation(
     });
   }
 
+  const body = convertOpenAPIBody(operation, parameters, schemas);
+
+  // Add Content-Type header based on body type
+  const contentTypeMap: Record<string, string> = {
+    'json': 'application/json',
+    'xml': 'application/xml',
+    'text': 'text/plain',
+    'form-data': 'multipart/form-data',
+    'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
+    'graphql': 'application/json',
+  };
+
+  const contentType = body.type !== 'none' && body.type !== 'binary' ? contentTypeMap[body.type] : undefined;
+  if (contentType) {
+    // Check if Content-Type already exists
+    const hasContentType = headers.some(h => h.key.toLowerCase() === 'content-type');
+    if (!hasContentType) {
+      headers.push({
+        id: uuidv4(),
+        key: 'Content-Type',
+        value: contentType,
+        enabled: true,
+      });
+    }
+  }
+
   return {
     id: uuidv4(),
     name: operation.summary || operation.operationId || `${method} ${path}`,
@@ -642,8 +708,8 @@ function convertOpenAPIOperation(
     method,
     url,
     headers,
-    params: convertOpenAPIParams([...queryParams, ...pathParams]),
-    body: convertOpenAPIBody(operation, parameters, schemas),
+    params: convertOpenAPIParams(queryParams),
+    body,
     auth: convertOpenAPISecurity(operation.security, securitySchemes),
   };
 }
@@ -820,6 +886,27 @@ function generateExampleFromSchema(
   if (schema.example !== undefined) return schema.example;
   if (schema.default !== undefined) return schema.default;
 
+  // Handle allOf - merge all schemas
+  if (schema.allOf && Array.isArray(schema.allOf)) {
+    const merged: Record<string, unknown> = {};
+    for (const subSchema of schema.allOf) {
+      const result = generateExampleFromSchema(subSchema, schemas, visited);
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        Object.assign(merged, result);
+      }
+    }
+    return merged;
+  }
+
+  // Handle oneOf/anyOf - use first schema
+  if (schema.oneOf && Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
+    return generateExampleFromSchema(schema.oneOf[0], schemas, visited);
+  }
+
+  if (schema.anyOf && Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+    return generateExampleFromSchema(schema.anyOf[0], schemas, visited);
+  }
+
   // Generate based on type
   switch (schema.type) {
     case 'object':
@@ -875,6 +962,7 @@ function convertOpenAPISecurity(
   if (!schemeName) return { type: 'none' };
 
   const scheme = securitySchemes[schemeName];
+  const scopes = securityReq[schemeName]; // OAuth2 scopes array
 
   if (!scheme) return { type: 'none' };
 
@@ -911,7 +999,10 @@ function convertOpenAPISecurity(
     case 'oauth2':
       return {
         type: 'oauth2',
-        oauth2: { accessToken: '' },
+        oauth2: {
+          accessToken: '',
+          scopes: scopes && scopes.length > 0 ? scopes : undefined,
+        },
       };
     // Swagger 2.0 types
     case 'basic':

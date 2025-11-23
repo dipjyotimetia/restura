@@ -108,6 +108,7 @@ export interface AuthConfig {
   oauth2?: {
     accessToken: string;
     tokenType?: string;
+    scopes?: string[];
   };
   digest?: {
     username: string;
@@ -314,6 +315,7 @@ export interface Collection {
   description?: string;
   items: CollectionItem[];
   auth?: AuthConfig;
+  variables?: KeyValue[];
 }
 
 // History Item
@@ -473,6 +475,7 @@ export interface InsomniaResource {
     [key: string]: unknown;
   };
   parentId?: string;
+  data?: Record<string, unknown>; // For environment variables
 }
 
 export interface InsomniaCollection {
@@ -590,6 +593,10 @@ export interface OpenAPISchema {
   minLength?: number;
   maxLength?: number;
   pattern?: string;
+  allOf?: OpenAPISchema[];
+  oneOf?: OpenAPISchema[];
+  anyOf?: OpenAPISchema[];
+  nullable?: boolean;
 }
 
 export interface OpenAPIComponents {
