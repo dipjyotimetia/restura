@@ -6,7 +6,7 @@ import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
 import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
 import WebSocketClient from '@/features/websocket/components/WebSocketClient';
 import ResponseViewer from '@/components/shared/ResponseViewer';
-import ConsolePane from '@/components/shared/ConsolePane';
+import NetworkConsole from '@/components/shared/NetworkConsole';
 import Sidebar from '@/features/collections/components/Sidebar';
 import Header from '@/components/shared/Header';
 import CommandPalette from '@/components/shared/CommandPalette';
@@ -17,7 +17,7 @@ import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { Button } from '@/components/ui/button';
-import { PanelLeft, ChevronDown, ChevronUp } from 'lucide-react';
+import { PanelLeft } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 
 type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
@@ -25,7 +25,6 @@ type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [consoleExpanded, setConsoleExpanded] = useState(true);
   const [requestMode, setRequestMode] = useState<RequestMode>('http');
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -163,7 +162,7 @@ export default function Home() {
     }
   };
 
-  const hasConsoleContent = allLogs.length > 0 || allTests;
+  // Console is always shown now (managed by NetworkConsole component)
 
   return (
     <div className="flex h-screen flex-col bg-background relative overflow-hidden">
@@ -228,49 +227,13 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Console pane with toggle */}
-            {requestMode !== 'websocket' && hasConsoleContent && (
-              <div className={cn(
-                "shrink-0 relative z-10 transition-all duration-300 ease-out border-t border-border",
-                consoleExpanded ? "h-56" : "h-9"
-              )}>
-                {/* Console toggle header */}
-                <div
-                  className="absolute top-0 left-0 right-0 h-9 flex items-center justify-between px-3 bg-muted cursor-pointer hover:bg-muted/80 transition-colors"
-                  onClick={() => setConsoleExpanded(!consoleExpanded)}
-                >
-                  <span className="text-xs font-medium text-muted-foreground flex items-center gap-2">
-                    Console
-                    {allLogs.length > 0 && (
-                      <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums">
-                        {allLogs.length} {allLogs.length === 1 ? 'log' : 'logs'}
-                      </span>
-                    )}
-                    {allTests && (
-                      <span className={cn(
-                        "text-xs px-1.5 py-0.5 rounded-full tabular-nums",
-                        allTests.every(t => t.passed)
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                          : "bg-red-500/10 text-red-600 dark:text-red-400"
-                      )}>
-                        {allTests.filter(t => t.passed).length}/{allTests.length} tests
-                      </span>
-                    )}
-                  </span>
-                  <Button variant="ghost" size="icon" className="h-5 w-5">
-                    {consoleExpanded ? (
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    ) : (
-                      <ChevronUp className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </div>
-                {consoleExpanded && (
-                  <div className="h-full pt-9">
-                    <ConsolePane logs={allLogs} tests={allTests} onClear={handleClearConsole} />
-                  </div>
-                )}
-              </div>
+            {/* Console pane */}
+            {requestMode !== 'websocket' && (
+              <NetworkConsole
+                scriptLogs={allLogs}
+                tests={allTests}
+                onClearScripts={handleClearConsole}
+              />
             )}
           </main>
         </div>

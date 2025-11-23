@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
 import { HttpMethod, AuthConfig as AuthConfigType, RequestSettings, RequestBody } from '@/types';
 import { Settings } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -31,6 +32,7 @@ function RequestBuilder() {
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables, getActiveEnvironment } = useEnvironmentStore();
   const { settings: globalSettings } = useSettingsStore();
+  const { addEntry } = useConsoleStore();
   const [activeTab, setActiveTab] = useState('params');
   const [codeGenOpen, setCodeGenOpen] = useState(false);
 
@@ -308,6 +310,20 @@ function RequestBuilder() {
       setCurrentResponse(responseData);
       addHistoryItem(httpRequest, responseData);
 
+      // Add to console
+      const scriptLogs = [
+        ...(preRequestResult?.logs || []),
+        ...(testResult?.logs || []),
+      ];
+      const consoleEntry = createConsoleEntry(
+        httpRequest,
+        responseData,
+        headers,
+        scriptLogs,
+        testResult?.tests
+      );
+      addEntry(consoleEntry);
+
       toast.success(`Request completed: ${response.status} ${response.statusText}`, {
         id: 'request',
         duration: 3000,
@@ -345,6 +361,16 @@ function RequestBuilder() {
       setCurrentResponse(errorResponse);
       addHistoryItem(httpRequest, errorResponse);
 
+      // Add to console (error case - headers may not be available)
+      const consoleEntry = createConsoleEntry(
+        httpRequest,
+        errorResponse,
+        {},
+        [],
+        undefined
+      );
+      addEntry(consoleEntry);
+
       toast.error(`Request failed: ${errorMessage}`, {
         id: 'request',
         duration: 5000,
@@ -362,6 +388,7 @@ function RequestBuilder() {
     setCurrentResponse,
     addHistoryItem,
     getEffectiveSettings,
+    addEntry,
   ]);
 
   // Keyboard shortcut for sending request
