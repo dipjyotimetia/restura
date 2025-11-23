@@ -20,10 +20,14 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
-import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, PanelLeftClose, PanelLeftOpen, GitBranch } from 'lucide-react';
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';
+import { Workflow } from '@/types';
+import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
+import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
+import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
 import { METHOD_COLORS, SIDEBAR_WIDTH } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
@@ -52,6 +56,8 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(HISTORY_PAGE_SIZE);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
+  const [runningWorkflow, setRunningWorkflow] = useState<Workflow | null>(null);
 
   // Get visible history items using selector
   const visibleHistory = useHistoryStore(
@@ -238,6 +244,21 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  variant={activeTab === 'workflows' ? 'secondary' : 'ghost'}
+                  size="icon"
+                  onClick={() => setActiveTab('workflows')}
+                  className="h-9 w-9"
+                >
+                  <GitBranch className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>Workflows</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
                   variant="ghost"
                   size="icon"
                   onClick={handleNewCollection}
@@ -279,22 +300,20 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-border/40">
-                <TabsList className="w-full grid grid-cols-2">
-                  <TabsTrigger value="collections">
+                <TabsList className="w-full grid grid-cols-3">
+                  <TabsTrigger value="collections" className="text-xs">
                     Collections
                     {filteredCollections.length > 0 && (
-                      <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums font-bold">
+                      <span className="ml-1 text-[10px] bg-primary/10 text-primary px-1 py-0.5 rounded-full tabular-nums font-bold">
                         {filteredCollections.length}
                       </span>
                     )}
                   </TabsTrigger>
-                  <TabsTrigger value="history">
+                  <TabsTrigger value="history" className="text-xs">
                     History
-                    {filteredHistory.length > 0 && (
-                      <span className="ml-1.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full tabular-nums font-bold">
-                        {filteredHistory.length}
-                      </span>
-                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="workflows" className="text-xs">
+                    Workflows
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -511,7 +530,58 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
                   </Button>
                 )}
               </TabsContent>
+
+              <TabsContent value="workflows" className="flex-1 overflow-auto p-3 mt-0">
+                {filteredCollections.length === 0 ? (
+                  <div className="text-center text-xs py-10 px-3">
+                    <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                      <GitBranch className="h-6 w-6 text-primary/60" />
+                    </div>
+                    <p className="font-medium text-foreground">No collections yet</p>
+                    <p className="text-xs mt-1 text-muted-foreground">
+                      Create a collection first to add workflows
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filteredCollections.map((collection) => (
+                      <div key={collection.id}>
+                        <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                          {collection.name}
+                        </div>
+                        <WorkflowManager
+                          collectionId={collection.id}
+                          onSelectWorkflow={(workflow) => setSelectedWorkflow(workflow)}
+                          onRunWorkflow={(workflow) => setRunningWorkflow(workflow)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
             </Tabs>
+
+            {/* Workflow Builder Dialog */}
+            {selectedWorkflow && (
+              <WorkflowBuilder
+                workflow={selectedWorkflow}
+                open={!!selectedWorkflow}
+                onOpenChange={(open) => !open && setSelectedWorkflow(null)}
+                onRun={() => {
+                  setRunningWorkflow(selectedWorkflow);
+                  setSelectedWorkflow(null);
+                }}
+              />
+            )}
+
+            {/* Workflow Executor Dialog */}
+            {runningWorkflow && (
+              <WorkflowExecutor
+                workflow={runningWorkflow}
+                open={!!runningWorkflow}
+                onOpenChange={(open) => !open && setRunningWorkflow(null)}
+              />
+            )}
           </>
         )}
       </aside>

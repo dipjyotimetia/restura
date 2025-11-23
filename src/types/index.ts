@@ -612,3 +612,68 @@ export interface OpenAPISecurityScheme {
   bearerFormat?: string;
   flows?: Record<string, unknown>;
 }
+
+// Workflow Types (Request Chaining & Flows)
+export type ExtractionMethod = 'jsonpath' | 'regex' | 'header';
+
+export interface VariableExtraction {
+  id: string;
+  variableName: string;
+  extractionMethod: ExtractionMethod;
+  path: string; // JSONPath (dot notation), regex pattern, or header name
+  description?: string;
+}
+
+export interface WorkflowRequest {
+  id: string;
+  requestId: string; // Reference to actual request in collection
+  name: string;
+  extractVariables?: VariableExtraction[];
+  precondition?: string; // Script for conditional execution
+  retryPolicy?: {
+    maxAttempts: number;
+    delayMs: number;
+    backoffMultiplier?: number;
+  };
+  timeout?: number; // Override global timeout
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  description?: string;
+  collectionId: string;
+  requests: WorkflowRequest[];
+  variables?: KeyValue[]; // Workflow-level variables
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowExecutionStep {
+  workflowRequestId: string;
+  requestId: string;
+  requestName: string;
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped';
+  response?: Response;
+  extractedVariables?: Record<string, string>;
+  error?: string;
+  duration?: number;
+  timestamp: number;
+}
+
+export interface WorkflowExecution {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  startedAt: number;
+  completedAt?: number;
+  status: 'running' | 'success' | 'failed' | 'stopped';
+  steps: WorkflowExecutionStep[];
+  finalVariables: Record<string, string>;
+  environment?: string; // Environment ID used
+  executionLog: Array<{
+    timestamp: number;
+    message: string;
+    level: 'info' | 'warn' | 'error';
+  }>;
+}
