@@ -1,5 +1,6 @@
-import { Collection, CollectionItem, PostmanCollection, PostmanItem, PostmanAuth, InsomniaCollection, HttpRequest, KeyValue, AuthConfig } from '@/types';
+import { Collection, CollectionItem, PostmanCollection, PostmanItem, PostmanAuth, InsomniaCollection, HttpRequest, KeyValue, AuthConfig, OpenAPIDocument, OpenAPIOperation, OpenAPIParameter, OpenAPISecurityScheme, OpenAPISchema, HttpMethod } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import SwaggerParser from '@apidevtools/swagger-parser';
 
 // Postman Collection Importer
 export function importPostmanCollection(postmanData: PostmanCollection): Collection {
@@ -289,4 +290,364 @@ function convertInsomniaAuth(auth: { type?: string; username?: string; password?
     default:
       return { type: 'none' };
   }
+}
+
+// OpenAPI/Swagger Collection Importer
+export async function importOpenAPICollection(openApiData: unknown): Promise<Collection> {
+  // Validate basic structure before processing
+  if (!openApiData || typeof openApiData !== 'object') {
+    throw new Error('Invalid OpenAPI document: expected an object');
+  }
+
+  const doc = openApiData as Record<string, unknown>;
+  if (!doc.openapi && !doc.swagger) {
+    throw new Error('Invalid OpenAPI document: missing openapi or swagger version field');
+  }
+
+  if (!doc.info || typeof doc.info !== 'object') {
+    throw new Error('Invalid OpenAPI document: missing info object');
+  }
+
+  if (!doc.paths || typeof doc.paths !== 'object') {
+    throw new Error('Invalid OpenAPI document: missing paths object');
+  }
+
+  // Validate and dereference the spec (resolves all $refs)
+  // Disable external resolution for security
+  let api: OpenAPIDocument;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    api = await SwaggerParser.dereference(openApiData as any, {
+      resolve: { external: false },
+    }) as unknown as OpenAPIDocument;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown parsing error';
+    throw new Error(`Failed to parse OpenAPI document: ${message}`);
+  }
+
+  const isSwagger2 = 'swagger' in api && api.swagger;
+
+  // Determine base URL
+  const baseUrl = isSwagger2
+    ? `${api.schemes?.[0] || 'https'}://${api.host || 'localhost'}${api.basePath || ''}`
+    : api.servers?.[0]?.url || '';
+
+  // Get security schemes
+  const securitySchemes = isSwagger2
+    ? api.securityDefinitions
+    : api.components?.securitySchemes;
+
+  const collection: Collection = {
+    id: uuidv4(),
+    name: api.info.title,
+    description: api.info.description,
+    items: [],
+  };
+
+  // Group operations by tags
+  const taggedOperations = new Map<string, CollectionItem[]>();
+  const untaggedOperations: CollectionItem[] = [];
+
+  // Process each path
+  for (const [path, pathItem] of Object.entries(api.paths)) {
+    const methods: Array<[string, OpenAPIOperation | undefined]> = [
+      ['GET', pathItem.get],
+      ['POST', pathItem.post],
+      ['PUT', pathItem.put],
+      ['DELETE', pathItem.delete],
+      ['PATCH', pathItem.patch],
+      ['OPTIONS', pathItem.options],
+      ['HEAD', pathItem.head],
+    ];
+
+    for (const [method, operation] of methods) {
+      if (!operation) continue;
+
+      // Merge path-level and operation-level parameters
+      const allParams = [...(pathItem.parameters || []), ...(operation.parameters || [])];
+
+      const request = convertOpenAPIOperation(
+        path,
+        method as HttpMethod,
+        operation,
+        allParams,
+        baseUrl,
+        securitySchemes,
+        isSwagger2 ? api.definitions : api.components?.schemas
+      );
+
+      const item: CollectionItem = {
+        id: uuidv4(),
+        name: operation.summary || operation.operationId || `${method} ${path}`,
+        type: 'request',
+        request,
+      };
+
+      // Group by first tag or put in untagged
+      const tag = operation.tags?.[0];
+      if (tag) {
+        if (!taggedOperations.has(tag)) {
+          taggedOperations.set(tag, []);
+        }
+        taggedOperations.get(tag)!.push(item);
+      } else {
+        untaggedOperations.push(item);
+      }
+    }
+  }
+
+  // Create folders for tags
+  for (const [tagName, items] of taggedOperations) {
+    collection.items.push({
+      id: uuidv4(),
+      name: tagName,
+      type: 'folder',
+      items,
+    });
+  }
+
+  // Add untagged operations to root
+  collection.items.push(...untaggedOperations);
+
+  return collection;
+}
+
+function convertOpenAPIOperation(
+  path: string,
+  method: HttpMethod,
+  operation: OpenAPIOperation,
+  parameters: OpenAPIParameter[],
+  baseUrl: string,
+  securitySchemes?: Record<string, OpenAPISecurityScheme>,
+  schemas?: Record<string, OpenAPISchema>
+): HttpRequest {
+  // Convert path parameters from {id} to {{id}} format
+  const convertedPath = path.replace(/\{([^}]+)\}/g, '{{$1}}');
+  const url = `${baseUrl}${convertedPath}`;
+
+  // Separate parameters by type
+  const queryParams = parameters.filter(p => p.in === 'query');
+  const headerParams = parameters.filter(p => p.in === 'header');
+  const pathParams = parameters.filter(p => p.in === 'path');
+
+  return {
+    id: uuidv4(),
+    name: operation.summary || operation.operationId || `${method} ${path}`,
+    type: 'http',
+    method,
+    url,
+    headers: convertOpenAPIHeaders(headerParams),
+    params: convertOpenAPIParams([...queryParams, ...pathParams]),
+    body: convertOpenAPIBody(operation, parameters, schemas),
+    auth: convertOpenAPISecurity(operation.security, securitySchemes),
+  };
+}
+
+function convertOpenAPIParams(params: OpenAPIParameter[]): KeyValue[] {
+  return params.map(param => ({
+    id: uuidv4(),
+    key: param.name,
+    value: param.schema?.default?.toString() || param.default?.toString() || '',
+    enabled: true,
+    description: param.description,
+  }));
+}
+
+function convertOpenAPIHeaders(params: OpenAPIParameter[]): KeyValue[] {
+  return params.map(param => ({
+    id: uuidv4(),
+    key: param.name,
+    value: param.schema?.default?.toString() || param.default?.toString() || '',
+    enabled: true,
+    description: param.description,
+  }));
+}
+
+function convertOpenAPIBody(
+  operation: OpenAPIOperation,
+  parameters: OpenAPIParameter[],
+  schemas?: Record<string, OpenAPISchema>
+): HttpRequest['body'] {
+  // OpenAPI 3.x requestBody
+  if (operation.requestBody?.content) {
+    const content = operation.requestBody.content;
+
+    // Check for JSON
+    if (content['application/json']) {
+      const mediaType = content['application/json'];
+      const example = mediaType.example ||
+        (mediaType.examples && Object.values(mediaType.examples)[0]?.value) ||
+        generateExampleFromSchema(mediaType.schema, schemas);
+
+      return {
+        type: 'json',
+        raw: example ? JSON.stringify(example, null, 2) : '',
+      };
+    }
+
+    // Check for XML
+    if (content['application/xml'] || content['text/xml']) {
+      const mediaType = content['application/xml'] ?? content['text/xml'];
+      return {
+        type: 'xml',
+        raw: mediaType?.example?.toString() || '',
+      };
+    }
+
+    // Check for form data
+    if (content['multipart/form-data']) {
+      return { type: 'form-data' };
+    }
+
+    // Check for URL encoded
+    if (content['application/x-www-form-urlencoded']) {
+      return { type: 'x-www-form-urlencoded' };
+    }
+
+    // Check for text
+    if (content['text/plain']) {
+      return {
+        type: 'text',
+        raw: content['text/plain'].example?.toString() || '',
+      };
+    }
+  }
+
+  // Swagger 2.0 body parameter
+  const bodyParam = parameters.find(p => p.in === 'body');
+  if (bodyParam?.schema) {
+    const example = generateExampleFromSchema(bodyParam.schema, schemas);
+    return {
+      type: 'json',
+      raw: example ? JSON.stringify(example, null, 2) : '',
+    };
+  }
+
+  // Swagger 2.0 formData parameters
+  const formDataParams = parameters.filter(p => p.in === 'formData');
+  if (formDataParams.length > 0) {
+    return { type: 'form-data' };
+  }
+
+  return { type: 'none' };
+}
+
+function generateExampleFromSchema(
+  schema: OpenAPISchema | undefined,
+  schemas?: Record<string, OpenAPISchema>,
+  visited: WeakSet<object> = new WeakSet()
+): unknown {
+  if (!schema) return undefined;
+
+  // Check for circular reference using object identity
+  // (swagger-parser dereferences $refs, creating actual circular objects)
+  if (visited.has(schema)) {
+    return {}; // Circular reference detected, return empty object
+  }
+  visited.add(schema);
+
+  // Handle $ref (if not already dereferenced)
+  if (schema.$ref && schemas) {
+    const refName = schema.$ref.split('/').pop();
+    if (refName && schemas[refName]) {
+      return generateExampleFromSchema(schemas[refName], schemas, visited);
+    }
+    return undefined;
+  }
+
+  // Return example if provided
+  if (schema.example !== undefined) return schema.example;
+  if (schema.default !== undefined) return schema.default;
+
+  // Generate based on type
+  switch (schema.type) {
+    case 'object':
+      if (schema.properties) {
+        const obj: Record<string, unknown> = {};
+        for (const [key, prop] of Object.entries(schema.properties)) {
+          obj[key] = generateExampleFromSchema(prop, schemas, visited);
+        }
+        return obj;
+      }
+      return {};
+    case 'array':
+      if (schema.items) {
+        return [generateExampleFromSchema(schema.items, schemas, visited)];
+      }
+      return [];
+    case 'string':
+      if (schema.enum) return schema.enum[0];
+      if (schema.format === 'date') return '2024-01-01';
+      if (schema.format === 'date-time') return '2024-01-01T00:00:00Z';
+      if (schema.format === 'email') return 'user@example.com';
+      if (schema.format === 'uuid') return '00000000-0000-0000-0000-000000000000';
+      return 'string';
+    case 'integer':
+    case 'number':
+      if (schema.enum) return schema.enum[0];
+      return 0;
+    case 'boolean':
+      return false;
+    default:
+      return undefined;
+  }
+}
+
+function convertOpenAPISecurity(
+  security?: Array<Record<string, string[]>>,
+  securitySchemes?: Record<string, OpenAPISecurityScheme>
+): AuthConfig {
+  if (!security || security.length === 0 || !securitySchemes) {
+    return { type: 'none' };
+  }
+
+  // Use the first security requirement
+  const securityReq = security[0];
+  if (!securityReq) return { type: 'none' };
+
+  const schemeName = Object.keys(securityReq)[0];
+  if (!schemeName) return { type: 'none' };
+
+  const scheme = securitySchemes[schemeName];
+
+  if (!scheme) return { type: 'none' };
+
+  switch (scheme.type) {
+    case 'http':
+      if (scheme.scheme === 'basic') {
+        return {
+          type: 'basic',
+          basic: { username: '', password: '' },
+        };
+      }
+      if (scheme.scheme === 'bearer') {
+        return {
+          type: 'bearer',
+          bearer: { token: '' },
+        };
+      }
+      break;
+    case 'apiKey':
+      return {
+        type: 'api-key',
+        apiKey: {
+          key: scheme.name || '',
+          value: '',
+          in: scheme.in === 'query' ? 'query' : 'header',
+        },
+      };
+    case 'oauth2':
+      return {
+        type: 'oauth2',
+        oauth2: { accessToken: '' },
+      };
+    // Swagger 2.0 types
+    case 'basic':
+      return {
+        type: 'basic',
+        basic: { username: '', password: '' },
+      };
+  }
+
+  return { type: 'none' };
 }
