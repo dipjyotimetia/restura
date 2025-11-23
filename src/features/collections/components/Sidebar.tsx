@@ -26,6 +26,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';
 import { METHOD_COLORS, SIDEBAR_WIDTH } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 interface SidebarProps {
   onClose: () => void;
@@ -35,7 +36,7 @@ interface SidebarProps {
 
 const HISTORY_PAGE_SIZE = 20;
 
-export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProps) {
+function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProps) {
   const { collections, createNewCollection, addCollection, deleteCollection } = useCollectionStore();
 
   // Use granular selectors for history to minimize re-renders
@@ -517,3 +518,5 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
     </TooltipProvider>
   );
 }
+
+export default withErrorBoundary(Sidebar);
