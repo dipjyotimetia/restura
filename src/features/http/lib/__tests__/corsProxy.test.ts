@@ -27,6 +27,7 @@ describe('shouldUseCorsProxy', () => {
     autoSaveHistory: true,
     maxHistoryItems: 100,
     theme: 'dark',
+    layoutOrientation: 'vertical',
     corsProxy: {
       enabled: true,
       autoDetect: true,
@@ -118,6 +119,7 @@ describe('getCorsProxyStatus', () => {
     autoSaveHistory: true,
     maxHistoryItems: 100,
     theme: 'dark',
+    layoutOrientation: 'vertical',
     corsProxy: {
       enabled: true,
       autoDetect: true,

@@ -4,9 +4,10 @@ import { useState, useMemo, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Copy, Check, Clock, Database, Zap, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Copy, Check, Clock, Database, Zap, CheckCircle2, XCircle, AlertCircle, Rows, Columns } from 'lucide-react';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { Badge } from '@/components/ui/badge';
@@ -101,9 +102,16 @@ function ResponseViewer() {
   // Use selectors to only subscribe to needed state, reducing re-renders
   const currentResponse = useRequestStore((state) => state.currentResponse);
   const isLoading = useRequestStore((state) => state.isLoading);
+  const { settings, updateSettings } = useSettingsStore();
   const [activeTab, setActiveTab] = useState('body');
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [showAnimation, setShowAnimation] = useState(false);
+
+  const toggleLayout = () => {
+    updateSettings({
+      layoutOrientation: settings.layoutOrientation === 'vertical' ? 'horizontal' : 'vertical'
+    });
+  };
 
   // useMemo hooks MUST be before any early returns to follow Rules of Hooks
   const language = useMemo(
@@ -228,6 +236,26 @@ function ResponseViewer() {
             </TooltipTrigger>
             <TooltipContent>
               <p>Response size: {currentResponse.size} bytes</p>
+            </TooltipContent>
+          </Tooltip>
+          <div className="flex-1" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleLayout}
+                className="h-7 w-7"
+              >
+                {settings.layoutOrientation === 'vertical' ? (
+                  <Columns className="h-3.5 w-3.5" />
+                ) : (
+                  <Rows className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Switch to {settings.layoutOrientation === 'vertical' ? 'side-by-side' : 'stacked'} layout</p>
             </TooltipContent>
           </Tooltip>
         </div>

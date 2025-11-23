@@ -370,6 +370,8 @@ export interface AppSettings {
   autoSaveHistory: boolean;
   maxHistoryItems: number;
   theme: 'light' | 'dark' | 'system';
+  // Layout settings
+  layoutOrientation: 'vertical' | 'horizontal';
   // Security settings
   allowLocalhost?: boolean;
   allowPrivateIPs?: boolean;

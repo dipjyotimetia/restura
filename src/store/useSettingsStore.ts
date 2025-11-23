@@ -42,6 +42,8 @@ const defaultSettings: AppSettings = {
   autoSaveHistory: true,
   maxHistoryItems: 100,
   theme: 'dark',
+  // Layout settings
+  layoutOrientation: 'vertical',
   // Security settings - allow localhost by default for development convenience
   allowLocalhost: true,
   allowPrivateIPs: false,
