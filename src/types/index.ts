@@ -108,6 +108,7 @@ export interface AuthConfig {
   oauth2?: {
     accessToken: string;
     tokenType?: string;
+    scopes?: string[];
   };
   digest?: {
     username: string;
@@ -314,6 +315,7 @@ export interface Collection {
   description?: string;
   items: CollectionItem[];
   auth?: AuthConfig;
+  variables?: KeyValue[];
 }
 
 // History Item
@@ -473,6 +475,7 @@ export interface InsomniaResource {
     [key: string]: unknown;
   };
   parentId?: string;
+  data?: Record<string, unknown>; // For environment variables
 }
 
 export interface InsomniaCollection {
@@ -481,4 +484,131 @@ export interface InsomniaCollection {
   __export_date?: string;
   __export_source?: string;
   resources: InsomniaResource[];
+}
+
+// OpenAPI/Swagger Types
+export interface OpenAPIDocument {
+  openapi?: string; // OpenAPI 3.x
+  swagger?: string; // Swagger 2.0
+  info: OpenAPIInfo;
+  servers?: OpenAPIServer[];
+  host?: string; // Swagger 2.0
+  basePath?: string; // Swagger 2.0
+  schemes?: string[]; // Swagger 2.0
+  paths: Record<string, OpenAPIPathItem>;
+  components?: OpenAPIComponents;
+  definitions?: Record<string, OpenAPISchema>; // Swagger 2.0
+  securityDefinitions?: Record<string, OpenAPISecurityScheme>; // Swagger 2.0
+  tags?: OpenAPITag[];
+}
+
+export interface OpenAPIInfo {
+  title: string;
+  description?: string;
+  version: string;
+}
+
+export interface OpenAPIServer {
+  url: string;
+  description?: string;
+  variables?: Record<string, OpenAPIServerVariable>;
+}
+
+export interface OpenAPIServerVariable {
+  default: string;
+  enum?: string[];
+  description?: string;
+}
+
+export interface OpenAPITag {
+  name: string;
+  description?: string;
+}
+
+export interface OpenAPIPathItem {
+  get?: OpenAPIOperation;
+  post?: OpenAPIOperation;
+  put?: OpenAPIOperation;
+  delete?: OpenAPIOperation;
+  patch?: OpenAPIOperation;
+  options?: OpenAPIOperation;
+  head?: OpenAPIOperation;
+  trace?: OpenAPIOperation;
+  parameters?: OpenAPIParameter[];
+}
+
+export interface OpenAPIOperation {
+  operationId?: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  parameters?: OpenAPIParameter[];
+  requestBody?: OpenAPIRequestBody;
+  responses?: Record<string, OpenAPIResponse>;
+  security?: Array<Record<string, string[]>>;
+  deprecated?: boolean;
+}
+
+export interface OpenAPIParameter {
+  name: string;
+  in: 'query' | 'header' | 'path' | 'cookie' | 'body' | 'formData';
+  description?: string;
+  required?: boolean;
+  schema?: OpenAPISchema;
+  type?: string; // Swagger 2.0
+  default?: unknown;
+  example?: unknown;
+}
+
+export interface OpenAPIRequestBody {
+  description?: string;
+  required?: boolean;
+  content?: Record<string, OpenAPIMediaType>;
+}
+
+export interface OpenAPIMediaType {
+  schema?: OpenAPISchema;
+  example?: unknown;
+  examples?: Record<string, { value: unknown }>;
+}
+
+export interface OpenAPIResponse {
+  description?: string;
+  content?: Record<string, OpenAPIMediaType>;
+}
+
+export interface OpenAPISchema {
+  type?: string;
+  format?: string;
+  properties?: Record<string, OpenAPISchema>;
+  items?: OpenAPISchema;
+  required?: string[];
+  example?: unknown;
+  default?: unknown;
+  enum?: unknown[];
+  $ref?: string;
+  description?: string;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  allOf?: OpenAPISchema[];
+  oneOf?: OpenAPISchema[];
+  anyOf?: OpenAPISchema[];
+  nullable?: boolean;
+}
+
+export interface OpenAPIComponents {
+  schemas?: Record<string, OpenAPISchema>;
+  securitySchemes?: Record<string, OpenAPISecurityScheme>;
+}
+
+export interface OpenAPISecurityScheme {
+  type: string;
+  name?: string;
+  in?: string;
+  scheme?: string;
+  bearerFormat?: string;
+  flows?: Record<string, unknown>;
 }

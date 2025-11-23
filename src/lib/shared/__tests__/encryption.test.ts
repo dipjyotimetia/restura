@@ -58,6 +58,43 @@ describe('Encryption Utilities', () => {
       expect(result).toBe(plainValue);
     });
 
+    it('should throw error for truncated ciphertext', async () => {
+      const originalValue = 'secret data';
+      const encrypted = await encryptValue(originalValue, testPassword);
+
+      // Truncate the encrypted value
+      const truncated = encrypted.slice(0, Math.floor(encrypted.length / 2));
+
+      await expect(decryptValue(truncated, testPassword)).rejects.toThrow();
+    });
+
+    it('should throw error for corrupted ciphertext', async () => {
+      const originalValue = 'secret data';
+      const encrypted = await encryptValue(originalValue, testPassword);
+
+      // Corrupt the middle of the ciphertext
+      const chars = encrypted.split('');
+      const middleIndex = Math.floor(chars.length / 2);
+      chars[middleIndex] = chars[middleIndex] === 'A' ? 'B' : 'A';
+      const corrupted = chars.join('');
+
+      await expect(decryptValue(corrupted, testPassword)).rejects.toThrow();
+    });
+
+    it('should throw error for malformed ENC: prefix with invalid base64', async () => {
+      // Valid prefix but invalid base64 content
+      const malformed = 'ENC:!!!invalid-base64!!!';
+
+      await expect(decryptValue(malformed, testPassword)).rejects.toThrow();
+    });
+
+    it('should throw error for ENC: prefix with too short data', async () => {
+      // ENC prefix but data too short to contain salt + iv + ciphertext
+      const tooShort = 'ENC:YWJj'; // "abc" in base64
+
+      await expect(decryptValue(tooShort, testPassword)).rejects.toThrow();
+    });
+
     it('should handle empty string', async () => {
       const encrypted = await encryptValue('', testPassword);
       const decrypted = await decryptValue(encrypted, testPassword);
