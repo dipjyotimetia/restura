@@ -15,6 +15,7 @@ import StatusBar from '@/components/shared/StatusBar';
 import KeyboardShortcutsPanel from '@/components/shared/KeyboardShortcutsPanel';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { Button } from '@/components/ui/button';
 import { PanelLeft } from 'lucide-react';
@@ -30,11 +31,25 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [splitPosition, setSplitPosition] = useState(50); // 50% split
+  const [windowWidth, setWindowWidth] = useState(1920);
   const isDragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   // Trigger store hydration on mount
   useStoreHydration();
   const { scriptResult, setScriptResult } = useRequestStore();
+  const { settings } = useSettingsStore();
+
+  // Determine effective layout (force vertical on small screens)
+  const effectiveLayout = windowWidth < 1280 ? 'vertical' : settings.layoutOrientation;
+  const isHorizontal = effectiveLayout === 'horizontal';
+
+  // Track window width for responsive layout
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const allLogs = [
     ...(scriptResult?.preRequest?.logs || []),
@@ -50,20 +65,22 @@ export default function Home() {
   // Handle panel resizing
   const handleResizeStart = useCallback(() => {
     isDragging.current = true;
-    document.body.style.cursor = 'row-resize';
+    document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
-  }, []);
+  }, [isHorizontal]);
 
   const handleResizeMove = useCallback((e: MouseEvent) => {
     if (!isDragging.current || !containerRef.current) return;
 
     const container = containerRef.current;
     const rect = container.getBoundingClientRect();
-    const newPosition = ((e.clientY - rect.top) / rect.height) * 100;
+    const newPosition = isHorizontal
+      ? ((e.clientX - rect.left) / rect.width) * 100
+      : ((e.clientY - rect.top) / rect.height) * 100;
 
     // Clamp between 20% and 80%
     setSplitPosition(Math.min(80, Math.max(20, newPosition)));
-  }, []);
+  }, [isHorizontal]);
 
   const handleResizeEnd = useCallback(() => {
     isDragging.current = false;
@@ -113,21 +130,35 @@ export default function Home() {
 
   const renderRequestBuilder = () => {
     const ResizableLayout = ({ children }: { children: [React.ReactNode, React.ReactNode] }) => (
-      <div ref={containerRef} className="flex flex-col h-full">
-        <div style={{ height: `${splitPosition}%` }} className="min-h-0 overflow-hidden">
+      <div ref={containerRef} className={cn("flex h-full", isHorizontal ? "flex-row" : "flex-col")}>
+        <div
+          style={isHorizontal ? { width: `${splitPosition}%` } : { height: `${splitPosition}%` }}
+          className="min-h-0 min-w-0 overflow-hidden"
+        >
           {children[0]}
         </div>
         <div
-          className="h-1.5 bg-border/20 hover:bg-primary/20 cursor-row-resize flex items-center justify-center transition-all duration-200 group shrink-0 relative z-50"
+          className={cn(
+            "bg-border/20 hover:bg-primary/20 flex items-center justify-center transition-all duration-200 group shrink-0 relative z-50",
+            isHorizontal
+              ? "w-1.5 cursor-col-resize"
+              : "h-1.5 cursor-row-resize"
+          )}
           onMouseDown={handleResizeStart}
           role="separator"
-          aria-orientation="horizontal"
+          aria-orientation={isHorizontal ? "vertical" : "horizontal"}
           aria-label="Resize panels"
           tabIndex={0}
         >
-          <div className="h-1 w-8 rounded-full bg-border group-hover:bg-primary/50 transition-colors" />
+          <div className={cn(
+            "rounded-full bg-border group-hover:bg-primary/50 transition-colors",
+            isHorizontal ? "w-1 h-8" : "h-1 w-8"
+          )} />
         </div>
-        <div style={{ height: `${100 - splitPosition}%` }} className="min-h-0 overflow-hidden">
+        <div
+          style={isHorizontal ? { width: `${100 - splitPosition}%` } : { height: `${100 - splitPosition}%` }}
+          className="min-h-0 min-w-0 overflow-hidden"
+        >
           {children[1]}
         </div>
       </div>
