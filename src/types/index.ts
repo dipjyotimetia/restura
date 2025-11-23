@@ -508,6 +508,13 @@ export interface OpenAPIInfo {
 export interface OpenAPIServer {
   url: string;
   description?: string;
+  variables?: Record<string, OpenAPIServerVariable>;
+}
+
+export interface OpenAPIServerVariable {
+  default: string;
+  enum?: string[];
+  description?: string;
 }
 
 export interface OpenAPITag {
@@ -523,6 +530,7 @@ export interface OpenAPIPathItem {
   patch?: OpenAPIOperation;
   options?: OpenAPIOperation;
   head?: OpenAPIOperation;
+  trace?: OpenAPIOperation;
   parameters?: OpenAPIParameter[];
 }
 
@@ -546,6 +554,7 @@ export interface OpenAPIParameter {
   schema?: OpenAPISchema;
   type?: string; // Swagger 2.0
   default?: unknown;
+  example?: unknown;
 }
 
 export interface OpenAPIRequestBody {
@@ -575,6 +584,12 @@ export interface OpenAPISchema {
   default?: unknown;
   enum?: unknown[];
   $ref?: string;
+  description?: string;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
 }
 
 export interface OpenAPIComponents {
