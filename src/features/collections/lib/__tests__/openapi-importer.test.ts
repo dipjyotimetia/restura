@@ -197,6 +197,506 @@ describe('importOpenAPICollection', () => {
       expect(request.auth.bearer).toBeDefined();
     });
 
+    it('should interpolate server variables with defaults', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        servers: [
+          {
+            url: 'https://api.example.com/{version}/data',
+            variables: {
+              version: {
+                default: 'v2',
+                enum: ['v1', 'v2', 'v3'],
+              },
+            },
+          },
+        ],
+        paths: {
+          '/users': {
+            get: {
+              summary: 'Get users',
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.url).toBe('https://api.example.com/v2/data/users');
+    });
+
+    it('should use enum value when no default for server variable', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        servers: [
+          {
+            url: 'https://{environment}.api.example.com',
+            variables: {
+              environment: {
+                default: 'staging',
+                enum: ['staging', 'production'],
+              },
+            },
+          },
+        ],
+        paths: {
+          '/health': {
+            get: {
+              summary: 'Health check',
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.url).toBe('https://staging.api.example.com/health');
+    });
+
+    it('should convert Basic auth security scheme', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/secure': {
+            get: {
+              summary: 'Secure endpoint',
+              security: [{ basicAuth: [] }],
+              responses: {},
+            },
+          },
+        },
+        components: {
+          securitySchemes: {
+            basicAuth: {
+              type: 'http',
+              scheme: 'basic',
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.auth.type).toBe('basic');
+      expect(request.auth.basic).toBeDefined();
+    });
+
+    it('should convert API key security scheme in header', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/secure': {
+            get: {
+              summary: 'Secure endpoint',
+              security: [{ apiKeyAuth: [] }],
+              responses: {},
+            },
+          },
+        },
+        components: {
+          securitySchemes: {
+            apiKeyAuth: {
+              type: 'apiKey',
+              name: 'X-API-Key',
+              in: 'header',
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.auth.type).toBe('api-key');
+      expect(request.auth.apiKey?.key).toBe('X-API-Key');
+      expect(request.auth.apiKey?.in).toBe('header');
+    });
+
+    it('should convert API key security scheme in query', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/secure': {
+            get: {
+              summary: 'Secure endpoint',
+              security: [{ apiKeyQuery: [] }],
+              responses: {},
+            },
+          },
+        },
+        components: {
+          securitySchemes: {
+            apiKeyQuery: {
+              type: 'apiKey',
+              name: 'api_key',
+              in: 'query',
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.auth.type).toBe('api-key');
+      expect(request.auth.apiKey?.key).toBe('api_key');
+      expect(request.auth.apiKey?.in).toBe('query');
+    });
+
+    it('should convert OAuth2 security scheme with scopes', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/secure': {
+            get: {
+              summary: 'Secure endpoint',
+              security: [{ oauth2Auth: ['read:users', 'write:users'] }],
+              responses: {},
+            },
+          },
+        },
+        components: {
+          securitySchemes: {
+            oauth2Auth: {
+              type: 'oauth2',
+              flows: {
+                authorizationCode: {
+                  authorizationUrl: 'https://example.com/oauth/authorize',
+                  tokenUrl: 'https://example.com/oauth/token',
+                  scopes: {
+                    'read:users': 'Read users',
+                    'write:users': 'Write users',
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.auth.type).toBe('oauth2');
+      expect(request.auth.oauth2).toBeDefined();
+      expect(request.auth.oauth2?.scopes).toEqual(['read:users', 'write:users']);
+    });
+
+    it('should convert Digest auth security scheme', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/secure': {
+            get: {
+              summary: 'Secure endpoint',
+              security: [{ digestAuth: [] }],
+              responses: {},
+            },
+          },
+        },
+        components: {
+          securitySchemes: {
+            digestAuth: {
+              type: 'http',
+              scheme: 'digest',
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.auth.type).toBe('digest');
+      expect(request.auth.digest).toBeDefined();
+    });
+
+    it('should add Content-Type header for JSON body', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users': {
+            post: {
+              summary: 'Create user',
+              requestBody: {
+                content: {
+                  'application/json': {
+                    example: { name: 'John' },
+                  },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      const contentTypeHeader = request.headers.find(h => h.key === 'Content-Type');
+      expect(contentTypeHeader).toBeDefined();
+      expect(contentTypeHeader?.value).toBe('application/json');
+    });
+
+    it('should add Content-Type header for form-urlencoded body', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/login': {
+            post: {
+              summary: 'Login',
+              requestBody: {
+                content: {
+                  'application/x-www-form-urlencoded': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        username: { type: 'string' },
+                        password: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.body.type).toBe('x-www-form-urlencoded');
+      const contentTypeHeader = request.headers.find(h => h.key === 'Content-Type');
+      expect(contentTypeHeader?.value).toBe('application/x-www-form-urlencoded');
+    });
+
+    it('should convert multipart/form-data with schema to formData', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/upload': {
+            post: {
+              summary: 'Upload file',
+              requestBody: {
+                content: {
+                  'multipart/form-data': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        file: { type: 'string', format: 'binary' },
+                        description: { type: 'string', example: 'My file' },
+                        count: { type: 'integer', default: 1 },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      expect(request.body.type).toBe('form-data');
+      expect(request.body.formData).toBeDefined();
+      expect(request.body.formData).toHaveLength(3);
+
+      const descField = request.body.formData?.find(f => f.key === 'description');
+      expect(descField?.value).toBe('My file');
+
+      const countField = request.body.formData?.find(f => f.key === 'count');
+      expect(countField?.value).toBe('1');
+    });
+
+    it('should convert cookie parameters to Cookie header', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users': {
+            get: {
+              summary: 'Get users',
+              parameters: [
+                {
+                  name: 'session_id',
+                  in: 'cookie',
+                  schema: { type: 'string', example: 'abc123' },
+                },
+                {
+                  name: 'tracking',
+                  in: 'cookie',
+                  schema: { type: 'string', default: 'enabled' },
+                },
+              ],
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      const cookieHeader = request.headers.find(h => h.key === 'Cookie');
+      expect(cookieHeader).toBeDefined();
+      expect(cookieHeader?.value).toContain('session_id=abc123');
+      expect(cookieHeader?.value).toContain('tracking=enabled');
+    });
+
+    it('should handle allOf schema composition', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/items': {
+            post: {
+              summary: 'Create item',
+              requestBody: {
+                content: {
+                  'application/json': {
+                    schema: {
+                      allOf: [
+                        {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'integer' },
+                          },
+                        },
+                        {
+                          type: 'object',
+                          properties: {
+                            name: { type: 'string' },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      const body = JSON.parse(request.body.raw || '{}');
+      expect(body).toHaveProperty('id', 0);
+      expect(body).toHaveProperty('name', 'string');
+    });
+
+    it('should handle oneOf schema by using first option', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/data': {
+            post: {
+              summary: 'Create data',
+              requestBody: {
+                content: {
+                  'application/json': {
+                    schema: {
+                      oneOf: [
+                        {
+                          type: 'object',
+                          properties: {
+                            type: { type: 'string', example: 'text' },
+                            content: { type: 'string' },
+                          },
+                        },
+                        {
+                          type: 'object',
+                          properties: {
+                            type: { type: 'string', example: 'image' },
+                            url: { type: 'string', format: 'uri' },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      const body = JSON.parse(request.body.raw || '{}');
+      expect(body).toHaveProperty('type', 'text');
+      expect(body).toHaveProperty('content', 'string');
+    });
+
+    it('should handle anyOf schema by using first option', async () => {
+      const openApiDoc: OpenAPIDocument = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/flexible': {
+            post: {
+              summary: 'Flexible data',
+              requestBody: {
+                content: {
+                  'application/json': {
+                    schema: {
+                      anyOf: [
+                        {
+                          type: 'object',
+                          properties: {
+                            email: { type: 'string', format: 'email' },
+                          },
+                        },
+                        {
+                          type: 'object',
+                          properties: {
+                            phone: { type: 'string' },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+      };
+
+      const collection = await importOpenAPICollection(openApiDoc);
+      const request = asHttpRequest(collection.items[0]!.request);
+
+      const body = JSON.parse(request.body.raw || '{}');
+      expect(body).toHaveProperty('email', 'user@example.com');
+    });
+
     it('should generate example from schema when no example provided', async () => {
       const openApiDoc: OpenAPIDocument = {
         openapi: '3.0.0',

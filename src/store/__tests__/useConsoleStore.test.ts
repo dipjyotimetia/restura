@@ -47,13 +47,13 @@ describe('useConsoleStore', () => {
       expect(state.selectedEntryId).toBe(state.entries[0]?.id);
     });
 
-    it('should limit entries to 100', () => {
+    it('should limit entries to 100 and keep newest entries', () => {
       const { addEntry } = useConsoleStore.getState();
 
       // Add 105 entries
       for (let i = 0; i < 105; i++) {
         addEntry({
-          timestamp: Date.now(),
+          timestamp: Date.now() + i, // Unique timestamp for each
           request: {
             method: 'GET',
             url: `https://api.example.com/users/${i}`,
@@ -68,13 +68,23 @@ describe('useConsoleStore', () => {
             body: '',
             size: 0,
             time: 100,
-            timestamp: Date.now(),
+            timestamp: Date.now() + i,
           },
         });
       }
 
       const state = useConsoleStore.getState();
       expect(state.entries).toHaveLength(100);
+
+      // Verify that the newest entries are kept (entries are added to beginning)
+      // Entry 104 should be first (newest), entry 5 should be last (oldest kept)
+      expect(state.entries[0]?.request.url).toBe('https://api.example.com/users/104');
+      expect(state.entries[99]?.request.url).toBe('https://api.example.com/users/5');
+
+      // Verify that entries 0-4 (oldest) were removed
+      const urls = state.entries.map(e => e.request.url);
+      expect(urls).not.toContain('https://api.example.com/users/0');
+      expect(urls).not.toContain('https://api.example.com/users/4');
     });
   });
 
