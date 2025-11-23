@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
 import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
 import WebSocketClient from '@/features/websocket/components/WebSocketClient';
 import ResponseViewer from '@/components/shared/ResponseViewer';
 import NetworkConsole from '@/components/shared/NetworkConsole';
+import ResizableLayout from '@/components/shared/ResizableLayout';
 import Sidebar from '@/features/collections/components/Sidebar';
 import Header from '@/components/shared/Header';
 import CommandPalette from '@/components/shared/CommandPalette';
@@ -20,8 +21,8 @@ import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { Button } from '@/components/ui/button';
 import { PanelLeft } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
-
-type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
+import { SIDEBAR_WIDTH } from '@/lib/shared/constants';
+import type { RequestMode } from '@/types';
 
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -30,10 +31,8 @@ export default function Home() {
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [splitPosition, setSplitPosition] = useState(50); // 50% split
   const [windowWidth, setWindowWidth] = useState(1920);
-  const isDragging = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+
   // Trigger store hydration on mount
   useStoreHydration();
   const { scriptResult, setScriptResult } = useRequestStore();
@@ -41,7 +40,6 @@ export default function Home() {
 
   // Determine effective layout (force vertical on small screens)
   const effectiveLayout = windowWidth < 1280 ? 'vertical' : settings.layoutOrientation;
-  const isHorizontal = effectiveLayout === 'horizontal';
 
   // Track window width for responsive layout
   useEffect(() => {
@@ -61,42 +59,6 @@ export default function Home() {
   const handleClearConsole = () => {
     setScriptResult(null);
   };
-
-  // Handle panel resizing
-  const handleResizeStart = useCallback(() => {
-    isDragging.current = true;
-    document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
-    document.body.style.userSelect = 'none';
-  }, [isHorizontal]);
-
-  const handleResizeMove = useCallback((e: MouseEvent) => {
-    if (!isDragging.current || !containerRef.current) return;
-
-    const container = containerRef.current;
-    const rect = container.getBoundingClientRect();
-    const newPosition = isHorizontal
-      ? ((e.clientX - rect.left) / rect.width) * 100
-      : ((e.clientY - rect.top) / rect.height) * 100;
-
-    // Clamp between 20% and 80%
-    setSplitPosition(Math.min(80, Math.max(20, newPosition)));
-  }, [isHorizontal]);
-
-  const handleResizeEnd = useCallback(() => {
-    isDragging.current = false;
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('mousemove', handleResizeMove);
-    window.addEventListener('mouseup', handleResizeEnd);
-
-    return () => {
-      window.removeEventListener('mousemove', handleResizeMove);
-      window.removeEventListener('mouseup', handleResizeEnd);
-    };
-  }, [handleResizeMove, handleResizeEnd]);
 
   // Keyboard shortcut for toggling sidebar
   useEffect(() => {
@@ -129,59 +91,24 @@ export default function Home() {
   }, []);
 
   const renderRequestBuilder = () => {
-    const ResizableLayout = ({ children }: { children: [React.ReactNode, React.ReactNode] }) => (
-      <div ref={containerRef} className={cn("flex h-full", isHorizontal ? "flex-row" : "flex-col")}>
-        <div
-          style={isHorizontal ? { width: `${splitPosition}%` } : { height: `${splitPosition}%` }}
-          className="min-h-0 min-w-0 overflow-hidden"
-        >
-          {children[0]}
-        </div>
-        <div
-          className={cn(
-            "bg-border/20 hover:bg-primary/20 flex items-center justify-center transition-all duration-200 group shrink-0 relative z-50",
-            isHorizontal
-              ? "w-1.5 cursor-col-resize"
-              : "h-1.5 cursor-row-resize"
-          )}
-          onMouseDown={handleResizeStart}
-          role="separator"
-          aria-orientation={isHorizontal ? "vertical" : "horizontal"}
-          aria-label="Resize panels"
-          tabIndex={0}
-        >
-          <div className={cn(
-            "rounded-full bg-border group-hover:bg-primary/50 transition-colors",
-            isHorizontal ? "w-1 h-8" : "h-1 w-8"
-          )} />
-        </div>
-        <div
-          style={isHorizontal ? { width: `${100 - splitPosition}%` } : { height: `${100 - splitPosition}%` }}
-          className="min-h-0 min-w-0 overflow-hidden"
-        >
-          {children[1]}
-        </div>
-      </div>
-    );
-
     switch (requestMode) {
       case 'http':
         return (
-          <ResizableLayout>
+          <ResizableLayout orientation={effectiveLayout}>
             <RequestBuilder />
             <ResponseViewer />
           </ResizableLayout>
         );
       case 'grpc':
         return (
-          <ResizableLayout>
+          <ResizableLayout orientation={effectiveLayout}>
             <GrpcRequestBuilder />
             <ResponseViewer />
           </ResizableLayout>
         );
       case 'graphql':
         return (
-          <ResizableLayout>
+          <ResizableLayout orientation={effectiveLayout}>
             <GraphQLRequestBuilder />
             <ResponseViewer />
           </ResizableLayout>
@@ -224,7 +151,7 @@ export default function Home() {
           {/* Sidebar with collapsible mode */}
           <div className={cn(
             "relative transition-all duration-300 ease-out border-r border-border",
-            sidebarOpen ? (sidebarCollapsed ? "w-16" : "w-72") : "w-0"
+            sidebarOpen ? (sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded) : "w-0"
           )}>
             {sidebarOpen && (
               <Sidebar

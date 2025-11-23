@@ -123,3 +123,50 @@ export const selectEnvironmentNames = (state: EnvironmentState): Array<{ id: str
  */
 export const selectEnvironmentCount = (state: EnvironmentState): number =>
   state.environments.length;
+
+// ============================================================================
+// Request Store Types & Selectors
+// ============================================================================
+
+interface RequestState {
+  currentRequest: import('@/types').Request | null;
+  currentResponse: import('@/types').Response | null;
+  isLoading: boolean;
+  error: string | null;
+}
+
+/**
+ * Select loading state only
+ */
+export const selectIsLoading = (state: RequestState): boolean =>
+  state.isLoading;
+
+/**
+ * Select error state only
+ */
+export const selectError = (state: RequestState): string | null =>
+  state.error;
+
+/**
+ * Select if there's a current response
+ */
+export const selectHasResponse = (state: RequestState): boolean =>
+  state.currentResponse !== null;
+
+/**
+ * Select response status
+ */
+export const selectResponseStatus = (state: RequestState): number | null =>
+  state.currentResponse?.status ?? null;
+
+/**
+ * Select response time
+ */
+export const selectResponseTime = (state: RequestState): number | null =>
+  state.currentResponse?.time ?? null;
+
+/**
+ * Select current request type
+ */
+export const selectRequestType = (state: RequestState): 'http' | 'grpc' | null =>
+  state.currentRequest?.type ?? null;

@@ -187,9 +187,9 @@ function ResponseViewer() {
         )}
       >
         {/* Response Info Bar */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-transparent">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Status</span>
+        <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-2 lg:py-2.5 border-b border-border bg-transparent">
+          <div className="flex items-center gap-1.5 lg:gap-2">
+            <span className="text-[10px] lg:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide hidden lg:inline">Status</span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Badge
@@ -214,24 +214,24 @@ function ResponseViewer() {
               </TooltipContent>
             </Tooltip>
           </div>
-          <Separator orientation="vertical" className="h-5 bg-slate-200 dark:bg-slate-700" />
+          <Separator orientation="vertical" className="h-4 lg:h-5 bg-slate-200 dark:bg-slate-700" />
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5 cursor-help">
-                <Clock className="h-3.5 w-3.5 text-slate-blue-600 dark:text-slate-blue-400" />
-                <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatTime(currentResponse.time)}</span>
+              <div className="flex items-center gap-1 lg:gap-1.5 cursor-help">
+                <Clock className="h-3 w-3 lg:h-3.5 lg:w-3.5 text-slate-blue-600 dark:text-slate-blue-400" />
+                <span className="text-[10px] lg:text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatTime(currentResponse.time)}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
               <p>Response time: {currentResponse.time}ms</p>
             </TooltipContent>
           </Tooltip>
-          <Separator orientation="vertical" className="h-5 bg-slate-200 dark:bg-slate-700" />
+          <Separator orientation="vertical" className="h-4 lg:h-5 bg-slate-200 dark:bg-slate-700" />
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5 cursor-help">
-                <Database className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatBytes(currentResponse.size)}</span>
+              <div className="flex items-center gap-1 lg:gap-1.5 cursor-help">
+                <Database className="h-3 w-3 lg:h-3.5 lg:w-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span className="text-[10px] lg:text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatBytes(currentResponse.size)}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
@@ -301,9 +301,9 @@ function ResponseViewer() {
               {Object.entries(currentResponse.headers).map(([key, value]) => (
                 <div
                   key={key}
-                  className="group flex gap-3 p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 text-xs transition-all"
+                  className="group flex gap-2 lg:gap-3 p-2 lg:p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 text-[10px] lg:text-xs transition-all"
                 >
-                  <span className="font-semibold min-w-[180px] text-slate-blue-700 dark:text-slate-blue-300 truncate">{key}:</span>
+                  <span className="font-semibold min-w-[120px] lg:min-w-[180px] text-slate-blue-700 dark:text-slate-blue-300 truncate">{key}:</span>
                   <span className="text-slate-600 dark:text-slate-400 break-all flex-1">
                     {Array.isArray(value) ? value.join(', ') : value}
                   </span>
