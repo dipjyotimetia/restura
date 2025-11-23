@@ -1,103 +1,229 @@
-import { Collection, CollectionItem, PostmanCollection, PostmanItem, PostmanAuth, InsomniaCollection, HttpRequest, KeyValue, AuthConfig, OpenAPIDocument, OpenAPIOperation, OpenAPIParameter, OpenAPISecurityScheme, OpenAPISchema, HttpMethod } from '@/types';
+import { Collection, CollectionItem, PostmanCollection, InsomniaCollection, HttpRequest, KeyValue, AuthConfig, OpenAPIDocument, OpenAPIOperation, OpenAPIParameter, OpenAPISecurityScheme, OpenAPISchema, HttpMethod, FormDataItem } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import SwaggerParser from '@apidevtools/swagger-parser';
+import { Collection as PostmanSDKCollection, Item, ItemGroup, Request, RequestAuth, RequestBody, QueryParam, Header, FormParam, Variable } from 'postman-collection';
 
-// Postman Collection Importer
+// Helper to extract description content
+function getDescriptionContent(desc: string | { content?: string } | undefined): string | undefined {
+  if (!desc) return undefined;
+  if (typeof desc === 'string') return desc;
+  return desc.content;
+}
+
+// Postman Collection Importer - using official postman-collection SDK
 export function importPostmanCollection(postmanData: PostmanCollection): Collection {
+  // Parse using official SDK for complete Postman format support
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sdkCollection = new PostmanSDKCollection(postmanData as any);
+
   const collection: Collection = {
     id: uuidv4(),
-    name: postmanData.info.name,
-    description: postmanData.info.description,
+    name: sdkCollection.name || 'Imported Collection',
+    description: getDescriptionContent(sdkCollection.description),
     items: [],
-    auth: postmanData.auth ? convertPostmanAuth(postmanData.auth) : undefined,
+    auth: sdkCollection.auth ? convertPostmanSDKAuth(sdkCollection.auth) : undefined,
   };
 
-  collection.items = postmanData.item.map((item) => convertPostmanItem(item, collection.auth));
+  // Convert items recursively
+  sdkCollection.items.each((item) => {
+    const converted = convertPostmanSDKItem(item, collection.auth);
+    if (converted) {
+      collection.items.push(converted);
+    }
+  });
 
   return collection;
 }
 
-function convertPostmanItem(item: PostmanItem, parentAuth?: AuthConfig): CollectionItem {
-  // If it's a folder
-  if (item.item && Array.isArray(item.item)) {
+function convertPostmanSDKItem(item: Item | ItemGroup<Item>, parentAuth?: AuthConfig): CollectionItem | null {
+  // Check if it's a folder (ItemGroup)
+  if (ItemGroup.isItemGroup(item)) {
+    const group = item as ItemGroup<Item>;
+    const items: CollectionItem[] = [];
+
+    group.items.each((subItem) => {
+      const converted = convertPostmanSDKItem(subItem, parentAuth);
+      if (converted) {
+        items.push(converted);
+      }
+    });
+
     return {
       id: uuidv4(),
-      name: item.name,
+      name: group.name || 'Unnamed Folder',
       type: 'folder',
-      items: item.item.map((subItem) => convertPostmanItem(subItem, parentAuth)),
+      items,
     };
   }
 
-  // If it's a request
-  const request: HttpRequest = {
+  // It's a request item
+  const requestItem = item as Item;
+  const request = requestItem.request;
+
+  if (!request) return null;
+
+  const httpRequest: HttpRequest = {
     id: uuidv4(),
-    name: item.name,
+    name: requestItem.name || 'Unnamed Request',
     type: 'http',
-    method: (item.request?.method as HttpRequest['method']) || 'GET',
-    url: typeof item.request?.url === 'string' ? item.request.url : item.request?.url?.raw || '',
-    headers: convertPostmanHeaders(item.request?.header || []),
-    params: convertPostmanParams(item.request?.url),
-    body: convertPostmanBody(item.request?.body),
-    auth: item.request?.auth ? convertPostmanAuth(item.request.auth) : (parentAuth || { type: 'none' }),
-    preRequestScript: item.event?.find((e) => e.listen === 'prerequest')?.script?.exec?.join('\n'),
-    testScript: item.event?.find((e) => e.listen === 'test')?.script?.exec?.join('\n'),
+    method: (request.method as HttpRequest['method']) || 'GET',
+    url: request.url?.toString() || '',
+    headers: convertPostmanSDKHeaders(request.headers),
+    params: convertPostmanSDKParams(request.url?.query),
+    body: convertPostmanSDKBody(request.body),
+    auth: request.auth ? convertPostmanSDKAuth(request.auth) : (parentAuth || { type: 'none' }),
+    preRequestScript: extractScript(requestItem.events, 'prerequest'),
+    testScript: extractScript(requestItem.events, 'test'),
   };
 
   return {
     id: uuidv4(),
-    name: item.name,
+    name: requestItem.name || 'Unnamed Request',
     type: 'request',
-    request,
+    request: httpRequest,
   };
 }
 
-function convertPostmanHeaders(headers: Array<{ key: string; value: string; disabled?: boolean; description?: string }>): KeyValue[] {
-  return headers.map((header) => ({
-    id: uuidv4(),
-    key: header.key,
-    value: header.value,
-    enabled: !header.disabled,
-    description: header.description,
-  }));
+function extractScript(events: Item['events'], listen: string): string | undefined {
+  if (!events) return undefined;
+
+  let script: string | undefined;
+  events.each((event) => {
+    if (event.listen === listen && event.script) {
+      const exec = event.script.exec;
+      if (Array.isArray(exec)) {
+        script = exec.join('\n');
+      } else if (typeof exec === 'string') {
+        script = exec;
+      }
+    }
+  });
+
+  return script;
 }
 
-function convertPostmanParams(url: unknown): KeyValue[] {
-  if (!url || typeof url !== 'object' || !('query' in url) || !Array.isArray(url.query)) return [];
+function convertPostmanSDKHeaders(headers: Request['headers']): KeyValue[] {
+  if (!headers) return [];
 
-  return url.query.map((param: { key: string; value: string; disabled?: boolean; description?: string }) => ({
-    id: uuidv4(),
-    key: param.key,
-    value: param.value,
-    enabled: !param.disabled,
-    description: param.description,
-  }));
+  const result: KeyValue[] = [];
+  headers.each((header: Header) => {
+    result.push({
+      id: uuidv4(),
+      key: header.key || '',
+      value: header.value || '',
+      enabled: !header.disabled,
+      description: getDescriptionContent(header.description),
+    });
+  });
+
+  return result;
 }
 
-function convertPostmanBody(body: { mode?: string; raw?: string; urlencoded?: Array<{ key: string; value: string }> } | undefined): HttpRequest['body'] {
+function convertPostmanSDKParams(queryParams: Request['url']['query'] | undefined): KeyValue[] {
+  if (!queryParams) return [];
+
+  const result: KeyValue[] = [];
+  queryParams.each((param: QueryParam) => {
+    result.push({
+      id: uuidv4(),
+      key: param.key || '',
+      value: param.value || '',
+      enabled: !param.disabled,
+      description: getDescriptionContent(param.description),
+    });
+  });
+
+  return result;
+}
+
+function convertPostmanSDKBody(body: RequestBody | undefined): HttpRequest['body'] {
   if (!body) return { type: 'none' };
 
-  const modeMap: Record<string, HttpRequest['body']['type']> = {
-    'raw': 'json',
-    'formdata': 'form-data',
-    'urlencoded': 'x-www-form-urlencoded',
-    'file': 'binary',
-  };
+  const mode = body.mode;
 
-  return {
-    type: (body.mode && modeMap[body.mode]) || 'none',
-    raw: body.raw || body.urlencoded?.map((item) => `${item.key}=${item.value}`).join('&'),
-  };
+  // Cast to any to access all Postman body properties
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bodyAny = body as any;
+
+  switch (mode) {
+    case 'raw': {
+      const raw = body.raw || '';
+      // Detect content type from options
+      const language = bodyAny.options?.raw?.language;
+      let type: HttpRequest['body']['type'] = 'text';
+
+      if (language === 'json') type = 'json';
+      else if (language === 'xml') type = 'xml';
+      else if (language === 'javascript') type = 'text';
+      else if (language === 'html') type = 'text';
+
+      return { type, raw };
+    }
+
+    case 'formdata': {
+      const formData: FormDataItem[] = [];
+      body.formdata?.each((param: FormParam) => {
+        formData.push({
+          id: uuidv4(),
+          key: param.key || '',
+          value: param.value || '',
+          enabled: !param.disabled,
+          description: getDescriptionContent(param.description),
+          type: 'text',
+        });
+      });
+      return { type: 'form-data', formData };
+    }
+
+    case 'urlencoded': {
+      const formData: FormDataItem[] = [];
+      body.urlencoded?.each((param: QueryParam) => {
+        formData.push({
+          id: uuidv4(),
+          key: param.key || '',
+          value: param.value || '',
+          enabled: !param.disabled,
+          description: getDescriptionContent(param.description),
+          type: 'text',
+        });
+      });
+      return { type: 'x-www-form-urlencoded', formData };
+    }
+
+    case 'graphql': {
+      const graphql = bodyAny.graphql;
+      const query = graphql?.query || '';
+      const variables = graphql?.variables;
+
+      let raw = query;
+      if (variables) {
+        try {
+          const parsed = typeof variables === 'string' ? JSON.parse(variables) : variables;
+          raw = JSON.stringify({ query, variables: parsed }, null, 2);
+        } catch {
+          raw = JSON.stringify({ query, variables: {} }, null, 2);
+        }
+      }
+
+      return { type: 'graphql', raw };
+    }
+
+    case 'file':
+      return { type: 'binary' };
+
+    default:
+      return { type: 'none' };
+  }
 }
 
-function convertPostmanAuth(auth: PostmanAuth): AuthConfig {
+function convertPostmanSDKAuth(auth: RequestAuth): AuthConfig {
   const type = auth.type;
 
-  type AuthItem = { key: string; value: string; type?: string };
-
-  const getAuthValue = (items: unknown, key: string): string => {
-    if (!Array.isArray(items)) return '';
-    const item = items.find((i: AuthItem) => i.key === key);
-    return item?.value || '';
+  const getParam = (key: string): string => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params = (auth as any).parameters?.() || [];
+    const param = params.find((p: Variable) => p.key === key);
+    return param?.value?.toString() || '';
   };
 
   switch (type) {
@@ -105,43 +231,59 @@ function convertPostmanAuth(auth: PostmanAuth): AuthConfig {
       return {
         type: 'basic',
         basic: {
-          username: getAuthValue(auth.basic, 'username'),
-          password: getAuthValue(auth.basic, 'password'),
+          username: getParam('username'),
+          password: getParam('password'),
         },
       };
+
     case 'bearer':
       return {
         type: 'bearer',
         bearer: {
-          token: getAuthValue(auth.bearer, 'token'),
+          token: getParam('token'),
         },
       };
+
     case 'apikey':
       return {
         type: 'api-key',
         apiKey: {
-          key: getAuthValue(auth.apikey, 'key'),
-          value: getAuthValue(auth.apikey, 'value'),
-          in: getAuthValue(auth.apikey, 'in') === 'query' ? 'query' : 'header',
+          key: getParam('key'),
+          value: getParam('value'),
+          in: getParam('in') === 'query' ? 'query' : 'header',
         },
       };
+
     case 'oauth2':
       return {
         type: 'oauth2',
         oauth2: {
-          accessToken: getAuthValue(auth.oauth2, 'accessToken'),
+          accessToken: getParam('accessToken'),
+          tokenType: getParam('tokenType'),
         },
       };
+
+    case 'digest':
+      return {
+        type: 'digest',
+        digest: {
+          username: getParam('username'),
+          password: getParam('password'),
+        },
+      };
+
     case 'awsv4':
       return {
         type: 'aws-signature',
         awsSignature: {
-          accessKey: getAuthValue(auth.awsv4, 'accessKey'),
-          secretKey: getAuthValue(auth.awsv4, 'secretKey'),
-          region: getAuthValue(auth.awsv4, 'region'),
-          service: getAuthValue(auth.awsv4, 'service'),
+          accessKey: getParam('accessKey'),
+          secretKey: getParam('secretKey'),
+          region: getParam('region'),
+          service: getParam('service'),
         },
       };
+
+    case 'noauth':
     default:
       return { type: 'none' };
   }
@@ -161,7 +303,7 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Coll
     items: [],
   };
 
-  // Build folder structure
+  // Build folder structure with proper nesting support
   const folderMap = new Map<string, CollectionItem>();
 
   folders.forEach((folder) => {
@@ -174,7 +316,7 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Coll
     folderMap.set(folder._id, item);
   });
 
-  // Add requests to folders or root
+  // Add requests to their parent folders
   requests.forEach((req) => {
     const request: HttpRequest = {
       id: uuidv4(),
@@ -195,20 +337,27 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Coll
       request,
     };
 
+    // Add to parent folder if it exists
     if (req.parentId && folderMap.has(req.parentId)) {
       folderMap.get(req.parentId)!.items!.push(item);
-    } else {
+    } else if (!req.parentId || (workspace && req.parentId === workspace._id)) {
+      // Add to root if no parent or parent is workspace
       collection.items.push(item);
     }
   });
 
-  // Add folders to collection
+  // Build nested folder hierarchy
   folders.forEach((folder) => {
-    if (!folder.parentId || (workspace && folder.parentId === workspace._id)) {
-      const item = folderMap.get(folder._id);
-      if (item) {
-        collection.items.push(item);
-      }
+    const item = folderMap.get(folder._id);
+    if (!item) return;
+
+    // Check if this folder's parent is another folder
+    if (folder.parentId && folderMap.has(folder.parentId)) {
+      // Add to parent folder
+      folderMap.get(folder.parentId)!.items!.push(item);
+    } else if (!folder.parentId || (workspace && folder.parentId === workspace._id)) {
+      // Add to root if no parent or parent is workspace
+      collection.items.push(item);
     }
   });
 
@@ -235,25 +384,41 @@ function convertInsomniaParams(params: Array<{ name: string; value: string; disa
   }));
 }
 
-function convertInsomniaBody(body: { mimeType?: string; text?: string } | undefined): HttpRequest['body'] {
+function convertInsomniaBody(body: { mimeType?: string; text?: string; params?: Array<{ name: string; value: string; disabled?: boolean }> } | undefined): HttpRequest['body'] {
   if (!body) return { type: 'none' };
 
   const mimeTypeMap: Record<string, HttpRequest['body']['type']> = {
     'application/json': 'json',
     'application/xml': 'xml',
+    'text/xml': 'xml',
     'text/plain': 'text',
     'application/x-www-form-urlencoded': 'x-www-form-urlencoded',
     'multipart/form-data': 'form-data',
+    'application/graphql': 'graphql',
   };
 
+  const bodyType = (body.mimeType && mimeTypeMap[body.mimeType]) || 'text';
+
+  // Handle form data with params
+  if ((bodyType === 'form-data' || bodyType === 'x-www-form-urlencoded') && body.params) {
+    const formData: FormDataItem[] = body.params.map((param) => ({
+      id: uuidv4(),
+      key: param.name,
+      value: param.value,
+      enabled: !param.disabled,
+      type: 'text' as const,
+    }));
+    return { type: bodyType, formData };
+  }
+
   return {
-    type: (body.mimeType && mimeTypeMap[body.mimeType]) || 'text',
+    type: bodyType,
     raw: body.text,
   };
 }
 
-function convertInsomniaAuth(auth: { type?: string; username?: string; password?: string; token?: string; key?: string; value?: string; addTo?: string; accessToken?: string } | undefined): AuthConfig {
-  if (!auth) return { type: 'none' };
+function convertInsomniaAuth(auth: { type?: string; username?: string; password?: string; token?: string; key?: string; value?: string; addTo?: string; accessToken?: string; grantType?: string; authorizationUrl?: string; accessTokenUrl?: string; clientId?: string; clientSecret?: string; scope?: string } | undefined): AuthConfig {
+  if (!auth || !auth.type) return { type: 'none' };
 
   switch (auth.type) {
     case 'basic':
@@ -285,6 +450,15 @@ function convertInsomniaAuth(auth: { type?: string; username?: string; password?
         type: 'oauth2',
         oauth2: {
           accessToken: auth.accessToken || '',
+          tokenType: auth.grantType,
+        },
+      };
+    case 'digest':
+      return {
+        type: 'digest',
+        digest: {
+          username: auth.username || '',
+          password: auth.password || '',
         },
       };
     default:
@@ -327,10 +501,22 @@ export async function importOpenAPICollection(openApiData: unknown): Promise<Col
 
   const isSwagger2 = 'swagger' in api && api.swagger;
 
-  // Determine base URL
-  const baseUrl = isSwagger2
-    ? `${api.schemes?.[0] || 'https'}://${api.host || 'localhost'}${api.basePath || ''}`
-    : api.servers?.[0]?.url || '';
+  // Determine base URL with server variable interpolation
+  let baseUrl = '';
+  if (isSwagger2) {
+    baseUrl = `${api.schemes?.[0] || 'https'}://${api.host || 'localhost'}${api.basePath || ''}`;
+  } else if (api.servers?.[0]) {
+    const server = api.servers[0];
+    baseUrl = server.url;
+
+    // Interpolate server variables
+    if (server.variables) {
+      for (const [varName, varDef] of Object.entries(server.variables)) {
+        const value = varDef.default || varDef.enum?.[0] || '';
+        baseUrl = baseUrl.replace(`{${varName}}`, value);
+      }
+    }
+  }
 
   // Get security schemes
   const securitySchemes = isSwagger2
@@ -358,6 +544,7 @@ export async function importOpenAPICollection(openApiData: unknown): Promise<Col
       ['PATCH', pathItem.patch],
       ['OPTIONS', pathItem.options],
       ['HEAD', pathItem.head],
+      ['TRACE', pathItem.trace],
     ];
 
     for (const [method, operation] of methods) {
@@ -429,6 +616,24 @@ function convertOpenAPIOperation(
   const queryParams = parameters.filter(p => p.in === 'query');
   const headerParams = parameters.filter(p => p.in === 'header');
   const pathParams = parameters.filter(p => p.in === 'path');
+  const cookieParams = parameters.filter(p => p.in === 'cookie');
+
+  // Convert headers including cookie params
+  const headers = convertOpenAPIHeaders(headerParams);
+
+  // Add Cookie header if there are cookie parameters
+  if (cookieParams.length > 0) {
+    const cookieValue = cookieParams
+      .map(p => `${p.name}=${p.schema?.example || p.schema?.default || p.example || p.default || ''}`)
+      .join('; ');
+    headers.push({
+      id: uuidv4(),
+      key: 'Cookie',
+      value: cookieValue,
+      enabled: true,
+      description: 'Cookie parameters',
+    });
+  }
 
   return {
     id: uuidv4(),
@@ -436,7 +641,7 @@ function convertOpenAPIOperation(
     type: 'http',
     method,
     url,
-    headers: convertOpenAPIHeaders(headerParams),
+    headers,
     params: convertOpenAPIParams([...queryParams, ...pathParams]),
     body: convertOpenAPIBody(operation, parameters, schemas),
     auth: convertOpenAPISecurity(operation.security, securitySchemes),
@@ -447,7 +652,7 @@ function convertOpenAPIParams(params: OpenAPIParameter[]): KeyValue[] {
   return params.map(param => ({
     id: uuidv4(),
     key: param.name,
-    value: param.schema?.default?.toString() || param.default?.toString() || '',
+    value: param.schema?.example?.toString() || param.example?.toString() || param.schema?.default?.toString() || param.default?.toString() || '',
     enabled: true,
     description: param.description,
   }));
@@ -457,7 +662,7 @@ function convertOpenAPIHeaders(params: OpenAPIParameter[]): KeyValue[] {
   return params.map(param => ({
     id: uuidv4(),
     key: param.name,
-    value: param.schema?.default?.toString() || param.default?.toString() || '',
+    value: param.schema?.example?.toString() || param.example?.toString() || param.schema?.default?.toString() || param.default?.toString() || '',
     enabled: true,
     description: param.description,
   }));
@@ -494,14 +699,18 @@ function convertOpenAPIBody(
       };
     }
 
-    // Check for form data
+    // Check for form data with field generation
     if (content['multipart/form-data']) {
-      return { type: 'form-data' };
+      const mediaType = content['multipart/form-data'];
+      const formData = generateFormDataFromSchema(mediaType.schema);
+      return { type: 'form-data', formData };
     }
 
-    // Check for URL encoded
+    // Check for URL encoded with field generation
     if (content['application/x-www-form-urlencoded']) {
-      return { type: 'x-www-form-urlencoded' };
+      const mediaType = content['application/x-www-form-urlencoded'];
+      const formData = generateFormDataFromSchema(mediaType.schema);
+      return { type: 'x-www-form-urlencoded', formData };
     }
 
     // Check for text
@@ -510,6 +719,11 @@ function convertOpenAPIBody(
         type: 'text',
         raw: content['text/plain'].example?.toString() || '',
       };
+    }
+
+    // Check for binary/octet-stream
+    if (content['application/octet-stream']) {
+      return { type: 'binary' };
     }
   }
 
@@ -526,10 +740,57 @@ function convertOpenAPIBody(
   // Swagger 2.0 formData parameters
   const formDataParams = parameters.filter(p => p.in === 'formData');
   if (formDataParams.length > 0) {
-    return { type: 'form-data' };
+    const formData: FormDataItem[] = formDataParams.map(param => ({
+      id: uuidv4(),
+      key: param.name,
+      value: param.default?.toString() || param.example?.toString() || '',
+      enabled: true,
+      description: param.description,
+      type: 'text' as const,
+    }));
+    return { type: 'form-data', formData };
   }
 
   return { type: 'none' };
+}
+
+function generateFormDataFromSchema(
+  schema: OpenAPISchema | undefined
+): FormDataItem[] {
+  if (!schema?.properties) return [];
+
+  return Object.entries(schema.properties).map(([key, prop]) => {
+    const value = prop.example?.toString() ||
+      prop.default?.toString() ||
+      generateSimpleValue(prop);
+
+    return {
+      id: uuidv4(),
+      key,
+      value,
+      enabled: true,
+      description: prop.description,
+      type: 'text' as const,
+    };
+  });
+}
+
+function generateSimpleValue(schema: OpenAPISchema): string {
+  switch (schema.type) {
+    case 'string':
+      if (schema.enum) return String(schema.enum[0]);
+      if (schema.format === 'date') return '2024-01-01';
+      if (schema.format === 'date-time') return '2024-01-01T00:00:00Z';
+      if (schema.format === 'email') return 'user@example.com';
+      return '';
+    case 'integer':
+    case 'number':
+      return '0';
+    case 'boolean':
+      return 'false';
+    default:
+      return '';
+  }
 }
 
 function generateExampleFromSchema(
@@ -581,10 +842,15 @@ function generateExampleFromSchema(
       if (schema.format === 'date-time') return '2024-01-01T00:00:00Z';
       if (schema.format === 'email') return 'user@example.com';
       if (schema.format === 'uuid') return '00000000-0000-0000-0000-000000000000';
+      if (schema.format === 'uri') return 'https://example.com';
+      if (schema.format === 'hostname') return 'example.com';
+      if (schema.format === 'ipv4') return '192.168.1.1';
+      if (schema.format === 'ipv6') return '::1';
       return 'string';
     case 'integer':
     case 'number':
       if (schema.enum) return schema.enum[0];
+      if (schema.minimum !== undefined) return schema.minimum;
       return 0;
     case 'boolean':
       return false;
@@ -624,6 +890,12 @@ function convertOpenAPISecurity(
         return {
           type: 'bearer',
           bearer: { token: '' },
+        };
+      }
+      if (scheme.scheme === 'digest') {
+        return {
+          type: 'digest',
+          digest: { username: '', password: '' },
         };
       }
       break;
