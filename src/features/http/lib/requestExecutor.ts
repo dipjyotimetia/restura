@@ -46,6 +46,7 @@ export interface RequestExecutionResult {
     test?: ScriptResult;
   };
   envVars?: Record<string, string>;
+  sentHeaders: Record<string, string>;
 }
 
 export interface RequestExecutorOptions {
@@ -349,5 +350,6 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
       test: testResult,
     },
     envVars,
+    sentHeaders: headers,
   };
 }

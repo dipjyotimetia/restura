@@ -24,18 +24,9 @@ import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, P
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';
+import { METHOD_COLORS, SIDEBAR_WIDTH } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
-
-// Method color mapping for badges - more refined colors
-const methodColors: Record<string, string> = {
-  GET: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20',
-  POST: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20',
-  PUT: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20',
-  DELETE: 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20',
-  PATCH: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20',
-  OPTIONS: 'bg-muted text-muted-foreground border border-border',
-  HEAD: 'bg-muted text-muted-foreground border border-border',
-};
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 interface SidebarProps {
   onClose: () => void;
@@ -45,7 +36,7 @@ interface SidebarProps {
 
 const HISTORY_PAGE_SIZE = 20;
 
-export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProps) {
+function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProps) {
   const { collections, createNewCollection, addCollection, deleteCollection } = useCollectionStore();
 
   // Use granular selectors for history to minimize re-renders
@@ -162,7 +153,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
       <aside
         className={cn(
           "border-r border-border bg-background flex flex-col relative z-40 transition-all duration-300 ease-out shadow-md",
-          isCollapsed ? "w-16" : "w-72"
+          isCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded
         )}
       >
         {/* Header */}
@@ -421,7 +412,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                         size="sm"
                         className={cn(
                           'h-6 text-[10px] font-mono px-2',
-                          methodFilter === method && methodColors[method]
+                          methodFilter === method && METHOD_COLORS[method]
                         )}
                         onClick={() => setMethodFilter(methodFilter === method ? null : method)}
                       >
@@ -477,7 +468,7 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
                             className={cn(
                               'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded',
                               item.request.type === 'http'
-                                ? methodColors[item.request.method] || 'bg-muted text-muted-foreground border border-border'
+                                ? METHOD_COLORS[item.request.method] || 'bg-muted text-muted-foreground border border-border'
                                 : 'bg-muted text-muted-foreground border border-border'
                             )}
                           >
@@ -527,3 +518,5 @@ export default function Sidebar({ onClose, isCollapsed = false, onToggleCollapse
     </TooltipProvider>
   );
 }
+
+export default withErrorBoundary(Sidebar);

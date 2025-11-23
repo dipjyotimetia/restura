@@ -148,7 +148,11 @@ export default function GraphQLRequestBuilder() {
             placeholder="Enter GraphQL endpoint URL"
             className="flex-1 bg-background border-border rounded-l-none"
           />
-          <Button onClick={handleSendRequest} disabled={isLoading || !httpRequest.url}>
+          <Button
+            onClick={handleSendRequest}
+            disabled={isLoading || !httpRequest.url}
+            aria-label={isLoading ? 'Sending GraphQL query' : 'Send GraphQL query'}
+          >
             <Send className="mr-2 h-4 w-4" />
             {isLoading ? 'Sending...' : 'Send'}
           </Button>

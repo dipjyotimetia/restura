@@ -4,9 +4,10 @@ import { useState, useMemo, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Copy, Check, Clock, Database, Zap, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Copy, Check, Clock, Database, Zap, CheckCircle2, XCircle, AlertCircle, Rows, Columns } from 'lucide-react';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { Badge } from '@/components/ui/badge';
@@ -101,9 +102,16 @@ function ResponseViewer() {
   // Use selectors to only subscribe to needed state, reducing re-renders
   const currentResponse = useRequestStore((state) => state.currentResponse);
   const isLoading = useRequestStore((state) => state.isLoading);
+  const { settings, updateSettings } = useSettingsStore();
   const [activeTab, setActiveTab] = useState('body');
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [showAnimation, setShowAnimation] = useState(false);
+
+  const toggleLayout = () => {
+    updateSettings({
+      layoutOrientation: settings.layoutOrientation === 'vertical' ? 'horizontal' : 'vertical'
+    });
+  };
 
   // useMemo hooks MUST be before any early returns to follow Rules of Hooks
   const language = useMemo(
@@ -179,9 +187,9 @@ function ResponseViewer() {
         )}
       >
         {/* Response Info Bar */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-transparent">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Status</span>
+        <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-2 lg:py-2.5 border-b border-border bg-transparent">
+          <div className="flex items-center gap-1.5 lg:gap-2">
+            <span className="text-[10px] lg:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide hidden lg:inline">Status</span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Badge
@@ -206,28 +214,48 @@ function ResponseViewer() {
               </TooltipContent>
             </Tooltip>
           </div>
-          <Separator orientation="vertical" className="h-5 bg-slate-200 dark:bg-slate-700" />
+          <Separator orientation="vertical" className="h-4 lg:h-5 bg-slate-200 dark:bg-slate-700" />
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5 cursor-help">
-                <Clock className="h-3.5 w-3.5 text-slate-blue-600 dark:text-slate-blue-400" />
-                <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatTime(currentResponse.time)}</span>
+              <div className="flex items-center gap-1 lg:gap-1.5 cursor-help">
+                <Clock className="h-3 w-3 lg:h-3.5 lg:w-3.5 text-slate-blue-600 dark:text-slate-blue-400" />
+                <span className="text-[10px] lg:text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatTime(currentResponse.time)}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
               <p>Response time: {currentResponse.time}ms</p>
             </TooltipContent>
           </Tooltip>
-          <Separator orientation="vertical" className="h-5 bg-slate-200 dark:bg-slate-700" />
+          <Separator orientation="vertical" className="h-4 lg:h-5 bg-slate-200 dark:bg-slate-700" />
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5 cursor-help">
-                <Database className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatBytes(currentResponse.size)}</span>
+              <div className="flex items-center gap-1 lg:gap-1.5 cursor-help">
+                <Database className="h-3 w-3 lg:h-3.5 lg:w-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span className="text-[10px] lg:text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatBytes(currentResponse.size)}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
               <p>Response size: {currentResponse.size} bytes</p>
+            </TooltipContent>
+          </Tooltip>
+          <div className="flex-1" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleLayout}
+                className="h-7 w-7"
+              >
+                {settings.layoutOrientation === 'vertical' ? (
+                  <Columns className="h-3.5 w-3.5" />
+                ) : (
+                  <Rows className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Switch to {settings.layoutOrientation === 'vertical' ? 'side-by-side' : 'stacked'} layout</p>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -273,9 +301,9 @@ function ResponseViewer() {
               {Object.entries(currentResponse.headers).map(([key, value]) => (
                 <div
                   key={key}
-                  className="group flex gap-3 p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 text-xs transition-all"
+                  className="group flex gap-2 lg:gap-3 p-2 lg:p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 text-[10px] lg:text-xs transition-all"
                 >
-                  <span className="font-semibold min-w-[180px] text-slate-blue-700 dark:text-slate-blue-300 truncate">{key}:</span>
+                  <span className="font-semibold min-w-[120px] lg:min-w-[180px] text-slate-blue-700 dark:text-slate-blue-300 truncate">{key}:</span>
                   <span className="text-slate-600 dark:text-slate-400 break-all flex-1">
                     {Array.isArray(value) ? value.join(', ') : value}
                   </span>
