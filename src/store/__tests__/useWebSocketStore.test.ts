@@ -24,21 +24,21 @@ describe('useWebSocketStore', () => {
       const id = useWebSocketStore.getState().createConnection();
       const connection = useWebSocketStore.getState().connections[id];
 
-      expect(connection.url).toBe('');
-      expect(connection.status).toBe('disconnected');
-      expect(connection.messages).toEqual([]);
-      expect(connection.headers).toEqual([]);
-      expect(connection.protocols).toEqual([]);
-      expect(connection.autoReconnect).toBe(true);
-      expect(connection.reconnectAttempts).toBe(0);
-      expect(connection.maxReconnectAttempts).toBe(5);
+      expect(connection!.url).toBe('');
+      expect(connection!.status).toBe('disconnected');
+      expect(connection!.messages).toEqual([]);
+      expect(connection!.headers).toEqual([]);
+      expect(connection!.protocols).toEqual([]);
+      expect(connection!.autoReconnect).toBe(true);
+      expect(connection!.reconnectAttempts).toBe(0);
+      expect(connection!.maxReconnectAttempts).toBe(5);
     });
 
     it('should create connection with custom URL', () => {
       const id = useWebSocketStore.getState().createConnection('ws://localhost:8080');
       const connection = useWebSocketStore.getState().connections[id];
 
-      expect(connection.url).toBe('ws://localhost:8080');
+      expect(connection!.url).toBe('ws://localhost:8080');
     });
 
     it('should delete connection', () => {
@@ -47,7 +47,7 @@ describe('useWebSocketStore', () => {
 
       store.deleteConnection(id);
 
-      expect(store.connections[id]).toBeUndefined();
+      expect(useWebSocketStore.getState().connections[id]).toBeUndefined();
     });
 
     it('should clear activeConnectionId when deleting active connection', () => {
@@ -63,7 +63,7 @@ describe('useWebSocketStore', () => {
     it('should set active connection', () => {
       const store = useWebSocketStore.getState();
       const id1 = store.createConnection();
-      const id2 = store.createConnection();
+      store.createConnection(); // Create second connection
 
       store.setActiveConnection(id1);
       expect(useWebSocketStore.getState().activeConnectionId).toBe(id1);
@@ -79,31 +79,31 @@ describe('useWebSocketStore', () => {
 
     it('should update connection status', () => {
       useWebSocketStore.getState().updateConnectionStatus(connectionId, 'connecting');
-      expect(useWebSocketStore.getState().connections[connectionId].status).toBe('connecting');
+      expect(useWebSocketStore.getState().connections[connectionId]?.status).toBe('connecting');
 
       useWebSocketStore.getState().updateConnectionStatus(connectionId, 'connected');
-      expect(useWebSocketStore.getState().connections[connectionId].status).toBe('connected');
+      expect(useWebSocketStore.getState().connections[connectionId]?.status).toBe('connected');
     });
 
     it('should update connection URL', () => {
       const store = useWebSocketStore.getState();
 
       store.updateConnectionUrl(connectionId, 'wss://example.com');
-      expect(useWebSocketStore.getState().connections[connectionId].url).toBe('wss://example.com');
+      expect(useWebSocketStore.getState().connections[connectionId]?.url).toBe('wss://example.com');
     });
 
     it('should set reconnect attempts', () => {
       const store = useWebSocketStore.getState();
 
       store.setReconnectAttempts(connectionId, 3);
-      expect(useWebSocketStore.getState().connections[connectionId].reconnectAttempts).toBe(3);
+      expect(useWebSocketStore.getState().connections[connectionId]?.reconnectAttempts).toBe(3);
     });
 
     it('should set auto reconnect', () => {
       const store = useWebSocketStore.getState();
 
       store.setAutoReconnect(connectionId, false);
-      expect(useWebSocketStore.getState().connections[connectionId].autoReconnect).toBe(false);
+      expect(useWebSocketStore.getState().connections[connectionId]?.autoReconnect).toBe(false);
     });
 
     it('should set last connected at', () => {
@@ -111,7 +111,7 @@ describe('useWebSocketStore', () => {
       const timestamp = Date.now();
 
       store.setLastConnectedAt(connectionId, timestamp);
-      expect(useWebSocketStore.getState().connections[connectionId].lastConnectedAt).toBe(timestamp);
+      expect(useWebSocketStore.getState().connections[connectionId]?.lastConnectedAt).toBe(timestamp);
     });
   });
 
@@ -128,10 +128,10 @@ describe('useWebSocketStore', () => {
       store.addMessage(connectionId, 'sent', 'Hello', 'text');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.messages).toHaveLength(1);
-      expect(connection.messages[0].type).toBe('sent');
-      expect(connection.messages[0].content).toBe('Hello');
-      expect(connection.messages[0].dataType).toBe('text');
+      expect(connection!.messages).toHaveLength(1);
+      expect(connection!.messages[0]?.type).toBe('sent');
+      expect(connection!.messages[0]?.content).toBe('Hello');
+      expect(connection!.messages[0]?.dataType).toBe('text');
     });
 
     it('should add binary message', () => {
@@ -141,9 +141,9 @@ describe('useWebSocketStore', () => {
       store.addMessage(connectionId, 'received', '01 02 03', 'binary', buffer);
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.messages).toHaveLength(1);
-      expect(connection.messages[0].dataType).toBe('binary');
-      expect(connection.messages[0].binaryData).toBe(buffer);
+      expect(connection!.messages).toHaveLength(1);
+      expect(connection!.messages[0]?.dataType).toBe('binary');
+      expect(connection!.messages[0]?.binaryData).toBe(buffer);
     });
 
     it('should add system message', () => {
@@ -152,7 +152,7 @@ describe('useWebSocketStore', () => {
       store.addMessage(connectionId, 'system', 'Connected');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.messages[0].type).toBe('system');
+      expect(connection!.messages[0]?.type).toBe('system');
     });
 
     it('should clear messages', () => {
@@ -164,7 +164,7 @@ describe('useWebSocketStore', () => {
       store.clearMessages(connectionId);
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.messages).toHaveLength(0);
+      expect(connection!.messages).toHaveLength(0);
     });
 
     it('should limit messages to MAX_MESSAGES_PER_CONNECTION', () => {
@@ -176,7 +176,7 @@ describe('useWebSocketStore', () => {
       }
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.messages.length).toBeLessThanOrEqual(1000);
+      expect(connection!.messages.length).toBeLessThanOrEqual(1000);
     });
   });
 
@@ -193,35 +193,35 @@ describe('useWebSocketStore', () => {
       store.addHeader(connectionId);
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.headers).toHaveLength(1);
-      expect(connection.headers[0].key).toBe('');
-      expect(connection.headers[0].value).toBe('');
-      expect(connection.headers[0].enabled).toBe(true);
+      expect(connection!.headers).toHaveLength(1);
+      expect(connection!.headers[0]?.key).toBe('');
+      expect(connection!.headers[0]?.value).toBe('');
+      expect(connection!.headers[0]?.enabled).toBe(true);
     });
 
     it('should update header', () => {
       const store = useWebSocketStore.getState();
 
       store.addHeader(connectionId);
-      const headerId = useWebSocketStore.getState().connections[connectionId].headers[0].id;
+      const headerId = useWebSocketStore.getState().connections[connectionId]!.headers[0]!.id;
 
       store.updateHeader(connectionId, headerId, { key: 'Authorization', value: 'Bearer token' });
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.headers[0].key).toBe('Authorization');
-      expect(connection.headers[0].value).toBe('Bearer token');
+      expect(connection!.headers[0]?.key).toBe('Authorization');
+      expect(connection!.headers[0]?.value).toBe('Bearer token');
     });
 
     it('should delete header', () => {
       const store = useWebSocketStore.getState();
 
       store.addHeader(connectionId);
-      const headerId = useWebSocketStore.getState().connections[connectionId].headers[0].id;
+      const headerId = useWebSocketStore.getState().connections[connectionId]!.headers[0]!.id;
 
       store.deleteHeader(connectionId, headerId);
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.headers).toHaveLength(0);
+      expect(connection!.headers).toHaveLength(0);
     });
   });
 
@@ -238,7 +238,7 @@ describe('useWebSocketStore', () => {
       store.setProtocols(connectionId, ['graphql-ws', 'chat']);
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.protocols).toEqual(['graphql-ws', 'chat']);
+      expect(connection!.protocols).toEqual(['graphql-ws', 'chat']);
     });
   });
 
@@ -265,7 +265,7 @@ describe('useWebSocketStore', () => {
       const filtered = store.getFilteredMessages(connectionId);
 
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].type).toBe('sent');
+      expect(filtered[0]?.type).toBe('sent');
     });
 
     it('should filter by search query', () => {
@@ -295,7 +295,7 @@ describe('useWebSocketStore', () => {
       const filtered = store.getFilteredMessages(connectionId);
 
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].content).toBe('Hello world');
+      expect(filtered[0]?.content).toBe('Hello world');
     });
 
     it('should be case insensitive for search', () => {

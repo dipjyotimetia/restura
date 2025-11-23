@@ -53,38 +53,38 @@ describe('WebSocketManager', () => {
       websocketManager.connect(connectionId, '');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.status).toBe('disconnected');
-      expect(connection.messages[0]?.content).toContain('URL is required');
+      expect(connection?.status).toBe('disconnected');
+      expect(connection?.messages[0]?.content).toContain('URL is required');
     });
 
     it('should reject non-websocket protocols', () => {
       websocketManager.connect(connectionId, 'http://example.com');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.status).toBe('disconnected');
-      expect(connection.messages[0]?.content).toContain('Invalid protocol');
+      expect(connection?.status).toBe('disconnected');
+      expect(connection?.messages[0]?.content).toContain('Invalid protocol');
     });
 
     it('should reject invalid URL format', () => {
       websocketManager.connect(connectionId, 'not-a-valid-url');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.status).toBe('disconnected');
-      expect(connection.messages[0]?.content).toContain('Invalid URL format');
+      expect(connection?.status).toBe('disconnected');
+      expect(connection?.messages[0]?.content).toContain('Invalid URL format');
     });
 
     it('should accept ws:// URLs', () => {
       websocketManager.connect(connectionId, 'ws://localhost:8080');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.status).toBe('connecting');
+      expect(connection?.status).toBe('connecting');
     });
 
     it('should accept wss:// URLs', () => {
       websocketManager.connect(connectionId, 'wss://example.com/socket');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.status).toBe('connecting');
+      expect(connection?.status).toBe('connecting');
     });
   });
 
@@ -138,7 +138,7 @@ describe('WebSocketManager', () => {
       websocketManager.connect(connectionId, 'ws://localhost:8080');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.status).toBe('connecting');
+      expect(connection?.status).toBe('connecting');
     });
 
     it('should pass protocols to WebSocket constructor', () => {
@@ -147,7 +147,7 @@ describe('WebSocketManager', () => {
       // The MockWebSocket should have been created with protocols
       const ws = websocketManager.getConnection(connectionId);
       expect(ws).toBeDefined();
-      expect((ws as MockWebSocket).protocols).toEqual(['graphql-ws']);
+      expect((ws as unknown as MockWebSocket).protocols).toEqual(['graphql-ws']);
     });
 
     it('should set binaryType to arraybuffer', () => {
@@ -165,7 +165,7 @@ describe('WebSocketManager', () => {
       expect(ws).toBeUndefined();
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection.status).toBe('disconnected');
+      expect(connection?.status).toBe('disconnected');
     });
 
     it('should report connection status correctly', () => {
@@ -177,7 +177,7 @@ describe('WebSocketManager', () => {
       expect(websocketManager.isConnected(connectionId)).toBe(false);
 
       // Simulate connection open
-      const ws = websocketManager.getConnection(connectionId) as MockWebSocket;
+      const ws = websocketManager.getConnection(connectionId) as unknown as MockWebSocket;
       ws.readyState = MockWebSocket.OPEN;
 
       expect(websocketManager.isConnected(connectionId)).toBe(true);
@@ -203,7 +203,7 @@ describe('WebSocketManager', () => {
     });
 
     it('should send text message when connected', () => {
-      const ws = websocketManager.getConnection(connectionId) as MockWebSocket;
+      const ws = websocketManager.getConnection(connectionId) as unknown as MockWebSocket;
       ws.readyState = MockWebSocket.OPEN;
 
       const result = websocketManager.send(connectionId, 'hello');
@@ -211,14 +211,14 @@ describe('WebSocketManager', () => {
       expect(ws.send).toHaveBeenCalledWith('hello');
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      const lastMessage = connection.messages[connection.messages.length - 1];
-      expect(lastMessage.type).toBe('sent');
-      expect(lastMessage.content).toBe('hello');
-      expect(lastMessage.dataType).toBe('text');
+      const lastMessage = connection!.messages[connection!.messages.length - 1];
+      expect(lastMessage?.type).toBe('sent');
+      expect(lastMessage?.content).toBe('hello');
+      expect(lastMessage?.dataType).toBe('text');
     });
 
     it('should send binary message when connected', () => {
-      const ws = websocketManager.getConnection(connectionId) as MockWebSocket;
+      const ws = websocketManager.getConnection(connectionId) as unknown as MockWebSocket;
       ws.readyState = MockWebSocket.OPEN;
 
       const buffer = new Uint8Array([1, 2, 3]).buffer;
@@ -227,9 +227,9 @@ describe('WebSocketManager', () => {
       expect(ws.send).toHaveBeenCalledWith(buffer);
 
       const connection = useWebSocketStore.getState().connections[connectionId];
-      const lastMessage = connection.messages[connection.messages.length - 1];
-      expect(lastMessage.type).toBe('sent');
-      expect(lastMessage.dataType).toBe('binary');
+      const lastMessage = connection!.messages[connection!.messages.length - 1];
+      expect(lastMessage?.type).toBe('sent');
+      expect(lastMessage?.dataType).toBe('binary');
     });
   });
 });

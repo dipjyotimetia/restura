@@ -32,6 +32,7 @@ import {
   Download,
 } from 'lucide-react';
 import { KeyValue } from '@/types';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 // Helper to format duration
 const formatDuration = (ms: number): string => {
@@ -47,7 +48,7 @@ const formatDuration = (ms: number): string => {
   return `${seconds}s`;
 };
 
-export default function WebSocketClient() {
+function WebSocketClient() {
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState('messages');
   const [sendAsBinary, setSendAsBinary] = useState(false);
@@ -523,3 +524,5 @@ export default function WebSocketClient() {
     </div>
   );
 }
+
+export default withErrorBoundary(WebSocketClient);

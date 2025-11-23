@@ -49,6 +49,9 @@ export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
 // Request Types
 export type RequestType = 'http' | 'grpc';
 
+// Request Mode (used for UI mode switching)
+export type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
+
 // Body Types
 export type BodyType = 'none' | 'json' | 'xml' | 'form-data' | 'x-www-form-urlencoded' | 'binary' | 'protobuf' | 'graphql' | 'text' | 'multipart-mixed';
 
@@ -370,6 +373,8 @@ export interface AppSettings {
   autoSaveHistory: boolean;
   maxHistoryItems: number;
   theme: 'light' | 'dark' | 'system';
+  // Layout settings
+  layoutOrientation: 'vertical' | 'horizontal';
   // Security settings
   allowLocalhost?: boolean;
   allowPrivateIPs?: boolean;
