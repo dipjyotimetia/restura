@@ -20,7 +20,7 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
-import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, PanelLeftClose, PanelLeftOpen, GitBranch } from 'lucide-react';
+import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, PanelLeftClose, PanelLeftOpen, GitBranch, FolderOpen, HardDrive } from 'lucide-react';
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';
@@ -31,6 +31,15 @@ import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecut
 import { METHOD_COLORS, SIDEBAR_WIDTH } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { FileStatusBadge } from './FileStatusBadge';
+import { ConflictDialog } from './ConflictDialog';
+import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
+import {
+  useFileCollectionStore,
+  isElectronEnvironment,
+  openCollectionInExplorer,
+  syncFileCollection,
+} from '@/store/useFileCollectionStore';
 
 interface SidebarProps {
   onClose: () => void;
@@ -58,6 +67,15 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(HISTORY_PAGE_SIZE);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
   const [runningWorkflow, setRunningWorkflow] = useState<Workflow | null>(null);
+  const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
+  const [directoryPickerMode, setDirectoryPickerMode] = useState<'open' | 'save'>('open');
+  const [saveCollectionId, setSaveCollectionId] = useState<string | undefined>();
+
+  // File collection state
+  const conflicts = useFileCollectionStore((state) => state.conflicts);
+  const isFileCollection = useFileCollectionStore((state) => state.isFileCollection);
+  const unregisterFileCollection = useFileCollectionStore((state) => state.unregisterFileCollection);
+  const activeConflict = conflicts.length > 0 ? conflicts[0] : null;
 
   // Get visible history items using selector
   const visibleHistory = useHistoryStore(
@@ -111,9 +129,17 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
   }, []);
 
   const handleNewCollection = useCallback(() => {
-    const newCollection = createNewCollection('New Collection');
+    // Generate unique name with auto-increment
+    const existingNames = collections.map((c) => c.name);
+    let name = 'New Collection';
+    let counter = 1;
+    while (existingNames.includes(name)) {
+      counter++;
+      name = `New Collection ${counter}`;
+    }
+    const newCollection = createNewCollection(name);
     addCollection(newCollection);
-  }, [createNewCollection, addCollection]);
+  }, [collections, createNewCollection, addCollection]);
 
   const handleExportCollection = useCallback(
     (collectionId: string, format: 'postman' | 'insomnia') => {
@@ -138,11 +164,35 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
 
   const handleConfirmDelete = useCallback(() => {
     if (collectionToDelete) {
+      // Unregister from file collection store if needed
+      if (isFileCollection(collectionToDelete)) {
+        unregisterFileCollection(collectionToDelete);
+      }
       deleteCollection(collectionToDelete);
       setCollectionToDelete(null);
     }
     setDeleteDialogOpen(false);
-  }, [collectionToDelete, deleteCollection]);
+  }, [collectionToDelete, deleteCollection, isFileCollection, unregisterFileCollection]);
+
+  const handleOpenFromFolder = useCallback(() => {
+    setDirectoryPickerMode('open');
+    setSaveCollectionId(undefined);
+    setDirectoryPickerOpen(true);
+  }, []);
+
+  const handleSaveToFiles = useCallback((collectionId: string) => {
+    setDirectoryPickerMode('save');
+    setSaveCollectionId(collectionId);
+    setDirectoryPickerOpen(true);
+  }, []);
+
+  const handleOpenInExplorer = useCallback((collectionId: string) => {
+    openCollectionInExplorer(collectionId);
+  }, []);
+
+  const handleSyncCollection = useCallback(async (collectionId: string) => {
+    await syncFileCollection(collectionId);
+  }, []);
 
   const handleLoadHistoryItem = useCallback(
     (itemId: string) => {
@@ -320,15 +370,34 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
 
               <TabsContent value="collections" className="flex-1 overflow-auto p-3 mt-0 min-h-0">
                 <div className="flex flex-col gap-2">
-                  <Button
-                    onClick={handleNewCollection}
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start h-8 text-xs border-border hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all duration-200 shadow-sm hover:shadow"
-                  >
-                    <FolderPlus className="mr-2 h-3.5 w-3.5 text-primary" />
-                    New Collection
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleNewCollection}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 justify-start h-8 text-xs border-border hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all duration-200 shadow-sm hover:shadow"
+                    >
+                      <FolderPlus className="mr-2 h-3.5 w-3.5 text-primary" />
+                      New
+                    </Button>
+                    {isElectronEnvironment() && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            onClick={handleOpenFromFolder}
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2.5 border-border hover:border-primary/50 hover:bg-primary/5"
+                          >
+                            <FolderOpen className="h-3.5 w-3.5 text-primary" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Open from folder</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
 
                   {filteredCollections.length === 0 ? (
                     <div className="text-center text-xs py-10 px-3">
@@ -351,8 +420,11 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
                         >
                           <div className="flex-1 flex items-center gap-2 min-w-0">
                             <FolderPlus className="h-3.5 w-3.5 text-primary shrink-0" />
-                            <div className="min-w-0">
-                              <span className="text-xs font-medium block truncate">{collection.name}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-medium truncate">{collection.name}</span>
+                                <FileStatusBadge collectionId={collection.id} />
+                              </div>
                               <span className="text-[10px] text-muted-foreground">
                                 {collection.items.length} {collection.items.length === 1 ? 'item' : 'items'}
                               </span>
@@ -385,6 +457,28 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
                                   </DropdownMenuItem>
                                 </DropdownMenuSubContent>
                               </DropdownMenuSub>
+                              {isElectronEnvironment() && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  {isFileCollection(collection.id) ? (
+                                    <>
+                                      <DropdownMenuItem onClick={() => handleOpenInExplorer(collection.id)} className="text-xs">
+                                        <FolderOpen className="mr-2 h-3.5 w-3.5" />
+                                        Open in Finder
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handleSyncCollection(collection.id)} className="text-xs">
+                                        <HardDrive className="mr-2 h-3.5 w-3.5" />
+                                        Sync to Disk
+                                      </DropdownMenuItem>
+                                    </>
+                                  ) : (
+                                    <DropdownMenuItem onClick={() => handleSaveToFiles(collection.id)} className="text-xs">
+                                      <HardDrive className="mr-2 h-3.5 w-3.5" />
+                                      Save to Files
+                                    </DropdownMenuItem>
+                                  )}
+                                </>
+                              )}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onClick={() => handleDeleteClick(collection.id)}
@@ -582,6 +676,25 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
                 onOpenChange={(open) => !open && setRunningWorkflow(null)}
               />
             )}
+
+            {/* File Collection Dialogs */}
+            <CollectionDirectoryPicker
+              open={directoryPickerOpen}
+              onOpenChange={setDirectoryPickerOpen}
+              mode={directoryPickerMode}
+              collectionId={saveCollectionId}
+            />
+            <ConflictDialog
+              conflict={activeConflict ?? null}
+              onClose={() => {
+                if (activeConflict) {
+                  useFileCollectionStore.getState().removeConflict(
+                    activeConflict.collectionId,
+                    activeConflict.itemId
+                  );
+                }
+              }}
+            />
           </>
         )}
       </aside>
