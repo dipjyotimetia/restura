@@ -12,6 +12,7 @@ import {
 } from '@/features/grpc/lib/grpcReflection';
 import { validateGrpcUrl } from '@/features/grpc/lib/grpcClient';
 import { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult, GrpcMethodType } from '@/types';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 interface GrpcReflectionPanelProps {
   url: string;
@@ -20,7 +21,7 @@ interface GrpcReflectionPanelProps {
   onMethodSelect: (methodName: string, methodType: GrpcMethodType, message?: string) => void;
 }
 
-export default function GrpcReflectionPanel({
+function GrpcReflectionPanel({
   url,
   resolveVariables,
   onServiceSelect,
@@ -307,3 +308,5 @@ export function GrpcReflectionInfo({
     </div>
   );
 }
+
+export default withErrorBoundary(GrpcReflectionPanel);

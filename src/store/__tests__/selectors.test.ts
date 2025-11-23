@@ -32,12 +32,15 @@ const mockHistoryItems: HistoryItem[] = [
       auth: { type: 'none' },
     },
     response: {
+      id: 'res-1',
+      requestId: 'req-1',
       status: 200,
       statusText: 'OK',
-      headers: [],
+      headers: {},
       body: '{}',
       time: 100,
       size: 2,
+      timestamp: Date.now() - 1000,
     },
     timestamp: Date.now() - 1000,
   },
@@ -55,12 +58,15 @@ const mockHistoryItems: HistoryItem[] = [
       auth: { type: 'none' },
     },
     response: {
+      id: 'res-2',
+      requestId: 'req-2',
       status: 201,
       statusText: 'Created',
-      headers: [],
+      headers: {},
       body: '{}',
       time: 150,
       size: 2,
+      timestamp: Date.now() - 2000,
     },
     timestamp: Date.now() - 2000,
   },
@@ -86,8 +92,6 @@ const mockCollections: Collection[] = [
     id: 'col-1',
     name: 'API Tests',
     items: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
   },
   {
     id: 'col-2',
@@ -96,17 +100,9 @@ const mockCollections: Collection[] = [
       {
         id: 'item-1',
         name: 'Get Users',
-        type: 'http',
-        method: 'GET',
-        url: 'https://api.example.com/users',
-        headers: [],
-        params: [],
-        body: { type: 'none' },
-        auth: { type: 'none' },
+        type: 'request',
       },
     ],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
   },
 ];
 
@@ -114,12 +110,12 @@ const mockEnvironments: Environment[] = [
   {
     id: 'env-1',
     name: 'Development',
-    variables: [{ key: 'BASE_URL', value: 'http://localhost:3000', enabled: true }],
+    variables: [{ id: 'var-1', key: 'BASE_URL', value: 'http://localhost:3000', enabled: true }],
   },
   {
     id: 'env-2',
     name: 'Production',
-    variables: [{ key: 'BASE_URL', value: 'https://api.example.com', enabled: true }],
+    variables: [{ id: 'var-2', key: 'BASE_URL', value: 'https://api.example.com', enabled: true }],
   },
 ];
 
@@ -133,12 +129,12 @@ describe('History Selectors', () => {
     it('should return correct page of items', () => {
       const page0 = selectHistoryPage(0, 2)(historyState);
       expect(page0).toHaveLength(2);
-      expect(page0[0].id).toBe('history-1');
-      expect(page0[1].id).toBe('history-2');
+      expect(page0[0]?.id).toBe('history-1');
+      expect(page0[1]?.id).toBe('history-2');
 
       const page1 = selectHistoryPage(1, 2)(historyState);
       expect(page1).toHaveLength(1);
-      expect(page1[0].id).toBe('history-3');
+      expect(page1[0]?.id).toBe('history-3');
     });
 
     it('should return empty array for out of bounds page', () => {
@@ -180,8 +176,8 @@ describe('History Selectors', () => {
     it('should return favorite items', () => {
       const favorites = selectFavoriteItems(historyState);
       expect(favorites).toHaveLength(2);
-      expect(favorites[0].id).toBe('history-1');
-      expect(favorites[1].id).toBe('history-3');
+      expect(favorites[0]?.id).toBe('history-1');
+      expect(favorites[1]?.id).toBe('history-3');
     });
 
     it('should return empty array when no favorites', () => {

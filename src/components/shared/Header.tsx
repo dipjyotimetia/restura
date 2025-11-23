@@ -125,7 +125,7 @@ export default function Header({
         <div className="h-6 w-px bg-border/60 hidden sm:block" />
 
         {/* Request Mode Selector - Segmented Control Style */}
-        <div className="flex items-center rounded-lg bg-muted/80 p-0.5 lg:p-1 border border-border/40 shadow-sm backdrop-blur-sm">
+        <div className="flex items-center rounded-lg bg-muted/80 p-0.5 lg:p-1 border border-border/40 shadow-sm backdrop-blur-sm" role="tablist" aria-label="Request mode selector">
             {['http', 'graphql', 'grpc', 'websocket'].map((mode) => (
               <button
                 key={mode}
@@ -136,6 +136,9 @@ export default function Header({
                     ? "bg-background text-foreground shadow border border-border/50"
                     : "text-muted-foreground hover:text-foreground hover:bg-background/50"
                 )}
+                role="tab"
+                aria-selected={requestMode === mode}
+                aria-label={`Switch to ${mode.toUpperCase()} mode`}
               >
                 {mode === 'http' ? 'HTTP' : mode === 'graphql' ? 'GraphQL' : mode === 'grpc' ? 'gRPC' : 'WS'}
               </button>

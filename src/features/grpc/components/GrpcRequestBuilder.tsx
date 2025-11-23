@@ -560,7 +560,11 @@ function GrpcRequestBuilder() {
             )}
           </div>
 
-          <Button onClick={handleSendRequest} disabled={isLoading && !streamControl || !isFormValid()}>
+          <Button
+            onClick={handleSendRequest}
+            disabled={isLoading && !streamControl || !isFormValid()}
+            aria-label={isLoading ? 'Invoking gRPC method' : 'Invoke gRPC method'}
+          >
             <Send className="mr-2 h-4 w-4" />
             {isLoading ? 'Invoking...' : 'Invoke'}
           </Button>
