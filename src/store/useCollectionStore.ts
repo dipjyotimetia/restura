@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Collection, CollectionItem } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 interface CollectionState {
   collections: Collection[];
@@ -116,6 +117,23 @@ export const useCollectionStore = create<CollectionState>()(
     }),
     {
       name: 'collection-storage',
+      version: 2, // Bumped for Dexie migration
+      storage: dexieStorageAdapters.collections(),
+      migrate: (persistedState, version) => {
+        if (version === 0 || version === 1) {
+          // Migration from localStorage (v1) to Dexie (v2)
+          return persistedState as CollectionState;
+        }
+        return persistedState as CollectionState;
+      },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('Collection store rehydration failed:', error);
+        }
+        if (state) {
+          console.debug('Collection store rehydrated from Dexie successfully');
+        }
+      },
     }
   )
 );

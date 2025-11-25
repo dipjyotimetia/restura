@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { AppSettings, ProxyConfig, CorsProxyConfig } from '@/types';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 interface SettingsState {
   settings: AppSettings;
@@ -150,6 +151,23 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'app-settings-storage',
+      version: 2, // Bumped for Dexie migration
+      storage: dexieStorageAdapters.settings(),
+      migrate: (persistedState, version) => {
+        if (version === 0 || version === 1) {
+          // Migration from localStorage (v1) to Dexie (v2)
+          return persistedState as SettingsState;
+        }
+        return persistedState as SettingsState;
+      },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('Settings store rehydration failed:', error);
+        }
+        if (state) {
+          console.debug('Settings store rehydrated from Dexie successfully');
+        }
+      },
     }
   )
 );

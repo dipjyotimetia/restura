@@ -120,6 +120,14 @@ interface ElectronGrpcAPI {
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
 }
 
+interface ElectronStoreAPI {
+  get: (key: string) => Promise<string | undefined>;
+  set: (key: string, value: string) => Promise<void>;
+  delete: (key: string) => Promise<void>;
+  clear: () => Promise<void>;
+  has: (key: string) => Promise<boolean>;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -130,6 +138,7 @@ interface ElectronAPI {
   window: ElectronWindowAPI;
   http: ElectronHttpAPI;
   grpc: ElectronGrpcAPI;
+  store: ElectronStoreAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

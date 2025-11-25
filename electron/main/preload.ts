@@ -127,6 +127,24 @@ const electronAPI = {
       ipcRenderer.invoke('notification:error', message),
   },
 
+  // Encrypted store operations
+  store: {
+    get: (key: string): Promise<string | undefined> =>
+      ipcRenderer.invoke('store:get', key),
+
+    set: (key: string, value: string): Promise<void> =>
+      ipcRenderer.invoke('store:set', key, value),
+
+    delete: (key: string): Promise<void> =>
+      ipcRenderer.invoke('store:delete', key),
+
+    clear: (): Promise<void> =>
+      ipcRenderer.invoke('store:clear'),
+
+    has: (key: string): Promise<boolean> =>
+      ipcRenderer.invoke('store:has', key),
+  },
+
   // Collection file operations (Git-native collections)
   collections: {
     loadFromDirectory: (directoryPath: string): Promise<{

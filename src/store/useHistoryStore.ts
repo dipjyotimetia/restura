@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { HistoryItem, Request, Response } from '@/types';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 interface HistoryState {
   history: HistoryItem[];
@@ -121,6 +122,28 @@ export const useHistoryStore = create<HistoryState>()(
     }),
     {
       name: 'history-storage',
+      version: 2, // Bumped for Dexie migration + encryption
+      storage: dexieStorageAdapters.history(),
+      migrate: (persistedState, version) => {
+        if (version === 0 || version === 1) {
+          // Migration from localStorage (v1) to encrypted Dexie (v2)
+          return persistedState as HistoryState;
+        }
+        return persistedState as HistoryState;
+      },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('History store rehydration failed:', error);
+        }
+        if (state) {
+          console.debug('History store rehydrated from Dexie successfully');
+        }
+      },
+      partialize: (state) => ({
+        history: state.history,
+        favorites: state.favorites,
+        pageSize: state.pageSize,
+      }),
     }
   )
 );
