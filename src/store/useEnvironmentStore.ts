@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Environment, KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 interface EnvironmentState {
   environments: Environment[];
@@ -110,6 +111,23 @@ export const useEnvironmentStore = create<EnvironmentState>()(
     }),
     {
       name: 'environment-storage',
+      version: 2, // Bumped for Dexie migration
+      storage: dexieStorageAdapters.environments(),
+      migrate: (persistedState, version) => {
+        if (version === 0 || version === 1) {
+          // Migration from localStorage (v1) to Dexie (v2)
+          return persistedState as EnvironmentState;
+        }
+        return persistedState as EnvironmentState;
+      },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('Environment store rehydration failed:', error);
+        }
+        if (state) {
+          console.debug('Environment store rehydrated from Dexie successfully');
+        }
+      },
     }
   )
 );

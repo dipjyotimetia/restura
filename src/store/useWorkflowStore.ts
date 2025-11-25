@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Workflow, WorkflowRequest, WorkflowExecution, VariableExtraction } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -227,6 +228,23 @@ export const useWorkflowStore = create<WorkflowState>()(
     }),
     {
       name: 'workflow-storage',
+      version: 2, // Bumped for Dexie migration + encryption
+      storage: dexieStorageAdapters.workflows(),
+      migrate: (persistedState, version) => {
+        if (version === 0 || version === 1) {
+          // Migration from localStorage (v1) to encrypted Dexie (v2)
+          return persistedState as WorkflowState;
+        }
+        return persistedState as WorkflowState;
+      },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('Workflow store rehydration failed:', error);
+        }
+        if (state) {
+          console.debug('Workflow store rehydrated from Dexie successfully');
+        }
+      },
     }
   )
 );
