@@ -8,6 +8,7 @@ import { registerWindowControlsIPC } from './window-controls';
 import { createSystemTray, destroyTray } from './system-tray';
 import { registerNotificationIPC } from './notifications';
 import { registerCollectionManagerIPC, cleanupCollectionWatchers } from './collection-manager';
+import { registerStoreHandlerIPC } from './store-handler';
 
 // Initialize crash reporter early (before app.whenReady)
 crashReporter.start({
@@ -44,6 +45,7 @@ function registerIPCHandlers(): void {
   registerWindowControlsIPC(getMainWindow);
   registerNotificationIPC(getMainWindow, isDev);
   registerCollectionManagerIPC(getMainWindow);
+  registerStoreHandlerIPC();
 }
 
 // Setup Content Security Policy for production

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 export interface CookieItem {
   id: string;
@@ -83,6 +84,25 @@ export const useCookieStore = create<CookieStore>()(
     }),
     {
       name: 'restura-cookies',
+      version: 2, // Bumped for Dexie migration
+      storage: dexieStorageAdapters.cookies(),
+      migrate: (persistedState, version) => {
+        // Handle migrations between versions
+        if (version === 0 || version === 1) {
+          // Migration from localStorage (v1) to Dexie (v2)
+          return persistedState as CookieStore;
+        }
+        return persistedState as CookieStore;
+      },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('Cookie store rehydration failed:', error);
+          // Store will use default state on error
+        }
+        if (state) {
+          console.debug('Cookie store rehydrated from Dexie successfully');
+        }
+      },
     }
   )
 );
