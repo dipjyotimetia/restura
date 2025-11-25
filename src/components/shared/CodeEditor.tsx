@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
-import { useTheme } from 'next-themes';
+import { useTheme } from '@/components/providers/ThemeProvider';
 import type * as Monaco from 'monaco-editor';
 import { Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';

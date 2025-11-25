@@ -4,9 +4,9 @@ import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Play, RotateCcw } from 'lucide-react';
-import dynamic from 'next/dynamic';
+import { lazy } from 'react';
 
-const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
+const CodeEditor = lazy(() => import('@/components/shared/CodeEditor'));
 
 interface ScriptsEditorProps {
   preRequestScript: string;

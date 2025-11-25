@@ -1,5 +1,7 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
-import { autoUpdater, UpdateCheckResult } from 'electron-updater';
+import electronUpdater from 'electron-updater';
+const { autoUpdater } = electronUpdater;
+import type { UpdateCheckResult } from 'electron-updater';
 
 interface UpdateCheckResponse {
   updateAvailable: boolean;

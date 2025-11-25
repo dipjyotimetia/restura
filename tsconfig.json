@@ -6,6 +6,9 @@
       "dom.iterable",
       "esnext"
     ],
+    "types": [
+      "vite/client"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -17,11 +20,6 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
     "paths": {
       "@/*": [
         "./src/*"
@@ -40,11 +38,9 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": [
-    "next-env.d.ts",
+    "src",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
     "electron/types/**/*.ts"
   ],
   "exclude": [

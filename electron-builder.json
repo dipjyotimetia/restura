@@ -8,7 +8,6 @@
     "buildResources": "electron/resources"
   },
   "files": [
-    "out/**/*",
     "dist/electron/**/*",
     "electron/resources/**/*",
     "package.json"

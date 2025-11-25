@@ -11,9 +11,9 @@ import { Send, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HttpRequest, Response } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
-import dynamic from 'next/dynamic';
+import { lazy } from 'react';
 
-const GraphQLBodyEditor = dynamic(() => import('./GraphQLBodyEditor'), { ssr: false });
+const GraphQLBodyEditor = lazy(() => import('./GraphQLBodyEditor'));
 
 export default function GraphQLRequestBuilder() {
   const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore();
@@ -186,7 +186,7 @@ export default function GraphQLRequestBuilder() {
             query={httpRequest.body.raw || ''}
             variables={graphqlVariables}
             url={httpRequest.url}
-            onQueryChange={(query) => updateRequest({ body: { ...httpRequest.body, raw: query } })}
+            onQueryChange={(query: string) => updateRequest({ body: { ...httpRequest.body, raw: query } })}
             onVariablesChange={setGraphqlVariables}
           />
         </TabsContent>

@@ -19,7 +19,7 @@ import {
   FileJson,
   Keyboard,
 } from 'lucide-react';
-import { useTheme } from 'next-themes';
+import { useTheme } from '@/components/providers/ThemeProvider';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { Separator } from '@/components/ui/separator';

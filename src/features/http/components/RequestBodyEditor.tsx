@@ -2,10 +2,10 @@
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RequestBody } from '@/types';
-import dynamic from 'next/dynamic';
+import { lazy } from 'react';
 
-const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
-const GraphQLBodyEditor = dynamic(() => import('@/features/graphql/components/GraphQLBodyEditor'), { ssr: false });
+const CodeEditor = lazy(() => import('@/components/shared/CodeEditor'));
+const GraphQLBodyEditor = lazy(() => import('@/features/graphql/components/GraphQLBodyEditor'));
 
 interface RequestBodyEditorProps {
   body: RequestBody;

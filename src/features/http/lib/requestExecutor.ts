@@ -14,7 +14,10 @@ async function executeViaCorsProxy(
   startTime: number,
   requestId: string
 ): Promise<ApiResponse> {
-  const response = await axios.post('/api/proxy', {
+  const proxyUrl = import.meta.env.VITE_API_URL
+    ? `${import.meta.env.VITE_API_URL}/proxy`
+    : '/api/proxy';
+  const response = await axios.post(proxyUrl, {
     method: config.method,
     url: config.url,
     headers: config.headers,

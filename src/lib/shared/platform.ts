@@ -149,7 +149,7 @@ export async function writeFileToDisk(
 export async function getAppVersion(): Promise<string> {
   const api = getElectronAPI();
   if (!api) {
-    return process.env.NEXT_PUBLIC_APP_VERSION || '0.1.0';
+    return import.meta.env.VITE_APP_VERSION || '0.1.0';
   }
   return api.app.getVersion();
 }

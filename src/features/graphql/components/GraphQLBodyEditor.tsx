@@ -18,10 +18,10 @@ import {
   PanelRightClose,
   PanelRight,
 } from 'lucide-react';
-import dynamic from 'next/dynamic';
+import { lazy } from 'react';
 
-const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
-const SchemaExplorer = dynamic(() => import('./SchemaExplorer'), { ssr: false });
+const CodeEditor = lazy(() => import('@/components/shared/CodeEditor'));
+const SchemaExplorer = lazy(() => import('./SchemaExplorer'));
 
 interface GraphQLBodyEditorProps {
   query: string;

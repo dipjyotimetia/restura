@@ -1,0 +1,9 @@
+name = "restura-api"
+main = "workers/index.ts"
+compatibility_date = "2025-01-25"
+
+[env.production]
+name = "restura-api"
+routes = [
+  { pattern = "api.restura.dev/*", zone_name = "restura.dev" }
+]

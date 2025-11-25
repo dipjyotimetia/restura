@@ -364,7 +364,10 @@ export class GrpcReflectionClient {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch('/api/grpc/reflection', {
+      const reflectionUrl = import.meta.env.VITE_API_URL
+        ? `${import.meta.env.VITE_API_URL}/grpc/reflection`
+        : '/api/grpc/reflection';
+      const response = await fetch(reflectionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

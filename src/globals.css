@@ -157,6 +157,17 @@
     mask-composite: exclude;
     pointer-events: none;
   }
+
+  /* Electron window draggable regions (macOS hiddenInset titlebar) */
+  .app-drag {
+    -webkit-app-region: drag;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .app-no-drag {
+    -webkit-app-region: no-drag;
+  }
 }
 
 /* Smooth animations */

@@ -86,7 +86,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
     title: 'Restura',
     ...(getIconPath(isDev) && { icon: getIconPath(isDev) }),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -112,10 +112,11 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
 
   // Load the app
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.loadURL('http://localhost:5173'); // Vite dev server
     mainWindow.webContents.openDevTools();
   } else {
-    const indexPath = path.join(__dirname, '../../out/index.html');
+    // electron-vite outputs to dist/electron/renderer
+    const indexPath = path.join(__dirname, '../renderer/index.html');
     mainWindow.loadFile(indexPath);
   }
 

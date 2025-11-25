@@ -7,10 +7,7 @@ import { ipcMain, app, safeStorage } from 'electron';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-
-// Use require for electron-store to avoid ESM/CommonJS issues
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const Store = require('electron-store');
+import Store from 'electron-store';
 
 /**
  * Get or generate encryption key for electron-store

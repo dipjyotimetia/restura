@@ -694,7 +694,10 @@ export async function makeProxyGrpcRequest(
   const startTime = Date.now();
 
   try {
-    const response = await fetch('/api/grpc', {
+    const apiUrl = import.meta.env.VITE_API_URL
+      ? `${import.meta.env.VITE_API_URL}/grpc`
+      : '/api/grpc';
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
