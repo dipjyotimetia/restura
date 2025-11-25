@@ -1,6 +1,3 @@
-'use client';
-
-import Link from 'next/link';
 import { FileQuestion, Home, ArrowLeft } from 'lucide-react';
 
 export default function NotFound() {
@@ -19,13 +16,13 @@ export default function NotFound() {
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link
+          <a
             href="/"
             className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
           >
             <Home className="h-4 w-4" />
             Go Home
-          </Link>
+          </a>
           <button
             onClick={() => window.history.back()}
             className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors border border-border"

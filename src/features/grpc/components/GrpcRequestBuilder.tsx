@@ -1,6 +1,4 @@
-'use client';
-
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, lazy } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,7 +14,6 @@ import {
 } from '@/types';
 import { Send, Plus, Trash2, AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import dynamic from 'next/dynamic';
 import {
   validateMethodName,
   getMethodTypeDescription,
@@ -42,7 +39,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
 
-const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
+const CodeEditor = lazy(() => import('@/components/shared/CodeEditor'));
 
 interface ValidationState {
   url: { valid: boolean; error?: string };

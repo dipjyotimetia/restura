@@ -1,6 +1,4 @@
-'use client';
-
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy } from 'react';
 import { Button } from '@/components/ui/button';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { parseVariables, generateVariablesTemplate } from '@/features/graphql/lib/queryParser';
@@ -18,10 +16,9 @@ import {
   PanelRightClose,
   PanelRight,
 } from 'lucide-react';
-import dynamic from 'next/dynamic';
 
-const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
-const SchemaExplorer = dynamic(() => import('./SchemaExplorer'), { ssr: false });
+const CodeEditor = lazy(() => import('@/components/shared/CodeEditor'));
+const SchemaExplorer = lazy(() => import('./SchemaExplorer'));
 
 interface GraphQLBodyEditorProps {
   query: string;

@@ -1,7 +1,4 @@
-'use client';
-
-import { useState, useMemo } from 'react';
-import dynamic from 'next/dynamic';
+import { useState, useMemo, lazy } from 'react';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -13,11 +10,8 @@ import { toast } from 'sonner';
 import RequestEntryItem from './RequestEntryItem';
 import { cn } from '@/lib/shared/utils';
 
-// Dynamic import for CodeEditor to reduce initial bundle
-const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), {
-  ssr: false,
-  loading: () => <div className="h-[150px] bg-muted/50 rounded-lg animate-pulse" />,
-});
+// Lazy import for CodeEditor to reduce initial bundle
+const CodeEditor = lazy(() => import('@/components/shared/CodeEditor'));
 
 const formatTime = (timestamp: number) => {
   const date = new Date(timestamp);

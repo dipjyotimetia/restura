@@ -112,9 +112,11 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
 
   // Load the app
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    // Vite dev server runs on port 5173 by default
+    mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
+    // Vite builds to 'out' directory for Electron
     const indexPath = path.join(__dirname, '../../out/index.html');
     mainWindow.loadFile(indexPath);
   }

@@ -1,6 +1,4 @@
-'use client';
-
-import { useState } from 'react';
+import { useState, lazy } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,9 +9,8 @@ import { Send, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HttpRequest, Response } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
-import dynamic from 'next/dynamic';
 
-const GraphQLBodyEditor = dynamic(() => import('./GraphQLBodyEditor'), { ssr: false });
+const GraphQLBodyEditor = lazy(() => import('./GraphQLBodyEditor'));
 
 export default function GraphQLRequestBuilder() {
   const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore();

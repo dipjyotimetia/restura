@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { validateURL } from '@/features/http/lib/urlValidator';
+import { Router, Request, Response } from 'express';
+
+export const proxyRouter = Router();
 
 // Headers that should not be forwarded
 const BLOCKED_REQUEST_HEADERS = [
@@ -71,7 +72,6 @@ function buildRequestBody(
           params.append(field.name, field.value);
         });
       } else if (data) {
-        // Support legacy string format for urlencoded
         return { body: data, contentType: 'application/x-www-form-urlencoded' };
       }
       return { body: params.toString(), contentType: 'application/x-www-form-urlencoded' };
@@ -82,7 +82,6 @@ function buildRequestBody(
       if (formData) {
         formData.forEach((field) => {
           if (field.filename) {
-            // Handle file uploads - value should be base64 encoded
             const buffer = Buffer.from(field.value, 'base64');
             const blob = new Blob([buffer], { type: field.contentType || 'application/octet-stream' });
             formDataObj.append(field.name, blob, field.filename);
@@ -91,7 +90,6 @@ function buildRequestBody(
           }
         });
       }
-      // Don't set content-type for FormData - let fetch set it with boundary
       return { body: formDataObj, contentType: undefined };
     }
 
@@ -108,17 +106,60 @@ function buildRequestBody(
   }
 }
 
-export async function POST(request: NextRequest) {
+// Check if hostname is a private/local address (SSRF protection)
+function isPrivateAddress(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+    return true;
+  }
+
+  const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+  const match = hostname.match(ipv4Pattern);
+  if (match) {
+    const [, a, b] = match.map(Number);
+    if (a === 10) return true;
+    if (a === 172 && b !== undefined && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 0) return true;
+  }
+
+  if (hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80')) {
+    return true;
+  }
+
+  return false;
+}
+
+function validateURL(url: string, options: { allowPrivateIPs: boolean; allowLocalhost: boolean }): { valid: boolean; error?: string } {
+  if (!url) {
+    return { valid: false, error: 'URL is required' };
+  }
+
   try {
-    const body: ProxyRequestBody = await request.json();
+    const parsed = new URL(url);
+
+    if (!options.allowPrivateIPs && isPrivateAddress(parsed.hostname)) {
+      return { valid: false, error: 'Private IP addresses are not allowed' };
+    }
+
+    if (!options.allowLocalhost && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
+      return { valid: false, error: 'Localhost is not allowed' };
+    }
+
+    return { valid: true };
+  } catch {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+}
+
+proxyRouter.post('/', async (req: Request, res: Response) => {
+  try {
+    const body: ProxyRequestBody = req.body;
     const { method, url, headers = {}, params = {}, data, formData, bodyType, timeout = 30000 } = body;
 
     // Validate method
     if (!ALLOWED_METHODS.includes(method.toUpperCase())) {
-      return NextResponse.json(
-        { error: `Method ${method} is not allowed` },
-        { status: 400 }
-      );
+      return res.status(400).json({ error: `Method ${method} is not allowed` });
     }
 
     // Validate URL
@@ -128,10 +169,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!urlValidation.valid) {
-      return NextResponse.json(
-        { error: `Invalid URL: ${urlValidation.error}` },
-        { status: 400 }
-      );
+      return res.status(400).json({ error: `Invalid URL: ${urlValidation.error}` });
     }
 
     // Build target URL with query params
@@ -180,10 +218,7 @@ export async function POST(request: NextRequest) {
       // Check response size before reading
       const contentLength = response.headers.get('content-length');
       if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
-        return NextResponse.json(
-          { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
-          { status: 413 }
-        );
+        return res.status(413).json({ error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` });
       }
 
       // Read response body
@@ -191,10 +226,7 @@ export async function POST(request: NextRequest) {
 
       // Check actual size
       if (responseBody.length > MAX_RESPONSE_SIZE) {
-        return NextResponse.json(
-          { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
-          { status: 413 }
-        );
+        return res.status(413).json({ error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` });
       }
 
       // Build response headers
@@ -206,7 +238,7 @@ export async function POST(request: NextRequest) {
       });
 
       // Return proxied response
-      return NextResponse.json({
+      return res.json({
         status: response.status,
         statusText: response.statusText,
         headers: responseHeaders,
@@ -218,39 +250,23 @@ export async function POST(request: NextRequest) {
 
       if (fetchError instanceof Error) {
         if (fetchError.name === 'AbortError') {
-          return NextResponse.json(
-            { error: `Request timeout after ${timeout}ms` },
-            { status: 504 }
-          );
+          return res.status(504).json({ error: `Request timeout after ${timeout}ms` });
         }
-        return NextResponse.json(
-          { error: `Proxy request failed: ${fetchError.message}` },
-          { status: 502 }
-        );
+        return res.status(502).json({ error: `Proxy request failed: ${fetchError.message}` });
       }
 
-      return NextResponse.json(
-        { error: 'Proxy request failed' },
-        { status: 502 }
-      );
+      return res.status(502).json({ error: 'Proxy request failed' });
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { error: `Proxy error: ${message}` },
-      { status: 500 }
-    );
+    return res.status(500).json({ error: `Proxy error: ${message}` });
   }
-}
+});
 
 // Handle OPTIONS for CORS preflight
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  });
-}
+proxyRouter.options('/', (_req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(204).end();
+});

@@ -1,6 +1,4 @@
-'use client';
-
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, lazy } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -9,7 +7,6 @@ import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Copy, Check, Clock, Database, Zap, CheckCircle2, XCircle, AlertCircle, Rows, Columns } from 'lucide-react';
 import { toast } from 'sonner';
-import dynamic from 'next/dynamic';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
@@ -17,7 +14,7 @@ import { cn } from '@/lib/shared/utils';
 import { Scale, Stagger, StaggerItem } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
-const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
+const CodeEditor = lazy(() => import('@/components/shared/CodeEditor'));
 
 // Helper functions moved outside component to avoid recreation
 const formatJson = (body: string): string => {

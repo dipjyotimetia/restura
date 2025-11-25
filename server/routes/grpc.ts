@@ -1,5 +1,47 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
+import { Router, Request, Response } from 'express';
+
+export const grpcRouter = Router();
+
+// gRPC Status codes
+const GrpcStatusCode = {
+  OK: 0,
+  CANCELLED: 1,
+  UNKNOWN: 2,
+  INVALID_ARGUMENT: 3,
+  DEADLINE_EXCEEDED: 4,
+  NOT_FOUND: 5,
+  ALREADY_EXISTS: 6,
+  PERMISSION_DENIED: 7,
+  RESOURCE_EXHAUSTED: 8,
+  FAILED_PRECONDITION: 9,
+  ABORTED: 10,
+  OUT_OF_RANGE: 11,
+  UNIMPLEMENTED: 12,
+  INTERNAL: 13,
+  UNAVAILABLE: 14,
+  DATA_LOSS: 15,
+  UNAUTHENTICATED: 16,
+} as const;
+
+const GrpcStatusCodeName: Record<number, string> = {
+  0: 'OK',
+  1: 'CANCELLED',
+  2: 'UNKNOWN',
+  3: 'INVALID_ARGUMENT',
+  4: 'DEADLINE_EXCEEDED',
+  5: 'NOT_FOUND',
+  6: 'ALREADY_EXISTS',
+  7: 'PERMISSION_DENIED',
+  8: 'RESOURCE_EXHAUSTED',
+  9: 'FAILED_PRECONDITION',
+  10: 'ABORTED',
+  11: 'OUT_OF_RANGE',
+  12: 'UNIMPLEMENTED',
+  13: 'INTERNAL',
+  14: 'UNAVAILABLE',
+  15: 'DATA_LOSS',
+  16: 'UNAUTHENTICATED',
+};
 
 // Maximum response body size (10MB)
 const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
@@ -40,25 +82,21 @@ interface GrpcProxyResponse {
 
 // Check if hostname is a private/local address (SSRF protection)
 function isPrivateAddress(hostname: string): boolean {
-  // Check for localhost variants
   if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
     return true;
   }
 
-  // Check for private IP ranges
   const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
   const match = hostname.match(ipv4Pattern);
   if (match) {
     const [, a, b] = match.map(Number);
-    // 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 169.254.x.x (link-local)
     if (a === 10) return true;
     if (a === 172 && b !== undefined && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
     if (a === 169 && b === 254) return true;
-    if (a === 0) return true; // 0.0.0.0
+    if (a === 0) return true;
   }
 
-  // Check for IPv6 private ranges
   if (hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80')) {
     return true;
   }
@@ -79,7 +117,6 @@ function validateGrpcUrl(url: string): { valid: boolean; error?: string } {
   try {
     const parsed = new URL(url);
 
-    // SSRF protection: block private/local addresses
     if (isPrivateAddress(parsed.hostname)) {
       return { valid: false, error: 'Access to private/local addresses is not allowed' };
     }
@@ -96,7 +133,6 @@ function validateServiceName(service: string): { valid: boolean; error?: string 
     return { valid: false, error: 'Service name is required' };
   }
 
-  // Service name can be in format: package.ServiceName or just ServiceName
   const servicePattern = /^[a-zA-Z][a-zA-Z0-9_.]*$/;
   if (!servicePattern.test(service)) {
     return { valid: false, error: 'Invalid service name format' };
@@ -124,7 +160,6 @@ function parseConnectError(body: string): { code: number; message: string } {
   try {
     const error = JSON.parse(body);
     if (error.code && typeof error.code === 'string') {
-      // Connect uses string codes like "not_found", "invalid_argument", etc.
       const codeMap: Record<string, number> = {
         canceled: GrpcStatusCode.CANCELLED,
         unknown: GrpcStatusCode.UNKNOWN,
@@ -154,40 +189,30 @@ function parseConnectError(body: string): { code: number; message: string } {
   }
 }
 
-export async function POST(request: NextRequest) {
+grpcRouter.post('/', async (req: Request, res: Response) => {
   try {
-    const body: GrpcProxyRequestBody = await request.json();
+    const body: GrpcProxyRequestBody = req.body;
     const { url, service, method, metadata = {}, message = {}, timeout = 30000 } = body;
 
     // Validate URL
     const urlValidation = validateGrpcUrl(url);
     if (!urlValidation.valid) {
-      return NextResponse.json(
-        { error: `Invalid URL: ${urlValidation.error}` },
-        { status: 400 }
-      );
+      return res.status(400).json({ error: `Invalid URL: ${urlValidation.error}` });
     }
 
     // Validate service name
     const serviceValidation = validateServiceName(service);
     if (!serviceValidation.valid) {
-      return NextResponse.json(
-        { error: `Invalid service: ${serviceValidation.error}` },
-        { status: 400 }
-      );
+      return res.status(400).json({ error: `Invalid service: ${serviceValidation.error}` });
     }
 
     // Validate method name
     const methodValidation = validateMethodName(method);
     if (!methodValidation.valid) {
-      return NextResponse.json(
-        { error: `Invalid method: ${methodValidation.error}` },
-        { status: 400 }
-      );
+      return res.status(400).json({ error: `Invalid method: ${methodValidation.error}` });
     }
 
     // Build the Connect protocol URL
-    // Format: {baseUrl}/{package.Service}/{Method}
     const baseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
     const connectUrl = `${baseUrl}/${service}/${method}`;
 
@@ -222,10 +247,7 @@ export async function POST(request: NextRequest) {
       // Check response size before reading
       const contentLength = response.headers.get('content-length');
       if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
-        return NextResponse.json(
-          { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
-          { status: 413 }
-        );
+        return res.status(413).json({ error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` });
       }
 
       // Read response body
@@ -233,10 +255,7 @@ export async function POST(request: NextRequest) {
 
       // Check actual size
       if (responseBody.length > MAX_RESPONSE_SIZE) {
-        return NextResponse.json(
-          { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
-          { status: 413 }
-        );
+        return res.status(413).json({ error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` });
       }
 
       // Build response headers
@@ -247,7 +266,7 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      // Parse trailers (Connect sends them in headers with trailer- prefix)
+      // Parse trailers
       const trailers: Record<string, string> = {};
       response.headers.forEach((value, key) => {
         if (key.toLowerCase().startsWith('trailer-')) {
@@ -256,18 +275,16 @@ export async function POST(request: NextRequest) {
       });
 
       // Determine gRPC status
-      let grpcStatus = GrpcStatusCode.OK;
+      let grpcStatus: number = GrpcStatusCode.OK;
       let grpcStatusText = 'OK';
       let data: unknown = {};
 
       if (!response.ok) {
-        // Parse error response
         const errorInfo = parseConnectError(responseBody);
         grpcStatus = errorInfo.code;
         grpcStatusText = GrpcStatusCodeName[grpcStatus] || 'UNKNOWN';
         data = { error: errorInfo.message };
       } else {
-        // Parse success response
         try {
           data = responseBody ? JSON.parse(responseBody) : {};
         } catch {
@@ -284,73 +301,57 @@ export async function POST(request: NextRequest) {
         size: responseBody.length,
       };
 
-      return NextResponse.json(proxyResponse);
+      return res.json(proxyResponse);
     } catch (fetchError: unknown) {
       clearTimeout(timeoutId);
 
       if (fetchError instanceof Error) {
         if (fetchError.name === 'AbortError') {
-          return NextResponse.json(
-            {
-              grpcStatus: GrpcStatusCode.DEADLINE_EXCEEDED,
-              grpcStatusText: 'DEADLINE_EXCEEDED',
-              headers: {},
-              trailers: {},
-              data: { error: `Request timeout after ${timeout}ms` },
-              size: 0,
-            } as GrpcProxyResponse,
-            { status: 504 }
-          );
-        }
-        return NextResponse.json(
-          {
-            grpcStatus: GrpcStatusCode.UNAVAILABLE,
-            grpcStatusText: 'UNAVAILABLE',
+          return res.status(504).json({
+            grpcStatus: GrpcStatusCode.DEADLINE_EXCEEDED,
+            grpcStatusText: 'DEADLINE_EXCEEDED',
             headers: {},
             trailers: {},
-            data: { error: `Proxy request failed: ${fetchError.message}` },
+            data: { error: `Request timeout after ${timeout}ms` },
             size: 0,
-          } as GrpcProxyResponse,
-          { status: 502 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          grpcStatus: GrpcStatusCode.UNKNOWN,
-          grpcStatusText: 'UNKNOWN',
+          } as GrpcProxyResponse);
+        }
+        return res.status(502).json({
+          grpcStatus: GrpcStatusCode.UNAVAILABLE,
+          grpcStatusText: 'UNAVAILABLE',
           headers: {},
           trailers: {},
-          data: { error: 'Proxy request failed' },
+          data: { error: `Proxy request failed: ${fetchError.message}` },
           size: 0,
-        } as GrpcProxyResponse,
-        { status: 502 }
-      );
+        } as GrpcProxyResponse);
+      }
+
+      return res.status(502).json({
+        grpcStatus: GrpcStatusCode.UNKNOWN,
+        grpcStatusText: 'UNKNOWN',
+        headers: {},
+        trailers: {},
+        data: { error: 'Proxy request failed' },
+        size: 0,
+      } as GrpcProxyResponse);
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      {
-        grpcStatus: GrpcStatusCode.INTERNAL,
-        grpcStatusText: 'INTERNAL',
-        headers: {},
-        trailers: {},
-        data: { error: `Proxy error: ${message}` },
-        size: 0,
-      } as GrpcProxyResponse,
-      { status: 500 }
-    );
+    return res.status(500).json({
+      grpcStatus: GrpcStatusCode.INTERNAL,
+      grpcStatusText: 'INTERNAL',
+      headers: {},
+      trailers: {},
+      data: { error: `Proxy error: ${message}` },
+      size: 0,
+    } as GrpcProxyResponse);
   }
-}
+});
 
 // Handle OPTIONS for CORS preflight
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  });
-}
+grpcRouter.options('/', (_req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(204).end();
+});
