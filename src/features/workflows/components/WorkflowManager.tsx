@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Workflow } from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { Button } from '@/components/ui/button';
@@ -48,12 +48,24 @@ export function WorkflowManager({
   onSelectWorkflow,
   onRunWorkflow,
 }: WorkflowManagerProps) {
-  const workflows = useWorkflowStore((s) => s.getWorkflowsByCollectionId(collectionId));
+  const allWorkflows = useWorkflowStore((s) => s.workflows);
+  const executions = useWorkflowStore((s) => s.executions);
   const createNewWorkflow = useWorkflowStore((s) => s.createNewWorkflow);
   const addWorkflow = useWorkflowStore((s) => s.addWorkflow);
   const updateWorkflow = useWorkflowStore((s) => s.updateWorkflow);
   const deleteWorkflow = useWorkflowStore((s) => s.deleteWorkflow);
-  const getLatestExecution = useWorkflowStore((s) => s.getLatestExecution);
+
+  const workflows = useMemo(
+    () => allWorkflows.filter((wf) => wf.collectionId === collectionId),
+    [allWorkflows, collectionId]
+  );
+
+  const getLatestExecution = useMemo(() => {
+    return (workflowId: string) =>
+      executions
+        .filter((ex) => ex.workflowId === workflowId)
+        .sort((a, b) => b.startedAt - a.startedAt)[0];
+  }, [executions]);
 
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
@@ -63,7 +75,16 @@ export function WorkflowManager({
   const handleCreate = () => {
     if (!workflowName.trim()) return;
 
-    const workflow = createNewWorkflow(workflowName.trim(), collectionId);
+    // Generate unique name if duplicate exists
+    const existingNames = workflows.map((w) => w.name.toLowerCase());
+    let finalName = workflowName.trim();
+    let counter = 1;
+    while (existingNames.includes(finalName.toLowerCase())) {
+      counter++;
+      finalName = `${workflowName.trim()} ${counter}`;
+    }
+
+    const workflow = createNewWorkflow(finalName, collectionId);
     addWorkflow(workflow);
     setWorkflowName('');
     setShowNewDialog(false);
