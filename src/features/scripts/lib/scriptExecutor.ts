@@ -491,13 +491,52 @@ class ScriptExecutor {
       };
     }
 
-    // Security: Basic script validation to catch obvious attack patterns
+    // Security: Comprehensive script validation to block attack patterns
+    // These patterns are checked before execution for immediate rejection
     const dangerousPatterns = [
-      /\beval\s*\(/,
-      /\bFunction\s*\(/,
-      /\b__proto__\b/,
-      /\bconstructor\s*\[/,
-      /\bObject\.prototype\b/,
+      // Code execution attempts
+      /\beval\s*\(/i, // Direct eval call
+      /\bFunction\s*\(/i, // Function constructor
+      /\bnew\s+Function\s*\(/i, // new Function()
+
+      // Prototype pollution
+      /\b__proto__\b/, // Direct __proto__ access
+      /\bconstructor\s*\[/, // constructor["key"] access
+      /\bObject\.prototype\b/, // Object.prototype manipulation
+      /\bObject\.setPrototypeOf\b/, // setPrototypeOf
+      /\bObject\.getPrototypeOf\b/, // getPrototypeOf (reading can leak info)
+      /\bReflect\.setPrototypeOf\b/, // Reflect prototype manipulation
+
+      // Property access tricks
+      /\['constructor'\]/, // Bracket notation constructor access
+      /\["constructor"\]/, // Double quote variant
+      /\[`constructor`\]/, // Template literal variant
+      /\.constructor\s*\(/, // Direct constructor call
+      /\['__proto__'\]/, // Bracket proto access
+      /\["__proto__"\]/, // Double quote proto access
+
+      // Global/module access attempts
+      /\bprocess\b/, // Node.js process object
+      /\brequire\s*\(/i, // CommonJS require
+      /\bimport\s*\(/i, // Dynamic import
+      /\bimport\s+\*/i, // Static import
+      /\bglobalThis\b/, // Global reference
+      /\bself\b/, // Worker global scope
+      /\bwindow\b/, // Browser window
+      /\bdocument\b/, // DOM access
+
+      // Reflection and introspection
+      /\bReflect\b/, // Reflect API
+      /\bProxy\b/, // Proxy objects (can intercept operations)
+
+      // Module/export manipulation
+      /\bmodule\s*\./, // module.exports
+      /\bexports\s*\./, // exports object
+
+      // Timer abuse (could be used for timing attacks)
+      /\bsetTimeout\s*\(/i,
+      /\bsetInterval\s*\(/i,
+      /\bsetImmediate\s*\(/i,
     ];
 
     for (const pattern of dangerousPatterns) {

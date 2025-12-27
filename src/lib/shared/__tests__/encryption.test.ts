@@ -6,6 +6,10 @@ import {
   encryptSensitiveFields,
   decryptSensitiveFields,
   SENSITIVE_FIELDS,
+  generateLocalEncryptionKey,
+  parseEncryptionKey,
+  validateEncryptionKey,
+  shouldRotateKey,
 } from '../encryption';
 
 describe('Encryption Utilities', () => {
@@ -251,6 +255,129 @@ describe('Encryption Utilities', () => {
       expect(decrypted.name).toBe('plain');
       expect(decrypted.password).toBe('encrypted');
       expect(decrypted.count).toBe(42);
+    });
+  });
+
+  describe('generateLocalEncryptionKey', () => {
+    it('should generate a versioned key with correct format', () => {
+      const key = generateLocalEncryptionKey();
+
+      // Should start with version prefix
+      expect(key.startsWith('v1:')).toBe(true);
+
+      // Should contain algorithm
+      expect(key.includes('aes-gcm:')).toBe(true);
+
+      // Should have hex key (64 characters for 256 bits)
+      const parts = key.split(':');
+      expect(parts.length).toBe(3);
+      expect(parts[2]?.length).toBe(64);
+    });
+
+    it('should generate unique keys each time', () => {
+      const key1 = generateLocalEncryptionKey();
+      const key2 = generateLocalEncryptionKey();
+
+      expect(key1).not.toBe(key2);
+    });
+
+    it('should generate cryptographically strong keys', () => {
+      const key = generateLocalEncryptionKey();
+      const parsed = parseEncryptionKey(key);
+
+      // Key should be 64 hex characters (256 bits)
+      expect(parsed?.key.length).toBe(64);
+
+      // Key should only contain valid hex characters
+      expect(/^[0-9a-f]+$/.test(parsed?.key ?? '')).toBe(true);
+    });
+  });
+
+  describe('parseEncryptionKey', () => {
+    it('should parse versioned keys correctly', () => {
+      const key = 'v1:aes-gcm:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
+      const parsed = parseEncryptionKey(key);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed?.version).toBe(1);
+      expect(parsed?.algorithm).toBe('aes-gcm');
+      expect(parsed?.key).toBe('abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890');
+    });
+
+    it('should handle legacy keys (pre-versioning)', () => {
+      const legacyKey = 'some-legacy-key-without-version';
+      const parsed = parseEncryptionKey(legacyKey);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed?.version).toBe(0);
+      expect(parsed?.algorithm).toBe('legacy');
+      expect(parsed?.key).toBe(legacyKey);
+    });
+
+    it('should return null for malformed keys', () => {
+      expect(parseEncryptionKey('v1:')).toBeNull();
+      expect(parseEncryptionKey('v1:only-one-part')).toBeNull();
+    });
+
+    it('should handle keys with colons in the value', () => {
+      const key = 'v1:aes-gcm:key:with:colons';
+      const parsed = parseEncryptionKey(key);
+
+      expect(parsed?.key).toBe('key:with:colons');
+    });
+  });
+
+  describe('validateEncryptionKey', () => {
+    it('should validate correct versioned keys', () => {
+      const key = generateLocalEncryptionKey();
+      const result = validateEncryptionKey(key);
+
+      expect(result.valid).toBe(true);
+      expect(result.reason).toBeUndefined();
+    });
+
+    it('should reject empty keys', () => {
+      expect(validateEncryptionKey('').valid).toBe(false);
+      expect(validateEncryptionKey('').reason).toBe('Key is empty');
+    });
+
+    it('should reject keys with insufficient entropy', () => {
+      const shortKey = 'v1:aes-gcm:short';
+      const result = validateEncryptionKey(shortKey);
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('Key entropy too low');
+    });
+
+    it('should accept legacy keys', () => {
+      // Legacy keys are accepted but flagged for rotation
+      const legacyKey = 'some-old-legacy-key';
+      const result = validateEncryptionKey(legacyKey);
+
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe('shouldRotateKey', () => {
+    it('should recommend rotation for legacy keys', () => {
+      const legacyKey = 'navigator.userAgent|en-US|1920|1080|0|abc123';
+      expect(shouldRotateKey(legacyKey)).toBe(true);
+    });
+
+    it('should not recommend rotation for current version keys', () => {
+      const currentKey = generateLocalEncryptionKey();
+      expect(shouldRotateKey(currentKey)).toBe(false);
+    });
+
+    it('should recommend rotation for older version keys', () => {
+      // Simulate an older version key
+      const oldVersionKey = 'v0:aes-gcm:' + 'a'.repeat(64);
+      expect(shouldRotateKey(oldVersionKey)).toBe(true);
+    });
+
+    it('should recommend rotation for invalid keys', () => {
+      expect(shouldRotateKey('')).toBe(true);
+      expect(shouldRotateKey('v1:')).toBe(true);
     });
   });
 });

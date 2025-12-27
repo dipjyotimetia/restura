@@ -1,16 +1,21 @@
 /**
  * Client-side encryption utilities for sensitive data in localStorage
- * Uses Web Crypto API for AES-GCM encryption
+ * Uses Web Crypto API for AES-GCM encryption with secure key derivation
  */
 
 // Check if Web Crypto API is available
-const isCryptoAvailable = typeof window !== 'undefined' && window.crypto && window.crypto.subtle;
+const isCryptoAvailable =
+  typeof window !== 'undefined' && window.crypto && window.crypto.subtle;
 
 // Encryption key derivation settings
 const PBKDF2_ITERATIONS = 100000;
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
 const KEY_LENGTH = 256;
+
+// Key version for future rotation support
+const CURRENT_KEY_VERSION = 1;
+const KEY_BYTES_LENGTH = 32; // 256 bits
 
 /**
  * Generate a random salt
@@ -145,29 +150,109 @@ export async function decryptValue(encryptedValue: string, password: string): Pr
 }
 
 /**
- * Generate a secure random password for local encryption
- * Uses device fingerprint and user-provided salt
+ * Encryption key metadata for versioning and rotation support
+ */
+export interface EncryptionKeyMetadata {
+  version: number;
+  key: string;
+  createdAt: number;
+  algorithm: string;
+}
+
+/**
+ * Generate a cryptographically secure encryption key
+ * Uses Web Crypto API's getRandomValues for true randomness
+ *
+ * @returns A versioned key string with metadata prefix
  */
 export function generateLocalEncryptionKey(): string {
   if (!isCryptoAvailable) {
-    // Fallback for environments without Web Crypto
-    return 'fallback-key-' + Date.now().toString(36);
+    // Fallback for environments without Web Crypto (SSR, etc.)
+    // This should rarely happen in production
+    console.warn('Web Crypto API not available, using less secure fallback');
+    return `v${CURRENT_KEY_VERSION}:fallback:${Date.now().toString(36)}:${Math.random().toString(36).substring(2)}`;
   }
 
-  // Use a combination of browser/device information
-  const parts = [
-    navigator.userAgent,
-    navigator.language,
-    screen.width.toString(),
-    screen.height.toString(),
-    new Date().getTimezoneOffset().toString(),
-    // Add a random component for additional entropy
-    Array.from(crypto.getRandomValues(new Uint8Array(8)))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join(''),
-  ];
+  // Generate cryptographically secure random bytes
+  const keyBytes = crypto.getRandomValues(new Uint8Array(KEY_BYTES_LENGTH));
 
-  return parts.join('|');
+  // Convert to hex string for storage
+  const keyHex = Array.from(keyBytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  // Return versioned key format: v{version}:{algorithm}:{key}
+  // This allows future key rotation and algorithm changes
+  return `v${CURRENT_KEY_VERSION}:aes-gcm:${keyHex}`;
+}
+
+/**
+ * Parse a versioned encryption key to extract metadata
+ */
+export function parseEncryptionKey(key: string): EncryptionKeyMetadata | null {
+  // Handle legacy keys (pre-versioning)
+  if (!key.startsWith('v')) {
+    return {
+      version: 0,
+      key: key,
+      createdAt: 0,
+      algorithm: 'legacy',
+    };
+  }
+
+  const parts = key.split(':');
+  if (parts.length < 3) return null;
+
+  const version = parseInt(parts[0]?.substring(1) ?? '0', 10);
+  const algorithm = parts[1] ?? 'unknown';
+  const keyValue = parts.slice(2).join(':');
+
+  return {
+    version,
+    key: keyValue,
+    createdAt: 0, // Not stored in key string, managed externally
+    algorithm,
+  };
+}
+
+/**
+ * Validate that an encryption key meets security requirements
+ */
+export function validateEncryptionKey(key: string): {
+  valid: boolean;
+  reason?: string;
+} {
+  if (!key || key.length === 0) {
+    return { valid: false, reason: 'Key is empty' };
+  }
+
+  const parsed = parseEncryptionKey(key);
+  if (!parsed) {
+    return { valid: false, reason: 'Invalid key format' };
+  }
+
+  // Version 1+ keys should have at least 64 hex characters (256 bits)
+  if (parsed.version >= 1 && parsed.key.length < 64) {
+    return { valid: false, reason: 'Key entropy too low' };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Check if a key needs rotation (e.g., old version or compromised)
+ */
+export function shouldRotateKey(key: string): boolean {
+  const parsed = parseEncryptionKey(key);
+  if (!parsed) return true;
+
+  // Rotate if using legacy format
+  if (parsed.version === 0) return true;
+
+  // Rotate if version is older than current
+  if (parsed.version < CURRENT_KEY_VERSION) return true;
+
+  return false;
 }
 
 /**

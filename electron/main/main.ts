@@ -48,28 +48,59 @@ function registerIPCHandlers(): void {
   registerStoreHandlerIPC();
 }
 
-// Setup Content Security Policy for production
+// Content Security Policy configurations
+// External resources needed:
+// - Google Fonts: fonts.googleapis.com (stylesheets), fonts.gstatic.com (font files)
+// - Monaco Editor: cdn.jsdelivr.net (editor scripts and workers)
+const CSP_PRODUCTION = [
+  "default-src 'self' file:",
+  "script-src 'self' file: 'wasm-unsafe-eval' https://cdn.jsdelivr.net",
+  "style-src 'self' 'unsafe-inline' file: https://fonts.googleapis.com",
+  "img-src 'self' data: file: https:",
+  "font-src 'self' data: file: https://fonts.gstatic.com",
+  "connect-src 'self' https: wss:",
+  "worker-src 'self' blob: https://cdn.jsdelivr.net",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ');
+
+// Development CSP allows Vite dev server, HMR websocket, and external resources
+const CSP_DEVELOPMENT = [
+  "default-src 'self' http://localhost:5173",
+  // Allow inline scripts for Vite's HMR, Monaco Editor CDN for editor functionality
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173 'wasm-unsafe-eval' https://cdn.jsdelivr.net",
+  // Google Fonts stylesheets
+  "style-src 'self' 'unsafe-inline' http://localhost:5173 https://fonts.googleapis.com",
+  "img-src 'self' data: http://localhost:5173 https:",
+  // Google Fonts font files
+  "font-src 'self' data: http://localhost:5173 https://fonts.gstatic.com",
+  // Allow localhost and websocket for HMR
+  "connect-src 'self' http://localhost:5173 ws://localhost:5173 https: wss:",
+  // Monaco Editor web workers
+  "worker-src 'self' blob: https://cdn.jsdelivr.net",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self' http://localhost:5173",
+].join('; ');
+
+/**
+ * Setup Content Security Policy for both development and production
+ * CSP is always enabled to ensure consistent security behavior
+ */
 function setupContentSecurityPolicy(): void {
-  if (!isDev) {
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Content-Security-Policy': [
-            "default-src 'self' file:; " +
-              "script-src 'self' file: 'wasm-unsafe-eval'; " +
-              "style-src 'self' 'unsafe-inline' file:; " +
-              "img-src 'self' data: file: https:; " +
-              "font-src 'self' data: file:; " +
-              "connect-src 'self' https: wss:; " +
-              "frame-ancestors 'none'; " +
-              "base-uri 'self'; " +
-              "form-action 'self';",
-          ],
-        },
-      });
+  const cspPolicy = isDev ? CSP_DEVELOPMENT : CSP_PRODUCTION;
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [cspPolicy],
+      },
     });
-  }
+  });
+
+  console.log(`[Security] CSP enabled (${isDev ? 'development' : 'production'} mode)`);
 }
 
 // Setup security measures

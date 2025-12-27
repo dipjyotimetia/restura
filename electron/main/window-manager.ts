@@ -87,10 +87,21 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
     ...(getIconPath(isDev) && { icon: getIconPath(isDev) }),
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
+      // Core security - these are critical
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      // Additional security hardening
+      allowRunningInsecureContent: false, // Block HTTP content on HTTPS pages
+      experimentalFeatures: false, // Disable experimental Chromium features
+      navigateOnDragDrop: false, // Prevent navigation via drag and drop
+      autoplayPolicy: 'user-gesture-required', // Require user interaction for media
+      spellcheck: true, // Enable spellcheck for user input
+      // Disable potentially dangerous features
+      enableBlinkFeatures: '', // No experimental Blink features
+      // Note: disableBlinkFeatures commented out as it may cause compatibility issues
+      // disableBlinkFeatures: 'Auxclick', // Disable auxiliary click
     },
     show: false,
     backgroundColor: '#0a0a0a',

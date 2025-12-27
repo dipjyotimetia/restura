@@ -1,6 +1,143 @@
 import { z } from 'zod';
 
 // ===========================
+// Rate Limiting
+// ===========================
+
+/**
+ * Rate limit configuration per channel
+ * limit: max requests allowed in window
+ * windowMs: time window in milliseconds
+ */
+interface RateLimitConfig {
+  limit: number;
+  windowMs: number;
+}
+
+/**
+ * Rate limits for different IPC channels
+ * Adjust these values based on expected usage patterns
+ */
+const RATE_LIMITS: Record<string, RateLimitConfig> = {
+  // HTTP requests - allow burst of API testing
+  'http:request': { limit: 100, windowMs: 1000 },
+
+  // File operations - moderate limits
+  'fs:readFile': { limit: 50, windowMs: 1000 },
+  'fs:writeFile': { limit: 20, windowMs: 1000 },
+  'fs:selectFile': { limit: 10, windowMs: 1000 },
+  'fs:selectDirectory': { limit: 10, windowMs: 1000 },
+  'fs:saveFile': { limit: 20, windowMs: 1000 },
+
+  // Store operations - higher limits for app state
+  'store:set': { limit: 100, windowMs: 1000 },
+  'store:get': { limit: 200, windowMs: 1000 },
+  'store:delete': { limit: 50, windowMs: 1000 },
+
+  // gRPC operations
+  'grpc:request': { limit: 50, windowMs: 1000 },
+  'grpc:reflect': { limit: 20, windowMs: 1000 },
+  'grpc:send-message': { limit: 100, windowMs: 1000 },
+
+  // Notification operations - prevent spam
+  'notification:show': { limit: 5, windowMs: 1000 },
+
+  // Shell operations - very restrictive
+  'shell:openExternal': { limit: 5, windowMs: 1000 },
+
+  // Collection operations
+  'collections:list': { limit: 30, windowMs: 1000 },
+  'collections:get': { limit: 50, windowMs: 1000 },
+  'collections:save': { limit: 20, windowMs: 1000 },
+  'collections:delete': { limit: 10, windowMs: 1000 },
+};
+
+/**
+ * Rate limiter using sliding window algorithm
+ */
+class IPCRateLimiter {
+  private counters = new Map<string, { count: number; windowStart: number }>();
+
+  /**
+   * Check if a request to the given channel is allowed
+   * Returns true if allowed, false if rate limited
+   */
+  isAllowed(channel: string): boolean {
+    const config = RATE_LIMITS[channel];
+
+    // If no rate limit configured, allow all requests
+    if (!config) return true;
+
+    const now = Date.now();
+    const counter = this.counters.get(channel);
+
+    // First request or window expired - reset counter
+    if (!counter || now - counter.windowStart >= config.windowMs) {
+      this.counters.set(channel, { count: 1, windowStart: now });
+      return true;
+    }
+
+    // Check if within limit
+    if (counter.count >= config.limit) {
+      console.warn(`[Rate Limit] Channel ${channel} exceeded limit (${config.limit}/${config.windowMs}ms)`);
+      return false;
+    }
+
+    // Increment counter
+    counter.count++;
+    return true;
+  }
+
+  /**
+   * Get remaining requests for a channel
+   */
+  getRemaining(channel: string): number {
+    const config = RATE_LIMITS[channel];
+    if (!config) return Infinity;
+
+    const counter = this.counters.get(channel);
+    if (!counter) return config.limit;
+
+    const now = Date.now();
+    if (now - counter.windowStart >= config.windowMs) {
+      return config.limit;
+    }
+
+    return Math.max(0, config.limit - counter.count);
+  }
+
+  /**
+   * Reset the rate limiter (useful for testing)
+   */
+  reset(): void {
+    this.counters.clear();
+  }
+
+  /**
+   * Get rate limit config for a channel (for informational purposes)
+   */
+  getConfig(channel: string): RateLimitConfig | undefined {
+    return RATE_LIMITS[channel];
+  }
+}
+
+// Singleton rate limiter instance
+export const rateLimiter = new IPCRateLimiter();
+
+/**
+ * Error thrown when rate limit is exceeded
+ */
+export class RateLimitError extends Error {
+  constructor(
+    channel: string,
+    public readonly retryAfterMs: number
+  ) {
+    super(`Rate limit exceeded for ${channel}. Try again in ${Math.ceil(retryAfterMs)}ms`);
+    this.name = 'RateLimitError';
+  }
+}
+
+// ===========================
 // HTTP Request Schemas
 // ===========================
 
@@ -134,6 +271,31 @@ export const GrpcStreamMessageSchema = z.unknown(); // Allow any message structu
 export const GrpcSendMessageSchema = z.tuple([GrpcStreamRequestIdSchema, GrpcStreamMessageSchema]);
 
 // ===========================
+// Store Schemas
+// ===========================
+
+/**
+ * Store key schema - validates keys used in electron-store
+ * Prevents injection and ensures keys are reasonable
+ */
+export const StoreKeySchema = z
+  .string()
+  .min(1, 'Store key is required')
+  .max(256, 'Store key too long (max 256 characters)')
+  .regex(/^[a-zA-Z0-9_.-]+$/, 'Store key contains invalid characters (allowed: a-z, A-Z, 0-9, _, ., -)');
+
+/**
+ * Store value schema - validates values stored in electron-store
+ * Limits size to prevent memory issues
+ */
+export const StoreValueSchema = z.string().max(10 * 1024 * 1024, 'Store value exceeds 10MB limit');
+
+/**
+ * Combined schema for store:set which takes both key and value
+ */
+export const StoreSetSchema = z.tuple([StoreKeySchema, StoreValueSchema]);
+
+// ===========================
 // Validation Helper
 // ===========================
 
@@ -160,19 +322,51 @@ export function validateIpcInput<T>(schema: z.ZodSchema<T>, data: unknown, chann
 }
 
 /**
- * Creates a validated IPC handler with automatic error handling
+ * Options for creating a validated handler
+ */
+interface ValidatedHandlerOptions {
+  /** Skip rate limiting for this handler */
+  skipRateLimit?: boolean;
+}
+
+/**
+ * Creates a validated IPC handler with automatic error handling and rate limiting
  */
 export function createValidatedHandler<TInput, TOutput>(
   channel: string,
   schema: z.ZodSchema<TInput>,
-  handler: (input: TInput) => Promise<TOutput> | TOutput
+  handler: (input: TInput) => Promise<TOutput> | TOutput,
+  options: ValidatedHandlerOptions = {}
 ): (_event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
   return async (_event, ...args) => {
+    // Apply rate limiting unless skipped
+    if (!options.skipRateLimit && !rateLimiter.isAllowed(channel)) {
+      const config = rateLimiter.getConfig(channel);
+      throw new RateLimitError(channel, config?.windowMs ?? 1000);
+    }
+
     // For handlers with single argument, validate it directly
     // For handlers with multiple arguments, validate the first one
     const input = args.length === 1 ? args[0] : args;
     const validated = validateIpcInput(schema, input, channel);
     return handler(validated as TInput);
+  };
+}
+
+/**
+ * Creates a rate-limited IPC handler WITHOUT schema validation
+ * Use this for handlers that don't need input validation but should be rate limited
+ */
+export function createRateLimitedHandler<TOutput>(
+  channel: string,
+  handler: (...args: unknown[]) => Promise<TOutput> | TOutput
+): (_event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
+  return async (_event, ...args) => {
+    if (!rateLimiter.isAllowed(channel)) {
+      const config = rateLimiter.getConfig(channel);
+      throw new RateLimitError(channel, config?.windowMs ?? 1000);
+    }
+    return handler(...args);
   };
 }
 

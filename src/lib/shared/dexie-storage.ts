@@ -10,21 +10,80 @@ import {
   decryptValue,
   generateLocalEncryptionKey,
   isEncrypted,
+  validateEncryptionKey,
+  shouldRotateKey,
 } from './encryption';
 import { isElectron, getElectronAPI } from './platform';
 
 // Storage key for the encryption key
 const ENCRYPTION_KEY_STORAGE = 'restura-dexie-encryption-key';
 
-// Singleton encryption key cache
-let cachedEncryptionKey: string | null = null;
+// Key cache timeout (30 minutes of inactivity)
+const KEY_CACHE_TIMEOUT_MS = 30 * 60 * 1000;
+
+// Singleton encryption key cache with expiration
+interface CachedKey {
+  key: string;
+  cachedAt: number;
+  lastAccessedAt: number;
+}
+
+let cachedEncryptionKey: CachedKey | null = null;
+
+/**
+ * Check if the cached key has expired due to inactivity
+ */
+function isKeyCacheExpired(): boolean {
+  if (!cachedEncryptionKey) return true;
+
+  const now = Date.now();
+  const timeSinceLastAccess = now - cachedEncryptionKey.lastAccessedAt;
+
+  return timeSinceLastAccess > KEY_CACHE_TIMEOUT_MS;
+}
+
+/**
+ * Update the last accessed time for the cached key
+ */
+function touchKeyCache(): void {
+  if (cachedEncryptionKey) {
+    cachedEncryptionKey.lastAccessedAt = Date.now();
+  }
+}
+
+/**
+ * Clear the encryption key cache (call on logout/session end)
+ */
+export function clearEncryptionKeyCache(): void {
+  cachedEncryptionKey = null;
+}
+
+/**
+ * Store a key in the cache with timestamps
+ */
+function cacheKey(key: string): void {
+  const now = Date.now();
+  cachedEncryptionKey = {
+    key,
+    cachedAt: now,
+    lastAccessedAt: now,
+  };
+}
 
 /**
  * Get or generate the encryption key for Dexie storage
+ * Includes key validation, rotation for legacy keys, and cache expiration
  */
 async function getEncryptionKey(): Promise<string> {
-  if (cachedEncryptionKey) {
-    return cachedEncryptionKey;
+  // Check if we have a valid cached key
+  if (cachedEncryptionKey && !isKeyCacheExpired()) {
+    touchKeyCache();
+    return cachedEncryptionKey.key;
+  }
+
+  // Clear expired cache
+  if (isKeyCacheExpired()) {
+    cachedEncryptionKey = null;
   }
 
   if (typeof window === 'undefined') {
@@ -38,14 +97,26 @@ async function getEncryptionKey(): Promise<string> {
       try {
         const storedKey = await api.store.get(ENCRYPTION_KEY_STORAGE);
         if (storedKey) {
-          cachedEncryptionKey = storedKey;
-          return storedKey;
+          // Validate the stored key
+          const validation = validateEncryptionKey(storedKey);
+          if (validation.valid) {
+            // Check if key needs rotation (legacy format)
+            if (shouldRotateKey(storedKey)) {
+              console.info('Encryption key uses legacy format, rotation recommended');
+              // Note: Actual rotation would require re-encrypting all data
+              // For now, we continue using the legacy key but log the recommendation
+            }
+            cacheKey(storedKey);
+            return storedKey;
+          } else {
+            console.warn('Stored encryption key invalid:', validation.reason);
+          }
         }
 
-        // Generate and store new key
+        // Generate and store new secure key
         const newKey = generateLocalEncryptionKey();
         await api.store.set(ENCRYPTION_KEY_STORAGE, newKey);
-        cachedEncryptionKey = newKey;
+        cacheKey(newKey);
         return newKey;
       } catch (error) {
         console.error('Failed to get encryption key from electron-store:', error);
@@ -57,20 +128,30 @@ async function getEncryptionKey(): Promise<string> {
   try {
     const metadata = await db.metadata.get(ENCRYPTION_KEY_STORAGE);
     if (metadata) {
-      cachedEncryptionKey = metadata.value;
-      return metadata.value;
+      // Validate the stored key
+      const validation = validateEncryptionKey(metadata.value);
+      if (validation.valid) {
+        // Check if key needs rotation
+        if (shouldRotateKey(metadata.value)) {
+          console.info('Encryption key uses legacy format, rotation recommended');
+        }
+        cacheKey(metadata.value);
+        return metadata.value;
+      } else {
+        console.warn('Stored encryption key invalid:', validation.reason);
+      }
     }
 
-    // Generate and store new key
+    // Generate and store new secure key
     const newKey = generateLocalEncryptionKey();
     await db.metadata.put({ key: ENCRYPTION_KEY_STORAGE, value: newKey });
-    cachedEncryptionKey = newKey;
+    cacheKey(newKey);
     return newKey;
   } catch (error) {
     console.error('Failed to get encryption key from IndexedDB:', error);
-    // Final fallback
+    // Final fallback - generate in-memory key
     const fallbackKey = generateLocalEncryptionKey();
-    cachedEncryptionKey = fallbackKey;
+    cacheKey(fallbackKey);
     return fallbackKey;
   }
 }
