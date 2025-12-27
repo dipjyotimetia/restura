@@ -29,7 +29,12 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold data-[state=active]:shadow-md data-[state=active]:border data-[state=active]:border-primary/40 hover:text-foreground/80 hover:bg-background/50',
+      'relative inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+      'hover:text-foreground/80 hover:bg-background/50',
+      'data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold data-[state=active]:shadow-md data-[state=active]:border data-[state=active]:border-primary/30',
+      // Gradient underline indicator for active state
+      'after:absolute after:bottom-0 after:left-1/4 after:right-1/4 after:h-0.5 after:rounded-full after:bg-gradient-to-r after:from-primary/0 after:via-primary after:to-primary/0 after:opacity-0 after:scale-x-0 after:transition-all after:duration-200',
+      'data-[state=active]:after:opacity-100 data-[state=active]:after:scale-x-100',
       className
     )}
     {...props}

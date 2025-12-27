@@ -8,16 +8,38 @@ import { HttpMethod } from '@/types';
 import { Send, Code2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 
-// Method color mapping with icons for better accessibility
-const methodColors: Record<string, string> = {
-  GET: 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30 hover:bg-green-500/20',
-  POST: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/20',
-  PUT: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/20',
-  DELETE: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/20',
-  PATCH: 'bg-slate-blue-500/10 text-slate-blue-600 dark:text-slate-blue-400 border-slate-blue-500/30 hover:bg-slate-blue-500/20',
-  OPTIONS: 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30 hover:bg-gray-500/20',
-  HEAD: 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30 hover:bg-gray-500/20',
+// Enhanced method color mapping with glow effects
+const methodStyles: Record<string, { base: string; glow: string }> = {
+  GET: {
+    base: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25',
+    glow: 'shadow-[0_0_12px_-3px] shadow-emerald-500/30',
+  },
+  POST: {
+    base: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/25',
+    glow: 'shadow-[0_0_12px_-3px] shadow-amber-500/30',
+  },
+  PUT: {
+    base: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/25',
+    glow: 'shadow-[0_0_12px_-3px] shadow-blue-500/30',
+  },
+  DELETE: {
+    base: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/25',
+    glow: 'shadow-[0_0_12px_-3px] shadow-red-500/30',
+  },
+  PATCH: {
+    base: 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30 hover:bg-violet-500/25',
+    glow: 'shadow-[0_0_12px_-3px] shadow-violet-500/30',
+  },
+  OPTIONS: {
+    base: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30 hover:bg-slate-500/25',
+    glow: 'shadow-[0_0_12px_-3px] shadow-slate-500/30',
+  },
+  HEAD: {
+    base: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30 hover:bg-slate-500/25',
+    glow: 'shadow-[0_0_12px_-3px] shadow-slate-500/30',
+  },
 };
+
 
 // Method icons for non-color indicators (accessibility)
 const methodIcons: Record<string, string> = {
@@ -83,28 +105,37 @@ export default function RequestLine({
         <Select value={method} onValueChange={(value) => onMethodChange(value as HttpMethod)}>
           <SelectTrigger
             className={cn(
-              'w-32 font-mono font-semibold border-2 transition-colors bg-background border-border',
-              methodColors[method]
+              'w-28 font-mono font-bold tracking-tight border transition-all duration-200 bg-background',
+              methodStyles[method]?.base,
+              methodStyles[method]?.glow
             )}
             aria-label="HTTP Method"
           >
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="bg-popover border-border">
-            {Object.keys(methodColors).map((m) => (
+            {Object.keys(methodStyles).map((m) => (
               <SelectItem key={m} value={m} className="font-mono font-semibold">
                 <span className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded bg-current/10 flex items-center justify-center text-xs font-bold">
+                  <span className={cn(
+                    "w-5 h-5 rounded flex items-center justify-center text-xs font-bold",
+                    m === 'GET' && 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+                    m === 'POST' && 'bg-amber-500/20 text-amber-600 dark:text-amber-400',
+                    m === 'PUT' && 'bg-blue-500/20 text-blue-600 dark:text-blue-400',
+                    m === 'DELETE' && 'bg-red-500/20 text-red-600 dark:text-red-400',
+                    m === 'PATCH' && 'bg-violet-500/20 text-violet-600 dark:text-violet-400',
+                    (m === 'OPTIONS' || m === 'HEAD') && 'bg-slate-500/20 text-slate-600 dark:text-slate-400'
+                  )}>
                     {methodIcons[m]}
                   </span>
                   <span
                     className={cn(
-                      m === 'GET' && 'text-green-600 dark:text-green-400',
-                      m === 'POST' && 'text-yellow-600 dark:text-yellow-400',
+                      m === 'GET' && 'text-emerald-600 dark:text-emerald-400',
+                      m === 'POST' && 'text-amber-600 dark:text-amber-400',
                       m === 'PUT' && 'text-blue-600 dark:text-blue-400',
                       m === 'DELETE' && 'text-red-600 dark:text-red-400',
-                      m === 'PATCH' && 'text-slate-blue-600 dark:text-slate-blue-400',
-                      (m === 'OPTIONS' || m === 'HEAD') && 'text-gray-600 dark:text-gray-400'
+                      m === 'PATCH' && 'text-violet-600 dark:text-violet-400',
+                      (m === 'OPTIONS' || m === 'HEAD') && 'text-slate-600 dark:text-slate-400'
                     )}
                   >
                     {m}

@@ -1,9 +1,21 @@
+/* Geist Font Family - Modern geometric sans-serif */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @import "tailwindcss";
 
 @layer base {
   :root {
+    /* Font families */
+    --font-sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+
+    /* Standardized icon sizing scale */
+    --icon-xs: 0.75rem;   /* 12px - Inline with text, badges */
+    --icon-sm: 0.875rem;  /* 14px - Default for buttons, inputs */
+    --icon-md: 1rem;      /* 16px - Headers, prominent actions */
+    --icon-lg: 1.25rem;   /* 20px - Empty states, modal icons */
+    --icon-xl: 1.5rem;    /* 24px - Hero icons */
+
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
     --card: 0 0% 100%;
@@ -27,12 +39,19 @@
     --success: 142 71% 45%;
     --warning: 38 92% 50%;
     --info: 199 89% 48%;
+
+    /* Protocol-specific accent colors */
+    --protocol-http: 142 71% 45%;     /* Emerald/Green */
+    --protocol-graphql: 330 81% 60%;  /* Pink/Magenta */
+    --protocol-grpc: 187 92% 50%;     /* Cyan */
+    --protocol-websocket: 38 92% 50%; /* Amber */
+
     /* Surface elevation system */
     --surface-0: 0 0% 100%;
     --surface-1: 240 4.8% 99%;
     --surface-2: 240 4.8% 97%;
     --surface-3: 240 4.8% 94%;
-    
+
     /* Semantic border opacities */
     --border-subtle: 0.06;
     --border-default: 0.10;
@@ -60,6 +79,13 @@
     --border: 240 5% 22%;
     --input: 240 5% 22%;
     --ring: 240 4.9% 83.9%;
+
+    /* Protocol colors - slightly adjusted for dark mode visibility */
+    --protocol-http: 142 71% 50%;
+    --protocol-graphql: 330 81% 65%;
+    --protocol-grpc: 187 92% 55%;
+    --protocol-websocket: 38 92% 55%;
+
     /* Surface elevation system */
     --surface-0: 240 10% 3.9%;
     --surface-1: 240 10% 7%;
@@ -75,10 +101,15 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+    font-family: var(--font-sans);
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Monospace for code elements */
+  code, kbd, pre, samp {
+    font-family: var(--font-mono);
   }
 }
 
@@ -167,6 +198,111 @@
 
   .app-no-drag {
     -webkit-app-region: no-drag;
+  }
+
+  /* Standardized icon sizing utilities */
+  .icon-xs { width: var(--icon-xs); height: var(--icon-xs); }
+  .icon-sm { width: var(--icon-sm); height: var(--icon-sm); }
+  .icon-md { width: var(--icon-md); height: var(--icon-md); }
+  .icon-lg { width: var(--icon-lg); height: var(--icon-lg); }
+  .icon-xl { width: var(--icon-xl); height: var(--icon-xl); }
+
+  /* Font mono utility */
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Protocol indicator colors */
+  .protocol-http { color: hsl(var(--protocol-http)); }
+  .protocol-graphql { color: hsl(var(--protocol-graphql)); }
+  .protocol-grpc { color: hsl(var(--protocol-grpc)); }
+  .protocol-websocket { color: hsl(var(--protocol-websocket)); }
+
+  .bg-protocol-http { background-color: hsl(var(--protocol-http) / 0.15); }
+  .bg-protocol-graphql { background-color: hsl(var(--protocol-graphql) / 0.15); }
+  .bg-protocol-grpc { background-color: hsl(var(--protocol-grpc) / 0.15); }
+  .bg-protocol-websocket { background-color: hsl(var(--protocol-websocket) / 0.15); }
+
+  .border-protocol-http { border-color: hsl(var(--protocol-http) / 0.3); }
+  .border-protocol-graphql { border-color: hsl(var(--protocol-graphql) / 0.3); }
+  .border-protocol-grpc { border-color: hsl(var(--protocol-grpc) / 0.3); }
+  .border-protocol-websocket { border-color: hsl(var(--protocol-websocket) / 0.3); }
+
+  /* Protocol glow effects */
+  .glow-protocol-http { box-shadow: 0 0 16px -4px hsl(var(--protocol-http) / 0.4); }
+  .glow-protocol-graphql { box-shadow: 0 0 16px -4px hsl(var(--protocol-graphql) / 0.4); }
+  .glow-protocol-grpc { box-shadow: 0 0 16px -4px hsl(var(--protocol-grpc) / 0.4); }
+  .glow-protocol-websocket { box-shadow: 0 0 16px -4px hsl(var(--protocol-websocket) / 0.4); }
+
+  /* Tab indicator animation */
+  .tab-indicator {
+    position: relative;
+  }
+
+  .tab-indicator::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--primary) / 0),
+      hsl(var(--primary)),
+      hsl(var(--primary) / 0)
+    );
+    border-radius: 1px;
+    opacity: 0;
+    transform: scaleX(0);
+    transition: all 0.2s ease-out;
+  }
+
+  .tab-indicator[data-state="active"]::after {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+
+  /* Status glow effects */
+  .glow-success { box-shadow: 0 0 16px -4px hsl(var(--success) / 0.4); }
+  .glow-warning { box-shadow: 0 0 16px -4px hsl(var(--warning) / 0.4); }
+  .glow-destructive { box-shadow: 0 0 16px -4px hsl(var(--destructive) / 0.4); }
+  .glow-info { box-shadow: 0 0 16px -4px hsl(var(--info) / 0.4); }
+
+  /* Unified empty state container */
+  .empty-state-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-top: 3rem;
+    padding-bottom: 3rem;
+    text-align: center;
+  }
+
+  .empty-state-icon {
+    height: 3rem;
+    width: 3rem;
+    border-radius: 0.75rem;
+    background-color: hsl(var(--muted) / 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+    border: 1px solid hsl(var(--border) / 0.3);
+  }
+
+  .empty-state-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: hsl(var(--foreground) / 0.8);
+    margin-bottom: 0.25rem;
+  }
+
+  .empty-state-description {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    max-width: 12rem;
   }
 }
 

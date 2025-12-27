@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import { Moon, Sun, FolderOpen, Globe, Settings2 } from 'lucide-react';
+import { Moon, Sun, FolderOpen, Globe, Settings2, Zap, Share2, Cpu, Radio } from 'lucide-react';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { useEffect, useState } from 'react';
 import EnvironmentManager from '@/features/environments/components/EnvironmentManager';
@@ -15,6 +15,34 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/shared/utils';
 import type { RequestMode } from '@/types';
+
+// Protocol configuration with icons and colors
+const protocolConfig: Record<RequestMode, { icon: typeof Zap; label: string; colorClass: string; glowClass: string }> = {
+  http: {
+    icon: Zap,
+    label: 'HTTP',
+    colorClass: 'protocol-http bg-protocol-http border-protocol-http',
+    glowClass: 'glow-protocol-http',
+  },
+  graphql: {
+    icon: Share2,
+    label: 'GraphQL',
+    colorClass: 'protocol-graphql bg-protocol-graphql border-protocol-graphql',
+    glowClass: 'glow-protocol-graphql',
+  },
+  grpc: {
+    icon: Cpu,
+    label: 'gRPC',
+    colorClass: 'protocol-grpc bg-protocol-grpc border-protocol-grpc',
+    glowClass: 'glow-protocol-grpc',
+  },
+  websocket: {
+    icon: Radio,
+    label: 'WS',
+    colorClass: 'protocol-websocket bg-protocol-websocket border-protocol-websocket',
+    glowClass: 'glow-protocol-websocket',
+  },
+};
 
 interface HeaderProps {
   requestMode: RequestMode;
@@ -112,37 +140,47 @@ export default function Header({
   }
 
   return (
-    <header className="relative z-50 flex h-14 items-center justify-between border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 shadow-sm transition-all app-drag">
+    <header className="relative z-50 flex h-14 items-center justify-between border-b border-border/50 bg-gradient-to-b from-surface-2 to-surface-1 backdrop-blur-md supports-[backdrop-filter]:bg-surface-1/80 px-4 shadow-elevation-1 transition-all app-drag">
       <div className="flex items-center gap-6">
-        {/* Logo & Title */}
-        <div className="flex items-center gap-2.5 select-none">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm">
-            <span className="text-lg font-bold tracking-tighter">R</span>
+        {/* Logo & Title - Enhanced with subtle glow */}
+        <div className="flex items-center gap-2.5 select-none group">
+          <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-md group-hover:shadow-lg transition-shadow">
+            <span className="text-lg font-bold tracking-tighter font-mono">R</span>
+            <div className="absolute inset-0 rounded-lg bg-primary/20 opacity-0 group-hover:opacity-100 blur-md transition-opacity" />
           </div>
           <span className="font-semibold tracking-tight text-sm hidden sm:inline-block">Restura</span>
         </div>
 
-        <div className="h-6 w-px bg-border/60 hidden sm:block" />
+        <div className="h-6 w-px bg-border/40 hidden sm:block" />
 
-        {/* Request Mode Selector - Segmented Control Style */}
+        {/* Request Mode Selector - Enhanced with Protocol Colors */}
         <div className="flex items-center rounded-lg bg-muted/80 p-0.5 lg:p-1 border border-border/40 shadow-sm backdrop-blur-sm app-no-drag" role="tablist" aria-label="Request mode selector">
-            {['http', 'graphql', 'grpc', 'websocket'].map((mode) => (
-              <button
-                key={mode}
-                onClick={() => handleRequestModeChange(mode as RequestMode)}
-                className={cn(
-                  "relative px-2 lg:px-3 py-1 lg:py-1.5 text-[10px] lg:text-xs font-medium rounded-md transition-all duration-200 app-no-drag",
-                  requestMode === mode
-                    ? "bg-background text-foreground shadow border border-border/50"
-                    : "text-muted-foreground hover:text-foreground hover:bg-background/50"
-                )}
-                role="tab"
-                aria-selected={requestMode === mode}
-                aria-label={`Switch to ${mode.toUpperCase()} mode`}
-              >
-                {mode === 'http' ? 'HTTP' : mode === 'graphql' ? 'GraphQL' : mode === 'grpc' ? 'gRPC' : 'WS'}
-              </button>
-            ))}
+            {(Object.keys(protocolConfig) as RequestMode[]).map((mode) => {
+              const config = protocolConfig[mode];
+              const Icon = config.icon;
+              const isActive = requestMode === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => handleRequestModeChange(mode)}
+                  className={cn(
+                    "relative flex items-center gap-1 lg:gap-1.5 px-2 lg:px-3 py-1 lg:py-1.5 text-[10px] lg:text-xs font-medium rounded-md transition-all duration-200 app-no-drag",
+                    isActive
+                      ? cn("bg-background text-foreground shadow-md border", config.glowClass)
+                      : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                  )}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-label={`Switch to ${config.label} mode`}
+                >
+                  <Icon className={cn(
+                    "h-3 w-3 lg:h-3.5 lg:w-3.5 transition-colors",
+                    isActive && config.colorClass.split(' ')[0]
+                  )} />
+                  <span className="hidden sm:inline">{config.label}</span>
+                </button>
+              );
+            })}
         </div>
       </div>
 

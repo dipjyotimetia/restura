@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -53,12 +53,50 @@ const detectLanguage = (body: string, headers: Record<string, string | string[]>
   return 'text';
 };
 
+// Enhanced status styling with glow effects
 const getStatusColor = (status: number) => {
-  if (status >= 200 && status < 300) return 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
-  if (status >= 300 && status < 400) return 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800';
-  if (status >= 400 && status < 500) return 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800';
-  if (status >= 500) return 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800';
-  return 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-400 border-slate-200 dark:border-slate-700';
+  if (status >= 200 && status < 300) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 glow-success';
+  if (status >= 300 && status < 400) return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 glow-info';
+  if (status >= 400 && status < 500) return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 glow-warning';
+  if (status >= 500) return 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 glow-destructive';
+  return 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/30';
+};
+
+// Header category grouping for better organization
+const HEADER_CATEGORIES: Record<string, string[]> = {
+  'Content': ['content-type', 'content-length', 'content-encoding', 'content-language', 'content-disposition'],
+  'Cache': ['cache-control', 'etag', 'expires', 'last-modified', 'age', 'vary'],
+  'Security': ['strict-transport-security', 'x-frame-options', 'x-content-type-options', 'x-xss-protection', 'content-security-policy'],
+  'CORS': ['access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers', 'access-control-allow-credentials'],
+  'Connection': ['connection', 'keep-alive', 'transfer-encoding'],
+};
+
+const categorizeHeader = (headerName: string): string => {
+  const lowerName = headerName.toLowerCase();
+  for (const [category, headers] of Object.entries(HEADER_CATEGORIES)) {
+    if (headers.includes(lowerName)) return category;
+  }
+  return 'Other';
+};
+
+const groupHeaders = (headers: Record<string, string | string[]>): Record<string, [string, string | string[]][]> => {
+  const grouped: Record<string, [string, string | string[]][]> = {};
+
+  for (const [key, value] of Object.entries(headers)) {
+    const category = categorizeHeader(key);
+    if (!grouped[category]) grouped[category] = [];
+    grouped[category].push([key, value]);
+  }
+
+  // Sort categories: Content first, Other last
+  const sortedCategories = ['Content', 'Cache', 'Security', 'CORS', 'Connection', 'Other'];
+  const result: Record<string, [string, string | string[]][]> = {};
+
+  for (const cat of sortedCategories) {
+    if (grouped[cat]) result[cat] = grouped[cat];
+  }
+
+  return result;
 };
 
 const getStatusIcon = (status: number) => {
@@ -155,18 +193,18 @@ function ResponseViewer() {
   if (!currentResponse) {
     return (
       <div className="h-full flex items-center justify-center bg-background relative z-20 border-l border-border">
-        <div className="text-center p-8 rounded-xl bg-muted/80 border border-border max-w-md shadow-lg">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-gradient-to-br from-slate-blue-100 to-indigo-100 dark:from-slate-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
-            <Zap className="h-7 w-7 text-slate-blue-600 dark:text-slate-blue-400" />
+        <div className="empty-state-container max-w-md px-8">
+          <div className="empty-state-icon h-14 w-14 rounded-xl">
+            <Zap className="icon-lg text-muted-foreground/60" />
           </div>
-          <p className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-1.5 tracking-tight">Ready to Send</p>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+          <h4 className="text-base font-semibold text-foreground/90 mb-1.5 tracking-tight">Ready to Send</h4>
+          <p className="text-sm text-muted-foreground mb-4 max-w-xs">
             Configure your request and hit Send to see the response
           </p>
-          <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <kbd className="px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-[10px] font-mono shadow-sm">⌘</kbd>
+          <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+            <kbd className="px-2 py-1 bg-surface-2 border border-border/50 rounded text-[10px] font-mono shadow-sm">⌘</kbd>
             <span>+</span>
-            <kbd className="px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-[10px] font-mono shadow-sm">Enter</kbd>
+            <kbd className="px-2 py-1 bg-surface-2 border border-border/50 rounded text-[10px] font-mono shadow-sm">Enter</kbd>
             <span className="ml-1.5">to send request</span>
           </div>
         </div>
@@ -297,37 +335,62 @@ function ResponseViewer() {
           </TabsContent>
 
           <TabsContent value="headers" className="flex-1 overflow-auto p-0 m-0 min-h-0">
-            <div className="p-4 space-y-2">
-              {Object.entries(currentResponse.headers).map(([key, value]) => (
-                <div
-                  key={key}
-                  className="group flex gap-2 lg:gap-3 p-2 lg:p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 text-[10px] lg:text-xs transition-all"
-                >
-                  <span className="font-semibold min-w-[120px] lg:min-w-[180px] text-slate-blue-700 dark:text-slate-blue-300 truncate">{key}:</span>
-                  <span className="text-slate-600 dark:text-slate-400 break-all flex-1">
-                    {Array.isArray(value) ? value.join(', ') : value}
-                  </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                        onClick={() => handleCopyHeader(key, String(value))}
-                      >
-                        {copiedHeader === key ? (
-                          <Check className="h-3 w-3 text-emerald-600" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{copiedHeader === key ? 'Copied!' : 'Copy header'}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              ))}
+            <div className="p-3">
+              {/* Grouped headers table */}
+              <table className="w-full font-mono text-xs">
+                <thead>
+                  <tr className="text-muted-foreground/60 uppercase tracking-wider text-[10px]">
+                    <th className="text-left py-2 px-3 w-1/3">Header</th>
+                    <th className="text-left py-2 px-3">Value</th>
+                    <th className="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(groupHeaders(currentResponse.headers)).map(([category, headers]) => (
+                    <React.Fragment key={category}>
+                      {/* Category header row */}
+                      <tr className="border-t border-border/30">
+                        <td colSpan={3} className="py-1.5 px-3 text-[10px] uppercase tracking-wider text-muted-foreground/50 bg-muted/30 font-sans font-medium">
+                          {category}
+                        </td>
+                      </tr>
+                      {/* Header rows in this category */}
+                      {headers.map(([key, value]) => (
+                        <tr
+                          key={key}
+                          className="group border-t border-border/20 hover:bg-muted/20 transition-colors"
+                        >
+                          <td className="py-2 px-3 text-primary/80 font-semibold align-top">{key}</td>
+                          <td className="py-2 px-3 text-foreground/70 break-all">
+                            {Array.isArray(value) ? value.join(', ') : value}
+                          </td>
+                          <td className="py-2 px-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={() => handleCopyHeader(key, String(value))}
+                                >
+                                  {copiedHeader === key ? (
+                                    <Check className="h-3 w-3 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{copiedHeader === key ? 'Copied!' : 'Copy header'}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </TabsContent>
         </Tabs>
