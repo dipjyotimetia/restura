@@ -44,7 +44,7 @@ export default function TopBar({
     <TooltipProvider delayDuration={400}>
       <div className="flex h-11 items-center justify-between border-b border-border bg-background/95 backdrop-blur px-3 shrink-0">
         {/* Left: Mode switcher */}
-        <div className="flex items-center gap-0.5 bg-muted/60 rounded-md p-0.5 border border-border/50">
+        <div role="group" aria-label="Request mode" className="flex items-center gap-0.5 bg-muted/60 rounded-md p-0.5 border border-border/50">
           {(['http', 'graphql', 'grpc', 'websocket'] as RequestMode[]).map((mode) => (
             <button
               key={mode}
