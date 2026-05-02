@@ -73,8 +73,8 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
     }
   };
 
-  const passedTests = tests?.filter((t) => t.passed).length || 0;
-  const failedTests = tests?.filter((t) => !t.passed).length || 0;
+  const passedTests = tests?.filter((t) => t.passed).length ?? 0;
+  const failedTests = (tests?.length ?? 0) - passedTests;
 
   return (
     <TooltipProvider delayDuration={300}>

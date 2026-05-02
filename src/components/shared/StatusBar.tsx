@@ -2,7 +2,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { Wifi, WifiOff } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 
@@ -19,7 +19,6 @@ export default function StatusBar() {
   const { history } = useHistoryStore();
   const { isLoading, currentResponse } = useRequestStore();
   const [isOnline, setIsOnline] = useState(true);
-  const [lastActivityTime, setLastActivityTime] = useState<string>('');
 
   useEffect(() => {
     const updateOnlineStatus = () => setIsOnline(navigator.onLine);
@@ -32,19 +31,16 @@ export default function StatusBar() {
     };
   }, []);
 
-  useEffect(() => {
-    if (currentResponse?.timestamp) {
-      const date = new Date(currentResponse.timestamp);
-      setLastActivityTime(date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    }
-  }, [currentResponse]);
-
   const activeEnv = environments.find((e) => e.id === activeEnvironmentId);
-  const todayRequests = history.filter((h) => {
-    const today = new Date();
-    const requestDate = new Date(h.timestamp);
-    return requestDate.toDateString() === today.toDateString();
-  }).length;
+
+  const lastActivityTime = currentResponse?.timestamp
+    ? new Date(currentResponse.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '';
+
+  const todayRequests = useMemo(() => {
+    const todayStr = new Date().toDateString();
+    return history.filter((h) => new Date(h.timestamp).toDateString() === todayStr).length;
+  }, [history]);
 
   return (
     <TooltipProvider delayDuration={200}>
