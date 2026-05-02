@@ -16,7 +16,7 @@ import {
 } from '@/types';
 import { Send, Plus, Trash2, AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import dynamic from 'next/dynamic';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import {
   validateMethodName,
   getMethodTypeDescription,
@@ -42,7 +42,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
 
-const CodeEditor = dynamic(() => import('@/components/shared/CodeEditor'), { ssr: false });
+const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 
 interface ValidationState {
   url: { valid: boolean; error?: string };

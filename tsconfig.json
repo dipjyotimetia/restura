@@ -17,11 +17,7 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "types": ["vite/client", "node"],
     "paths": {
       "@/*": [
         "./src/*"
@@ -40,17 +36,16 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": [
-    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
+    "vite.config.mts",
     "electron/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     "dist",
     "out",
+    "worker",
     "electron/main"
   ]
 }

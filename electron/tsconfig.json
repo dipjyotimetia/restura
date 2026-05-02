@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2025",
-    "module": "nodenext",
-    "lib": ["ES2025", "DOM"],
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022", "DOM"],
     "outDir": "../dist/electron",
     "rootDir": ".",
     "strict": true,
@@ -13,7 +13,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "moduleResolution": "nodenext",
+    "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
     "noUnusedLocals": true,
     "noUnusedParameters": false,
