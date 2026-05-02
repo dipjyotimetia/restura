@@ -11,7 +11,7 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
-import { Scale, Stagger, StaggerItem } from '@/components/ui/motion';
+import { Scale, Stagger, StaggerItem, AnimatePresence, motion } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 const CodeEditor = lazyComponent(
@@ -170,26 +170,42 @@ function ResponseViewer() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      {isLoading ? (
-        <ResponseSkeleton />
-      ) : !currentResponse ? (
-        <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground/50 bg-background relative z-20 border-l border-border">
-          <Zap className="h-6 w-6" />
-          <div className="text-center">
-            <p className="text-xs font-mono">Send a request to see the response</p>
-            <p className="text-[10px] font-mono mt-1 text-muted-foreground/30">⌘ Enter</p>
-          </div>
-        </div>
-      ) : (
-      <div className="h-full flex flex-col bg-background relative z-20 border-l border-border">
+      <AnimatePresence mode="wait">
+        {isLoading ? (
+          <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} className="h-full">
+            <ResponseSkeleton />
+          </motion.div>
+        ) : !currentResponse ? (
+          <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground/50 bg-background relative z-20 border-l border-border">
+            <Zap className="h-6 w-6" />
+            <div className="text-center">
+              <p className="text-xs font-mono">Send a request to see the response</p>
+              <p className="text-[10px] font-mono mt-1 text-muted-foreground/30">⌘ Enter</p>
+            </div>
+          </motion.div>
+        ) : (
+        <motion.div
+          key={`response-${currentResponse.timestamp}`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="h-full flex flex-col bg-background relative z-20 border-l border-border"
+        >
         {/* Status zone */}
         <div className="h-11 flex items-center px-3 border-b border-border bg-surface-2/50">
           {/* Left side: status code + dot + text + metadata */}
           <div className="flex flex-col justify-center">
             <div className="flex items-center gap-2">
-              <span className={cn('text-2xl font-mono font-bold tabular-nums', getStatusTextColor(currentResponse.status))}>
+              <motion.span
+                key={currentResponse.status}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.15, ease: 'easeOut' }}
+                className={cn('text-2xl font-mono font-bold tabular-nums', getStatusTextColor(currentResponse.status))}
+              >
                 {currentResponse.status}
-              </span>
+              </motion.span>
               <span aria-hidden="true" className={cn('h-2 w-2 rounded-full flex-shrink-0', getStatusDotColor(currentResponse.status))} />
               <span className="text-xs font-mono text-muted-foreground">{currentResponse.statusText}</span>
             </div>
@@ -312,8 +328,9 @@ function ResponseViewer() {
             </div>
           </TabsContent>
         </Tabs>
-      </div>
+      </motion.div>
       )}
+      </AnimatePresence>
     </TooltipProvider>
   );
 }

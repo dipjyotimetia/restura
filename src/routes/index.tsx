@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { AnimatePresence, motion } from '@/components/ui/motion';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
 import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
@@ -121,14 +122,20 @@ export default function Home() {
         />
 
         <ClientHydration fallback={<div className="w-60 bg-muted/30 animate-pulse border-r border-border" />}>
-          {activePanel !== null && (
-            <div className="w-60 shrink-0 border-r border-border flex flex-col overflow-hidden">
-              <Sidebar
-                activePanel={activePanel}
-                onClose={() => setActivePanel(null)}
-              />
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {activePanel !== null && (
+              <motion.div
+                key="sidebar-panel"
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 240, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                className="shrink-0 border-r border-border flex flex-col overflow-hidden"
+              >
+                <Sidebar activePanel={activePanel} onClose={() => setActivePanel(null)} />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </ClientHydration>
 
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
