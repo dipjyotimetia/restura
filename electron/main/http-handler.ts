@@ -3,10 +3,12 @@ import * as http from 'http';
 import * as https from 'https';
 import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
 import { createRateLimiter } from './ipc-rate-limiter';
+import { interceptorRegistry } from './interceptor-registry';
+import type { LogEntry } from './request-logger';
 
 const httpRateLimiter = createRateLimiter(60, 60_000);
 
-interface ProxyConfig {
+export interface ProxyConfig {
   enabled: boolean;
   type: 'http' | 'https' | 'socks5' | 'pac';
   host: string;
@@ -25,7 +27,7 @@ interface ClientCert {
   passphrase?: string;
 }
 
-interface HttpRequestConfig {
+export interface HttpRequestConfig {
   method: string;
   url: string;
   headers?: Record<string, string>;
@@ -38,7 +40,7 @@ interface HttpRequestConfig {
   clientCert?: ClientCert;
 }
 
-interface HttpResponse {
+export interface HttpResponse {
   status: number;
   statusText: string;
   headers: Record<string, string | string[]>;
@@ -82,12 +84,14 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
     }
   }
 
-  return new Promise((resolve, reject) => {
+  const interceptedConfig = await interceptorRegistry.runRequest(resolvedConfig);
+
+  const rawResult = await new Promise<HttpResponse>((resolve, reject) => {
     try {
       // Parse URL and add query params
-      const url = new URL(resolvedConfig.url);
-      if (resolvedConfig.params) {
-        Object.entries(resolvedConfig.params).forEach(([key, value]) => {
+      const url = new URL(interceptedConfig.url);
+      if (interceptedConfig.params) {
+        Object.entries(interceptedConfig.params).forEach(([key, value]) => {
           url.searchParams.append(key, value);
         });
       }
@@ -96,50 +100,50 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
       // Build request options
       const requestOptions: http.RequestOptions | https.RequestOptions = {
-        method: resolvedConfig.method || 'GET',
+        method: interceptedConfig.method || 'GET',
         hostname: url.hostname,
         port: url.port || (isHttps ? 443 : 80),
         path: url.pathname + url.search,
-        headers: resolvedConfig.headers || {},
-        timeout: resolvedConfig.timeout || 30000,
+        headers: interceptedConfig.headers || {},
+        timeout: interceptedConfig.timeout || 30000,
       };
 
       // Apply proxy settings
-      if (resolvedConfig.proxy?.enabled && resolvedConfig.proxy.host) {
-        if (resolvedConfig.proxy.type === 'http' || resolvedConfig.proxy.type === 'https') {
-          requestOptions.hostname = resolvedConfig.proxy.host;
-          requestOptions.port = resolvedConfig.proxy.port;
+      if (interceptedConfig.proxy?.enabled && interceptedConfig.proxy.host) {
+        if (interceptedConfig.proxy.type === 'http' || interceptedConfig.proxy.type === 'https') {
+          requestOptions.hostname = interceptedConfig.proxy.host;
+          requestOptions.port = interceptedConfig.proxy.port;
           requestOptions.path = url.href;
           requestOptions.headers = {
             ...requestOptions.headers,
             Host: url.host,
           };
 
-          if (resolvedConfig.proxy.auth?.username && resolvedConfig.proxy.auth?.password) {
-            const auth = Buffer.from(`${resolvedConfig.proxy.auth.username}:${resolvedConfig.proxy.auth.password}`).toString('base64');
+          if (interceptedConfig.proxy.auth?.username && interceptedConfig.proxy.auth?.password) {
+            const auth = Buffer.from(`${interceptedConfig.proxy.auth.username}:${interceptedConfig.proxy.auth.password}`).toString('base64');
             (requestOptions.headers as Record<string, string>)['Proxy-Authorization'] = `Basic ${auth}`;
           }
         }
       }
 
       // Configure SSL verification
-      if (isHttps && resolvedConfig.verifySsl === false) {
+      if (isHttps && interceptedConfig.verifySsl === false) {
         (requestOptions as https.RequestOptions).rejectUnauthorized = false;
         console.warn(`[HTTP] SSL verification disabled for ${url.hostname} - this is insecure`);
       }
 
       // Apply client certificate if provided (for mTLS)
-      if (isHttps && resolvedConfig.clientCert) {
-        if (resolvedConfig.clientCert.pfx) {
-          (requestOptions as https.RequestOptions).pfx = Buffer.from(resolvedConfig.clientCert.pfx, 'base64');
-          if (resolvedConfig.clientCert.passphrase) {
-            (requestOptions as https.RequestOptions).passphrase = resolvedConfig.clientCert.passphrase;
+      if (isHttps && interceptedConfig.clientCert) {
+        if (interceptedConfig.clientCert.pfx) {
+          (requestOptions as https.RequestOptions).pfx = Buffer.from(interceptedConfig.clientCert.pfx, 'base64');
+          if (interceptedConfig.clientCert.passphrase) {
+            (requestOptions as https.RequestOptions).passphrase = interceptedConfig.clientCert.passphrase;
           }
-        } else if (resolvedConfig.clientCert.cert && resolvedConfig.clientCert.key) {
-          (requestOptions as https.RequestOptions).cert = resolvedConfig.clientCert.cert;
-          (requestOptions as https.RequestOptions).key = resolvedConfig.clientCert.key;
-          if (resolvedConfig.clientCert.passphrase) {
-            (requestOptions as https.RequestOptions).passphrase = resolvedConfig.clientCert.passphrase;
+        } else if (interceptedConfig.clientCert.cert && interceptedConfig.clientCert.key) {
+          (requestOptions as https.RequestOptions).cert = interceptedConfig.clientCert.cert;
+          (requestOptions as https.RequestOptions).key = interceptedConfig.clientCert.key;
+          if (interceptedConfig.clientCert.passphrase) {
+            (requestOptions as https.RequestOptions).passphrase = interceptedConfig.clientCert.passphrase;
           }
         }
       }
@@ -182,7 +186,7 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
           // Handle redirects (3xx status codes)
           const isRedirect = statusCode >= 300 && statusCode < 400;
-          const maxRedirects = resolvedConfig.maxRedirects ?? 5; // Default to 5 if not specified
+          const maxRedirects = interceptedConfig.maxRedirects ?? 5; // Default to 5 if not specified
 
           if (isRedirect && headers.location && redirectCount < maxRedirects) {
             // Follow redirect
@@ -192,23 +196,23 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
             try {
               // Resolve relative URLs
-              const redirectUrl = new URL(locationHeader, resolvedConfig.url).href;
+              const redirectUrl = new URL(locationHeader, interceptedConfig.url).href;
 
               // For 301, 302, 303: Change POST to GET
               // For 307, 308: Keep original method
               const newMethod = (statusCode === 301 || statusCode === 302 || statusCode === 303)
-                && resolvedConfig.method?.toUpperCase() === 'POST'
+                && interceptedConfig.method?.toUpperCase() === 'POST'
                 ? 'GET'
-                : resolvedConfig.method;
+                : interceptedConfig.method;
 
               // Make redirect request
               makeHttpRequest(
                 {
-                  ...resolvedConfig,
+                  ...interceptedConfig,
                   url: redirectUrl,
                   method: newMethod,
                   // Clear body for GET requests
-                  data: newMethod === 'GET' ? undefined : resolvedConfig.data,
+                  data: newMethod === 'GET' ? undefined : interceptedConfig.data,
                 },
                 redirectCount + 1
               )
@@ -261,8 +265,8 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       });
 
       // Send request body if present
-      if (resolvedConfig.data) {
-        req.write(resolvedConfig.data);
+      if (interceptedConfig.data) {
+        req.write(interceptedConfig.data);
       }
 
       req.end();
@@ -270,16 +274,31 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       reject(err);
     }
   });
+
+  return interceptorRegistry.runResponse(rawResult, interceptedConfig);
 }
 
-export function registerHttpHandlerIPC(): void {
+export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   ipcMain.handle(
     'http:request',
     createValidatedHandler('http:request', HttpRequestConfigSchema, async (config: HttpRequestConfig) => {
       if (!httpRateLimiter()) {
         return { error: 'Rate limit exceeded' };
       }
-      return makeHttpRequest(config);
+      const startTime = Date.now();
+      const result = await makeHttpRequest(config);
+      if (onComplete) {
+        onComplete({
+          ts: startTime,
+          method: config.method,
+          url: config.url,
+          status: 'status' in result ? (result as { status: number }).status : 0,
+          durationMs: Date.now() - startTime,
+          protocol: 'http',
+          error: 'error' in result ? String((result as { error: unknown }).error) : undefined,
+        });
+      }
+      return result;
     })
   );
 }

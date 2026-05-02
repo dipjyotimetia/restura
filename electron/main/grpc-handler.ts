@@ -1,4 +1,5 @@
 import { ipcMain, app } from 'electron';
+import type { LogEntry } from './request-logger';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { createGrpcTransport } from '@connectrpc/connect-node';
@@ -452,7 +453,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
 
 
 
-export function registerGrpcHandlerIPC(): void {
+export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   // Initialize and clean up old temp directories on startup
   initializeGrpcTempDir();
 
@@ -465,7 +466,20 @@ export function registerGrpcHandlerIPC(): void {
       if (!grpcRateLimiter()) {
         return { error: 'Rate limit exceeded' };
       }
-      return makeGrpcRequest(config);
+      const startTime = Date.now();
+      const result = await makeGrpcRequest(config);
+      if (onComplete) {
+        onComplete({
+          ts: startTime,
+          method: `${config.service}/${config.method}`,
+          url: config.url,
+          status: result.status,
+          durationMs: Date.now() - startTime,
+          protocol: 'grpc',
+          error: result.error,
+        });
+      }
+      return result;
     })
   );
 
