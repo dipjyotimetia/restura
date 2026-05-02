@@ -72,7 +72,7 @@ export function registerNotificationIPC(getMainWindow: () => BrowserWindow | nul
     'notification:show',
     createValidatedHandler('notification:show', NotificationOptionsSchema, async (options: NotificationOptions) => {
       if (!notificationRateLimiter()) {
-        return { success: false, error: 'Rate limit exceeded' };
+        return { error: 'Rate limit exceeded' };
       }
       const mainWindow = getMainWindow();
       showNativeNotification(options, mainWindow, isDev);
