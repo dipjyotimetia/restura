@@ -2,6 +2,9 @@ import { ipcMain } from 'electron';
 import * as http from 'http';
 import * as https from 'https';
 import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
+import { createRateLimiter } from './ipc-rate-limiter';
+
+const httpRateLimiter = createRateLimiter(60, 60_000);
 
 interface ProxyConfig {
   enabled: boolean;
@@ -224,6 +227,9 @@ export function registerHttpHandlerIPC(): void {
   ipcMain.handle(
     'http:request',
     createValidatedHandler('http:request', HttpRequestConfigSchema, async (config: HttpRequestConfig) => {
+      if (!httpRateLimiter()) {
+        return { error: 'Rate limit exceeded' };
+      }
       return makeHttpRequest(config);
     })
   );

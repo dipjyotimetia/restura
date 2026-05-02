@@ -15,6 +15,9 @@ import {
   createValidatedListener,
   GrpcRequestConfig,
 } from './ipc-validators';
+import { createRateLimiter } from './ipc-rate-limiter';
+
+const grpcRateLimiter = createRateLimiter(30, 60_000);
 
 // Use app's userData directory for proto temp files (more secure than os.tmpdir())
 // This will be something like ~/Library/Application Support/restura/grpc-temp on macOS
@@ -459,6 +462,9 @@ export function registerGrpcHandlerIPC(): void {
   ipcMain.handle(
     'grpc:request',
     createValidatedHandler('grpc:request', GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
+      if (!grpcRateLimiter()) {
+        return { error: 'Rate limit exceeded' };
+      }
       return makeGrpcRequest(config);
     })
   );
@@ -469,6 +475,14 @@ export function registerGrpcHandlerIPC(): void {
       // Re-implement startGrpcStream with proper signal handling for server streaming
       const requestId = config.id;
       if (!requestId) return;
+
+      if (!grpcRateLimiter()) {
+        event.sender.send(`grpc:error:${requestId}`, {
+          status: 14,
+          details: 'Rate limit exceeded'
+        });
+        return;
+      }
 
     const tempDir = path.join(GRPC_TEMP_BASE, requestId);
     fs.mkdirSync(tempDir, { recursive: true });
