@@ -43,13 +43,11 @@ import {
 interface SidebarProps {
   onClose: () => void;
   activePanel?: ActivePanel | null;
-  isCollapsed?: boolean;     // keep for backward compat but unused
-  onToggleCollapse?: () => void;
 }
 
 const HISTORY_PAGE_SIZE = 20;
 
-function Sidebar({ onClose, activePanel, isCollapsed: _isCollapsed = false, onToggleCollapse: _onToggleCollapse }: SidebarProps) {
+function Sidebar({ onClose, activePanel }: SidebarProps) {
   const { collections, createNewCollection, addCollection, deleteCollection } = useCollectionStore();
 
   // Use granular selectors for history to minimize re-renders
@@ -63,7 +61,7 @@ function Sidebar({ onClose, activePanel, isCollapsed: _isCollapsed = false, onTo
 
   // Sync when activePanel prop changes
   useEffect(() => {
-    if (activePanel && activePanel !== activeTab) {
+    if (activePanel) {
       setActiveTab(activePanel);
     }
   }, [activePanel]);
@@ -224,7 +222,6 @@ function Sidebar({ onClose, activePanel, isCollapsed: _isCollapsed = false, onTo
           </Button>
         </div>
 
-        <>
             {/* Search Input */}
             <Input
               className="h-7 bg-transparent border-0 border-b border-border rounded-none px-3 text-xs placeholder:text-muted-foreground/60 focus-visible:shadow-none focus-visible:border-primary font-mono"
@@ -463,7 +460,11 @@ function Sidebar({ onClose, activePanel, isCollapsed: _isCollapsed = false, onTo
                             />
                           </Button>
                           <Badge
-                            variant={item.request.type === 'http' ? (item.request.method.toLowerCase() as any) : 'mono'}
+                            variant={
+                              item.request.type === 'http'
+                                ? (item.request.method.toLowerCase() as 'get' | 'post' | 'put' | 'delete' | 'patch' | 'options' | 'head')
+                                : 'mono'
+                            }
                             className="text-[9px] h-4 px-1"
                           >
                             {item.request.type === 'http' ? item.request.method : 'gRPC'}
@@ -576,7 +577,6 @@ function Sidebar({ onClose, activePanel, isCollapsed: _isCollapsed = false, onTo
                 }
               }}
             />
-        </>
       </aside>
     </TooltipProvider>
   );
