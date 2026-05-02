@@ -112,44 +112,46 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <IconRail
-        activePanel={activePanel}
-        onPanelChange={(panel) => setActivePanel((prev) => (prev === panel ? null : panel))}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
-
-      <ClientHydration fallback={<div className="w-60 bg-muted/30 animate-pulse border-r border-border" />}>
-        {activePanel !== null && (
-          <div className="w-60 shrink-0 border-r border-border flex flex-col overflow-hidden">
-            <Sidebar
-              activePanel={activePanel}
-              onClose={() => setActivePanel(null)}
-            />
-          </div>
-        )}
-      </ClientHydration>
-
-      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-        <TopBar
-          requestMode={requestMode}
-          onRequestModeChange={setRequestMode}
-          onOpenImport={() => setImportDialogOpen(true)}
-          setEnvManagerOpen={setEnvManagerOpen}
+    <div className="flex flex-col h-screen overflow-hidden bg-background">
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        <IconRail
+          activePanel={activePanel}
+          onPanelChange={(panel) => setActivePanel((prev) => (prev === panel ? null : panel))}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
-        <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <div className="flex flex-1 flex-col min-h-0">
-            {renderRequestBuilder()}
-          </div>
-          {requestMode !== 'websocket' && (
-            <NetworkConsole
-              scriptLogs={allLogs}
-              tests={allTests}
-              onClearScripts={handleClearConsole}
-            />
+        <ClientHydration fallback={<div className="w-60 bg-muted/30 animate-pulse border-r border-border" />}>
+          {activePanel !== null && (
+            <div className="w-60 shrink-0 border-r border-border flex flex-col overflow-hidden">
+              <Sidebar
+                activePanel={activePanel}
+                onClose={() => setActivePanel(null)}
+              />
+            </div>
           )}
-        </main>
+        </ClientHydration>
+
+        <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
+          <TopBar
+            requestMode={requestMode}
+            onRequestModeChange={setRequestMode}
+            onOpenImport={() => setImportDialogOpen(true)}
+            setEnvManagerOpen={setEnvManagerOpen}
+          />
+
+          <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <div className="flex flex-1 flex-col min-h-0">
+              {renderRequestBuilder()}
+            </div>
+            {requestMode !== 'websocket' && (
+              <NetworkConsole
+                scriptLogs={allLogs}
+                tests={allTests}
+                onClearScripts={handleClearConsole}
+              />
+            )}
+          </main>
+        </div>
       </div>
 
       <StatusBar />
