@@ -242,7 +242,6 @@ const config: Config = {
         'inner-bottom': 'inset 0 -1px 2px 0 rgba(0, 0, 0, 0.05)',
         // Glow effects for focus states
         'glow-blue': '0 0 20px rgba(59, 130, 246, 0.3)',
-        'glow-purple': '0 0 20px rgba(155, 110, 247, 0.3)',
         'glow-green': '0 0 20px rgba(34, 197, 94, 0.3)',
         'glow-red': '0 0 20px rgba(239, 68, 68, 0.3)',
         'glow-violet': '0 0 20px rgba(123, 110, 246, 0.3)',

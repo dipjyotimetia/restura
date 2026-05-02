@@ -1,6 +1,8 @@
 @import '@fontsource-variable/geist/index.css';
-@import '@fontsource/fira-code/index.css';
+@import '@fontsource/fira-code/400.css';
+@import '@fontsource/fira-code/500.css';
 
+@config "../../tailwind.config.ts";
 @import "tailwindcss";
 
 @layer base {
@@ -11,17 +13,17 @@
     --card-foreground: 240 15% 8%;
     --popover: 240 10% 97%;
     --popover-foreground: 240 15% 8%;
-    --primary: 252 72% 55%;           /* #5C50CC - darker violet for light */
+    --primary: 252 72% 55%;
     --primary-foreground: 0 0% 100%;
     --secondary: 244 12% 93%;
     --secondary-foreground: 240 15% 8%;
     --muted: 244 12% 93%;
-    --muted-foreground: 248 12% 48%;  /* #706E8C */
+    --muted-foreground: 248 12% 48%;
     --accent: 244 12% 90%;
     --accent-foreground: 240 15% 8%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 244 12% 88%;            /* #DEDEE8 */
+    --border: 244 12% 88%;
     --input: 244 12% 88%;
     --ring: 252 72% 55%;
     --radius: 0.5rem;
@@ -42,33 +44,33 @@
   }
 
   .dark {
-    --background: 240 15% 4%;         /* #0C0C0F */
-    --foreground: 248 25% 94%;        /* #EEEDFB */
-    --card: 240 15% 7%;               /* #111116 */
+    --background: 240 15% 4%;
+    --foreground: 248 25% 94%;
+    --card: 240 15% 7%;
     --card-foreground: 248 25% 94%;
     --popover: 240 15% 7%;
     --popover-foreground: 248 25% 94%;
-    --primary: 252 88% 70%;           /* #7B6EF6 - electric violet */
+    --primary: 252 88% 70%;
     --primary-foreground: 240 15% 4%;
     --secondary: 244 12% 14%;
     --secondary-foreground: 248 25% 94%;
     --muted: 244 12% 13%;
-    --muted-foreground: 248 15% 55%;  /* #8E8BAD */
+    --muted-foreground: 248 15% 55%;
     --accent: 244 12% 16%;
     --accent-foreground: 248 25% 94%;
-    --destructive: 0 84% 70%;         /* #F87171 */
+    --destructive: 0 84% 70%;
     --destructive-foreground: 0 0% 100%;
-    --border: 244 12% 16%;            /* #222230 */
+    --border: 244 12% 16%;
     --input: 244 12% 16%;
     --ring: 252 88% 70%;
-    --success: 158 64% 52%;           /* #34D399 */
-    --warning: 43 96% 56%;            /* #FBBF24 */
-    --info: 187 96% 45%;              /* #06B6D4 */
+    --success: 158 64% 52%;
+    --warning: 43 96% 56%;
+    --info: 187 96% 45%;
     /* Surface elevation system */
     --surface-0: 240 15% 4%;
-    --surface-1: 240 15% 6%;          /* #0F0F15 */
-    --surface-2: 244 12% 11%;         /* #17171D */
-    --surface-3: 244 12% 14%;         /* #1D1D26 */
+    --surface-1: 240 15% 6%;
+    --surface-2: 244 12% 11%;
+    --surface-3: 244 12% 14%;
 
     /* Semantic border opacities */
     --border-subtle: 0.05;
@@ -88,6 +90,7 @@
     font-family: 'Geist Variable', 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'liga' 1, 'calt' 1;
   }
 }
 
@@ -222,8 +225,6 @@
 ::-webkit-scrollbar-thumb {
   background-color: hsl(var(--primary) / 0.25);
   border-radius: 10px;
-  border: 2px solid transparent;
-  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -236,18 +237,6 @@
   scrollbar-color: hsl(var(--primary) / 0.25) transparent;
 }
 
-/* Selection colors */
-::selection {
-  background-color: hsl(var(--primary) / 0.25);
-  color: hsl(var(--foreground));
-}
-
-/* Focus visible styles */
-:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
-}
-
 /* Smooth transitions for all interactive elements */
 button,
 a,
@@ -255,12 +244,6 @@ input,
 select,
 textarea {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Modern backdrop blur support */
-.backdrop-blur-sm {
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
 }
 
 /* Status appear animation */
@@ -452,20 +435,6 @@ textarea {
 
 .animate-button-glow {
   animation: button-glow 2s ease-in-out infinite;
-}
-
-/* Spin animation for loading state - enhanced */
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.animate-spin {
-  animation: spin 1s linear infinite;
 }
 
 /* Screen reader only utility */
