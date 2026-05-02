@@ -1,18 +1,13 @@
-'use client';
-
 import { useState, useEffect } from 'react';
 import { FolderOpen, History, GitBranch, Settings2, Sun, Moon } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
-import type { RequestMode } from '@/types';
 
 interface IconRailProps {
   activePanel: 'collections' | 'history' | 'workflows' | null;
   onPanelChange: (panel: 'collections' | 'history' | 'workflows' | null) => void;
   onOpenSettings: () => void;
-  requestMode: RequestMode;
-  onRequestModeChange: (mode: RequestMode) => void;
 }
 
 const NAV_ITEMS = [
