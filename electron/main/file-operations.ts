@@ -16,13 +16,13 @@ const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 // Security: Validate file path to prevent path traversal attacks
 export function isPathSafe(filePath: string): boolean {
   try {
-    const normalizedPath = path.normalize(filePath);
+    const resolved = path.resolve(filePath);
     const userDataPath = app.getPath('userData');
     const documentsPath = app.getPath('documents');
     const homePath = app.getPath('home');
 
     // Block obvious path traversal attempts
-    if (normalizedPath.includes('..') || normalizedPath.includes('~')) {
+    if (resolved.includes('..') || resolved.includes('~')) {
       return false;
     }
 
@@ -43,14 +43,20 @@ export function isPathSafe(filePath: string): boolean {
     ];
 
     for (const blocked of blockedPaths) {
-      if (normalizedPath.toLowerCase().startsWith(blocked.toLowerCase())) {
+      if (resolved.toLowerCase().startsWith(blocked.toLowerCase())) {
         return false;
       }
     }
 
-    // Allow access to user data directory, documents, and home directory
-    const allowedPaths = [userDataPath, documentsPath, homePath];
-    return allowedPaths.some((allowed) => normalizedPath.startsWith(allowed));
+    // Allow access to user data directory, documents, and home directory.
+    // Use path.sep suffix to prevent prefix-collision attacks
+    // (e.g. /home/user matching /home/username).
+    const allowedRoots = [
+      path.resolve(userDataPath),
+      path.resolve(documentsPath),
+      path.resolve(homePath),
+    ];
+    return allowedRoots.some((root) => resolved === root || resolved.startsWith(root + path.sep));
   } catch {
     return false;
   }
