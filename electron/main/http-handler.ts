@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import * as http from 'http';
 import * as https from 'https';
-import { HttpRequestConfigSchema, createValidatedHandler } from './ipc-validators';
+import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
 
 interface ProxyConfig {
   enabled: boolean;
@@ -36,15 +36,18 @@ interface HttpResponse {
 // Maximum response size (10MB)
 const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 
-// Maximum request body size (50MB)
-const MAX_REQUEST_BODY_SIZE = 50 * 1024 * 1024;
-
 // Connection timeout (10 seconds)
 const CONNECTION_TIMEOUT = 10000;
 
 function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
     try {
+      // Check body size early, before opening any connection
+      if (config.data && Buffer.byteLength(config.data, 'utf8') > MAX_HTTP_BODY_BYTES) {
+        reject(new Error(`Request body size exceeds maximum limit of ${MAX_HTTP_BODY_BYTES / 1024 / 1024}MB`));
+        return;
+      }
+
       // Parse URL and add query params
       const url = new URL(config.url);
       if (config.params) {
@@ -207,10 +210,6 @@ function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<
 
       // Send request body if present
       if (config.data) {
-        if (config.data.length > MAX_REQUEST_BODY_SIZE) {
-          reject(new Error(`Request body size (${config.data.length} bytes) exceeds maximum limit of ${MAX_REQUEST_BODY_SIZE / 1024 / 1024}MB`));
-          return;
-        }
         req.write(config.data);
       }
 
