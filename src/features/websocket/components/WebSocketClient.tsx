@@ -1,6 +1,4 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,28 +21,25 @@ import {
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import {
   Send,
-  Circle,
   Trash2,
   Plus,
   Search,
   RefreshCw,
   Binary,
   Download,
+  AlertTriangle,
 } from 'lucide-react';
 import { KeyValue } from '@/types';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { cn } from '@/lib/shared/utils';
 
-// Helper to format duration
 const formatDuration = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
 
-  if (hours > 0) {
-    return `${hours}h ${minutes % 60}m`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`;
-  }
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;
 };
 
@@ -74,24 +69,26 @@ function WebSocketClient() {
     setProtocols,
   } = useWebSocketStore();
 
-  // Get or create active connection
   const connection = activeConnectionId ? connections[activeConnectionId] : null;
 
+  // Track current connection ID in a ref so the unmount cleanup always disconnects the right one
+  const activeConnectionIdRef = useRef(activeConnectionId);
+  useEffect(() => { activeConnectionIdRef.current = activeConnectionId; }, [activeConnectionId]);
+
   useEffect(() => {
-    // Create default connection if none exists
     if (!activeConnectionId) {
       createConnection();
     }
   }, [activeConnectionId, createConnection]);
 
-  // Cleanup WebSocket connection on component unmount
+  // Disconnect only on unmount, not on every activeConnectionId change
   useEffect(() => {
     return () => {
-      if (activeConnectionId) {
-        websocketManager.disconnect(activeConnectionId);
+      if (activeConnectionIdRef.current) {
+        websocketManager.disconnect(activeConnectionIdRef.current);
       }
     };
-  }, [activeConnectionId]);
+  }, []);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -102,8 +99,7 @@ function WebSocketClient() {
   }
 
   const isConnected = connection.status === 'connected';
-  const isConnecting =
-    connection.status === 'connecting' || connection.status === 'reconnecting';
+  const isConnecting = connection.status === 'connecting' || connection.status === 'reconnecting';
 
   const handleConnect = () => {
     try {
@@ -131,7 +127,6 @@ function WebSocketClient() {
         websocketManager.send(activeConnectionId, buffer);
         setMessage('');
       } catch {
-        // Show error for invalid hex format
         addMessage(
           activeConnectionId,
           'system',
@@ -187,11 +182,16 @@ function WebSocketClient() {
     URL.revokeObjectURL(url);
   };
 
-  // Calculate connection duration
+  // Tick every second while connected so the duration display stays live
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!isConnected) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [isConnected]);
+
   const connectionDuration =
-    isConnected && connection.lastConnectedAt
-      ? Date.now() - connection.lastConnectedAt
-      : 0;
+    isConnected && connection.lastConnectedAt ? now - connection.lastConnectedAt : 0;
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -204,50 +204,55 @@ function WebSocketClient() {
     });
   };
 
-  const getMessageColor = (type: WebSocketMessageType) => {
+  const getMessageRowClass = (type: WebSocketMessageType) => {
     switch (type) {
       case 'sent':
-        return 'text-blue-600 dark:text-blue-400';
+        return 'bg-primary/5 border-l-2 border-primary/30';
       case 'received':
-        return 'text-green-600 dark:text-green-400';
+        return 'bg-surface-2';
       case 'system':
-        return 'text-yellow-600 dark:text-yellow-400';
+        return 'bg-amber-500/5 border-l-2 border-amber-500/30';
+    }
+  };
+
+  const getMessageLabelClass = (type: WebSocketMessageType) => {
+    switch (type) {
+      case 'sent':
+        return 'text-primary';
+      case 'received':
+        return 'text-emerald-400';
+      case 'system':
+        return 'text-amber-400';
     }
   };
 
   const getMessageLabel = (type: WebSocketMessageType) => {
     switch (type) {
-      case 'sent':
-        return 'SENT';
-      case 'received':
-        return 'RECV';
-      case 'system':
-        return 'SYS';
+      case 'sent': return 'SENT';
+      case 'received': return 'RECV';
+      case 'system': return 'SYS';
     }
   };
 
-  const getStatusColor = () => {
+  const getStatusDotClass = () => {
     switch (connection.status) {
       case 'connected':
-        return 'fill-green-500 text-green-500';
+        return 'bg-emerald-400 shadow-[0_0_6px_theme(colors.emerald.400)]';
       case 'connecting':
       case 'reconnecting':
-        return 'fill-yellow-500 text-yellow-500';
+        return 'bg-amber-400 shadow-[0_0_6px_theme(colors.amber.400)]';
       default:
-        return 'fill-gray-400 text-gray-400';
+        return 'bg-muted-foreground';
     }
   };
 
   const getStatusText = () => {
     switch (connection.status) {
-      case 'connected':
-        return 'Connected';
-      case 'connecting':
-        return 'Connecting...';
+      case 'connected': return 'Connected';
+      case 'connecting': return 'Connecting...';
       case 'reconnecting':
         return `Reconnecting (${connection.reconnectAttempts}/${connection.maxReconnectAttempts})`;
-      default:
-        return 'Disconnected';
+      default: return 'Disconnected';
     }
   };
 
@@ -255,63 +260,72 @@ function WebSocketClient() {
 
   return (
     <div className="flex-1 flex flex-col">
-      {/* Connection Bar */}
-      <div className="p-4 border-b border-border">
-        <div className="flex gap-2 items-center mb-2">
-          <Circle className={`h-3 w-3 ${getStatusColor()}`} />
-          <span className="text-sm font-medium">{getStatusText()}</span>
+      {/* Connection Zone */}
+      <div className="border-b border-border bg-surface-2">
+        {/* Status + URL row */}
+        <div className="flex items-center gap-2 px-3 h-8 border-b border-border/50">
+          <div className={cn('h-2 w-2 rounded-full shrink-0', getStatusDotClass())} aria-hidden="true" />
+          <span className="text-xs font-mono text-muted-foreground">{getStatusText()}</span>
           {connection.status === 'reconnecting' && (
-            <RefreshCw className="h-3 w-3 animate-spin text-yellow-500" />
+            <RefreshCw className="h-3 w-3 animate-spin text-amber-400" />
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-1 px-3 h-12">
+          <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
           <Input
             value={connection.url}
             onChange={(e) => updateConnectionUrl(activeConnectionId, e.target.value)}
             placeholder="ws://localhost:8080 or wss://example.com/socket"
-            className="flex-1 bg-background border-border"
+            className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:ring-0 focus-visible:ring-offset-0"
             disabled={isConnected || isConnecting}
+            aria-label="WebSocket URL"
           />
           {!isConnected && !isConnecting ? (
-            <Button onClick={handleConnect} disabled={!connection.url}>
+            <Button
+              variant="glow"
+              size="sm"
+              onClick={handleConnect}
+              disabled={!connection.url}
+              className="h-7 min-w-[80px] shrink-0"
+            >
               Connect
             </Button>
           ) : (
-            <Button onClick={handleDisconnect} variant="destructive">
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDisconnect}
+              className="h-7 min-w-[80px] shrink-0"
+            >
               Disconnect
             </Button>
           )}
         </div>
-        <div className="flex items-center gap-4 mt-2">
+        <div className="flex items-center gap-4 px-3 pb-2">
           <div className="flex items-center gap-2">
             <Switch
               id="auto-reconnect"
               checked={connection.autoReconnect}
-              onCheckedChange={(checked) =>
-                setAutoReconnect(activeConnectionId, checked)
-              }
+              onCheckedChange={(checked) => setAutoReconnect(activeConnectionId, checked)}
               disabled={isConnected}
             />
-            <Label htmlFor="auto-reconnect" className="text-xs">
+            <Label htmlFor="auto-reconnect" className="text-xs font-mono cursor-pointer">
               Auto-reconnect
             </Label>
           </div>
           <div className="flex items-center gap-2 flex-1">
-            <Label htmlFor="protocols" className="text-xs whitespace-nowrap">
-              Subprotocols:
+            <Label htmlFor="protocols" className="text-xs font-mono whitespace-nowrap text-muted-foreground">
+              Protocols:
             </Label>
             <Input
               id="protocols"
               value={connection.protocols.join(', ')}
               onChange={(e) => {
-                const protocols = e.target.value
-                  .split(',')
-                  .map((p) => p.trim())
-                  .filter((p) => p.length > 0);
+                const protocols = e.target.value.split(',').map((p) => p.trim()).filter((p) => p.length > 0);
                 setProtocols(activeConnectionId, protocols);
               }}
               placeholder="e.g., graphql-ws, chat"
-              className="h-7 text-xs flex-1"
+              className="h-6 text-xs font-mono flex-1"
               disabled={isConnected || isConnecting}
             />
           </div>
@@ -319,22 +333,38 @@ function WebSocketClient() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <TabsList className="w-full rounded-none border-b border-border bg-transparent px-4">
-          <TabsTrigger value="messages">Messages</TabsTrigger>
-          <TabsTrigger value="headers">Headers</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+        <TabsList className="w-full justify-start border-b border-border rounded-none h-9 bg-transparent p-0 shrink-0">
+          <TabsTrigger
+            value="messages"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          >
+            Messages
+            {connection.messages.length > 0 && (
+              <span className="ml-1 text-[10px] text-muted-foreground">({connection.messages.length})</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger
+            value="headers"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          >
+            Headers
+            {connection.headers.filter((h) => h.enabled).length > 0 && (
+              <span className="ml-1 text-[10px] text-muted-foreground">
+                ({connection.headers.filter((h) => h.enabled).length})
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="messages" className="flex-1 flex flex-col m-0">
+        <TabsContent value="messages" className="flex-1 flex flex-col m-0 overflow-hidden">
           {/* Filter Bar */}
-          <div className="p-2 border-b border-border flex gap-2 items-center">
+          <div className="px-3 py-1.5 border-b border-border flex gap-2 items-center shrink-0">
             <Select
               value={messageFilter}
-              onValueChange={(value) =>
-                setMessageFilter(value as WebSocketMessageType | 'all')
-              }
+              onValueChange={(value) => setMessageFilter(value as WebSocketMessageType | 'all')}
             >
-              <SelectTrigger className="w-32 h-8">
+              <SelectTrigger className="w-28 h-7 text-xs font-mono">
                 <SelectValue placeholder="Filter" />
               </SelectTrigger>
               <SelectContent>
@@ -345,57 +375,55 @@ function WebSocketClient() {
               </SelectContent>
             </Select>
             <div className="relative flex-1">
-              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search messages..."
-                className="pl-8 h-8"
+                className="pl-7 h-7 text-xs font-mono"
               />
             </div>
-            {/* Metrics */}
-            <div className="text-xs text-muted-foreground flex items-center gap-3">
+            <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-3 shrink-0">
               <span>{connection.messages.length} msgs</span>
-              {connectionDuration > 0 && (
-                <span>{formatDuration(connectionDuration)}</span>
-              )}
+              {connectionDuration > 0 && <span>{formatDuration(connectionDuration)}</span>}
             </div>
-            {/* Export */}
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={handleExportMessages}
               disabled={connection.messages.length === 0}
               title="Export messages as JSON"
+              className="h-7 w-7"
             >
-              <Download className="h-4 w-4" />
+              <Download className="h-3.5 w-3.5" />
             </Button>
           </div>
 
-          {/* Messages Area */}
-          <ScrollArea className="flex-1 p-4">
-            <div className="space-y-2 font-mono text-sm">
+          {/* Messages */}
+          <ScrollArea className="flex-1 p-3">
+            <div className="space-y-1 font-mono text-xs">
               {filteredMessages.length === 0 ? (
-                <div className="text-center text-muted-foreground py-8">
+                <div className="text-center text-muted-foreground/50 py-8 font-mono text-xs">
                   {connection.messages.length === 0
-                    ? 'No messages yet. Connect to a WebSocket server and start sending messages.'
+                    ? 'No messages yet. Connect and start sending.'
                     : 'No messages match the current filter.'}
                 </div>
               ) : (
                 filteredMessages.map((msg) => (
-                  <div key={msg.id} className="flex gap-3 p-2 rounded hover:bg-accent">
-                    <span className="text-[10px] text-muted-foreground flex-shrink-0 mt-0.5">
+                  <div
+                    key={msg.id}
+                    className={cn('flex gap-3 p-2 rounded', getMessageRowClass(msg.type))}
+                  >
+                    <span className="text-[10px] text-muted-foreground/60 shrink-0 mt-0.5 tabular-nums">
                       {formatTime(msg.timestamp)}
                     </span>
-                    <span
-                      className={`text-[10px] font-bold flex-shrink-0 mt-0.5 ${getMessageColor(msg.type)}`}
-                    >
+                    <span className={cn('text-[10px] font-bold shrink-0 mt-0.5 tracking-wider', getMessageLabelClass(msg.type))}>
                       {getMessageLabel(msg.type)}
                     </span>
                     {msg.dataType === 'binary' && (
-                      <Binary className="h-3 w-3 text-purple-500 flex-shrink-0 mt-0.5" />
+                      <Binary className="h-3 w-3 text-primary/60 shrink-0 mt-0.5" />
                     )}
-                    <pre className="flex-1 whitespace-pre-wrap break-words">
+                    <pre className="flex-1 whitespace-pre-wrap break-words text-[11px]">
                       {msg.content}
                     </pre>
                   </div>
@@ -405,10 +433,10 @@ function WebSocketClient() {
           </ScrollArea>
 
           {/* Message Input */}
-          <div className="p-4 border-t border-border">
+          <div className="px-3 py-2 border-t border-border shrink-0">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-4">
-                <span className="text-sm font-medium">Send Message</span>
+                <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Send</span>
                 <div className="flex items-center gap-2">
                   <Switch
                     id="send-binary"
@@ -416,7 +444,7 @@ function WebSocketClient() {
                     onCheckedChange={setSendAsBinary}
                     disabled={!isConnected}
                   />
-                  <Label htmlFor="send-binary" className="text-xs">
+                  <Label htmlFor="send-binary" className="text-xs font-mono cursor-pointer">
                     Binary (hex)
                   </Label>
                 </div>
@@ -426,8 +454,9 @@ function WebSocketClient() {
                 size="sm"
                 onClick={handleClearMessages}
                 disabled={connection.messages.length === 0}
+                className="h-6 text-xs"
               >
-                <Trash2 className="h-4 w-4 mr-1" />
+                <Trash2 className="h-3 w-3 mr-1" />
                 Clear
               </Button>
             </div>
@@ -435,12 +464,8 @@ function WebSocketClient() {
               <Textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder={
-                  sendAsBinary
-                    ? 'Enter hex bytes (e.g., 48 65 6c 6c 6f)...'
-                    : 'Enter message to send...'
-                }
-                className="flex-1 bg-background border-border"
+                placeholder={sendAsBinary ? 'Enter hex bytes (e.g., 48 65 6c 6c 6f)...' : 'Enter message to send...'}
+                className="flex-1 bg-background border-border font-mono text-xs resize-none"
                 rows={3}
                 disabled={!isConnected}
                 onKeyDown={(e) => {
@@ -450,71 +475,51 @@ function WebSocketClient() {
                 }}
               />
               <Button
+                variant="glow"
                 onClick={handleSendMessage}
                 disabled={!isConnected || !message.trim()}
-                className="h-auto"
+                className="h-auto px-3 self-stretch"
               >
                 <Send className="h-4 w-4" />
               </Button>
             </div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Ctrl+Enter to send
-            </div>
+            <p className="text-[10px] text-muted-foreground/50 font-mono mt-1">Ctrl+Enter to send</p>
           </div>
         </TabsContent>
 
         <TabsContent value="headers" className="flex-1 overflow-auto p-4 m-0">
-          <div className="space-y-2">
-            <div className="text-sm text-muted-foreground mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
-              <strong>⚠️ Browser Limitation:</strong> The browser WebSocket API does not support
-              custom headers. These headers are saved for reference only and are not sent with
-              the connection. For header support, use the Electron desktop app.
-            </div>
+          <div className="flex items-start gap-2 p-3 rounded bg-amber-500/5 border border-amber-500/20 mb-4">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground font-mono">
+              The browser WebSocket API does not support custom headers. Headers saved here are for reference only and are not sent with the connection. Use the Electron app for header support.
+            </p>
+          </div>
+          <div className={cn('space-y-2', (isConnected || isConnecting) && 'opacity-50 pointer-events-none')}>
             {connection.headers.map((header) => (
-              <div key={header.id} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={header.enabled}
-                  onChange={(e) =>
-                    handleUpdateHeader(header.id, { enabled: e.target.checked })
-                  }
-                  className="h-4 w-4"
-                  disabled={isConnected || isConnecting}
-                />
+              <div key={header.id} className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-surface-2 transition-colors">
                 <Input
                   value={header.key}
-                  onChange={(e) =>
-                    handleUpdateHeader(header.id, { key: e.target.value })
-                  }
+                  onChange={(e) => handleUpdateHeader(header.id, { key: e.target.value })}
                   placeholder="Key"
-                  className="flex-1"
-                  disabled={isConnected || isConnecting}
+                  className="flex-1 bg-background border-border font-mono text-xs"
                 />
                 <Input
                   value={header.value}
-                  onChange={(e) =>
-                    handleUpdateHeader(header.id, { value: e.target.value })
-                  }
+                  onChange={(e) => handleUpdateHeader(header.id, { value: e.target.value })}
                   placeholder="Value"
-                  className="flex-1"
-                  disabled={isConnected || isConnecting}
+                  className="flex-1 bg-background border-border font-mono text-xs"
                 />
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => handleDeleteHeader(header.id)}
-                  disabled={isConnected || isConnecting}
+                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             ))}
-            <Button
-              onClick={handleAddHeader}
-              variant="outline"
-              size="sm"
-              disabled={isConnected || isConnecting}
-            >
+            <Button onClick={handleAddHeader} variant="outline" size="sm" className="border-border">
               <Plus className="mr-2 h-4 w-4" />
               Add Header
             </Button>
