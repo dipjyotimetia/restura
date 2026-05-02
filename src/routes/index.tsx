@@ -123,9 +123,8 @@ export default function Home() {
         {activePanel !== null && (
           <div className="w-60 shrink-0 border-r border-border flex flex-col overflow-hidden">
             <Sidebar
+              activePanel={activePanel}
               onClose={() => setActivePanel(null)}
-              isCollapsed={false}
-              onToggleCollapse={() => setActivePanel(null)}
             />
           </div>
         )}
