@@ -78,13 +78,21 @@ interface ElectronWindowAPI {
 
 interface ElectronHttpProxyConfig {
   enabled: boolean;
-  type: string;
+  type: 'http' | 'https' | 'socks5' | 'pac';
   host: string;
   port: number;
+  pacUrl?: string;
   auth?: {
     username: string;
     password: string;
   };
+}
+
+interface ElectronHttpClientCert {
+  pfx?: string;
+  cert?: string;
+  key?: string;
+  passphrase?: string;
 }
 
 interface ElectronHttpRequestConfig {
@@ -97,6 +105,7 @@ interface ElectronHttpRequestConfig {
   maxRedirects?: number;
   proxy?: ElectronHttpProxyConfig;
   verifySsl?: boolean;
+  clientCert?: ElectronHttpClientCert;
 }
 
 interface ElectronHttpResponse {
