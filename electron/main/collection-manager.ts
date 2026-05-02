@@ -106,7 +106,7 @@ function sanitizeFilename(name: string): string {
 // Load a single YAML file
 function loadYamlFile(filePath: string): unknown {
   const content = fs.readFileSync(filePath, 'utf-8');
-  return yaml.load(content);
+  return yaml.load(content, { schema: yaml.CORE_SCHEMA });
 }
 
 // Save a YAML file
