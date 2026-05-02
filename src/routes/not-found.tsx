@@ -1,36 +1,47 @@
 import { Link } from 'react-router-dom';
-import { FileQuestion, Home, ArrowLeft } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Home, ArrowLeft } from 'lucide-react';
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="text-center max-w-md">
-        <div className="mb-8">
-          <FileQuestion className="h-24 w-24 mx-auto text-muted-foreground/50" />
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="text-center space-y-8 max-w-sm">
+        {/* Glow number */}
+        <div>
+          <span
+            className="text-9xl font-mono font-bold text-primary block leading-none"
+            style={{
+              textShadow: '0 0 40px hsl(var(--primary) / 0.4), 0 0 80px hsl(var(--primary) / 0.15)',
+            }}
+            aria-label="Error 404"
+          >
+            404
+          </span>
         </div>
 
-        <h1 className="text-4xl font-bold mb-2">404</h1>
-        <h2 className="text-xl text-muted-foreground mb-6">Page Not Found</h2>
-
-        <p className="text-muted-foreground mb-8">
-          The page you&apos;re looking for doesn&apos;t exist or has been moved.
-        </p>
+        <div className="space-y-2">
+          <p className="text-lg font-mono text-foreground">This endpoint doesn&apos;t exist.</p>
+          <p className="text-xs font-mono text-muted-foreground/50">
+            The route you&apos;re looking for returned no content.
+          </p>
+        </div>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-          >
-            <Home className="h-4 w-4" />
-            Go Home
-          </Link>
-          <button
+          <Button asChild variant="glow" size="sm" className="font-mono text-xs gap-2">
+            <Link to="/">
+              <Home className="h-3.5 w-3.5" />
+              Go Home
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="font-mono text-xs gap-2"
             onClick={() => window.history.back()}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors border border-border"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-3.5 w-3.5" />
             Go Back
-          </button>
+          </Button>
         </div>
       </div>
     </div>
