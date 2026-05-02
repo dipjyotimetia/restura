@@ -1,23 +1,28 @@
-'use client';
-
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Copy, Check, Clock, Database, Zap, CheckCircle2, XCircle, AlertCircle, Rows, Columns } from 'lucide-react';
+import { Copy, Check, Zap, Rows, Columns } from 'lucide-react';
 import { toast } from 'sonner';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/shared/utils';
 import { Scale, Stagger, StaggerItem } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
-const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
+const CodeEditor = lazyComponent(
+  () => import('@/components/shared/CodeEditor'),
+  <div className="absolute inset-0 p-4 space-y-2">
+    <Skeleton className="h-3.5 w-3/4 rounded" />
+    <Skeleton className="h-3.5 w-1/2 rounded" />
+    <Skeleton className="h-3.5 w-2/3 rounded" />
+    <Skeleton className="h-3.5 w-4/5 rounded" />
+  </div>
+);
 
 // Helper functions moved outside component to avoid recreation
 const formatJson = (body: string): string => {
@@ -30,8 +35,8 @@ const formatJson = (body: string): string => {
 };
 
 const detectLanguage = (body: string, headers: Record<string, string | string[]>): string => {
-  const contentTypeHeader = headers['content-type'] || headers['Content-Type'];
-  const contentType = (Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : (contentTypeHeader || '')) || '';
+  const rawCt = headers['content-type'] ?? headers['Content-Type'] ?? '';
+  const contentType = (Array.isArray(rawCt) ? rawCt[0] ?? '' : rawCt);
 
   if (contentType.includes('application/json')) return 'json';
   if (contentType.includes('application/xml') || contentType.includes('text/xml')) return 'xml';
@@ -53,28 +58,30 @@ const detectLanguage = (body: string, headers: Record<string, string | string[]>
   return 'text';
 };
 
-const getStatusColor = (status: number) => {
-  if (status >= 200 && status < 300) return 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
-  if (status >= 300 && status < 400) return 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800';
-  if (status >= 400 && status < 500) return 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800';
-  if (status >= 500) return 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800';
-  return 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-400 border-slate-200 dark:border-slate-700';
+const getStatusTextColor = (status: number) => {
+  if (status >= 200 && status < 300) return 'text-emerald-400';
+  if (status >= 300 && status < 400) return 'text-blue-400';
+  if (status >= 400 && status < 500) return 'text-amber-400';
+  if (status >= 500) return 'text-red-400';
+  return 'text-muted-foreground';
 };
 
-const getStatusIcon = (status: number) => {
-  if (status >= 200 && status < 300) return <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />;
-  if (status >= 400) return <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />;
-  return <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />;
+const getStatusDotColor = (status: number) => {
+  if (status >= 200 && status < 300) return 'bg-emerald-400 shadow-[0_0_6px_theme(colors.emerald.400)]';
+  if (status >= 300 && status < 400) return 'bg-blue-400 shadow-[0_0_6px_theme(colors.blue.400)]';
+  if (status >= 400 && status < 500) return 'bg-amber-400 shadow-[0_0_6px_theme(colors.amber.400)]';
+  if (status >= 500) return 'bg-red-400 shadow-[0_0_6px_theme(colors.red.400)]';
+  return 'bg-muted-foreground';
 };
 
 function ResponseSkeleton() {
   return (
     <Scale className="h-full flex flex-col bg-background relative z-20">
-      <div className="flex items-center gap-4 px-4 py-2.5 border-b border-slate-200/60 dark:border-slate-700/40 bg-slate-50/50 dark:bg-slate-800/50">
+      <div className="flex items-center gap-4 px-4 py-2.5 border-b border-border bg-surface-2/50">
         <Skeleton className="h-7 w-28 rounded-md" />
-        <div className="h-5 w-px bg-slate-200 dark:bg-slate-700" />
+        <div className="h-5 w-px bg-border" />
         <Skeleton className="h-5 w-20 rounded" />
-        <div className="h-5 w-px bg-slate-200 dark:bg-slate-700" />
+        <div className="h-5 w-px bg-border" />
         <Skeleton className="h-5 w-16 rounded" />
       </div>
       {/* Code-shaped skeleton */}
@@ -105,7 +112,16 @@ function ResponseViewer() {
   const { settings, updateSettings } = useSettingsStore();
   const [activeTab, setActiveTab] = useState('body');
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
-  const [showAnimation, setShowAnimation] = useState(false);
+  const [copiedBody, setCopiedBody] = useState(false);
+  const copyHeaderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyBodyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyHeaderTimer.current) clearTimeout(copyHeaderTimer.current);
+      if (copyBodyTimer.current) clearTimeout(copyBodyTimer.current);
+    };
+  }, []);
 
   const toggleLayout = () => {
     updateSettings({
@@ -127,117 +143,62 @@ function ResponseViewer() {
     return currentResponse.body;
   }, [currentResponse, language]);
 
-  // Trigger animation when response changes
-  useEffect(() => {
-    if (currentResponse) {
-      setShowAnimation(true);
-      const timer = setTimeout(() => setShowAnimation(false), 1000);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  }, [currentResponse]);
-
-  const handleCopyHeader = async (key: string, value: string) => {
+  const handleCopyHeader = async (key: string, value: string | string[]) => {
+    const displayValue = Array.isArray(value) ? value.join(', ') : value;
     try {
-      await navigator.clipboard.writeText(`${key}: ${value}`);
+      await navigator.clipboard.writeText(`${key}: ${displayValue}`);
       setCopiedHeader(key);
       toast.success('Header copied');
-      setTimeout(() => setCopiedHeader(null), 2000);
+      if (copyHeaderTimer.current) clearTimeout(copyHeaderTimer.current);
+      copyHeaderTimer.current = setTimeout(() => setCopiedHeader(null), 2000);
     } catch {
       toast.error('Failed to copy header');
     }
   };
 
-  if (isLoading) {
-    return <ResponseSkeleton />;
-  }
-
-  if (!currentResponse) {
-    return (
-      <div className="h-full flex items-center justify-center bg-background relative z-20 border-l border-border">
-        <div className="text-center p-8 rounded-xl bg-muted/80 border border-border max-w-md shadow-lg">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-gradient-to-br from-slate-blue-100 to-indigo-100 dark:from-slate-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
-            <Zap className="h-7 w-7 text-slate-blue-600 dark:text-slate-blue-400" />
-          </div>
-          <p className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-1.5 tracking-tight">Ready to Send</p>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-            Configure your request and hit Send to see the response
-          </p>
-          <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <kbd className="px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-[10px] font-mono shadow-sm">⌘</kbd>
-            <span>+</span>
-            <kbd className="px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-[10px] font-mono shadow-sm">Enter</kbd>
-            <span className="ml-1.5">to send request</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const isSuccess = currentResponse.status >= 200 && currentResponse.status < 300;
-  const isError = currentResponse.status >= 400;
+  const handleCopyBody = async () => {
+    try {
+      await navigator.clipboard.writeText(formattedBody);
+      setCopiedBody(true);
+      toast.success('Response body copied');
+      if (copyBodyTimer.current) clearTimeout(copyBodyTimer.current);
+      copyBodyTimer.current = setTimeout(() => setCopiedBody(false), 2000);
+    } catch {
+      toast.error('Failed to copy response body');
+    }
+  };
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div
-        className={cn(
-          "h-full flex flex-col bg-background relative z-20 transition-all duration-300 border-l border-border",
-          showAnimation && isSuccess && "animate-success-pulse",
-          showAnimation && isError && "animate-error-shake"
-        )}
-      >
-        {/* Response Info Bar */}
-        <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-2 lg:py-2.5 border-b border-border bg-transparent">
-          <div className="flex items-center gap-1.5 lg:gap-2">
-            <span className="text-[10px] lg:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide hidden lg:inline">Status</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "text-xs font-bold px-2.5 py-1 flex items-center gap-1.5 tabular-nums",
-                    getStatusColor(currentResponse.status)
-                  )}
-                >
-                  {getStatusIcon(currentResponse.status)}
-                  {currentResponse.status} {currentResponse.statusText}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>
-                  {currentResponse.status >= 200 && currentResponse.status < 300 && 'Success - Request completed successfully'}
-                  {currentResponse.status >= 300 && currentResponse.status < 400 && 'Redirect - Resource has moved'}
-                  {currentResponse.status >= 400 && currentResponse.status < 500 && 'Client Error - Check your request'}
-                  {currentResponse.status >= 500 && 'Server Error - Server failed to process'}
-                  {currentResponse.status === 0 && 'Network Error - Connection failed'}
-                </p>
-              </TooltipContent>
-            </Tooltip>
+      {isLoading ? (
+        <ResponseSkeleton />
+      ) : !currentResponse ? (
+        <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground/50 bg-background relative z-20 border-l border-border">
+          <Zap className="h-6 w-6" />
+          <div className="text-center">
+            <p className="text-xs font-mono">Send a request to see the response</p>
+            <p className="text-[10px] font-mono mt-1 text-muted-foreground/30">⌘ Enter</p>
           </div>
-          <Separator orientation="vertical" className="h-4 lg:h-5 bg-slate-200 dark:bg-slate-700" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 lg:gap-1.5 cursor-help">
-                <Clock className="h-3 w-3 lg:h-3.5 lg:w-3.5 text-slate-blue-600 dark:text-slate-blue-400" />
-                <span className="text-[10px] lg:text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatTime(currentResponse.time)}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Response time: {currentResponse.time}ms</p>
-            </TooltipContent>
-          </Tooltip>
-          <Separator orientation="vertical" className="h-4 lg:h-5 bg-slate-200 dark:bg-slate-700" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 lg:gap-1.5 cursor-help">
-                <Database className="h-3 w-3 lg:h-3.5 lg:w-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span className="text-[10px] lg:text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{formatBytes(currentResponse.size)}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Response size: {currentResponse.size} bytes</p>
-            </TooltipContent>
-          </Tooltip>
+        </div>
+      ) : (
+      <div className="h-full flex flex-col bg-background relative z-20 border-l border-border">
+        {/* Status zone */}
+        <div className="h-11 flex items-center px-3 border-b border-border bg-surface-2/50">
+          {/* Left side: status code + dot + text + metadata */}
+          <div className="flex flex-col justify-center">
+            <div className="flex items-center gap-2">
+              <span className={cn('text-2xl font-mono font-bold tabular-nums', getStatusTextColor(currentResponse.status))}>
+                {currentResponse.status}
+              </span>
+              <span aria-hidden="true" className={cn('h-2 w-2 rounded-full flex-shrink-0', getStatusDotColor(currentResponse.status))} />
+              <span className="text-xs font-mono text-muted-foreground">{currentResponse.statusText}</span>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono text-muted-foreground/60 ml-3">
+            {formatTime(currentResponse.time)} · {formatBytes(currentResponse.size)}
+          </span>
+
+          {/* Right side: layout toggle */}
           <div className="flex-1" />
           <Tooltip>
             <TooltipTrigger asChild>
@@ -262,49 +223,69 @@ function ResponseViewer() {
 
         {/* Response Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-4 py-2 border-b border-border/40">
-            <TabsList className="w-full grid grid-cols-2">
-              <TabsTrigger value="body">
-                Body
-                {language !== 'text' && (
-                  <Badge variant="secondary" className="ml-2 h-4 px-1 text-[10px]">
-                    {language.toUpperCase()}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="headers">
-                Headers
-                <Badge variant="secondary" className="ml-2 h-4 min-w-4 px-1 text-[10px] tabular-nums">
-                  {Object.keys(currentResponse.headers).length}
+          <TabsList className="px-3">
+            <TabsTrigger value="body">
+              Body
+              {language !== 'text' && (
+                <Badge variant="secondary" className="ml-2 h-4 px-1 text-[10px]">
+                  {language.toUpperCase()}
                 </Badge>
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="body" className="flex-1 relative p-0 m-0 min-h-0 border-none outline-none data-[state=active]:block h-full">
-            <div className="absolute inset-0">
-              {formattedBody ? (
-                 <CodeEditor value={formattedBody} language={language} readOnly height="100%" showCopyButton />
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm">
-                  <div className="p-4 rounded-full bg-muted/50 mb-3">
-                    <Database className="h-6 w-6 opacity-20" />
-                  </div>
-                  <p>No body content returned</p>
-                </div>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="headers">
+              Headers
+              <Badge variant="secondary" className="ml-2 h-4 min-w-4 px-1 text-[10px] tabular-nums">
+                {Object.keys(currentResponse.headers).length}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="body" className="flex-1 relative p-0 m-0 min-h-0 border-none outline-none data-[state=active]:flex data-[state=active]:flex-col h-full">
+            {/* Section header bar */}
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/40">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60">RESPONSE BODY</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleCopyBody}
+                    className="h-6 w-6"
+                  >
+                    {copiedBody ? (
+                      <Check className="h-3 w-3 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{copiedBody ? 'Copied!' : 'Copy response body'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="flex-1 relative min-h-0">
+              <div className="absolute inset-0">
+                {formattedBody ? (
+                  <CodeEditor value={formattedBody} language={language} readOnly height="100%" showCopyButton />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">
+                    <p className="text-xs font-mono">No body content returned</p>
+                  </div>
+                )}
+              </div>
             </div>
           </TabsContent>
 
           <TabsContent value="headers" className="flex-1 overflow-auto p-0 m-0 min-h-0">
-            <div className="p-4 space-y-2">
+            <div className="p-4 space-y-1">
               {Object.entries(currentResponse.headers).map(([key, value]) => (
                 <div
                   key={key}
-                  className="group flex gap-2 lg:gap-3 p-2 lg:p-2.5 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/40 hover:border-slate-blue-300 dark:hover:border-slate-blue-700 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/20 text-[10px] lg:text-xs transition-all"
+                  className="group flex gap-3 p-2 rounded hover:bg-surface-2 transition-colors text-xs"
                 >
-                  <span className="font-semibold min-w-[120px] lg:min-w-[180px] text-slate-blue-700 dark:text-slate-blue-300 truncate">{key}:</span>
-                  <span className="text-slate-600 dark:text-slate-400 break-all flex-1">
+                  <span className="font-mono font-medium text-primary/80 min-w-[140px] truncate">{key}:</span>
+                  <span className="font-mono text-muted-foreground break-all flex-1 text-[11px]">
                     {Array.isArray(value) ? value.join(', ') : value}
                   </span>
                   <Tooltip>
@@ -312,11 +293,11 @@ function ResponseViewer() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                        onClick={() => handleCopyHeader(key, String(value))}
+                        className="h-5 w-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity flex-shrink-0"
+                        onClick={() => handleCopyHeader(key, value)}
                       >
                         {copiedHeader === key ? (
-                          <Check className="h-3 w-3 text-emerald-600" />
+                          <Check className="h-3 w-3 text-emerald-400" />
                         ) : (
                           <Copy className="h-3 w-3" />
                         )}
@@ -332,6 +313,7 @@ function ResponseViewer() {
           </TabsContent>
         </Tabs>
       </div>
+      )}
     </TooltipProvider>
   );
 }
