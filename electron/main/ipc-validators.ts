@@ -22,7 +22,7 @@ export const HttpRequestConfigSchema = z.object({
   url: z.string().url('Invalid URL format'),
   headers: z.record(z.string(), z.string()).optional(),
   params: z.record(z.string(), z.string()).optional(),
-  data: z.string().optional(),
+  data: z.string().max(50 * 1024 * 1024, 'Request body exceeds 50MB limit').optional(),
   timeout: z.number().int().positive().optional(),
   maxRedirects: z.number().int().min(0).optional(),
   proxy: ProxyConfigSchema.optional(),
@@ -43,7 +43,7 @@ export const GrpcRequestConfigSchema = z.object({
   methodType: z.enum(['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming']),
   metadata: z.record(z.string(), z.string()),
   message: z.unknown(),
-  protoContent: z.string().min(1, 'Proto content is required'),
+  protoContent: z.string().min(1, 'Proto content is required').max(1 * 1024 * 1024, 'Proto content exceeds 1MB limit'),
   protoFileName: z.string().min(1, 'Proto file name is required'),
 });
 

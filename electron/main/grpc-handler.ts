@@ -216,8 +216,18 @@ function sanitizeProtoFileName(fileName: string): string {
   return sanitized.endsWith('.proto') ? sanitized : `${sanitized}.proto`;
 }
 
+function validateProtoContent(content: string): void {
+  if (!/^\s*syntax\s*=\s*"proto[23]"/m.test(content)) {
+    throw new Error('Invalid proto: missing syntax declaration');
+  }
+  if (!/\bservice\b/.test(content)) {
+    throw new Error('Invalid proto: no service definition found');
+  }
+}
+
 // Helper to load proto
 const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
+  validateProtoContent(config.protoContent);
   const sanitizedFileName = sanitizeProtoFileName(config.protoFileName || 'service.proto');
   const protoPath = path.join(tempDir, sanitizedFileName);
   fs.writeFileSync(protoPath, config.protoContent);
