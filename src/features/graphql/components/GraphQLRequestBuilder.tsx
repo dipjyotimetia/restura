@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,34 +5,38 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { Send, Plus, Trash2 } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { HttpRequest, Response } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 
-export default function GraphQLRequestBuilder() {
+function GraphQLRequestBuilder() {
   const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore();
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables } = useEnvironmentStore();
   const [activeTab, setActiveTab] = useState('query');
   const [graphqlVariables, setGraphqlVariables] = useState('{}');
 
-  // Create a default HTTP request if none exists or it's not HTTP type
+  // Must be called before any early return — Rules of Hooks
+  const {
+    handleAdd: handleAddHeader,
+    handleUpdate: handleUpdateHeader,
+    handleDelete: handleDeleteHeader,
+  } = useKeyValueCollection(
+    (currentRequest as HttpRequest | null)?.headers ?? [],
+    (headers) => updateRequest({ headers })
+  );
+
   if (!currentRequest || currentRequest.type !== 'http') {
     return null;
   }
 
   const httpRequest = currentRequest as HttpRequest;
-
-  // Use shared hook for headers management
-  const {
-    handleAdd: handleAddHeader,
-    handleUpdate: handleUpdateHeader,
-    handleDelete: handleDeleteHeader,
-  } = useKeyValueCollection(httpRequest.headers, (headers) => updateRequest({ headers }));
 
   const handleUrlChange = (url: string) => {
     updateRequest({ url });
@@ -52,7 +54,6 @@ export default function GraphQLRequestBuilder() {
     try {
       const resolvedUrl = resolveVariables(httpRequest.url);
 
-      // Build headers
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
@@ -63,7 +64,6 @@ export default function GraphQLRequestBuilder() {
         }
       }
 
-      // Parse variables
       let variables = {};
       try {
         variables = JSON.parse(graphqlVariables || '{}');
@@ -73,7 +73,6 @@ export default function GraphQLRequestBuilder() {
         return;
       }
 
-      // Build GraphQL body
       const body = JSON.stringify({
         query: httpRequest.body.raw || '',
         variables,
@@ -134,52 +133,55 @@ export default function GraphQLRequestBuilder() {
     }
   };
 
+  const activeHeaderCount = httpRequest.headers.filter((h) => h.enabled && h.key).length;
+
   return (
     <div className="flex-1 flex flex-col border-b border-border">
-      {/* URL Bar */}
-      <div className="p-4 border-b border-border">
-        <div className="flex gap-2">
-          <div className="flex items-center px-3 bg-purple-500/10 text-purple-500 font-medium text-sm rounded-l border border-r-0 border-border">
-            POST
-          </div>
-          <Input
-            value={httpRequest.url}
-            onChange={(e) => handleUrlChange(e.target.value)}
-            placeholder="Enter GraphQL endpoint URL"
-            className="flex-1 bg-background border-border rounded-l-none"
-          />
-          <Button
-            onClick={handleSendRequest}
-            disabled={isLoading || !httpRequest.url}
-            aria-label={isLoading ? 'Sending GraphQL query' : 'Send GraphQL query'}
-          >
-            <Send className="mr-2 h-4 w-4" />
-            {isLoading ? 'Sending...' : 'Send'}
-          </Button>
+      {/* URL Zone */}
+      <div className="flex items-center gap-1 px-3 h-12 border-y border-border bg-surface-2 shrink-0">
+        <div className="flex items-center px-2 h-7 bg-primary/10 text-primary font-mono text-[10px] font-bold tracking-wider rounded shrink-0">
+          POST
         </div>
+        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
+        <Input
+          value={httpRequest.url}
+          onChange={(e) => handleUrlChange(e.target.value)}
+          placeholder="Enter GraphQL endpoint URL"
+          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:ring-0 focus-visible:ring-offset-0"
+          aria-label="GraphQL endpoint URL"
+        />
+        <Button
+          variant="glow"
+          size="sm"
+          onClick={handleSendRequest}
+          disabled={isLoading || !httpRequest.url}
+          aria-label={isLoading ? 'Sending GraphQL query' : 'Send GraphQL query'}
+          className="h-7 min-w-[72px] shrink-0"
+        >
+          <Send className="mr-1.5 h-3.5 w-3.5" />
+          {isLoading ? 'Sending...' : 'Send'}
+        </Button>
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <div className="px-4 py-2 border-b bg-muted/20">
-          <TabsList className="h-9 w-full justify-start bg-muted/50 p-1 text-muted-foreground">
-            <TabsTrigger
-              value="query"
-              className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-            >
-              Query
-            </TabsTrigger>
-            <TabsTrigger
-              value="headers"
-              className="data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-            >
-              Headers
-              <span className="ml-1 text-xs text-muted-foreground">
-                ({httpRequest.headers.filter((h) => h.enabled).length})
-              </span>
-            </TabsTrigger>
-          </TabsList>
-        </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+        <TabsList className="w-full justify-start border-b border-border rounded-none h-9 bg-transparent p-0 shrink-0">
+          <TabsTrigger
+            value="query"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          >
+            Query
+          </TabsTrigger>
+          <TabsTrigger
+            value="headers"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          >
+            Headers
+            {activeHeaderCount > 0 && (
+              <span className="ml-1 text-[10px] text-muted-foreground">({activeHeaderCount})</span>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
         <TabsContent value="query" className="flex-1 overflow-auto p-4 m-0">
           <GraphQLBodyEditor
@@ -192,42 +194,23 @@ export default function GraphQLRequestBuilder() {
         </TabsContent>
 
         <TabsContent value="headers" className="flex-1 overflow-auto p-4 m-0">
-          <div className="space-y-2">
-            <div className="text-sm text-muted-foreground mb-2">
-              Content-Type: application/json is automatically set for GraphQL requests.
-            </div>
-            {httpRequest.headers.map((header) => (
-              <div key={header.id} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={header.enabled}
-                  onChange={(e) => handleUpdateHeader(header.id, { enabled: e.target.checked })}
-                  className="h-4 w-4"
-                />
-                <Input
-                  value={header.key}
-                  onChange={(e) => handleUpdateHeader(header.id, { key: e.target.value })}
-                  placeholder="Header name"
-                  className="flex-1"
-                />
-                <Input
-                  value={header.value}
-                  onChange={(e) => handleUpdateHeader(header.id, { value: e.target.value })}
-                  placeholder="Value"
-                  className="flex-1"
-                />
-                <Button variant="ghost" size="icon" onClick={() => handleDeleteHeader(header.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button onClick={handleAddHeader} variant="outline" size="sm">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Header
-            </Button>
-          </div>
+          <p className="text-xs text-muted-foreground font-mono mb-3">
+            Content-Type: application/json is automatically set for GraphQL requests.
+          </p>
+          <KeyValueEditor
+            items={httpRequest.headers}
+            onAdd={handleAddHeader}
+            onUpdate={handleUpdateHeader}
+            onDelete={handleDeleteHeader}
+            keyPlaceholder="Header name"
+            valuePlaceholder="Value"
+            addButtonText="Add Header"
+            itemType="header"
+          />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
+
+export default withErrorBoundary(GraphQLRequestBuilder);
