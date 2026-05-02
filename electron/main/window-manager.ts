@@ -112,10 +112,10 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
 
   // Load the app
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    const indexPath = path.join(__dirname, '../../out/index.html');
+    const indexPath = path.join(__dirname, '../../dist/web/client/index.html');
     mainWindow.loadFile(indexPath);
   }
 

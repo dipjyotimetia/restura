@@ -78,7 +78,7 @@ function setupSecurityMeasures(): void {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
       const parsedUrl = new URL(navigationUrl);
-      if (isDev && parsedUrl.origin === 'http://localhost:3000') {
+      if (isDev && parsedUrl.origin === 'http://localhost:5173') {
         return;
       }
       if (parsedUrl.protocol === 'file:') {

@@ -20,8 +20,8 @@ const ProxyConfigSchema = z.object({
 export const HttpRequestConfigSchema = z.object({
   method: z.string(),
   url: z.string().url('Invalid URL format'),
-  headers: z.record(z.string()).optional(),
-  params: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  params: z.record(z.string(), z.string()).optional(),
   data: z.string().optional(),
   timeout: z.number().int().positive().optional(),
   maxRedirects: z.number().int().min(0).optional(),
@@ -41,7 +41,7 @@ export const GrpcRequestConfigSchema = z.object({
   service: z.string().min(1, 'Service name is required'),
   method: z.string().min(1, 'Method name is required'),
   methodType: z.enum(['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming']),
-  metadata: z.record(z.string()),
+  metadata: z.record(z.string(), z.string()),
   message: z.unknown(),
   protoContent: z.string().min(1, 'Proto content is required'),
   protoFileName: z.string().min(1, 'Proto file name is required'),
@@ -146,10 +146,10 @@ export function validateIpcInput<T>(schema: z.ZodSchema<T>, data: unknown, chann
     return schema.parse(data);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errorMessages = error.errors.map((err) => `${err.path.join('.')}: ${err.message}`).join(', ');
+      const errorMessages = error.issues.map((err) => `${err.path.join('.')}: ${err.message}`).join(', ');
 
       console.error(`[IPC Validation Error] Channel: ${channel}`, {
-        errors: error.errors,
+        issues: error.issues,
         receivedData: data,
       });
 

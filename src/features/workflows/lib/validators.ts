@@ -50,7 +50,7 @@ export const workflowExecutionStepSchema = z.object({
   requestId: z.string(),
   requestName: z.string(),
   status: z.enum(['pending', 'running', 'success', 'failed', 'skipped']),
-  extractedVariables: z.record(z.string()).optional(),
+  extractedVariables: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   duration: z.number().optional(),
   timestamp: z.number(),
@@ -70,7 +70,7 @@ export const workflowExecutionSchema = z.object({
   completedAt: z.number().optional(),
   status: z.enum(['running', 'success', 'failed', 'stopped']),
   steps: z.array(workflowExecutionStepSchema),
-  finalVariables: z.record(z.string()),
+  finalVariables: z.record(z.string(), z.string()),
   environment: z.string().optional(),
   executionLog: z.array(executionLogEntrySchema),
 });
@@ -83,7 +83,7 @@ export function validateWorkflow(data: unknown): { success: boolean; errors?: st
   }
   return {
     success: false,
-    errors: result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`),
+    errors: result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`),
   };
 }
 
@@ -94,7 +94,7 @@ export function validateWorkflowRequest(data: unknown): { success: boolean; erro
   }
   return {
     success: false,
-    errors: result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`),
+    errors: result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`),
   };
 }
 
@@ -105,7 +105,7 @@ export function validateExtraction(data: unknown): { success: boolean; errors?: 
   }
   return {
     success: false,
-    errors: result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`),
+    errors: result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`),
   };
 }
 

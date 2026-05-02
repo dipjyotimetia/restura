@@ -11,9 +11,9 @@ import { Send, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HttpRequest, Response } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
-import dynamic from 'next/dynamic';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 
-const GraphQLBodyEditor = dynamic(() => import('./GraphQLBodyEditor'), { ssr: false });
+const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 
 export default function GraphQLRequestBuilder() {
   const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore();

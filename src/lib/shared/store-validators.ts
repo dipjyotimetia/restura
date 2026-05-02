@@ -25,8 +25,8 @@ export function validateRequest(request: unknown): Request {
 
   // Validation failed for both HTTP and gRPC schemas
   const errorDetails = {
-    httpErrors: httpResult.error?.errors,
-    grpcErrors: grpcResult.error?.errors,
+    httpErrors: httpResult.error?.issues,
+    grpcErrors: grpcResult.error?.issues,
   };
 
   console.error('Request validation failed:', errorDetails);
@@ -58,11 +58,11 @@ export function validateEnvironment(env: unknown): Environment {
     return result.data;
   }
 
-  console.error('Environment validation failed:', result.error?.errors);
+  console.error('Environment validation failed:', result.error?.issues);
 
   // Throw error to prevent invalid data from entering the store
   throw new Error(
-    `Environment validation failed: ${result.error?.errors.map((e) => e.message).join(', ')}`
+    `Environment validation failed: ${result.error?.issues.map((e) => e.message).join(', ')}`
   );
 }
 
@@ -75,11 +75,11 @@ export function validateCollection(collection: unknown): Collection {
     return result.data;
   }
 
-  console.error('Collection validation failed:', result.error?.errors);
+  console.error('Collection validation failed:', result.error?.issues);
 
   // Throw error to prevent invalid data from entering the store
   throw new Error(
-    `Collection validation failed: ${result.error?.errors.map((e) => e.message).join(', ')}`
+    `Collection validation failed: ${result.error?.issues.map((e) => e.message).join(', ')}`
   );
 }
 
@@ -98,7 +98,7 @@ export function safeParseJSON<T>(
     }
     return {
       success: false,
-      error: result.error.errors.map((e) => e.message).join(', '),
+      error: result.error.issues.map((e) => e.message).join(', '),
     };
   } catch (error) {
     return {

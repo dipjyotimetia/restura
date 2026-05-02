@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useEffect, useCallback } from 'react';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
@@ -33,15 +31,12 @@ export default function Home() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(1920);
 
-  // Trigger store hydration on mount
   useStoreHydration();
   const { scriptResult, setScriptResult } = useRequestStore();
   const { settings } = useSettingsStore();
 
-  // Determine effective layout (force vertical on small screens)
   const effectiveLayout = windowWidth < 1280 ? 'vertical' : settings.layoutOrientation;
 
-  // Track window width for responsive layout
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     setWindowWidth(window.innerWidth);
@@ -60,15 +55,12 @@ export default function Home() {
     setScriptResult(null);
   };
 
-  // Keyboard shortcut for toggling sidebar
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + B to toggle sidebar
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault();
         setSidebarOpen((prev) => !prev);
       }
-      // Cmd/Ctrl + , to open settings
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault();
         setSettingsOpen(true);
@@ -80,8 +72,6 @@ export default function Home() {
   }, []);
 
   const handleSendRequest = useCallback(() => {
-    // This will be handled by RequestBuilder's internal keyboard shortcut
-    // We're just providing a callback for the command palette
     const event = new KeyboardEvent('keydown', {
       key: 'Enter',
       metaKey: true,
@@ -120,8 +110,6 @@ export default function Home() {
     }
   };
 
-  // Console is always shown now (managed by NetworkConsole component)
-
   return (
     <div className="flex h-screen flex-col bg-background relative overflow-hidden">
       <Header
@@ -148,7 +136,6 @@ export default function Home() {
         }
       >
         <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar with collapsible mode */}
           <div className={cn(
             "relative transition-all duration-300 ease-out border-r border-border",
             sidebarOpen ? (sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded) : "w-0"
@@ -162,7 +149,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Sidebar toggle button */}
           {!sidebarOpen && (
             <Button
               variant="ghost"
@@ -176,7 +162,6 @@ export default function Home() {
           )}
 
           <main className="flex flex-1 flex-col relative bg-background/50">
-            {/* Premium noise texture background */}
             <div className="absolute inset-0 noise-texture opacity-10 pointer-events-none" />
 
             <div className="flex flex-1 overflow-hidden relative z-10">
@@ -185,7 +170,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Console pane */}
             {requestMode !== 'websocket' && (
               <NetworkConsole
                 scriptLogs={allLogs}
@@ -197,10 +181,8 @@ export default function Home() {
         </div>
       </ClientHydration>
 
-      {/* Status Bar */}
       <StatusBar />
 
-      {/* Command Palette */}
       <CommandPalette
         onOpenEnvironments={() => setEnvManagerOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -209,10 +191,8 @@ export default function Home() {
         onChangeMode={setRequestMode}
       />
 
-      {/* Keyboard Shortcuts Panel */}
       <KeyboardShortcutsPanel />
 
-      {/* Welcome Onboarding for First-Time Users */}
       <WelcomeOnboarding />
     </div>
   );
