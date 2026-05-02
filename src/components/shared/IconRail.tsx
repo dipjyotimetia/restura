@@ -3,10 +3,11 @@ import { FolderOpen, History, GitBranch, Settings2, Sun, Moon } from 'lucide-rea
 import { useTheme } from 'next-themes';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
+import type { ActivePanel } from '@/types';
 
 interface IconRailProps {
-  activePanel: 'collections' | 'history' | 'workflows' | null;
-  onPanelChange: (panel: 'collections' | 'history' | 'workflows' | null) => void;
+  activePanel: ActivePanel | null;
+  onPanelChange: (panel: ActivePanel) => void;
   onOpenSettings: () => void;
 }
 
@@ -40,7 +41,7 @@ export default function IconRail({
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex flex-col h-full w-12 bg-card border-r border-border items-center py-3 gap-1 select-none shrink-0">
+      <nav aria-label="Main navigation" className="flex flex-col h-full w-12 bg-card border-r border-border items-center py-3 gap-1 select-none shrink-0">
         {/* Logo */}
         <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/15 border border-primary/25 mb-2">
           <span className="text-primary font-bold text-base font-mono">R</span>
@@ -57,7 +58,7 @@ export default function IconRail({
               <Tooltip key={id}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={() => onPanelChange(isActive ? null : id)}
+                    onClick={() => onPanelChange(id)}
                     aria-label={label}
                     aria-pressed={isActive}
                     className={cn(
@@ -68,7 +69,7 @@ export default function IconRail({
                     )}
                   >
                     {isActive && (
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r -ml-3" />
+                      <span className="absolute left-[-3px] top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r" />
                     )}
                     <Icon className="h-4 w-4" />
                   </button>
@@ -107,7 +108,7 @@ export default function IconRail({
             <TooltipContent side="right">Toggle Theme</TooltipContent>
           </Tooltip>
         </div>
-      </div>
+      </nav>
     </TooltipProvider>
   );
 }

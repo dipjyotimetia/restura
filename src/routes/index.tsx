@@ -20,15 +20,17 @@ import SettingsDialog from '@/components/shared/SettingsDialog';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
-import type { RequestMode } from '@/types';
+import type { RequestMode, ActivePanel } from '@/types';
 
 export default function Home() {
-  const [activePanel, setActivePanel] = useState<'collections' | 'history' | 'workflows' | null>('collections');
+  const [activePanel, setActivePanel] = useState<ActivePanel | null>('collections');
   const [requestMode, setRequestMode] = useState<RequestMode>('http');
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [windowWidth, setWindowWidth] = useState(1920);
+  const [windowWidth, setWindowWidth] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1920
+  );
 
   useStoreHydration();
   const { scriptResult, setScriptResult } = useRequestStore();
@@ -123,7 +125,7 @@ export default function Home() {
             <Sidebar
               onClose={() => setActivePanel(null)}
               isCollapsed={false}
-              onToggleCollapse={() => {}}
+              onToggleCollapse={() => setActivePanel(null)}
             />
           </div>
         )}
