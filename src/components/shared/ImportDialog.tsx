@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -20,7 +18,6 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   const [errorMessage, setErrorMessage] = useState('');
   const [activeTab, setActiveTab] = useState('postman');
 
-  // Parse file content based on extension (JSON or YAML)
   const parseFileContent = (text: string, fileName: string): unknown => {
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
       return YAML.parse(text);
@@ -28,7 +25,6 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     return JSON.parse(text);
   };
 
-  // Process imported file and return collection
   const processImportFile = async (file: File, type: 'postman' | 'insomnia' | 'openapi') => {
     const text = await file.text();
     const data = parseFileContent(text, file.name);
@@ -44,7 +40,6 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     }
   };
 
-  // Handle successful import
   const handleImportSuccess = (collection: ReturnType<typeof importPostmanCollection>) => {
     addCollection(collection);
     setImportStatus('success');
@@ -54,7 +49,6 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     }, 1500);
   };
 
-  // Handle import error
   const handleImportError = (error: unknown) => {
     setImportStatus('error');
     const message = error instanceof Error ? error.message : 'Failed to import collection';
@@ -73,7 +67,6 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
       handleImportError(error);
     }
 
-    // Reset input
     event.target.value = '';
   };
 
@@ -94,14 +87,14 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     const typeLabels = {
       postman: 'Postman',
       insomnia: 'Insomnia',
-      openapi: 'OpenAPI/Swagger',
+      openapi: 'OpenAPI / Swagger',
     };
 
     return (
       <div
         onDrop={(e) => handleDrop(e, type)}
         onDragOver={(e) => e.preventDefault()}
-        className="border-2 border-dashed rounded-lg p-12 text-center hover:border-primary transition-colors"
+        className="border border-dashed border-border rounded-lg p-10 text-center hover:border-primary/50 hover:bg-surface-2/50 transition-colors cursor-pointer"
       >
         <input
           type="file"
@@ -110,17 +103,17 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
           className="hidden"
           id={`file-upload-${type}`}
         />
-        <label htmlFor={`file-upload-${type}`} className="cursor-pointer">
-          <div className="flex flex-col items-center gap-4">
-            <FileJson className="h-12 w-12 text-muted-foreground" />
+        <label htmlFor={`file-upload-${type}`} className="cursor-pointer block">
+          <div className="flex flex-col items-center gap-3">
+            <FileJson className="h-10 w-10 text-muted-foreground/40" />
             <div>
-              <p className="text-lg font-medium">
+              <p className="text-sm font-mono text-muted-foreground">
                 Drop {typeLabels[type]} collection here
               </p>
-              <p className="text-sm text-muted-foreground mt-1">or click to browse</p>
+              <p className="text-xs text-muted-foreground/50 font-mono mt-1">or click to browse</p>
             </div>
-            <Button variant="outline" size="sm" type="button">
-              <Upload className="mr-2 h-4 w-4" />
+            <Button variant="outline" size="sm" type="button" className="font-mono text-xs pointer-events-none">
+              <Upload className="mr-2 h-3.5 w-3.5" />
               Choose File
             </Button>
           </div>
@@ -129,85 +122,101 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     );
   };
 
+  const FEATURE_LISTS: Record<string, string[]> = {
+    postman: [
+      'Collections and folders',
+      'HTTP requests (all methods)',
+      'Query parameters and headers',
+      'Request body (JSON, form-data, etc.)',
+      'Authentication (Basic, Bearer, API Key, OAuth2, AWS Signature)',
+      'Pre-request and test scripts',
+      'Environment variables',
+    ],
+    insomnia: [
+      'Workspaces and request groups',
+      'HTTP requests',
+      'Headers and parameters',
+      'Request body',
+      'Authentication (Basic, Bearer, API Key, OAuth2)',
+    ],
+    openapi: [
+      'OpenAPI 3.x and Swagger 2.0 specifications',
+      'Paths and operations (all HTTP methods)',
+      'Query, header, and path parameters',
+      'Request bodies with example generation',
+      'Tag-based folder organization',
+      'Security schemes (Basic, Bearer, API Key, OAuth2)',
+      'Server URL configuration',
+    ],
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Import Collection</DialogTitle>
-          <DialogDescription>
-            Import your API collections from Postman, Insomnia, or OpenAPI/Swagger
+          <DialogTitle className="font-mono text-sm tracking-wide">IMPORT COLLECTION</DialogTitle>
+          <DialogDescription className="font-mono text-xs">
+            Import from Postman, Insomnia, or OpenAPI/Swagger
           </DialogDescription>
         </DialogHeader>
 
         {importStatus === 'success' && (
-          <div className="flex items-center gap-2 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-800 dark:text-green-200">
-            <CheckCircle className="h-5 w-5" />
-            <span className="font-medium">Collection imported successfully!</span>
+          <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400 text-xs font-mono">
+            <CheckCircle className="h-4 w-4 shrink-0" />
+            <span>Collection imported successfully!</span>
           </div>
         )}
 
         {importStatus === 'error' && (
-          <div className="flex items-center gap-2 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-200">
-            <AlertCircle className="h-5 w-5" />
-            <div className="flex-1">
+          <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded text-destructive text-xs font-mono">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
               <span className="font-medium">Import failed</span>
-              <p className="text-sm mt-1">{errorMessage}</p>
+              <p className="mt-1 opacity-80">{errorMessage}</p>
             </div>
           </div>
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="postman">Postman</TabsTrigger>
-            <TabsTrigger value="insomnia">Insomnia</TabsTrigger>
-            <TabsTrigger value="openapi">OpenAPI</TabsTrigger>
+          <TabsList className="w-full justify-start border-b border-border rounded-none h-9 bg-transparent p-0">
+            <TabsTrigger
+              value="postman"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              Postman
+            </TabsTrigger>
+            <TabsTrigger
+              value="insomnia"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              Insomnia
+            </TabsTrigger>
+            <TabsTrigger
+              value="openapi"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              OpenAPI
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="postman" className="space-y-4">
-            <DropZone type="postman" />
-            <div className="text-sm text-muted-foreground space-y-2">
-              <p className="font-medium">Supported Postman features:</p>
-              <ul className="list-disc list-inside space-y-1 ml-2">
-                <li>Collections and folders</li>
-                <li>HTTP requests (all methods)</li>
-                <li>Query parameters and headers</li>
-                <li>Request body (JSON, form-data, etc.)</li>
-                <li>Authentication (Basic, Bearer, API Key, OAuth2, AWS Signature)</li>
-                <li>Pre-request and test scripts</li>
-                <li>Environment variables</li>
-              </ul>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="insomnia" className="space-y-4">
-            <DropZone type="insomnia" />
-            <div className="text-sm text-muted-foreground space-y-2">
-              <p className="font-medium">Supported Insomnia features:</p>
-              <ul className="list-disc list-inside space-y-1 ml-2">
-                <li>Workspaces and request groups</li>
-                <li>HTTP requests</li>
-                <li>Headers and parameters</li>
-                <li>Request body</li>
-                <li>Authentication (Basic, Bearer, API Key, OAuth2)</li>
-              </ul>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="openapi" className="space-y-4">
-            <DropZone type="openapi" />
-            <div className="text-sm text-muted-foreground space-y-2">
-              <p className="font-medium">Supported OpenAPI/Swagger features:</p>
-              <ul className="list-disc list-inside space-y-1 ml-2">
-                <li>OpenAPI 3.x and Swagger 2.0 specifications</li>
-                <li>Paths and operations (all HTTP methods)</li>
-                <li>Query, header, and path parameters</li>
-                <li>Request bodies with example generation</li>
-                <li>Tag-based folder organization</li>
-                <li>Security schemes (Basic, Bearer, API Key, OAuth2)</li>
-                <li>Server URL configuration</li>
-              </ul>
-            </div>
-          </TabsContent>
+          {(['postman', 'insomnia', 'openapi'] as const).map((type) => (
+            <TabsContent key={type} value={type} className="space-y-4 mt-4">
+              <DropZone type={type} />
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  Supported Features
+                </p>
+                <ul className="space-y-1">
+                  {FEATURE_LISTS[type]?.map((feature) => (
+                    <li key={feature} className="text-xs font-mono text-muted-foreground flex items-center gap-2">
+                      <span className="text-primary/40">›</span>
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </TabsContent>
+          ))}
         </Tabs>
       </DialogContent>
     </Dialog>
