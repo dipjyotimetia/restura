@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
 import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
@@ -45,12 +45,12 @@ export default function Home() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const allLogs = [
+  const allLogs = useMemo(() => [
     ...(scriptResult?.preRequest?.logs ?? []),
     ...(scriptResult?.test?.logs ?? []),
-  ];
+  ], [scriptResult]);
 
-  const allTests = scriptResult?.test?.tests;
+  const allTests = useMemo(() => scriptResult?.test?.tests, [scriptResult]);
 
   const handleClearConsole = () => {
     setScriptResult(null);

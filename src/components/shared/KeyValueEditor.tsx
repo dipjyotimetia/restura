@@ -3,7 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, ListPlus } from 'lucide-react';
 import { KeyValue } from '@/types';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +39,7 @@ export default function KeyValueEditor({
   itemType = 'item',
 }: KeyValueEditorProps) {
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="space-y-3">
         {items.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground/50">
@@ -137,5 +138,6 @@ export default function KeyValueEditor({
           </TooltipContent>
         </Tooltip>
     </div>
+    </TooltipProvider>
   );
 }
