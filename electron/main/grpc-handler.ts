@@ -217,10 +217,10 @@ function sanitizeProtoFileName(fileName: string): string {
 }
 
 function validateProtoContent(content: string): void {
-  if (!/^\s*syntax\s*=\s*"proto[23]"/m.test(content)) {
+  if (!/^\s*syntax\s*=\s*"proto[23]"/.test(content)) {
     throw new Error('Invalid proto: missing syntax declaration');
   }
-  if (!/\bservice\b/.test(content)) {
+  if (!/^service\s+\w+/m.test(content)) {
     throw new Error('Invalid proto: no service definition found');
   }
 }
