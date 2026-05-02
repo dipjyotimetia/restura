@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, session } from 'electron';
 import * as http from 'http';
 import * as https from 'https';
 import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
@@ -8,13 +8,21 @@ const httpRateLimiter = createRateLimiter(60, 60_000);
 
 interface ProxyConfig {
   enabled: boolean;
-  type: string;
+  type: 'http' | 'https' | 'socks5' | 'pac';
   host: string;
   port: number;
+  pacUrl?: string;
   auth?: {
     username: string;
     password: string;
   };
+}
+
+interface ClientCert {
+  pfx?: string;
+  cert?: string;
+  key?: string;
+  passphrase?: string;
 }
 
 interface HttpRequestConfig {
@@ -27,6 +35,7 @@ interface HttpRequestConfig {
   maxRedirects?: number;
   proxy?: ProxyConfig;
   verifySsl?: boolean;
+  clientCert?: ClientCert;
 }
 
 interface HttpResponse {
@@ -42,19 +51,41 @@ const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 // Connection timeout (10 seconds)
 const CONNECTION_TIMEOUT = 10000;
 
-function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
+async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
+  // Check body size early, before opening any connection
+  if (config.data && Buffer.byteLength(config.data, 'utf8') > MAX_HTTP_BODY_BYTES) {
+    throw new Error(`Request body size exceeds maximum limit of ${MAX_HTTP_BODY_BYTES / 1024 / 1024}MB`);
+  }
+
+  // PAC proxy resolution (before Promise constructor)
+  let resolvedConfig = config;
+  if (config.proxy?.enabled && config.proxy.type === 'pac' && config.proxy.pacUrl) {
+    try {
+      const proxyResult = await session.defaultSession.resolveProxy(config.url);
+      if (proxyResult.startsWith('PROXY ') || proxyResult.startsWith('HTTPS ')) {
+        const proxyAddr = proxyResult.split(' ')[1];
+        if (proxyAddr) {
+          const colonIdx = proxyAddr.lastIndexOf(':');
+          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
+          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 8080;
+          resolvedConfig = {
+            ...config,
+            proxy: { ...config.proxy, type: 'http', host, port },
+          };
+        }
+      }
+      // If DIRECT or SOCKS, proceed without proxy
+    } catch {
+      // PAC resolution failed — proceed without proxy
+    }
+  }
+
   return new Promise((resolve, reject) => {
     try {
-      // Check body size early, before opening any connection
-      if (config.data && Buffer.byteLength(config.data, 'utf8') > MAX_HTTP_BODY_BYTES) {
-        reject(new Error(`Request body size exceeds maximum limit of ${MAX_HTTP_BODY_BYTES / 1024 / 1024}MB`));
-        return;
-      }
-
       // Parse URL and add query params
-      const url = new URL(config.url);
-      if (config.params) {
-        Object.entries(config.params).forEach(([key, value]) => {
+      const url = new URL(resolvedConfig.url);
+      if (resolvedConfig.params) {
+        Object.entries(resolvedConfig.params).forEach(([key, value]) => {
           url.searchParams.append(key, value);
         });
       }
@@ -63,36 +94,52 @@ function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<
 
       // Build request options
       const requestOptions: http.RequestOptions | https.RequestOptions = {
-        method: config.method || 'GET',
+        method: resolvedConfig.method || 'GET',
         hostname: url.hostname,
         port: url.port || (isHttps ? 443 : 80),
         path: url.pathname + url.search,
-        headers: config.headers || {},
-        timeout: config.timeout || 30000,
+        headers: resolvedConfig.headers || {},
+        timeout: resolvedConfig.timeout || 30000,
       };
 
       // Apply proxy settings
-      if (config.proxy?.enabled && config.proxy.host) {
-        if (config.proxy.type === 'http' || config.proxy.type === 'https') {
-          requestOptions.hostname = config.proxy.host;
-          requestOptions.port = config.proxy.port;
+      if (resolvedConfig.proxy?.enabled && resolvedConfig.proxy.host) {
+        if (resolvedConfig.proxy.type === 'http' || resolvedConfig.proxy.type === 'https') {
+          requestOptions.hostname = resolvedConfig.proxy.host;
+          requestOptions.port = resolvedConfig.proxy.port;
           requestOptions.path = url.href;
           requestOptions.headers = {
             ...requestOptions.headers,
             Host: url.host,
           };
 
-          if (config.proxy.auth?.username && config.proxy.auth?.password) {
-            const auth = Buffer.from(`${config.proxy.auth.username}:${config.proxy.auth.password}`).toString('base64');
+          if (resolvedConfig.proxy.auth?.username && resolvedConfig.proxy.auth?.password) {
+            const auth = Buffer.from(`${resolvedConfig.proxy.auth.username}:${resolvedConfig.proxy.auth.password}`).toString('base64');
             (requestOptions.headers as Record<string, string>)['Proxy-Authorization'] = `Basic ${auth}`;
           }
         }
       }
 
       // Configure SSL verification
-      if (isHttps && config.verifySsl === false) {
+      if (isHttps && resolvedConfig.verifySsl === false) {
         (requestOptions as https.RequestOptions).rejectUnauthorized = false;
         console.warn(`[HTTP] SSL verification disabled for ${url.hostname} - this is insecure`);
+      }
+
+      // Apply client certificate if provided (for mTLS)
+      if (isHttps && resolvedConfig.clientCert) {
+        if (resolvedConfig.clientCert.pfx) {
+          (requestOptions as https.RequestOptions).pfx = Buffer.from(resolvedConfig.clientCert.pfx, 'base64');
+          if (resolvedConfig.clientCert.passphrase) {
+            (requestOptions as https.RequestOptions).passphrase = resolvedConfig.clientCert.passphrase;
+          }
+        } else if (resolvedConfig.clientCert.cert && resolvedConfig.clientCert.key) {
+          (requestOptions as https.RequestOptions).cert = resolvedConfig.clientCert.cert;
+          (requestOptions as https.RequestOptions).key = resolvedConfig.clientCert.key;
+          if (resolvedConfig.clientCert.passphrase) {
+            (requestOptions as https.RequestOptions).passphrase = resolvedConfig.clientCert.passphrase;
+          }
+        }
       }
 
       // Create request
@@ -133,7 +180,7 @@ function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<
 
           // Handle redirects (3xx status codes)
           const isRedirect = statusCode >= 300 && statusCode < 400;
-          const maxRedirects = config.maxRedirects ?? 5; // Default to 5 if not specified
+          const maxRedirects = resolvedConfig.maxRedirects ?? 5; // Default to 5 if not specified
 
           if (isRedirect && headers.location && redirectCount < maxRedirects) {
             // Follow redirect
@@ -143,23 +190,23 @@ function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<
 
             try {
               // Resolve relative URLs
-              const redirectUrl = new URL(locationHeader, config.url).href;
+              const redirectUrl = new URL(locationHeader, resolvedConfig.url).href;
 
               // For 301, 302, 303: Change POST to GET
               // For 307, 308: Keep original method
               const newMethod = (statusCode === 301 || statusCode === 302 || statusCode === 303)
-                && config.method?.toUpperCase() === 'POST'
+                && resolvedConfig.method?.toUpperCase() === 'POST'
                 ? 'GET'
-                : config.method;
+                : resolvedConfig.method;
 
               // Make redirect request
               makeHttpRequest(
                 {
-                  ...config,
+                  ...resolvedConfig,
                   url: redirectUrl,
                   method: newMethod,
                   // Clear body for GET requests
-                  data: newMethod === 'GET' ? undefined : config.data,
+                  data: newMethod === 'GET' ? undefined : resolvedConfig.data,
                 },
                 redirectCount + 1
               )
@@ -212,8 +259,8 @@ function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<
       });
 
       // Send request body if present
-      if (config.data) {
-        req.write(config.data);
+      if (resolvedConfig.data) {
+        req.write(resolvedConfig.data);
       }
 
       req.end();

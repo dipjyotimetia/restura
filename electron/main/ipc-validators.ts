@@ -13,15 +13,23 @@ export const MAX_PROTO_CONTENT_BYTES = 1024 * 1024;
 
 const ProxyConfigSchema = z.object({
   enabled: z.boolean(),
-  type: z.string(),
+  type: z.enum(['http', 'https', 'socks5', 'pac']),
   host: z.string(),
   port: z.number().int().positive(),
+  pacUrl: z.string().url('Invalid PAC URL').optional(),
   auth: z
     .object({
       username: z.string(),
       password: z.string(),
     })
     .optional(),
+});
+
+const ClientCertSchema = z.object({
+  pfx: z.string().optional(),        // base64-encoded PFX/PKCS12
+  cert: z.string().optional(),       // PEM certificate string
+  key: z.string().optional(),        // PEM private key string
+  passphrase: z.string().optional(), // passphrase for pfx or encrypted key
 });
 
 export const HttpRequestConfigSchema = z.object({
@@ -34,6 +42,7 @@ export const HttpRequestConfigSchema = z.object({
   maxRedirects: z.number().int().min(0).optional(),
   proxy: ProxyConfigSchema.optional(),
   verifySsl: z.boolean().optional(),
+  clientCert: ClientCertSchema.optional(),
 });
 
 export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
