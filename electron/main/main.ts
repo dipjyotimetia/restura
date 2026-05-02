@@ -37,15 +37,16 @@ const isDev = process.env.NODE_ENV === 'development';
 // Helper to get main window reference
 const getMainWindow = (): BrowserWindow | null => mainWindow;
 
-// Register deep-link handler before app.whenReady() so open-url / second-instance
-// events can fire even before the window is created
-registerDeepLinkHandler(getMainWindow);
-
 // Single instance lock — must be before app.whenReady()
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 }
+
+// Register deep-link handler before app.whenReady() so open-url / second-instance
+// events can fire even before the window is created
+// (requires single-instance lock to be requested before calling this)
+registerDeepLinkHandler(getMainWindow);
 
 // Register all IPC handlers
 function registerIPCHandlers(): void {
