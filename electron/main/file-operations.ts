@@ -21,11 +21,6 @@ export function isPathSafe(filePath: string): boolean {
     const documentsPath = app.getPath('documents');
     const homePath = app.getPath('home');
 
-    // Block obvious path traversal attempts
-    if (resolved.includes('..') || resolved.includes('~')) {
-      return false;
-    }
-
     // Block access to sensitive system directories
     const blockedPaths = [
       '/etc',
