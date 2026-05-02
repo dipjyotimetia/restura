@@ -73,8 +73,10 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
             proxy: { ...config.proxy, type: 'http', host, port },
           };
         }
+      } else if (proxyResult.startsWith('SOCKS ') || proxyResult.startsWith('SOCKS5 ')) {
+        console.warn(`[HTTP] PAC resolved to SOCKS proxy but SOCKS is not supported — proceeding direct: ${proxyResult}`);
       }
-      // If DIRECT or SOCKS, proceed without proxy
+      // If DIRECT, proceed without proxy
     } catch {
       // PAC resolution failed — proceed without proxy
     }
