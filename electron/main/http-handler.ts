@@ -286,19 +286,26 @@ export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         return { error: 'Rate limit exceeded' };
       }
       const startTime = Date.now();
-      const result = await makeHttpRequest(config);
+      let result: HttpResponse | undefined;
+      let thrownError: string | undefined;
+      try {
+        result = await makeHttpRequest(config);
+      } catch (err) {
+        thrownError = err instanceof Error ? err.message : String(err);
+      }
       if (onComplete) {
         onComplete({
           ts: startTime,
           method: config.method,
           url: config.url,
-          status: 'status' in result ? (result as { status: number }).status : 0,
+          status: result?.status ?? 0,
           durationMs: Date.now() - startTime,
           protocol: 'http',
-          error: 'error' in result ? String((result as { error: unknown }).error) : undefined,
+          error: thrownError,
         });
       }
-      return result;
+      if (thrownError !== undefined) throw new Error(thrownError);
+      return result as HttpResponse;
     })
   );
 }

@@ -498,6 +498,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         return;
       }
 
+    const streamStartTime = Date.now();
     const tempDir = path.join(GRPC_TEMP_BASE, requestId);
     fs.mkdirSync(tempDir, { recursive: true });
 
@@ -538,6 +539,17 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           status: error.code || 2,
           details: sanitizeErrorMessage(error.message)
         });
+        if (onComplete) {
+          onComplete({
+            ts: streamStartTime,
+            method: `${config.service}/${config.method}`,
+            url: config.url,
+            status: error.code || 2,
+            durationMs: Date.now() - streamStartTime,
+            protocol: 'grpc',
+            error: sanitizeErrorMessage(error.message),
+          });
+        }
         cleanup();
       };
 
@@ -546,6 +558,16 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           status: 0,
           details: 'OK'
         });
+        if (onComplete) {
+          onComplete({
+            ts: streamStartTime,
+            method: `${config.service}/${config.method}`,
+            url: config.url,
+            status: 0,
+            durationMs: Date.now() - streamStartTime,
+            protocol: 'grpc',
+          });
+        }
         cleanup();
       };
 
