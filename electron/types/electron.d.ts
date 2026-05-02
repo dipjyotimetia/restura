@@ -74,6 +74,7 @@ interface ElectronWindowAPI {
   minimize: () => void;
   maximize: () => void;
   close: () => void;
+  openNew: () => Promise<void>;
 }
 
 interface ElectronHttpProxyConfig {
@@ -137,6 +138,21 @@ interface ElectronStoreAPI {
   has: (key: string) => Promise<boolean>;
 }
 
+interface LogEntry {
+  ts: number;
+  method: string;
+  url: string;
+  status: number;
+  durationMs: number;
+  protocol: 'http' | 'grpc';
+  error?: string;
+}
+
+interface ElectronLogAPI {
+  getHistory: (limit?: number) => Promise<LogEntry[]>;
+  clear: () => Promise<void>;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -148,6 +164,9 @@ interface ElectronAPI {
   http: ElectronHttpAPI;
   grpc: ElectronGrpcAPI;
   store: ElectronStoreAPI;
+  log: ElectronLogAPI;
+  // Valid channels: 'menu:import' | 'menu:export' | 'menu:new-request' | 'app:focus' | 'deep-link'
+  // 'deep-link' callback receives: { host: string; params: Record<string, string> }
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
 }
@@ -158,4 +177,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, LogEntry };

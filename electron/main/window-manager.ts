@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, Menu } from 'electron';
+import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { createApplicationMenu } from './menu';
@@ -130,4 +130,10 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
   Menu.setApplicationMenu(menu);
 
   return mainWindow;
+}
+
+export function registerNewWindowIPC(isDev: boolean): void {
+  ipcMain.handle('window:new', async () => {
+    createMainWindow(isDev);
+  });
 }

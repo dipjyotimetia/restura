@@ -1,6 +1,6 @@
 import { app, BrowserWindow, session, crashReporter } from 'electron';
 import { setupAutoUpdater, registerAutoUpdaterIPC } from './auto-updater';
-import { createMainWindow } from './window-manager';
+import { createMainWindow, registerNewWindowIPC } from './window-manager';
 import { registerFileOperationsIPC } from './file-operations';
 import { registerHttpHandlerIPC } from './http-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
@@ -57,6 +57,7 @@ function registerIPCHandlers(): void {
   registerGrpcHandlerIPC(logRequest);
   registerRequestLoggerIPC();
   registerWindowControlsIPC(getMainWindow);
+  registerNewWindowIPC(isDev);
   registerNotificationIPC(getMainWindow, isDev);
   registerCollectionManagerIPC(getMainWindow);
   registerStoreHandlerIPC();
