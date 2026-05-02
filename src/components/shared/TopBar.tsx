@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { cn } from '@/lib/shared/utils';
+import { motion } from '@/components/ui/motion';
 import type { RequestMode } from '@/types';
 
 interface TopBarProps {
@@ -50,15 +51,20 @@ export default function TopBar({
               key={mode}
               onClick={() => handleModeChange(mode)}
               className={cn(
-                'px-2.5 py-1 text-[10px] font-medium rounded tracking-wide transition-all duration-150',
-                requestMode === mode
-                  ? 'bg-background text-foreground shadow-sm border border-border/40'
-                  : 'text-muted-foreground hover:text-foreground'
+                'relative px-2.5 py-1 text-[10px] font-medium rounded tracking-wide transition-colors duration-150',
+                requestMode === mode ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
               )}
               aria-label={`Switch to ${MODE_LABELS[mode]} mode`}
               aria-pressed={requestMode === mode}
             >
-              {MODE_LABELS[mode]}
+              {requestMode === mode && (
+                <motion.span
+                  layoutId="mode-pill"
+                  className="absolute inset-0 bg-background shadow-sm border border-border/40 rounded"
+                  transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                />
+              )}
+              <span className="relative z-10">{MODE_LABELS[mode]}</span>
             </button>
           ))}
         </div>

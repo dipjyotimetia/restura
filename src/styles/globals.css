@@ -437,6 +437,11 @@ textarea {
   animation: button-glow 2s ease-in-out infinite;
 }
 
+/* Smooth color transitions for status indicators */
+.status-dot {
+  transition: background-color 200ms ease, box-shadow 200ms ease;
+}
+
 /* Screen reader only utility */
 .sr-only {
   position: absolute;

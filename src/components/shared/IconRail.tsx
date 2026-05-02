@@ -3,6 +3,7 @@ import { FolderOpen, History, GitBranch, Settings2, Sun, Moon } from 'lucide-rea
 import { useTheme } from 'next-themes';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
+import { motion } from '@/components/ui/motion';
 import type { ActivePanel } from '@/types';
 
 interface IconRailProps {
@@ -69,7 +70,11 @@ export default function IconRail({
                     )}
                   >
                     {isActive && (
-                      <span className="absolute left-[-3px] top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r" />
+                      <motion.span
+                        layoutId="rail-indicator"
+                        className="absolute left-[-3px] top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r"
+                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                      />
                     )}
                     <Icon className="h-4 w-4" />
                   </button>

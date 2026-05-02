@@ -1,5 +1,3 @@
-'use client';
-
 import * as React from 'react';
 import {
   motion,
@@ -53,7 +51,7 @@ export const staggerContainer: Variants = {
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.1,
+      staggerChildren: 0.05,
     },
   },
 };
@@ -261,6 +259,29 @@ export const PageTransition = React.forwardRef<HTMLDivElement, MotionDivProps>(
   )
 );
 PageTransition.displayName = 'PageTransition';
+
+// Tab cross-fade variant
+export const tabFade: Variants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { duration: 0.12, ease: 'easeOut' } },
+  exit: { opacity: 0, transition: { duration: 0.08, ease: 'easeIn' } },
+};
+
+export const FadeTab = React.forwardRef<HTMLDivElement, MotionDivProps>(
+  ({ children, ...props }, ref) => (
+    <MotionDiv
+      ref={ref}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      variants={tabFade}
+      {...props}
+    >
+      {children}
+    </MotionDiv>
+  )
+);
+FadeTab.displayName = 'FadeTab';
 
 // Re-export AnimatePresence for convenience
 export { AnimatePresence, motion };
