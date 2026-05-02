@@ -1,5 +1,3 @@
-'use client';
-
 import { Globe, Settings2, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
@@ -14,7 +12,6 @@ interface TopBarProps {
   requestMode: RequestMode;
   onRequestModeChange: (mode: RequestMode) => void;
   onOpenImport: () => void;
-  envManagerOpen: boolean;
   setEnvManagerOpen: (open: boolean) => void;
 }
 
@@ -73,7 +70,7 @@ export default function TopBar({
             value={activeEnvironmentId ?? 'none'}
             onValueChange={(value) => setActiveEnvironment(value === 'none' ? null : value)}
           >
-            <SelectTrigger className="h-7 w-[140px] border-transparent bg-muted/30 hover:bg-muted/50 focus:ring-0 text-[10px]">
+            <SelectTrigger className="h-7 w-35 border-transparent bg-muted/30 hover:bg-muted/50 focus:ring-0 text-[10px]">
               <div className="flex items-center gap-1.5 overflow-hidden">
                 <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
                 <span className="truncate">
@@ -83,14 +80,14 @@ export default function TopBar({
                 </span>
               </div>
             </SelectTrigger>
-            <SelectContent align="end" className="w-[180px]">
+            <SelectContent align="end" className="w-45">
               <SelectItem value="none">No Environment</SelectItem>
               {environments.map((env) => (
                 <SelectItem key={env.id} value={env.id}>
                   <div className="flex items-center justify-between w-full gap-2">
                     <span className="truncate">{env.name}</span>
                     {env.variables.length > 0 && (
-                      <Badge variant="secondary" className="h-4 px-1 text-[10px] min-w-[1.5rem] justify-center">
+                      <Badge variant="secondary" className="h-4 px-1 text-[10px] min-w-6 justify-center">
                         {env.variables.filter((v) => v.enabled).length}
                       </Badge>
                     )}

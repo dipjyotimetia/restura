@@ -115,8 +115,6 @@ export default function Home() {
         activePanel={activePanel}
         onPanelChange={(panel) => setActivePanel((prev) => (prev === panel ? null : panel))}
         onOpenSettings={() => setSettingsOpen(true)}
-        requestMode={requestMode}
-        onRequestModeChange={setRequestMode}
       />
 
       <ClientHydration fallback={<div className="w-60 bg-muted/30 animate-pulse border-r border-border" />}>
@@ -136,7 +134,6 @@ export default function Home() {
           requestMode={requestMode}
           onRequestModeChange={setRequestMode}
           onOpenImport={() => setImportDialogOpen(true)}
-          envManagerOpen={envManagerOpen}
           setEnvManagerOpen={setEnvManagerOpen}
         />
 
