@@ -22,11 +22,7 @@ const router = createHashRouter([
 export default function App() {
   return (
     <>
-      <div className="gradient-mesh-bg">
-        <div className="gradient-orb gradient-orb-1" />
-        <div className="gradient-orb gradient-orb-2" />
-        <div className="gradient-orb gradient-orb-3" />
-      </div>
+      <div className="noise-texture fixed inset-0 pointer-events-none z-[-1]" />
       <ThemeProvider
         attribute="class"
         defaultTheme="dark"
