@@ -13,22 +13,24 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
 }
 
-// In-memory cache for sensitive values (populated on init, updated on set)
+// In-memory cache for sensitive values (updated on set, lazily populated on get)
 const sensitiveCache = new Map<string, string>();
-
-let initialized = false;
-
-export async function initSecureStorage(): Promise<void> {
-  if (!isElectron() || initialized) return;
-  // Can't pre-load without knowing all keys — cache starts empty,
-  // values are loaded lazily on first get if cache misses
-  initialized = true;
-}
 
 export const secureStorage = {
   get: (key: string): string | null => {
     if (isElectron() && isSensitiveKey(key)) {
-      return sensitiveCache.get(key) ?? null;
+      if (sensitiveCache.has(key)) {
+        return sensitiveCache.get(key) ?? null;
+      }
+      // Trigger async hydration — result available on next read
+      window.electron?.store.get(key).then((value) => {
+        if (value !== undefined && value !== null) {
+          sensitiveCache.set(key, value);
+        }
+      }).catch(() => {
+        // ignore — store may not have this key
+      });
+      return null;
     }
     if (typeof window === 'undefined') return null;
     try {
@@ -71,6 +73,7 @@ export const secureStorage = {
     if (isElectron()) {
       sensitiveCache.clear();
       window.electron?.store.clear();
+      return; // Don't fall through to localStorage.clear() in Electron
     }
     if (typeof window === 'undefined') return;
     try {
