@@ -9,13 +9,14 @@ import { createSystemTray, destroyTray } from './system-tray';
 import { registerNotificationIPC } from './notifications';
 import { registerCollectionManagerIPC, cleanupCollectionWatchers } from './collection-manager';
 import { registerStoreHandlerIPC } from './store-handler';
+import { registerDeepLinkHandler } from './deep-link-handler';
 
 // Initialize crash reporter early (before app.whenReady)
 crashReporter.start({
   productName: 'Restura',
   companyName: 'Restura',
-  submitURL: '', // Set your crash report server URL here, or leave empty for local-only
-  uploadToServer: false, // Set to true when you have a crash server configured
+  submitURL: process.env['CRASH_REPORT_URL'] ?? '', // Set CRASH_REPORT_URL env var to enable crash reporting
+  uploadToServer: !!process.env['CRASH_REPORT_URL'],
   ignoreSystemCrashHandler: false,
   compress: true,
   extra: {
@@ -35,6 +36,16 @@ const isDev = process.env.NODE_ENV === 'development';
 
 // Helper to get main window reference
 const getMainWindow = (): BrowserWindow | null => mainWindow;
+
+// Register deep-link handler before app.whenReady() so open-url / second-instance
+// events can fire even before the window is created
+registerDeepLinkHandler(getMainWindow);
+
+// Single instance lock — must be before app.whenReady()
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
 
 // Register all IPC handlers
 function registerIPCHandlers(): void {
