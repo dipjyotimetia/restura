@@ -1,16 +1,15 @@
-'use client';
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { KeyValue } from '@/types';
-import { Plus, Trash2, Edit, Globe } from 'lucide-react';
+import { Plus, Trash2, Edit, Globe, Check } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { cn } from '@/lib/shared/utils';
 
 interface EnvironmentManagerProps {
   open: boolean;
@@ -74,12 +73,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
 
   const handleAddVariable = () => {
     if (selectedEnvId) {
-      const newVar: KeyValue = {
-        id: uuidv4(),
-        key: '',
-        value: '',
-        enabled: true,
-      };
+      const newVar: KeyValue = { id: uuidv4(), key: '', value: '', enabled: true };
       addVariable(selectedEnvId, newVar);
     }
   };
@@ -98,46 +92,51 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            Manage Environments
+          <DialogTitle className="flex items-center gap-2 font-mono text-sm tracking-wide">
+            <Globe className="h-4 w-4 text-primary" />
+            ENVIRONMENTS
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="font-mono text-xs">
             Create and manage environment variables for your API requests
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 flex gap-4 overflow-hidden">
-          {/* Environments List */}
-          <div className="w-64 border-r pr-4 flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-sm">Environments</h3>
-              <Button onClick={handleCreateEnvironment} size="sm" variant="ghost">
-                <Plus className="h-4 w-4" />
+        <div className="flex-1 flex gap-0 overflow-hidden border border-border rounded-lg">
+          {/* Environment list */}
+          <div className="w-52 border-r border-border flex flex-col shrink-0">
+            <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Environments
+              </span>
+              <Button onClick={handleCreateEnvironment} size="icon" variant="ghost" className="h-5 w-5">
+                <Plus className="h-3 w-3" />
               </Button>
             </div>
 
-            <div className="flex-1 overflow-auto space-y-1">
+            <div className="flex-1 overflow-auto p-1.5 space-y-0.5">
               {environments.map((env) => (
                 <div
                   key={env.id}
-                  className={`flex items-center justify-between p-2 rounded cursor-pointer hover:bg-accent ${
-                    selectedEnvId === env.id ? 'bg-accent' : ''
-                  }`}
+                  className={cn(
+                    'flex items-center justify-between px-2 py-1.5 rounded cursor-pointer group transition-colors',
+                    selectedEnvId === env.id
+                      ? 'bg-primary/10 text-primary'
+                      : 'hover:bg-surface-2 text-muted-foreground hover:text-foreground'
+                  )}
                   onClick={() => setSelectedEnvId(env.id)}
                 >
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     {activeEnvironmentId === env.id && (
-                      <div className="h-2 w-2 rounded-full bg-green-500" />
+                      <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" aria-label="Active environment" />
                     )}
-                    <span className="text-sm truncate">{env.name}</span>
+                    <span className="text-xs font-mono truncate">{env.name}</span>
                   </div>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6"
+                    className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDeleteEnvironment(env.id);
@@ -149,157 +148,97 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
               ))}
 
               {environments.length === 0 && (
-                <div className="text-center py-8 text-sm text-muted-foreground">
+                <div className="text-center py-8 text-xs font-mono text-muted-foreground/50">
                   No environments yet
                 </div>
               )}
             </div>
 
-            <Button
-              onClick={handleCreateEnvironment}
-              variant="outline"
-              size="sm"
-              className="mt-4 w-full"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              New Environment
-            </Button>
+            <div className="p-1.5 border-t border-border">
+              <Button onClick={handleCreateEnvironment} variant="outline" size="sm" className="w-full font-mono text-xs">
+                <Plus className="mr-2 h-3.5 w-3.5" />
+                New Environment
+              </Button>
+            </div>
           </div>
 
-          {/* Environment Details */}
+          {/* Environment details */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {selectedEnv ? (
               <>
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
                   {editingEnvName ? (
                     <div className="flex items-center gap-2 flex-1">
                       <Input
                         value={newEnvName}
                         onChange={(e) => setNewEnvName(e.target.value)}
                         placeholder="Environment name"
-                        className="flex-1"
+                        className="flex-1 h-7 font-mono text-xs"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') handleUpdateEnvName();
-                          if (e.key === 'Escape') {
-                            setEditingEnvName(false);
-                            setNewEnvName('');
-                          }
+                          if (e.key === 'Escape') { setEditingEnvName(false); setNewEnvName(''); }
                         }}
                         autoFocus
                       />
-                      <Button onClick={handleUpdateEnvName} size="sm">
-                        Save
-                      </Button>
+                      <Button onClick={handleUpdateEnvName} size="sm" className="h-7 font-mono text-xs">Save</Button>
                       <Button
-                        onClick={() => {
-                          setEditingEnvName(false);
-                          setNewEnvName('');
-                        }}
+                        onClick={() => { setEditingEnvName(false); setNewEnvName(''); }}
                         size="sm"
                         variant="ghost"
+                        className="h-7 font-mono text-xs"
                       >
                         Cancel
                       </Button>
                     </div>
                   ) : (
                     <>
-                      <h3 className="text-lg font-semibold flex-1">{selectedEnv.name}</h3>
+                      <span className="text-sm font-mono flex-1">{selectedEnv.name}</span>
                       <Button
-                        onClick={() => {
-                          setNewEnvName(selectedEnv.name);
-                          setEditingEnvName(true);
-                        }}
-                        size="sm"
+                        onClick={() => { setNewEnvName(selectedEnv.name); setEditingEnvName(true); }}
+                        size="icon"
                         variant="ghost"
+                        className="h-6 w-6"
                       >
-                        <Edit className="h-4 w-4" />
+                        <Edit className="h-3.5 w-3.5" />
                       </Button>
                     </>
                   )}
                 </div>
 
-                <Tabs defaultValue="variables" className="flex-1 flex flex-col overflow-hidden">
-                  <TabsList>
-                    <TabsTrigger value="variables">Variables</TabsTrigger>
-                  </TabsList>
+                <div className="flex-1 overflow-auto p-4 space-y-4">
+                  <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    Variables
+                  </p>
+                  <KeyValueEditor
+                    items={selectedEnv.variables}
+                    onAdd={handleAddVariable}
+                    onUpdate={handleUpdateVariable}
+                    onDelete={handleDeleteVariable}
+                    keyPlaceholder="Variable name"
+                    valuePlaceholder="Variable value"
+                    addButtonText="Add Variable"
+                    itemType="variable"
+                  />
 
-                  <TabsContent value="variables" className="flex-1 overflow-auto space-y-2 mt-4">
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-12 gap-2 text-sm font-semibold text-muted-foreground px-2">
-                        <div className="col-span-1"></div>
-                        <div className="col-span-4">Key</div>
-                        <div className="col-span-6">Value</div>
-                        <div className="col-span-1"></div>
-                      </div>
-
-                      {selectedEnv.variables.map((variable) => (
-                        <div key={variable.id} className="grid grid-cols-12 gap-2 items-center">
-                          <div className="col-span-1 flex items-center justify-center">
-                            <input
-                              type="checkbox"
-                              checked={variable.enabled}
-                              onChange={(e) =>
-                                handleUpdateVariable(variable.id, { enabled: e.target.checked })
-                              }
-                              className="h-4 w-4"
-                            />
-                          </div>
-                          <div className="col-span-4">
-                            <Input
-                              value={variable.key}
-                              onChange={(e) =>
-                                handleUpdateVariable(variable.id, { key: e.target.value })
-                              }
-                              placeholder="Variable name"
-                            />
-                          </div>
-                          <div className="col-span-6">
-                            <Input
-                              value={variable.value}
-                              onChange={(e) =>
-                                handleUpdateVariable(variable.id, { value: e.target.value })
-                              }
-                              placeholder="Variable value"
-                            />
-                          </div>
-                          <div className="col-span-1 flex items-center justify-center">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteVariable(variable.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <Button onClick={handleAddVariable} variant="outline" size="sm" className="mt-4">
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Variable
-                    </Button>
-
-                    <div className="mt-6 p-4 bg-muted rounded-lg">
-                      <h4 className="font-semibold text-sm mb-2">Usage</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Use variables in your requests with the syntax:{' '}
-                        <code className="bg-background px-1 py-0.5 rounded">
-                          {'{{variableName}}'}
-                        </code>
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        Example: <code className="bg-background px-1 py-0.5 rounded">
-                          https://{'{{host}}'}/api/{'{{version}}'}
-                        </code>
-                      </p>
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                  <div className="mt-4 p-3 bg-surface-2 rounded border border-border">
+                    <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Usage</p>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      Use variables with{' '}
+                      <code className="bg-surface-3 px-1 py-0.5 rounded text-primary">{'{{variableName}}'}</code>
+                    </p>
+                    <p className="text-xs text-muted-foreground font-mono mt-1">
+                      Example:{' '}
+                      <code className="bg-surface-3 px-1 py-0.5 rounded text-muted-foreground">
+                        https://{'{{host}}'}/api/{'{{version}}'}
+                      </code>
+                    </p>
+                  </div>
+                </div>
               </>
             ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                Select an environment or create a new one
+              <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground/50">
+                <Globe className="h-6 w-6" />
+                <p className="text-xs font-mono">Select or create an environment</p>
               </div>
             )}
           </div>
@@ -308,12 +247,12 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
         <DialogFooter>
           <Button
             onClick={() => {
-              if (selectedEnvId) {
-                setActiveEnvironment(selectedEnvId);
-              }
+              if (selectedEnvId) setActiveEnvironment(selectedEnvId);
               onOpenChange(false);
             }}
+            className="font-mono text-xs gap-2"
           >
+            <Check className="h-3.5 w-3.5" />
             Set Active & Close
           </Button>
         </DialogFooter>
