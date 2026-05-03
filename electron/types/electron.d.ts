@@ -120,8 +120,33 @@ interface ElectronHttpAPI {
   request: (config: ElectronHttpRequestConfig) => Promise<ElectronHttpResponse>;
 }
 
+interface GrpcIpcResult {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  message?: unknown;
+  messages?: unknown[];
+  trailers: Record<string, string>;
+  error?: string;
+  details?: string;
+}
+
+interface GrpcReflectionConfig {
+  url: string;
+  reflectionService: string;
+  request: Record<string, unknown>;
+  timeout?: number;
+}
+
+interface GrpcRawReflectionResponse {
+  listServicesResponse?: { service: Array<{ name: string }> };
+  fileDescriptorResponse?: { fileDescriptorProto: string[] };
+  errorResponse?: { errorCode: number; errorMessage: string };
+}
+
 interface ElectronGrpcAPI {
-  request: (config: unknown) => Promise<unknown>;
+  request: (config: unknown) => Promise<GrpcIpcResult>;
+  reflect: (config: GrpcReflectionConfig) => Promise<GrpcRawReflectionResponse>;
   startStream: (config: unknown) => void;
   sendMessage: (requestId: string, message: unknown) => void;
   endStream: (requestId: string) => void;
@@ -153,6 +178,24 @@ interface ElectronLogAPI {
   clear: () => Promise<void>;
 }
 
+interface FileChangedEvent {
+  type: 'modified' | 'added' | 'deleted';
+  filePath: string;
+  directoryPath: string;
+  lastModified?: number;
+}
+
+interface ElectronCollectionsAPI {
+  loadFromDirectory: (path: string) => Promise<{ success: boolean; collection?: unknown; error?: string }>;
+  saveToDirectory: (collection: unknown, path: string) => Promise<{ success: boolean; error?: string }>;
+  watchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
+  unwatchDirectory: (path: string) => Promise<{ success: boolean }>;
+  selectDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
+  openInExplorer: (path: string) => Promise<{ success: boolean; error?: string }>;
+  onFileChanged: (callback: (event: FileChangedEvent) => void) => void;
+  removeFileChangedListener: () => void;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -165,6 +208,7 @@ interface ElectronAPI {
   grpc: ElectronGrpcAPI;
   store: ElectronStoreAPI;
   log: ElectronLogAPI;
+  collections: ElectronCollectionsAPI;
   // Valid channels: 'menu:import' | 'menu:export' | 'menu:new-request' | 'app:focus' | 'deep-link'
   // 'deep-link' callback receives: { host: string; params: Record<string, string> }
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
@@ -177,4 +221,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, GrpcIpcResult, FileChangedEvent, LogEntry };

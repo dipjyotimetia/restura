@@ -1,4 +1,4 @@
-import { GraphQLVariable } from '../types';
+import type { GraphQLVariable } from '../types';
 
 // Parse variables from a GraphQL query string
 export function parseVariables(query: string): GraphQLVariable[] {

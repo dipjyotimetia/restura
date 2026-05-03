@@ -2,7 +2,7 @@
 
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AuthConfig, AuthType } from '@/types';
+import type { AuthConfig, AuthType } from '@/types';
 import { Lock } from 'lucide-react';
 
 interface AuthConfigProps {

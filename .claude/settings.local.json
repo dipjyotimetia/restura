@@ -35,7 +35,30 @@
       "Bash(python3 *)",
       "Bash(git -C /Users/dipjyotimetia/Documents/working/ccviews/DJ diff --stat)",
       "Bash(git -C /Users/dipjyotimetia/Documents/working/ccviews/DJ add src/App.tsx src/routes/index.tsx src/components/shared/IconRail.tsx src/components/shared/TopBar.tsx)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(sort -t'/' -k8)",
+      "Bash(awk '/\\\\.tsx?$/{file=$0} /no-case-declarations/{print file}')",
+      "Bash(awk '/^\\\\/.*\\\\.tsx?$/{file=$0} /rules-of-hooks/{print file}')",
+      "Bash(awk '/^\\\\/.*\\\\.tsx?$/{file=$0} /no-unused-vars/{print file}')",
+      "Bash(awk '/^\\\\/.*\\\\.ts[x]?$/{file=$0} /prefer-const|no-empty\\\\b|no-useless-escape/{print file, $0}')",
+      "Bash(awk '/^\\\\/.*\\\\.ts[x]?$/{file=$0} /no-empty\\\\b/{print file\": \"$0}')",
+      "Bash(awk '/^\\\\/.*\\\\.ts[x]?$/{file=$0} /no-empty /{print file\" \"$0}')",
+      "Bash(awk '/^\\\\/.*\\\\.ts[x]?$/{file=$0} /61:16.*\\\\x27e\\\\x27|309:63|99:14.*\\\\x27err\\\\x27/{print file\": \"$0}')",
+      "Bash(awk *)",
+      "WebFetch(domain:)",
+      "Bash(npx eslint *)",
+      "Bash(npm show *)",
+      "Bash(npm pack *)",
+      "Read(//private/tmp/**)",
+      "Bash(tar tzf *)",
+      "Bash(tar xzf *)",
+      "Bash(sed -n '507,520p' /Users/dipjyotimetia/Documents/working/ccviews/DJ/src/features/collections/lib/importers.ts)",
+      "Bash(sed -n '638,642p' /Users/dipjyotimetia/Documents/working/ccviews/DJ/src/features/collections/lib/importers.ts)",
+      "Bash(npx vitest *)",
+      "Bash(gh pr *)",
+      "Bash(gh run *)",
+      "Bash(npm audit *)",
+      "Bash(echo \"Exit code: $?\")"
     ]
   }
 }

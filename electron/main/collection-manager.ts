@@ -5,11 +5,13 @@
  * Handles loading, saving, watching, and conflict detection.
  */
 
-import { ipcMain, BrowserWindow, dialog, shell } from 'electron';
+import type { BrowserWindow} from 'electron';
+import { ipcMain, dialog, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import chokidar, { FSWatcher } from 'chokidar';
+import type { FSWatcher } from 'chokidar';
+import chokidar from 'chokidar';
 import { z } from 'zod';
 import { createValidatedHandler, FilePathSchema } from './ipc-validators';
 import { isPathSafe } from './file-operations';
@@ -54,6 +56,40 @@ const fileFolderMetaSchema = z.object({
   description: z.string().optional(),
 });
 
+interface FileKeyValue {
+  id: string;
+  key: string;
+  value: string;
+  enabled?: boolean;
+  description?: string;
+}
+
+interface FileRequest {
+  id: string;
+  type: string;
+  headers?: FileKeyValue[];
+  params?: FileKeyValue[];
+  metadata?: FileKeyValue[];
+  [key: string]: unknown;
+}
+
+interface FileCollectionItem {
+  type: 'folder' | 'request';
+  name: string;
+  description?: string;
+  request?: FileRequest;
+  items?: FileCollectionItem[];
+}
+
+interface FileCollection {
+  id: string;
+  name: string;
+  description?: string;
+  items: FileCollectionItem[];
+  auth?: unknown;
+  variables?: FileKeyValue[];
+}
+
 // Track active file watchers
 const activeWatchers = new Map<string, FSWatcher>();
 
@@ -66,9 +102,10 @@ function generateId(): string {
 }
 
 // Add ID to key-value items
-function addIdsToKeyValues(items?: Array<{ key: string; value: string; enabled?: boolean; description?: string }>) {
-  if (!items) return [];
-  return items.map((item) => ({
+function addIdsToKeyValues(items: unknown) {
+  const parsed = z.array(fileKeyValueSchema).safeParse(items);
+  if (!parsed.success) return [];
+  return parsed.data.map((item) => ({
     id: generateId(),
     key: item.key,
     value: item.value,
@@ -213,9 +250,9 @@ async function loadDirectoryItems(directoryPath: string): Promise<unknown[]> {
             id: generateId(),
             type: requestType,
             ...requestData,
-            headers: addIdsToKeyValues(requestData.headers as any),
-            params: addIdsToKeyValues(requestData.params as any),
-            metadata: addIdsToKeyValues(requestData.metadata as any),
+            headers: addIdsToKeyValues(requestData.headers),
+            params: addIdsToKeyValues(requestData.params),
+            metadata: addIdsToKeyValues(requestData.metadata),
           };
 
           items.push({
@@ -237,7 +274,7 @@ async function loadDirectoryItems(directoryPath: string): Promise<unknown[]> {
 
 // Save collection to directory
 async function saveCollectionToDirectory(
-  collection: any,
+  collection: FileCollection,
   directoryPath: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
@@ -270,7 +307,7 @@ async function saveCollectionToDirectory(
 }
 
 // Save items to directory (recursive)
-async function saveDirectoryItems(items: any[], directoryPath: string): Promise<void> {
+async function saveDirectoryItems(items: FileCollectionItem[], directoryPath: string): Promise<void> {
   for (const item of items) {
     if (item.type === 'folder') {
       const folderPath = path.join(directoryPath, sanitizeFilename(item.name));
@@ -291,13 +328,12 @@ async function saveDirectoryItems(items: any[], directoryPath: string): Promise<
       }
     } else if (item.type === 'request' && item.request) {
       const req = item.request;
-      const extension = req.type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
+      // Strip id and type before writing to disk; type is used here to pick the extension
+      const { id: _id, type, ...requestData } = req;
+      const extension = type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
       const filename = `${sanitizeFilename(item.name)}${extension}`;
       const filePath = path.join(directoryPath, filename);
-
-      // Strip IDs and type field for file storage
-      const { id, type, ...requestData } = req;
-      const fileData = {
+      const fileData: Record<string, unknown> = {
         ...requestData,
         headers: stripIdsFromKeyValues(requestData.headers),
         params: stripIdsFromKeyValues(requestData.params),
@@ -408,9 +444,9 @@ const CollectionDataSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
-  items: z.array(z.any()),
-  auth: z.any().optional(),
-  variables: z.array(z.any()).optional(),
+  items: z.array(z.unknown()),
+  auth: z.unknown().optional(),
+  variables: z.array(z.unknown()).optional(),
 });
 
 const SaveCollectionSchema = z.tuple([CollectionDataSchema, FilePathSchema]);
@@ -431,8 +467,8 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
     createValidatedHandler(
       'collection:save-directory',
       SaveCollectionSchema,
-      async ([collection, directoryPath]: [any, string]) => {
-        return saveCollectionToDirectory(collection, directoryPath);
+      async ([collection, directoryPath]) => {
+        return saveCollectionToDirectory(collection as FileCollection, directoryPath);
       }
     )
   );

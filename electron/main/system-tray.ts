@@ -1,4 +1,5 @@
-import { Tray, Menu, nativeImage, BrowserWindow, app } from 'electron';
+import type { BrowserWindow} from 'electron';
+import { Tray, Menu, nativeImage, app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 

@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Badge } from '@/components/ui/badge';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/shared/utils';
 import { motion } from '@/components/ui/motion';
 import type { RequestMode } from '@/types';
@@ -29,7 +30,9 @@ export default function TopBar({
   onOpenImport,
   setEnvManagerOpen,
 }: TopBarProps) {
-  const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore();
+  const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore(
+    useShallow((s) => ({ environments: s.environments, activeEnvironmentId: s.activeEnvironmentId, setActiveEnvironment: s.setActiveEnvironment }))
+  );
   const { switchToHttp, switchToGrpc } = useRequestStore();
 
   const handleModeChange = (mode: RequestMode) => {

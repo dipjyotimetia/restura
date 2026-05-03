@@ -1,4 +1,5 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 
 export function registerWindowControlsIPC(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.on('window:minimize', () => {

@@ -1,11 +1,11 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 import {
   httpRequestSchema,
   grpcRequestSchema,
   environmentSchema,
   collectionSchema,
 } from './validations';
-import { Request, Environment, Collection } from '@/types';
+import type { Request, Environment, Collection } from '@/types';
 
 /**
  * Validates a request object and returns validated data or throws

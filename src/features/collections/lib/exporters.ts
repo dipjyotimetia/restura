@@ -1,4 +1,5 @@
-import { Collection, CollectionItem, HttpRequest, AuthConfig, PostmanCollection, PostmanItem, PostmanAuth, InsomniaResource } from '@/types';
+import { v4 as uuidv4 } from 'uuid';
+import type { Collection, CollectionItem, HttpRequest, AuthConfig, PostmanCollection, PostmanItem, PostmanAuth, InsomniaResource } from '@/types';
 
 // Export to Postman Format
 export function exportToPostman(collection: Collection): PostmanCollection {
@@ -254,9 +255,7 @@ function convertAuthToInsomnia(auth: AuthConfig): {
   }
 }
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 15);
-}
+const generateId = uuidv4;
 
 // Download helper
 export function downloadJSON(data: unknown, filename: string): void {

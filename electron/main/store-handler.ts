@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // Use require for electron-store to avoid ESM/CommonJS issues
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const Store = require('electron-store');
 
 /**

@@ -4,17 +4,20 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { createGrpcTransport } from '@connectrpc/connect-node';
 import { createClient } from '@connectrpc/connect';
+import type { Interceptor } from '@connectrpc/connect';
+import type { DescService } from '@bufbuild/protobuf';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import type {
+  GrpcRequestConfig} from './ipc-validators';
 import {
   GrpcRequestConfigSchema,
   GrpcStreamRequestIdSchema,
   GrpcSendMessageSchema,
   createValidatedHandler,
-  createValidatedListener,
-  GrpcRequestConfig,
+  createValidatedListener
 } from './ipc-validators';
 import { createRateLimiter } from './ipc-rate-limiter';
 
@@ -321,34 +324,24 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     const capturedTrailers: Record<string, string> = {};
 
     // Create interceptor to capture headers and trailers
-    const headerInterceptor = (next: any) => async (req: any) => {
+    const headerInterceptor: Interceptor = (next) => async (req) => {
       try {
         const response = await next(req);
 
-        // Capture headers from request (these are response headers in Connect)
-        if (req.header) {
-          req.header.forEach((value: string, key: string) => {
-            capturedHeaders[key] = value;
-          });
-        }
+        req.header.forEach((value: string, key: string) => {
+          capturedHeaders[key] = value;
+        });
 
-        // Capture trailers from response
-        if (response.trailer) {
-          response.trailer.forEach((value: string, key: string) => {
-            capturedTrailers[key] = value;
-          });
-        }
+        response.trailer?.forEach((value: string, key: string) => {
+          capturedTrailers[key] = value;
+        });
 
         return response;
       } catch (error) {
-        // Even on error, try to capture trailers
         if (error && typeof error === 'object' && 'trailer' in error) {
-          const err = error as any;
-          if (err.trailer) {
-            err.trailer.forEach((value: string, key: string) => {
-              capturedTrailers[key] = value;
-            });
-          }
+          (error as { trailer: Headers }).trailer.forEach((value: string, key: string) => {
+            capturedTrailers[key] = value;
+          });
         }
         throw error;
       }
@@ -360,7 +353,8 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       interceptors: [headerInterceptor],
     });
 
-    const client = createClient(serviceDef as any, transport) as any;
+    // serviceDef is structurally DescService-compatible but nominally opaque — double cast is intentional.
+    const client = createClient(serviceDef as unknown as DescService, transport) as Record<string, (...args: unknown[]) => unknown>;
 
     // Add metadata
     const headers: Record<string, string> = { ...config.metadata };
@@ -395,7 +389,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       const messages: unknown[] = [];
       let accumulatedSize = 0;
       try {
-        for await (const response of client[method](config.message, { headers })) {
+        for await (const response of client[method](config.message, { headers }) as AsyncIterable<unknown>) {
           const responseSize = estimateSize(response);
           accumulatedSize += responseSize;
 
@@ -510,7 +504,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         baseUrl: config.url,
       });
 
-      const client = createClient(serviceDef as any, transport) as any;
+      const client = createClient(serviceDef as unknown as DescService, transport) as Record<string, (...args: unknown[]) => unknown>;
       const method = config.method;
       const headers = { ...config.metadata };
       const controller = new AbortController();
@@ -579,7 +573,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       if (config.methodType === 'server-streaming') {
         (async () => {
           try {
-            for await (const response of client[method](config.message, { headers, signal: controller.signal })) {
+            for await (const response of client[method](config.message, { headers, signal: controller.signal }) as AsyncIterable<unknown>) {
               handleData(response);
             }
             handleEnd();
@@ -630,7 +624,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               handleData(response);
               handleEnd();
             } else {
-              for await (const response of client[method](inputIterable, { headers, signal: controller.signal })) {
+              for await (const response of client[method](inputIterable, { headers, signal: controller.signal }) as AsyncIterable<unknown>) {
                 handleData(response);
               }
               handleEnd();

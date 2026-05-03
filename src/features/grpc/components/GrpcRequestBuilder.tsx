@@ -6,7 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import {
+import { useShallow } from 'zustand/react/shallow';
+import type {
   AuthConfig as AuthConfigType,
   GrpcMethodType,
   GrpcRequest,
@@ -34,7 +35,7 @@ import {
   generateProtoFromReflection,
 } from '@/features/grpc/lib/grpcReflection';
 import { toast } from 'sonner';
-import { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
+import type { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
@@ -59,7 +60,9 @@ interface ValidationState {
 }
 
 function GrpcRequestBuilder() {
-  const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore();
+  const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore(
+    useShallow((s) => ({ currentRequest: s.currentRequest, updateRequest: s.updateRequest, setLoading: s.setLoading, setCurrentResponse: s.setCurrentResponse, isLoading: s.isLoading }))
+  );
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables } = useEnvironmentStore();
   const [activeTab, setActiveTab] = useState('message');
@@ -306,7 +309,7 @@ function GrpcRequestBuilder() {
 
   useEffect(() => {
     return () => {
-      try { streamControlRef.current?.cancelStream(); } catch {}
+      try { streamControlRef.current?.cancelStream(); } catch { /* ignore cleanup errors */ }
     };
   }, []);
 

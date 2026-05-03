@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCollectionStore } from '../useCollectionStore';
-import { CollectionItem } from '@/types';
+import type { CollectionItem } from '@/types';
 
 describe('useCollectionStore', () => {
   beforeEach(() => {
@@ -60,27 +60,27 @@ describe('useCollectionStore', () => {
     });
   });
 
-  describe('deleteCollection', () => {
+  describe('removeCollection', () => {
     it('should remove collection from list', () => {
-      const { createNewCollection, addCollection, deleteCollection } =
+      const { createNewCollection, addCollection, removeCollection } =
         useCollectionStore.getState();
       const collection = createNewCollection('To Delete');
       addCollection(collection);
 
-      deleteCollection(collection.id);
+      removeCollection(collection.id);
 
       const state = useCollectionStore.getState();
       expect(state.collections).toHaveLength(0);
     });
 
     it('should clear activeCollectionId if deleted', () => {
-      const { createNewCollection, addCollection, setActiveCollection, deleteCollection } =
+      const { createNewCollection, addCollection, setActiveCollection, removeCollection } =
         useCollectionStore.getState();
       const collection = createNewCollection('Active');
       addCollection(collection);
       setActiveCollection(collection.id);
 
-      deleteCollection(collection.id);
+      removeCollection(collection.id);
 
       const state = useCollectionStore.getState();
       expect(state.activeCollectionId).toBeNull();
@@ -184,9 +184,9 @@ describe('useCollectionStore', () => {
     });
   });
 
-  describe('deleteCollectionItem', () => {
+  describe('removeCollectionItem', () => {
     it('should remove item from collection', () => {
-      const { createNewCollection, addCollection, addItemToCollection, deleteCollectionItem } =
+      const { createNewCollection, addCollection, addItemToCollection, removeCollectionItem } =
         useCollectionStore.getState();
       const collection = createNewCollection('Test');
       addCollection(collection);
@@ -198,14 +198,14 @@ describe('useCollectionStore', () => {
       };
 
       addItemToCollection(collection.id, item);
-      deleteCollectionItem(collection.id, 'item-1');
+      removeCollectionItem(collection.id, 'item-1');
 
       const state = useCollectionStore.getState();
       expect(state.collections[0]?.items).toHaveLength(0);
     });
 
     it('should remove nested item', () => {
-      const { createNewCollection, addCollection, addItemToCollection, deleteCollectionItem } =
+      const { createNewCollection, addCollection, addItemToCollection, removeCollectionItem } =
         useCollectionStore.getState();
       const collection = createNewCollection('Test');
       addCollection(collection);
@@ -224,7 +224,7 @@ describe('useCollectionStore', () => {
       };
 
       addItemToCollection(collection.id, folder);
-      deleteCollectionItem(collection.id, 'nested-item');
+      removeCollectionItem(collection.id, 'nested-item');
 
       const state = useCollectionStore.getState();
       expect(state.collections[0]?.items[0]?.items).toHaveLength(0);

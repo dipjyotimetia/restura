@@ -20,7 +20,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
 import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, GitBranch, FolderOpen, HardDrive } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { ActivePanel, Workflow } from '@/types';
+import type { ActivePanel, Workflow } from '@/types';
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';
@@ -48,7 +48,9 @@ interface SidebarProps {
 const HISTORY_PAGE_SIZE = 20;
 
 function Sidebar({ onClose, activePanel }: SidebarProps) {
-  const { collections, createNewCollection, addCollection, deleteCollection } = useCollectionStore();
+  const { collections, createNewCollection, addCollection, removeCollection } = useCollectionStore(
+    useShallow((s) => ({ collections: s.collections, createNewCollection: s.createNewCollection, addCollection: s.addCollection, removeCollection: s.removeCollection }))
+  );
 
   // Use granular selectors for history to minimize re-renders
   const toggleFavorite = useHistoryStore(state => state.toggleFavorite);
@@ -173,11 +175,11 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       if (isFileCollection(collectionToDelete)) {
         unregisterFileCollection(collectionToDelete);
       }
-      deleteCollection(collectionToDelete);
+      removeCollection(collectionToDelete);
       setCollectionToDelete(null);
     }
     setDeleteDialogOpen(false);
-  }, [collectionToDelete, deleteCollection, isFileCollection, unregisterFileCollection]);
+  }, [collectionToDelete, removeCollection, isFileCollection, unregisterFileCollection]);
 
   const handleOpenFromFolder = useCallback(() => {
     setDirectoryPickerMode('open');

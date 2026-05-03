@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { KeyValue } from '@/types';
+import type { KeyValue } from '@/types';
 import { Plus, Trash2, Edit, Globe, Check } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -22,11 +22,11 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
     activeEnvironmentId,
     addEnvironment,
     updateEnvironment,
-    deleteEnvironment,
+    removeEnvironment,
     setActiveEnvironment,
     addVariable,
     updateVariable,
-    deleteVariable,
+    removeVariable,
     createNewEnvironment,
   } = useEnvironmentStore();
 
@@ -54,7 +54,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
 
   const confirmDeleteEnvironment = () => {
     if (envToDelete) {
-      deleteEnvironment(envToDelete);
+      removeEnvironment(envToDelete);
       if (selectedEnvId === envToDelete) {
         setSelectedEnvId(environments[0]?.id || null);
       }
@@ -86,7 +86,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
 
   const handleDeleteVariable = (varId: string) => {
     if (selectedEnvId) {
-      deleteVariable(selectedEnvId, varId);
+      removeVariable(selectedEnvId, varId);
     }
   };
 

@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
-import { GraphQLSchema } from '../types';
+import type { GraphQLSchema} from '../types';
+import { formatTypeRef } from '../types';
 import { getTypesByKind, getRootTypes, getTypeFields, getTypeByName } from '../lib/introspection';
 import { ChevronRight, ChevronDown, Search, Box, Zap, Bell } from 'lucide-react';
 
@@ -89,13 +90,6 @@ export default function SchemaExplorer({ schema, onFieldSelect }: SchemaExplorer
         )}
       </div>
     );
-  };
-
-  const formatTypeRef = (typeRef: any): string => {
-    if (!typeRef) return '';
-    if (typeRef.kind === 'NON_NULL') return `${formatTypeRef(typeRef.ofType)}!`;
-    if (typeRef.kind === 'LIST') return `[${formatTypeRef(typeRef.ofType)}]`;
-    return typeRef.name || '';
   };
 
   return (
