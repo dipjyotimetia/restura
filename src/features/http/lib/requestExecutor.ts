@@ -97,12 +97,6 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     }
   }
 
-  // Resolve environment variables
-  // Note: We pass envVars to resolveVariables if the function supports it, 
-  // otherwise we might need to update how resolveVariables works or rely on the store being updated.
-  // For now, assuming resolveVariables uses the store, but we might need to manually resolve using envVars here.
-  // Let's assume resolveVariables is bound to the store, but we should really use the local envVars.
-  // Since we can't easily change the store hook, we'll do a simple replacement here for local vars.
   const resolveLocal = (text: string) => {
     let result = text;
     Object.entries(envVars).forEach(([key, value]) => {
