@@ -175,14 +175,14 @@ function GrpcRequestBuilder() {
     }
   }, []);
 
-  const handleSelectReflectionService = (service: ReflectionServiceInfo) => {
+  const handleSelectReflectionService = useCallback((service: ReflectionServiceInfo) => {
     setSelectedReflectionService(service);
     updateRequest({ service: service.fullName });
     validateService(service.fullName);
     setSelectedReflectionMethod(null);
-  };
+  }, [updateRequest, validateService]);
 
-  const handleSelectReflectionMethod = (method: ReflectionMethodInfo) => {
+  const handleSelectReflectionMethod = useCallback((method: ReflectionMethodInfo) => {
     setSelectedReflectionMethod(method);
     updateRequest({ method: method.name });
     validateMethod(method.name);
@@ -203,7 +203,7 @@ function GrpcRequestBuilder() {
         description: `Generated template for ${method.inputMessageSchema.name}`,
       });
     }
-  };
+  }, [updateRequest, validateMethod, validateMessage]);
 
   const handleDiscoverServices = useCallback(async (silent = false) => {
     const url = grpcUrl ?? '';
@@ -292,7 +292,7 @@ function GrpcRequestBuilder() {
     } finally {
       setIsDiscovering(false);
     }
-  }, [grpcUrl, resolveVariables]);
+  }, [grpcUrl, resolveVariables, handleSelectReflectionService, handleSelectReflectionMethod]);
 
   // Auto-discover services when URL changes
   useEffect(() => {
@@ -309,7 +309,7 @@ function GrpcRequestBuilder() {
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [grpcUrl, handleDiscoverServices, reflectionResult?.serverUrl]);
+  }, [grpcUrl, handleDiscoverServices, reflectionResult?.serverUrl, currentRequest]);
 
   // Keep a ref so unmount cleanup always sees the current stream without re-running the effect
   const streamControlRef = useRef(streamControl);

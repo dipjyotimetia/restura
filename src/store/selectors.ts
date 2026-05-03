@@ -3,7 +3,7 @@
  * Use these with shallow equality for optimal re-render performance
  */
 
-import type { HistoryItem, Collection, Environment } from '@/types';
+import type { HistoryItem, Collection, Environment, Request, Response } from '@/types';
 
 // History Store Types
 interface HistoryState {
@@ -129,8 +129,8 @@ export const selectEnvironmentCount = (state: EnvironmentState): number =>
 // ============================================================================
 
 interface RequestState {
-  currentRequest: import('@/types').Request | null;
-  currentResponse: import('@/types').Response | null;
+  currentRequest: Request | null;
+  currentResponse: Response | null;
   isLoading: boolean;
   error: string | null;
 }
