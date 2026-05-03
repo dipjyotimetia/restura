@@ -1,151 +1,169 @@
 # Restura
 
-⚡ Fast, lightweight API client supporting REST, GraphQL, gRPC & more. Built for developers who value speed and simplicity.
+Fast, lightweight API client supporting REST, GraphQL, gRPC, WebSockets, SSE, and MCP. Built for developers who value speed and simplicity.
 
-**RESTURA** is a full-featured API client that makes testing and debugging APIs effortless. Whether you're working with REST, GraphQL, gRPC, or WebSockets, RESTURA provides an intuitive interface with powerful features that developers actually need.
+**Restura** is a full-featured API client that makes testing and debugging APIs effortless. Whether you're working with REST, GraphQL, gRPC, WebSockets, Server-Sent Events, or MCP servers, Restura provides an intuitive interface with powerful features that developers actually need.
 
-## ✨ Why RESTURA?
+## Features
 
-- 🚀 **Multi-protocol support**: HTTP/REST, GraphQL, gRPC, WebSockets, and more
-- ⚡ **Lightning fast**: Built with performance in mind
-- 🔒 **Privacy-first**: Your data stays on your machine
-- 🎨 **Beautiful UI**: Clean, modern interface that doesn't get in your way
-- 🔌 **Extensible**: Plugin system for custom functionality
-- 💻 **Cross-platform**: Works on macOS, Windows, and Linux
-- 🆓 **Forever free**: No premium tiers, no feature gates
-
-### Desktop Client (Electron)
-
-All web features plus:
-- Native file system access
-- Application menu integration
-- Window state persistence
-- Cross-platform (Windows, macOS, Linux)
-
-## Tech Stack
-
-- **Framework**: Next.js 16 with App Router
-- **UI**: React 19, TailwindCSS 4, shadcn/ui
-- **State**: Zustand with persistence
-- **Validation**: Zod schemas
-- **Editor**: Monaco Editor
-- **Testing**: Vitest + React Testing Library
+- **Multi-protocol support**: HTTP/REST, GraphQL, gRPC, WebSockets, SSE, and MCP
+- **Privacy-first**: Your data stays on your machine (localStorage persistence, no external sync)
+- **Dual delivery**: Web app (Cloudflare Pages) and desktop app (Electron)
+- **Script sandbox**: Pre-request and test scripts running in an isolated QuickJS VM
+- **Request chaining**: Workflows with variable extraction and retry policies
+- **Import/Export**: Postman v2.1, Insomnia, and OpenAPI/Swagger collections
+- **Code generation**: cURL, JavaScript, Python, Go, and more
+- **Environment variables**: `{{variable}}` substitution with scoped environments
+- **Authentication**: Basic, Bearer, API Key, OAuth2, Digest, AWS Signature v4, mTLS
+- **Cross-platform**: macOS, Windows, and Linux desktop builds
+- **Forever free**: No premium tiers, no feature gates
 
 ## Quick Start
 
 ### Prerequisites
 
 - Node.js 22+
+- npm
 
 ### Web Client
 
 ```bash
-# Clone the repository
 git clone https://github.com/dipjyotimetia/restura.git
 cd restura
 
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+The Vite dev server also boots the Cloudflare Worker locally via Miniflare — a single command starts both the SPA and the Worker proxy.
 
 ### Desktop App
 
 ```bash
-# Development mode
+# Development mode (starts Vite + Electron simultaneously)
 npm run electron:dev
 
-# Build for distribution
-npm run electron:dist:mac    # macOS
-npm run electron:dist:win    # Windows
-npm run electron:dist:linux  # Linux
+# Production builds
+npm run electron:dist:mac    # macOS (DMG + ZIP, x64 + arm64)
+npm run electron:dist:win    # Windows (NSIS installer + portable)
+npm run electron:dist:linux  # Linux (AppImage + deb + rpm)
 ```
 
-## Project Structure
+## Development Scripts
 
-```
-restura/
-├── src/                  # Source code
-│   ├── app/             # Next.js App Router
-│   ├── components/      # React components (feature + UI)
-│   ├── store/          # Zustand state stores
-│   ├── lib/            # Utilities and helpers
-│   ├── hooks/          # Custom React hooks
-│   └── types/          # TypeScript type definitions
-├── electron/            # Electron main process
-│   ├── main/           # Main process code
-│   ├── types/          # Electron-specific types
-│   └── resources/      # App icons and assets
-├── tests/              # Test files
-│   ├── unit/           # Unit tests
-│   ├── integration/    # Integration tests
-│   └── fixtures/       # Test data
-├── scripts/            # Build and utility scripts
-├── docs/               # Project documentation
-└── [config files]      # Root-level configurations
-```
-
-## Development
-
-### Scripts
+### Web Client
 
 ```bash
-# Web Client
-npm run dev              # Start dev server
-npm run build           # Production build
-npm run lint            # ESLint check
-npm run lint:fix        # Fix lint issues
-npm run format          # Format with Prettier
-npm run type-check      # TypeScript check
-npm run test            # Run tests
-npm run test:coverage   # Test coverage
-npm run validate        # Full validation
-
-# Electron
-npm run electron:dev    # Development mode
-npm run electron:dist   # Build distribution
+npm run dev              # Start Vite dev server + Cloudflare Worker (port 5173)
+npm run build            # Production build (SPA + Worker bundle)
+npm run preview          # Preview production build
+npm run type-check       # TypeScript strict check
+npm run lint             # ESLint
+npm run lint:fix         # ESLint with auto-fix
+npm run format           # Prettier
+npm run format:check     # Prettier check (CI)
+npm run validate         # type-check + lint + test:run (full CI check)
 ```
-
-### Code Quality
-
-- **TypeScript**: Strict mode with comprehensive checks
-- **ESLint**: Next.js + TypeScript rules
-- **Prettier**: Consistent code formatting
-- **Husky**: Pre-commit hooks
-- **lint-staged**: Format staged files
 
 ### Testing
 
 ```bash
-# Run all tests
-npm run test:run
-
-# Watch mode
-npm run test:watch
-
-# Coverage report
-npm run test:coverage
-
-# UI mode
-npm run test:ui
+npm run test             # Vitest interactive mode
+npm run test:run         # Single run (CI)
+npm run test:watch       # Watch mode
+npm run test:coverage    # Coverage report
+npm run test:ui          # Vitest UI browser
 ```
+
+### Electron Desktop
+
+```bash
+npm run electron:dev           # Dev: Vite + Electron simultaneously
+npm run electron:compile       # Compile main process TypeScript
+npm run electron:build:web     # Build renderer for Electron packaging
+npm run electron:dist:mac      # Build macOS installer
+npm run electron:dist:win      # Build Windows installer
+npm run electron:dist:linux    # Build Linux packages
+```
+
+### Cloudflare Pages Deployment
+
+```bash
+npm run deploy           # Build + deploy production
+npm run deploy:preview   # Build + deploy preview branch
+```
+
+### Worker Type-Check
+
+```bash
+npx tsc --noEmit -p worker/tsconfig.json
+```
+
+## Architecture
+
+### Dual-Platform Design
+
+The renderer (SPA) is identical for both delivery targets. What changes is how protocol requests are handled:
+
+- **Web**: Requests route through a Hono Worker on Cloudflare Pages Functions (`/api/proxy`, `/api/grpc`, etc.)
+- **Desktop**: Requests go through Electron IPC to native Node.js handlers in the main process
+
+The renderer's `requestExecutor`, `grpcClient`, and other clients branch on `isElectron()` to choose the right transport. The Worker is never bundled into the Electron app.
+
+```
+Browser ──► Vite SPA ──► Cloudflare Worker (Hono) ──► Target API
+Electron ──► Vite SPA ──► Electron IPC ──► Native handlers ──► Target API
+```
+
+### State Management
+
+All stores use Zustand with `persist` middleware:
+
+| Store | Purpose |
+|---|---|
+| `useRequestStore` | Current request/response state |
+| `useCollectionStore` | Saved request collections |
+| `useEnvironmentStore` | Environment variables |
+| `useHistoryStore` | Request history |
+| `useSettingsStore` | App preferences |
+| `useWorkflowStore` | Request chaining workflows |
+
+### Script Execution
+
+Pre-request and test scripts execute in an isolated QuickJS WASM sandbox (`src/features/scripts/lib/scriptExecutor.ts`). Scripts cannot access the DOM or make direct network requests.
+
+## Code Quality
+
+- **TypeScript**: Strict mode with `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`, `noUncheckedIndexedAccess`
+- **ESLint**: TypeScript + React rules
+- **Prettier**: Consistent formatting
+- **Husky + lint-staged**: Pre-commit formatting
+
+## CI/CD
+
+GitHub Actions runs on every PR and push to `main`:
+
+1. Type-check renderer, Electron main process, and Worker
+2. Lint
+3. Security audit (`npm audit --audit-level=critical`)
+4. Tests
+5. Build renderer and Electron main process
+6. Deploy to Cloudflare Pages (production on `main`, preview on PRs)
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) - System design and architecture
-- [API Reference](docs/API.md) - Internal APIs and types
-- [Development Standards](docs/DEVELOPMENT_STANDARDS.md) - Coding standards
+- [Architecture](docs/ARCHITECTURE.md) - System design and component details
+- [Changelog](docs/CHANGELOG.md) - Version history
+- [Roadmap](docs/ROADMAP.md) - Planned features
 - [Contributing](CONTRIBUTING.md) - Contribution guidelines
 - [Security](SECURITY.md) - Security policy
 - [Code of Conduct](CODE_OF_CONDUCT.md) - Community guidelines
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -155,19 +173,21 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ## Security
 
-For security concerns, please review our [Security Policy](SECURITY.md) and report vulnerabilities responsibly.
+For security concerns, review our [Security Policy](SECURITY.md) and report vulnerabilities responsibly.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- [shadcn/ui](https://ui.shadcn.com/) - Beautiful UI components
-- [Monaco Editor](https://microsoft.github.io/monaco-editor/) - Code editor
-- [Radix UI](https://www.radix-ui.com/) - Accessible primitives
-- [Zustand](https://github.com/pmndrs/zustand) - State management
+- [shadcn/ui](https://ui.shadcn.com/) — UI components built on Radix UI
+- [Monaco Editor](https://microsoft.github.io/monaco-editor/) — Code editor
+- [Radix UI](https://www.radix-ui.com/) — Accessible primitives
+- [Zustand](https://github.com/pmndrs/zustand) — State management
+- [Hono](https://hono.dev/) — Cloudflare Worker framework
+- [QuickJS](https://bellard.org/quickjs/) — Embedded JS engine for script sandboxing
 
 ---
 
-Made with love by [dipjyotimetia](https://github.com/dipjyotimetia)
+Made by [dipjyotimetia](https://github.com/dipjyotimetia)

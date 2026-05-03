@@ -2,73 +2,60 @@
 
 This document outlines the planned features and improvements for Restura.
 
-## Current Status: v0.1.0 (Beta)
+## Current Status: v0.1.0
 
-Core functionality complete with web and desktop applications.
+Core functionality complete. Web and desktop applications are shipping with full multi-protocol support.
 
 ---
 
-## Q1 2025 - Foundation & Stability
+## Shipped ✅
 
-### Completed Features ✅
+All features below are implemented and available in the current release.
 
-- [x] HTTP Request Builder (all methods)
+### Core API Client
+- [x] HTTP Request Builder (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD)
 - [x] Query Parameters with enable/disable
 - [x] Custom Headers management
-- [x] Multiple body types (JSON, XML, Form Data, etc.)
-- [x] Authentication support (Basic, Bearer, API Key, OAuth2, Digest, AWS Sig v4)
-- [x] Environment variables with substitution
+- [x] Multiple body types (JSON, XML, Form Data, raw, binary)
+- [x] Authentication: Basic, Bearer, API Key, OAuth2, Digest, AWS Signature v4, mTLS certificates
+- [x] Environment variables with `{{variable}}` substitution
 - [x] Collections and folders
-- [x] Import/Export (Postman v2.1, Insomnia)
+- [x] Import/Export (Postman v2.1, Insomnia, OpenAPI/Swagger)
 - [x] Code generation (cURL, JS, Python, Go, etc.)
-- [x] Response viewer with syntax highlighting
+- [x] Response viewer with syntax highlighting (Monaco Editor)
 - [x] Request history with favorites
 - [x] Dark/Light theme support
-- [x] Pre-request and test scripts
-- [x] Electron desktop application
-- [x] Proxy support
+- [x] Pre-request and test scripts (QuickJS sandbox)
+- [x] Electron desktop application (macOS, Windows, Linux)
+- [x] Web client (Cloudflare Pages + Workers)
+- [x] Proxy support (with mTLS and proxy chaining)
+- [x] Cookie management
 - [x] Command palette
 
-### In Progress 🔄
+### Extended Protocol Support
+- [x] gRPC unary calls
+- [x] gRPC server streaming
+- [x] gRPC reflection
+- [x] WebSocket connection management with message history
+- [x] GraphQL query builder with schema introspection
+- [x] GraphQL subscriptions
+- [x] Server-Sent Events (SSE) client
+- [x] Model Context Protocol (MCP) client
 
-- [ ] Complete gRPC support
-  - [ ] Unary calls
-  - [ ] Server streaming
-  - [ ] Client streaming
-  - [ ] Bidirectional streaming
-  - [ ] Reflection support
-- [ ] Improved test coverage (target: 80%)
-- [ ] Performance optimizations
-- [ ] Accessibility improvements (WCAG 2.1 AA)
+### Workflows
+- [x] Request chaining with variable extraction (JSONPath, regex, headers)
+- [x] Retry policies (fixed, exponential backoff)
+- [x] Precondition scripts for conditional step execution
+- [x] Real-time execution progress and logging
+- [x] Visual workflow builder
 
 ---
 
-## Q2 2025 - Enhanced Protocol Support
+## In Progress 🔄
 
-### WebSocket Support
-
-- [ ] WebSocket connection management
-- [ ] Message sending and receiving
-- [ ] Connection state visualization
-- [ ] Message history
-- [ ] Auto-reconnection
-- [ ] Binary message support
-
-### GraphQL Support
-
-- [ ] GraphQL query builder
-- [ ] Schema introspection
-- [ ] Variable support
-- [ ] Subscription support
-- [ ] Query history
-- [ ] Auto-completion
-
-### Server-Sent Events (SSE)
-
-- [ ] SSE connection management
-- [ ] Event stream visualization
-- [ ] Reconnection handling
-- [ ] Event filtering
+- [ ] Improved test coverage (target: 80%)
+- [ ] Accessibility improvements (WCAG 2.1 AA)
+- [ ] gRPC client streaming and bidirectional streaming
 
 ---
 
@@ -147,8 +134,7 @@ Core functionality complete with web and desktop applications.
 ### Advanced Security
 
 - [ ] Secrets manager integration
-- [ ] Certificate management
-- [ ] mTLS support
+- [ ] Certificate management UI
 - [ ] Security scanning
 - [ ] Vulnerability detection
 - [ ] OWASP compliance checking
@@ -217,4 +203,4 @@ Restura follows [Semantic Versioning](https://semver.org/):
 
 ---
 
-Last updated: November 2025
+Last updated: May 2026
