@@ -8,11 +8,20 @@ import { rateLimitMiddleware } from './middleware/rateLimiter';
 
 export type Env = {
   ENVIRONMENT?: string;
+  ALLOWED_ORIGIN?: string;
 };
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use('/api/*', cors());
+app.use(
+  '/api/*',
+  cors({
+    origin: (origin, c) => {
+      if (c.env.ENVIRONMENT !== 'production') return origin ?? '*';
+      return c.env.ALLOWED_ORIGIN ?? 'https://restura.pages.dev';
+    },
+  }),
+);
 app.use('/api/*', rateLimitMiddleware);
 
 app.post('/api/proxy', proxy);
