@@ -77,7 +77,7 @@ export function registerGraphQLLanguage(monaco: typeof Monaco) {
         ],
 
         // Delimiters
-        [/[{}()\[\]]/, '@brackets'],
+        [/[{}()[\]]/, '@brackets'],
         [/[,:]/, 'delimiter'],
 
         // Operators

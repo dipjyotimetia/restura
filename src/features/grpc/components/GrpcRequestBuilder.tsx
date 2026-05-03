@@ -306,7 +306,7 @@ function GrpcRequestBuilder() {
 
   useEffect(() => {
     return () => {
-      try { streamControlRef.current?.cancelStream(); } catch {}
+      try { streamControlRef.current?.cancelStream(); } catch { /* ignore cleanup errors */ }
     };
   }, []);
 

@@ -26,7 +26,7 @@ export const generateCurl = (options: GenerateOptions): string => {
   let curl = `curl -X ${request.method}`;
 
   // Add URL with query params
-  let urlStr = resolvedUrl || 'https://api.example.com';
+  const urlStr = resolvedUrl || 'https://api.example.com';
   try {
     const url = new URL(urlStr);
     Object.entries(resolvedParams).forEach(([key, value]) => {

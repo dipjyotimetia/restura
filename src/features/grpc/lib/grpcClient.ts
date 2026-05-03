@@ -402,7 +402,7 @@ export function prepareGrpcRequest(
   if (request.message) {
     try {
       parsedMessage = JSON.parse(resolveVariables(request.message));
-    } catch (error) {
+    } catch {
       throw new GrpcClientError(
         'Invalid JSON message',
         GrpcStatusCode.INVALID_ARGUMENT,

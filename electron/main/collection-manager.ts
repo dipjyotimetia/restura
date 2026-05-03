@@ -296,7 +296,7 @@ async function saveDirectoryItems(items: any[], directoryPath: string): Promise<
       const filePath = path.join(directoryPath, filename);
 
       // Strip IDs and type field for file storage
-      const { id, type, ...requestData } = req;
+      const { id: _id, type: _type, ...requestData } = req;
       const fileData = {
         ...requestData,
         headers: stripIdsFromKeyValues(requestData.headers),

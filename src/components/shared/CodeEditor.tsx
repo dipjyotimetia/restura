@@ -58,7 +58,7 @@ export default function CodeEditor({
     if (language === 'json' && value) {
       try {
         editor.getAction('editor.action.formatDocument')?.run();
-      } catch (e) {
+      } catch {
         // Ignore formatting errors
       }
     }
@@ -96,7 +96,7 @@ export default function CodeEditor({
       setCopied(true);
       toast.success('Copied to clipboard');
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
+    } catch {
       toast.error('Failed to copy to clipboard');
     }
   };

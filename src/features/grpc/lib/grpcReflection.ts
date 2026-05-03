@@ -940,9 +940,10 @@ export class GrpcReflectionClient {
         return this.readVarint(bytes, offset).newOffset;
       case 1: // 64-bit
         return offset + 8;
-      case 2: // Length-delimited
+      case 2: { // Length-delimited
         const length = this.readVarint(bytes, offset);
         return length.newOffset + length.value;
+      }
       case 5: // 32-bit
         return offset + 4;
       default:
@@ -1205,12 +1206,13 @@ function generateFieldValue(
     case 'TYPE_BYTES':
       return '';
 
-    case 'TYPE_ENUM':
+    case 'TYPE_ENUM': {
       const enumSchema = enumSchemaCache.get(field.typeName || '');
       if (enumSchema && enumSchema.values.length > 0) {
         return enumSchema.values[0]!.name;
       }
       return 0;
+    }
 
     case 'TYPE_MESSAGE':
       if (field.typeName) {
