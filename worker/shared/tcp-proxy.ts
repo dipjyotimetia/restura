@@ -8,7 +8,7 @@ export interface UpstreamProxy {
 
 // btoa requires Latin1 — encode individual parts to avoid InvalidCharacterError
 function proxyAuthValue(auth: { username: string; password: string }): string {
-  const safe = (s: string) => s.replace(/[^\x00-\xFF]/g, (c) => encodeURIComponent(c));
+  const safe = (s: string) => s.replace(/[Ā-￿]/g, (c) => encodeURIComponent(c));
   return `Basic ${btoa(`${safe(auth.username)}:${safe(auth.password)}`)}`;
 }
 

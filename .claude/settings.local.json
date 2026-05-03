@@ -65,7 +65,14 @@
       "Bash(xargs ls *)",
       "Bash(npx tsx *)",
       "Bash(wrangler --version)",
-      "WebFetch(domain:hono.dev)"
+      "WebFetch(domain:hono.dev)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_console_messages",
+      "mcp__plugin_playwright_playwright__browser_resize",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_click"
     ]
   }
 }
