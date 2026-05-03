@@ -6,12 +6,15 @@ export interface UpstreamProxy {
   auth?: { username: string; password: string };
 }
 
+// btoa requires Latin1 — encode individual parts to avoid InvalidCharacterError
+function proxyAuthValue(auth: { username: string; password: string }): string {
+  const safe = (s: string) => s.replace(/[^\x00-\xFF]/g, (c) => encodeURIComponent(c));
+  return `Basic ${btoa(`${safe(auth.username)}:${safe(auth.password)}`)}`;
+}
+
 function buildProxyAuthHeader(auth?: { username: string; password: string }): string {
   if (!auth) return '';
-  // btoa requires Latin1 — encode individual parts to avoid InvalidCharacterError
-  const safe = (s: string) => s.replace(/[^\x00-\xFF]/g, (c) => encodeURIComponent(c));
-  const credentials = btoa(`${safe(auth.username)}:${safe(auth.password)}`);
-  return `Proxy-Authorization: Basic ${credentials}\r\n`;
+  return `Proxy-Authorization: ${proxyAuthValue(auth)}\r\n`;
 }
 
 function encodeRequest(
@@ -42,21 +45,13 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
   body: string;
 }> {
   const reader = readable.getReader();
-  const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder();
+  let text = '';
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
-    // Check if we have headers + body separator
-    const total = chunks.reduce((a, b) => a + b.length, 0);
-    const combined = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      combined.set(chunk, offset);
-      offset += chunk.length;
-    }
-    const text = new TextDecoder().decode(combined);
+    text += decoder.decode(value, { stream: true });
     const headerEnd = text.indexOf('\r\n\r\n');
     if (headerEnd !== -1) {
       reader.releaseLock();
@@ -153,7 +148,7 @@ export async function httpViaProxy(
   }
   headers['Host'] = targetUrl.hostname;
   if (proxy.auth) {
-    headers['Proxy-Authorization'] = `Basic ${btoa(`${proxy.auth.username}:${proxy.auth.password}`)}`;
+    headers['Proxy-Authorization'] = proxyAuthValue(proxy.auth);
   }
 
   const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
