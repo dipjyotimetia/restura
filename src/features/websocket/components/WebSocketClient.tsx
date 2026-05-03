@@ -90,6 +90,15 @@ function WebSocketClient() {
     };
   }, []);
 
+  // Tick every second while connected so the duration display stays live.
+  // Must be declared before any early returns to satisfy the Rules of Hooks.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (connection?.status !== 'connected') return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [connection?.status]);
+
   if (!connection || !activeConnectionId) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -181,14 +190,6 @@ function WebSocketClient() {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  // Tick every second while connected so the duration display stays live
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!isConnected) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [isConnected]);
 
   const connectionDuration =
     isConnected && connection.lastConnectedAt ? now - connection.lastConnectedAt : 0;

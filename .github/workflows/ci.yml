@@ -33,6 +33,12 @@ jobs:
       - name: Type-check (worker)
         run: npx tsc --noEmit -p worker/tsconfig.json
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
       - name: Run tests
         run: npm run test:run
 
