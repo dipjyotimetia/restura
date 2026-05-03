@@ -59,7 +59,7 @@ export default function ResizableLayout({
     >
       <div
         style={isHorizontal ? { width: `${splitPosition}%` } : { height: `${splitPosition}%` }}
-        className="min-h-0 min-w-0 overflow-hidden"
+        className="min-h-0 min-w-0 overflow-hidden flex flex-col"
       >
         {children[0]}
       </div>
@@ -90,7 +90,7 @@ export default function ResizableLayout({
       />
       <div
         style={isHorizontal ? { width: `${100 - splitPosition}%` } : { height: `${100 - splitPosition}%` }}
-        className="min-h-0 min-w-0 overflow-hidden"
+        className="min-h-0 min-w-0 overflow-hidden flex flex-col"
       >
         {children[1]}
       </div>
