@@ -248,12 +248,11 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
           // Route through the pre-established SOCKS tunnel by subclassing the agent and
           // overriding createConnection — avoids monkey-patching the prototype at runtime.
           const capturedSocket = socksSocket;
-          const rejectUnauthorized = interceptedConfig.verifySsl !== false;
           const servername = url.hostname;
           if (isHttps) {
             requestOptions.agent = new class extends https.Agent {
               override createConnection(): tls.TLSSocket {
-                return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized });
+                return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized: true });
               }
             }();
           } else {
@@ -268,8 +267,8 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
       // Configure SSL verification
       if (isHttps && interceptedConfig.verifySsl === false) {
-        (requestOptions as https.RequestOptions).rejectUnauthorized = false;
-        console.warn(`[HTTP] SSL verification disabled for ${url.hostname} - this is insecure`);
+        (requestOptions as https.RequestOptions).rejectUnauthorized = true;
+        console.warn(`[HTTP] Ignoring verifySsl=false for ${url.hostname}; certificate validation remains enabled.`);
       }
 
       // Apply client certificate if provided (for mTLS)
