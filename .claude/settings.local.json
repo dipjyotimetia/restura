@@ -56,7 +56,9 @@
       "Bash(sed -n '638,642p' /Users/dipjyotimetia/Documents/working/ccviews/DJ/src/features/collections/lib/importers.ts)",
       "Bash(npx vitest *)",
       "Bash(gh pr *)",
-      "Bash(gh run *)"
+      "Bash(gh run *)",
+      "Bash(npm audit *)",
+      "Bash(echo \"Exit code: $?\")"
     ]
   }
 }
