@@ -166,6 +166,11 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
 
       let response: Response;
       if (upstreamProxy) {
+        // Reject hostnames with URL-injection characters before constructing the validation URL
+        if (!/^[a-zA-Z0-9.\-[\]:]+$/.test(upstreamProxy.host)) {
+          clearTimeout(timeoutId);
+          return c.json({ error: 'Invalid proxy host: contains illegal characters' }, 400);
+        }
         const proxyValidation = validateURL(`http://${upstreamProxy.host}:${upstreamProxy.port}`, {
           allowPrivateIPs: false,
           allowLocalhost: isDev,

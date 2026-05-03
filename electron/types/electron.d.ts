@@ -96,6 +96,10 @@ interface ElectronHttpClientCert {
   passphrase?: string;
 }
 
+interface ElectronHttpCaCert {
+  pem: string;
+}
+
 interface ElectronHttpRequestConfig {
   method: string;
   url: string;
@@ -107,6 +111,7 @@ interface ElectronHttpRequestConfig {
   proxy?: ElectronHttpProxyConfig;
   verifySsl?: boolean;
   clientCert?: ElectronHttpClientCert;
+  caCert?: ElectronHttpCaCert;
 }
 
 interface ElectronHttpResponse {

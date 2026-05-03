@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettings, ProxyConfig, CorsProxyConfig } from '@/types';
+import type { AppSettings, ProxyConfig, CorsProxyConfig, ClientCert, CaCert } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 interface SettingsState {
@@ -18,6 +18,9 @@ interface SettingsState {
   // CORS proxy actions
   updateCorsProxy: (updates: Partial<CorsProxyConfig>) => void;
   setCorsProxyEnabled: (enabled: boolean) => void;
+  // Certificate actions
+  setClientCert: (cert: ClientCert | undefined) => void;
+  setCaCert: (ca: CaCert | undefined) => void;
 }
 
 const defaultProxyConfig: ProxyConfig = {
@@ -50,6 +53,9 @@ const defaultSettings: AppSettings = {
   allowPrivateIPs: false,
   // CORS proxy settings for web mode
   corsProxy: defaultCorsProxyConfig,
+  // Certificate settings
+  clientCert: undefined,
+  caCert: undefined,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -148,6 +154,12 @@ export const useSettingsStore = create<SettingsState>()(
             corsProxy: { ...state.settings.corsProxy, enabled },
           },
         })),
+
+      setClientCert: (cert) =>
+        set((s) => ({ settings: { ...s.settings, clientCert: cert } })),
+
+      setCaCert: (ca) =>
+        set((s) => ({ settings: { ...s.settings, caCert: ca } })),
     }),
     {
       name: 'app-settings-storage',
