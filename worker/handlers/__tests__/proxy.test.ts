@@ -60,7 +60,7 @@ describe('proxy handler', () => {
 
     const res = await makeRequest({ method: 'GET', url: 'http://192.168.1.1/' });
     expect(res.status).toBe(400);
-    const json = await res.json();
+    const json = await res.json() as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid URL/i);
     expect(mockFetch).not.toHaveBeenCalled();
   });

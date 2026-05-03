@@ -37,7 +37,7 @@ describe('grpcReflection handler', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = await res.json() as Record<string, unknown>;
     expect(json.reflectionVersion).toBe('v1');
     expect(json.services).toEqual(['helloworld.Greeter']);
   });
@@ -61,7 +61,7 @@ describe('grpcReflection handler', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = await res.json() as Record<string, unknown>;
     expect(json.reflectionVersion).toBe('v1alpha');
   });
 
@@ -80,7 +80,7 @@ describe('grpcReflection handler', () => {
     });
 
     expect(res.status).toBe(500);
-    const json = await res.json();
+    const json = await res.json() as Record<string, unknown>;
     expect(json.error).toMatch(/v1 error/);
     expect(json.error).toMatch(/v1alpha error/);
   });
@@ -118,7 +118,7 @@ describe('grpcReflection handler', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = await res.json() as Record<string, unknown>;
     expect(json.reflectionVersion).toBe('v1alpha');
   });
 });
