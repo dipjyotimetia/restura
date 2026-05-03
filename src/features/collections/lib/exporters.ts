@@ -282,7 +282,7 @@ export function exportToHAR(collection: Collection): object {
         }
 
         entries.push({
-          startedDateTime: new Date().toISOString(),
+          startedDateTime: '',
           time: 0,
           request: {
             method: req.method,
@@ -397,8 +397,9 @@ export function exportToOpenAPI(collection: Collection): object {
             });
           });
 
+        const rawOpId = item.name.replace(/\s+/g, '_').replace(/[^\w]/g, '');
         const operation: Record<string, unknown> = {
-          operationId: item.name.replace(/\s+/g, '_').replace(/[^\w]/g, ''),
+          operationId: rawOpId || uuidv4(),
           summary: item.name,
           parameters: parameters.length > 0 ? parameters : undefined,
           responses: {
@@ -490,6 +491,8 @@ function toOpenAPIPath(url: string): string {
 function jsonToSchema(value: unknown): Record<string, unknown> {
   if (value === null) return { type: 'null' };
   if (Array.isArray(value)) {
+    // Item type is inferred from the first element only — heterogeneous arrays will produce
+    // an incomplete schema, which is acceptable for a best-effort export.
     return {
       type: 'array',
       items: value.length > 0 ? jsonToSchema(value[0]) : {},

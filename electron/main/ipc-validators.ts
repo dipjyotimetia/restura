@@ -13,7 +13,7 @@ export const MAX_PROTO_CONTENT_BYTES = 1024 * 1024;
 
 const ProxyConfigSchema = z.object({
   enabled: z.boolean(),
-  type: z.enum(['http', 'https', 'socks5', 'pac']),
+  type: z.enum(['http', 'https', 'socks4', 'socks5', 'pac']),
   host: z.string(),
   port: z.number().int().positive(),
   pacUrl: z.string().url('Invalid PAC URL').optional(),
@@ -171,13 +171,25 @@ export const WsConnectionIdSchema = z
   .max(128)
   .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
 
+// Hop-by-hop and sensitive headers that must not be forwarded to arbitrary WebSocket servers
+const WS_HEADER_DENYLIST = new Set([
+  'host', 'origin', 'sec-websocket-key', 'sec-websocket-version', 'upgrade',
+  'connection', 'transfer-encoding', 'te', 'proxy-authorization', 'proxy-connection',
+]);
+
 export const WsConnectSchema = z.object({
   connectionId: WsConnectionIdSchema,
   url: z.string().url('Invalid WebSocket URL').refine(
     (url) => ['ws:', 'wss:'].includes(new URL(url).protocol),
     { message: 'Only ws: and wss: WebSocket URLs are allowed' }
   ),
-  headers: z.record(z.string(), z.string()).optional(),
+  headers: z
+    .record(z.string(), z.string())
+    .refine(
+      (headers) => !Object.keys(headers).some((k) => WS_HEADER_DENYLIST.has(k.toLowerCase())),
+      { message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...WS_HEADER_DENYLIST].join(', ')}` }
+    )
+    .optional(),
   protocols: z.array(z.string()).optional(),
 });
 
@@ -199,6 +211,9 @@ export type WsDisconnectConfig = z.infer<typeof WsDisconnectSchema>;
 // Store Schemas
 // ===========================
 
+// electron-store uses dot-notation for nested access (e.g. "a.b" reads obj.a.b).
+// Dots and colons are allowed here intentionally — callers must use flat keys only
+// to avoid unintended nesting side-effects.
 export const StoreKeySchema = z
   .string()
   .min(1, 'Key is required')

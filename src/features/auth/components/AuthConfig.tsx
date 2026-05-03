@@ -49,6 +49,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         clientSecret: o.clientSecret,
         tokenUrl: o.tokenUrl,
         authorizationUrl: o.authorizationUrl,
+        deviceAuthorizationUrl: o.deviceAuthorizationUrl,
         redirectUri: o.redirectUri,
         scope: o.scope,
         username: o.username,
@@ -234,10 +235,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               <label className="text-sm font-medium mb-2 block">Client Secret</label>
               <Input type="password" value={o?.clientSecret ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, clientSecret: e.target.value } })} placeholder="Enter client secret (optional for PKCE)" />
             </div>
-            {(grantType === 'authorization_code' || grantType === 'device_code') && (
+            {grantType === 'authorization_code' && (
               <div>
                 <label className="text-sm font-medium mb-2 block">Authorization URL</label>
                 <Input value={o?.authorizationUrl ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, authorizationUrl: e.target.value } })} placeholder="https://auth.example.com/authorize" className="font-mono" />
+              </div>
+            )}
+            {grantType === 'device_code' && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Device Authorization URL</label>
+                <Input value={o?.deviceAuthorizationUrl ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, deviceAuthorizationUrl: e.target.value } })} placeholder="https://auth.example.com/device_authorization" className="font-mono" />
               </div>
             )}
             <div>

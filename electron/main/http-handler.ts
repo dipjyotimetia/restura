@@ -64,15 +64,15 @@ function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: num
 
     if (proxy.type === 'socks4') {
       socket.once('connect', () => {
-        // Resolve hostname to IP for SOCKS4 (SOCKS4a not needed here — send 0.0.0.1 + hostname)
+        // SOCKS4a: send destination IP 0.0.0.1 (non-zero last byte flags the proxy to resolve
+        // the hostname itself) followed by a NUL-terminated hostname in the request tail.
         const hostBuf = Buffer.from(targetHost + '\0', 'ascii');
         const portBuf = Buffer.alloc(2);
         portBuf.writeUInt16BE(targetPort, 0);
         const userId = Buffer.from((proxy.auth?.username ?? '') + '\0', 'ascii');
-        // SOCKS4a: IP 0.0.0.x (non-zero last byte) triggers domain lookup on proxy side
         const req = Buffer.concat([
           Buffer.from([0x04, 0x01]), portBuf,
-          Buffer.from([0x00, 0x00, 0x00, 0x01]), // fake IP for SOCKS4a
+          Buffer.from([0x00, 0x00, 0x00, 0x01]), // fake IP — 0.0.0.x (x!=0) triggers SOCKS4a hostname lookup
           userId, hostBuf,
         ]);
         socket.write(req);
@@ -204,7 +204,9 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
     socksSocket = await openSocksSocket(interceptedConfig.proxy, socksUrl.hostname, socksTargetPort);
   }
 
-  const rawResult = await new Promise<HttpResponse>((resolve, reject) => {
+  let rawResult: HttpResponse;
+  try {
+    rawResult = await new Promise<HttpResponse>((resolve, reject) => {
     try {
       // Parse URL and add query params
       const url = new URL(interceptedConfig.url);
@@ -243,18 +245,23 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
             (requestOptions.headers as Record<string, string>)['Proxy-Authorization'] = `Basic ${auth}`;
           }
         } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
-          // Use the pre-tunneled socket via a custom agent
+          // Route through the pre-established SOCKS tunnel by subclassing the agent and
+          // overriding createConnection — avoids monkey-patching the prototype at runtime.
           const capturedSocket = socksSocket;
           const rejectUnauthorized = interceptedConfig.verifySsl !== false;
+          const servername = url.hostname;
           if (isHttps) {
-            const agent = new https.Agent();
-            (agent as unknown as Record<string, unknown>)['createConnection'] = (_opts: unknown) =>
-              tls.connect({ socket: capturedSocket, servername: url.hostname, rejectUnauthorized });
-            requestOptions.agent = agent;
+            requestOptions.agent = new class extends https.Agent {
+              override createConnection(): tls.TLSSocket {
+                return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized });
+              }
+            }();
           } else {
-            const agent = new http.Agent();
-            (agent as unknown as Record<string, unknown>)['createConnection'] = () => capturedSocket;
-            requestOptions.agent = agent;
+            requestOptions.agent = new class extends http.Agent {
+              override createConnection(): net.Socket {
+                return capturedSocket;
+              }
+            }();
           }
         }
       }
@@ -407,6 +414,12 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       reject(err);
     }
   });
+
+  } catch (err) {
+    // Destroy the SOCKS socket if the request failed before the agent could take ownership
+    if (socksSocket && !socksSocket.destroyed) socksSocket.destroy();
+    throw err;
+  }
 
   return interceptorRegistry.runResponse(rawResult, interceptedConfig);
 }

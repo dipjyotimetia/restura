@@ -12,6 +12,8 @@ export interface OAuth2FlowConfig {
   clientSecret?: string;
   tokenUrl: string;
   authorizationUrl?: string;
+  /** Explicit device authorization endpoint (RFC 8628 §3.1). Required for device_code grant. */
+  deviceAuthorizationUrl?: string;
   redirectUri?: string;
   scope?: string;
   // Password grant
@@ -22,6 +24,17 @@ export interface OAuth2FlowConfig {
 export interface OAuth2Error {
   error: string;
   error_description?: string;
+}
+
+/** Carries the machine-readable RFC 6749 error code alongside the human-readable message. */
+export class OAuth2TokenError extends Error {
+  constructor(
+    public readonly errorCode: string,
+    message: string
+  ) {
+    super(message);
+    this.name = 'OAuth2TokenError';
+  }
 }
 
 async function postToken(tokenUrl: string, params: Record<string, string>): Promise<OAuth2TokenResponse> {
@@ -36,7 +49,10 @@ async function postToken(tokenUrl: string, params: Record<string, string>): Prom
 
   if (!response.ok || 'error' in json) {
     const err = json as OAuth2Error;
-    throw new Error(err.error_description || err.error || `Token request failed: ${response.status}`);
+    throw new OAuth2TokenError(
+      err.error || 'unknown_error',
+      err.error_description || err.error || `Token request failed: ${response.status}`
+    );
   }
 
   return json as OAuth2TokenResponse;
@@ -137,7 +153,9 @@ export async function authorizeWithPopup(
   timeoutMs = 300_000
 ): Promise<{ code: string } | null> {
   return new Promise((resolve) => {
-    const popup = window.open(authUrl, 'oauth2_popup', 'width=600,height=700,noopener=0');
+    // Omitting `noopener` so window.open() returns a non-null reference we can poll.
+    // The popup starts cross-origin (auth server), so it cannot reach window.opener anyway.
+    const popup = window.open(authUrl, 'oauth2_popup', 'width=600,height=700');
     if (!popup) {
       resolve(null);
       return;
@@ -181,11 +199,17 @@ export interface DeviceCodeResponse {
 }
 
 export async function fetchDeviceCode(config: OAuth2FlowConfig): Promise<DeviceCodeResponse> {
+  // RFC 8628 §3.1 requires a dedicated device_authorization_url published in server metadata.
+  // A string-replace on tokenUrl is a heuristic that breaks for non-standard paths.
+  if (!config.deviceAuthorizationUrl) {
+    throw new Error('Device Authorization URL is required for the device code flow');
+  }
+
   const params: Record<string, string> = { client_id: config.clientId };
   if (config.scope) params.scope = config.scope;
 
   const body = new URLSearchParams(params).toString();
-  const response = await fetch(config.tokenUrl.replace('/token', '/device_authorization'), {
+  const response = await fetch(config.deviceAuthorizationUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body,
@@ -216,8 +240,13 @@ export async function pollForDeviceToken(
     try {
       return await postToken(config.tokenUrl, params);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '';
-      if (msg.includes('authorization_pending') || msg.includes('slow_down')) continue;
+      // RFC 8628 §3.5 — keep polling on these two codes; any other error is terminal
+      if (
+        err instanceof OAuth2TokenError &&
+        (err.errorCode === 'authorization_pending' || err.errorCode === 'slow_down')
+      ) {
+        continue;
+      }
       throw err;
     }
   }
