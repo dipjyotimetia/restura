@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Response viewer with syntax highlighting
 - Dark/Light theme support
 - Desktop app (Electron) for macOS, Windows, Linux
-- Web client (Next.js)
+- Web client (Vite + React SPA on Cloudflare Pages)
 
 ---
 
