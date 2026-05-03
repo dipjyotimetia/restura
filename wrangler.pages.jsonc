@@ -1,0 +1,11 @@
+{
+  // Minimal config for `wrangler pages deploy` in CI.
+  // Does not include "main" — that field causes pages deploy to fail.
+  // Used only by the deploy-preview CI job; all other deployments use wrangler.jsonc.
+  "name": "restura",
+  "compatibility_date": "2026-04-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  }
+}
