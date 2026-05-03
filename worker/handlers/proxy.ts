@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import { validateURL } from '../shared/url-validation';
 import { MAX_RESPONSE_SIZE } from '../shared/constants';
 import type { Env } from '../index';
+import { httpsViaConnectProxy, httpViaProxy } from '../shared/tcp-proxy';
 
 const BLOCKED_REQUEST_HEADERS = [
   'host',
@@ -33,6 +34,12 @@ interface FormField {
   contentType?: string;
 }
 
+interface UpstreamProxyConfig {
+  host: string;
+  port: number;
+  auth?: { username: string; password: string };
+}
+
 interface ProxyRequestBody {
   method: string;
   url: string;
@@ -42,6 +49,7 @@ interface ProxyRequestBody {
   data?: string;
   formData?: FormField[];
   timeout?: number;
+  upstreamProxy?: UpstreamProxyConfig;
 }
 
 function base64ToUint8Array(b64: string): Uint8Array {
@@ -107,7 +115,7 @@ function buildRequestBody(
 export async function proxy(c: Context<{ Bindings: Env }>) {
   try {
     const body = await c.req.json<ProxyRequestBody>();
-    const { method, url, headers = {}, params = {}, data, formData, bodyType, timeout = 30000 } = body;
+    const { method, url, headers = {}, params = {}, data, formData, bodyType, timeout = 30000, upstreamProxy } = body;
 
     if (!ALLOWED_METHODS.includes(method.toUpperCase())) {
       return c.json({ error: `Method ${method} is not allowed` }, 400);
@@ -156,7 +164,29 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
         fetchOptions.body = requestBody;
       }
 
-      const response = await fetch(targetUrl.toString(), fetchOptions);
+      let response: Response;
+      if (upstreamProxy) {
+        // Reject hostnames with URL-injection characters before constructing the validation URL
+        if (!/^[a-zA-Z0-9.\-[\]:]+$/.test(upstreamProxy.host)) {
+          clearTimeout(timeoutId);
+          return c.json({ error: 'Invalid proxy host: contains illegal characters' }, 400);
+        }
+        const proxyValidation = validateURL(`http://${upstreamProxy.host}:${upstreamProxy.port}`, {
+          allowPrivateIPs: false,
+          allowLocalhost: isDev,
+        });
+        if (!proxyValidation.valid) {
+          clearTimeout(timeoutId);
+          return c.json({ error: `Invalid upstream proxy: ${proxyValidation.error}` }, 400);
+        }
+
+        const isHttps = targetUrl.protocol === 'https:';
+        response = isHttps
+          ? await httpsViaConnectProxy(targetUrl, upstreamProxy, fetchOptions, controller.signal)
+          : await httpViaProxy(targetUrl, upstreamProxy, fetchOptions, controller.signal);
+      } else {
+        response = await fetch(targetUrl.toString(), fetchOptions);
+      }
       clearTimeout(timeoutId);
 
       const contentLength = response.headers.get('content-length');

@@ -29,6 +29,10 @@ interface ClientCert {
   passphrase?: string;
 }
 
+interface CaCert {
+  pem: string;
+}
+
 export interface HttpRequestConfig {
   method: string;
   url: string;
@@ -40,6 +44,7 @@ export interface HttpRequestConfig {
   proxy?: ProxyConfig;
   verifySsl?: boolean;
   clientCert?: ClientCert;
+  caCert?: CaCert;
 }
 
 export interface HttpResponse {
@@ -266,9 +271,8 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       }
 
       // Configure SSL verification
-      if (isHttps && interceptedConfig.verifySsl === false) {
+      if (isHttps) {
         (requestOptions as https.RequestOptions).rejectUnauthorized = true;
-        console.warn(`[HTTP] Ignoring verifySsl=false for ${url.hostname}; certificate validation remains enabled.`);
       }
 
       // Apply client certificate if provided (for mTLS)
@@ -285,6 +289,11 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
             (requestOptions as https.RequestOptions).passphrase = interceptedConfig.clientCert.passphrase;
           }
         }
+      }
+
+      // Apply CA certificate if provided (for custom CA / self-signed servers)
+      if (isHttps && interceptedConfig.caCert?.pem) {
+        (requestOptions as https.RequestOptions).ca = interceptedConfig.caCert.pem;
       }
 
       // Create request

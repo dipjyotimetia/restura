@@ -50,6 +50,9 @@ yarn-error.log*
 /dist/**/*.yaml
 !electron-builder.json
 
+# git worktrees
+.worktrees/
+
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 

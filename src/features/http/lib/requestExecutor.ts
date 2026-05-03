@@ -15,16 +15,23 @@ import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/app
 async function executeViaCorsProxy(
   config: AxiosRequestConfig,
   startTime: number,
-  requestId: string
+  requestId: string,
+  upstreamProxy?: { host: string; port: number; auth?: { username: string; password: string } }
 ): Promise<ApiResponse> {
-  const response = await axios.post('/api/proxy', {
+  const proxyBody: Record<string, unknown> = {
     method: config.method,
     url: config.url,
     headers: config.headers,
     params: config.params,
     data: config.data,
     timeout: config.timeout,
-  });
+  };
+
+  if (upstreamProxy) {
+    proxyBody.upstreamProxy = upstreamProxy;
+  }
+
+  const response = await axios.post('/api/proxy', proxyBody);
 
   const proxyResponse = response.data;
   const endTime = Date.now();
@@ -90,12 +97,6 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     }
   }
 
-  // Resolve environment variables
-  // Note: We pass envVars to resolveVariables if the function supports it, 
-  // otherwise we might need to update how resolveVariables works or rely on the store being updated.
-  // For now, assuming resolveVariables uses the store, but we might need to manually resolve using envVars here.
-  // Let's assume resolveVariables is bound to the store, but we should really use the local envVars.
-  // Since we can't easily change the store hook, we'll do a simple replacement here for local vars.
   const resolveLocal = (text: string) => {
     let result = text;
     Object.entries(envVars).forEach(([key, value]) => {
@@ -180,7 +181,24 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
   // Check if we should use CORS proxy (browser mode)
   if (shouldUseCorsProxy(globalSettings)) {
     try {
-      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id);
+      const proxyConfig = effectiveSettings.proxy;
+      const upstreamProxy =
+        !isElectron() &&
+        proxyConfig?.enabled &&
+        proxyConfig.host &&
+        proxyConfig.type !== 'none' &&
+        !shouldBypassProxy(resolvedUrl, proxyConfig.bypassList)
+          ? {
+              host: proxyConfig.host,
+              port: proxyConfig.port,
+              auth:
+                proxyConfig.auth?.username
+                  ? proxyConfig.auth
+                  : undefined,
+            }
+          : undefined;
+
+      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy);
     } catch (error: unknown) {
       const endTime = Date.now();
       const isAxiosError = axios.isAxiosError(error);
@@ -235,6 +253,8 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             ...axiosConfig,
             proxy: proxyConfig,
             verifySsl: effectiveSettings.verifySsl,
+            clientCert: effectiveSettings.clientCert,
+            caCert: effectiveSettings.caCert,
           });
 
           // Process Set-Cookie headers

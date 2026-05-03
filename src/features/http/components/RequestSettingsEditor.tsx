@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import type { RequestSettings, GlobalSettings } from '@/types';
+import { CertificateOverride } from './CertificateOverride';
 
 interface RequestSettingsEditorProps {
   settings: RequestSettings | undefined;
@@ -28,6 +29,14 @@ export default function RequestSettingsEditor({
       verifySsl: globalSettings.verifySsl,
       proxy: globalSettings.proxy,
     };
+  };
+
+  const handleCertOverrideToggle = (enabled: boolean) => {
+    if (!enabled) {
+      onSettingsChange({ clientCert: undefined });
+    } else {
+      onSettingsChange({ clientCert: { format: settings?.clientCert?.format ?? 'pfx' } });
+    }
   };
 
   return (
@@ -184,6 +193,28 @@ export default function RequestSettingsEditor({
                   </>
                 )}
               </div>
+            )}
+          </div>
+
+          {/* Client Certificate Override */}
+          <div className="space-y-4 rounded-lg border border-border p-4 bg-background">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-base font-medium">Client Certificate for this Request</Label>
+                <p className="text-sm text-muted-foreground">Use a custom client certificate (mTLS)</p>
+              </div>
+              <Switch
+                checked={!!settings?.clientCert}
+                onCheckedChange={handleCertOverrideToggle}
+                aria-label="Toggle custom client certificate"
+              />
+            </div>
+
+            {settings?.clientCert && (
+              <CertificateOverride
+                clientCert={settings.clientCert}
+                onCertChange={(cert) => onSettingsChange({ clientCert: cert })}
+              />
             )}
           </div>
         </>

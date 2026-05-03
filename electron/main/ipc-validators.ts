@@ -32,6 +32,10 @@ const ClientCertSchema = z.object({
   passphrase: z.string().optional(), // passphrase for pfx or encrypted key
 });
 
+const CaCertSchema = z.object({
+  pem: z.string().min(1),
+});
+
 export const HttpRequestConfigSchema = z.object({
   method: z.string(),
   url: z.string().url('Invalid URL format'),
@@ -43,6 +47,7 @@ export const HttpRequestConfigSchema = z.object({
   proxy: ProxyConfigSchema.optional(),
   verifySsl: z.boolean().optional(),
   clientCert: ClientCertSchema.optional(),
+  caCert: CaCertSchema.optional(),
 });
 
 export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
