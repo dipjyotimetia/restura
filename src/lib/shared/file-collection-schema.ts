@@ -109,8 +109,43 @@ export const fileGrpcRequestSchema = z.object({
 
 export type FileGrpcRequest = z.infer<typeof fileGrpcRequestSchema>;
 
+// SSE request file format (stored as .sse.yaml)
+export const fileSseRequestSchema = z.object({
+  name: z.string().min(1),
+  url: z.string(),
+  headers: z.array(fileKeyValueSchema).optional(),
+  params: z.array(fileKeyValueSchema).optional(),
+  auth: fileAuthConfigSchema.optional(),
+  eventFilter: z.array(z.string()).optional(),
+  reconnectOnResume: z.boolean().optional(),
+  preRequestScript: z.string().optional(),
+  testScript: z.string().optional(),
+});
+
+export type FileSseRequest = z.infer<typeof fileSseRequestSchema>;
+
+// MCP request file format (stored as .mcp.yaml)
+export const fileMcpRequestSchema = z.object({
+  name: z.string().min(1),
+  url: z.string(),
+  transport: z.enum(['streamable-http', 'http-sse']),
+  headers: z.array(fileKeyValueSchema).optional(),
+  auth: fileAuthConfigSchema.optional(),
+  defaultMethod: z.string().optional(),
+  defaultParams: z.string().optional(),
+  preRequestScript: z.string().optional(),
+  testScript: z.string().optional(),
+});
+
+export type FileMcpRequest = z.infer<typeof fileMcpRequestSchema>;
+
 // Union of file request types
-export const fileRequestSchema = z.union([fileHttpRequestSchema, fileGrpcRequestSchema]);
+export const fileRequestSchema = z.union([
+  fileHttpRequestSchema,
+  fileGrpcRequestSchema,
+  fileSseRequestSchema,
+  fileMcpRequestSchema,
+]);
 
 export type FileRequest = z.infer<typeof fileRequestSchema>;
 
@@ -142,22 +177,31 @@ export const FILE_EXTENSIONS = {
   FOLDER_META: '_folder.yaml',
   HTTP_REQUEST: '.http.yaml',
   GRPC_REQUEST: '.grpc.yaml',
+  SSE_REQUEST: '.sse.yaml',
+  MCP_REQUEST: '.mcp.yaml',
 } as const;
 
 // Helper to determine request type from filename
-export function getRequestTypeFromFilename(filename: string): 'http' | 'grpc' | null {
+// Order matters: longer/more-specific suffixes are checked first.
+export function getRequestTypeFromFilename(filename: string): 'http' | 'grpc' | 'sse' | 'mcp' | null {
   if (filename.endsWith(FILE_EXTENSIONS.HTTP_REQUEST)) return 'http';
   if (filename.endsWith(FILE_EXTENSIONS.GRPC_REQUEST)) return 'grpc';
+  if (filename.endsWith(FILE_EXTENSIONS.SSE_REQUEST)) return 'sse';
+  if (filename.endsWith(FILE_EXTENSIONS.MCP_REQUEST)) return 'mcp';
   return null;
 }
 
 // Helper to generate filename from request
-export function getFilenameForRequest(name: string, type: 'http' | 'grpc'): string {
+export function getFilenameForRequest(name: string, type: 'http' | 'grpc' | 'sse' | 'mcp'): string {
   const sanitized = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
-  const extension = type === 'http' ? FILE_EXTENSIONS.HTTP_REQUEST : FILE_EXTENSIONS.GRPC_REQUEST;
+  const extension =
+    type === 'http' ? FILE_EXTENSIONS.HTTP_REQUEST :
+    type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST :
+    type === 'sse' ? FILE_EXTENSIONS.SSE_REQUEST :
+    FILE_EXTENSIONS.MCP_REQUEST;
   return `${sanitized}${extension}`;
 }
 
@@ -166,6 +210,8 @@ export function getNameFromFilename(filename: string): string {
   return filename
     .replace(FILE_EXTENSIONS.HTTP_REQUEST, '')
     .replace(FILE_EXTENSIONS.GRPC_REQUEST, '')
+    .replace(FILE_EXTENSIONS.SSE_REQUEST, '')
+    .replace(FILE_EXTENSIONS.MCP_REQUEST, '')
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }

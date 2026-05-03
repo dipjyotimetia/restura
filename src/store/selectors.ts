@@ -168,5 +168,5 @@ export const selectResponseTime = (state: RequestState): number | null =>
 /**
  * Select current request type
  */
-export const selectRequestType = (state: RequestState): 'http' | 'grpc' | null =>
+export const selectRequestType = (state: RequestState): 'http' | 'grpc' | 'sse' | 'mcp' | null =>
   state.currentRequest?.type ?? null;

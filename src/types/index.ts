@@ -47,10 +47,10 @@ export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
 };
 
 // Request Types
-export type RequestType = 'http' | 'grpc';
+export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';
 
 // Request Mode (used for UI mode switching)
-export type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql';
+export type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql' | 'sse' | 'mcp';
 
 // Body Types
 export type BodyType = 'none' | 'json' | 'xml' | 'form-data' | 'x-www-form-urlencoded' | 'binary' | 'protobuf' | 'graphql' | 'text' | 'multipart-mixed';
@@ -168,8 +168,126 @@ export interface GrpcRequest {
   testScript?: string;
 }
 
+// SSE (Server-Sent Events) Request
+export interface SseRequest {
+  id: string;
+  name: string;
+  type: 'sse';
+  url: string;
+  headers: KeyValue[];
+  params: KeyValue[];
+  auth: AuthConfig;
+  /** Optional client-side filter (event names) — purely UI-side */
+  eventFilter?: string[];
+  /** Whether to reconnect using Last-Event-ID on disconnect */
+  reconnectOnResume?: boolean;
+  preRequestScript?: string;
+  testScript?: string;
+}
+
+// SSE event payload, as parsed from the wire format
+export interface SseEvent {
+  id: string;
+  /** Server-supplied event name; defaults to "message" per the SSE spec */
+  event: string;
+  /** Concatenated `data:` lines (LF-joined) */
+  data: string;
+  /** Server-supplied event id, if any */
+  lastEventId?: string;
+  /** Server-supplied retry hint in ms, if any */
+  retry?: number;
+  timestamp: number;
+}
+
+// MCP (Model Context Protocol) types
+
+export type McpTransportType = 'streamable-http' | 'http-sse';
+
+export interface McpRequest {
+  id: string;
+  name: string;
+  type: 'mcp';
+  url: string;
+  transport: McpTransportType;
+  headers: KeyValue[];
+  auth: AuthConfig;
+  /** Optional default JSON-RPC method to invoke when "Send" is pressed */
+  defaultMethod?: string;
+  /** Optional default params for the default method */
+  defaultParams?: string;
+  preRequestScript?: string;
+  testScript?: string;
+}
+
+/** A single tool/resource/prompt descriptor returned by the server */
+export interface McpToolDescriptor {
+  name: string;
+  description?: string;
+  /** JSON Schema for the tool's input arguments */
+  inputSchema?: McpJsonSchema;
+}
+
+export interface McpResourceDescriptor {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface McpPromptDescriptor {
+  name: string;
+  description?: string;
+  arguments?: Array<{
+    name: string;
+    description?: string;
+    required?: boolean;
+  }>;
+}
+
+/** Subset of JSON Schema Restura cares about for template generation */
+export interface McpJsonSchema {
+  type?: string | string[];
+  properties?: Record<string, McpJsonSchema>;
+  items?: McpJsonSchema | McpJsonSchema[];
+  required?: string[];
+  enum?: unknown[];
+  default?: unknown;
+  description?: string;
+  format?: string;
+  $ref?: string;
+  oneOf?: McpJsonSchema[];
+  anyOf?: McpJsonSchema[];
+  additionalProperties?: boolean | McpJsonSchema;
+}
+
+export interface McpServerCapabilities {
+  serverName?: string;
+  serverVersion?: string;
+  protocolVersion?: string;
+  /** Capabilities advertised by the server in `initialize` */
+  capabilities?: {
+    tools?: { listChanged?: boolean };
+    resources?: { listChanged?: boolean; subscribe?: boolean };
+    prompts?: { listChanged?: boolean };
+    logging?: Record<string, unknown>;
+  };
+  tools: McpToolDescriptor[];
+  resources: McpResourceDescriptor[];
+  prompts: McpPromptDescriptor[];
+}
+
+/** Result of a single JSON-RPC call */
+export interface McpResponse extends Response {
+  /** The raw JSON-RPC `result` field (parsed) */
+  result?: unknown;
+  /** The raw JSON-RPC `error` field (parsed) */
+  jsonRpcError?: { code: number; message: string; data?: unknown };
+  /** Echoed JSON-RPC method for display */
+  method?: string;
+}
+
 // Union type for any request
-export type Request = HttpRequest | GrpcRequest;
+export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;
 
 // Response
 export interface Response {
