@@ -32,6 +32,29 @@ function GrpcReflectionPanel({
   const [selectedReflectionService, setSelectedReflectionService] = useState<ReflectionServiceInfo | null>(null);
   const [selectedReflectionMethod, setSelectedReflectionMethod] = useState<ReflectionMethodInfo | null>(null);
 
+  const handleMethodSelection = useCallback((method: ReflectionMethodInfo) => {
+    setSelectedReflectionMethod(method);
+
+    let methodType: GrpcMethodType = 'unary';
+    if (method.clientStreaming && method.serverStreaming) {
+      methodType = 'bidirectional-streaming';
+    } else if (method.serverStreaming) {
+      methodType = 'server-streaming';
+    } else if (method.clientStreaming) {
+      methodType = 'client-streaming';
+    }
+
+    let message: string | undefined;
+    if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
+      message = generateRequestTemplate(method.inputMessageSchema);
+      toast.info('Request template generated', {
+        description: `Generated template for ${method.inputMessageSchema.name}`,
+      });
+    }
+
+    onMethodSelect(method.name, methodType, message);
+  }, [onMethodSelect]);
+
   const handleDiscoverServices = useCallback(async (silent = false) => {
     if (!url) {
       if (!silent) {
@@ -125,7 +148,7 @@ function GrpcReflectionPanel({
     } finally {
       setIsDiscovering(false);
     }
-  }, [url, resolveVariables, onServiceSelect]);
+  }, [url, resolveVariables, onServiceSelect, handleMethodSelection]);
 
   // Auto-discover services when URL changes
   useEffect(() => {
@@ -146,29 +169,6 @@ function GrpcReflectionPanel({
     setSelectedReflectionService(service);
     setSelectedReflectionMethod(null);
     onServiceSelect(service.fullName);
-  };
-
-  const handleMethodSelection = (method: ReflectionMethodInfo) => {
-    setSelectedReflectionMethod(method);
-
-    let methodType: GrpcMethodType = 'unary';
-    if (method.clientStreaming && method.serverStreaming) {
-      methodType = 'bidirectional-streaming';
-    } else if (method.serverStreaming) {
-      methodType = 'server-streaming';
-    } else if (method.clientStreaming) {
-      methodType = 'client-streaming';
-    }
-
-    let message: string | undefined;
-    if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
-      message = generateRequestTemplate(method.inputMessageSchema);
-      toast.info('Request template generated', {
-        description: `Generated template for ${method.inputMessageSchema.name}`,
-      });
-    }
-
-    onMethodSelect(method.name, methodType, message);
   };
 
   const hasServices = reflectionResult?.success && reflectionResult.services.length > 0;

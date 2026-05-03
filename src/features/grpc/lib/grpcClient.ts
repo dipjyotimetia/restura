@@ -13,7 +13,7 @@ import {
   GrpcStatusCodeName
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron, workerBaseUrl } from '@/lib/shared/platform';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {
@@ -726,7 +726,7 @@ export async function makeProxyGrpcRequest(
   const startTime = Date.now();
 
   try {
-    const response = await fetch('/api/grpc', {
+    const response = await fetch(`${workerBaseUrl()}/api/grpc`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import type { Workflow, WorkflowRequest, Request, HttpRequest, CollectionItem } from '@/types';
+import type { Workflow, WorkflowRequest, Request, HttpRequest, CollectionItem, VariableExtraction } from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { Button } from '@/components/ui/button';
@@ -133,7 +133,7 @@ export function WorkflowBuilder({
     setEditingStep(null);
   };
 
-  const handleSaveExtractions = (extractions: import('@/types').VariableExtraction[]) => {
+  const handleSaveExtractions = (extractions: VariableExtraction[]) => {
     if (!extractionStep) return;
 
     updateWorkflowRequest(workflow.id, extractionStep.id, {

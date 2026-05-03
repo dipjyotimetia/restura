@@ -10,7 +10,6 @@ This document outlines the development standards and best practices for the Rest
 - [State Management](#state-management)
 - [Styling Guidelines](#styling-guidelines)
 - [Testing Standards](#testing-standards)
-- [Go Standards](#go-standards)
 - [Security Standards](#security-standards)
 - [Performance Guidelines](#performance-guidelines)
 - [Documentation Standards](#documentation-standards)
@@ -517,94 +516,6 @@ describe('ComponentName', () => {
 6. **Keep tests independent**: No test should depend on another
 7. **Test edge cases**: Empty states, errors, loading states
 
-## Go Standards
-
-### Code Organization
-
-```go
-// 1. Package documentation
-// Package github provides GitHub API integration for issue management.
-package github
-
-// 2. Import grouping
-import (
-    // Standard library
-    "context"
-    "fmt"
-    "time"
-
-    // Third-party packages
-    "github.com/google/go-github/v79/github"
-
-    // Internal packages
-    "github.com/goutils/pkg/config"
-)
-
-// 3. Constants first
-const (
-    maxRetries    = 3
-    requestTimeout = 30 * time.Second
-)
-
-// 4. Type definitions
-type Client struct {
-    github *github.Client
-    config *config.Config
-}
-
-// 5. Constructor functions
-func NewClient(cfg *config.Config) (*Client, error) {
-    if cfg == nil {
-        return nil, errors.New("config is required")
-    }
-
-    return &Client{
-        config: cfg,
-    }, nil
-}
-
-// 6. Methods
-func (c *Client) FetchIssues(ctx context.Context, owner, repo string) ([]*Issue, error) {
-    // Implementation
-}
-```
-
-### Error Handling
-
-```go
-// 1. Always handle errors
-result, err := doSomething()
-if err != nil {
-    return fmt.Errorf("doSomething failed: %w", err)
-}
-
-// 2. Wrap errors with context
-func (c *Client) FetchIssues(ctx context.Context, owner, repo string) ([]*Issue, error) {
-    issues, _, err := c.github.Issues.ListByRepo(ctx, owner, repo, nil)
-    if err != nil {
-        return nil, fmt.Errorf("failed to fetch issues for %s/%s: %w", owner, repo, err)
-    }
-    return issues, nil
-}
-
-// 3. Use sentinel errors for known conditions
-var ErrNotFound = errors.New("resource not found")
-
-if err := findResource(id); errors.Is(err, ErrNotFound) {
-    // Handle not found case
-}
-
-// 4. Custom error types for complex scenarios
-type ValidationError struct {
-    Field   string
-    Message string
-}
-
-func (e *ValidationError) Error() string {
-    return fmt.Sprintf("validation failed for %s: %s", e.Field, e.Message)
-}
-```
-
 ## Security Standards
 
 ### Input Validation
@@ -680,7 +591,7 @@ const handleClick = useCallback(() => {
   // handler
 }, [dependencies]);
 
-// 4. Lazy load heavy components
+// 4. Lazy load heavy components (use lazyComponent from src/lib/shared/lazyComponent.tsx)
 const Monaco = lazy(() => import('./MonacoEditor'));
 
 // 5. Virtualize long lists
@@ -694,10 +605,9 @@ import { FixedSizeList } from 'react-window';
 import { Button } from '@/components/ui/button'; // Good
 import * as UI from '@/components/ui'; // Bad
 
-// 2. Use dynamic imports
-const Feature = dynamic(() => import('./Feature'), {
-  loading: () => <Spinner />,
-});
+// 2. Use lazyComponent for code-split features
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+const Feature = lazyComponent(() => import('./Feature'));
 
 // 3. Tree-shake utilities
 import { cn } from '@/lib/utils'; // Good - individual export

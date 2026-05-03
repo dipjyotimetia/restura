@@ -1,8 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "restura",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-04-15",
-  "compatibility_flags": ["nodejs_compat", "cloudflare_sockets_api"],
+  "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "ENVIRONMENT": "production",
     "ALLOWED_ORIGIN": "https://restura.pages.dev"

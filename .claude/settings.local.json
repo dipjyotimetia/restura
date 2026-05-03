@@ -72,7 +72,10 @@
       "mcp__plugin_playwright_playwright__browser_console_messages",
       "mcp__plugin_playwright_playwright__browser_resize",
       "mcp__plugin_playwright_playwright__browser_evaluate",
-      "mcp__plugin_playwright_playwright__browser_click"
+      "mcp__plugin_playwright_playwright__browser_click",
+      "Bash(npx wrangler *)",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "Bash(grep -v \"^--$\")"
     ]
   }
 }

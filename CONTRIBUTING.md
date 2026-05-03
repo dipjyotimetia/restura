@@ -22,8 +22,8 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 ### Prerequisites
 
-- **Node.js** >= 18.x
-- **npm** >= 9.x
+- **Node.js** >= 22.x
+- **npm** >= 10.x
 - **Git**
 
 ### Quick Start
@@ -42,17 +42,23 @@ npm run dev
 
 ## Development Setup
 
-### Frontend (Web Client)
+### Web Client
 
 ```bash
 # Install dependencies
 npm install
 
-# Start development server with hot reload
+# Start Vite dev server + Cloudflare Worker locally (port 5173)
 npm run dev
 
-# Run type checking
+# Run type checking (renderer)
 npm run type-check
+
+# Type-check Electron main process
+npx tsc --noEmit -p electron/tsconfig.json
+
+# Type-check Worker
+npx tsc --noEmit -p worker/tsconfig.json
 
 # Run linting
 npm run lint
@@ -60,7 +66,7 @@ npm run lint
 # Run tests
 npm run test
 
-# Run all validations
+# Run all validations (type-check + lint + test:run)
 npm run validate
 ```
 
@@ -78,19 +84,30 @@ npm run electron:dist
 
 ```
 restura/
-├── src/                  # Source code
-│   ├── app/             # Next.js App Router pages
-│   ├── components/      # React components
-│   │   ├── ui/         # Base UI components (shadcn/ui)
-│   │   └── *.tsx       # Feature components
-│   ├── store/          # Zustand state stores
-│   ├── lib/            # Utility functions
-│   ├── hooks/          # Custom React hooks
-│   └── types/          # TypeScript type definitions
+├── src/                  # Renderer source (shared by web and desktop)
+│   ├── features/        # Feature modules (co-located components, hooks, stores)
+│   │   ├── http/        # HTTP/REST
+│   │   ├── grpc/        # gRPC with reflection
+│   │   ├── websocket/   # WebSocket
+│   │   ├── graphql/     # GraphQL
+│   │   ├── sse/         # Server-Sent Events
+│   │   ├── mcp/         # Model Context Protocol
+│   │   ├── workflows/   # Request chaining
+│   │   ├── collections/ # Collections + importers/exporters
+│   │   ├── environments/# Environment variables
+│   │   ├── auth/        # Authentication config
+│   │   └── scripts/     # Pre/post scripts (QuickJS sandbox)
+│   ├── components/
+│   │   ├── ui/          # Radix UI primitives (shadcn/ui patterns)
+│   │   ├── shared/      # Shared components
+│   │   └── providers/   # PlatformProvider, ThemeProvider
+│   ├── routes/          # React Router route components
+│   └── lib/shared/      # Utilities, storage, platform detection
+├── worker/              # Cloudflare Pages Function (web only, Hono)
 ├── electron/            # Electron main process
-├── tests/              # Test files
-├── scripts/            # Build scripts
-└── docs/               # Documentation
+├── tests/               # Test setup and fixtures
+├── scripts/             # Build utilities
+└── docs/                # Documentation
 ```
 
 ## Development Workflow

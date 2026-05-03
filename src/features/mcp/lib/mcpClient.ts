@@ -1,4 +1,4 @@
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { isElectron, getElectronAPI, workerBaseUrl } from '@/lib/shared/platform';
 import type {
   McpJsonSchema,
   McpPromptDescriptor,
@@ -115,7 +115,7 @@ export class McpClient {
         };
       }
 
-      const response = await fetch('/api/mcp', {
+      const response = await fetch(`${workerBaseUrl()}/api/mcp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
