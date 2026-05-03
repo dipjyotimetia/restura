@@ -63,7 +63,8 @@
       "WebFetch(domain:example.com)",
       "Bash(grep -rn '$timestamp\\\\|$randomInt\\\\|$guid' src/ '--include=*.ts' '--include=*.tsx')",
       "Bash(xargs ls *)",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Bash(wrangler --version)"
     ]
   }
 }
