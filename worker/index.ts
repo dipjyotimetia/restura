@@ -13,12 +13,27 @@ export type Env = {
 
 const app = new Hono<{ Bindings: Env }>();
 
+function allowedOrigin(origin: string | undefined, configuredOrigin: string | undefined): string {
+  if (!origin) return configuredOrigin ?? 'https://restura.pages.dev';
+
+  try {
+    const { hostname } = new URL(origin);
+    if (hostname === 'restura.pages.dev' || hostname.endsWith('.restura.pages.dev')) {
+      return origin;
+    }
+  } catch {
+    // Fall through to the configured production origin.
+  }
+
+  return configuredOrigin ?? 'https://restura.pages.dev';
+}
+
 app.use(
   '/api/*',
   cors({
     origin: (origin, c) => {
       if (c.env.ENVIRONMENT !== 'production') return origin ?? '*';
-      return c.env.ALLOWED_ORIGIN ?? 'https://restura.pages.dev';
+      return allowedOrigin(origin, c.env.ALLOWED_ORIGIN);
     },
   }),
 );

@@ -9,7 +9,15 @@
  * so we need an absolute origin. In dev both run together via Miniflare so the origin is empty.
  */
 export function workerBaseUrl(): string {
-  return import.meta.env.VITE_WORKER_URL ?? '';
+  if (import.meta.env.VITE_WORKER_URL) {
+    return import.meta.env.VITE_WORKER_URL;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('restura.pages.dev')) {
+    return 'https://restura.workers.dev';
+  }
+
+  return '';
 }
 
 import type { ElectronAPI } from '../../../electron/types/electron.d';

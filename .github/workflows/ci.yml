@@ -46,6 +46,8 @@ jobs:
         run: npm run test:run
 
       - name: Build renderer
+        env:
+          VITE_WORKER_URL: https://restura.workers.dev
         run: npm run build
 
       - name: Build Electron main
@@ -74,6 +76,8 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          VITE_WORKER_URL: https://restura.workers.dev
         run: npm run build
 
       - name: Clean stale deploy config
@@ -124,6 +128,8 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          VITE_WORKER_URL: https://restura.workers.dev
         run: npm run build
 
       - name: Clean stale deploy config
