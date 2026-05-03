@@ -146,14 +146,14 @@ Restura supports proxy configuration which can be used to route requests through
 We regularly monitor and update our dependencies for known vulnerabilities:
 
 ### Frontend Dependencies
-- React, Next.js, and core libraries are kept up-to-date
+- React, Vite, and core libraries are kept up-to-date
 - Radix UI primitives for accessible components
 - Monaco Editor for code editing
 - Regular `npm audit` checks
 
-### Backend Dependencies
-- Go standard library preferred where possible
-- Regular `go mod tidy` and updates
+### Worker Dependencies
+- Hono and Node.js-compatible libraries kept up-to-date
+- Regular `npm audit` checks
 - Minimal dependency footprint
 
 ## Security Audits
@@ -228,7 +228,6 @@ credentials.json
 - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
 - [Node.js Security Best Practices](https://nodejs.org/en/docs/guides/security/)
 - [Electron Security](https://www.electronjs.org/docs/latest/tutorial/security)
-- [Go Security](https://golang.org/doc/security/best-practices)
 
 ## Contact
 
