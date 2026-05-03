@@ -24,7 +24,7 @@ export default defineConfig({
   build: {
     outDir: 'dist/web',
     assetsDir: 'assets',
-    sourcemap: true,
+    sourcemap: process.env.NODE_ENV === 'production' ? false : true,
     ...(isElectronBuild && { target: 'esnext' }),
   },
   define: {

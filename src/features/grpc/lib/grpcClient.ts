@@ -13,7 +13,7 @@ import {
   GrpcStatusCodeName
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import { getElectronAPI, isElectron, workerBaseUrl } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {
@@ -730,6 +730,7 @@ export async function makeProxyGrpcRequest(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...workerAuthHeaders(),
       },
       body: JSON.stringify({
         url: prepared.url,

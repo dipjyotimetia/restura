@@ -255,7 +255,7 @@ The Worker is a Hono application deployed as a Cloudflare Pages Function (`_work
 
 - Bundled into `dist/web/_worker.js` by `@cloudflare/vite-plugin` during `vite build`
 - Excluded from the Electron build (`VITE_IS_ELECTRON_BUILD=true` skips the Cloudflare plugin)
-- Compatibility flags: `nodejs_compat`, `cloudflare_sockets_api`
+- Compatibility flag: `nodejs_compat`
 - SSRF protection: `worker/shared/url-validation.ts` blocks private/loopback IPs in production; the `ENVIRONMENT` var gates `allowLocalhost`
 
 ### Route Map

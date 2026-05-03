@@ -1,4 +1,5 @@
 import { connect } from 'cloudflare:sockets';
+import { MAX_RESPONSE_SIZE } from './constants';
 
 export interface UpstreamProxy {
   host: string;
@@ -47,10 +48,16 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
   const reader = readable.getReader();
   const decoder = new TextDecoder();
   let text = '';
+  let totalBytes = 0;
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > MAX_RESPONSE_SIZE) {
+      reader.releaseLock();
+      throw new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
+    }
     text += decoder.decode(value, { stream: true });
     const headerEnd = text.indexOf('\r\n\r\n');
     if (headerEnd !== -1) {

@@ -12,6 +12,15 @@ export function workerBaseUrl(): string {
   return import.meta.env.VITE_WORKER_URL ?? '';
 }
 
+/**
+ * Optional auth header for deployments that protect the Worker proxy.
+ * Public hosted builds should prefer Cloudflare Access over embedding a token.
+ */
+export function workerAuthHeaders(): Record<string, string> {
+  const token = import.meta.env.VITE_WORKER_PROXY_TOKEN;
+  return token ? { 'X-Restura-Proxy-Token': token } : {};
+}
+
 import type { ElectronAPI } from '../../../electron/types/electron.d';
 
 /**

@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as https from 'https';
 import * as net from 'net';
 import * as tls from 'tls';
+import * as dns from 'dns';
 import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
 import { createRateLimiter } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
@@ -60,11 +61,66 @@ const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 // Connection timeout (10 seconds)
 const CONNECTION_TIMEOUT = 10000;
 
+function isPrivateAddress(address: string): boolean {
+  const normalized = address.startsWith('::ffff:') ? address.slice(7) : address;
+  const family = net.isIP(normalized);
+
+  if (family === 4) {
+    const parts = normalized.split('.').map((part) => Number.parseInt(part, 10));
+    const [a = 0, b = 0] = parts;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  }
+
+  if (family === 6) {
+    const lower = normalized.toLowerCase();
+    return lower === '::1' || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80:');
+  }
+
+  return false;
+}
+
+function hostAllowsPrivateAddress(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+  return lower === 'localhost' || lower.endsWith('.localhost') || (net.isIP(hostname) !== 0 && isPrivateAddress(hostname));
+}
+
+function createSecureLookup(hostname: string): NonNullable<http.RequestOptions['lookup']> {
+  return (lookupHostname, options, callback) => {
+    dns.lookup(lookupHostname, options, (error, address, family) => {
+      if (error) {
+        callback(error, address as never, family as never);
+        return;
+      }
+
+      const addresses = Array.isArray(address) ? address : [{ address, family }];
+      const blocked = addresses.find((entry) => isPrivateAddress(entry.address));
+      if (blocked && !hostAllowsPrivateAddress(hostname)) {
+        callback(new Error(`DNS resolution for ${hostname} returned private address ${blocked.address}`), address as never, family as never);
+        return;
+      }
+
+      callback(null, address as never, family as never);
+    });
+  };
+}
+
 // Opens a raw TCP tunnel through a SOCKS4 or SOCKS5 proxy.
 // Returns a connected net.Socket pointed at (targetHost, targetPort).
 function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: proxy.host, port: proxy.port });
+    const socket = net.createConnection({
+      host: proxy.host,
+      port: proxy.port,
+      lookup: createSecureLookup(proxy.host),
+    });
     socket.once('error', reject);
 
     if (proxy.type === 'socks4') {
@@ -222,6 +278,10 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       }
 
       const isHttps = url.protocol === 'https:';
+      const verifySsl = interceptedConfig.verifySsl !== false;
+      if (!verifySsl) {
+        console.warn('SSL certificate verification disabled for this Electron HTTP request.');
+      }
 
       // Build request options
       const requestOptions: http.RequestOptions | https.RequestOptions = {
@@ -231,6 +291,7 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
         path: url.pathname + url.search,
         headers: interceptedConfig.headers || {},
         timeout: interceptedConfig.timeout || 30000,
+        lookup: createSecureLookup(url.hostname),
       };
 
       // Apply proxy settings
@@ -240,6 +301,7 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
           requestOptions.hostname = interceptedConfig.proxy.host;
           requestOptions.port = interceptedConfig.proxy.port;
           requestOptions.path = url.href;
+          requestOptions.lookup = createSecureLookup(interceptedConfig.proxy.host);
           requestOptions.headers = {
             ...requestOptions.headers,
             Host: url.host,
@@ -257,7 +319,7 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
           if (isHttps) {
             requestOptions.agent = new class extends https.Agent {
               override createConnection(): tls.TLSSocket {
-                return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized: true });
+                return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized: verifySsl });
               }
             }();
           } else {
@@ -272,7 +334,7 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
       // Configure SSL verification
       if (isHttps) {
-        (requestOptions as https.RequestOptions).rejectUnauthorized = true;
+        (requestOptions as https.RequestOptions).rejectUnauthorized = verifySsl;
       }
 
       // Apply client certificate if provided (for mTLS)
