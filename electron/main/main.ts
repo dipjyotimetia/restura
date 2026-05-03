@@ -93,16 +93,19 @@ function setupContentSecurityPolicy(): void {
 
 // Setup security measures
 function setupSecurityMeasures(): void {
-  // Prevent navigation to external URLs
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
-      const parsedUrl = new URL(navigationUrl);
-      if (isDev && parsedUrl.origin === 'http://localhost:5173') {
+      // In dev allow only the Vite dev server origin
+      if (isDev) {
+        try {
+          const parsedUrl = new URL(navigationUrl);
+          if (parsedUrl.origin === 'http://localhost:5173') return;
+        } catch { /* fall through to block */ }
+        event.preventDefault();
         return;
       }
-      if (parsedUrl.protocol === 'file:') {
-        return;
-      }
+      // In production the SPA uses hash routing via loadFile — any will-navigate
+      // event means something is trying to leave the app bundle; block it.
       event.preventDefault();
     });
   });
@@ -118,13 +121,14 @@ app.whenReady().then(() => {
   // Handle window closed
   mainWindow.on('closed', () => {
     mainWindow = null;
+    cleanupCollectionWatchers(); // prevent watcher accumulation on macOS window re-create
   });
 
   // Setup auto-updater after window is created
   setupAutoUpdater(mainWindow, isDev);
 
   // Create system tray
-  createSystemTray(mainWindow, isDev);
+  createSystemTray(getMainWindow, isDev);
 
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.

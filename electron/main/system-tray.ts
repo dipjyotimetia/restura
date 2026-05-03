@@ -1,38 +1,21 @@
-import type { BrowserWindow} from 'electron';
-import { Tray, Menu, nativeImage, app } from 'electron';
-import * as path from 'path';
+import type { BrowserWindow } from 'electron';
+import { Tray, Menu, nativeImage } from 'electron';
 import * as fs from 'fs';
+import { getResourcePath } from './window-manager';
 
 let tray: Tray | null = null;
 
-function getResourcePath(resource: string, isDev: boolean): string {
-  if (isDev) {
-    return path.join(__dirname, '../../../electron/resources', resource);
-  } else {
-    return path.join(app.getAppPath(), 'electron/resources', resource);
-  }
-}
-
 function getTrayIconPath(isDev: boolean): string {
-  // Try to get a template icon for macOS (for proper dark mode support)
   if (process.platform === 'darwin') {
     const templatePath = getResourcePath('trayIconTemplate.png', isDev);
-    if (fs.existsSync(templatePath)) {
-      return templatePath;
-    }
+    if (fs.existsSync(templatePath)) return templatePath;
   }
-
-  // Fallback to regular icon
   const iconPath = getResourcePath('icon.png', isDev);
-  if (fs.existsSync(iconPath)) {
-    return iconPath;
-  }
-
-  // Return empty string to use default
+  if (fs.existsSync(iconPath)) return iconPath;
   return '';
 }
 
-export function createSystemTray(mainWindow: BrowserWindow | null, isDev: boolean): Tray | null {
+export function createSystemTray(getMainWindow: () => BrowserWindow | null, isDev: boolean): Tray | null {
   const iconPath = getTrayIconPath(isDev);
 
   if (!iconPath) {
@@ -41,99 +24,54 @@ export function createSystemTray(mainWindow: BrowserWindow | null, isDev: boolea
   }
 
   const icon = nativeImage.createFromPath(iconPath);
-
-  // For macOS, make it a template image
-  if (process.platform === 'darwin') {
-    icon.setTemplateImage(true);
-  }
-
-  // Resize for tray (16x16 is standard)
+  if (process.platform === 'darwin') icon.setTemplateImage(true);
   const trayIcon = icon.resize({ width: 16, height: 16 });
 
   tray = new Tray(trayIcon);
 
+  const withWindow = (fn: (w: BrowserWindow) => void): void => {
+    const w = getMainWindow();
+    if (w && !w.isDestroyed()) fn(w);
+  };
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Show Restura',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      },
+      click: () => withWindow((w) => { w.show(); w.focus(); }),
     },
-    {
-      type: 'separator',
-    },
+    { type: 'separator' },
     {
       label: 'New Request',
       accelerator: 'CmdOrCtrl+N',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.webContents.send('menu:new-request');
-        }
-      },
+      click: () => withWindow((w) => { w.show(); w.webContents.send('menu:new-request'); }),
     },
     {
       label: 'Import Collection',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.webContents.send('menu:import');
-        }
-      },
+      click: () => withWindow((w) => { w.show(); w.webContents.send('menu:import'); }),
     },
-    {
-      type: 'separator',
-    },
+    { type: 'separator' },
     {
       label: 'Check for Updates',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.webContents.send('app:check-updates');
-        }
-      },
+      click: () => withWindow((w) => { w.show(); w.webContents.send('app:check-updates'); }),
     },
-    {
-      type: 'separator',
-    },
-    {
-      label: 'Quit Restura',
-      role: 'quit',
-    },
+    { type: 'separator' },
+    { label: 'Quit Restura', role: 'quit' },
   ]);
 
   tray.setToolTip('Restura - API Testing Tool');
   tray.setContextMenu(contextMenu);
 
-  // On click, show the window (primarily for Windows/Linux)
-  tray.on('click', () => {
-    if (mainWindow) {
-      if (mainWindow.isVisible()) {
-        mainWindow.focus();
-      } else {
-        mainWindow.show();
-      }
-    }
-  });
+  tray.on('click', () => withWindow((w) => {
+    if (w.isVisible()) { w.focus(); } else { w.show(); }
+  }));
 
-  // Double-click to show window (Windows)
-  tray.on('double-click', () => {
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
+  tray.on('double-click', () => withWindow((w) => { w.show(); w.focus(); }));
 
   return tray;
 }
 
 export function updateTrayTooltip(status: string): void {
-  if (tray) {
-    tray.setToolTip(`Restura - ${status}`);
-  }
+  if (tray) tray.setToolTip(`Restura - ${status}`);
 }
 
 export function destroyTray(): void {

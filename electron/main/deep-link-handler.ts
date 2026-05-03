@@ -31,16 +31,26 @@ export function registerDeepLinkHandler(getWindow: () => BrowserWindow | null): 
   });
 }
 
+// Known routes the renderer handles via deep-link
+const VALID_DEEP_LINK_HOSTS = new Set(['import', 'environment', 'collection', 'request', 'settings']);
+
 function handleDeepLink(url: string, getWindow: () => BrowserWindow | null): void {
   const win = getWindow();
   if (!win) return;
 
   try {
     const parsed = new URL(url);
-    win.webContents.send('deep-link', {
-      host: parsed.hostname,
-      params: Object.fromEntries(parsed.searchParams),
-    });
+    if (!VALID_DEEP_LINK_HOSTS.has(parsed.hostname)) return;
+
+    // Sanitize: only alphanumeric keys, values capped at 1024 chars
+    const params: Record<string, string> = {};
+    for (const [key, value] of parsed.searchParams) {
+      if (/^[a-zA-Z0-9_-]+$/.test(key)) {
+        params[key] = value.slice(0, 1024);
+      }
+    }
+
+    win.webContents.send('deep-link', { host: parsed.hostname, params });
   } catch {
     // Ignore malformed deep link URLs
   }
