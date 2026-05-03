@@ -60,7 +60,8 @@
       "Bash(npm audit *)",
       "Bash(echo \"Exit code: $?\")",
       "Bash(grep -n 'resolveVariables\\\\|dynamic\\\\|$timestamp' /Users/dipjyotimetia/Documents/working/ccviews/DJ/src/store/useEnvironmentStore.ts)",
-      "WebFetch(domain:example.com)"
+      "WebFetch(domain:example.com)",
+      "Bash(grep -rn '$timestamp\\\\|$randomInt\\\\|$guid' src/ '--include=*.ts' '--include=*.tsx')"
     ]
   }
 }

@@ -383,10 +383,28 @@ class ScriptExecutor {
         decodeURIComponent: function(str) {
           return decodeURIComponent ? decodeURIComponent(str) : str;
         },
+        // UUID/GUID generator (RFC 4122 v4)
+        uuid: function() {
+          var t = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
+          return t.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+          });
+        },
+        // Simple hash (djb2) — not cryptographic, for script use only
+        hash: function(str) {
+          var h = 5381;
+          for (var i = 0; i < str.length; i++) {
+            h = ((h << 5) + h) ^ str.charCodeAt(i);
+          }
+          return (h >>> 0).toString(16);
+        },
       };
       // Dynamic variables (Postman-style)
       pm.variables.randomInt = function() { return pm.utils.randomInt(0, 1000000); };
       pm.variables.timestamp = function() { return pm.utils.timestamp(); };
+      pm.variables.guid = function() { return pm.utils.uuid(); };
+      pm.variables.uuid = function() { return pm.utils.uuid(); };
     `;
 
     const utilsResult = vm.evalCode(utilsCode);

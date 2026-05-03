@@ -16,13 +16,15 @@ import { extractOperationType } from '@/features/graphql/lib/queryParser';
 import { GraphQLSubscriptionClient, type SubscriptionMessage } from '@/features/graphql/lib/subscriptionClient';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import type { AuthConfig as AuthConfigType } from '@/types';
+import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 
 function GraphQLRequestBuilder() {
-  const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore();
+  const { currentRequest, updateRequest, setLoading, setCurrentResponse, setScriptResult, isLoading } = useRequestStore();
   const { addHistoryItem } = useHistoryStore();
-  const { resolveVariables } = useEnvironmentStore();
+  const { resolveVariables, getActiveEnvironment, updateVariable } = useEnvironmentStore();
   const [activeTab, setActiveTab] = useState('query');
   const [graphqlVariables, setGraphqlVariables] = useState('{}');
   const [subscriptionMessages, setSubscriptionMessages] = useState<SubscriptionMessage[]>([]);
@@ -131,7 +133,33 @@ function GraphQLRequestBuilder() {
     }
 
     setLoading(true);
+    setScriptResult(null);
     const startTime = Date.now();
+
+    // Build env vars snapshot
+    const activeEnv = getActiveEnvironment();
+    const envVars: Record<string, string> = {};
+    if (activeEnv) {
+      activeEnv.variables.filter((v) => v.enabled).forEach((v) => { envVars[v.key] = v.value; });
+    }
+
+    // Pre-request script
+    let preRequestResult;
+    if (httpRequest.preRequestScript?.trim()) {
+      const executor = new ScriptExecutor(envVars, {});
+      preRequestResult = await executor.executeScript(httpRequest.preRequestScript, {
+        request: { url: httpRequest.url, method: 'POST', headers: {}, body: httpRequest.body.raw },
+      });
+      if (preRequestResult.variables) {
+        Object.assign(envVars, preRequestResult.variables);
+        if (activeEnv) {
+          Object.entries(preRequestResult.variables).forEach(([key, value]) => {
+            const variable = activeEnv.variables.find((v) => v.key === key);
+            if (variable) updateVariable(activeEnv.id, variable.id, { value });
+          });
+        }
+      }
+    }
 
     try {
       const resolvedUrl = resolveVariables(httpRequest.url);
@@ -174,6 +202,25 @@ function GraphQLRequestBuilder() {
 
       setCurrentResponse(responseData);
       addHistoryItem(httpRequest, responseData);
+
+      // Test script
+      let testResult;
+      if (httpRequest.testScript?.trim()) {
+        const executor = new ScriptExecutor(envVars, {});
+        testResult = await executor.executeScript(httpRequest.testScript, {
+          request: { url: httpRequest.url, method: 'POST', headers, body: httpRequest.body.raw },
+          response: {
+            status: responseData.status,
+            statusText: responseData.statusText,
+            headers: responseData.headers as Record<string, string>,
+            body: responseData.body,
+            time: responseData.time,
+            size: responseData.size,
+          },
+        });
+      }
+
+      setScriptResult({ preRequest: preRequestResult, test: testResult });
 
       if (response.ok) {
         toast.success('Request completed', {
@@ -303,6 +350,15 @@ function GraphQLRequestBuilder() {
               <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
             )}
           </TabsTrigger>
+          <TabsTrigger
+            value="scripts"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          >
+            Scripts
+            {(httpRequest.preRequestScript?.trim() || httpRequest.testScript?.trim()) && (
+              <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
+            )}
+          </TabsTrigger>
           {isSubscription && (
             <TabsTrigger
               value="subscription"
@@ -352,6 +408,15 @@ function GraphQLRequestBuilder() {
             For subscriptions, credentials are sent as WebSocket connection params.
           </p>
           <AuthConfiguration auth={httpRequest.auth} onChange={handleAuthChange} />
+        </TabsContent>
+
+        <TabsContent value="scripts" className="flex-1 overflow-auto m-0">
+          <ScriptsEditor
+            preRequestScript={httpRequest.preRequestScript || ''}
+            testScript={httpRequest.testScript || ''}
+            onPreRequestScriptChange={(script) => updateRequest({ preRequestScript: script })}
+            onTestScriptChange={(script) => updateRequest({ testScript: script })}
+          />
         </TabsContent>
 
         {isSubscription && (

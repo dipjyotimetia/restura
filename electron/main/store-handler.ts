@@ -8,9 +8,8 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Use require for electron-store to avoid ESM/CommonJS issues
- 
-const Store = require('electron-store');
+// electron-store v9+ is ESM-only; require() returns the module namespace in Node 22+
+const Store = require('electron-store').default;
 
 /**
  * Get or generate encryption key for electron-store
