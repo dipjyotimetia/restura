@@ -23,6 +23,20 @@ function convertToPostmanItem(item: CollectionItem): PostmanItem {
     };
   }
 
+  // Postman supports only HTTP-style requests; emit a stub for unsupported protocols
+  // so the surrounding folder structure round-trips, with a clear name marker.
+  if (item.request && item.request.type !== 'http') {
+    const r = item.request;
+    return {
+      name: `${item.name} [${r.type.toUpperCase()} — not supported in Postman]`,
+      request: {
+        method: 'GET',
+        header: [],
+        url: { raw: 'url' in r ? r.url : '' },
+      },
+    };
+  }
+
   const request = item.request as HttpRequest;
   return {
     name: item.name,
@@ -168,6 +182,19 @@ export function exportToInsomnia(collection: Collection): {
 
       (item.items || []).forEach((child) => processItem(child, folderId));
     } else {
+      // Insomnia supports only HTTP-style requests; emit a stub for other protocols.
+      if (item.request && item.request.type !== 'http') {
+        const r = item.request;
+        resources.push({
+          _id: `req_${generateId()}`,
+          _type: 'request',
+          name: `${item.name} [${r.type.toUpperCase()} — not supported in Insomnia]`,
+          method: 'GET',
+          url: 'url' in r ? r.url : '',
+          parentId,
+        });
+        return;
+      }
       const request = item.request as HttpRequest;
       const requestId = `req_${generateId()}`;
 

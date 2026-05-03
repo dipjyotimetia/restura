@@ -29,7 +29,7 @@ interface CommandPaletteProps {
   onOpenSettings?: () => void;
   onOpenImport?: () => void;
   onSendRequest?: () => void;
-  onChangeMode?: (mode: 'http' | 'grpc' | 'websocket') => void;
+  onChangeMode?: (mode: 'http' | 'grpc' | 'websocket' | 'sse' | 'mcp') => void;
 }
 
 export default function CommandPalette({
@@ -41,7 +41,7 @@ export default function CommandPalette({
 }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
-  const { createNewHttpRequest, createNewGrpcRequest, currentResponse } = useRequestStore();
+  const { createNewHttpRequest, createNewGrpcRequest, createNewSseRequest, createNewMcpRequest, currentResponse } = useRequestStore();
   const { clearHistory } = useHistoryStore();
 
   // Toggle command palette with Cmd+K
@@ -112,6 +112,20 @@ export default function CommandPalette({
                 <Plus className="mr-2 h-4 w-4" />
                 <span>New gRPC Request</span>
               </Command.Item>
+              <Command.Item
+                onSelect={() => runCommand(createNewSseRequest)}
+                className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                <span>New SSE Request</span>
+              </Command.Item>
+              <Command.Item
+                onSelect={() => runCommand(createNewMcpRequest)}
+                className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                <span>New MCP Request</span>
+              </Command.Item>
               {currentResponse && (
                 <Command.Item
                   onSelect={() => runCommand(handleCopyResponse)}
@@ -149,6 +163,20 @@ export default function CommandPalette({
                   >
                     <Wifi className="mr-2 h-4 w-4" />
                     <span>Switch to WebSocket</span>
+                  </Command.Item>
+                  <Command.Item
+                    onSelect={() => runCommand(() => onChangeMode('sse'))}
+                    className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
+                  >
+                    <Wifi className="mr-2 h-4 w-4" />
+                    <span>Switch to SSE</span>
+                  </Command.Item>
+                  <Command.Item
+                    onSelect={() => runCommand(() => onChangeMode('mcp'))}
+                    className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
+                  >
+                    <Server className="mr-2 h-4 w-4" />
+                    <span>Switch to MCP</span>
                   </Command.Item>
                 </>
               )}

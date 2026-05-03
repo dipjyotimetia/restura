@@ -2,6 +2,8 @@ import type { z } from 'zod';
 import {
   httpRequestSchema,
   grpcRequestSchema,
+  sseRequestSchema,
+  mcpRequestSchema,
   environmentSchema,
   collectionSchema,
 } from './validations';
@@ -11,29 +13,37 @@ import type { Request, Environment, Collection } from '@/types';
  * Validates a request object and returns validated data or throws
  */
 export function validateRequest(request: unknown): Request {
-  // Try HTTP request first
   const httpResult = httpRequestSchema.safeParse(request);
   if (httpResult.success) {
     return httpResult.data as Request;
   }
 
-  // Try gRPC request
   const grpcResult = grpcRequestSchema.safeParse(request);
   if (grpcResult.success) {
     return grpcResult.data as Request;
   }
 
-  // Validation failed for both HTTP and gRPC schemas
+  const sseResult = sseRequestSchema.safeParse(request);
+  if (sseResult.success) {
+    return sseResult.data as Request;
+  }
+
+  const mcpResult = mcpRequestSchema.safeParse(request);
+  if (mcpResult.success) {
+    return mcpResult.data as Request;
+  }
+
   const errorDetails = {
     httpErrors: httpResult.error?.issues,
     grpcErrors: grpcResult.error?.issues,
+    sseErrors: sseResult.error?.issues,
+    mcpErrors: mcpResult.error?.issues,
   };
 
   console.error('Request validation failed:', errorDetails);
 
-  // Throw error to prevent invalid data from entering the store
   throw new Error(
-    `Request validation failed. Neither HTTP nor gRPC schema matched. ` +
+    `Request validation failed. No schema matched (http/grpc/sse/mcp). ` +
     `Errors: ${JSON.stringify(errorDetails)}`
   );
 }

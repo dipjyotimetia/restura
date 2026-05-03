@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Request, Response, HttpRequest, GrpcRequest, ScriptResult } from '@/types';
+import type { Request, Response, HttpRequest, GrpcRequest, SseRequest, McpRequest, ScriptResult } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
 
@@ -17,6 +17,8 @@ interface RequestState {
   // Stored requests per protocol for preserving state when switching
   httpRequest: HttpRequest | null;
   grpcRequest: GrpcRequest | null;
+  sseRequest: SseRequest | null;
+  mcpRequest: McpRequest | null;
 
   // Actions
   setCurrentRequest: (request: Request) => void;
@@ -25,8 +27,12 @@ interface RequestState {
   setLoading: (loading: boolean) => void;
   createNewHttpRequest: () => void;
   createNewGrpcRequest: () => void;
+  createNewSseRequest: () => void;
+  createNewMcpRequest: () => void;
   switchToHttp: () => void;
   switchToGrpc: () => void;
+  switchToSse: () => void;
+  switchToMcp: () => void;
   updateRequest: (updates: Partial<Request>) => void;
   clearRequest: () => void;
 }
@@ -62,6 +68,44 @@ const createDefaultGrpcRequest = (): GrpcRequest => ({
   },
 });
 
+const createDefaultSseRequest = (): SseRequest => ({
+  id: uuidv4(),
+  name: 'New SSE Request',
+  type: 'sse',
+  url: '',
+  headers: [],
+  params: [],
+  auth: {
+    type: 'none',
+  },
+  reconnectOnResume: true,
+});
+
+const createDefaultMcpRequest = (): McpRequest => ({
+  id: uuidv4(),
+  name: 'New MCP Request',
+  type: 'mcp',
+  url: '',
+  transport: 'streamable-http',
+  headers: [],
+  auth: {
+    type: 'none',
+  },
+});
+
+// Stash the active request in its per-type slot before swapping to a new type,
+// so per-protocol edits round-trip across mode switches.
+function persistActiveByType(state: { currentRequest: Request | null }) {
+  const r = state.currentRequest;
+  if (!r) return {};
+  switch (r.type) {
+    case 'http': return { httpRequest: r };
+    case 'grpc': return { grpcRequest: r };
+    case 'sse':  return { sseRequest: r };
+    case 'mcp':  return { mcpRequest: r };
+  }
+}
+
 export const useRequestStore = create<RequestState>()(
   persist(
     (set, get) => ({
@@ -71,6 +115,8 @@ export const useRequestStore = create<RequestState>()(
       isLoading: false,
       httpRequest: createDefaultHttpRequest(),
       grpcRequest: createDefaultGrpcRequest(),
+      sseRequest: createDefaultSseRequest(),
+      mcpRequest: createDefaultMcpRequest(),
 
       setCurrentRequest: (request) => set({ currentRequest: request }),
 
@@ -84,77 +130,68 @@ export const useRequestStore = create<RequestState>()(
 
       createNewHttpRequest: () => {
         const newRequest = createDefaultHttpRequest();
-        set({
-          currentRequest: newRequest,
-          httpRequest: newRequest,
-          currentResponse: null,
-        });
+        set({ currentRequest: newRequest, httpRequest: newRequest, currentResponse: null });
       },
 
       createNewGrpcRequest: () => {
         const newRequest = createDefaultGrpcRequest();
-        set({
-          currentRequest: newRequest,
-          grpcRequest: newRequest,
-          currentResponse: null,
-        });
+        set({ currentRequest: newRequest, grpcRequest: newRequest, currentResponse: null });
+      },
+
+      createNewSseRequest: () => {
+        const newRequest = createDefaultSseRequest();
+        set({ currentRequest: newRequest, sseRequest: newRequest, currentResponse: null });
+      },
+
+      createNewMcpRequest: () => {
+        const newRequest = createDefaultMcpRequest();
+        set({ currentRequest: newRequest, mcpRequest: newRequest, currentResponse: null });
       },
 
       switchToHttp: () => {
         const state = get();
-        // Save current request if it's gRPC
-        if (state.currentRequest?.type === 'grpc') {
-          set({ grpcRequest: state.currentRequest as GrpcRequest });
-        }
-        // Restore or create HTTP request
+        const persisted = persistActiveByType(state);
         const httpReq = state.httpRequest || createDefaultHttpRequest();
-        set({
-          currentRequest: httpReq,
-          httpRequest: httpReq,
-          currentResponse: null,
-        });
+        set({ ...persisted, currentRequest: httpReq, httpRequest: httpReq, currentResponse: null });
       },
 
       switchToGrpc: () => {
         const state = get();
-        // Save current request if it's HTTP
-        if (state.currentRequest?.type === 'http') {
-          set({ httpRequest: state.currentRequest as HttpRequest });
-        }
-        // Restore or create gRPC request
+        const persisted = persistActiveByType(state);
         const grpcReq = state.grpcRequest || createDefaultGrpcRequest();
-        set({
-          currentRequest: grpcReq,
-          grpcRequest: grpcReq,
-          currentResponse: null,
-        });
+        set({ ...persisted, currentRequest: grpcReq, grpcRequest: grpcReq, currentResponse: null });
+      },
+
+      switchToSse: () => {
+        const state = get();
+        const persisted = persistActiveByType(state);
+        const sseReq = state.sseRequest || createDefaultSseRequest();
+        set({ ...persisted, currentRequest: sseReq, sseRequest: sseReq, currentResponse: null });
+      },
+
+      switchToMcp: () => {
+        const state = get();
+        const persisted = persistActiveByType(state);
+        const mcpReq = state.mcpRequest || createDefaultMcpRequest();
+        set({ ...persisted, currentRequest: mcpReq, mcpRequest: mcpReq, currentResponse: null });
       },
 
       updateRequest: (updates) => {
         const current = get().currentRequest;
-        if (current) {
-          try {
-            const validated = validateRequestUpdate(current, updates);
-            // Also update the stored request for the current type
-            if (current.type === 'http') {
-              set({ currentRequest: validated, httpRequest: validated as HttpRequest });
-            } else if (current.type === 'grpc') {
-              set({ currentRequest: validated, grpcRequest: validated as GrpcRequest });
-            } else {
-              set({ currentRequest: validated });
-            }
-          } catch (error) {
-            // If validation fails, still apply the update but log the error
-            console.error('Request update validation failed:', error);
-            const updated = { ...current, ...updates } as typeof current;
-            if (current.type === 'http') {
-              set({ currentRequest: updated, httpRequest: updated as HttpRequest });
-            } else if (current.type === 'grpc') {
-              set({ currentRequest: updated, grpcRequest: updated as GrpcRequest });
-            } else {
-              set({ currentRequest: updated });
-            }
-          }
+        if (!current) return;
+        let next: Request;
+        try {
+          next = validateRequestUpdate(current, updates);
+        } catch (error) {
+          // Soft-validation: log and apply anyway so the user isn't locked out of bad-but-recoverable state.
+          console.error('Request update validation failed:', error);
+          next = { ...current, ...updates } as Request;
+        }
+        switch (next.type) {
+          case 'http': set({ currentRequest: next, httpRequest: next as HttpRequest }); break;
+          case 'grpc': set({ currentRequest: next, grpcRequest: next as GrpcRequest }); break;
+          case 'sse':  set({ currentRequest: next, sseRequest:  next as SseRequest });  break;
+          case 'mcp':  set({ currentRequest: next, mcpRequest:  next as McpRequest });  break;
         }
       },
 
@@ -170,6 +207,8 @@ export const useRequestStore = create<RequestState>()(
         currentRequest: state.currentRequest,
         httpRequest: state.httpRequest,
         grpcRequest: state.grpcRequest,
+        sseRequest: state.sseRequest,
+        mcpRequest: state.mcpRequest,
       }),
     }
   )
