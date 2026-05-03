@@ -3,11 +3,13 @@ import type { Env } from '../index';
 
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS = 100;
+const PRUNE_INTERVAL_MS = 5_000;
 
 // Per-isolate sliding window — resets when the isolate is evicted (typically every few minutes).
 // Good enough for burst protection. For cross-datacenter enforcement, provision a Cloudflare
 // Rate Limiting namespace and set RATE_LIMITER in wrangler.jsonc.
 const requestLog = new Map<string, number[]>();
+let lastPrune = 0;
 
 function pruneOldEntries(now: number): void {
   const cutoff = now - WINDOW_MS;
@@ -22,17 +24,19 @@ function pruneOldEntries(now: number): void {
 }
 
 export async function rateLimitMiddleware(c: Context<{ Bindings: Env }>, next: Next): Promise<Response | void> {
-  const ip = c.req.header('CF-Connecting-IP') ?? c.req.header('X-Forwarded-For') ?? 'unknown';
+  // CF-Connecting-IP is set by Cloudflare and cannot be spoofed by clients.
+  const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
 
   const now = Date.now();
-  pruneOldEntries(now);
+  if (now - lastPrune > PRUNE_INTERVAL_MS) {
+    pruneOldEntries(now);
+    lastPrune = now;
+  }
 
   const timestamps = requestLog.get(ip) ?? [];
-  const windowStart = now - WINDOW_MS;
-  const recentCount = timestamps.filter((t) => t > windowStart).length;
-
-  if (recentCount >= MAX_REQUESTS) {
-    return c.json({ error: 'Rate limit exceeded. Maximum 100 requests per minute.' }, 429);
+  // After pruning, all stored timestamps are already within the window.
+  if (timestamps.length >= MAX_REQUESTS) {
+    return c.json({ error: `Rate limit exceeded. Maximum ${MAX_REQUESTS} requests per minute.` }, 429);
   }
 
   timestamps.push(now);
