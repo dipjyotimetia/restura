@@ -27,6 +27,7 @@ import {
   validateServiceName,
   createErrorResponse,
 } from '@/features/grpc/lib/grpcClient';
+import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { isElectron } from '@/lib/shared/platform';
 import {
   GrpcReflectionClient,
@@ -42,6 +43,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
+import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 
@@ -61,11 +63,11 @@ interface ValidationState {
 }
 
 function GrpcRequestBuilder() {
-  const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore(
-    useShallow((s) => ({ currentRequest: s.currentRequest, updateRequest: s.updateRequest, setLoading: s.setLoading, setCurrentResponse: s.setCurrentResponse, isLoading: s.isLoading }))
+  const { currentRequest, updateRequest, setLoading, setCurrentResponse, setScriptResult, isLoading } = useRequestStore(
+    useShallow((s) => ({ currentRequest: s.currentRequest, updateRequest: s.updateRequest, setLoading: s.setLoading, setCurrentResponse: s.setCurrentResponse, setScriptResult: s.setScriptResult, isLoading: s.isLoading }))
   );
   const { addHistoryItem } = useHistoryStore();
-  const { resolveVariables } = useEnvironmentStore();
+  const { resolveVariables, getActiveEnvironment, updateVariable } = useEnvironmentStore();
   const [activeTab, setActiveTab] = useState('message');
   const [protoFile, setProtoFile] = useState<File | null>(null);
   const [protoInfo, setProtoInfo] = useState<ProtoFileInfo | null>(null);
@@ -383,7 +385,33 @@ function GrpcRequestBuilder() {
 
     setLoading(true);
     setStreamingMessages([]);
+    setScriptResult(null);
     const startTime = Date.now();
+
+    // Build env vars snapshot for script execution
+    const activeEnv = getActiveEnvironment();
+    const envVars: Record<string, string> = {};
+    if (activeEnv) {
+      activeEnv.variables.filter((v) => v.enabled).forEach((v) => { envVars[v.key] = v.value; });
+    }
+
+    // Pre-request script
+    let preRequestResult;
+    if (grpcRequest.preRequestScript?.trim()) {
+      const executor = new ScriptExecutor(envVars, {});
+      preRequestResult = await executor.executeScript(grpcRequest.preRequestScript, {
+        request: { url: grpcRequest.url, method: grpcRequest.methodType, headers: {}, body: grpcRequest.message },
+      });
+      if (preRequestResult.variables) {
+        Object.assign(envVars, preRequestResult.variables);
+        if (activeEnv) {
+          Object.entries(preRequestResult.variables).forEach(([key, value]) => {
+            const variable = activeEnv.variables.find((v) => v.key === key);
+            if (variable) updateVariable(activeEnv.id, variable.id, { value });
+          });
+        }
+      }
+    }
 
     try {
       let protoContent: string;
@@ -462,6 +490,25 @@ function GrpcRequestBuilder() {
 
       setCurrentResponse(response);
       addHistoryItem(grpcRequest, response);
+
+      // Test script
+      let testResult;
+      if (grpcRequest.testScript?.trim()) {
+        const executor = new ScriptExecutor(envVars, {});
+        testResult = await executor.executeScript(grpcRequest.testScript, {
+          request: { url: grpcRequest.url, method: grpcRequest.methodType, headers: {}, body: grpcRequest.message },
+          response: {
+            status: response.grpcStatus ?? 0,
+            statusText: response.grpcStatusText ?? '',
+            headers: {},
+            body: response.body,
+            time: response.time,
+            size: response.size,
+          },
+        });
+      }
+
+      setScriptResult({ preRequest: preRequestResult, test: testResult });
 
       if (response.grpcStatus === 0) {
         toast.success('Request completed', {
@@ -818,6 +865,15 @@ function GrpcRequestBuilder() {
           >
             Settings
           </TabsTrigger>
+          <TabsTrigger
+            value="scripts"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          >
+            Scripts
+            {(grpcRequest.preRequestScript?.trim() || grpcRequest.testScript?.trim()) && (
+              <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
+            )}
+          </TabsTrigger>
           {streamingMessages.length > 0 && (
             <TabsTrigger
               value="streaming"
@@ -880,6 +936,15 @@ function GrpcRequestBuilder() {
             Authentication will be automatically converted to gRPC metadata.
           </p>
           <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
+        </TabsContent>
+
+        <TabsContent value="scripts" className="flex-1 overflow-auto m-0">
+          <ScriptsEditor
+            preRequestScript={grpcRequest.preRequestScript || ''}
+            testScript={grpcRequest.testScript || ''}
+            onPreRequestScriptChange={(script) => updateRequest({ preRequestScript: script })}
+            onTestScriptChange={(script) => updateRequest({ testScript: script })}
+          />
         </TabsContent>
 
         <TabsContent value="settings" className="flex-1 overflow-auto p-4 m-0">
