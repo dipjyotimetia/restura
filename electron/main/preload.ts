@@ -88,6 +88,7 @@ const electronAPI = {
   // gRPC operations
   grpc: {
     request: (config: unknown): Promise<unknown> => ipcRenderer.invoke('grpc:request', config),
+    reflect: (config: unknown): Promise<unknown> => ipcRenderer.invoke('grpc:reflect', config),
     startStream: (config: unknown) => ipcRenderer.send('grpc:start-stream', config),
     sendMessage: (requestId: string, message: unknown) => ipcRenderer.send('grpc:send-message', requestId, message),
     endStream: (requestId: string) => ipcRenderer.send('grpc:end-stream', requestId),

@@ -22,11 +22,11 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
     activeEnvironmentId,
     addEnvironment,
     updateEnvironment,
-    deleteEnvironment,
+    removeEnvironment,
     setActiveEnvironment,
     addVariable,
     updateVariable,
-    deleteVariable,
+    removeVariable,
     createNewEnvironment,
   } = useEnvironmentStore();
 
@@ -54,7 +54,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
 
   const confirmDeleteEnvironment = () => {
     if (envToDelete) {
-      deleteEnvironment(envToDelete);
+      removeEnvironment(envToDelete);
       if (selectedEnvId === envToDelete) {
         setSelectedEnvId(environments[0]?.id || null);
       }
@@ -86,7 +86,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
 
   const handleDeleteVariable = (varId: string) => {
     if (selectedEnvId) {
-      deleteVariable(selectedEnvId, varId);
+      removeVariable(selectedEnvId, varId);
     }
   };
 

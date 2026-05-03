@@ -18,7 +18,7 @@ interface ProtoRegistryState {
   // Actions
   addProto: (name: string, content: string, packageName: string, services: ProtoServiceDefinition[]) => string;
   updateProto: (id: string, updates: Partial<Omit<ProtoFileEntry, 'id'>>) => void;
-  deleteProto: (id: string) => void;
+  removeProto: (id: string) => void;
   getProtoById: (id: string) => ProtoFileEntry | undefined;
   getProtoByService: (serviceName: string) => ProtoFileEntry | undefined;
   markUsed: (id: string) => void;
@@ -67,7 +67,7 @@ export const useProtoRegistryStore = create<ProtoRegistryState>()(
           };
         }),
 
-      deleteProto: (id) =>
+      removeProto: (id) =>
         set((state) => {
           const { [id]: _, ...rest } = state.protos;
           return { protos: rest };

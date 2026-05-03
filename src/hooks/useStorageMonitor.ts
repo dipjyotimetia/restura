@@ -36,7 +36,7 @@ export function useStorageMonitor(options: UseStorageMonitorOptions = {}) {
     level: 'ok',
   });
 
-  const deleteHistoryItem = useHistoryStore((state) => state.deleteHistoryItem);
+  const removeHistoryItem = useHistoryStore((state) => state.removeHistoryItem);
   const history = useHistoryStore((state) => state.history);
 
   const checkStorage = useCallback(async () => {
@@ -95,14 +95,14 @@ export function useStorageMonitor(options: UseStorageMonitorOptions = {}) {
       for (const item of sortedHistory) {
         if (removed >= itemsToRemove) break;
         if (!favorites.includes(item.id)) {
-          deleteHistoryItem(item.id);
+          removeHistoryItem(item.id);
           removed++;
         }
       }
 
       return removed;
     },
-    [history, deleteHistoryItem]
+    [history, removeHistoryItem]
   );
 
   const handleAutoPrune = useCallback(async () => {

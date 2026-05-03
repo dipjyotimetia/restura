@@ -11,7 +11,7 @@ interface WorkflowState {
   // Workflow CRUD
   addWorkflow: (workflow: Workflow) => void;
   updateWorkflow: (id: string, updates: Partial<Workflow>) => void;
-  deleteWorkflow: (id: string) => void;
+  removeWorkflow: (id: string) => void;
   getWorkflowById: (id: string) => Workflow | undefined;
   getWorkflowsByCollectionId: (collectionId: string) => Workflow[];
   createNewWorkflow: (name: string, collectionId: string) => Workflow;
@@ -19,13 +19,13 @@ interface WorkflowState {
   // Workflow Request CRUD
   addWorkflowRequest: (workflowId: string, request: WorkflowRequest) => void;
   updateWorkflowRequest: (workflowId: string, requestId: string, updates: Partial<WorkflowRequest>) => void;
-  deleteWorkflowRequest: (workflowId: string, requestId: string) => void;
+  removeWorkflowRequest: (workflowId: string, requestId: string) => void;
   reorderWorkflowRequests: (workflowId: string, requests: WorkflowRequest[]) => void;
 
   // Variable Extraction
   addExtraction: (workflowId: string, requestId: string, extraction: VariableExtraction) => void;
   updateExtraction: (workflowId: string, requestId: string, extractionId: string, updates: Partial<VariableExtraction>) => void;
-  deleteExtraction: (workflowId: string, requestId: string, extractionId: string) => void;
+  removeExtraction: (workflowId: string, requestId: string, extractionId: string) => void;
 
   // Execution History
   saveExecution: (execution: WorkflowExecution) => void;
@@ -57,7 +57,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           ),
         })),
 
-      deleteWorkflow: (id) =>
+      removeWorkflow: (id) =>
         set((state) => ({
           workflows: state.workflows.filter((wf) => wf.id !== id),
           executions: state.executions.filter((ex) => ex.workflowId !== id),
@@ -102,7 +102,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           ),
         })),
 
-      deleteWorkflowRequest: (workflowId, requestId) =>
+      removeWorkflowRequest: (workflowId, requestId) =>
         set((state) => ({
           workflows: state.workflows.map((wf) =>
             wf.id === workflowId
@@ -167,7 +167,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           ),
         })),
 
-      deleteExtraction: (workflowId, requestId, extractionId) =>
+      removeExtraction: (workflowId, requestId, extractionId) =>
         set((state) => ({
           workflows: state.workflows.map((wf) =>
             wf.id === workflowId

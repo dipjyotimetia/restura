@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ElectronAPI } from '../../electron/types/electron.d';
 import { Collection } from '@/types';
+import { isElectron } from '@/lib/shared/platform';
 import { useCollectionStore } from './useCollectionStore';
 
 // Sync state for tracking file vs memory state
@@ -175,7 +176,6 @@ export const useFileCollectionStore = create<FileCollectionState>()(
   )
 );
 
-// Get electron collections API if available
 function getElectronCollections(): ElectronAPI['collections'] | null {
   if (typeof window !== 'undefined' && window.electron?.collections) {
     return window.electron.collections;
@@ -183,10 +183,7 @@ function getElectronCollections(): ElectronAPI['collections'] | null {
   return null;
 }
 
-// Check if running in Electron
-export function isElectronEnvironment(): boolean {
-  return typeof window !== 'undefined' && window.electron?.isElectron === true;
-}
+export { isElectron as isElectronEnvironment };
 
 // Load collection from directory
 export async function loadCollectionFromDirectory(directoryPath: string): Promise<{

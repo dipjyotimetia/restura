@@ -54,7 +54,6 @@ const fileFolderMetaSchema = z.object({
   description: z.string().optional(),
 });
 
-// Interfaces for collection data received from the renderer via IPC
 interface FileKeyValue {
   id: string;
   key: string;
@@ -102,8 +101,9 @@ function generateId(): string {
 
 // Add ID to key-value items
 function addIdsToKeyValues(items: unknown) {
-  if (!Array.isArray(items)) return [];
-  return (items as Array<{ key: string; value: string; enabled?: boolean; description?: string }>).map((item) => ({
+  const parsed = z.array(fileKeyValueSchema).safeParse(items);
+  if (!parsed.success) return [];
+  return parsed.data.map((item) => ({
     id: generateId(),
     key: item.key,
     value: item.value,

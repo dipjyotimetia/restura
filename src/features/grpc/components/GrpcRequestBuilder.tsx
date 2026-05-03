@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useShallow } from 'zustand/react/shallow';
 import {
   AuthConfig as AuthConfigType,
   GrpcMethodType,
@@ -59,7 +60,9 @@ interface ValidationState {
 }
 
 function GrpcRequestBuilder() {
-  const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore();
+  const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore(
+    useShallow((s) => ({ currentRequest: s.currentRequest, updateRequest: s.updateRequest, setLoading: s.setLoading, setCurrentResponse: s.setCurrentResponse, isLoading: s.isLoading }))
+  );
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables } = useEnvironmentStore();
   const [activeTab, setActiveTab] = useState('message');
