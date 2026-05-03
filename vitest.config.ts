@@ -36,6 +36,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // cloudflare:sockets is a runtime-only Cloudflare Workers API; stub it in tests
+      'cloudflare:sockets': path.resolve(__dirname, './tests/__mocks__/cloudflare-sockets.ts'),
     },
   },
 });
