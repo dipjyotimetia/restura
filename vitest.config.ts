@@ -8,7 +8,12 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/**/*.{test,spec}.{ts,tsx}'],
+    include: [
+      'src/**/*.{test,spec}.{ts,tsx}',
+      'tests/**/*.{test,spec}.{ts,tsx}',
+      'electron/main/__tests__/**/*.{test,spec}.ts',
+      'worker/**/__tests__/**/*.{test,spec}.ts',
+    ],
     exclude: ['node_modules', 'dist', 'out', '.next'],
     coverage: {
       provider: 'v8',
@@ -21,6 +26,11 @@ export default defineConfig({
         '**/types/',
         'electron/',
       ],
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 60,
+      },
     },
   },
   resolve: {
