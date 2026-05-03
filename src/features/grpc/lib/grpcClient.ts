@@ -337,6 +337,18 @@ export function httpStatusToGrpcStatus(httpStatus: number): GrpcStatusCode {
   }
 }
 
+// Raw IPC response shape from the electron main process gRPC handler
+interface GrpcIpcResult {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  message?: unknown;
+  messages?: unknown[];
+  trailers: Record<string, string>;
+  error?: string;
+  details?: string;
+}
+
 // Build full gRPC path
 export function buildGrpcPath(service: string, method: string): string {
   return `/${service}/${method}`;
@@ -450,7 +462,7 @@ export async function makeElectronGrpcRequest(
       message: prepared.message,
       protoContent,
       protoFileName,
-    }) as any; // Cast to any because IPC returns unknown
+    }) as GrpcIpcResult;
 
     const endTime = Date.now();
 

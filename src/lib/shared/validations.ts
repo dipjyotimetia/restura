@@ -136,6 +136,7 @@ export const environmentSchema = z.object({
 });
 
 // Collection Schema
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- z.ZodType<any> is required for recursive Zod schemas
 export const collectionSchema: z.ZodType<any> = z.lazy(() =>
   z.object({
     id: z.string(),
@@ -146,6 +147,7 @@ export const collectionSchema: z.ZodType<any> = z.lazy(() =>
   })
 );
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- z.ZodType<any> is required for recursive Zod schemas
 export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
   z.object({
     id: z.string(),

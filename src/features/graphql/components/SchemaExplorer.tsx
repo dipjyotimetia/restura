@@ -12,6 +12,12 @@ interface SchemaExplorerProps {
   onFieldSelect?: (field: string) => void;
 }
 
+interface TypeRef {
+  kind: string;
+  name?: string | null;
+  ofType?: TypeRef | null;
+}
+
 export default function SchemaExplorer({ schema, onFieldSelect }: SchemaExplorerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
@@ -91,7 +97,7 @@ export default function SchemaExplorer({ schema, onFieldSelect }: SchemaExplorer
     );
   };
 
-  const formatTypeRef = (typeRef: any): string => {
+  const formatTypeRef = (typeRef: TypeRef | null | undefined): string => {
     if (!typeRef) return '';
     if (typeRef.kind === 'NON_NULL') return `${formatTypeRef(typeRef.ofType)}!`;
     if (typeRef.kind === 'LIST') return `[${formatTypeRef(typeRef.ofType)}]`;
