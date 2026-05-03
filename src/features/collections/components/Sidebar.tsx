@@ -1,6 +1,4 @@
-'use client';
-
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -20,15 +18,16 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
-import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, Search, PanelLeftClose, PanelLeftOpen, GitBranch, FolderOpen, HardDrive } from 'lucide-react';
+import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, GitBranch, FolderOpen, HardDrive } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { ActivePanel, Workflow } from '@/types';
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';
-import { Workflow } from '@/types';
 import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
 import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
 import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
-import { METHOD_COLORS, SIDEBAR_WIDTH } from '@/lib/shared/constants';
+import { METHOD_COLORS } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { FileStatusBadge } from './FileStatusBadge';
@@ -43,13 +42,12 @@ import {
 
 interface SidebarProps {
   onClose: () => void;
-  isCollapsed?: boolean;
-  onToggleCollapse?: () => void;
+  activePanel?: ActivePanel | null;
 }
 
 const HISTORY_PAGE_SIZE = 20;
 
-function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProps) {
+function Sidebar({ onClose, activePanel }: SidebarProps) {
   const { collections, createNewCollection, addCollection, deleteCollection } = useCollectionStore();
 
   // Use granular selectors for history to minimize re-renders
@@ -59,7 +57,14 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
   const totalHistoryCount = useHistoryStore(selectHistoryCount);
 
   const { setCurrentRequest } = useRequestStore();
-  const [activeTab, setActiveTab] = useState('collections');
+  const [activeTab, setActiveTab] = useState<string>(activePanel ?? 'collections');
+
+  // Sync when activePanel prop changes
+  useEffect(() => {
+    if (activePanel) {
+      setActiveTab(activePanel);
+    }
+  }, [activePanel]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -206,147 +211,24 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
 
   return (
     <TooltipProvider delayDuration={300}>
-      <aside
-        className={cn(
-          "border-r border-border bg-background flex flex-col relative z-40 transition-all duration-300 ease-out shadow-md",
-          isCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded
-        )}
-      >
+      <aside className="bg-card flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-border bg-transparent">
-          {!isCollapsed && (
-            <div className="flex items-center gap-2">
-              <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-              <h2 className="font-semibold text-sm tracking-tight text-foreground">Workspace</h2>
-            </div>
-          )}
-          <div className={cn("flex items-center gap-1", isCollapsed && "w-full justify-center")}>
-            {onToggleCollapse && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onToggleCollapse}
-                    aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                    className="h-7 w-7"
-                  >
-                    {isCollapsed ? (
-                      <PanelLeftOpen className="h-4 w-4" />
-                    ) : (
-                      <PanelLeftClose className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>{isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {!isCollapsed && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close sidebar" className="h-7 w-7">
-                    <X className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Close sidebar</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+          <span className="text-[10px] font-mono font-semibold tracking-widest text-muted-foreground uppercase">
+            {activeTab === 'collections' ? 'Collections' : activeTab === 'history' ? 'History' : 'Workflows'}
+          </span>
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close panel" className="h-6 w-6 text-muted-foreground">
+            <X className="h-3 w-3" />
+          </Button>
         </div>
 
-        {/* Collapsed View */}
-        {isCollapsed ? (
-          <div className="flex flex-col items-center gap-2 p-2 flex-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={activeTab === 'collections' ? 'secondary' : 'ghost'}
-                  size="icon"
-                  onClick={() => setActiveTab('collections')}
-                  className="h-9 w-9"
-                >
-                  <FolderPlus className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>Collections ({filteredCollections.length})</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={activeTab === 'history' ? 'secondary' : 'ghost'}
-                  size="icon"
-                  onClick={() => setActiveTab('history')}
-                  className="h-9 w-9"
-                >
-                  <History className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>History ({filteredHistory.length})</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={activeTab === 'workflows' ? 'secondary' : 'ghost'}
-                  size="icon"
-                  onClick={() => setActiveTab('workflows')}
-                  className="h-9 w-9"
-                >
-                  <GitBranch className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>Workflows</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleNewCollection}
-                  className="h-9 w-9 mt-auto"
-                >
-                  <FolderPlus className="h-4 w-4 text-primary" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>New Collection</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        ) : (
-          <>
             {/* Search Input */}
-            <div className="p-3 border-b border-border/40 bg-muted/10">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  placeholder="Search..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 h-9 text-xs bg-background border-border/60 focus:bg-background focus:border-primary/30 transition-all"
-                />
-                {searchQuery && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 hover:bg-transparent"
-                    onClick={() => setSearchQuery('')}
-                    aria-label="Clear search"
-                  >
-                    <X className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-                  </Button>
-                )}
-              </div>
-            </div>
+            <Input
+              className="h-7 bg-transparent border-0 border-b border-border rounded-none px-3 text-xs placeholder:text-muted-foreground/60 focus-visible:shadow-none focus-visible:border-primary font-mono"
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-border/40">
@@ -577,16 +459,16 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
                               )}
                             />
                           </Button>
-                          <span
-                            className={cn(
-                              'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded',
+                          <Badge
+                            variant={
                               item.request.type === 'http'
-                                ? METHOD_COLORS[item.request.method] || 'bg-muted text-muted-foreground border border-border'
-                                : 'bg-muted text-muted-foreground border border-border'
-                            )}
+                                ? (item.request.method.toLowerCase() as 'get' | 'post' | 'put' | 'delete' | 'patch' | 'options' | 'head')
+                                : 'mono'
+                            }
+                            className="text-[9px] h-4 px-1"
                           >
                             {item.request.type === 'http' ? item.request.method : 'gRPC'}
-                          </span>
+                          </Badge>
                           {item.response && (
                             <span
                               className={cn(
@@ -602,7 +484,7 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
                             </span>
                           )}
                         </div>
-                        <p className="text-xs font-medium truncate pl-6 mb-1 text-foreground">
+                        <p className="text-xs font-mono truncate pl-6 mb-1 text-foreground">
                           {item.request.type === 'http' ? item.request.url : item.request.service}
                         </p>
                         <span className="text-[10px] text-muted-foreground pl-6 flex items-center gap-1">
@@ -695,8 +577,6 @@ function Sidebar({ onClose, isCollapsed = false, onToggleCollapse }: SidebarProp
                 }
               }}
             />
-          </>
-        )}
       </aside>
     </TooltipProvider>
   );

@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,27 +6,7 @@ import { HttpMethod } from '@/types';
 import { Send, Code2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 
-// Method color mapping with icons for better accessibility
-const methodColors: Record<string, string> = {
-  GET: 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30 hover:bg-green-500/20',
-  POST: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/20',
-  PUT: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/20',
-  DELETE: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/20',
-  PATCH: 'bg-slate-blue-500/10 text-slate-blue-600 dark:text-slate-blue-400 border-slate-blue-500/30 hover:bg-slate-blue-500/20',
-  OPTIONS: 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30 hover:bg-gray-500/20',
-  HEAD: 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30 hover:bg-gray-500/20',
-};
-
-// Method icons for non-color indicators (accessibility)
-const methodIcons: Record<string, string> = {
-  GET: 'G',
-  POST: 'P',
-  PUT: 'U',
-  DELETE: 'D',
-  PATCH: 'A',
-  OPTIONS: 'O',
-  HEAD: 'H',
-};
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'] as const;
 
 interface RequestLineProps {
   method: HttpMethod;
@@ -78,91 +56,94 @@ export default function RequestLine({
   };
 
   return (
-    <div className="p-4 border-b border-border bg-transparent">
-      <div className="flex gap-2">
+    <div className="flex flex-col">
+      <div className="flex items-center gap-1 px-3 h-12 border-y border-border bg-surface-2 shrink-0">
         <Select value={method} onValueChange={(value) => onMethodChange(value as HttpMethod)}>
           <SelectTrigger
             className={cn(
-              'w-32 font-mono font-semibold border-2 transition-colors bg-background border-border',
-              methodColors[method]
+              'w-20 h-7 font-mono font-bold text-[11px] border border-border bg-surface-3',
+              method === 'GET' && 'text-emerald-400',
+              method === 'POST' && 'text-amber-400',
+              method === 'PUT' && 'text-blue-400',
+              method === 'DELETE' && 'text-red-400',
+              method === 'PATCH' && 'text-violet-400',
+              (method === 'OPTIONS' || method === 'HEAD') && 'text-muted-foreground'
             )}
             aria-label="HTTP Method"
           >
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="bg-popover border-border">
-            {Object.keys(methodColors).map((m) => (
+            {HTTP_METHODS.map((m) => (
               <SelectItem key={m} value={m} className="font-mono font-semibold">
-                <span className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded bg-current/10 flex items-center justify-center text-xs font-bold">
-                    {methodIcons[m]}
-                  </span>
-                  <span
-                    className={cn(
-                      m === 'GET' && 'text-green-600 dark:text-green-400',
-                      m === 'POST' && 'text-yellow-600 dark:text-yellow-400',
-                      m === 'PUT' && 'text-blue-600 dark:text-blue-400',
-                      m === 'DELETE' && 'text-red-600 dark:text-red-400',
-                      m === 'PATCH' && 'text-slate-blue-600 dark:text-slate-blue-400',
-                      (m === 'OPTIONS' || m === 'HEAD') && 'text-gray-600 dark:text-gray-400'
-                    )}
-                  >
-                    {m}
-                  </span>
+                <span
+                  className={cn(
+                    m === 'GET' && 'text-emerald-400',
+                    m === 'POST' && 'text-amber-400',
+                    m === 'PUT' && 'text-blue-400',
+                    m === 'DELETE' && 'text-red-400',
+                    m === 'PATCH' && 'text-violet-400',
+                    (m === 'OPTIONS' || m === 'HEAD') && 'text-muted-foreground'
+                  )}
+                >
+                  {m}
                 </span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        <div className="flex-1 relative">
-          <Input
-            value={url}
-            onChange={(e) => handleUrlChange(e.target.value)}
-            placeholder="Enter request URL (e.g., https://api.example.com/users)"
-            className={cn(
-              'w-full font-mono text-sm bg-background focus:border-slate-blue-500/40 border-border placeholder:text-muted-foreground/70',
-              urlError
-                ? 'border-red-500/50 focus:border-red-500/70 bg-red-50/50 dark:bg-red-950/20'
-                : 'border-border'
-            )}
-            aria-invalid={!!urlError}
-            aria-describedby={urlError ? 'url-error' : undefined}
-            aria-label="Request URL"
-          />
-          {urlError && (
-            <p id="url-error" className="absolute -bottom-5 left-0 text-xs text-red-600 dark:text-red-400" role="alert">
-              {urlError}
-            </p>
+        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
+
+        <Input
+          value={url}
+          onChange={(e) => handleUrlChange(e.target.value)}
+          placeholder="https://api.example.com/users"
+          className={cn(
+            'flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2',
+            'focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none',
+            'placeholder:text-muted-foreground/40',
+            urlError && 'text-red-400'
           )}
-        </div>
+          aria-invalid={!!urlError}
+          aria-describedby={urlError ? 'url-error' : undefined}
+          aria-label="Request URL"
+        />
 
         <Button
-          variant="outline"
-          onClick={onOpenCodeGen}
-          disabled={!url}
-          className="border-border hover:border-border disabled:bg-muted disabled:border-border"
-          aria-label="Generate code snippet"
-        >
-          <Code2 className="mr-2 h-4 w-4" />
-          Code
-        </Button>
-
-        <Button
+          variant="glow"
+          size="sm"
           onClick={onSend}
           disabled={isLoading || !url || !!urlError}
-          className="min-w-[120px] bg-primary disabled:bg-muted disabled:text-muted-foreground disabled:border-border"
+          className="h-7 min-w-[72px] text-xs font-medium"
           aria-label={isLoading ? 'Sending request' : 'Send request'}
         >
-          {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-          {isLoading ? 'Sending...' : 'Send'}
-          {!isLoading && (
-            <kbd className="ml-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-white/20 px-1.5 font-mono text-[10px] font-medium opacity-70">
-              <span className="text-xs">⌘</span>↵
-            </kbd>
+          {isLoading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <>
+              <Send className="h-3 w-3 mr-1.5" />
+              Send
+            </>
           )}
         </Button>
+
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onOpenCodeGen}
+          disabled={!url}
+          className="h-7 w-7 text-muted-foreground"
+          aria-label="Generate code snippet"
+        >
+          <Code2 className="h-3.5 w-3.5" />
+        </Button>
       </div>
+      {urlError && (
+        <p id="url-error" className="text-xs text-red-400 px-3 py-0.5" role="alert">
+          {urlError}
+        </p>
+      )}
     </div>
   );
 }

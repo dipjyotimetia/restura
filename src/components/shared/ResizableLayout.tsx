@@ -1,6 +1,4 @@
-'use client';
-
-import { useCallback, useRef, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { cn } from '@/lib/shared/utils';
 
 interface ResizableLayoutProps {
@@ -21,61 +19,43 @@ export default function ResizableLayout({
   className,
 }: ResizableLayoutProps) {
   const [splitPosition, setSplitPosition] = useState(defaultSplit);
-  const [windowWidth, setWindowWidth] = useState(1920);
-  const isDragging = useRef(false);
+  const [isDraggingState, setIsDraggingState] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const isHorizontal = orientation === 'horizontal';
 
-  // Track window width for responsive min/max
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Responsive min/max values based on viewport
-  const minSplit = propMinSplit ?? (windowWidth < 1280 ? 25 : 20);
-  const maxSplit = propMaxSplit ?? (windowWidth < 1280 ? 75 : 80);
+  const minSplit = propMinSplit ?? 30;
+  const maxSplit = propMaxSplit ?? 70;
 
   const handleResizeStart = useCallback(() => {
-    isDragging.current = true;
+    setIsDraggingState(true);
     document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
-  }, [isHorizontal]);
 
-  const handleResizeMove = useCallback((e: MouseEvent) => {
-    if (!isDragging.current || !containerRef.current) return;
-
-    const container = containerRef.current;
-    const rect = container.getBoundingClientRect();
-    const newPosition = isHorizontal
-      ? ((e.clientX - rect.left) / rect.width) * 100
-      : ((e.clientY - rect.top) / rect.height) * 100;
-
-    setSplitPosition(Math.min(maxSplit, Math.max(minSplit, newPosition)));
-  }, [isHorizontal, minSplit, maxSplit]);
-
-  const handleResizeEnd = useCallback(() => {
-    isDragging.current = false;
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('mousemove', handleResizeMove);
-    window.addEventListener('mouseup', handleResizeEnd);
-
-    return () => {
-      window.removeEventListener('mousemove', handleResizeMove);
-      window.removeEventListener('mouseup', handleResizeEnd);
+    const handleMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const newPosition = isHorizontal
+        ? ((e.clientX - rect.left) / rect.width) * 100
+        : ((e.clientY - rect.top) / rect.height) * 100;
+      setSplitPosition(Math.min(maxSplit, Math.max(minSplit, newPosition)));
     };
-  }, [handleResizeMove, handleResizeEnd]);
+
+    const handleEnd = () => {
+      setIsDraggingState(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleEnd);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleEnd);
+  }, [isHorizontal, minSplit, maxSplit]);
 
   return (
     <div
       ref={containerRef}
-      className={cn("flex h-full", isHorizontal ? "flex-row" : "flex-col", className)}
+      className={cn('flex h-full', isHorizontal ? 'flex-row' : 'flex-col', className)}
     >
       <div
         style={isHorizontal ? { width: `${splitPosition}%` } : { height: `${splitPosition}%` }}
@@ -85,22 +65,29 @@ export default function ResizableLayout({
       </div>
       <div
         className={cn(
-          "bg-border/20 hover:bg-primary/20 flex items-center justify-center transition-all duration-200 group shrink-0 relative z-50",
-          isHorizontal
-            ? "w-1.5 cursor-col-resize"
-            : "h-1.5 cursor-row-resize"
+          'bg-border hover:bg-primary/50 transition-colors duration-200 shrink-0 relative z-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+          isDraggingState && 'bg-primary/50 shadow-[0_0_8px_hsl(var(--primary)/0.4)]',
+          isHorizontal ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize'
         )}
         onMouseDown={handleResizeStart}
+        onKeyDown={(e) => {
+          const step = 5;
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSplitPosition((prev) => Math.max(minSplit, prev - step));
+          } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSplitPosition((prev) => Math.min(maxSplit, prev + step));
+          }
+        }}
         role="separator"
-        aria-orientation={isHorizontal ? "vertical" : "horizontal"}
+        aria-orientation={isHorizontal ? 'vertical' : 'horizontal'}
         aria-label="Resize panels"
+        aria-valuenow={Math.round(splitPosition)}
+        aria-valuemin={minSplit}
+        aria-valuemax={maxSplit}
         tabIndex={0}
-      >
-        <div className={cn(
-          "rounded-full bg-border group-hover:bg-primary/50 transition-colors",
-          isHorizontal ? "w-1 h-8" : "h-1 w-8"
-        )} />
-      </div>
+      />
       <div
         style={isHorizontal ? { width: `${100 - splitPosition}%` } : { height: `${100 - splitPosition}%` }}
         className="min-h-0 min-w-0 overflow-hidden"

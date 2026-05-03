@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useEffect, useCallback } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -9,7 +7,7 @@ import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
 import { HttpMethod, AuthConfig as AuthConfigType, RequestSettings, RequestBody } from '@/types';
 import { Settings } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import axios, { AxiosProxyConfig } from 'axios';
+import axios, { AxiosProxyConfig, isAxiosError } from 'axios';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import CodeGeneratorDialog from '@/components/shared/CodeGeneratorDialog';
@@ -88,15 +86,9 @@ function RequestBuilder() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Early return after all hooks
-  if (!httpRequest) {
-    return null;
-  }
-
-  // Settings handlers - memoized for performance
   const getEffectiveSettings = useCallback((): RequestSettings => {
     return (
-      httpRequest.settings || {
+      httpRequest?.settings || {
         timeout: globalSettings.defaultTimeout,
         followRedirects: globalSettings.followRedirects,
         maxRedirects: globalSettings.maxRedirects,
@@ -104,74 +96,10 @@ function RequestBuilder() {
         proxy: globalSettings.proxy,
       }
     );
-  }, [httpRequest.settings, globalSettings]);
+  }, [httpRequest?.settings, globalSettings]);
 
-  const handleSettingsChange = (updates: Partial<RequestSettings>) => {
-    const currentSettings = httpRequest.settings || getEffectiveSettings();
-    updateRequest({
-      settings: { ...currentSettings, ...updates },
-    });
-  };
-
-  const handleToggleOverride = (enabled: boolean) => {
-    if (enabled) {
-      handleSettingsChange({});
-    } else {
-      updateRequest({ settings: undefined });
-    }
-  };
-
-  const handleProxyOverrideChange = (useOverride: boolean) => {
-    if (useOverride) {
-      handleSettingsChange({
-        proxy: { ...globalSettings.proxy },
-      });
-    } else {
-      const currentSettings = httpRequest.settings;
-      if (currentSettings) {
-        const { proxy: _, ...rest } = currentSettings;
-        updateRequest({ settings: { ...rest, proxy: undefined } });
-      }
-    }
-  };
-
-  // Request handlers
-  const handleMethodChange = (method: HttpMethod) => {
-    updateRequest({ method });
-  };
-
-  const handleUrlChange = (url: string) => {
-    updateRequest({ url });
-  };
-
-  // Body handlers
-  const handleBodyTypeChange = (type: RequestBody['type']) => {
-    updateRequest({ body: { ...httpRequest.body, type } });
-  };
-
-  const handleBodyContentChange = (raw: string) => {
-    updateRequest({
-      body: { ...httpRequest.body, raw },
-    });
-  };
-
-  // Auth handler
-  const handleAuthChange = (auth: AuthConfigType) => {
-    updateRequest({ auth });
-  };
-
-  // Scripts handlers
-  const handlePreRequestScriptChange = (script: string) => {
-    updateRequest({ preRequestScript: script });
-  };
-
-  const handleTestScriptChange = (script: string) => {
-    updateRequest({ testScript: script });
-  };
-
-  // Send request handler
   const handleSendRequest = useCallback(async () => {
-    if (!httpRequest?.url || isLoading) return;
+    if (!httpRequest || !httpRequest.url || isLoading) return;
 
     setLoading(true);
     const startTime = Date.now();
@@ -331,27 +259,18 @@ function RequestBuilder() {
     } catch (error: unknown) {
       const endTime = Date.now();
 
-      const isAxiosError = (
-        err: unknown
-      ): err is {
-        response?: { status?: number; statusText?: string; headers?: Record<string, string | string[]>; data?: unknown };
-        message?: string;
-      } => {
-        return typeof err === 'object' && err !== null && ('response' in err || 'message' in err);
-      };
-
       const axiosError = isAxiosError(error) ? error : null;
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
 
       const errorBody = axiosError?.response?.data
-        ? JSON.stringify(axiosError.response.data, null, 2)
+        ? JSON.stringify(axiosError?.response?.data, null, 2)
         : errorMessage;
       const errorResponse = {
         id: uuidv4(),
         requestId: httpRequest.id,
         status: axiosError?.response?.status || 0,
         statusText: axiosError?.response?.statusText || 'Error',
-        headers: axiosError?.response?.headers || {},
+        headers: (axiosError?.response?.headers ?? {}) as Record<string, string | string[]>,
         body: errorBody,
         size: new Blob([errorBody]).size,
         time: endTime - startTime,
@@ -391,7 +310,6 @@ function RequestBuilder() {
     addEntry,
   ]);
 
-  // Keyboard shortcut for sending request
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -403,6 +321,72 @@ function RequestBuilder() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSendRequest]);
+
+  if (!httpRequest) {
+    return null;
+  }
+
+  const handleSettingsChange = (updates: Partial<RequestSettings>) => {
+    const currentSettings = httpRequest.settings || getEffectiveSettings();
+    updateRequest({
+      settings: { ...currentSettings, ...updates },
+    });
+  };
+
+  const handleToggleOverride = (enabled: boolean) => {
+    if (enabled) {
+      handleSettingsChange({});
+    } else {
+      updateRequest({ settings: undefined });
+    }
+  };
+
+  const handleProxyOverrideChange = (useOverride: boolean) => {
+    if (useOverride) {
+      handleSettingsChange({
+        proxy: { ...globalSettings.proxy },
+      });
+    } else {
+      const currentSettings = httpRequest.settings;
+      if (currentSettings) {
+        const { proxy: _, ...rest } = currentSettings;
+        updateRequest({ settings: { ...rest, proxy: undefined } });
+      }
+    }
+  };
+
+  const handleMethodChange = (method: HttpMethod) => {
+    updateRequest({ method });
+  };
+
+  const handleUrlChange = (url: string) => {
+    updateRequest({ url });
+  };
+
+  const handleBodyTypeChange = (type: RequestBody['type']) => {
+    updateRequest({ body: { ...httpRequest.body, type } });
+  };
+
+  const handleBodyContentChange = (raw: string) => {
+    updateRequest({
+      body: { ...httpRequest.body, raw },
+    });
+  };
+
+  const handleAuthChange = (auth: AuthConfigType) => {
+    updateRequest({ auth });
+  };
+
+  const handlePreRequestScriptChange = (script: string) => {
+    updateRequest({ preRequestScript: script });
+  };
+
+  const handleTestScriptChange = (script: string) => {
+    updateRequest({ testScript: script });
+  };
+
+  const activeParamCount = httpRequest.params.filter((p) => p.enabled && p.key).length;
+  const activeHeaderCount = httpRequest.headers.filter((h) => h.enabled && h.key).length;
 
   return (
     <div className="flex-1 flex flex-col border-b border-border bg-background relative z-30">
@@ -422,17 +406,17 @@ function RequestBuilder() {
 
       {/* Request Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <div className="px-3 lg:px-4 py-1.5 lg:py-2 border-b border-border/40">
-          <TabsList className="w-full justify-start h-8 lg:h-10 bg-muted p-0.5 lg:p-1 border border-border/50">
+        <div className="px-3">
+          <TabsList className="w-full justify-start">
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
                     <TabsTrigger value="params" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3">
                       Params
-                      {httpRequest.params.filter((p) => p.enabled && p.key).length > 0 && (
+                      {activeParamCount > 0 && (
                         <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
-                          {httpRequest.params.filter((p) => p.enabled && p.key).length}
+                          {activeParamCount}
                         </span>
                       )}
                     </TabsTrigger>
@@ -446,11 +430,11 @@ function RequestBuilder() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <TabsTrigger value="headers" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3 border-r border-border/50 lg:pr-3 lg:mr-1">
+                    <TabsTrigger value="headers" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3">
                       Headers
-                      {httpRequest.headers.filter((h) => h.enabled && h.key).length > 0 && (
+                      {activeHeaderCount > 0 && (
                         <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-primary/10 text-primary tabular-nums">
-                          {httpRequest.headers.filter((h) => h.enabled && h.key).length}
+                          {activeHeaderCount}
                         </span>
                       )}
                     </TabsTrigger>
@@ -480,7 +464,7 @@ function RequestBuilder() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <TabsTrigger value="auth" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3 border-r border-border/50 lg:pr-3 lg:mr-1">
+                    <TabsTrigger value="auth" className="flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-3">
                       Auth
                       {httpRequest.auth.type !== 'none' && (
                         <span className="ml-2 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />

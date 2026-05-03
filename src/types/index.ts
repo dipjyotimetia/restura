@@ -387,6 +387,9 @@ export interface AppSettings {
 // Alias for backwards compatibility and clarity
 export type GlobalSettings = AppSettings;
 
+// Active sidebar panel
+export type ActivePanel = 'collections' | 'history' | 'workflows';
+
 // Postman Collection Format (simplified)
 export interface PostmanVariable {
   key: string;

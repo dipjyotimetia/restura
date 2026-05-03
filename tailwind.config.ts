@@ -1,11 +1,9 @@
 import type { Config } from 'tailwindcss';
-import tailwindcssAnimate from 'tailwindcss-animate';
 
 const config: Config = {
   content: [
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   darkMode: 'class',
   theme: {
@@ -17,6 +15,10 @@ const config: Config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ['"Geist Variable"', 'Geist', 'system-ui', 'sans-serif'],
+        mono: ['"Fira Code"', 'ui-monospace', 'monospace'],
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
@@ -73,7 +75,7 @@ const config: Config = {
           950: '#0A0C10',
         },
         // Violet scale for primary accents
-        purple: {
+        violet: {
           50: '#f5f3ff',
           100: '#ede9fe',
           200: '#ddd6fe',
@@ -207,6 +209,10 @@ const config: Config = {
           '0%, 100%': { opacity: '0.5' },
           '50%': { opacity: '1' },
         },
+        'status-appear': {
+          'from': { opacity: '0', transform: 'scale(0.8) translateY(-4px)' },
+          'to': { opacity: '1', transform: 'scale(1) translateY(0)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
@@ -223,6 +229,7 @@ const config: Config = {
         'gradient-border': 'gradient-border 3s ease infinite',
         'scale-in': 'scale-in 0.2s ease-out',
         'glow-border': 'glow-border 2s ease-in-out infinite',
+        'status-appear': 'status-appear 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
       },
       boxShadow: {
         // Elevation system
@@ -235,13 +242,17 @@ const config: Config = {
         'inner-bottom': 'inset 0 -1px 2px 0 rgba(0, 0, 0, 0.05)',
         // Glow effects for focus states
         'glow-blue': '0 0 20px rgba(59, 130, 246, 0.3)',
-        'glow-purple': '0 0 20px rgba(155, 110, 247, 0.3)',
         'glow-green': '0 0 20px rgba(34, 197, 94, 0.3)',
         'glow-red': '0 0 20px rgba(239, 68, 68, 0.3)',
+        'glow-violet': '0 0 20px rgba(123, 110, 246, 0.3)',
+        'glow-violet-lg': '0 0 40px rgba(123, 110, 246, 0.4)',
+        'glow-cyan': '0 0 20px rgba(6, 182, 212, 0.3)',
+        'glow-success': '0 0 20px rgba(52, 211, 153, 0.3)',
+        'glow-error': '0 0 20px rgba(248, 113, 113, 0.3)',
       },
     },
   },
-  plugins: [tailwindcssAnimate],
+  plugins: [],
 };
 
 export default config;

@@ -1,21 +1,23 @@
 import { app, BrowserWindow, session, crashReporter } from 'electron';
 import { setupAutoUpdater, registerAutoUpdaterIPC } from './auto-updater';
-import { createMainWindow } from './window-manager';
+import { createMainWindow, registerNewWindowIPC } from './window-manager';
 import { registerFileOperationsIPC } from './file-operations';
 import { registerHttpHandlerIPC } from './http-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
+import { logRequest, registerRequestLoggerIPC } from './request-logger';
 import { registerWindowControlsIPC } from './window-controls';
 import { createSystemTray, destroyTray } from './system-tray';
 import { registerNotificationIPC } from './notifications';
 import { registerCollectionManagerIPC, cleanupCollectionWatchers } from './collection-manager';
 import { registerStoreHandlerIPC } from './store-handler';
+import { registerDeepLinkHandler } from './deep-link-handler';
 
 // Initialize crash reporter early (before app.whenReady)
 crashReporter.start({
   productName: 'Restura',
   companyName: 'Restura',
-  submitURL: '', // Set your crash report server URL here, or leave empty for local-only
-  uploadToServer: false, // Set to true when you have a crash server configured
+  submitURL: process.env['CRASH_REPORT_URL'] ?? '', // Set CRASH_REPORT_URL env var to enable crash reporting
+  uploadToServer: !!process.env['CRASH_REPORT_URL'],
   ignoreSystemCrashHandler: false,
   compress: true,
   extra: {
@@ -36,13 +38,26 @@ const isDev = process.env.NODE_ENV === 'development';
 // Helper to get main window reference
 const getMainWindow = (): BrowserWindow | null => mainWindow;
 
+// Single instance lock — must be before app.whenReady()
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
+// Register deep-link handler before app.whenReady() so open-url / second-instance
+// events can fire even before the window is created
+// (requires single-instance lock to be requested before calling this)
+registerDeepLinkHandler(getMainWindow);
+
 // Register all IPC handlers
 function registerIPCHandlers(): void {
   registerAutoUpdaterIPC(isDev);
   registerFileOperationsIPC(getMainWindow);
-  registerHttpHandlerIPC();
-  registerGrpcHandlerIPC();
+  registerHttpHandlerIPC(logRequest);
+  registerGrpcHandlerIPC(logRequest);
+  registerRequestLoggerIPC();
   registerWindowControlsIPC(getMainWindow);
+  registerNewWindowIPC(isDev);
   registerNotificationIPC(getMainWindow, isDev);
   registerCollectionManagerIPC(getMainWindow);
   registerStoreHandlerIPC();
@@ -78,7 +93,7 @@ function setupSecurityMeasures(): void {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
       const parsedUrl = new URL(navigationUrl);
-      if (isDev && parsedUrl.origin === 'http://localhost:3000') {
+      if (isDev && parsedUrl.origin === 'http://localhost:5173') {
         return;
       }
       if (parsedUrl.protocol === 'file:') {

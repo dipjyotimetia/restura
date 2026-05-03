@@ -1,14 +1,22 @@
 import { z } from 'zod';
 
 // ===========================
+// Shared Size Constants
+// ===========================
+
+export const MAX_HTTP_BODY_BYTES = 50 * 1024 * 1024;
+export const MAX_PROTO_CONTENT_BYTES = 1024 * 1024;
+
+// ===========================
 // HTTP Request Schemas
 // ===========================
 
 const ProxyConfigSchema = z.object({
   enabled: z.boolean(),
-  type: z.string(),
+  type: z.enum(['http', 'https', 'socks5', 'pac']),
   host: z.string(),
   port: z.number().int().positive(),
+  pacUrl: z.string().url('Invalid PAC URL').optional(),
   auth: z
     .object({
       username: z.string(),
@@ -17,16 +25,24 @@ const ProxyConfigSchema = z.object({
     .optional(),
 });
 
+const ClientCertSchema = z.object({
+  pfx: z.string().optional(),        // base64-encoded PFX/PKCS12
+  cert: z.string().optional(),       // PEM certificate string
+  key: z.string().optional(),        // PEM private key string
+  passphrase: z.string().optional(), // passphrase for pfx or encrypted key
+});
+
 export const HttpRequestConfigSchema = z.object({
   method: z.string(),
   url: z.string().url('Invalid URL format'),
-  headers: z.record(z.string()).optional(),
-  params: z.record(z.string()).optional(),
-  data: z.string().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  params: z.record(z.string(), z.string()).optional(),
+  data: z.string().max(MAX_HTTP_BODY_BYTES, 'Request body exceeds 50MB limit').optional(),
   timeout: z.number().int().positive().optional(),
   maxRedirects: z.number().int().min(0).optional(),
   proxy: ProxyConfigSchema.optional(),
   verifySsl: z.boolean().optional(),
+  clientCert: ClientCertSchema.optional(),
 });
 
 export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
@@ -41,9 +57,9 @@ export const GrpcRequestConfigSchema = z.object({
   service: z.string().min(1, 'Service name is required'),
   method: z.string().min(1, 'Method name is required'),
   methodType: z.enum(['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming']),
-  metadata: z.record(z.string()),
+  metadata: z.record(z.string(), z.string()),
   message: z.unknown(),
-  protoContent: z.string().min(1, 'Proto content is required'),
+  protoContent: z.string().min(1, 'Proto content is required').max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit'),
   protoFileName: z.string().min(1, 'Proto file name is required'),
 });
 
@@ -146,10 +162,10 @@ export function validateIpcInput<T>(schema: z.ZodSchema<T>, data: unknown, chann
     return schema.parse(data);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errorMessages = error.errors.map((err) => `${err.path.join('.')}: ${err.message}`).join(', ');
+      const errorMessages = error.issues.map((err) => `${err.path.join('.')}: ${err.message}`).join(', ');
 
       console.error(`[IPC Validation Error] Channel: ${channel}`, {
-        errors: error.errors,
+        issues: error.issues,
         receivedData: data,
       });
 

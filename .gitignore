@@ -10,10 +10,6 @@ tmp/*
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
-
 # production
 /build
 
@@ -29,16 +25,14 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
-
-# vercel
-.vercel
+.dev.vars
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
-# turbopack
-.turbo
+# vite + cloudflare
+/dist/web/
+.wrangler/
 
 # electron
 /dist/

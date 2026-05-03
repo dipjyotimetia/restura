@@ -1,70 +1,82 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import '@fontsource-variable/geist/index.css';
+@import '@fontsource/fira-code/400.css';
+@import '@fontsource/fira-code/500.css';
 
+@config "../../tailwind.config.ts";
 @import "tailwindcss";
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 45%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 91%;
-    --input: 240 5.9% 91%;
-    --ring: 240 5.9% 10%;
-    --radius: 0.6rem;
-    --success: 142 71% 45%;
-    --warning: 38 92% 50%;
+    --background: 0 0% 98.5%;
+    --foreground: 240 15% 8%;
+    --card: 240 10% 97%;
+    --card-foreground: 240 15% 8%;
+    --popover: 240 10% 97%;
+    --popover-foreground: 240 15% 8%;
+    --primary: 252 72% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 244 12% 93%;
+    --secondary-foreground: 240 15% 8%;
+    --muted: 244 12% 93%;
+    --muted-foreground: 248 12% 48%;
+    --accent: 244 12% 90%;
+    --accent-foreground: 240 15% 8%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 244 12% 88%;
+    --input: 244 12% 88%;
+    --ring: 252 72% 55%;
+    --radius: 0.5rem;
+    --success: 158 64% 40%;
+    --warning: 43 96% 50%;
     --info: 199 89% 48%;
     /* Surface elevation system */
-    --surface-0: 0 0% 100%;
-    --surface-1: 240 4.8% 99%;
-    --surface-2: 240 4.8% 97%;
-    --surface-3: 240 4.8% 94%;
-    
+    --surface-0: 0 0% 98.5%;
+    --surface-1: 240 10% 96%;
+    --surface-2: 244 12% 93%;
+    --surface-3: 244 12% 89%;
+
     /* Semantic border opacities */
-    --border-subtle: 0.06;
-    --border-default: 0.10;
-    --border-strong: 0.18;
-    --border-focus: 0.40;
+    --border-subtle: 0.05;
+    --border-default: 0.08;
+    --border-strong: 0.15;
+    --border-focus: 0.35;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 6%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 6%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 5% 18%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 5% 18%;
-    --muted-foreground: 240 5% 65%;
-    --accent: 240 5% 20%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5% 22%;
-    --input: 240 5% 22%;
-    --ring: 240 4.9% 83.9%;
+    --background: 240 15% 4%;
+    --foreground: 248 25% 94%;
+    --card: 240 15% 7%;
+    --card-foreground: 248 25% 94%;
+    --popover: 240 15% 7%;
+    --popover-foreground: 248 25% 94%;
+    --primary: 252 88% 70%;
+    --primary-foreground: 240 15% 4%;
+    --secondary: 244 12% 14%;
+    --secondary-foreground: 248 25% 94%;
+    --muted: 244 12% 13%;
+    --muted-foreground: 248 15% 55%;
+    --accent: 244 12% 16%;
+    --accent-foreground: 248 25% 94%;
+    --destructive: 0 84% 70%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 244 12% 16%;
+    --input: 244 12% 16%;
+    --ring: 252 88% 70%;
+    --success: 158 64% 52%;
+    --warning: 43 96% 56%;
+    --info: 187 96% 45%;
     /* Surface elevation system */
-    --surface-0: 240 10% 3.9%;
-    --surface-1: 240 10% 7%;
-    --surface-2: 240 10% 10%;
-    --surface-3: 240 10% 14%;
+    --surface-0: 240 15% 4%;
+    --surface-1: 240 15% 6%;
+    --surface-2: 244 12% 11%;
+    --surface-3: 244 12% 14%;
+
+    /* Semantic border opacities */
+    --border-subtle: 0.05;
+    --border-default: 0.08;
+    --border-strong: 0.15;
+    --border-focus: 0.35;
   }
 }
 
@@ -75,10 +87,10 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    font-family: 'Geist Variable', 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'liga' 1, 'calt' 1;
   }
 }
 
@@ -202,8 +214,8 @@
 
 /* Custom scrollbar styles */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -211,32 +223,18 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground) / 0.2);
+  background-color: hsl(var(--primary) / 0.25);
   border-radius: 10px;
-  border: 2px solid transparent;
-  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground) / 0.4);
+  background-color: hsl(var(--primary) / 0.45);
 }
 
 /* Firefox scrollbar support */
 * {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
-}
-
-/* Selection colors */
-::selection {
-  background-color: hsl(var(--primary) / 0.2);
-  color: hsl(var(--foreground));
-}
-
-/* Focus visible styles */
-:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
+  scrollbar-color: hsl(var(--primary) / 0.25) transparent;
 }
 
 /* Smooth transitions for all interactive elements */
@@ -248,10 +246,10 @@ textarea {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Modern backdrop blur support */
-.backdrop-blur-sm {
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+/* Status appear animation */
+@keyframes status-appear {
+  from { opacity: 0; transform: scale(0.8) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 /* Skeleton animation */
@@ -297,7 +295,7 @@ textarea {
 .gradient-orb-1 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, hsl(240 5.9% 10% / 0.3) 0%, transparent 70%);
+  background: radial-gradient(circle, hsl(252 72% 55% / 0.06) 0%, transparent 70%);
   top: -15%;
   left: -10%;
   animation: float-slow 30s ease-in-out infinite;
@@ -306,7 +304,7 @@ textarea {
 .gradient-orb-2 {
   width: 450px;
   height: 450px;
-  background: radial-gradient(circle, hsl(240 5.9% 10% / 0.3) 0%, transparent 70%);
+  background: radial-gradient(circle, hsl(252 72% 55% / 0.05) 0%, transparent 70%);
   bottom: -15%;
   right: -10%;
   animation: float-slower 40s ease-in-out infinite;
@@ -316,7 +314,7 @@ textarea {
 .gradient-orb-3 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, hsl(240 5.9% 10% / 0.2) 0%, transparent 70%);
+  background: radial-gradient(circle, hsl(252 72% 55% / 0.04) 0%, transparent 70%);
   top: 30%;
   right: 20%;
   animation: float-reverse 35s ease-in-out infinite;
@@ -365,15 +363,15 @@ textarea {
 }
 
 .dark .gradient-orb-1 {
-  background: radial-gradient(circle, hsl(0 0% 98% / 0.1) 0%, transparent 70%);
+  background: radial-gradient(circle, hsl(252 88% 70% / 0.08) 0%, transparent 70%);
 }
 
 .dark .gradient-orb-2 {
-  background: radial-gradient(circle, hsl(0 0% 98% / 0.1) 0%, transparent 70%);
+  background: radial-gradient(circle, hsl(252 88% 70% / 0.06) 0%, transparent 70%);
 }
 
 .dark .gradient-orb-3 {
-  background: radial-gradient(circle, hsl(0 0% 98% / 0.1) 0%, transparent 70%);
+  background: radial-gradient(circle, hsl(252 88% 70% / 0.05) 0%, transparent 70%);
 }
 
 /* Reduced motion support */
@@ -428,10 +426,10 @@ textarea {
 /* Button glow animation on hover */
 @keyframes button-glow {
   0%, 100% {
-    box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+    box-shadow: 0 0 20px rgba(123, 110, 246, 0.3);
   }
   50% {
-    box-shadow: 0 0 30px rgba(99, 102, 241, 0.5);
+    box-shadow: 0 0 30px rgba(123, 110, 246, 0.5);
   }
 }
 
@@ -439,18 +437,9 @@ textarea {
   animation: button-glow 2s ease-in-out infinite;
 }
 
-/* Spin animation for loading state - enhanced */
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.animate-spin {
-  animation: spin 1s linear infinite;
+/* Smooth color transitions for status indicators */
+.status-dot {
+  transition: background-color 200ms ease, box-shadow 200ms ease;
 }
 
 /* Screen reader only utility */
