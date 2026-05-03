@@ -271,8 +271,8 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       }
 
       // Configure SSL verification
-      if (isHttps && interceptedConfig.verifySsl === false) {
-        (requestOptions as https.RequestOptions).rejectUnauthorized = false;
+      if (isHttps) {
+        (requestOptions as https.RequestOptions).rejectUnauthorized = true;
       }
 
       // Apply client certificate if provided (for mTLS)
