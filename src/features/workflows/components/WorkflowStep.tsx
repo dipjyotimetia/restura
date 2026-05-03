@@ -1,6 +1,6 @@
 'use client';
 
-import { WorkflowRequest, WorkflowExecutionStep, HttpMethod } from '@/types';
+import type { WorkflowRequest, WorkflowExecutionStep, HttpMethod } from '@/types';
 import { cn } from '@/lib/shared/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

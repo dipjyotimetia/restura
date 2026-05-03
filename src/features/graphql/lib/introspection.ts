@@ -1,4 +1,4 @@
-import { GraphQLSchema, IntrospectionResult } from '../types';
+import type { GraphQLSchema, IntrospectionResult } from '../types';
 import { buildClientSchema, type GraphQLSchema as GQLSchema, type IntrospectionQuery } from 'graphql';
 
 // Standard GraphQL introspection query

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AppSettings, ProxyConfig, CorsProxyConfig } from '@/types';
+import type { AppSettings, ProxyConfig, CorsProxyConfig } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 interface SettingsState {

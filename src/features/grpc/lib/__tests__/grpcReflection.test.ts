@@ -9,7 +9,7 @@ import {
   getCachedMessageSchema,
   getCachedEnumSchema,
 } from '../grpcReflection';
-import { MessageSchema } from '@/types';
+import type { MessageSchema } from '@/types';
 
 // Mock fetch
 const mockFetch = vi.fn();

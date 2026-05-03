@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { ProxyType } from '@/types';
+import type { ProxyType } from '@/types';
 import { Plus, Trash2, Shield, Globe, Zap, Eye, EyeOff } from 'lucide-react';
 import { isWeb } from '@/lib/shared/platform';
 

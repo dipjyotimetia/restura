@@ -7,7 +7,7 @@ import {
   extractVariables,
   testExtraction,
 } from '../variableExtractor';
-import { VariableExtraction, Response } from '@/types';
+import type { VariableExtraction, Response } from '@/types';
 
 describe('variableExtractor', () => {
   describe('parseJsonSafely', () => {

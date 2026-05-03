@@ -5,7 +5,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from '@/types';
+import type { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 
@@ -17,10 +17,10 @@ interface UseHttpRequestReturn {
   sendRequest: () => Promise<void>;
   addParam: () => void;
   updateParam: (id: string, updates: Partial<KeyValue>) => void;
-  deleteParam: (id: string) => void;
+  removeParam: (id: string) => void;
   addHeader: () => void;
   updateHeader: (id: string, updates: Partial<KeyValue>) => void;
-  deleteHeader: (id: string) => void;
+  removeHeader: (id: string) => void;
   updateBody: (raw: string) => void;
   updateAuth: (auth: AuthConfig) => void;
 }
@@ -80,7 +80,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
     [httpRequest, updateRequest]
   );
 
-  const deleteParam = useCallback(
+  const removeParam = useCallback(
     (id: string) => {
       if (!httpRequest) return;
       updateRequest({
@@ -113,7 +113,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
     [httpRequest, updateRequest]
   );
 
-  const deleteHeader = useCallback(
+  const removeHeader = useCallback(
     (id: string) => {
       if (!httpRequest) return;
       updateRequest({
@@ -194,10 +194,10 @@ export function useHttpRequest(): UseHttpRequestReturn {
     sendRequest,
     addParam,
     updateParam,
-    deleteParam,
+    removeParam,
     addHeader,
     updateHeader,
-    deleteHeader,
+    removeHeader,
     updateBody,
     updateAuth,
   };

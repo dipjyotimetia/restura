@@ -14,9 +14,10 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import type {
+  WebSocketMessageType} from '@/store/useWebSocketStore';
 import {
-  useWebSocketStore,
-  WebSocketMessageType,
+  useWebSocketStore
 } from '@/store/useWebSocketStore';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import {
@@ -29,7 +30,7 @@ import {
   Download,
   AlertTriangle,
 } from 'lucide-react';
-import { KeyValue } from '@/types';
+import type { KeyValue } from '@/types';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { cn } from '@/lib/shared/utils';
 
@@ -61,7 +62,7 @@ function WebSocketClient() {
     clearMessages,
     addHeader,
     updateHeader,
-    deleteHeader,
+    removeHeader,
     setMessageFilter,
     setSearchQuery,
     getFilteredMessages,
@@ -89,6 +90,14 @@ function WebSocketClient() {
       }
     };
   }, []);
+
+  // Tick every second while connected so the duration display stays live.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (connection?.status !== 'connected') return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [connection?.status]);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -152,7 +161,7 @@ function WebSocketClient() {
   };
 
   const handleDeleteHeader = (id: string) => {
-    deleteHeader(activeConnectionId, id);
+    removeHeader(activeConnectionId, id);
   };
 
   const handleExportMessages = () => {
@@ -181,14 +190,6 @@ function WebSocketClient() {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  // Tick every second while connected so the duration display stays live
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!isConnected) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [isConnected]);
 
   const connectionDuration =
     isConnected && connection.lastConnectedAt ? now - connection.lastConnectedAt : 0;

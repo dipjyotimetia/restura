@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import Editor, { OnMount } from '@monaco-editor/react';
+import type { OnMount } from '@monaco-editor/react';
+import Editor from '@monaco-editor/react';
 import { useTheme } from 'next-themes';
 import type * as Monaco from 'monaco-editor';
 import { Copy, Check } from 'lucide-react';
@@ -58,7 +59,7 @@ export default function CodeEditor({
     if (language === 'json' && value) {
       try {
         editor.getAction('editor.action.formatDocument')?.run();
-      } catch (e) {
+      } catch {
         // Ignore formatting errors
       }
     }
@@ -96,7 +97,7 @@ export default function CodeEditor({
       setCopied(true);
       toast.success('Copied to clipboard');
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
+    } catch {
       toast.error('Failed to copy to clipboard');
     }
   };

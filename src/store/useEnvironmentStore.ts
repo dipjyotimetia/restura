@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Environment, KeyValue } from '@/types';
+import type { Environment, KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
@@ -11,11 +11,11 @@ interface EnvironmentState {
   // Actions
   addEnvironment: (environment: Environment) => void;
   updateEnvironment: (id: string, updates: Partial<Environment>) => void;
-  deleteEnvironment: (id: string) => void;
+  removeEnvironment: (id: string) => void;
   setActiveEnvironment: (id: string | null) => void;
   addVariable: (environmentId: string, variable: KeyValue) => void;
   updateVariable: (environmentId: string, variableId: string, updates: Partial<KeyValue>) => void;
-  deleteVariable: (environmentId: string, variableId: string) => void;
+  removeVariable: (environmentId: string, variableId: string) => void;
   getActiveEnvironment: () => Environment | null;
   resolveVariables: (text: string) => string;
   createNewEnvironment: (name: string) => Environment;
@@ -39,7 +39,7 @@ export const useEnvironmentStore = create<EnvironmentState>()(
           ),
         })),
 
-      deleteEnvironment: (id) =>
+      removeEnvironment: (id) =>
         set((state) => ({
           environments: state.environments.filter((env) => env.id !== id),
           activeEnvironmentId: state.activeEnvironmentId === id ? null : state.activeEnvironmentId,
@@ -70,7 +70,7 @@ export const useEnvironmentStore = create<EnvironmentState>()(
           ),
         })),
 
-      deleteVariable: (environmentId, variableId) =>
+      removeVariable: (environmentId, variableId) =>
         set((state) => ({
           environments: state.environments.map((env) =>
             env.id === environmentId

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Collection, CollectionItem } from '@/types';
+import type { Collection, CollectionItem } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
@@ -11,11 +11,11 @@ interface CollectionState {
   // Actions
   addCollection: (collection: Collection) => void;
   updateCollection: (id: string, updates: Partial<Collection>) => void;
-  deleteCollection: (id: string) => void;
+  removeCollection: (id: string) => void;
   setActiveCollection: (id: string | null) => void;
   addItemToCollection: (collectionId: string, item: CollectionItem, parentId?: string) => void;
   updateCollectionItem: (collectionId: string, itemId: string, updates: Partial<CollectionItem>) => void;
-  deleteCollectionItem: (collectionId: string, itemId: string) => void;
+  removeCollectionItem: (collectionId: string, itemId: string) => void;
   getCollectionById: (id: string) => Collection | undefined;
   createNewCollection: (name: string) => Collection;
 }
@@ -38,7 +38,7 @@ export const useCollectionStore = create<CollectionState>()(
           ),
         })),
 
-      deleteCollection: (id) =>
+      removeCollection: (id) =>
         set((state) => ({
           collections: state.collections.filter((col) => col.id !== id),
           activeCollectionId: state.activeCollectionId === id ? null : state.activeCollectionId,
@@ -90,7 +90,7 @@ export const useCollectionStore = create<CollectionState>()(
           }),
         })),
 
-      deleteCollectionItem: (collectionId, itemId) =>
+      removeCollectionItem: (collectionId, itemId) =>
         set((state) => ({
           collections: state.collections.map((col) => {
             if (col.id !== collectionId) return col;

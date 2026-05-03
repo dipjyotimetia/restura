@@ -1,16 +1,17 @@
 import { createConnectTransport } from '@connectrpc/connect-web';
 import type { Transport, Interceptor } from '@connectrpc/connect';
-import {
+import type {
   AuthConfig,
   GrpcRequest,
   GrpcResponse,
-  GrpcStatusCode,
-  GrpcStatusCodeName,
   ProtoFileInfo,
   ProtoServiceDefinition,
   ProtoMethodDefinition,
   ProtoMessageDefinition,
-  ProtoFieldDefinition,
+  ProtoFieldDefinition} from '@/types';
+import {
+  GrpcStatusCode,
+  GrpcStatusCodeName
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
@@ -402,7 +403,7 @@ export function prepareGrpcRequest(
   if (request.message) {
     try {
       parsedMessage = JSON.parse(resolveVariables(request.message));
-    } catch (error) {
+    } catch {
       throw new GrpcClientError(
         'Invalid JSON message',
         GrpcStatusCode.INVALID_ARGUMENT,
@@ -450,7 +451,7 @@ export async function makeElectronGrpcRequest(
       message: prepared.message,
       protoContent,
       protoFileName,
-    }) as any; // Cast to any because IPC returns unknown
+    });
 
     const endTime = Date.now();
 

@@ -50,6 +50,9 @@ yarn-error.log*
 /dist/**/*.yaml
 !electron-builder.json
 
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
+
 # IDE
 .idea/
 .vscode/

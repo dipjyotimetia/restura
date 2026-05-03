@@ -1,8 +1,10 @@
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { selectActiveEnvironment } from '@/store/selectors';
+import { useShallow } from 'zustand/react/shallow';
 import { Wifi, WifiOff } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 
@@ -15,9 +17,14 @@ const getStatusTextColor = (status: number) => {
 };
 
 export default function StatusBar() {
-  const { activeEnvironmentId, environments } = useEnvironmentStore();
-  const { history } = useHistoryStore();
-  const { isLoading, currentResponse } = useRequestStore();
+  const activeEnv = useEnvironmentStore(selectActiveEnvironment);
+  const { isLoading, currentResponse } = useRequestStore(
+    useShallow((s) => ({ isLoading: s.isLoading, currentResponse: s.currentResponse }))
+  );
+  const todayRequests = useHistoryStore((state) => {
+    const todayStr = new Date().toDateString();
+    return state.history.filter((h) => new Date(h.timestamp).toDateString() === todayStr).length;
+  });
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
@@ -31,16 +38,9 @@ export default function StatusBar() {
     };
   }, []);
 
-  const activeEnv = environments.find((e) => e.id === activeEnvironmentId);
-
   const lastActivityTime = currentResponse?.timestamp
     ? new Date(currentResponse.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '';
-
-  const todayRequests = useMemo(() => {
-    const todayStr = new Date().toDateString();
-    return history.filter((h) => new Date(h.timestamp).toDateString() === todayStr).length;
-  }, [history]);
 
   return (
     <TooltipProvider delayDuration={200}>

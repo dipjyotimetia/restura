@@ -1,8 +1,10 @@
-import { HttpRequest, Response as ApiResponse, RequestSettings, AppSettings } from '@/types';
+import type { HttpRequest, Response as ApiResponse, RequestSettings, AppSettings } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import axios, { AxiosRequestConfig } from 'axios';
+import type { AxiosRequestConfig } from 'axios';
+import axios from 'axios';
 import { Cookie } from 'tough-cookie';
-import ScriptExecutor, { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
+import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
+import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/features/http/lib/proxyHelper';
 import { validateURL } from '@/features/http/lib/urlValidator';

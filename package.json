@@ -10,8 +10,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit && echo 'Linting passed (TypeScript only)'",
-    "lint:fix": "tsc --noEmit && echo 'Linting passed (TypeScript only)'",
+    "lint": "eslint src electron/main worker",
+    "lint:fix": "eslint src electron/main worker --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "type-check": "tsc --noEmit",
@@ -55,6 +55,7 @@
     "@graphiql/toolkit": "^0.11.3",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
+    "@grpc/reflection": "^1.0.4",
     "@monaco-editor/react": "^4.7.0",
     "@protobuf-ts/runtime": "^2.11.1",
     "@protobuf-ts/runtime-rpc": "^2.11.1",
@@ -111,6 +112,7 @@
     "@cloudflare/vite-plugin": "^1.35.0",
     "@cloudflare/workers-types": "^4.20260502.1",
     "@electron/notarize": "^3.1.1",
+    "@eslint/js": "^9.0.0",
     "@tailwindcss/vite": "^4.2.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -128,12 +130,16 @@
     "electron": "^41.5.0",
     "electron-builder": "^26.8.1",
     "electron-squirrel-startup": "^1.0.1",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.3",
     "tailwindcss": "^4.2.4",
     "typescript": "^5",
+    "typescript-eslint": "^8.0.0",
     "vite": "^7.0.0",
     "vitest": "^4.1.5",
     "wait-on": "^9.0.5",
@@ -143,8 +149,12 @@
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "lint-staged": {
     "*.{ts,tsx}": [
+      "eslint --fix",
       "prettier --write"
     ],
     "*.{json,md,css}": [

@@ -16,7 +16,8 @@ import {
   getMethodTypeDescription,
   GrpcClientError,
 } from '../grpcClient';
-import { GrpcRequest, GrpcStatusCode, AuthConfig } from '@/types';
+import type { GrpcRequest, AuthConfig } from '@/types';
+import { GrpcStatusCode } from '@/types';
 
 describe('grpcClient', () => {
   describe('buildAuthMetadata', () => {

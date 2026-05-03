@@ -67,27 +67,27 @@ describe('useEnvironmentStore', () => {
     });
   });
 
-  describe('deleteEnvironment', () => {
+  describe('removeEnvironment', () => {
     it('should remove environment from list', () => {
-      const { createNewEnvironment, addEnvironment, deleteEnvironment } =
+      const { createNewEnvironment, addEnvironment, removeEnvironment } =
         useEnvironmentStore.getState();
       const env = createNewEnvironment('To Delete');
       addEnvironment(env);
 
-      deleteEnvironment(env.id);
+      removeEnvironment(env.id);
 
       const state = useEnvironmentStore.getState();
       expect(state.environments).toHaveLength(0);
     });
 
     it('should clear activeEnvironmentId if deleted', () => {
-      const { createNewEnvironment, addEnvironment, setActiveEnvironment, deleteEnvironment } =
+      const { createNewEnvironment, addEnvironment, setActiveEnvironment, removeEnvironment } =
         useEnvironmentStore.getState();
       const env = createNewEnvironment('Active');
       addEnvironment(env);
       setActiveEnvironment(env.id);
 
-      deleteEnvironment(env.id);
+      removeEnvironment(env.id);
 
       const state = useEnvironmentStore.getState();
       expect(state.activeEnvironmentId).toBeNull();
@@ -135,9 +135,9 @@ describe('useEnvironmentStore', () => {
     });
   });
 
-  describe('deleteVariable', () => {
+  describe('removeVariable', () => {
     it('should remove variable from environment', () => {
-      const { createNewEnvironment, addEnvironment, addVariable, deleteVariable } =
+      const { createNewEnvironment, addEnvironment, addVariable, removeVariable } =
         useEnvironmentStore.getState();
       const env = createNewEnvironment('Test');
       addEnvironment(env);
@@ -149,7 +149,7 @@ describe('useEnvironmentStore', () => {
         enabled: true,
       };
       addVariable(env.id, variable);
-      deleteVariable(env.id, 'var-1');
+      removeVariable(env.id, 'var-1');
 
       const state = useEnvironmentStore.getState();
       expect(state.environments[0]?.variables).toHaveLength(0);

@@ -139,6 +139,19 @@ export const NotificationRequestCompleteSchema = z.object({
 });
 
 // ===========================
+// gRPC Reflection Schemas
+// ===========================
+
+export const ReflectionIpcConfigSchema = z.object({
+  url: z.string().url('Invalid URL format'),
+  reflectionService: z.string().min(1, 'Reflection service name is required'),
+  request: z.record(z.string(), z.unknown()),
+  timeout: z.number().int().positive().optional(),
+});
+
+export type ReflectionIpcConfig = z.infer<typeof ReflectionIpcConfigSchema>;
+
+// ===========================
 // gRPC Stream Schemas
 // ===========================
 

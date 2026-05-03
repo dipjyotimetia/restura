@@ -1,4 +1,4 @@
-import { Context } from 'hono';
+import type { Context } from 'hono';
 import { GrpcStatusCode, GrpcStatusCodeName } from '../shared/grpc-status';
 import { validateURL } from '../shared/url-validation';
 import { MAX_RESPONSE_SIZE } from '../shared/constants';

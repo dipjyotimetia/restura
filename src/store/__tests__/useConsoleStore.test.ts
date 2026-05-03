@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useConsoleStore, createConsoleEntry } from '../useConsoleStore';
-import { HttpRequest, Response as ApiResponse } from '@/types';
+import type { HttpRequest, Response as ApiResponse } from '@/types';
 
 describe('useConsoleStore', () => {
   beforeEach(() => {

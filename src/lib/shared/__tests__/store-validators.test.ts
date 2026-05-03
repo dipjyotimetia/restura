@@ -6,7 +6,7 @@ import {
   validateCollection,
   isValidUrl,
 } from '../store-validators';
-import { HttpRequest, GrpcRequest, Environment, Collection } from '@/types';
+import type { HttpRequest, GrpcRequest, Environment, Collection } from '@/types';
 
 describe('store-validators', () => {
   describe('validateRequest', () => {

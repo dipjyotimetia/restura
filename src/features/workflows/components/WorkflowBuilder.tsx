@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Workflow, WorkflowRequest, Request, HttpRequest, CollectionItem } from '@/types';
+import type { Workflow, WorkflowRequest, Request, HttpRequest, CollectionItem } from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,7 @@ export function WorkflowBuilder({
 
   const addWorkflowRequest = useWorkflowStore((s) => s.addWorkflowRequest);
   const updateWorkflowRequest = useWorkflowStore((s) => s.updateWorkflowRequest);
-  const deleteWorkflowRequest = useWorkflowStore((s) => s.deleteWorkflowRequest);
+  const removeWorkflowRequest = useWorkflowStore((s) => s.removeWorkflowRequest);
 
   const [showAddStep, setShowAddStep] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState('');
@@ -118,7 +118,7 @@ export function WorkflowBuilder({
   };
 
   const handleDeleteStep = (requestId: string) => {
-    deleteWorkflowRequest(workflow.id, requestId);
+    removeWorkflowRequest(workflow.id, requestId);
   };
 
   const handleSaveStepEdit = () => {
