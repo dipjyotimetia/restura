@@ -44,7 +44,7 @@ export default function SettingsDialog({ open, onOpenChange }: SettingsDialogPro
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-hidden flex flex-col p-0">
+      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-hidden flex flex-col p-0" aria-describedby={undefined}>
         <SheetHeader className="px-6 py-4 border-b border-border shrink-0">
           <SheetTitle className="flex items-center gap-2 font-mono text-sm tracking-wide">
             <Settings2 className="h-4 w-4 text-primary" />

@@ -61,7 +61,9 @@
       "Bash(echo \"Exit code: $?\")",
       "Bash(grep -n 'resolveVariables\\\\|dynamic\\\\|$timestamp' /Users/dipjyotimetia/Documents/working/ccviews/DJ/src/store/useEnvironmentStore.ts)",
       "WebFetch(domain:example.com)",
-      "Bash(grep -rn '$timestamp\\\\|$randomInt\\\\|$guid' src/ '--include=*.ts' '--include=*.tsx')"
+      "Bash(grep -rn '$timestamp\\\\|$randomInt\\\\|$guid' src/ '--include=*.ts' '--include=*.tsx')",
+      "Bash(xargs ls *)",
+      "Bash(npx tsx *)"
     ]
   }
 }

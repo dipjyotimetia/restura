@@ -56,7 +56,6 @@ function generateTemplateObject(
     result[field.jsonName] = field.label === 'LABEL_REPEATED' ? [fieldValue] : fieldValue;
   }
 
-  visited.delete(schema.fullName);
   return result;
 }
 

@@ -1,6 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import type * as Monaco from 'monaco-editor';
+import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
+import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
 import { Button } from '@/components/ui/button';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { parseVariables, generateVariablesTemplate } from '@/features/graphql/lib/queryParser';
@@ -24,6 +27,8 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 const SchemaExplorer = lazyComponent(() => import('./SchemaExplorer'));
 
+let completionProviderRegistered = false;
+
 interface GraphQLBodyEditorProps {
   query: string;
   variables: string;
@@ -43,25 +48,25 @@ export default function GraphQLBodyEditor({
   const [showExplorer, setShowExplorer] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const { fetchSchema, getSchema, isLoading } = useGraphQLSchemaStore();
+  const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
 
   const schemaResult = url ? getSchema(url) : null;
   const loading = url ? isLoading(url) : false;
 
-  // Build executable schema for validation
-  const executableSchema = schemaResult ? buildSchemaFromIntrospection(schemaResult) : null;
+  const executableSchema = useMemo(
+    () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
+    [schemaResult]
+  );
 
-  // Extract variables from query
-  const extractedVariables = parseVariables(query);
+  const extractedVariables = useMemo(() => parseVariables(query), [query]);
 
-  // Auto-generate variables template when query changes
   useEffect(() => {
     if (extractedVariables.length > 0 && (!variables || variables === '{}')) {
       const template = generateVariablesTemplate(extractedVariables);
       onVariablesChange(template);
     }
-  }, [query, extractedVariables.length]);
+  }, [query, extractedVariables, variables, onVariablesChange]);
 
-  // Validate query when it changes
   useEffect(() => {
     if (query.trim()) {
       const result = validateQuery(query, executableSchema);
@@ -83,6 +88,23 @@ export default function GraphQLBodyEditor({
     }
     return undefined;
   }, [url, schemaResult, fetchSchema]);
+
+  const handleQueryEditorMount = useCallback(
+    (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
+      if (!completionProviderRegistered) {
+        registerGraphQLCompletionProvider(monaco, () => schemaResult?.schema ?? null);
+        completionProviderRegistered = true;
+      }
+      const model = editor.getModel();
+      if (model) {
+        diagnosticsRef.current?.dispose();
+        diagnosticsRef.current = setupDebouncedDiagnostics(monaco, model, () => executableSchema);
+      }
+    },
+    [schemaResult, executableSchema]
+  );
+
+  useEffect(() => () => { diagnosticsRef.current?.dispose(); }, []);
 
   const handleFetchSchema = useCallback(async () => {
     if (!url) return;
@@ -210,6 +232,7 @@ export default function GraphQLBodyEditor({
             onChange={onQueryChange}
             language="graphql"
             height="250px"
+            onEditorMount={handleQueryEditorMount}
           />
         </div>
 
