@@ -3,6 +3,15 @@
  * This module provides utilities to detect the current platform and access Electron APIs safely
  */
 
+/**
+ * Base URL for the Cloudflare Worker API.
+ * In production the SPA lives on restura.pages.dev and the Worker on restura.workers.dev,
+ * so we need an absolute origin. In dev both run together via Miniflare so the origin is empty.
+ */
+export function workerBaseUrl(): string {
+  return import.meta.env.VITE_WORKER_URL ?? '';
+}
+
 import type { ElectronAPI } from '../../../electron/types/electron.d';
 
 /**
