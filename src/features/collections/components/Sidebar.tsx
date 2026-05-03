@@ -27,7 +27,7 @@ import { cn } from '@/lib/shared/utils';
 import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
 import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
 import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
-import { METHOD_COLORS } from '@/lib/shared/constants';
+import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { FileStatusBadge } from './FileStatusBadge';
@@ -107,13 +107,15 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter((item) => {
-        if (item.request.type === 'http') {
-          return (
-            item.request.url.toLowerCase().includes(query) ||
-            item.request.method.toLowerCase().includes(query)
-          );
+        const r = item.request;
+        if (r.type === 'http') {
+          return r.url.toLowerCase().includes(query) || r.method.toLowerCase().includes(query);
         }
-        return item.request.service?.toLowerCase().includes(query);
+        if (r.type === 'grpc') {
+          return r.service?.toLowerCase().includes(query) || r.method?.toLowerCase().includes(query);
+        }
+        // sse / mcp — match on URL only
+        return r.url.toLowerCase().includes(query);
       });
     }
 
@@ -469,7 +471,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                             }
                             className="text-[9px] h-4 px-1"
                           >
-                            {item.request.type === 'http' ? item.request.method : 'gRPC'}
+                            {item.request.type === 'http' ? item.request.method : PROTOCOL_LABELS[item.request.type]}
                           </Badge>
                           {item.response && (
                             <span
@@ -487,7 +489,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                           )}
                         </div>
                         <p className="text-xs font-mono truncate pl-6 mb-1 text-foreground">
-                          {item.request.type === 'http' ? item.request.url : item.request.service}
+                          {item.request.type === 'grpc' ? item.request.service : item.request.url}
                         </p>
                         <span className="text-[10px] text-muted-foreground pl-6 flex items-center gap-1">
                           <History className="h-3 w-3" />

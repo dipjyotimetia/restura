@@ -22,6 +22,8 @@ const MODE_LABELS: Record<RequestMode, string> = {
   graphql: 'GraphQL',
   grpc: 'gRPC',
   websocket: 'WS',
+  sse: 'SSE',
+  mcp: 'MCP',
 };
 
 export default function TopBar({
@@ -33,7 +35,7 @@ export default function TopBar({
   const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore(
     useShallow((s) => ({ environments: s.environments, activeEnvironmentId: s.activeEnvironmentId, setActiveEnvironment: s.setActiveEnvironment }))
   );
-  const { switchToHttp, switchToGrpc } = useRequestStore();
+  const { switchToHttp, switchToGrpc, switchToSse, switchToMcp } = useRequestStore();
 
   const handleModeChange = (mode: RequestMode) => {
     onRequestModeChange(mode);
@@ -41,6 +43,10 @@ export default function TopBar({
       switchToHttp();
     } else if (mode === 'grpc') {
       switchToGrpc();
+    } else if (mode === 'sse') {
+      switchToSse();
+    } else if (mode === 'mcp') {
+      switchToMcp();
     }
   };
 
@@ -49,7 +55,7 @@ export default function TopBar({
       <div className="flex h-11 items-center justify-between border-b border-border bg-background/95 backdrop-blur px-3 shrink-0">
         {/* Left: Mode switcher */}
         <div role="group" aria-label="Request mode" className="flex items-center gap-0.5 bg-muted/60 rounded-md p-0.5 border border-border/50">
-          {(['http', 'graphql', 'grpc', 'websocket'] as RequestMode[]).map((mode) => (
+          {(['http', 'graphql', 'grpc', 'websocket', 'sse', 'mcp'] as RequestMode[]).map((mode) => (
             <button
               key={mode}
               onClick={() => handleModeChange(mode)}

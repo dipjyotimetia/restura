@@ -128,6 +128,36 @@ export const grpcRequestSchema = z.object({
   testScript: z.string().optional(),
 });
 
+// SSE Request Schema
+export const sseRequestSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1, 'Name is required'),
+  type: z.literal('sse'),
+  url: z.string(),
+  headers: z.array(keyValueSchema),
+  params: z.array(keyValueSchema),
+  auth: authConfigSchema,
+  eventFilter: z.array(z.string()).optional(),
+  reconnectOnResume: z.boolean().optional(),
+  preRequestScript: z.string().optional(),
+  testScript: z.string().optional(),
+});
+
+// MCP Request Schema
+export const mcpRequestSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1, 'Name is required'),
+  type: z.literal('mcp'),
+  url: z.string(),
+  transport: z.enum(['streamable-http', 'http-sse']),
+  headers: z.array(keyValueSchema),
+  auth: authConfigSchema,
+  defaultMethod: z.string().optional(),
+  defaultParams: z.string().optional(),
+  preRequestScript: z.string().optional(),
+  testScript: z.string().optional(),
+});
+
 // Environment Schema
 export const environmentSchema = z.object({
   id: z.string(),
@@ -153,7 +183,7 @@ export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
     id: z.string(),
     name: z.string(),
     type: z.enum(['folder', 'request']),
-    request: z.union([httpRequestSchema, grpcRequestSchema]).optional(),
+    request: z.union([httpRequestSchema, grpcRequestSchema, sseRequestSchema, mcpRequestSchema]).optional(),
     items: z.array(collectionItemSchema).optional(),
   })
 );

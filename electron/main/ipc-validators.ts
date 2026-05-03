@@ -208,6 +208,91 @@ export type WsSendConfig = z.infer<typeof WsSendSchema>;
 export type WsDisconnectConfig = z.infer<typeof WsDisconnectSchema>;
 
 // ===========================
+// SSE Schemas
+// ===========================
+
+// Header denylist for streaming HTTP requests we issue from Node.
+// These are either hop-by-hop (forbidden by spec to forward) or sensitive
+// security context that the user shouldn't be able to inject.
+const STREAMING_HEADER_DENYLIST = new Set([
+  'host', 'origin', 'connection', 'upgrade', 'transfer-encoding', 'te',
+  'proxy-authorization', 'proxy-connection', 'cookie',
+]);
+
+export const SseConnectionIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+
+export const SseConnectSchema = z.object({
+  connectionId: SseConnectionIdSchema,
+  url: z.string().url('Invalid SSE URL').refine(
+    (url) => ['http:', 'https:'].includes(new URL(url).protocol),
+    { message: 'Only http: and https: URLs are allowed' }
+  ),
+  headers: z
+    .record(z.string(), z.string())
+    .refine(
+      (headers) => !Object.keys(headers).some((k) => STREAMING_HEADER_DENYLIST.has(k.toLowerCase())),
+      { message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...STREAMING_HEADER_DENYLIST].join(', ')}` }
+    )
+    .optional(),
+});
+
+export const SseDisconnectSchema = z.object({
+  connectionId: SseConnectionIdSchema,
+});
+
+export type SseConnectConfig = z.infer<typeof SseConnectSchema>;
+export type SseDisconnectConfig = z.infer<typeof SseDisconnectSchema>;
+
+// ===========================
+// MCP Schemas
+// ===========================
+
+export const McpConnectionIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+
+export const McpConnectSchema = z.object({
+  connectionId: McpConnectionIdSchema,
+  url: z.string().url('Invalid MCP server URL').refine(
+    (url) => ['http:', 'https:'].includes(new URL(url).protocol),
+    { message: 'Only http: and https: URLs are allowed' }
+  ),
+  transport: z.enum(['streamable-http', 'http-sse']),
+  headers: z
+    .record(z.string(), z.string())
+    .refine(
+      (headers) => !Object.keys(headers).some((k) => STREAMING_HEADER_DENYLIST.has(k.toLowerCase())),
+      { message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...STREAMING_HEADER_DENYLIST].join(', ')}` }
+    )
+    .optional(),
+});
+
+// JSON-RPC method names for MCP. We don't lock down to a fixed enum since the
+// spec evolves — instead we validate shape (non-empty string) and forward.
+export const McpRequestSchema = z.object({
+  connectionId: McpConnectionIdSchema,
+  method: z.string().min(1).max(256),
+  params: z.unknown().optional(),
+  /** Caller-supplied request id (string or number per JSON-RPC spec) */
+  requestId: z.union([z.string(), z.number()]).optional(),
+  timeout: z.number().int().positive().max(300_000).optional(),
+});
+
+export const McpDisconnectSchema = z.object({
+  connectionId: McpConnectionIdSchema,
+});
+
+export type McpConnectConfig = z.infer<typeof McpConnectSchema>;
+export type McpRequestConfig = z.infer<typeof McpRequestSchema>;
+export type McpDisconnectConfig = z.infer<typeof McpDisconnectSchema>;
+
+// ===========================
 // Store Schemas
 // ===========================
 
