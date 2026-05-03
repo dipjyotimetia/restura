@@ -61,6 +61,7 @@ export const GrpcRequestConfigSchema = z.object({
   message: z.unknown(),
   protoContent: z.string().min(1, 'Proto content is required').max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit'),
   protoFileName: z.string().min(1, 'Proto file name is required'),
+  useCompression: z.boolean().optional(),
 });
 
 export type GrpcRequestConfig = z.infer<typeof GrpcRequestConfigSchema>;

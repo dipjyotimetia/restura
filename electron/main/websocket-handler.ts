@@ -42,7 +42,7 @@ export function registerWebSocketHandlerIPC(): void {
   }) => {
     const connectionId = sanitizeConnectionId(config.connectionId);
 
-    if (!wsRateLimiter.tryAcquire()) {
+    if (!wsRateLimiter()) {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
@@ -72,20 +72,20 @@ export function registerWebSocketHandlerIPC(): void {
         emit(`ws:open:${connectionId}`);
       });
 
-      ws.on('message', (data, isBinary) => {
+      ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
         if (isBinary) {
-          const hex = (data as Buffer).toString('hex');
+          const hex = Buffer.isBuffer(data) ? data.toString('hex') : Buffer.from(data as ArrayBuffer).toString('hex');
           emit(`ws:message:${connectionId}`, { type: 'binary', data: hex });
         } else {
           emit(`ws:message:${connectionId}`, { type: 'text', data: data.toString() });
         }
       });
 
-      ws.on('error', (err) => {
+      ws.on('error', (err: Error) => {
         emit(`ws:error:${connectionId}`, { message: err.message });
       });
 
-      ws.on('close', (code, reason) => {
+      ws.on('close', (code: number, reason: Buffer) => {
         activeConnections.delete(connectionId);
         emit(`ws:close:${connectionId}`, { code, reason: reason.toString() });
       });

@@ -452,7 +452,8 @@ export async function makeElectronGrpcRequest(
   protoContent: string,
   protoFileName: string,
   resolveVariables: (text: string) => string,
-  timeoutMs: number = 30000
+  timeoutMs: number = 30000,
+  useCompression: boolean = false
 ): Promise<GrpcResponse> {
   if (!isElectron()) {
     throw new Error('Electron environment required for full gRPC support');
@@ -475,6 +476,7 @@ export async function makeElectronGrpcRequest(
       protoContent,
       protoFileName,
       timeoutMs,
+      useCompression,
     });
 
     const endTime = Date.now();
@@ -521,7 +523,8 @@ export function startElectronGrpcStream(
     onError: (error: unknown) => void;
     onStatus: (status: unknown) => void;
   },
-  timeoutMs: number = 30000
+  timeoutMs: number = 30000,
+  useCompression: boolean = false
 ): {
   sendMessage: (message: unknown) => void;
   endStream: () => void;
@@ -558,6 +561,7 @@ export function startElectronGrpcStream(
     protoContent,
     protoFileName,
     timeoutMs,
+    useCompression,
   });
 
   return {
