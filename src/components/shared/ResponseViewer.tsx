@@ -248,6 +248,9 @@ function ResponseViewer() {
                 </Badge>
               )}
             </TabsTrigger>
+            {language === 'html' && (
+              <TabsTrigger value="preview">Preview</TabsTrigger>
+            )}
             <TabsTrigger value="headers">
               Headers
               <Badge variant="secondary" className="ml-2 h-4 min-w-4 px-1 text-[10px] tabular-nums">
@@ -290,6 +293,17 @@ function ResponseViewer() {
                   </div>
                 )}
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="preview" className="flex-1 relative p-0 m-0 min-h-0 border-none outline-none data-[state=active]:flex data-[state=active]:flex-col h-full">
+            <div className="flex-1 relative min-h-0">
+              <iframe
+                srcDoc={currentResponse.body}
+                sandbox="allow-scripts allow-same-origin"
+                className="absolute inset-0 w-full h-full bg-white border-0"
+                title="HTML Preview"
+              />
             </div>
           </TabsContent>
 

@@ -9,6 +9,10 @@ import { generateRuby } from './ruby';
 import { generatePhp } from './php';
 
 export { generateCurl, generatePython, generateJavaScript, generateNodeJS, generateGo, generateRuby, generatePhp };
+export { websocketCodeGenerators } from './websocket';
+export type { WebSocketGenerateOptions } from './websocket';
+export { graphqlCodeGenerators } from './graphql';
+export type { GraphQLGenerateOptions } from './graphql';
 
 export const codeGenerators = {
   curl: { name: 'cURL', generate: generateCurl },

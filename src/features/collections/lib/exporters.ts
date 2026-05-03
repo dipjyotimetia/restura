@@ -257,6 +257,91 @@ function convertAuthToInsomnia(auth: AuthConfig): {
 
 const generateId = uuidv4;
 
+// Export to HAR (HTTP Archive) Format
+export function exportToHAR(collection: Collection): object {
+  const entries: object[] = [];
+
+  function collectEntries(items: CollectionItem[]) {
+    for (const item of items) {
+      if (item.type === 'folder') {
+        collectEntries(item.items || []);
+      } else if (item.request?.type === 'http') {
+        const req = item.request as HttpRequest;
+        const postData = buildHarPostData(req.body);
+        const queryString = req.params
+          .filter((p) => p.enabled && p.key)
+          .map((p) => ({ name: p.key, value: p.value }));
+        const headers = req.headers
+          .filter((h) => h.enabled && h.key)
+          .map((h) => ({ name: h.key, value: h.value }));
+
+        let fullUrl = req.url;
+        if (queryString.length > 0) {
+          const qs = queryString.map((q) => `${encodeURIComponent(q.name)}=${encodeURIComponent(q.value)}`).join('&');
+          fullUrl += (req.url.includes('?') ? '&' : '?') + qs;
+        }
+
+        entries.push({
+          startedDateTime: new Date().toISOString(),
+          time: 0,
+          request: {
+            method: req.method,
+            url: fullUrl,
+            httpVersion: 'HTTP/1.1',
+            cookies: [],
+            headers,
+            queryString,
+            postData: postData ?? undefined,
+            headersSize: -1,
+            bodySize: postData ? (postData.text?.length ?? 0) : 0,
+          },
+          response: {
+            status: 0,
+            statusText: '',
+            httpVersion: 'HTTP/1.1',
+            cookies: [],
+            headers: [],
+            content: { size: 0, mimeType: 'text/plain' },
+            redirectURL: '',
+            headersSize: -1,
+            bodySize: -1,
+          },
+          cache: {},
+          timings: { send: 0, wait: 0, receive: 0 },
+        });
+      }
+    }
+  }
+
+  collectEntries(collection.items);
+
+  return {
+    log: {
+      version: '1.2',
+      creator: { name: 'Restura', version: '1.0' },
+      entries,
+    },
+  };
+}
+
+function buildHarPostData(body: HttpRequest['body']): { mimeType: string; text: string } | null {
+  if (body.type === 'none' || !body.raw) return null;
+
+  const mimeTypeMap: Record<string, string> = {
+    json: 'application/json',
+    xml: 'application/xml',
+    text: 'text/plain',
+    'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
+    'form-data': 'multipart/form-data',
+    graphql: 'application/json',
+  };
+
+  return {
+    mimeType: mimeTypeMap[body.type] ?? 'text/plain',
+    text: body.raw,
+  };
+}
+
 // Download helper
 export function downloadJSON(data: unknown, filename: string): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
