@@ -13,7 +13,7 @@ export const MAX_PROTO_CONTENT_BYTES = 1024 * 1024;
 
 const ProxyConfigSchema = z.object({
   enabled: z.boolean(),
-  type: z.enum(['http', 'https', 'socks5', 'pac']),
+  type: z.enum(['http', 'https', 'socks4', 'socks5', 'pac']),
   host: z.string(),
   port: z.number().int().positive(),
   pacUrl: z.string().url('Invalid PAC URL').optional(),
@@ -61,6 +61,7 @@ export const GrpcRequestConfigSchema = z.object({
   message: z.unknown(),
   protoContent: z.string().min(1, 'Proto content is required').max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit'),
   protoFileName: z.string().min(1, 'Proto file name is required'),
+  useCompression: z.boolean().optional(),
 });
 
 export type GrpcRequestConfig = z.infer<typeof GrpcRequestConfigSchema>;
@@ -107,12 +108,10 @@ export const AppPathNameSchema = z.enum([
   'crashDumps',
 ]);
 
+export const SAFE_OPEN_PROTOCOLS = ['http:', 'https:', 'mailto:'] as const;
+
 export const ShellUrlSchema = z.string().url('Invalid URL format').refine(
-  (url) => {
-    // Only allow http, https, and mailto protocols
-    const protocol = new URL(url).protocol;
-    return ['http:', 'https:', 'mailto:'].includes(protocol);
-  },
+  (url) => (SAFE_OPEN_PROTOCOLS as readonly string[]).includes(new URL(url).protocol),
   { message: 'Only http, https, and mailto URLs are allowed' }
 );
 
@@ -161,6 +160,73 @@ export const GrpcStreamMessageSchema = z.unknown(); // Allow any message structu
 
 // Schema for grpc:send-message which takes both requestId and message
 export const GrpcSendMessageSchema = z.tuple([GrpcStreamRequestIdSchema, GrpcStreamMessageSchema]);
+
+// ===========================
+// WebSocket Schemas
+// ===========================
+
+export const WsConnectionIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+
+// Hop-by-hop and sensitive headers that must not be forwarded to arbitrary WebSocket servers
+const WS_HEADER_DENYLIST = new Set([
+  'host', 'origin', 'sec-websocket-key', 'sec-websocket-version', 'upgrade',
+  'connection', 'transfer-encoding', 'te', 'proxy-authorization', 'proxy-connection',
+]);
+
+export const WsConnectSchema = z.object({
+  connectionId: WsConnectionIdSchema,
+  url: z.string().url('Invalid WebSocket URL').refine(
+    (url) => ['ws:', 'wss:'].includes(new URL(url).protocol),
+    { message: 'Only ws: and wss: WebSocket URLs are allowed' }
+  ),
+  headers: z
+    .record(z.string(), z.string())
+    .refine(
+      (headers) => !Object.keys(headers).some((k) => WS_HEADER_DENYLIST.has(k.toLowerCase())),
+      { message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...WS_HEADER_DENYLIST].join(', ')}` }
+    )
+    .optional(),
+  protocols: z.array(z.string()).optional(),
+});
+
+export const WsSendSchema = z.object({
+  connectionId: WsConnectionIdSchema,
+  message: z.string().max(1024 * 1024, 'Message exceeds 1MB limit'),
+  binary: z.boolean().optional(),
+});
+
+export const WsDisconnectSchema = z.object({
+  connectionId: WsConnectionIdSchema,
+});
+
+export type WsConnectConfig = z.infer<typeof WsConnectSchema>;
+export type WsSendConfig = z.infer<typeof WsSendSchema>;
+export type WsDisconnectConfig = z.infer<typeof WsDisconnectSchema>;
+
+// ===========================
+// Store Schemas
+// ===========================
+
+// electron-store uses dot-notation for nested access (e.g. "a.b" reads obj.a.b).
+// Dots and colons are allowed here intentionally — callers must use flat keys only
+// to avoid unintended nesting side-effects.
+export const StoreKeySchema = z
+  .string()
+  .min(1, 'Key is required')
+  .max(256, 'Key too long')
+  .regex(/^[a-zA-Z0-9._:-]+$/, 'Key must contain only alphanumeric characters, dots, underscores, colons, or hyphens');
+
+export const StoreValueSchema = z.string().max(1024 * 1024, 'Value exceeds 1MB limit');
+
+// ===========================
+// Log Schemas
+// ===========================
+
+export const LogHistoryLimitSchema = z.number().int().positive().max(1000).optional();
 
 // ===========================
 // Validation Helper

@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { createApplicationMenu } from './menu';
+import { SAFE_OPEN_PROTOCOLS } from './ipc-validators';
 
 export interface WindowState {
   width: number;
@@ -119,9 +120,13 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
     mainWindow.loadFile(indexPath);
   }
 
-  // Handle external links
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    try {
+      const { protocol } = new URL(url);
+      if ((SAFE_OPEN_PROTOCOLS as readonly string[]).includes(protocol)) {
+        shell.openExternal(url);
+      }
+    } catch { /* ignore malformed URLs */ }
     return { action: 'deny' };
   });
 

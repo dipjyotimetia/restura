@@ -82,6 +82,7 @@ export interface KeyValue {
   value: string;
   enabled: boolean;
   description?: string;
+  secret?: boolean;
 }
 
 // Form Data
@@ -109,6 +110,19 @@ export interface AuthConfig {
     accessToken: string;
     tokenType?: string;
     scopes?: string[];
+    // Flow configuration
+    grantType?: 'authorization_code' | 'client_credentials' | 'password' | 'device_code';
+    clientId?: string;
+    clientSecret?: string;
+    authorizationUrl?: string;
+    tokenUrl?: string;
+    /** RFC 8628 device authorization endpoint — required for device_code grant */
+    deviceAuthorizationUrl?: string;
+    scope?: string;
+    redirectUri?: string;
+    // Password grant only
+    username?: string;
+    password?: string;
   };
   digest?: {
     username: string;

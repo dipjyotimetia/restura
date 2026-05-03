@@ -37,7 +37,6 @@
       "teamId": "${env.APPLE_TEAM_ID}"
     }
   },
-  "afterSign": "scripts/notarize.js",
   "dmg": {
     "contents": [
       {

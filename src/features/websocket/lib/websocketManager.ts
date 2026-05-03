@@ -1,10 +1,13 @@
 import { useWebSocketStore } from '@/store/useWebSocketStore';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 
 // Singleton manager for WebSocket connections
 class WebSocketManager {
   private connections: Map<string, WebSocket> = new Map();
+  private electronConnections: Set<string> = new Set();
   private reconnectTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private connectionTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map();
   private static DEFAULT_CONNECTION_TIMEOUT = 30000; // 30 seconds
 
   // Validate WebSocket URL
@@ -27,7 +30,7 @@ class WebSocketManager {
     }
   }
 
-  connect(connectionId: string, url: string, protocols?: string[]): void {
+  connect(connectionId: string, url: string, protocols?: string[], headers?: Record<string, string>): void {
     // Close existing connection if any
     this.disconnect(connectionId, false);
 
@@ -38,6 +41,12 @@ class WebSocketManager {
     if (!validation.valid) {
       store.addMessage(connectionId, 'system', `Connection failed: ${validation.error}`);
       store.updateConnectionStatus(connectionId, 'disconnected');
+      return;
+    }
+
+    // Use Electron IPC bridge when headers are required (browser WebSocket doesn't support headers)
+    if (isElectron() && headers && Object.keys(headers).length > 0) {
+      this.connectViaElectron(connectionId, url, headers, protocols);
       return;
     }
 
@@ -82,6 +91,12 @@ class WebSocketManager {
         state.setReconnectAttempts(connectionId, 0);
         state.setLastConnectedAt(connectionId, Date.now());
         state.addMessage(connectionId, 'system', `Connected to ${url}`);
+
+        // Start heartbeat if configured
+        const conn = state.connections[connectionId];
+        if (conn && conn.heartbeatInterval > 0) {
+          this.startHeartbeat(connectionId, conn.heartbeatInterval, conn.heartbeatMessage);
+        }
       };
 
       ws.onmessage = (event) => {
@@ -112,6 +127,8 @@ class WebSocketManager {
       ws.onclose = (event) => {
         const state = useWebSocketStore.getState();
         const connection = state.connections[connectionId];
+
+        this.stopHeartbeat(connectionId);
 
         state.addMessage(
           connectionId,
@@ -164,6 +181,20 @@ class WebSocketManager {
       this.connectionTimeouts.delete(connectionId);
     }
 
+    this.stopHeartbeat(connectionId);
+
+    // Handle Electron-managed connections
+    if (this.electronConnections.has(connectionId)) {
+      const api = getElectronAPI();
+      api?.websocket?.disconnect({ connectionId });
+      this.electronConnections.delete(connectionId);
+      this.cleanupElectronListeners(connectionId, api);
+      const state = useWebSocketStore.getState();
+      state.updateConnectionStatus(connectionId, 'disconnected');
+      state.setReconnectAttempts(connectionId, 0);
+      return;
+    }
+
     const ws = this.connections.get(connectionId);
     if (ws) {
       ws.onclose = null; // Prevent reconnect on intentional close
@@ -177,6 +208,23 @@ class WebSocketManager {
   }
 
   send(connectionId: string, message: string | ArrayBuffer): boolean {
+    // Handle Electron-managed connections
+    if (this.electronConnections.has(connectionId)) {
+      const api = getElectronAPI();
+      if (!api?.websocket) return false;
+
+      const state = useWebSocketStore.getState();
+      if (message instanceof ArrayBuffer) {
+        const hexString = this.arrayBufferToHex(message);
+        api.websocket.send({ connectionId, message: hexString, binary: true });
+        state.addMessage(connectionId, 'sent', hexString, 'binary', message);
+      } else {
+        api.websocket.send({ connectionId, message });
+        state.addMessage(connectionId, 'sent', message, 'text');
+      }
+      return true;
+    }
+
     const ws = this.connections.get(connectionId);
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(message);
@@ -198,8 +246,102 @@ class WebSocketManager {
   }
 
   isConnected(connectionId: string): boolean {
+    if (this.electronConnections.has(connectionId)) {
+      return useWebSocketStore.getState().connections[connectionId]?.status === 'connected';
+    }
     const ws = this.connections.get(connectionId);
     return ws?.readyState === WebSocket.OPEN;
+  }
+
+  private connectViaElectron(
+    connectionId: string,
+    url: string,
+    headers: Record<string, string>,
+    protocols?: string[]
+  ): void {
+    const store = useWebSocketStore.getState();
+    const api = getElectronAPI();
+    if (!api?.websocket) {
+      store.addMessage(connectionId, 'system', 'Electron WebSocket API not available');
+      store.updateConnectionStatus(connectionId, 'disconnected');
+      return;
+    }
+
+    store.updateConnectionStatus(connectionId, 'connecting');
+    store.setReconnectAttempts(connectionId, 0);
+
+    api.websocket.on(`ws:open:${connectionId}`, () => {
+      const s = useWebSocketStore.getState();
+      s.updateConnectionStatus(connectionId, 'connected');
+      s.setReconnectAttempts(connectionId, 0);
+      s.setLastConnectedAt(connectionId, Date.now());
+      s.addMessage(connectionId, 'system', `Connected to ${url}`);
+      // Mark as Electron-managed (no native ws in connections map)
+      this.electronConnections.add(connectionId);
+    });
+
+    api.websocket.on(`ws:message:${connectionId}`, (payload: unknown) => {
+      const msg = payload as { type: 'text' | 'binary'; data: string };
+      const s = useWebSocketStore.getState();
+      if (msg.type === 'binary') {
+        const bytes = msg.data.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? [];
+        const buf = new Uint8Array(bytes).buffer;
+        s.addMessage(connectionId, 'received', msg.data, 'binary', buf);
+      } else {
+        s.addMessage(connectionId, 'received', msg.data, 'text');
+      }
+    });
+
+    api.websocket.on(`ws:error:${connectionId}`, (payload: unknown) => {
+      const err = payload as { message: string };
+      useWebSocketStore.getState().addMessage(connectionId, 'system', `Error: ${err.message}`);
+    });
+
+    api.websocket.on(`ws:close:${connectionId}`, (payload: unknown) => {
+      const ev = payload as { code: number; reason: string };
+      const s = useWebSocketStore.getState();
+      s.addMessage(connectionId, 'system', `Connection closed (code: ${ev.code}, reason: ${ev.reason || 'No reason provided'})`);
+      s.updateConnectionStatus(connectionId, 'disconnected');
+      this.electronConnections.delete(connectionId);
+      this.cleanupElectronListeners(connectionId, api);
+    });
+
+    api.websocket.connect({ connectionId, url, headers, protocols }).catch((err: unknown) => {
+      const errMsg = err instanceof Error ? err.message : 'Connection failed';
+      const s = useWebSocketStore.getState();
+      s.addMessage(connectionId, 'system', `Failed to connect: ${errMsg}`);
+      s.updateConnectionStatus(connectionId, 'disconnected');
+      this.electronConnections.delete(connectionId);
+      this.cleanupElectronListeners(connectionId, api);
+    });
+  }
+
+  private cleanupElectronListeners(connectionId: string, api: ReturnType<typeof getElectronAPI>): void {
+    api?.websocket?.removeAllListeners(`ws:open:${connectionId}`);
+    api?.websocket?.removeAllListeners(`ws:message:${connectionId}`);
+    api?.websocket?.removeAllListeners(`ws:error:${connectionId}`);
+    api?.websocket?.removeAllListeners(`ws:close:${connectionId}`);
+  }
+
+  private startHeartbeat(connectionId: string, interval: number, message: string): void {
+    this.stopHeartbeat(connectionId);
+    const id = setInterval(() => {
+      const ws = this.connections.get(connectionId);
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      } else {
+        this.stopHeartbeat(connectionId);
+      }
+    }, interval);
+    this.heartbeatIntervals.set(connectionId, id);
+  }
+
+  private stopHeartbeat(connectionId: string): void {
+    const id = this.heartbeatIntervals.get(connectionId);
+    if (id !== undefined) {
+      clearInterval(id);
+      this.heartbeatIntervals.delete(connectionId);
+    }
   }
 
   private scheduleReconnect(connectionId: string): void {
@@ -258,6 +400,14 @@ class WebSocketManager {
   cleanup(): void {
     for (const [connectionId] of this.connections) {
       this.disconnect(connectionId);
+    }
+  }
+
+  updateHeartbeat(connectionId: string, interval: number, message: string): void {
+    this.stopHeartbeat(connectionId);
+    const ws = this.connections.get(connectionId);
+    if (ws?.readyState === WebSocket.OPEN && interval > 0) {
+      this.startHeartbeat(connectionId, interval, message);
     }
   }
 }

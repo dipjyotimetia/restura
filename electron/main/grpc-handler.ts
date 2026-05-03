@@ -2,10 +2,6 @@ import { ipcMain, app } from 'electron';
 import type { LogEntry } from './request-logger';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { createGrpcTransport } from '@connectrpc/connect-node';
-import { createClient } from '@connectrpc/connect';
-import type { Interceptor } from '@connectrpc/connect';
-import type { DescService } from '@bufbuild/protobuf';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -65,9 +61,6 @@ const STREAM_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Maximum response size (10MB)
 const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
-
-// Maximum queue size for client streaming (100 messages)
-const MAX_STREAM_QUEUE_SIZE = 100;
 
 // Helper to estimate object size in bytes
 function estimateSize(obj: unknown): number {
@@ -160,6 +153,9 @@ export function stopStreamCleanup(): void {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
   }
+  // Cancel all active streams so we don't block process exit
+  activeCalls.forEach((call) => { try { call.cancel(); } catch { /* ignore */ } });
+  activeCalls.clear();
 }
 
 // Safe method to add a stream with collision detection
@@ -184,9 +180,7 @@ const removeActiveCall = (id: string): boolean => {
 // Helper to cleanup temp files
 const cleanupTemp = (dir: string) => {
   try {
-    if (fs.existsSync(dir)) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    fs.rmSync(dir, { recursive: true, force: true });
   } catch (e) {
     console.error('Failed to cleanup temp dir:', e);
   }
@@ -195,12 +189,8 @@ const cleanupTemp = (dir: string) => {
 // Clean up old temp directories on startup
 export function initializeGrpcTempDir(): void {
   try {
-    // Ensure base directory exists
-    if (!fs.existsSync(GRPC_TEMP_BASE)) {
-      fs.mkdirSync(GRPC_TEMP_BASE, { recursive: true });
-    }
+    fs.mkdirSync(GRPC_TEMP_BASE, { recursive: true });
 
-    // Clean up any existing temp directories from previous sessions
     const entries = fs.readdirSync(GRPC_TEMP_BASE, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory()) {
@@ -250,171 +240,103 @@ const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
   return grpc.loadPackageDefinition(packageDefinition);
 };
 
-// Create a dynamic service definition for Connect
-function createDynamicService(serviceName: string, methodName: string, protoDef: grpc.GrpcObject) {
-  const serviceParts = serviceName.split('.');
-  let serviceDef: Record<string, unknown> = protoDef as Record<string, unknown>;
-  for (const part of serviceParts) {
-    serviceDef = serviceDef?.[part] as Record<string, unknown>;
+// Build a grpc-js client from the loaded package definition
+function buildGrpcClient(
+  protoDef: grpc.GrpcObject,
+  serviceName: string,
+  url: string,
+  useCompression: boolean
+): grpc.Client {
+  const parts = serviceName.split('.');
+  let obj: Record<string, unknown> = protoDef as Record<string, unknown>;
+  for (const part of parts) {
+    obj = obj[part] as Record<string, unknown>;
+    if (!obj) throw new Error(`Service "${serviceName}" not found in proto`);
   }
-
-  if (!serviceDef || !(methodName in serviceDef)) {
-    throw new Error(`Method ${methodName} not found in service ${serviceName}`);
+  if (typeof obj !== 'function') {
+    throw new Error(`"${serviceName}" resolved to a non-constructor — check the service name in your proto`);
   }
+  const ServiceClient = obj as unknown as typeof grpc.Client;
+  const target = url.replace(/^https?:\/\//, '');
+  const credentials = url.startsWith('https://')
+    ? grpc.credentials.createSsl()
+    : grpc.credentials.createInsecure();
+  const channelOptions: grpc.ChannelOptions = useCompression
+    ? { 'grpc.default_compression_algorithm': 2, 'grpc.default_compression_level': 2 }
+    : {};
+  return new ServiceClient(target, credentials, channelOptions);
+}
 
-  const methodDef = serviceDef[methodName] as grpc.MethodDefinition<unknown, unknown>;
-  
-  let methodKind = "unary";
-  if (methodDef.requestStream && methodDef.responseStream) {
-    methodKind = "bidi_streaming";
-  } else if (methodDef.requestStream) {
-    methodKind = "client_streaming";
-  } else if (methodDef.responseStream) {
-    methodKind = "server_streaming";
-  }
-
-  // Create adapters for Input/Output types using grpc-js serialization
-  const InputType = {
-    typeName: 'Input', // We don't have the full name easily, but it shouldn't matter for dynamic
-    binaryRead: (bytes: Uint8Array) => methodDef.requestDeserialize(Buffer.from(bytes)),
-    binaryWrite: (msg: unknown) => methodDef.requestSerialize(msg),
-    fromJson: (json: unknown) => json,
-    toJson: (msg: unknown) => msg,
-    create: (val: unknown) => val || {},
-    equals: (a: unknown, b: unknown) => a === b,
-    clone: (a: unknown) => ({...(a as object)}),
-  };
-
-  const OutputType = {
-    typeName: 'Output',
-    binaryRead: (bytes: Uint8Array) => methodDef.responseDeserialize(Buffer.from(bytes)),
-    binaryWrite: (msg: unknown) => methodDef.responseSerialize(msg),
-    fromJson: (json: unknown) => json,
-    toJson: (msg: unknown) => msg,
-    create: (val: unknown) => val || {},
-    equals: (a: unknown, b: unknown) => a === b,
-    clone: (a: unknown) => ({...(a as object)}),
-  };
-
-  return {
-    typeName: serviceName,
-    methods: {
-      [methodName]: {
-        name: methodName,
-        I: InputType,
-        O: OutputType,
-        methodKind: methodKind,
-      }
-    }
-  };
+function buildMetadata(map: Record<string, string> = {}): grpc.Metadata {
+  const md = new grpc.Metadata();
+  Object.entries(map).forEach(([k, v]) => md.add(k, v));
+  return md;
 }
 
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
-  // Use request ID if available, otherwise generate one
   const requestId = config.id || uuidv4();
   const tempDir = path.join(GRPC_TEMP_BASE, requestId);
   fs.mkdirSync(tempDir, { recursive: true });
 
+  const capturedHeaders: Record<string, string> = {};
+  const capturedTrailers: Record<string, string> = {};
+
   try {
     const protoDef = loadProto(config, tempDir);
-    const serviceDef = createDynamicService(config.service, config.method, protoDef);
-
-    // Storage for captured headers and trailers
-    const capturedHeaders: Record<string, string> = {};
-    const capturedTrailers: Record<string, string> = {};
-
-    // Create interceptor to capture headers and trailers
-    const headerInterceptor: Interceptor = (next) => async (req) => {
-      try {
-        const response = await next(req);
-
-        req.header.forEach((value: string, key: string) => {
-          capturedHeaders[key] = value;
-        });
-
-        response.trailer?.forEach((value: string, key: string) => {
-          capturedTrailers[key] = value;
-        });
-
-        return response;
-      } catch (error) {
-        if (error && typeof error === 'object' && 'trailer' in error) {
-          (error as { trailer: Headers }).trailer.forEach((value: string, key: string) => {
-            capturedTrailers[key] = value;
-          });
-        }
-        throw error;
-      }
-    };
-
-    // Create Connect transport with interceptor
-    const transport = createGrpcTransport({
-      baseUrl: config.url,
-      interceptors: [headerInterceptor],
-    });
-
-    // serviceDef is structurally DescService-compatible but nominally opaque — double cast is intentional.
-    const client = createClient(serviceDef as unknown as DescService, transport) as Record<string, (...args: unknown[]) => unknown>;
-
-    // Add metadata
-    const headers: Record<string, string> = { ...config.metadata };
-
+    const grpcClient = buildGrpcClient(protoDef, config.service, config.url, !!config.useCompression);
+    const metadata = buildMetadata(config.metadata);
     const method = config.method;
 
     if (config.methodType === 'unary') {
       try {
-        const response = await client[method](config.message, { headers });
-
+        const response = await new Promise<unknown>((resolve, reject) => {
+          const call = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+            config.message,
+            metadata,
+            (err: grpc.ServiceError | null, res: unknown) => { if (err) reject(err); else resolve(res); }
+          ) as grpc.ClientUnaryCall;
+          call.on('metadata', (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap()));
+          call.on('status', (st: grpc.StatusObject) => Object.assign(capturedTrailers, st.metadata.getMap()));
+        });
         cleanupTemp(tempDir);
-        return {
-          status: 0, // OK
-          statusText: 'OK',
-          headers: capturedHeaders,
-          trailers: capturedTrailers,
-          message: response
-        };
+        return { status: 0, statusText: 'OK', headers: capturedHeaders, trailers: capturedTrailers, message: response };
       } catch (err: unknown) {
         cleanupTemp(tempDir);
         const error = toGrpcError(err);
         return {
-          status: error.code || 2, // UNKNOWN
+          status: error.code || 2,
           statusText: sanitizeErrorMessage(error.message),
           headers: capturedHeaders,
           trailers: capturedTrailers,
           error: sanitizeErrorMessage(error.message),
-          details: sanitizeErrorMessage(error.details)
+          details: sanitizeErrorMessage(error.details),
         };
       }
     } else if (config.methodType === 'server-streaming') {
       const messages: unknown[] = [];
       let accumulatedSize = 0;
       try {
-        for await (const response of client[method](config.message, { headers }) as AsyncIterable<unknown>) {
-          const responseSize = estimateSize(response);
-          accumulatedSize += responseSize;
-
-          if (accumulatedSize > MAX_RESPONSE_SIZE) {
-            cleanupTemp(tempDir);
-            return {
-              status: 8, // RESOURCE_EXHAUSTED
-              statusText: 'Response size exceeded limit',
-              headers: capturedHeaders,
-              trailers: capturedTrailers,
-              messages,
-              error: `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
-            };
-          }
-
-          messages.push(response);
-        }
+        await new Promise<void>((resolve, reject) => {
+          const call = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+            config.message,
+            metadata
+          ) as grpc.ClientReadableStream<unknown>;
+          call.on('metadata', (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap()));
+          call.on('data', (msg: unknown) => {
+            accumulatedSize += estimateSize(msg);
+            if (accumulatedSize > MAX_RESPONSE_SIZE) {
+              call.cancel();
+              reject(new Error(`Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`));
+              return;
+            }
+            messages.push(msg);
+          });
+          call.on('status', (st: grpc.StatusObject) => Object.assign(capturedTrailers, st.metadata.getMap()));
+          call.on('error', (err: Error) => reject(err));
+          call.on('end', () => resolve());
+        });
         cleanupTemp(tempDir);
-        return {
-          status: 0,
-          statusText: 'OK',
-          headers: capturedHeaders,
-          trailers: capturedTrailers,
-          messages
-        };
+        return { status: 0, statusText: 'OK', headers: capturedHeaders, trailers: capturedTrailers, messages };
       } catch (err: unknown) {
         cleanupTemp(tempDir);
         const error = toGrpcError(err);
@@ -424,23 +346,23 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
           headers: capturedHeaders,
           trailers: capturedTrailers,
           messages,
-          error: sanitizeErrorMessage(error.message)
+          error: sanitizeErrorMessage(error.message),
         };
       }
     } else {
       cleanupTemp(tempDir);
-      throw new Error(`Method type ${config.methodType} not supported in unary mode`);
+      throw new Error(`Method type ${config.methodType} not supported in synchronous mode`);
     }
 
   } catch (err: unknown) {
     cleanupTemp(tempDir);
     const error = err instanceof Error ? err : new Error(String(err));
     return {
-      status: 2, // UNKNOWN
+      status: 2,
       statusText: 'Internal Error',
       headers: {},
       trailers: {},
-      error: `gRPC setup failed: ${error.message}`
+      error: `gRPC setup failed: ${error.message}`,
     };
   }
 }
@@ -480,7 +402,6 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
   ipcMain.on(
     'grpc:start-stream',
     createValidatedListener('grpc:start-stream', GrpcRequestConfigSchema, (event, config: GrpcRequestConfig) => {
-      // Re-implement startGrpcStream with proper signal handling for server streaming
       const requestId = config.id;
       if (!requestId) return;
 
@@ -498,16 +419,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
     try {
       const protoDef = loadProto(config, tempDir);
-      const serviceDef = createDynamicService(config.service, config.method, protoDef);
-      
-      const transport = createGrpcTransport({
-        baseUrl: config.url,
-      });
-
-      const client = createClient(serviceDef as unknown as DescService, transport) as Record<string, (...args: unknown[]) => unknown>;
+      const grpcClient = buildGrpcClient(protoDef, config.service, config.url, !!config.useCompression);
+      const metadata = buildMetadata(config.metadata);
       const method = config.method;
-      const headers = { ...config.metadata };
-      const controller = new AbortController();
       let accumulatedSize = 0;
 
       const handleData = (data: unknown) => {
@@ -515,7 +429,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         accumulatedSize += dataSize;
 
         if (accumulatedSize > MAX_RESPONSE_SIZE) {
-          controller.abort();
+          activeCalls.get(requestId)?.cancel();
           event.sender.send(`grpc:error:${requestId}`, {
             status: 8, // RESOURCE_EXHAUSTED
             details: `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
@@ -528,7 +442,10 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
       const handleError = (err: unknown) => {
         const error = toGrpcError(err);
-        if (error.name === 'AbortError') return; // Ignore aborts
+        if (error.name === 'AbortError' || error.code === grpc.status.CANCELLED) {
+          cleanup();
+          return;
+        }
         event.sender.send(`grpc:error:${requestId}`, {
           status: error.code || 2,
           details: sanitizeErrorMessage(error.message)
@@ -571,95 +488,81 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       };
 
       if (config.methodType === 'server-streaming') {
-        (async () => {
-          try {
-            for await (const response of client[method](config.message, { headers, signal: controller.signal }) as AsyncIterable<unknown>) {
-              handleData(response);
-            }
-            handleEnd();
-          } catch (err) {
-            handleError(err);
-          }
-        })();
+        const ssCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+          config.message, metadata
+        ) as grpc.ClientReadableStream<unknown>;
+        ssCall.on('data', handleData);
+        ssCall.on('error', handleError);
+        ssCall.on('end', handleEnd);
 
         const added = addActiveCall(requestId, {
-          cancel: () => controller.abort(),
+          cancel: () => ssCall.cancel(),
           write: () => {},
           end: () => {}
         });
 
         if (!added) {
+          ssCall.cancel();
           event.sender.send(`grpc:error:${requestId}`, {
-            status: 13, // INTERNAL
+            status: 13,
             details: `Stream with ID ${requestId} already exists`
           });
-          cleanup();
           return;
         }
 
-      } else if (config.methodType === 'client-streaming' || config.methodType === 'bidirectional-streaming') {
-        const inputQueue: unknown[] = [];
-        let notifyInput: (() => void) | null = null;
-        let finished = false;
-
-        const inputIterable = {
-          [Symbol.asyncIterator]: async function* () {
-            while (true) {
-              if (inputQueue.length > 0) {
-                yield inputQueue.shift();
-              } else if (finished) {
-                return;
-              } else {
-                await new Promise<void>(resolve => notifyInput = resolve);
-                notifyInput = null;
-              }
-            }
-          }
-        };
-
-        (async () => {
-          try {
-            if (config.methodType === 'client-streaming') {
-              const response = await client[method](inputIterable, { headers, signal: controller.signal });
-              handleData(response);
-              handleEnd();
+      } else if (config.methodType === 'client-streaming') {
+        const csCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+          metadata,
+          (err: grpc.ServiceError | null, res: unknown) => {
+            if (err) {
+              handleError(err);
             } else {
-              for await (const response of client[method](inputIterable, { headers, signal: controller.signal }) as AsyncIterable<unknown>) {
-                handleData(response);
-              }
+              handleData(res);
               handleEnd();
             }
-          } catch (err) {
-            handleError(err);
           }
-        })();
+        ) as grpc.ClientWritableStream<unknown>;
 
-        const added = addActiveCall(requestId, {
-          cancel: () => {
-            controller.abort();
-            finished = true;
-            if (notifyInput) notifyInput();
-          },
+        const csAdded = addActiveCall(requestId, {
+          cancel: () => csCall.cancel(),
           write: (msg: unknown) => {
-            if (inputQueue.length >= MAX_STREAM_QUEUE_SIZE) {
-              console.warn(`[gRPC] Stream queue full (${MAX_STREAM_QUEUE_SIZE} messages), dropping message`);
-              return;
+            if (csCall.writableNeedDrain) {
+              console.warn('[gRPC] Client stream write buffer is full; message queued by kernel — consider slowing the sender');
             }
-            inputQueue.push(msg);
-            if (notifyInput) notifyInput();
+            csCall.write(msg);
           },
-          end: () => {
-            finished = true;
-            if (notifyInput) notifyInput();
-          }
+          end: () => csCall.end()
         });
 
-        if (!added) {
+        if (!csAdded) {
+          csCall.cancel();
           event.sender.send(`grpc:error:${requestId}`, {
-            status: 13, // INTERNAL
+            status: 13,
             details: `Stream with ID ${requestId} already exists`
           });
-          cleanup();
+          return;
+        }
+
+      } else if (config.methodType === 'bidirectional-streaming') {
+        const bidiCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+          metadata
+        ) as grpc.ClientDuplexStream<unknown, unknown>;
+        bidiCall.on('data', handleData);
+        bidiCall.on('error', handleError);
+        bidiCall.on('end', handleEnd);
+
+        const bidiAdded = addActiveCall(requestId, {
+          cancel: () => bidiCall.cancel(),
+          write: (msg: unknown) => bidiCall.write(msg as object),
+          end: () => bidiCall.end()
+        });
+
+        if (!bidiAdded) {
+          bidiCall.cancel();
+          event.sender.send(`grpc:error:${requestId}`, {
+            status: 13,
+            details: `Stream with ID ${requestId} already exists`
+          });
           return;
         }
       }
@@ -668,7 +571,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       const error = err instanceof Error ? err : new Error(String(err));
       event.sender.send(`grpc:error:${requestId}`, {
         status: 2,
-        details: error.message
+        details: sanitizeErrorMessage(error.message)
       });
       cleanupTemp(tempDir);
     }
@@ -701,6 +604,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       const call = activeCalls.get(requestId);
       if (call) {
         call.cancel();
+        removeActiveCall(requestId); // cleanup immediately; handleError AbortError path also calls cleanup but Map.delete is idempotent
       }
     })
   );

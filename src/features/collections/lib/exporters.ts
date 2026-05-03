@@ -257,6 +257,271 @@ function convertAuthToInsomnia(auth: AuthConfig): {
 
 const generateId = uuidv4;
 
+// Export to HAR (HTTP Archive) Format
+export function exportToHAR(collection: Collection): object {
+  const entries: object[] = [];
+
+  function collectEntries(items: CollectionItem[]) {
+    for (const item of items) {
+      if (item.type === 'folder') {
+        collectEntries(item.items || []);
+      } else if (item.request?.type === 'http') {
+        const req = item.request as HttpRequest;
+        const postData = buildHarPostData(req.body);
+        const queryString = req.params
+          .filter((p) => p.enabled && p.key)
+          .map((p) => ({ name: p.key, value: p.value }));
+        const headers = req.headers
+          .filter((h) => h.enabled && h.key)
+          .map((h) => ({ name: h.key, value: h.value }));
+
+        let fullUrl = req.url;
+        if (queryString.length > 0) {
+          const qs = queryString.map((q) => `${encodeURIComponent(q.name)}=${encodeURIComponent(q.value)}`).join('&');
+          fullUrl += (req.url.includes('?') ? '&' : '?') + qs;
+        }
+
+        entries.push({
+          startedDateTime: '',
+          time: 0,
+          request: {
+            method: req.method,
+            url: fullUrl,
+            httpVersion: 'HTTP/1.1',
+            cookies: [],
+            headers,
+            queryString,
+            postData: postData ?? undefined,
+            headersSize: -1,
+            bodySize: postData ? (postData.text?.length ?? 0) : 0,
+          },
+          response: {
+            status: 0,
+            statusText: '',
+            httpVersion: 'HTTP/1.1',
+            cookies: [],
+            headers: [],
+            content: { size: 0, mimeType: 'text/plain' },
+            redirectURL: '',
+            headersSize: -1,
+            bodySize: -1,
+          },
+          cache: {},
+          timings: { send: 0, wait: 0, receive: 0 },
+        });
+      }
+    }
+  }
+
+  collectEntries(collection.items);
+
+  return {
+    log: {
+      version: '1.2',
+      creator: { name: 'Restura', version: '1.0' },
+      entries,
+    },
+  };
+}
+
+function buildHarPostData(body: HttpRequest['body']): { mimeType: string; text: string } | null {
+  if (body.type === 'none' || !body.raw) return null;
+
+  const mimeTypeMap: Record<string, string> = {
+    json: 'application/json',
+    xml: 'application/xml',
+    text: 'text/plain',
+    'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
+    'form-data': 'multipart/form-data',
+    graphql: 'application/json',
+  };
+
+  return {
+    mimeType: mimeTypeMap[body.type] ?? 'text/plain',
+    text: body.raw,
+  };
+}
+
+// Export to OpenAPI 3.0 Format
+export function exportToOpenAPI(collection: Collection): object {
+  const paths: Record<string, Record<string, unknown>> = {};
+
+  function collectRequests(items: CollectionItem[]) {
+    for (const item of items) {
+      if (item.type === 'folder') {
+        collectRequests(item.items || []);
+      } else if (item.request?.type === 'http') {
+        const req = item.request as HttpRequest;
+        const pathKey = toOpenAPIPath(req.url);
+        const method = req.method.toLowerCase();
+
+        if (!paths[pathKey]) paths[pathKey] = {};
+
+        const parameters: unknown[] = [];
+
+        // Path parameters from {param} placeholders
+        const pathParams = pathKey.match(/\{([^}]+)\}/g)?.map((p) => p.slice(1, -1)) ?? [];
+        for (const param of pathParams) {
+          parameters.push({
+            name: param,
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+          });
+        }
+
+        // Query parameters
+        req.params
+          .filter((p) => p.enabled && p.key)
+          .forEach((p) => {
+            parameters.push({
+              name: p.key,
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              example: p.value || undefined,
+              description: p.description,
+            });
+          });
+
+        // Header parameters (excluding Authorization which goes in securitySchemes)
+        req.headers
+          .filter((h) => h.enabled && h.key && h.key.toLowerCase() !== 'authorization')
+          .forEach((h) => {
+            parameters.push({
+              name: h.key,
+              in: 'header',
+              required: false,
+              schema: { type: 'string' },
+              example: h.value || undefined,
+            });
+          });
+
+        const rawOpId = item.name.replace(/\s+/g, '_').replace(/[^\w]/g, '');
+        const operation: Record<string, unknown> = {
+          operationId: rawOpId || uuidv4(),
+          summary: item.name,
+          parameters: parameters.length > 0 ? parameters : undefined,
+          responses: {
+            '200': { description: 'Successful response' },
+            '400': { description: 'Bad request' },
+            '401': { description: 'Unauthorized' },
+            '500': { description: 'Internal server error' },
+          },
+        };
+
+        // Request body
+        if (req.body.type !== 'none' && req.body.raw) {
+          const mimeMap: Record<string, string> = {
+            json: 'application/json',
+            xml: 'application/xml',
+            text: 'text/plain',
+            'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
+            'form-data': 'multipart/form-data',
+            graphql: 'application/json',
+          };
+          const mime = mimeMap[req.body.type] ?? 'text/plain';
+          let schema: Record<string, unknown> = { type: 'string' };
+          if (req.body.type === 'json') {
+            try {
+              const parsed = JSON.parse(req.body.raw);
+              schema = jsonToSchema(parsed);
+            } catch {
+              // keep string schema
+            }
+          }
+          operation['requestBody'] = {
+            required: true,
+            content: { [mime]: { schema, example: req.body.raw } },
+          };
+        }
+
+        // Security
+        const security = authToOpenAPISecurity(req.auth);
+        if (security) operation['security'] = [security];
+
+        paths[pathKey][method] = operation;
+      }
+    }
+  }
+
+  collectRequests(collection.items);
+
+  // Collect unique base URLs for servers
+  const urls = new Set<string>();
+  function extractUrls(items: CollectionItem[]) {
+    for (const item of items) {
+      if (item.type === 'folder') extractUrls(item.items || []);
+      else if (item.request?.type === 'http') {
+        try {
+          const u = new URL((item.request as HttpRequest).url);
+          urls.add(`${u.protocol}//${u.host}`);
+        } catch {
+          // invalid URL
+        }
+      }
+    }
+  }
+  extractUrls(collection.items);
+
+  return {
+    openapi: '3.0.3',
+    info: {
+      title: collection.name,
+      description: collection.description || '',
+      version: '1.0.0',
+    },
+    servers: urls.size > 0 ? Array.from(urls).map((url) => ({ url })) : [{ url: 'https://api.example.com' }],
+    paths,
+  };
+}
+
+function toOpenAPIPath(url: string): string {
+  try {
+    const u = new URL(url);
+    // Convert {{variable}} placeholders to {variable} (OpenAPI style)
+    return u.pathname.replace(/\{\{(\w+)\}\}/g, '{$1}') || '/';
+  } catch {
+    // Not a full URL — treat as path
+    const path = url.replace(/\{\{(\w+)\}\}/g, '{$1}');
+    return path.startsWith('/') ? path : `/${path}`;
+  }
+}
+
+function jsonToSchema(value: unknown): Record<string, unknown> {
+  if (value === null) return { type: 'null' };
+  if (Array.isArray(value)) {
+    // Item type is inferred from the first element only — heterogeneous arrays will produce
+    // an incomplete schema, which is acceptable for a best-effort export.
+    return {
+      type: 'array',
+      items: value.length > 0 ? jsonToSchema(value[0]) : {},
+    };
+  }
+  if (typeof value === 'object') {
+    const properties: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      properties[k] = jsonToSchema(v);
+    }
+    return { type: 'object', properties };
+  }
+  return { type: typeof value };
+}
+
+function authToOpenAPISecurity(auth: AuthConfig): Record<string, string[]> | null {
+  switch (auth.type) {
+    case 'bearer':
+    case 'oauth2':
+      return { bearerAuth: [] };
+    case 'basic':
+      return { basicAuth: [] };
+    case 'api-key':
+      return { apiKey: [] };
+    default:
+      return null;
+  }
+}
+
 // Download helper
 export function downloadJSON(data: unknown, filename: string): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });

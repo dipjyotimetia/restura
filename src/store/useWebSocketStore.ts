@@ -28,6 +28,8 @@ export interface WebSocketConnection {
   reconnectDelay: number;
   createdAt: number;
   lastConnectedAt?: number;
+  heartbeatInterval: number; // ms, 0 = disabled
+  heartbeatMessage: string;
 }
 
 interface WebSocketState {
@@ -61,6 +63,9 @@ interface WebSocketState {
 
   // Protocols
   setProtocols: (connectionId: string, protocols: string[]) => void;
+
+  // Heartbeat
+  setHeartbeatConfig: (connectionId: string, interval: number, message: string) => void;
 
   // Filtering
   setMessageFilter: (filter: WebSocketMessageType | 'all') => void;
@@ -97,6 +102,8 @@ export const useWebSocketStore = create<WebSocketState>()(
           maxReconnectAttempts: DEFAULT_MAX_RECONNECT_ATTEMPTS,
           reconnectDelay: DEFAULT_RECONNECT_DELAY,
           createdAt: Date.now(),
+          heartbeatInterval: 0,
+          heartbeatMessage: 'ping',
         };
 
         set((state) => ({
@@ -291,6 +298,19 @@ export const useWebSocketStore = create<WebSocketState>()(
             connections: {
               ...state.connections,
               [connectionId]: { ...connection, protocols },
+            },
+          };
+        }),
+
+      setHeartbeatConfig: (connectionId, interval, message) =>
+        set((state) => {
+          const connection = state.connections[connectionId];
+          if (!connection) return state;
+
+          return {
+            connections: {
+              ...state.connections,
+              [connectionId]: { ...connection, heartbeatInterval: interval, heartbeatMessage: message },
             },
           };
         }),

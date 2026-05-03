@@ -7,10 +7,15 @@ import { ipcMain, app, safeStorage } from 'electron';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  StoreKeySchema,
+  StoreValueSchema,
+  createValidatedHandler,
+  validateIpcInput,
+} from './ipc-validators';
 
-// Use require for electron-store to avoid ESM/CommonJS issues
- 
-const Store = require('electron-store');
+// electron-store v9+ is ESM-only; require() returns the module namespace in Node 22+
+const Store = require('electron-store').default;
 
 /**
  * Get or generate encryption key for electron-store
@@ -73,38 +78,42 @@ const store = new Store({
  * Register all electron-store IPC handlers
  */
 export function registerStoreHandlerIPC(): void {
-  // Get a value from the store
-  ipcMain.handle('store:get', async (_event, key: string): Promise<string | undefined> => {
-    try {
-      const value = store.get(key);
-      return value as string | undefined;
-    } catch (error) {
-      console.error(`Failed to get store value for key ${key}:`, error);
-      return undefined;
-    }
-  });
+  ipcMain.handle(
+    'store:get',
+    createValidatedHandler('store:get', StoreKeySchema, async (key): Promise<string | undefined> => {
+      try {
+        return store.get(key) as string | undefined;
+      } catch (error) {
+        console.error(`Failed to get store value for key ${key}:`, error);
+        return undefined;
+      }
+    })
+  );
 
-  // Set a value in the store
-  ipcMain.handle('store:set', async (_event, key: string, value: string): Promise<void> => {
+  // store:set takes two args: key and value — validate both
+  ipcMain.handle('store:set', async (_event, key: unknown, value: unknown): Promise<void> => {
+    const validKey = validateIpcInput(StoreKeySchema, key, 'store:set');
+    const validValue = validateIpcInput(StoreValueSchema, value, 'store:set');
     try {
-      store.set(key, value);
+      store.set(validKey, validValue);
     } catch (error) {
-      console.error(`Failed to set store value for key ${key}:`, error);
+      console.error(`Failed to set store value for key ${validKey}:`, error);
       throw error;
     }
   });
 
-  // Delete a value from the store
-  ipcMain.handle('store:delete', async (_event, key: string): Promise<void> => {
-    try {
-      store.delete(key);
-    } catch (error) {
-      console.error(`Failed to delete store value for key ${key}:`, error);
-      throw error;
-    }
-  });
+  ipcMain.handle(
+    'store:delete',
+    createValidatedHandler('store:delete', StoreKeySchema, async (key): Promise<void> => {
+      try {
+        store.delete(key);
+      } catch (error) {
+        console.error(`Failed to delete store value for key ${key}:`, error);
+        throw error;
+      }
+    })
+  );
 
-  // Clear all values from the store
   ipcMain.handle('store:clear', async (): Promise<void> => {
     try {
       store.clear();
@@ -114,31 +123,17 @@ export function registerStoreHandlerIPC(): void {
     }
   });
 
-  // Check if a key exists in the store
-  ipcMain.handle('store:has', async (_event, key: string): Promise<boolean> => {
-    try {
-      return store.has(key);
-    } catch (error) {
-      console.error(`Failed to check if store has key ${key}:`, error);
-      return false;
-    }
-  });
-
-  // Get store path (useful for debugging)
-  ipcMain.handle('store:getPath', async (): Promise<string> => {
-    return store.path;
-  });
-
-  // Get store size (useful for quota monitoring)
-  ipcMain.handle('store:getSize', async (): Promise<number> => {
-    try {
-      const fs = require('fs');
-      const stats = fs.statSync(store.path);
-      return stats.size;
-    } catch {
-      return 0;
-    }
-  });
+  ipcMain.handle(
+    'store:has',
+    createValidatedHandler('store:has', StoreKeySchema, async (key): Promise<boolean> => {
+      try {
+        return store.has(key);
+      } catch (error) {
+        console.error(`Failed to check if store has key ${key}:`, error);
+        return false;
+      }
+    })
+  );
 }
 
 // Store type definition

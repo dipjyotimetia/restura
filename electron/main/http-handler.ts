@@ -1,6 +1,8 @@
 import { ipcMain, session } from 'electron';
 import * as http from 'http';
 import * as https from 'https';
+import * as net from 'net';
+import * as tls from 'tls';
 import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
 import { createRateLimiter } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
@@ -10,7 +12,7 @@ const httpRateLimiter = createRateLimiter(60, 60_000);
 
 export interface ProxyConfig {
   enabled: boolean;
-  type: 'http' | 'https' | 'socks5' | 'pac';
+  type: 'http' | 'https' | 'socks4' | 'socks5' | 'pac';
   host: string;
   port: number;
   pacUrl?: string;
@@ -53,6 +55,99 @@ const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 // Connection timeout (10 seconds)
 const CONNECTION_TIMEOUT = 10000;
 
+// Opens a raw TCP tunnel through a SOCKS4 or SOCKS5 proxy.
+// Returns a connected net.Socket pointed at (targetHost, targetPort).
+function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: number): Promise<net.Socket> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: proxy.host, port: proxy.port });
+    socket.once('error', reject);
+
+    if (proxy.type === 'socks4') {
+      socket.once('connect', () => {
+        // SOCKS4a: send destination IP 0.0.0.1 (non-zero last byte flags the proxy to resolve
+        // the hostname itself) followed by a NUL-terminated hostname in the request tail.
+        const hostBuf = Buffer.from(targetHost + '\0', 'ascii');
+        const portBuf = Buffer.alloc(2);
+        portBuf.writeUInt16BE(targetPort, 0);
+        const userId = Buffer.from((proxy.auth?.username ?? '') + '\0', 'ascii');
+        const req = Buffer.concat([
+          Buffer.from([0x04, 0x01]), portBuf,
+          Buffer.from([0x00, 0x00, 0x00, 0x01]), // fake IP — 0.0.0.x (x!=0) triggers SOCKS4a hostname lookup
+          userId, hostBuf,
+        ]);
+        socket.write(req);
+        socket.once('data', (data: Buffer) => {
+          if (data[1] === 0x5a) {
+            socket.removeListener('error', reject);
+            resolve(socket);
+          } else {
+            socket.destroy();
+            reject(new Error(`SOCKS4 proxy rejected connection (code ${data[1]})`));
+          }
+        });
+      });
+    } else {
+      // SOCKS5
+      socket.once('connect', () => {
+        const hasAuth = !!(proxy.auth?.username);
+        const greeting = hasAuth
+          ? Buffer.from([0x05, 0x02, 0x00, 0x02])
+          : Buffer.from([0x05, 0x01, 0x00]);
+        socket.write(greeting);
+
+        socket.once('data', (authMethodReply: Buffer) => {
+          if (authMethodReply[0] !== 0x05) {
+            socket.destroy();
+            return reject(new Error('SOCKS5 invalid server greeting'));
+          }
+          const method = authMethodReply[1];
+
+          const sendConnect = () => {
+            const hostBuf = Buffer.from(targetHost, 'ascii');
+            const portBuf = Buffer.alloc(2);
+            portBuf.writeUInt16BE(targetPort, 0);
+            const connectReq = Buffer.concat([
+              Buffer.from([0x05, 0x01, 0x00, 0x03, hostBuf.length]),
+              hostBuf, portBuf,
+            ]);
+            socket.write(connectReq);
+            socket.once('data', (connectReply: Buffer) => {
+              if (connectReply[1] !== 0x00) {
+                socket.destroy();
+                return reject(new Error(`SOCKS5 connection failed (code ${connectReply[1]})`));
+              }
+              socket.removeListener('error', reject);
+              resolve(socket);
+            });
+          };
+
+          if (method === 0x00) {
+            sendConnect();
+          } else if (method === 0x02 && proxy.auth?.username && proxy.auth?.password) {
+            const user = Buffer.from(proxy.auth.username, 'utf8');
+            const pass = Buffer.from(proxy.auth.password, 'utf8');
+            const authReq = Buffer.concat([
+              Buffer.from([0x01, user.length]), user,
+              Buffer.from([pass.length]), pass,
+            ]);
+            socket.write(authReq);
+            socket.once('data', (authReply: Buffer) => {
+              if (authReply[1] !== 0x00) {
+                socket.destroy();
+                return reject(new Error('SOCKS5 authentication failed'));
+              }
+              sendConnect();
+            });
+          } else {
+            socket.destroy();
+            reject(new Error('SOCKS5 no acceptable auth method'));
+          }
+        });
+      });
+    }
+  });
+}
+
 async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
   // Check body size early, before opening any connection
   if (config.data && Buffer.byteLength(config.data, 'utf8') > MAX_HTTP_BODY_BYTES) {
@@ -75,8 +170,22 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
             proxy: { ...config.proxy, type: 'http', host, port },
           };
         }
-      } else if (proxyResult.startsWith('SOCKS ') || proxyResult.startsWith('SOCKS5 ')) {
-        console.warn(`[HTTP] PAC resolved to SOCKS proxy but SOCKS is not supported — proceeding direct: ${proxyResult}`);
+      } else if (proxyResult.startsWith('SOCKS5 ')) {
+        const proxyAddr = proxyResult.split(' ')[1];
+        if (proxyAddr) {
+          const colonIdx = proxyAddr.lastIndexOf(':');
+          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
+          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 1080;
+          resolvedConfig = { ...config, proxy: { ...config.proxy!, type: 'socks5', host, port } };
+        }
+      } else if (proxyResult.startsWith('SOCKS ')) {
+        const proxyAddr = proxyResult.split(' ')[1];
+        if (proxyAddr) {
+          const colonIdx = proxyAddr.lastIndexOf(':');
+          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
+          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 1080;
+          resolvedConfig = { ...config, proxy: { ...config.proxy!, type: 'socks4', host, port } };
+        }
       }
       // If DIRECT, proceed without proxy
     } catch {
@@ -86,7 +195,18 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
   const interceptedConfig = await interceptorRegistry.runRequest(resolvedConfig);
 
-  const rawResult = await new Promise<HttpResponse>((resolve, reject) => {
+  // Pre-establish SOCKS tunnel (must be async, before Promise constructor)
+  let socksSocket: net.Socket | null = null;
+  if (interceptedConfig.proxy?.enabled &&
+      (interceptedConfig.proxy.type === 'socks4' || interceptedConfig.proxy.type === 'socks5')) {
+    const socksUrl = new URL(interceptedConfig.url);
+    const socksTargetPort = parseInt(socksUrl.port || (socksUrl.protocol === 'https:' ? '443' : '80'), 10);
+    socksSocket = await openSocksSocket(interceptedConfig.proxy, socksUrl.hostname, socksTargetPort);
+  }
+
+  let rawResult: HttpResponse;
+  try {
+    rawResult = await new Promise<HttpResponse>((resolve, reject) => {
     try {
       // Parse URL and add query params
       const url = new URL(interceptedConfig.url);
@@ -110,7 +230,8 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
       // Apply proxy settings
       if (interceptedConfig.proxy?.enabled && interceptedConfig.proxy.host) {
-        if (interceptedConfig.proxy.type === 'http' || interceptedConfig.proxy.type === 'https') {
+        const proxyType = interceptedConfig.proxy.type;
+        if (proxyType === 'http' || proxyType === 'https') {
           requestOptions.hostname = interceptedConfig.proxy.host;
           requestOptions.port = interceptedConfig.proxy.port;
           requestOptions.path = url.href;
@@ -122,6 +243,25 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
           if (interceptedConfig.proxy.auth?.username && interceptedConfig.proxy.auth?.password) {
             const auth = Buffer.from(`${interceptedConfig.proxy.auth.username}:${interceptedConfig.proxy.auth.password}`).toString('base64');
             (requestOptions.headers as Record<string, string>)['Proxy-Authorization'] = `Basic ${auth}`;
+          }
+        } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
+          // Route through the pre-established SOCKS tunnel by subclassing the agent and
+          // overriding createConnection — avoids monkey-patching the prototype at runtime.
+          const capturedSocket = socksSocket;
+          const rejectUnauthorized = interceptedConfig.verifySsl !== false;
+          const servername = url.hostname;
+          if (isHttps) {
+            requestOptions.agent = new class extends https.Agent {
+              override createConnection(): tls.TLSSocket {
+                return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized });
+              }
+            }();
+          } else {
+            requestOptions.agent = new class extends http.Agent {
+              override createConnection(): net.Socket {
+                return capturedSocket;
+              }
+            }();
           }
         }
       }
@@ -274,6 +414,12 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       reject(err);
     }
   });
+
+  } catch (err) {
+    // Destroy the SOCKS socket if the request failed before the agent could take ownership
+    if (socksSocket && !socksSocket.destroyed) socksSocket.destroy();
+    throw err;
+  }
 
   return interceptorRegistry.runResponse(rawResult, interceptedConfig);
 }

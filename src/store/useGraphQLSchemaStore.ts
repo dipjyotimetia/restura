@@ -23,8 +23,8 @@ interface GraphQLSchemaState {
   isLoading: (endpoint: string) => boolean;
 }
 
-// Cache duration: 1 hour
 const CACHE_DURATION_MS = 60 * 60 * 1000;
+const ERROR_CACHE_DURATION_MS = 5 * 60 * 1000;
 
 export const useGraphQLSchemaStore = create<GraphQLSchemaState>()(
   persist(
@@ -34,13 +34,11 @@ export const useGraphQLSchemaStore = create<GraphQLSchemaState>()(
       loading: {},
 
       fetchSchema: async (endpoint, options) => {
-        // Check cache first
         const cached = get().schemas[endpoint];
-        if (cached && cached.success) {
+        if (cached) {
           const age = Date.now() - cached.timestamp;
-          if (age < CACHE_DURATION_MS) {
-            return cached;
-          }
+          const ttl = cached.success ? CACHE_DURATION_MS : ERROR_CACHE_DURATION_MS;
+          if (age < ttl) return cached;
         }
 
         // Set loading state

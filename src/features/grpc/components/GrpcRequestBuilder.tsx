@@ -27,12 +27,14 @@ import {
   validateServiceName,
   createErrorResponse,
 } from '@/features/grpc/lib/grpcClient';
+import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { isElectron } from '@/lib/shared/platform';
 import {
   GrpcReflectionClient,
   generateRequestTemplate,
   formatMessageSchemaForDisplay,
   generateProtoFromReflection,
+  validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
 import { toast } from 'sonner';
 import type { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
@@ -41,6 +43,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
+import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 
@@ -60,11 +63,11 @@ interface ValidationState {
 }
 
 function GrpcRequestBuilder() {
-  const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading } = useRequestStore(
-    useShallow((s) => ({ currentRequest: s.currentRequest, updateRequest: s.updateRequest, setLoading: s.setLoading, setCurrentResponse: s.setCurrentResponse, isLoading: s.isLoading }))
+  const { currentRequest, updateRequest, setLoading, setCurrentResponse, setScriptResult, isLoading } = useRequestStore(
+    useShallow((s) => ({ currentRequest: s.currentRequest, updateRequest: s.updateRequest, setLoading: s.setLoading, setCurrentResponse: s.setCurrentResponse, setScriptResult: s.setScriptResult, isLoading: s.isLoading }))
   );
   const { addHistoryItem } = useHistoryStore();
-  const { resolveVariables } = useEnvironmentStore();
+  const { resolveVariables, getActiveEnvironment, updateVariable } = useEnvironmentStore();
   const [activeTab, setActiveTab] = useState('message');
   const [protoFile, setProtoFile] = useState<File | null>(null);
   const [protoInfo, setProtoInfo] = useState<ProtoFileInfo | null>(null);
@@ -80,6 +83,10 @@ function GrpcRequestBuilder() {
     endStream: () => void;
     cancelStream: () => void;
   } | null>(null);
+  const [timeoutMs, setTimeoutMs] = useState(30000);
+  const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
+  const [retryDelayMs, setRetryDelayMs] = useState(0);
+  const [useCompression, setUseCompression] = useState(false);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [reflectionResult, setReflectionResult] = useState<ReflectionResult | null>(null);
   const [selectedReflectionService, setSelectedReflectionService] = useState<ReflectionServiceInfo | null>(null);
@@ -361,9 +368,50 @@ function GrpcRequestBuilder() {
       return;
     }
 
+    // Schema validation against reflection schema (if available)
+    if (selectedReflectionMethod?.inputMessageSchema && grpcRequest.message) {
+      try {
+        const parsed = JSON.parse(grpcRequest.message);
+        const schemaValidation = validateRequestAgainstSchema(parsed, selectedReflectionMethod.inputMessageSchema);
+        if (!schemaValidation.valid) {
+          toast.warning('Schema validation warnings', {
+            description: schemaValidation.errors.slice(0, 3).join('; '),
+          });
+        }
+      } catch {
+        // JSON parse already handled above by validateMessage
+      }
+    }
+
     setLoading(true);
     setStreamingMessages([]);
+    setScriptResult(null);
     const startTime = Date.now();
+
+    // Build env vars snapshot for script execution
+    const activeEnv = getActiveEnvironment();
+    const envVars: Record<string, string> = {};
+    if (activeEnv) {
+      activeEnv.variables.filter((v) => v.enabled).forEach((v) => { envVars[v.key] = v.value; });
+    }
+
+    // Pre-request script
+    let preRequestResult;
+    if (grpcRequest.preRequestScript?.trim()) {
+      const executor = new ScriptExecutor(envVars, {});
+      preRequestResult = await executor.executeScript(grpcRequest.preRequestScript, {
+        request: { url: grpcRequest.url, method: grpcRequest.methodType, headers: {}, body: grpcRequest.message },
+      });
+      if (preRequestResult.variables) {
+        Object.assign(envVars, preRequestResult.variables);
+        if (activeEnv) {
+          Object.entries(preRequestResult.variables).forEach(([key, value]) => {
+            const variable = activeEnv.variables.find((v) => v.key === key);
+            if (variable) updateVariable(activeEnv.id, variable.id, { value });
+          });
+        }
+      }
+    }
 
     try {
       let protoContent: string;
@@ -407,21 +455,60 @@ function GrpcRequestBuilder() {
               setLoading(false);
               setStreamControl(null);
             },
-          }
+          },
+          timeoutMs,
+          useCompression
         );
         setStreamControl(control);
         return;
       }
 
-      const response = await makeElectronGrpcRequest(
+      let response = await makeElectronGrpcRequest(
         grpcRequest,
         protoContent,
         protoFileName,
-        resolveVariables
+        resolveVariables,
+        timeoutMs,
+        useCompression
       );
+
+      // Retry on non-OK status (status !== 0) if retry policy configured
+      for (let attempt = 2; attempt <= retryMaxAttempts && response.grpcStatus !== 0; attempt++) {
+        if (retryDelayMs > 0) {
+          await new Promise((r) => setTimeout(r, retryDelayMs));
+        }
+        toast.info(`Retrying... (attempt ${attempt}/${retryMaxAttempts})`);
+        response = await makeElectronGrpcRequest(
+          grpcRequest,
+          protoContent,
+          protoFileName,
+          resolveVariables,
+          timeoutMs,
+          useCompression
+        );
+      }
 
       setCurrentResponse(response);
       addHistoryItem(grpcRequest, response);
+
+      // Test script
+      let testResult;
+      if (grpcRequest.testScript?.trim()) {
+        const executor = new ScriptExecutor(envVars, {});
+        testResult = await executor.executeScript(grpcRequest.testScript, {
+          request: { url: grpcRequest.url, method: grpcRequest.methodType, headers: {}, body: grpcRequest.message },
+          response: {
+            status: response.grpcStatus ?? 0,
+            statusText: response.grpcStatusText ?? '',
+            headers: {},
+            body: response.body,
+            time: response.time,
+            size: response.size,
+          },
+        });
+      }
+
+      setScriptResult({ preRequest: preRequestResult, test: testResult });
 
       if (response.grpcStatus === 0) {
         toast.success('Request completed', {
@@ -524,15 +611,23 @@ function GrpcRequestBuilder() {
             <Send className="mr-1.5 h-3.5 w-3.5" />
             {isLoading ? 'Invoking...' : 'Invoke'}
           </Button>
-          <GrpcStreamingControls
-            streamControl={streamControl}
-            onCancel={() => {
-              streamControl?.cancelStream();
-              setStreamControl(null);
-              setLoading(false);
-            }}
-          />
         </div>
+
+        {/* Streaming controls row */}
+        {streamControl && (
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface-2">
+            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest shrink-0">Stream</span>
+            <GrpcStreamingControls
+              streamControl={streamControl}
+              methodType={grpcRequest.methodType}
+              onCancel={() => {
+                streamControl?.cancelStream();
+                setStreamControl(null);
+                setLoading(false);
+              }}
+            />
+          </div>
+        )}
 
         {!validation.url.valid && validation.url.error && (
           <div className="text-xs text-destructive mx-3 mt-1 flex items-center gap-1">
@@ -656,8 +751,22 @@ function GrpcRequestBuilder() {
           />
         </div>
 
-        <div className="text-xs text-muted-foreground font-mono px-3 pb-2">
-          {getMethodTypeDescription(grpcRequest.methodType)}
+        <div className="flex items-center gap-4 px-3 pb-2">
+          <span className="text-xs text-muted-foreground font-mono">
+            {getMethodTypeDescription(grpcRequest.methodType)}
+          </span>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <span className="text-[10px] font-mono text-muted-foreground shrink-0">Timeout (ms)</span>
+            <Input
+              type="number"
+              value={timeoutMs}
+              onChange={(e) => setTimeoutMs(Math.max(1000, parseInt(e.target.value, 10) || 30000))}
+              className="h-6 w-24 font-mono text-xs bg-background border-border"
+              min={1000}
+              step={1000}
+              aria-label="gRPC request timeout in milliseconds"
+            />
+          </div>
         </div>
 
         {/* Web streaming limitation warning */}
@@ -750,6 +859,21 @@ function GrpcRequestBuilder() {
               <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
             )}
           </TabsTrigger>
+          <TabsTrigger
+            value="settings"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          >
+            Settings
+          </TabsTrigger>
+          <TabsTrigger
+            value="scripts"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          >
+            Scripts
+            {(grpcRequest.preRequestScript?.trim() || grpcRequest.testScript?.trim()) && (
+              <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
+            )}
+          </TabsTrigger>
           {streamingMessages.length > 0 && (
             <TabsTrigger
               value="streaming"
@@ -812,6 +936,72 @@ function GrpcRequestBuilder() {
             Authentication will be automatically converted to gRPC metadata.
           </p>
           <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
+        </TabsContent>
+
+        <TabsContent value="scripts" className="flex-1 overflow-auto m-0">
+          <ScriptsEditor
+            preRequestScript={grpcRequest.preRequestScript || ''}
+            testScript={grpcRequest.testScript || ''}
+            onPreRequestScriptChange={(script) => updateRequest({ preRequestScript: script })}
+            onTestScriptChange={(script) => updateRequest({ testScript: script })}
+          />
+        </TabsContent>
+
+        <TabsContent value="settings" className="flex-1 overflow-auto p-4 m-0">
+          <div className="space-y-6 max-w-sm">
+            <div className="space-y-3">
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Retry Policy</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground font-mono mb-1 block">Max Attempts</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={retryMaxAttempts}
+                    onChange={(e) => setRetryMaxAttempts(Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)))}
+                    className="h-7 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-mono mb-1 block">Retry Delay (ms)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={500}
+                    value={retryDelayMs}
+                    onChange={(e) => setRetryDelayMs(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    className="h-7 text-xs font-mono"
+                  />
+                </div>
+              </div>
+              {retryMaxAttempts > 1 && (
+                <p className="text-[11px] text-muted-foreground font-mono">
+                  Will retry up to {retryMaxAttempts - 1} time{retryMaxAttempts > 2 ? 's' : ''} on failure, waiting {retryDelayMs}ms between attempts.
+                </p>
+              )}
+            </div>
+            <div className="space-y-3">
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Compression</p>
+              <div className="flex items-center gap-3">
+                <input
+                  id="use-compression"
+                  type="checkbox"
+                  checked={useCompression}
+                  onChange={(e) => setUseCompression(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                <label htmlFor="use-compression" className="text-xs font-mono cursor-pointer">
+                  Send gzip-compressed requests
+                </label>
+              </div>
+              {useCompression && !isElectron() && (
+                <p className="text-[11px] text-amber-400 font-mono">
+                  Compression is only supported in the Electron desktop app.
+                </p>
+              )}
+            </div>
+          </div>
         </TabsContent>
 
         {streamingMessages.length > 0 && (

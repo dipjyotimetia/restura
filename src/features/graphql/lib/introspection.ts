@@ -1,5 +1,5 @@
 import type { GraphQLSchema, IntrospectionResult } from '../types';
-import { buildClientSchema, type GraphQLSchema as GQLSchema, type IntrospectionQuery } from 'graphql';
+import { buildClientSchema, printSchema, type GraphQLSchema as GQLSchema, type IntrospectionQuery } from 'graphql';
 
 // Standard GraphQL introspection query
 const INTROSPECTION_QUERY = `
@@ -243,6 +243,11 @@ export function getEnumValues(schema: GraphQLSchema, typeName: string) {
 // Get type by name
 export function getTypeByName(schema: GraphQLSchema, name: string) {
   return schema.types.find((t) => t.name === name);
+}
+
+// Export a built schema to SDL string
+export function exportSchemaToSDL(schema: GQLSchema): string {
+  return printSchema(schema);
 }
 
 // Convert introspection result to executable GraphQL schema

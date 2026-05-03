@@ -4,14 +4,12 @@ import type {
   FormParam,
   Header,
   Item,
+  ItemGroup,
   QueryParam,
   Request,
   RequestAuth,
   RequestBody,
-  Variable} from 'postman-collection';
-import {
-  Collection as PostmanSDKCollection,
-  ItemGroup
+  Variable,
 } from 'postman-collection';
 
 function getDescriptionContent(desc: string | { content?: string } | undefined): string | undefined {
@@ -20,7 +18,8 @@ function getDescriptionContent(desc: string | { content?: string } | undefined):
   return desc.content;
 }
 
-export function importPostmanCollection(postmanData: PostmanCollection): Collection {
+export async function importPostmanCollection(postmanData: PostmanCollection): Promise<Collection> {
+  const { Collection: PostmanSDKCollection, ItemGroup } = await import('postman-collection');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PostmanSDKCollection constructor accepts loose postman data
   const sdkCollection = new PostmanSDKCollection(postmanData as any);
 
@@ -47,19 +46,21 @@ export function importPostmanCollection(postmanData: PostmanCollection): Collect
   };
 
   sdkCollection.items.each((item) => {
-    const converted = convertPostmanSDKItem(item, collection.auth);
+    const converted = convertPostmanSDKItem(item, collection.auth, ItemGroup);
     if (converted) collection.items.push(converted);
   });
 
   return collection;
 }
 
-function convertPostmanSDKItem(item: Item | ItemGroup<Item>, parentAuth?: AuthConfig): CollectionItem | null {
-  if (ItemGroup.isItemGroup(item)) {
+type ItemGroupCtor = { isItemGroup(obj: unknown): boolean };
+
+function convertPostmanSDKItem(item: Item | ItemGroup<Item>, parentAuth: AuthConfig | undefined, ItemGroupCtor: ItemGroupCtor): CollectionItem | null {
+  if (ItemGroupCtor.isItemGroup(item)) {
     const group = item as ItemGroup<Item>;
     const items: CollectionItem[] = [];
     group.items.each((subItem) => {
-      const converted = convertPostmanSDKItem(subItem, parentAuth);
+      const converted = convertPostmanSDKItem(subItem, parentAuth, ItemGroupCtor);
       if (converted) items.push(converted);
     });
     return { id: uuidv4(), name: group.name || 'Unnamed Folder', type: 'folder', items };

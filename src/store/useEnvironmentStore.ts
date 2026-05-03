@@ -90,15 +90,28 @@ export const useEnvironmentStore = create<EnvironmentState>()(
 
       resolveVariables: (text: string) => {
         const activeEnv = get().getActiveEnvironment();
-        if (!activeEnv) return text;
-
         let resolved = text;
-        activeEnv.variables.forEach((variable) => {
-          if (variable.enabled) {
-            const regex = new RegExp(`{{\\s*${variable.key}\\s*}}`, 'g');
-            resolved = resolved.replace(regex, variable.value);
-          }
-        });
+
+        // Resolve environment variables first
+        if (activeEnv) {
+          activeEnv.variables.forEach((variable) => {
+            if (variable.enabled) {
+              const regex = new RegExp(`{{\\s*${variable.key}\\s*}}`, 'g');
+              resolved = resolved.replace(regex, variable.value);
+            }
+          });
+        }
+
+        // Resolve built-in dynamic variables: {{$timestamp}}, {{$isoTimestamp}}, {{$randomInt}}, {{$guid}}
+        resolved = resolved.replace(/\{\{\s*\$timestamp\s*\}\}/g, () => String(Date.now()));
+        resolved = resolved.replace(/\{\{\s*\$isoTimestamp\s*\}\}/g, () => new Date().toISOString());
+        resolved = resolved.replace(/\{\{\s*\$randomInt\s*\}\}/g, () =>
+          String(Math.floor(Math.random() * 1000))
+        );
+        resolved = resolved.replace(/\{\{\s*\$guid\s*\}\}/g, () => uuidv4());
+        resolved = resolved.replace(/\{\{\s*\$randomAlphaNumeric\s*\}\}/g, () =>
+          Math.random().toString(36).slice(2, 10)
+        );
 
         return resolved;
       },
