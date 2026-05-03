@@ -91,7 +91,6 @@ function WebSocketClient() {
   }, []);
 
   // Tick every second while connected so the duration display stays live.
-  // Must be declared before any early returns to satisfy the Rules of Hooks.
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (connection?.status !== 'connected') return;

@@ -19,7 +19,7 @@ import {
   FieldLabel,
   EnumSchema,
 } from '@/types';
-import { GrpcClientError } from './grpcClient';
+import { GrpcClientError, httpStatusToGrpcStatus } from './grpcClient';
 import { GrpcStatusCode } from '@/types';
 import { isElectron } from '@/lib/shared/platform';
 
@@ -330,7 +330,7 @@ export class GrpcReflectionClient {
       if (!response.ok) {
         throw new GrpcClientError(
           `Reflection request failed: ${response.statusText}`,
-          this.httpStatusToGrpcStatus(response.status)
+          httpStatusToGrpcStatus(response.status)
         );
       }
 
@@ -383,7 +383,7 @@ export class GrpcReflectionClient {
         const errorData = await response.json().catch(() => ({}));
         throw new GrpcClientError(
           errorData.error || `Reflection request failed: ${response.statusText}`,
-          this.httpStatusToGrpcStatus(response.status)
+          httpStatusToGrpcStatus(response.status)
         );
       }
 
@@ -1093,37 +1093,6 @@ export class GrpcReflectionClient {
     };
   }
 
-  /**
-   * Convert HTTP status to gRPC status
-   */
-  private httpStatusToGrpcStatus(httpStatus: number): GrpcStatusCode {
-    switch (httpStatus) {
-      case 200:
-        return GrpcStatusCode.OK;
-      case 400:
-        return GrpcStatusCode.INVALID_ARGUMENT;
-      case 401:
-        return GrpcStatusCode.UNAUTHENTICATED;
-      case 403:
-        return GrpcStatusCode.PERMISSION_DENIED;
-      case 404:
-        return GrpcStatusCode.NOT_FOUND;
-      case 409:
-        return GrpcStatusCode.ABORTED;
-      case 429:
-        return GrpcStatusCode.RESOURCE_EXHAUSTED;
-      case 500:
-        return GrpcStatusCode.INTERNAL;
-      case 501:
-        return GrpcStatusCode.UNIMPLEMENTED;
-      case 503:
-        return GrpcStatusCode.UNAVAILABLE;
-      case 504:
-        return GrpcStatusCode.DEADLINE_EXCEEDED;
-      default:
-        return GrpcStatusCode.UNKNOWN;
-    }
-  }
 }
 
 /**
