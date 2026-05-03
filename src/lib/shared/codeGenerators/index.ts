@@ -13,6 +13,10 @@ export { websocketCodeGenerators } from './websocket';
 export type { WebSocketGenerateOptions } from './websocket';
 export { graphqlCodeGenerators } from './graphql';
 export type { GraphQLGenerateOptions } from './graphql';
+export { sseCodeGenerators } from './sse';
+export type { SseGenerateOptions, SseCodeGeneratorType } from './sse';
+export { mcpCodeGenerators } from './mcp';
+export type { McpGenerateOptions, McpCodeGeneratorType } from './mcp';
 
 export const codeGenerators = {
   curl: { name: 'cURL', generate: generateCurl },

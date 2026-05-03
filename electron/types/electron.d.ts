@@ -173,6 +173,43 @@ interface ElectronWebSocketAPI {
   removeAllListeners: (channel: string) => void;
 }
 
+interface ElectronSseAPI {
+  connect: (config: {
+    connectionId: string;
+    url: string;
+    headers?: Record<string, string>;
+  }) => Promise<{ success: boolean; error?: string }>;
+  disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
+  on: (channel: string, callback: (...args: unknown[]) => void) => void;
+  removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
+  removeAllListeners: (channel: string) => void;
+}
+
+interface ElectronMcpAPI {
+  connect: (config: {
+    connectionId: string;
+    url: string;
+    transport: 'streamable-http' | 'http-sse';
+    headers?: Record<string, string>;
+  }) => Promise<{ success: boolean; error?: string }>;
+  request: (config: {
+    connectionId: string;
+    method: string;
+    params?: unknown;
+    requestId?: string | number;
+    timeout?: number;
+  }) => Promise<{
+    success: boolean;
+    result?: unknown;
+    error?: string;
+    jsonRpcError?: { code: number; message: string; data?: unknown };
+  }>;
+  disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
+  on: (channel: string, callback: (...args: unknown[]) => void) => void;
+  removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
+  removeAllListeners: (channel: string) => void;
+}
+
 interface ElectronStoreAPI {
   get: (key: string) => Promise<string | undefined>;
   set: (key: string, value: string) => Promise<void>;
@@ -225,6 +262,8 @@ interface ElectronAPI {
   http: ElectronHttpAPI;
   grpc: ElectronGrpcAPI;
   websocket: ElectronWebSocketAPI;
+  sse: ElectronSseAPI;
+  mcp: ElectronMcpAPI;
   store: ElectronStoreAPI;
   log: ElectronLogAPI;
   collections: ElectronCollectionsAPI;
@@ -240,4 +279,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, GrpcIpcResult, FileChangedEvent, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, GrpcIpcResult, FileChangedEvent, LogEntry };

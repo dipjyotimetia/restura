@@ -5,6 +5,8 @@ import { registerFileOperationsIPC } from './file-operations';
 import { registerHttpHandlerIPC } from './http-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
 import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './websocket-handler';
+import { registerSseHandlerIPC, stopSseCleanup } from './sse-handler';
+import { registerMcpHandlerIPC, stopMcpCleanup } from './mcp-handler';
 import { registerGrpcReflectionIPC } from './grpc-reflection-handler';
 import { logRequest, registerRequestLoggerIPC } from './request-logger';
 import { registerWindowControlsIPC } from './window-controls';
@@ -59,6 +61,8 @@ function registerIPCHandlers(): void {
   registerGrpcHandlerIPC(logRequest);
   registerGrpcReflectionIPC();
   registerWebSocketHandlerIPC();
+  registerSseHandlerIPC();
+  registerMcpHandlerIPC();
   registerRequestLoggerIPC();
   registerWindowControlsIPC(getMainWindow);
   registerNewWindowIPC(isDev);
@@ -150,6 +154,8 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   stopStreamCleanup(); // Stop gRPC stream cleanup interval
   stopWebSocketCleanup(); // Close active WebSocket connections
+  stopSseCleanup(); // Close active SSE connections
+  stopMcpCleanup(); // Close active MCP connections
   cleanupCollectionWatchers(); // Stop file watchers
   destroyTray();
 });

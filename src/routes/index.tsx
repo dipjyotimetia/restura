@@ -4,6 +4,8 @@ import RequestBuilder from '@/features/http/components/RequestBuilder';
 import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
 import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
 import WebSocketClient from '@/features/websocket/components/WebSocketClient';
+import SseClient from '@/features/sse/components/SseClient';
+import McpRequestBuilder from '@/features/mcp/components/McpRequestBuilder';
 import ResponseViewer from '@/components/shared/ResponseViewer';
 import NetworkConsole from '@/features/http/components/NetworkConsole';
 import ResizableLayout from '@/components/shared/ResizableLayout';
@@ -107,6 +109,10 @@ export default function Home() {
         );
       case 'websocket':
         return <WebSocketClient />;
+      case 'sse':
+        return <SseClient />;
+      case 'mcp':
+        return <McpRequestBuilder />;
       default:
         return null;
     }

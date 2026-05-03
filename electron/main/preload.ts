@@ -146,6 +146,78 @@ const electronAPI = {
     },
   },
 
+  // SSE (Server-Sent Events) operations
+  sse: {
+    connect: (config: {
+      connectionId: string;
+      url: string;
+      headers?: Record<string, string>;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('sse:connect', config),
+
+    disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('sse:disconnect', config),
+
+    on: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('sse:')) {
+        ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+      }
+    },
+
+    removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('sse:')) {
+        ipcRenderer.removeListener(channel, callback);
+      }
+    },
+
+    removeAllListeners: (channel: string) => {
+      if (channel.startsWith('sse:')) {
+        ipcRenderer.removeAllListeners(channel);
+      }
+    },
+  },
+
+  // MCP (Model Context Protocol) operations
+  mcp: {
+    connect: (config: {
+      connectionId: string;
+      url: string;
+      transport: 'streamable-http' | 'http-sse';
+      headers?: Record<string, string>;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('mcp:connect', config),
+
+    request: (config: {
+      connectionId: string;
+      method: string;
+      params?: unknown;
+      requestId?: string | number;
+      timeout?: number;
+    }): Promise<{ success: boolean; result?: unknown; error?: string; jsonRpcError?: { code: number; message: string; data?: unknown } }> =>
+      ipcRenderer.invoke('mcp:request', config),
+
+    disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('mcp:disconnect', config),
+
+    on: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('mcp:')) {
+        ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+      }
+    },
+
+    removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('mcp:')) {
+        ipcRenderer.removeListener(channel, callback);
+      }
+    },
+
+    removeAllListeners: (channel: string) => {
+      if (channel.startsWith('mcp:')) {
+        ipcRenderer.removeAllListeners(channel);
+      }
+    },
+  },
+
   // Native notifications
   notification: {
     isSupported: (): Promise<boolean> => ipcRenderer.invoke('notification:isSupported'),
