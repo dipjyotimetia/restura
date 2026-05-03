@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import type { HttpRequest, Response } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { isElectron } from '@/lib/shared/platform';
+import { isElectron, workerBaseUrl } from '@/lib/shared/platform';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { extractOperationType } from '@/features/graphql/lib/queryParser';
@@ -217,7 +217,7 @@ function GraphQLRequestBuilder() {
           endTime
         );
       } else {
-        const proxyRes = await fetch('/api/proxy', {
+        const proxyRes = await fetch(`${workerBaseUrl()}/api/proxy`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
