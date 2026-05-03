@@ -180,6 +180,25 @@ function GraphQLRequestBuilder() {
         variables,
       });
 
+      const buildResponseData = (
+        status: number,
+        statusText: string,
+        responseHeaders: Record<string, string>,
+        responseBody: string,
+        size: number,
+        endTime: number
+      ): Response => ({
+        id: `response-${Date.now()}`,
+        requestId: httpRequest.id,
+        status,
+        statusText,
+        headers: responseHeaders,
+        body: responseBody,
+        size,
+        time: endTime - startTime,
+        timestamp: Date.now(),
+      });
+
       let responseData: Response;
       if (isElectron()) {
         const response = await fetch(resolvedUrl, {
@@ -189,17 +208,14 @@ function GraphQLRequestBuilder() {
         });
         const responseBody = await response.text();
         const endTime = Date.now();
-        responseData = {
-          id: `response-${Date.now()}`,
-          requestId: httpRequest.id,
-          status: response.status,
-          statusText: response.statusText,
-          headers: Object.fromEntries(response.headers.entries()),
-          body: responseBody,
-          size: new Blob([responseBody]).size,
-          time: endTime - startTime,
-          timestamp: Date.now(),
-        };
+        responseData = buildResponseData(
+          response.status,
+          response.statusText,
+          Object.fromEntries(response.headers.entries()),
+          responseBody,
+          new Blob([responseBody]).size,
+          endTime
+        );
       } else {
         const proxyRes = await fetch('/api/proxy', {
           method: 'POST',
@@ -225,17 +241,14 @@ function GraphQLRequestBuilder() {
           size: number;
         };
         const endTime = Date.now();
-        responseData = {
-          id: `response-${Date.now()}`,
-          requestId: httpRequest.id,
-          status: proxyResult.status,
-          statusText: proxyResult.statusText,
-          headers: proxyResult.headers,
-          body: proxyResult.data,
-          size: proxyResult.size,
-          time: endTime - startTime,
-          timestamp: Date.now(),
-        };
+        responseData = buildResponseData(
+          proxyResult.status,
+          proxyResult.statusText,
+          proxyResult.headers,
+          proxyResult.data,
+          proxyResult.size,
+          endTime
+        );
       }
 
       setCurrentResponse(responseData);

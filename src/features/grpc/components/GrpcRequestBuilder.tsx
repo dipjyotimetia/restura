@@ -471,9 +471,12 @@ function GrpcRequestBuilder() {
         return;
       }
 
-      let response = isElectron()
-        ? await makeElectronGrpcRequest(grpcRequest, protoContent, protoFileName, resolveVariables, timeoutMs, useCompression)
-        : await makeProxyGrpcRequest(grpcRequest, resolveVariables, timeoutMs);
+      const executeUnary = () =>
+        isElectron()
+          ? makeElectronGrpcRequest(grpcRequest, protoContent, protoFileName, resolveVariables, timeoutMs, useCompression)
+          : makeProxyGrpcRequest(grpcRequest, resolveVariables, timeoutMs);
+
+      let response = await executeUnary();
 
       // Retry on non-OK status (status !== 0) if retry policy configured
       for (let attempt = 2; attempt <= retryMaxAttempts && response.grpcStatus !== 0; attempt++) {
@@ -481,9 +484,7 @@ function GrpcRequestBuilder() {
           await new Promise((r) => setTimeout(r, retryDelayMs));
         }
         toast.info(`Retrying... (attempt ${attempt}/${retryMaxAttempts})`);
-        response = isElectron()
-          ? await makeElectronGrpcRequest(grpcRequest, protoContent, protoFileName, resolveVariables, timeoutMs, useCompression)
-          : await makeProxyGrpcRequest(grpcRequest, resolveVariables, timeoutMs);
+        response = await executeUnary();
       }
 
       setCurrentResponse(response);
