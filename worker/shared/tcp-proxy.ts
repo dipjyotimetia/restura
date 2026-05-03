@@ -79,7 +79,10 @@ export async function httpsViaConnectProxy(
   requestInit: RequestInit,
   signal: AbortSignal
 ): Promise<Response> {
-  const socket = connect({ hostname: proxy.host, port: proxy.port });
+  const socket = connect(
+    { hostname: proxy.host, port: proxy.port },
+    { secureTransport: 'starttls', allowHalfOpen: false }
+  );
 
   signal.addEventListener('abort', () => void socket.close(), { once: true });
 
@@ -95,7 +98,7 @@ export async function httpsViaConnectProxy(
     throw new Error(`Proxy CONNECT failed: ${statusLine}`);
   }
 
-  const tlsSocket = socket.startTls({ hostname: targetUrl.hostname });
+  const tlsSocket = socket.startTls({ expectedServerHostname: targetUrl.hostname });
 
   try {
     // Make the real request over the TLS tunnel
