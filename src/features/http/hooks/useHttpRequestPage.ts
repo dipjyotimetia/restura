@@ -11,6 +11,7 @@ import axios, { isAxiosError } from 'axios';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { toast } from 'sonner';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
 
 export function useHttpRequestPage() {
   const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading, setScriptResult } =
@@ -73,14 +74,24 @@ export function useHttpRequestPage() {
       }
 
       const resolvedUrl = resolveVariables(httpRequest.url);
-      const params: Record<string, string> = {};
+      let params: Record<string, string> = {};
       httpRequest.params.filter((p) => p.enabled && p.key).forEach((p) => {
         params[p.key] = resolveVariables(p.value);
       });
-      const headers: Record<string, string> = {};
+      let headers: Record<string, string> = {};
       httpRequest.headers.filter((h) => h.enabled && h.key).forEach((h) => {
         headers[h.key] = resolveVariables(h.value);
       });
+
+      // Apply auth headers (handles all auth types including AWS SigV4)
+      headers = await applyAuthHeaders(
+        httpRequest.auth,
+        headers,
+        resolveVariables(httpRequest.url),
+        httpRequest.method,
+        httpRequest.body.type !== 'none' ? httpRequest.body.raw : undefined
+      );
+      params = applyApiKeyQueryParam(httpRequest.auth, params);
 
       const effectiveSettings = getEffectiveSettings();
       let proxyConfig: AxiosProxyConfig | false = false;

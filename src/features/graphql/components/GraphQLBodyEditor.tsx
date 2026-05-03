@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import type * as Monaco from 'monaco-editor';
+import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
+import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
 import { Button } from '@/components/ui/button';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { parseVariables, generateVariablesTemplate } from '@/features/graphql/lib/queryParser';
 import { formatQuery } from '@/features/graphql/lib/formatter';
 import { validateQuery } from '@/features/graphql/lib/validation';
-import { buildSchemaFromIntrospection } from '@/features/graphql/lib/introspection';
+import { buildSchemaFromIntrospection, exportSchemaToSDL } from '@/features/graphql/lib/introspection';
 import {
   Loader2,
   RefreshCw,
@@ -17,11 +20,14 @@ import {
   Wand2,
   PanelRightClose,
   PanelRight,
+  Download,
 } from 'lucide-react';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 const SchemaExplorer = lazyComponent(() => import('./SchemaExplorer'));
+
+let completionProviderRegistered = false;
 
 interface GraphQLBodyEditorProps {
   query: string;
@@ -42,25 +48,31 @@ export default function GraphQLBodyEditor({
   const [showExplorer, setShowExplorer] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const { fetchSchema, getSchema, isLoading } = useGraphQLSchemaStore();
+  const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
 
   const schemaResult = url ? getSchema(url) : null;
   const loading = url ? isLoading(url) : false;
 
-  // Build executable schema for validation
-  const executableSchema = schemaResult ? buildSchemaFromIntrospection(schemaResult) : null;
+  const executableSchema = useMemo(
+    () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
+    [schemaResult]
+  );
 
-  // Extract variables from query
-  const extractedVariables = parseVariables(query);
+  // Refs so Monaco providers always read the latest schema without re-registering
+  const schemaRef = useRef(schemaResult);
+  const executableSchemaRef = useRef(executableSchema);
+  useEffect(() => { schemaRef.current = schemaResult; }, [schemaResult]);
+  useEffect(() => { executableSchemaRef.current = executableSchema; }, [executableSchema]);
 
-  // Auto-generate variables template when query changes
+  const extractedVariables = useMemo(() => parseVariables(query), [query]);
+
   useEffect(() => {
     if (extractedVariables.length > 0 && (!variables || variables === '{}')) {
       const template = generateVariablesTemplate(extractedVariables);
       onVariablesChange(template);
     }
-  }, [query, extractedVariables.length]);
+  }, [query, extractedVariables, variables, onVariablesChange]);
 
-  // Validate query when it changes
   useEffect(() => {
     if (query.trim()) {
       const result = validateQuery(query, executableSchema);
@@ -82,6 +94,25 @@ export default function GraphQLBodyEditor({
     }
     return undefined;
   }, [url, schemaResult, fetchSchema]);
+
+  const handleQueryEditorMount = useCallback(
+    (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
+      if (!completionProviderRegistered) {
+        // Pass factory functions that read from refs so the provider always uses the
+        // current schema even after the URL changes — without re-registering the provider.
+        registerGraphQLCompletionProvider(monaco, () => schemaRef.current?.schema ?? null);
+        completionProviderRegistered = true;
+      }
+      const model = editor.getModel();
+      if (model) {
+        diagnosticsRef.current?.dispose();
+        diagnosticsRef.current = setupDebouncedDiagnostics(monaco, model, () => executableSchemaRef.current);
+      }
+    },
+    [] // Refs are stable; no deps needed
+  );
+
+  useEffect(() => () => { diagnosticsRef.current?.dispose(); }, []);
 
   const handleFetchSchema = useCallback(async () => {
     if (!url) return;
@@ -148,6 +179,24 @@ export default function GraphQLBodyEditor({
             )}
             Explorer
           </Button>
+          {executableSchema && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const sdl = exportSchemaToSDL(executableSchema);
+                const blob = new Blob([sdl], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'schema.graphql';
+                a.click();
+                URL.revokeObjectURL(a.href);
+              }}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              SDL
+            </Button>
+          )}
           {status && (
             <div className={`flex items-center gap-1 text-xs ${status.color}`}>
               <status.icon className={`h-3 w-3 ${status.spin ? 'animate-spin' : ''}`} />
@@ -166,7 +215,7 @@ export default function GraphQLBodyEditor({
           <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-500">
             {validationErrors.slice(0, 3).map((error, i) => (
               <div key={i} className="flex items-start gap-1">
-                <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                 <span>{error}</span>
               </div>
             ))}
@@ -191,6 +240,7 @@ export default function GraphQLBodyEditor({
             onChange={onQueryChange}
             language="graphql"
             height="250px"
+            onEditorMount={handleQueryEditorMount}
           />
         </div>
 

@@ -1,13 +1,10 @@
 import type { EnumSchema, FieldSchema, MessageSchema } from '@/types';
+import { fromBinary } from '@bufbuild/protobuf';
+import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
 import {
   type DescriptorProto,
-  type EnumDescriptorProto,
-  type EnumValueDescriptorProto,
   type FieldDescriptorProto,
   type FileDescriptorProto,
-  type MethodDescriptorProto,
-  type OneofDescriptorProto,
-  type ServiceDescriptorProto,
   PROTO_FIELD_LABEL_MAP,
   PROTO_FIELD_TYPE_MAP,
 } from './types';
@@ -43,12 +40,9 @@ export function getCachedEnumSchema(typeName: string): EnumSchema | undefined {
 }
 
 export function parseFileDescriptor(encodedProto: string): FileDescriptorProto {
-  const binaryString = atob(encodedProto);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  const descriptor = parseProtoWireFormat(bytes);
+  const binaryStr = atob(encodedProto);
+  const bytes = Uint8Array.from({ length: binaryStr.length }, (_, i) => binaryStr.charCodeAt(i));
+  const descriptor = fromBinary(FileDescriptorProtoSchema, bytes) as unknown as FileDescriptorProto;
   if (descriptor.name) {
     addToCache(fileDescriptorCache, descriptor.name, descriptor, MAX_FILE_DESCRIPTOR_CACHE);
   }
@@ -82,20 +76,50 @@ export function cacheMessageTypes(fd: FileDescriptorProto): void {
   }
 }
 
+function buildFieldSchema(f: FieldDescriptorProto): FieldSchema {
+  return {
+    name: f.name || '',
+    jsonName: f.jsonName || toJsonName(f.name || ''),
+    number: f.number || 0,
+    type: PROTO_FIELD_TYPE_MAP[f.type || 0] || 'TYPE_STRING',
+    typeName: f.typeName,
+    label: PROTO_FIELD_LABEL_MAP[f.label || 1] || 'LABEL_OPTIONAL',
+    defaultValue: f.defaultValue,
+    oneofIndex: f.oneofIndex,
+  };
+}
+
 function cacheMessageType(msgType: DescriptorProto, parentName: string): void {
   const fullName = parentName ? `${parentName}.${msgType.name}` : msgType.name || '';
 
+  // Build map of nested map-entry types keyed by their short name (e.g. "LabelsEntry")
+  const mapEntries = new Map<string, DescriptorProto>();
+  if (msgType.nestedType) {
+    for (const nested of msgType.nestedType) {
+      if (nested.options?.mapEntry && nested.name) {
+        mapEntries.set(nested.name, nested);
+      }
+    }
+  }
+
   const fields: FieldSchema[] =
-    msgType.field?.map((f) => ({
-      name: f.name || '',
-      jsonName: f.jsonName || toJsonName(f.name || ''),
-      number: f.number || 0,
-      type: PROTO_FIELD_TYPE_MAP[f.type || 0] || 'TYPE_STRING',
-      typeName: f.typeName,
-      label: PROTO_FIELD_LABEL_MAP[f.label || 1] || 'LABEL_OPTIONAL',
-      defaultValue: f.defaultValue,
-      oneofIndex: f.oneofIndex,
-    })) || [];
+    msgType.field?.map((f) => {
+      const schema = buildFieldSchema(f);
+
+      // Detect map fields: LABEL_REPEATED + TYPE_MESSAGE pointing to a map-entry nested type
+      if (f.label === 3 && f.type === 11 && f.typeName && mapEntries.size > 0) {
+        const shortName = f.typeName.split('.').at(-1) ?? '';
+        const entryType = mapEntries.get(shortName);
+        if (entryType?.field) {
+          const keyField = entryType.field.find((ef) => ef.number === 1);
+          const valueField = entryType.field.find((ef) => ef.number === 2);
+          if (keyField) schema.mapKey = buildFieldSchema(keyField);
+          if (valueField) schema.mapValue = buildFieldSchema(valueField);
+        }
+      }
+
+      return schema;
+    }) || [];
 
   const schema: MessageSchema = {
     name: msgType.name || '',
@@ -132,367 +156,4 @@ function cacheMessageType(msgType: DescriptorProto, parentName: string): void {
 
 function toJsonName(protoName: string): string {
   return protoName.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-}
-
-function parseProtoWireFormat(bytes: Uint8Array): FileDescriptorProto {
-  const result: FileDescriptorProto = {
-    dependency: [],
-    messageType: [],
-    enumType: [],
-    service: [],
-  };
-
-  let offset = 0;
-
-  while (offset < bytes.length) {
-    const tag = readVarint(bytes, offset);
-    offset = tag.newOffset;
-
-    const fieldNumber = tag.value >> 3;
-    const wireType = tag.value & 0x7;
-
-    switch (fieldNumber) {
-      case 1:
-        if (wireType === 2) {
-          const str = readString(bytes, offset);
-          result.name = str.value;
-          offset = str.newOffset;
-        }
-        break;
-
-      case 2:
-        if (wireType === 2) {
-          const str = readString(bytes, offset);
-          result.package = str.value;
-          offset = str.newOffset;
-        }
-        break;
-
-      case 3:
-        if (wireType === 2) {
-          const str = readString(bytes, offset);
-          result.dependency!.push(str.value);
-          offset = str.newOffset;
-        }
-        break;
-
-      case 4:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.messageType!.push(parseDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-
-      case 5:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.enumType!.push(parseEnumDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-
-      case 6:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.service!.push(parseServiceDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-
-      default:
-        offset = skipField(bytes, offset, wireType);
-        break;
-    }
-  }
-
-  return result;
-}
-
-function parseDescriptorProto(bytes: Uint8Array): DescriptorProto {
-  const result: DescriptorProto = { field: [], nestedType: [], enumType: [], oneofDecl: [] };
-  let offset = 0;
-
-  while (offset < bytes.length) {
-    const tag = readVarint(bytes, offset);
-    offset = tag.newOffset;
-    const fieldNumber = tag.value >> 3;
-    const wireType = tag.value & 0x7;
-
-    switch (fieldNumber) {
-      case 1:
-        if (wireType === 2) {
-          const str = readString(bytes, offset);
-          result.name = str.value;
-          offset = str.newOffset;
-        }
-        break;
-      case 2:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.field!.push(parseFieldDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-      case 3:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.nestedType!.push(parseDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-      case 4:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.enumType!.push(parseEnumDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-      case 8:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.oneofDecl!.push(parseOneofDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-      default:
-        offset = skipField(bytes, offset, wireType);
-        break;
-    }
-  }
-
-  return result;
-}
-
-function parseFieldDescriptorProto(bytes: Uint8Array): FieldDescriptorProto {
-  const result: FieldDescriptorProto = {};
-  let offset = 0;
-
-  while (offset < bytes.length) {
-    const tag = readVarint(bytes, offset);
-    offset = tag.newOffset;
-    const fieldNumber = tag.value >> 3;
-    const wireType = tag.value & 0x7;
-
-    switch (fieldNumber) {
-      case 1:
-        if (wireType === 2) { const str = readString(bytes, offset); result.name = str.value; offset = str.newOffset; }
-        break;
-      case 3:
-        if (wireType === 0) { const num = readVarint(bytes, offset); result.number = num.value; offset = num.newOffset; }
-        break;
-      case 4:
-        if (wireType === 0) { const lbl = readVarint(bytes, offset); result.label = lbl.value; offset = lbl.newOffset; }
-        break;
-      case 5:
-        if (wireType === 0) { const typ = readVarint(bytes, offset); result.type = typ.value; offset = typ.newOffset; }
-        break;
-      case 6:
-        if (wireType === 2) { const str = readString(bytes, offset); result.typeName = str.value; offset = str.newOffset; }
-        break;
-      case 7:
-        if (wireType === 2) { const str = readString(bytes, offset); result.defaultValue = str.value; offset = str.newOffset; }
-        break;
-      case 9:
-        if (wireType === 0) { const idx = readVarint(bytes, offset); result.oneofIndex = idx.value; offset = idx.newOffset; }
-        break;
-      case 10:
-        if (wireType === 2) { const str = readString(bytes, offset); result.jsonName = str.value; offset = str.newOffset; }
-        break;
-      default:
-        offset = skipField(bytes, offset, wireType);
-        break;
-    }
-  }
-
-  return result;
-}
-
-function parseEnumDescriptorProto(bytes: Uint8Array): EnumDescriptorProto {
-  const result: EnumDescriptorProto = { value: [] };
-  let offset = 0;
-
-  while (offset < bytes.length) {
-    const tag = readVarint(bytes, offset);
-    offset = tag.newOffset;
-    const fieldNumber = tag.value >> 3;
-    const wireType = tag.value & 0x7;
-
-    switch (fieldNumber) {
-      case 1:
-        if (wireType === 2) { const str = readString(bytes, offset); result.name = str.value; offset = str.newOffset; }
-        break;
-      case 2:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.value!.push(parseEnumValueDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-      default:
-        offset = skipField(bytes, offset, wireType);
-        break;
-    }
-  }
-
-  return result;
-}
-
-function parseEnumValueDescriptorProto(bytes: Uint8Array): EnumValueDescriptorProto {
-  const result: EnumValueDescriptorProto = {};
-  let offset = 0;
-
-  while (offset < bytes.length) {
-    const tag = readVarint(bytes, offset);
-    offset = tag.newOffset;
-    const fieldNumber = tag.value >> 3;
-    const wireType = tag.value & 0x7;
-
-    switch (fieldNumber) {
-      case 1:
-        if (wireType === 2) { const str = readString(bytes, offset); result.name = str.value; offset = str.newOffset; }
-        break;
-      case 2:
-        if (wireType === 0) { const num = readVarint(bytes, offset); result.number = num.value; offset = num.newOffset; }
-        break;
-      default:
-        offset = skipField(bytes, offset, wireType);
-        break;
-    }
-  }
-
-  return result;
-}
-
-function parseServiceDescriptorProto(bytes: Uint8Array): ServiceDescriptorProto {
-  const result: ServiceDescriptorProto = { method: [] };
-  let offset = 0;
-
-  while (offset < bytes.length) {
-    const tag = readVarint(bytes, offset);
-    offset = tag.newOffset;
-    const fieldNumber = tag.value >> 3;
-    const wireType = tag.value & 0x7;
-
-    switch (fieldNumber) {
-      case 1:
-        if (wireType === 2) { const str = readString(bytes, offset); result.name = str.value; offset = str.newOffset; }
-        break;
-      case 2:
-        if (wireType === 2) {
-          const msg = readLengthDelimited(bytes, offset);
-          result.method!.push(parseMethodDescriptorProto(msg.value));
-          offset = msg.newOffset;
-        }
-        break;
-      default:
-        offset = skipField(bytes, offset, wireType);
-        break;
-    }
-  }
-
-  return result;
-}
-
-function parseMethodDescriptorProto(bytes: Uint8Array): MethodDescriptorProto {
-  const result: MethodDescriptorProto = { clientStreaming: false, serverStreaming: false };
-  let offset = 0;
-
-  while (offset < bytes.length) {
-    const tag = readVarint(bytes, offset);
-    offset = tag.newOffset;
-    const fieldNumber = tag.value >> 3;
-    const wireType = tag.value & 0x7;
-
-    switch (fieldNumber) {
-      case 1:
-        if (wireType === 2) { const str = readString(bytes, offset); result.name = str.value; offset = str.newOffset; }
-        break;
-      case 2:
-        if (wireType === 2) { const str = readString(bytes, offset); result.inputType = str.value; offset = str.newOffset; }
-        break;
-      case 3:
-        if (wireType === 2) { const str = readString(bytes, offset); result.outputType = str.value; offset = str.newOffset; }
-        break;
-      case 5:
-        if (wireType === 0) { const val = readVarint(bytes, offset); result.clientStreaming = val.value !== 0; offset = val.newOffset; }
-        break;
-      case 6:
-        if (wireType === 0) { const val = readVarint(bytes, offset); result.serverStreaming = val.value !== 0; offset = val.newOffset; }
-        break;
-      default:
-        offset = skipField(bytes, offset, wireType);
-        break;
-    }
-  }
-
-  return result;
-}
-
-function parseOneofDescriptorProto(bytes: Uint8Array): OneofDescriptorProto {
-  const result: OneofDescriptorProto = {};
-  let offset = 0;
-
-  while (offset < bytes.length) {
-    const tag = readVarint(bytes, offset);
-    offset = tag.newOffset;
-    const fieldNumber = tag.value >> 3;
-    const wireType = tag.value & 0x7;
-
-    if (fieldNumber === 1 && wireType === 2) {
-      const str = readString(bytes, offset);
-      result.name = str.value;
-      offset = str.newOffset;
-    } else {
-      offset = skipField(bytes, offset, wireType);
-    }
-  }
-
-  return result;
-}
-
-function readVarint(bytes: Uint8Array, offset: number): { value: number; newOffset: number } {
-  let value = 0;
-  let shift = 0;
-  let currentOffset = offset;
-
-  while (currentOffset < bytes.length) {
-    const byte = bytes[currentOffset]!;
-    value |= (byte & 0x7f) << shift;
-    currentOffset++;
-    if ((byte & 0x80) === 0) break;
-    shift += 7;
-  }
-
-  return { value, newOffset: currentOffset };
-}
-
-function readString(bytes: Uint8Array, offset: number): { value: string; newOffset: number } {
-  const length = readVarint(bytes, offset);
-  const stringBytes = bytes.slice(length.newOffset, length.newOffset + length.value);
-  const value = new TextDecoder().decode(stringBytes);
-  return { value, newOffset: length.newOffset + length.value };
-}
-
-function readLengthDelimited(bytes: Uint8Array, offset: number): { value: Uint8Array; newOffset: number } {
-  const length = readVarint(bytes, offset);
-  const value = bytes.slice(length.newOffset, length.newOffset + length.value);
-  return { value, newOffset: length.newOffset + length.value };
-}
-
-function skipField(bytes: Uint8Array, offset: number, wireType: number): number {
-  switch (wireType) {
-    case 0:
-      return readVarint(bytes, offset).newOffset;
-    case 1:
-      return offset + 8;
-    case 2: {
-      const length = readVarint(bytes, offset);
-      return length.newOffset + length.value;
-    }
-    case 5:
-      return offset + 4;
-    default:
-      return offset;
-  }
 }

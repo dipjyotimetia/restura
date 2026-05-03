@@ -6,9 +6,8 @@ import type {
   GrpcResponse,
   ProtoFileInfo,
   ProtoServiceDefinition,
-  ProtoMethodDefinition,
   ProtoMessageDefinition,
-  ProtoFieldDefinition} from '@/types';
+} from '@/types';
 import {
   GrpcStatusCode,
   GrpcStatusCodeName
@@ -74,9 +73,6 @@ export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
       break;
 
     case 'aws-signature':
-      // AWS SigV4 signing is not currently implemented for gRPC
-      // Full implementation would require signing the request body and headers
-      // with AWS Signature Version 4 algorithm
       console.warn('AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.');
       break;
 
@@ -112,7 +108,49 @@ export function createTimeoutInterceptor(timeoutMs: number): Interceptor {
 
 // Proto File Parser (Basic implementation)
 export function parseProtoFile(content: string): ProtoFileInfo {
-  const lines = content.split('\n');
+  // Phase 1: strip comments.
+  const noBlockComments = content.replace(/\/\*[\s\S]*?\*\//g, '');
+  const cleanLines = noBlockComments
+    .split('\n')
+    .map((line) => line.replace(/\/\/.*$/, '').trimEnd())
+    .filter((line) => line.trim() !== '');
+
+  // Phase 2: normalize logical lines — join multi-line constructs.
+  const normalizedLines: string[] = [];
+  let i = 0;
+  while (i < cleanLines.length) {
+    const trimmed = cleanLines[i]!.trim();
+
+    // service/message name with `{` on the next line
+    if (/^(service|message)\s+\w+\s*$/.test(trimmed)) {
+      let j = i + 1;
+      while (j < cleanLines.length && cleanLines[j]!.trim() === '') j++;
+      if (j < cleanLines.length && cleanLines[j]!.trim() === '{') {
+        normalizedLines.push(trimmed + ' {');
+        i = j + 1;
+        continue;
+      }
+    }
+
+    // multi-line rpc — accumulate until returns(Type) is fully matched
+    if (trimmed.startsWith('rpc ')) {
+      let accumulated = trimmed;
+      const rpcComplete = /rpc\s+\w+\s*\([^)]*\)\s+returns\s*\([^)]*\)/;
+      let j = i + 1;
+      while (!rpcComplete.test(accumulated) && j < cleanLines.length) {
+        accumulated += ' ' + cleanLines[j]!.trim();
+        j++;
+      }
+      normalizedLines.push(accumulated);
+      i = j;
+      continue;
+    }
+
+    normalizedLines.push(trimmed);
+    i++;
+  }
+
+  // Phase 3: parse normalized lines with original state machine.
   const protoInfo: ProtoFileInfo = {
     fileName: '',
     package: '',
@@ -126,22 +164,13 @@ export function parseProtoFile(content: string): ProtoFileInfo {
   let inService = false;
   let inMessage = false;
 
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-
-    // Skip comments and empty lines
-    if (trimmedLine.startsWith('//') || trimmedLine === '') {
-      continue;
-    }
-
-    // Parse package
+  for (const trimmedLine of normalizedLines) {
     const packageMatch = trimmedLine.match(/^package\s+([^;]+);/);
     if (packageMatch && packageMatch[1]) {
       protoInfo.package = packageMatch[1].trim();
       continue;
     }
 
-    // Parse service definition
     const serviceMatch = trimmedLine.match(/^service\s+(\w+)\s*\{/);
     if (serviceMatch && serviceMatch[1]) {
       currentService = {
@@ -154,7 +183,6 @@ export function parseProtoFile(content: string): ProtoFileInfo {
       continue;
     }
 
-    // Parse message definition
     const messageMatch = trimmedLine.match(/^message\s+(\w+)\s*\{/);
     if (messageMatch && messageMatch[1] && !inService) {
       currentMessage = {
@@ -166,23 +194,20 @@ export function parseProtoFile(content: string): ProtoFileInfo {
       continue;
     }
 
-    // Parse RPC method within service
     if (inService && currentService) {
       const rpcMatch = trimmedLine.match(
         /rpc\s+(\w+)\s*\(\s*(stream\s+)?(\w+)\s*\)\s+returns\s+\(\s*(stream\s+)?(\w+)\s*\)/
       );
       if (rpcMatch && rpcMatch[1] && rpcMatch[3] && rpcMatch[5]) {
-        const method: ProtoMethodDefinition = {
+        currentService.methods.push({
           name: rpcMatch[1],
           inputType: rpcMatch[3],
           outputType: rpcMatch[5],
           clientStreaming: !!rpcMatch[2],
           serverStreaming: !!rpcMatch[4],
-        };
-        currentService.methods.push(method);
+        });
       }
 
-      // Track braces
       if (trimmedLine.includes('{')) braceDepth++;
       if (trimmedLine.includes('}')) {
         braceDepth--;
@@ -194,23 +219,20 @@ export function parseProtoFile(content: string): ProtoFileInfo {
       }
     }
 
-    // Parse message fields
     if (inMessage && currentMessage) {
       const fieldMatch = trimmedLine.match(
         /^\s*(repeated\s+)?(optional\s+)?(\w+)\s+(\w+)\s*=\s*(\d+)/
       );
       if (fieldMatch && fieldMatch[3] && fieldMatch[4] && fieldMatch[5]) {
-        const field: ProtoFieldDefinition = {
+        currentMessage.fields.push({
           name: fieldMatch[4],
           type: fieldMatch[3],
           number: parseInt(fieldMatch[5], 10),
           repeated: !!fieldMatch[1],
           optional: !!fieldMatch[2],
-        };
-        currentMessage.fields.push(field);
+        });
       }
 
-      // Track braces
       if (trimmedLine.includes('{')) braceDepth++;
       if (trimmedLine.includes('}')) {
         braceDepth--;
@@ -429,7 +451,9 @@ export async function makeElectronGrpcRequest(
   request: GrpcRequest,
   protoContent: string,
   protoFileName: string,
-  resolveVariables: (text: string) => string
+  resolveVariables: (text: string) => string,
+  timeoutMs: number = 30000,
+  useCompression: boolean = false
 ): Promise<GrpcResponse> {
   if (!isElectron()) {
     throw new Error('Electron environment required for full gRPC support');
@@ -451,6 +475,8 @@ export async function makeElectronGrpcRequest(
       message: prepared.message,
       protoContent,
       protoFileName,
+      timeoutMs,
+      useCompression,
     });
 
     const endTime = Date.now();
@@ -496,7 +522,9 @@ export function startElectronGrpcStream(
     onData: (data: unknown) => void;
     onError: (error: unknown) => void;
     onStatus: (status: unknown) => void;
-  }
+  },
+  timeoutMs: number = 30000,
+  useCompression: boolean = false
 ): {
   sendMessage: (message: unknown) => void;
   endStream: () => void;
@@ -532,6 +560,8 @@ export function startElectronGrpcStream(
     message: prepared.message,
     protoContent,
     protoFileName,
+    timeoutMs,
+    useCompression,
   });
 
   return {

@@ -21,7 +21,11 @@ interface CookieStore {
   deleteCookie: (id: string) => void;
   getCookiesForUrl: (url: string) => CookieItem[];
   clearCookies: () => void;
+  purgeExpired: () => void;
 }
+
+// Purge expired cookies once per hour during long sessions
+const PURGE_INTERVAL_MS = 60 * 60 * 1000;
 
 export const useCookieStore = create<CookieStore>()(
   persist(
@@ -63,11 +67,18 @@ export const useCookieStore = create<CookieStore>()(
           const hostname = urlObj.hostname;
           const pathname = urlObj.pathname;
 
+          const now = Date.now();
           return get().cookies.filter((cookie) => {
+            // Skip expired cookies
+            if (cookie.expires) {
+              const expiry = new Date(cookie.expires).getTime();
+              if (!isNaN(expiry) && expiry <= now) return false;
+            }
+
             // Domain matching (simplified)
             const domainMatch =
               hostname === cookie.domain || hostname.endsWith('.' + cookie.domain);
-            
+
             // Path matching
             const pathMatch = pathname.startsWith(cookie.path);
 
@@ -81,15 +92,21 @@ export const useCookieStore = create<CookieStore>()(
         }
       },
       clearCookies: () => set({ cookies: [] }),
+      purgeExpired: () =>
+        set((state) => ({
+          cookies: state.cookies.filter((c) => {
+            if (!c.expires) return true;
+            const expiry = new Date(c.expires).getTime();
+            return isNaN(expiry) || expiry > Date.now();
+          }),
+        })),
     }),
     {
       name: 'restura-cookies',
-      version: 2, // Bumped for Dexie migration
+      version: 2,
       storage: dexieStorageAdapters.cookies(),
       migrate: (persistedState, version) => {
-        // Handle migrations between versions
         if (version === 0 || version === 1) {
-          // Migration from localStorage (v1) to Dexie (v2)
           return persistedState as CookieStore;
         }
         return persistedState as CookieStore;
@@ -97,10 +114,11 @@ export const useCookieStore = create<CookieStore>()(
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error('Cookie store rehydration failed:', error);
-          // Store will use default state on error
         }
         if (state) {
-          console.debug('Cookie store rehydrated from Dexie successfully');
+          state.purgeExpired();
+          // Schedule periodic purge for long-running sessions
+          setInterval(() => useCookieStore.getState().purgeExpired(), PURGE_INTERVAL_MS);
         }
       },
     }

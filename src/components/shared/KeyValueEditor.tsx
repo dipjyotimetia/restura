@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Trash2, ListPlus } from 'lucide-react';
+import { Plus, Trash2, ListPlus, Eye, EyeOff, Lock } from 'lucide-react';
 import type { KeyValue } from '@/types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -26,6 +27,7 @@ interface KeyValueEditorProps {
   valuePlaceholder?: string;
   addButtonText?: string;
   itemType?: string;
+  enableSecrets?: boolean;
 }
 
 export default function KeyValueEditor({
@@ -37,7 +39,21 @@ export default function KeyValueEditor({
   valuePlaceholder = 'Value',
   addButtonText = 'Add Item',
   itemType = 'item',
+  enableSecrets = false,
 }: KeyValueEditorProps) {
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
+
+  const toggleReveal = (id: string) => {
+    setRevealedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
   return (
     <TooltipProvider delayDuration={300}>
     <div className="space-y-3">
@@ -75,13 +91,61 @@ export default function KeyValueEditor({
               className="flex-1 bg-background border-border font-mono text-xs transition-colors"
               aria-label={`${itemType} key`}
             />
-            <Input
-              value={item.value}
-              onChange={(e) => onUpdate(item.id, { value: e.target.value })}
-              placeholder={valuePlaceholder}
-              className="flex-1 bg-background border-border font-mono text-xs transition-colors"
-              aria-label={`${itemType} value`}
-            />
+            <div className="flex-1 flex items-center gap-1">
+              <Input
+                value={item.value}
+                onChange={(e) => onUpdate(item.id, { value: e.target.value })}
+                placeholder={valuePlaceholder}
+                type={enableSecrets && item.secret && !revealedIds.has(item.id) ? 'password' : 'text'}
+                className="flex-1 bg-background border-border font-mono text-xs transition-colors"
+                aria-label={`${itemType} value`}
+              />
+              {enableSecrets && (
+                <div className="flex items-center gap-0.5">
+                  {item.secret && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground"
+                          onClick={() => toggleReveal(item.id)}
+                          aria-label={revealedIds.has(item.id) ? 'Hide value' : 'Reveal value'}
+                        >
+                          {revealedIds.has(item.id) ? (
+                            <EyeOff className="h-3.5 w-3.5" />
+                          ) : (
+                            <Eye className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{revealedIds.has(item.id) ? 'Hide value' : 'Reveal value'}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-6 w-6 transition-colors ${item.secret ? 'text-amber-500' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
+                        onClick={() => {
+                          onUpdate(item.id, { secret: !item.secret });
+                          if (item.secret) setRevealedIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
+                        }}
+                        aria-label={item.secret ? 'Unmark as secret' : 'Mark as secret'}
+                      >
+                        <Lock className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{item.secret ? 'Unmark as secret' : 'Mark as secret'}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              )}
+            </div>
             <AlertDialog>
               <Tooltip>
                 <TooltipTrigger asChild>

@@ -59,6 +59,7 @@ function WebSocketClient() {
     createConnection,
     updateConnectionUrl,
     setAutoReconnect,
+    setHeartbeatConfig,
     clearMessages,
     addHeader,
     updateHeader,
@@ -328,6 +329,43 @@ function WebSocketClient() {
               placeholder="e.g., graphql-ws, chat"
               className="h-6 text-xs font-mono flex-1"
               disabled={isConnected || isConnecting}
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-4 px-3 pb-2">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="heartbeat-interval" className="text-xs font-mono whitespace-nowrap text-muted-foreground">
+              Heartbeat:
+            </Label>
+            <Input
+              id="heartbeat-interval"
+              type="number"
+              min={0}
+              step={1000}
+              value={connection.heartbeatInterval}
+              onChange={(e) => {
+                const interval = Math.max(0, parseInt(e.target.value, 10) || 0);
+                setHeartbeatConfig(activeConnectionId, interval, connection.heartbeatMessage);
+                websocketManager.updateHeartbeat(activeConnectionId, interval, connection.heartbeatMessage);
+              }}
+              placeholder="ms (0=off)"
+              className="h-6 text-xs font-mono w-24"
+            />
+            <span className="text-xs text-muted-foreground font-mono">ms</span>
+          </div>
+          <div className="flex items-center gap-2 flex-1">
+            <Label htmlFor="heartbeat-message" className="text-xs font-mono whitespace-nowrap text-muted-foreground">
+              Message:
+            </Label>
+            <Input
+              id="heartbeat-message"
+              value={connection.heartbeatMessage}
+              onChange={(e) => {
+                setHeartbeatConfig(activeConnectionId, connection.heartbeatInterval, e.target.value);
+                websocketManager.updateHeartbeat(activeConnectionId, connection.heartbeatInterval, e.target.value);
+              }}
+              placeholder="ping"
+              className="h-6 text-xs font-mono flex-1"
             />
           </div>
         </div>

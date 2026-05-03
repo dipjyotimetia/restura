@@ -13,7 +13,6 @@ import type {
   OpenAPISecurityScheme,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import SwaggerParser from '@apidevtools/swagger-parser';
 
 export async function importOpenAPICollection(openApiData: unknown): Promise<Collection> {
   if (!openApiData || typeof openApiData !== 'object') {
@@ -30,6 +29,8 @@ export async function importOpenAPICollection(openApiData: unknown): Promise<Col
   if (!doc.paths || typeof doc.paths !== 'object') {
     throw new Error('Invalid OpenAPI document: missing paths object');
   }
+
+  const { default: SwaggerParser } = await import('@apidevtools/swagger-parser');
 
   let api: OpenAPIDocument;
   try {

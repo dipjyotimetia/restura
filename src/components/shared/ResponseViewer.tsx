@@ -5,7 +5,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Copy, Check, Zap, Rows, Columns } from 'lucide-react';
+import { Copy, Check, Zap, Rows, Columns, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/shared/utils';
 import { Scale, Stagger, StaggerItem, AnimatePresence, motion } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import type * as Monaco from 'monaco-editor';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
@@ -115,6 +116,7 @@ function ResponseViewer() {
   const [copiedBody, setCopiedBody] = useState(false);
   const copyHeaderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyBodyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const responseEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 
   useEffect(() => {
     return () => {
@@ -248,6 +250,9 @@ function ResponseViewer() {
                 </Badge>
               )}
             </TabsTrigger>
+            {language === 'html' && (
+              <TabsTrigger value="preview">Preview</TabsTrigger>
+            )}
             <TabsTrigger value="headers">
               Headers
               <Badge variant="secondary" className="ml-2 h-4 min-w-4 px-1 text-[10px] tabular-nums">
@@ -260,36 +265,71 @@ function ResponseViewer() {
             {/* Section header bar */}
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/40">
               <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60">RESPONSE BODY</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleCopyBody}
-                    className="h-6 w-6"
-                  >
-                    {copiedBody ? (
-                      <Check className="h-3 w-3 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-3 w-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{copiedBody ? 'Copied!' : 'Copy response body'}</p>
-                </TooltipContent>
-              </Tooltip>
+              <div className="flex items-center gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => responseEditorRef.current?.getAction('actions.find')?.run()}
+                      className="h-6 w-6"
+                    >
+                      <Search className="h-3 w-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Find in response (Ctrl+F)</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleCopyBody}
+                      className="h-6 w-6"
+                    >
+                      {copiedBody ? (
+                        <Check className="h-3 w-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{copiedBody ? 'Copied!' : 'Copy response body'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
             <div className="flex-1 relative min-h-0">
               <div className="absolute inset-0">
                 {formattedBody ? (
-                  <CodeEditor value={formattedBody} language={language} readOnly height="100%" showCopyButton />
+                  <CodeEditor
+                    value={formattedBody}
+                    language={language}
+                    readOnly
+                    height="100%"
+                    showCopyButton
+                    onEditorMount={(editor) => { responseEditorRef.current = editor; }}
+                  />
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">
                     <p className="text-xs font-mono">No body content returned</p>
                   </div>
                 )}
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="preview" className="flex-1 relative p-0 m-0 min-h-0 border-none outline-none data-[state=active]:flex data-[state=active]:flex-col h-full">
+            <div className="flex-1 relative min-h-0">
+              <iframe
+                srcDoc={currentResponse.body}
+                sandbox="allow-scripts allow-same-origin"
+                className="absolute inset-0 w-full h-full bg-white border-0"
+                title="HTML Preview"
+              />
             </div>
           </TabsContent>
 
