@@ -21,6 +21,7 @@ interface CookieStore {
   deleteCookie: (id: string) => void;
   getCookiesForUrl: (url: string) => CookieItem[];
   clearCookies: () => void;
+  purgeExpired: () => void;
 }
 
 export const useCookieStore = create<CookieStore>()(
@@ -63,11 +64,18 @@ export const useCookieStore = create<CookieStore>()(
           const hostname = urlObj.hostname;
           const pathname = urlObj.pathname;
 
+          const now = Date.now();
           return get().cookies.filter((cookie) => {
+            // Skip expired cookies
+            if (cookie.expires) {
+              const expiry = new Date(cookie.expires).getTime();
+              if (!isNaN(expiry) && expiry <= now) return false;
+            }
+
             // Domain matching (simplified)
             const domainMatch =
               hostname === cookie.domain || hostname.endsWith('.' + cookie.domain);
-            
+
             // Path matching
             const pathMatch = pathname.startsWith(cookie.path);
 
@@ -81,6 +89,14 @@ export const useCookieStore = create<CookieStore>()(
         }
       },
       clearCookies: () => set({ cookies: [] }),
+      purgeExpired: () =>
+        set((state) => ({
+          cookies: state.cookies.filter((c) => {
+            if (!c.expires) return true;
+            const expiry = new Date(c.expires).getTime();
+            return isNaN(expiry) || expiry > Date.now();
+          }),
+        })),
     }),
     {
       name: 'restura-cookies',
@@ -97,10 +113,9 @@ export const useCookieStore = create<CookieStore>()(
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error('Cookie store rehydration failed:', error);
-          // Store will use default state on error
         }
         if (state) {
-          console.debug('Cookie store rehydrated from Dexie successfully');
+          state.purgeExpired();
         }
       },
     }

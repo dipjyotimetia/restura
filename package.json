@@ -87,6 +87,7 @@
     "electron-updater": "^6.8.3",
     "framer-motion": "^12.38.0",
     "graphql": "^16.13.2",
+    "graphql-ws": "^6.0.8",
     "hono": "^4.12.16",
     "js-yaml": "^4.1.1",
     "lucide-react": "^1.14.0",

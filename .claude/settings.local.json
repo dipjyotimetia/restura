@@ -58,7 +58,8 @@
       "Bash(gh pr *)",
       "Bash(gh run *)",
       "Bash(npm audit *)",
-      "Bash(echo \"Exit code: $?\")"
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(grep -n 'resolveVariables\\\\|dynamic\\\\|$timestamp' /Users/dipjyotimetia/Documents/working/ccviews/DJ/src/store/useEnvironmentStore.ts)"
     ]
   }
 }

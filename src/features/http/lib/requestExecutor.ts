@@ -9,6 +9,7 @@ import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/features/http/lib/proxyHelper';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
+import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
 
 // Execute request via CORS proxy (browser mode)
 async function executeViaCorsProxy(
@@ -131,6 +132,19 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     .forEach((h) => {
       headers[h.key] = resolveLocal(h.value);
     });
+
+  // Apply auth headers (includes AWS SigV4 signing)
+  const headersWithAuth = await applyAuthHeaders(
+    request.auth,
+    headers,
+    resolvedUrl,
+    request.method,
+    request.body.type !== 'none' ? request.body.raw : undefined
+  );
+  Object.assign(headers, headersWithAuth);
+
+  // Apply API key query params
+  Object.assign(params, applyApiKeyQueryParam(request.auth, params));
 
   // Add Cookies
   // Note: useCookieStore is a hook/store. We can access getState() outside components.

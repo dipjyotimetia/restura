@@ -74,9 +74,6 @@ export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
       break;
 
     case 'aws-signature':
-      // AWS SigV4 signing is not currently implemented for gRPC
-      // Full implementation would require signing the request body and headers
-      // with AWS Signature Version 4 algorithm
       console.warn('AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.');
       break;
 
@@ -429,7 +426,8 @@ export async function makeElectronGrpcRequest(
   request: GrpcRequest,
   protoContent: string,
   protoFileName: string,
-  resolveVariables: (text: string) => string
+  resolveVariables: (text: string) => string,
+  timeoutMs: number = 30000
 ): Promise<GrpcResponse> {
   if (!isElectron()) {
     throw new Error('Electron environment required for full gRPC support');
@@ -451,6 +449,7 @@ export async function makeElectronGrpcRequest(
       message: prepared.message,
       protoContent,
       protoFileName,
+      timeoutMs,
     });
 
     const endTime = Date.now();
@@ -496,7 +495,8 @@ export function startElectronGrpcStream(
     onData: (data: unknown) => void;
     onError: (error: unknown) => void;
     onStatus: (status: unknown) => void;
-  }
+  },
+  timeoutMs: number = 30000
 ): {
   sendMessage: (message: unknown) => void;
   endStream: () => void;
@@ -532,6 +532,7 @@ export function startElectronGrpcStream(
     message: prepared.message,
     protoContent,
     protoFileName,
+    timeoutMs,
   });
 
   return {
