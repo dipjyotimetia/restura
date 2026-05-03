@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -25,6 +25,19 @@ interface RunnerResult {
   error?: string;
 }
 
+// Flatten collection items to a list of requests — pure utility, no component state
+function flattenItems(items: CollectionItem[]): CollectionItem[] {
+  let flat: CollectionItem[] = [];
+  items.forEach(item => {
+    if (item.type === 'request') {
+      flat.push(item);
+    } else if (item.items) {
+      flat = [...flat, ...flattenItems(item.items)];
+    }
+  });
+  return flat;
+}
+
 function CollectionRunner() {
   const { collections } = useCollectionStore();
   const { environments, activeEnvironmentId } = useEnvironmentStore();
@@ -39,21 +52,11 @@ function CollectionRunner() {
   const [delay, setDelay] = useState(0);
   const [stopOnError, setStopOnError] = useState(false);
 
-  // Flatten collection items to a list of requests
-  const flattenItems = (items: CollectionItem[]): CollectionItem[] => {
-    let flat: CollectionItem[] = [];
-    items.forEach(item => {
-      if (item.type === 'request') {
-        flat.push(item);
-      } else if (item.items) {
-        flat = [...flat, ...flattenItems(item.items)];
-      }
-    });
-    return flat;
-  };
-
   const selectedCollection = collections.find(c => c.id === selectedCollectionId);
-  const requestItems = selectedCollection ? flattenItems(selectedCollection.items) : [];
+  const requestItems = useMemo(
+    () => selectedCollection ? flattenItems(selectedCollection.items) : [],
+    [selectedCollection]
+  );
 
   useEffect(() => {
     if (selectedCollection) {
@@ -63,7 +66,7 @@ function CollectionRunner() {
         status: 'pending'
       })));
     }
-  }, [selectedCollectionId]);
+  }, [selectedCollection, requestItems]);
 
   const handleRun = async () => {
     if (!selectedCollection || requestItems.length === 0) return;

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
+import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request, CollectionItem } from '@/types';
 import { executeWorkflow } from '../lib/workflowExecutor';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -141,7 +141,7 @@ export function useWorkflowExecution(
 
 // Helper to find request in nested collection items
 function findRequestInItems(
-  items: import('@/types').CollectionItem[],
+  items: CollectionItem[],
   requestId: string
 ): Request | undefined {
   for (const item of items) {

@@ -12,6 +12,7 @@ const TAB_KEYS: Record<string, string> = {
 
 function RequestBuilder() {
   const { httpRequest, isLoading, globalSettings, handlers, counts } = useHttpRequestPage();
+  const { sendRequest } = handlers;
   const [activeTab, setActiveTab] = useState('params');
   const [codeGenOpen, setCodeGenOpen] = useState(false);
 
@@ -31,12 +32,12 @@ function RequestBuilder() {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        handlers.sendRequest();
+        sendRequest();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handlers.sendRequest]);
+  }, [sendRequest]);
 
   if (!httpRequest) return null;
 
