@@ -12,7 +12,7 @@ The app supports distribution on:
 ## Prerequisites
 
 ### Required Software
-- Node.js 20.x or later
+- Node.js 22.x or later
 - npm 10.x or later
 - Git
 
@@ -202,7 +202,7 @@ Updates are served from GitHub Releases. The `publish` configuration in `electro
   "publish": {
     "provider": "github",
     "owner": "dipjyotimetia",
-    "repo": "DJ",
+    "repo": "restura",
     "releaseType": "release"
   }
 }
@@ -253,7 +253,7 @@ Users can trigger manual update checks via the app menu or by using the IPC chan
 
 **"App is damaged and can't be opened"**
 - Not properly signed/notarized
-- Solution: Right-click → Open, or `xattr -cr /Applications/DJ\ API\ Client.app`
+- Solution: Right-click → Open, or `xattr -cr /Applications/Restura.app`
 
 **Notarization Fails**
 - Check Apple ID credentials

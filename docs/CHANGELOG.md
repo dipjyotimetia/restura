@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New library functions: `executeWorkflow`, `extractVariables`, `testExtraction`
 - Types: `Workflow`, `WorkflowRequest`, `VariableExtraction`, `WorkflowExecution`, `WorkflowExecutionStep`
 
-## [0.1.0] - 2024-XX-XX
+## [0.1.0] - 2025-11-17
 
 ### Added
 
