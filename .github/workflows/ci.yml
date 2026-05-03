@@ -76,6 +76,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Clean stale deploy config
+        run: rm -rf .wrangler/deploy
+
       - name: Deploy Worker (restura.workers.dev)
         uses: cloudflare/wrangler-action@v3
         with:
@@ -122,6 +125,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Clean stale deploy config
+        run: rm -rf .wrangler/deploy
 
       - name: Deploy Worker preview version
         uses: cloudflare/wrangler-action@v3
