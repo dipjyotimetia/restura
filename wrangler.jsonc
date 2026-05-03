@@ -14,7 +14,8 @@
   "env": {
     "preview": {
       "vars": {
-        "ENVIRONMENT": "development"
+        "ENVIRONMENT": "preview",
+        "ALLOWED_ORIGIN": "https://*.restura.pages.dev"
       }
     }
   }

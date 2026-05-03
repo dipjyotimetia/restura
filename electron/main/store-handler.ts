@@ -35,6 +35,7 @@ function getEncryptionKey(): string {
       }
 
       // Fall back to stored key (less secure but functional)
+      console.warn('Electron safeStorage is unavailable; using plaintext store encryption key fallback.');
       return encryptedKey.toString('utf8');
     } catch {
       // Key file corrupted, generate new one
@@ -51,6 +52,7 @@ function getEncryptionKey(): string {
       fs.writeFileSync(keyFile, encrypted);
     } else {
       // Store directly (less secure but functional)
+      console.warn('Electron safeStorage is unavailable; writing plaintext store encryption key fallback.');
       fs.writeFileSync(keyFile, newKey, { mode: 0o600 });
     }
   } catch (error) {
