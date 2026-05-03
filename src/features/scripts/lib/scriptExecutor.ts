@@ -2,7 +2,8 @@
 // Provides a SECURE sandboxed environment using QuickJS for executing user scripts
 // Security features: Memory limits, execution timeout, no filesystem/network access
 
-import { getQuickJS, QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
+import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
+import { getQuickJS } from 'quickjs-emscripten';
 
 export interface ScriptContext {
   // Request/Response data

@@ -1,11 +1,11 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 import {
   httpRequestSchema,
   grpcRequestSchema,
   environmentSchema,
   collectionSchema,
 } from './validations';
-import { Request, Environment, Collection } from '@/types';
+import type { Request, Environment, Collection } from '@/types';
 
 /**
  * Validates a request object and returns validated data or throws
@@ -72,7 +72,7 @@ export function validateEnvironment(env: unknown): Environment {
 export function validateCollection(collection: unknown): Collection {
   const result = collectionSchema.safeParse(collection);
   if (result.success) {
-    return result.data as Collection;
+    return result.data;
   }
 
   console.error('Collection validation failed:', result.error?.issues);

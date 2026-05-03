@@ -1,11 +1,4 @@
 export type { GenerateOptions } from './types';
-export { generateCurl } from './curl';
-export { generatePython } from './python';
-export { generateJavaScript } from './javascript';
-export { generateNodeJS } from './nodejs';
-export { generateGo } from './go';
-export { generateRuby } from './ruby';
-export { generatePhp } from './php';
 
 import { generateCurl } from './curl';
 import { generatePython } from './python';
@@ -14,6 +7,8 @@ import { generateNodeJS } from './nodejs';
 import { generateGo } from './go';
 import { generateRuby } from './ruby';
 import { generatePhp } from './php';
+
+export { generateCurl, generatePython, generateJavaScript, generateNodeJS, generateGo, generateRuby, generatePhp };
 
 export const codeGenerators = {
   curl: { name: 'cURL', generate: generateCurl },

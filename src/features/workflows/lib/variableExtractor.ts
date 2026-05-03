@@ -1,4 +1,4 @@
-import { VariableExtraction, Response } from '@/types';
+import type { VariableExtraction, Response } from '@/types';
 
 /**
  * Safely parse JSON body, returning null on failure

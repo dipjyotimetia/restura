@@ -1,6 +1,7 @@
 import type * as Monaco from 'monaco-editor';
-import { GraphQLSchema } from 'graphql';
-import { validateQuery, ValidationError } from './validation';
+import type { GraphQLSchema } from 'graphql';
+import type { ValidationError } from './validation';
+import { validateQuery } from './validation';
 
 // Convert validation errors to Monaco markers
 export function createDiagnostics(

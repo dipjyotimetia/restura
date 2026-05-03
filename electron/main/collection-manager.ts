@@ -5,11 +5,13 @@
  * Handles loading, saving, watching, and conflict detection.
  */
 
-import { ipcMain, BrowserWindow, dialog, shell } from 'electron';
+import type { BrowserWindow} from 'electron';
+import { ipcMain, dialog, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import chokidar, { FSWatcher } from 'chokidar';
+import type { FSWatcher } from 'chokidar';
+import chokidar from 'chokidar';
 import { z } from 'zod';
 import { createValidatedHandler, FilePathSchema } from './ipc-validators';
 import { isPathSafe } from './file-operations';

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { shouldUseCorsProxy, isCorsError, getCorsProxyStatus } from '../proxyHelper';
-import { AppSettings } from '@/types';
+import type { AppSettings } from '@/types';
 
 // Mock the platform module
 vi.mock('@/lib/shared/platform', () => ({

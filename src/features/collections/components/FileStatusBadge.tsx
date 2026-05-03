@@ -3,7 +3,8 @@
 import { cn } from '@/lib/shared/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Check, AlertCircle, RefreshCw, FolderOpen, Loader2 } from 'lucide-react';
-import { SyncState, useFileCollectionStore } from '@/store/useFileCollectionStore';
+import type { SyncState} from '@/store/useFileCollectionStore';
+import { useFileCollectionStore } from '@/store/useFileCollectionStore';
 
 interface FileStatusBadgeProps {
   collectionId: string;

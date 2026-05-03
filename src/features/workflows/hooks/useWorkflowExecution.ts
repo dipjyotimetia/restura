@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
+import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
 import { executeWorkflow } from '../lib/workflowExecutor';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';

@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { useConsoleStore, ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
+import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
+import { useConsoleStore } from '@/store/useConsoleStore';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

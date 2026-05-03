@@ -10,13 +10,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import type {
+  GrpcRequestConfig} from './ipc-validators';
 import {
   GrpcRequestConfigSchema,
   GrpcStreamRequestIdSchema,
   GrpcSendMessageSchema,
   createValidatedHandler,
-  createValidatedListener,
-  GrpcRequestConfig,
+  createValidatedListener
 } from './ipc-validators';
 import { createRateLimiter } from './ipc-rate-limiter';
 

@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { KeyValue } from '@/types';
+import type { KeyValue } from '@/types';
 
 /**
  * Creates a new key-value item with default values

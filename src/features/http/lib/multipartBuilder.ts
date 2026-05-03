@@ -1,4 +1,4 @@
-import { MultipartPart } from '@/types';
+import type { MultipartPart } from '@/types';
 
 // Generate a random boundary string
 export function generateBoundary(): string {

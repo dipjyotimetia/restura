@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Workflow } from '@/types';
+import type { Workflow } from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

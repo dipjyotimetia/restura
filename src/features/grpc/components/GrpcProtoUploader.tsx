@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { parseProtoFile } from '@/features/grpc/lib/grpcClient';
-import { ProtoFileInfo, GrpcMethodType } from '@/types';
+import type { ProtoFileInfo, GrpcMethodType } from '@/types';
 
 interface GrpcProtoUploaderProps {
   protoFile: File | null;

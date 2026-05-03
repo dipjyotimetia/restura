@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCollectionStore } from '../useCollectionStore';
-import { CollectionItem } from '@/types';
+import type { CollectionItem } from '@/types';
 
 describe('useCollectionStore', () => {
   beforeEach(() => {

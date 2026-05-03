@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executeWorkflow } from '../workflowExecutor';
-import { Workflow, Request, HttpRequest, AppSettings, Response } from '@/types';
+import type { Workflow, Request, HttpRequest, AppSettings, Response } from '@/types';
 
 // Mock the executeRequest function
 vi.mock('@/features/http/lib/requestExecutor', () => ({

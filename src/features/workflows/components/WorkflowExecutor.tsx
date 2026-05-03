@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Workflow, HttpRequest, CollectionItem } from '@/types';
+import type { Workflow, HttpRequest, CollectionItem } from '@/types';
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { Button } from '@/components/ui/button';

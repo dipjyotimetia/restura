@@ -1,4 +1,4 @@
-import { ProxyConfig, RequestSettings, AppSettings } from '@/types';
+import type { ProxyConfig, RequestSettings, AppSettings } from '@/types';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 
 /**

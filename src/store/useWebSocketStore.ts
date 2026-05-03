@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { KeyValue } from '@/types';
+import type { KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 export type WebSocketMessageType = 'sent' | 'received' | 'system';

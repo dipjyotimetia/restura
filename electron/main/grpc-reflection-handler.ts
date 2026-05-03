@@ -1,14 +1,30 @@
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import * as path from 'path';
+import { createValidatedHandler, ReflectionIpcConfigSchema, type ReflectionIpcConfig } from './ipc-validators';
 
-// Resolve proto files from @grpc/reflection package (bundled with the app)
-// @grpc/reflection/build/src/index.js → build/src → ../proto = build/proto
-const REFLECTION_PKG_PROTO_DIR = path.join(path.dirname(require.resolve('@grpc/reflection')), '../proto');
+// In production, @grpc/reflection proto files are unpacked from the asar archive via asarUnpack.
+// require.resolve() still points inside the asar, so we must redirect to the unpacked location.
+function getReflectionProtoDir(): string {
+  if (app.isPackaged) {
+    return path.join(
+      process.resourcesPath,
+      'app.asar.unpacked',
+      'node_modules',
+      '@grpc',
+      'reflection',
+      'build',
+      'proto'
+    );
+  }
+  // In development, resolve directly from node_modules.
+  // @grpc/reflection/build/src/index.js → build/src → ../proto = build/proto
+  return path.join(path.dirname(require.resolve('@grpc/reflection')), '../proto');
+}
 
 function getProtoPath(version: 'v1' | 'v1alpha'): string {
-  return path.join(REFLECTION_PKG_PROTO_DIR, 'grpc', 'reflection', version, 'reflection.proto');
+  return path.join(getReflectionProtoDir(), 'grpc', 'reflection', version, 'reflection.proto');
 }
 
 const PROTO_LOADER_OPTIONS: protoLoader.Options = {
@@ -45,13 +61,6 @@ function loadServiceClient(version: 'v1' | 'v1alpha'): grpc.ServiceClientConstru
 
   clientCache.set(version, ClientConstructor);
   return ClientConstructor;
-}
-
-interface ReflectionIpcConfig {
-  url: string;
-  reflectionService: string;
-  request: Record<string, unknown>;
-  timeout?: number;
 }
 
 interface RawReflectionResponse {
@@ -132,6 +141,9 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
       }
     ).ServerReflectionInfo();
 
+    // The gRPC Server Reflection protocol sends exactly one response per request message before
+    // the client half-closes the stream. We resolve on the first data event and close immediately;
+    // subsequent messages (which should not occur) are ignored by the settled guard.
     call.on('data', (response: GrpcReflectionResponse) => {
       settle(() => resolve(toRawResponse(response)));
     });
@@ -150,11 +162,8 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
 }
 
 export function registerGrpcReflectionIPC(): void {
-  ipcMain.handle('grpc:reflect', async (_event, config: unknown) => {
-    const c = config as ReflectionIpcConfig;
-    if (!c?.url || !c?.reflectionService || !c?.request) {
-      throw new Error('Invalid reflection config: url, reflectionService, and request are required');
-    }
-    return sendReflectionRequest(c);
-  });
+  ipcMain.handle(
+    'grpc:reflect',
+    createValidatedHandler('grpc:reflect', ReflectionIpcConfigSchema, sendReflectionRequest)
+  );
 }

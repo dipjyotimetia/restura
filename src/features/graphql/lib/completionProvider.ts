@@ -1,5 +1,6 @@
 import type * as Monaco from 'monaco-editor';
-import { GraphQLSchema, GraphQLField, formatTypeRef } from '../types';
+import type { GraphQLSchema, GraphQLField} from '../types';
+import { formatTypeRef } from '../types';
 import { getTypeFields } from './introspection';
 
 // Register completion provider for GraphQL

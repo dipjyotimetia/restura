@@ -7,7 +7,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useShallow } from 'zustand/react/shallow';
-import {
+import type {
   AuthConfig as AuthConfigType,
   GrpcMethodType,
   GrpcRequest,
@@ -35,7 +35,7 @@ import {
   generateProtoFromReflection,
 } from '@/features/grpc/lib/grpcReflection';
 import { toast } from 'sonner';
-import { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
+import type { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';

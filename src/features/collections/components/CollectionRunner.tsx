@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { CollectionItem, HttpRequest, Response as ApiResponse } from '@/types';
+import type { CollectionItem, HttpRequest, Response as ApiResponse } from '@/types';
 import { Play, StopCircle, CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { toast } from 'sonner';

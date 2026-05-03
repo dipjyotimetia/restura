@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { HistoryItem, Request, Response } from '@/types';
+import type { HistoryItem, Request, Response } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 interface HistoryState {
