@@ -53,6 +53,7 @@ const electronAPI = {
     minimize: () => ipcRenderer.send('window:minimize'),
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
+    openNew: () => ipcRenderer.invoke('window:new'),
   },
 
   // HTTP operations with proxy support
@@ -145,6 +146,12 @@ const electronAPI = {
       ipcRenderer.invoke('store:has', key),
   },
 
+  // Request log operations
+  log: {
+    getHistory: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('log:getHistory', limit),
+    clear: (): Promise<void> => ipcRenderer.invoke('log:clear'),
+  },
+
   // Collection file operations (Git-native collections)
   collections: {
     loadFromDirectory: (directoryPath: string): Promise<{
@@ -199,7 +206,7 @@ const electronAPI = {
 
   // Events
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['menu:import', 'menu:export', 'menu:new-request', 'app:focus'];
+    const validChannels = ['menu:import', 'menu:export', 'menu:new-request', 'app:focus', 'deep-link'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_event, ...args) => callback(...args));
     }

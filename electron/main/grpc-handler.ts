@@ -1,4 +1,5 @@
 import { ipcMain, app } from 'electron';
+import type { LogEntry } from './request-logger';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { createGrpcTransport } from '@connectrpc/connect-node';
@@ -15,6 +16,9 @@ import {
   createValidatedListener,
   GrpcRequestConfig,
 } from './ipc-validators';
+import { createRateLimiter } from './ipc-rate-limiter';
+
+const grpcRateLimiter = createRateLimiter(30, 60_000);
 
 // Use app's userData directory for proto temp files (more secure than os.tmpdir())
 // This will be something like ~/Library/Application Support/restura/grpc-temp on macOS
@@ -216,8 +220,18 @@ function sanitizeProtoFileName(fileName: string): string {
   return sanitized.endsWith('.proto') ? sanitized : `${sanitized}.proto`;
 }
 
+function validateProtoContent(content: string): void {
+  if (!/^\s*syntax\s*=\s*"proto[23]"/.test(content)) {
+    throw new Error('Invalid proto: missing syntax declaration');
+  }
+  if (!/^service\s+\w+/m.test(content)) {
+    throw new Error('Invalid proto: no service definition found');
+  }
+}
+
 // Helper to load proto
 const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
+  validateProtoContent(config.protoContent);
   const sanitizedFileName = sanitizeProtoFileName(config.protoFileName || 'service.proto');
   const protoPath = path.join(tempDir, sanitizedFileName);
   fs.writeFileSync(protoPath, config.protoContent);
@@ -439,7 +453,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
 
 
 
-export function registerGrpcHandlerIPC(): void {
+export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   // Initialize and clean up old temp directories on startup
   initializeGrpcTempDir();
 
@@ -449,7 +463,23 @@ export function registerGrpcHandlerIPC(): void {
   ipcMain.handle(
     'grpc:request',
     createValidatedHandler('grpc:request', GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
-      return makeGrpcRequest(config);
+      if (!grpcRateLimiter()) {
+        return { error: 'Rate limit exceeded' };
+      }
+      const startTime = Date.now();
+      const result = await makeGrpcRequest(config);
+      if (onComplete) {
+        onComplete({
+          ts: startTime,
+          method: `${config.service}/${config.method}`,
+          url: config.url,
+          status: result.status,
+          durationMs: Date.now() - startTime,
+          protocol: 'grpc',
+          error: result.error,
+        });
+      }
+      return result;
     })
   );
 
@@ -460,6 +490,15 @@ export function registerGrpcHandlerIPC(): void {
       const requestId = config.id;
       if (!requestId) return;
 
+      if (!grpcRateLimiter()) {
+        event.sender.send(`grpc:error:${requestId}`, {
+          status: 14,
+          details: 'Rate limit exceeded'
+        });
+        return;
+      }
+
+    const streamStartTime = Date.now();
     const tempDir = path.join(GRPC_TEMP_BASE, requestId);
     fs.mkdirSync(tempDir, { recursive: true });
 
@@ -500,6 +539,17 @@ export function registerGrpcHandlerIPC(): void {
           status: error.code || 2,
           details: sanitizeErrorMessage(error.message)
         });
+        if (onComplete) {
+          onComplete({
+            ts: streamStartTime,
+            method: `${config.service}/${config.method}`,
+            url: config.url,
+            status: error.code || 2,
+            durationMs: Date.now() - streamStartTime,
+            protocol: 'grpc',
+            error: sanitizeErrorMessage(error.message),
+          });
+        }
         cleanup();
       };
 
@@ -508,6 +558,16 @@ export function registerGrpcHandlerIPC(): void {
           status: 0,
           details: 'OK'
         });
+        if (onComplete) {
+          onComplete({
+            ts: streamStartTime,
+            method: `${config.service}/${config.method}`,
+            url: config.url,
+            status: 0,
+            durationMs: Date.now() - streamStartTime,
+            protocol: 'grpc',
+          });
+        }
         cleanup();
       };
 

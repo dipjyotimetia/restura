@@ -12,15 +12,16 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 border border-transparent hover:-translate-y-0.5',
+          'bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 hover:brightness-110 border border-transparent',
         destructive:
-          'bg-destructive text-destructive-foreground shadow-md hover:shadow-lg hover:bg-destructive/90 border border-transparent hover:-translate-y-0.5',
+          'bg-destructive text-destructive-foreground shadow-md hover:shadow-lg hover:bg-destructive/90 hover:brightness-110 border border-transparent',
         outline:
-          'border border-border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground hover:border-accent-foreground/30',
+          'border border-border bg-transparent hover:bg-accent hover:text-foreground',
         secondary:
           'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 border border-border/50',
-        ghost: 'hover:bg-accent hover:text-accent-foreground hover:shadow-sm',
+        ghost: 'hover:bg-accent hover:text-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
+        glow: 'bg-primary text-primary-foreground hover:shadow-glow-violet hover:brightness-110 border border-transparent',
       },
       size: {
         default: 'h-9 px-4 py-2 text-sm rounded-md [&_svg]:size-4',

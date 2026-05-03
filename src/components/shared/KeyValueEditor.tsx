@@ -1,5 +1,3 @@
-'use client';
-
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -42,21 +40,18 @@ export default function KeyValueEditor({
 }: KeyValueEditorProps) {
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="space-y-3">
+    <div className="space-y-3">
         {items.length === 0 && (
-          <div className="text-center py-10 px-4">
-            <div className="mx-auto mb-4 h-12 w-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center shadow-sm">
-              <ListPlus className="h-6 w-6 text-slate-500 dark:text-slate-400" />
-            </div>
-            <p className="text-sm font-medium text-foreground mb-1">No {itemType}s added yet</p>
-            <p className="text-xs text-muted-foreground">Click the button below to add your first {itemType}</p>
+          <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground/50">
+            <ListPlus className="h-5 w-5" />
+            <p className="text-xs font-mono">No {itemType}s added</p>
           </div>
         )}
         <Stagger show={items.length > 0}>
         {items.map((item) => (
           <StaggerItem
             key={item.id}
-            className="flex items-center gap-3 group p-2 rounded-lg hover:bg-accent transition-colors"
+            className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-surface-2 transition-colors"
           >
             <Tooltip>
               <TooltipTrigger asChild>
@@ -64,7 +59,7 @@ export default function KeyValueEditor({
                   <Switch
                     checked={item.enabled}
                     onCheckedChange={(checked) => onUpdate(item.id, { enabled: checked })}
-                    className="data-[state=checked]:bg-slate-blue-600"
+                    className="data-[state=checked]:bg-primary"
                     aria-label={item.enabled ? `Disable ${itemType}` : `Enable ${itemType}`}
                   />
                 </div>
@@ -77,14 +72,14 @@ export default function KeyValueEditor({
               value={item.key}
               onChange={(e) => onUpdate(item.id, { key: e.target.value })}
               placeholder={keyPlaceholder}
-              className="flex-1 bg-background border-border focus:border-slate-blue-500/40 transition-colors"
+              className="flex-1 bg-background border-border font-mono text-xs transition-colors"
               aria-label={`${itemType} key`}
             />
             <Input
               value={item.value}
               onChange={(e) => onUpdate(item.id, { value: e.target.value })}
               placeholder={valuePlaceholder}
-              className="flex-1 bg-background border-border focus:border-slate-blue-500/40 transition-colors"
+              className="flex-1 bg-background border-border font-mono text-xs transition-colors"
               aria-label={`${itemType} value`}
             />
             <AlertDialog>
@@ -94,7 +89,7 @@ export default function KeyValueEditor({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                       aria-label={`Delete ${itemType}`}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -132,7 +127,7 @@ export default function KeyValueEditor({
               onClick={onAdd}
               variant="outline"
               size="sm"
-              className="border-border hover:border-slate-blue-500/50 hover:bg-slate-blue-50/50 dark:hover:bg-slate-blue-950/30 hover:text-slate-blue-700 dark:hover:text-slate-blue-300 transition-all duration-200 shadow-sm hover:shadow"
+              className="border-border hover:bg-accent hover:text-foreground transition-colors"
             >
               <Plus className="mr-2 h-4 w-4" />
               {addButtonText}
@@ -142,7 +137,7 @@ export default function KeyValueEditor({
             <p>Add new {itemType}</p>
           </TooltipContent>
         </Tooltip>
-      </div>
+    </div>
     </TooltipProvider>
   );
 }

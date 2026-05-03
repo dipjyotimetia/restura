@@ -4,6 +4,7 @@
  */
 
 import { isElectron } from './platform';
+import { secureStorage } from './secure-storage';
 
 interface StorageAdapter {
   getItem: (key: string) => string | null;
@@ -53,45 +54,14 @@ const webStorageAdapter: StorageAdapter = {
 
 /**
  * Electron storage adapter
- * Uses localStorage for now, but can be upgraded to electron-store
- * for better persistence and security
+ * Routes sensitive keys (auth, tokens, passwords, etc.) through the encrypted
+ * electron-store via IPC; non-sensitive keys continue to use localStorage.
  */
 const electronStorageAdapter: StorageAdapter = {
-  getItem: (key: string) => {
-    if (typeof window === 'undefined') return null;
-    try {
-      // For now, use localStorage in Electron
-      // Can be upgraded to use electron-store via IPC
-      return localStorage.getItem(key);
-    } catch {
-      console.error('Failed to get item from storage');
-      return null;
-    }
-  },
-  setItem: (key: string, value: string) => {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.setItem(key, value);
-    } catch {
-      console.error('Failed to set item in storage');
-    }
-  },
-  removeItem: (key: string) => {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      console.error('Failed to remove item from storage');
-    }
-  },
-  clear: () => {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.clear();
-    } catch {
-      console.error('Failed to clear storage');
-    }
-  },
+  getItem: (key: string) => secureStorage.get(key),
+  setItem: (key: string, value: string) => secureStorage.set(key, value),
+  removeItem: (key: string) => secureStorage.remove(key),
+  clear: () => secureStorage.clear(),
 };
 
 /**
