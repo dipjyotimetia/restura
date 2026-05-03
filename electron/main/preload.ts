@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+const VALID_EVENT_CHANNELS = ['menu:import', 'menu:export', 'menu:new-request', 'app:focus', 'deep-link'];
+
 // Define the API that will be exposed to the renderer process
 const electronAPI = {
   // Platform information
@@ -246,14 +248,15 @@ const electronAPI = {
 
   // Events
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['menu:import', 'menu:export', 'menu:new-request', 'app:focus', 'deep-link'];
-    if (validChannels.includes(channel)) {
+    if (VALID_EVENT_CHANNELS.includes(channel)) {
       ipcRenderer.on(channel, (_event, ...args) => callback(...args));
     }
   },
 
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
-    ipcRenderer.removeListener(channel, callback);
+    if (VALID_EVENT_CHANNELS.includes(channel)) {
+      ipcRenderer.removeListener(channel, callback);
+    }
   },
 };
 

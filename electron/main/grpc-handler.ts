@@ -160,6 +160,9 @@ export function stopStreamCleanup(): void {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
   }
+  // Cancel all active streams so we don't block process exit
+  activeCalls.forEach((call) => { try { call.cancel(); } catch { /* ignore */ } });
+  activeCalls.clear();
 }
 
 // Safe method to add a stream with collision detection
@@ -530,7 +533,10 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
       const handleError = (err: unknown) => {
         const error = toGrpcError(err);
-        if (error.name === 'AbortError') return; // Ignore aborts
+        if (error.name === 'AbortError') {
+          cleanup(); // ensure activeCalls entry and temp dir are released on user cancel
+          return;
+        }
         event.sender.send(`grpc:error:${requestId}`, {
           status: error.code || 2,
           details: sanitizeErrorMessage(error.message)
@@ -573,17 +579,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       };
 
       if (config.methodType === 'server-streaming') {
-        (async () => {
-          try {
-            for await (const response of client[method](config.message, { headers, signal: controller.signal }) as AsyncIterable<unknown>) {
-              handleData(response);
-            }
-            handleEnd();
-          } catch (err) {
-            handleError(err);
-          }
-        })();
-
+        // Register before starting the async task so cancel is reachable immediately
         const added = addActiveCall(requestId, {
           cancel: () => controller.abort(),
           write: () => {},
@@ -595,9 +591,19 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             status: 13, // INTERNAL
             details: `Stream with ID ${requestId} already exists`
           });
-          cleanup();
           return;
         }
+
+        (async () => {
+          try {
+            for await (const response of client[method](config.message, { headers, signal: controller.signal }) as AsyncIterable<unknown>) {
+              handleData(response);
+            }
+            handleEnd();
+          } catch (err) {
+            handleError(err);
+          }
+        })();
 
       } else if (config.methodType === 'client-streaming' || config.methodType === 'bidirectional-streaming') {
         const inputQueue: unknown[] = [];
@@ -619,23 +625,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           }
         };
 
-        (async () => {
-          try {
-            if (config.methodType === 'client-streaming') {
-              const response = await client[method](inputIterable, { headers, signal: controller.signal });
-              handleData(response);
-              handleEnd();
-            } else {
-              for await (const response of client[method](inputIterable, { headers, signal: controller.signal }) as AsyncIterable<unknown>) {
-                handleData(response);
-              }
-              handleEnd();
-            }
-          } catch (err) {
-            handleError(err);
-          }
-        })();
-
+        // Register before starting the async task so cancel is reachable immediately
         const added = addActiveCall(requestId, {
           cancel: () => {
             controller.abort();
@@ -665,9 +655,25 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             status: 13, // INTERNAL
             details: `Stream with ID ${requestId} already exists`
           });
-          cleanup();
           return;
         }
+
+        (async () => {
+          try {
+            if (config.methodType === 'client-streaming') {
+              const response = await client[method](inputIterable, { headers, signal: controller.signal });
+              handleData(response);
+              handleEnd();
+            } else {
+              for await (const response of client[method](inputIterable, { headers, signal: controller.signal }) as AsyncIterable<unknown>) {
+                handleData(response);
+              }
+              handleEnd();
+            }
+          } catch (err) {
+            handleError(err);
+          }
+        })();
       }
 
     } catch (err: unknown) {
@@ -707,6 +713,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       const call = activeCalls.get(requestId);
       if (call) {
         call.cancel();
+        removeActiveCall(requestId); // cleanup immediately; handleError AbortError path also calls cleanup but Map.delete is idempotent
       }
     })
   );

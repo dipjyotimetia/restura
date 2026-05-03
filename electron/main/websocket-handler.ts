@@ -1,14 +1,23 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import WebSocket from 'ws';
 import { createRateLimiter } from './ipc-rate-limiter';
+import {
+  WsConnectSchema,
+  WsSendSchema,
+  WsDisconnectSchema,
+  createValidatedHandler,
+} from './ipc-validators';
 
 const wsRateLimiter = createRateLimiter(20, 60_000);
+
+const MAX_CONCURRENT_WS_CONNECTIONS = 50;
 
 interface ActiveWebSocket {
   ws: WebSocket;
   connectionId: string;
   url: string;
   createdAt: number;
+  setExplicitlyClosed?: () => void;
 }
 
 const activeConnections = new Map<string, ActiveWebSocket>();
@@ -21,9 +30,6 @@ function getWindow(): BrowserWindow | null {
   return windows[0] ?? null;
 }
 
-function sanitizeConnectionId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
-}
 
 function emit(channel: string, ...args: unknown[]): void {
   const win = getWindow();
@@ -33,112 +39,120 @@ function emit(channel: string, ...args: unknown[]): void {
 }
 
 export function registerWebSocketHandlerIPC(): void {
-  // Connect to a WebSocket server with custom headers
-  ipcMain.handle('ws:connect', async (_event, config: {
-    connectionId: string;
-    url: string;
-    headers?: Record<string, string>;
-    protocols?: string[];
-  }) => {
-    const connectionId = sanitizeConnectionId(config.connectionId);
+  ipcMain.handle(
+    'ws:connect',
+    createValidatedHandler('ws:connect', WsConnectSchema, async (config) => {
+      const connectionId = config.connectionId;
 
-    if (!wsRateLimiter()) {
-      return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
-    }
+      if (!wsRateLimiter()) {
+        return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
+      }
 
-    // Close existing connection with same id
-    const existing = activeConnections.get(connectionId);
-    if (existing) {
-      existing.ws.terminate();
-      activeConnections.delete(connectionId);
-    }
+      if (activeConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
+        return { success: false, error: 'Too many open connections.' };
+      }
 
-    try {
-      const ws = new WebSocket(config.url, config.protocols ?? [], {
-        headers: config.headers ?? {},
-        maxPayload: MAX_MESSAGE_SIZE,
-        followRedirects: true,
-        handshakeTimeout: 30000,
-      });
-
-      const entry: ActiveWebSocket = {
-        ws,
-        connectionId,
-        url: config.url,
-        createdAt: Date.now(),
-      };
-
-      ws.on('open', () => {
-        emit(`ws:open:${connectionId}`);
-      });
-
-      ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
-        if (isBinary) {
-          const hex = Buffer.isBuffer(data) ? data.toString('hex') : Buffer.from(data as ArrayBuffer).toString('hex');
-          emit(`ws:message:${connectionId}`, { type: 'binary', data: hex });
-        } else {
-          emit(`ws:message:${connectionId}`, { type: 'text', data: data.toString() });
-        }
-      });
-
-      ws.on('error', (err: Error) => {
-        emit(`ws:error:${connectionId}`, { message: err.message });
-      });
-
-      ws.on('close', (code: number, reason: Buffer) => {
+      // Close existing connection with same id
+      const existing = activeConnections.get(connectionId);
+      if (existing) {
+        existing.ws.terminate();
         activeConnections.delete(connectionId);
-        emit(`ws:close:${connectionId}`, { code, reason: reason.toString() });
-      });
+      }
 
-      activeConnections.set(connectionId, entry);
-      return { success: true };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to connect',
-      };
-    }
-  });
+      try {
+        let explicitlyClosed = false;
 
-  // Send a text or binary message
-  ipcMain.handle('ws:send', async (_event, config: {
-    connectionId: string;
-    message: string;
-    binary?: boolean;
-  }) => {
-    const connectionId = sanitizeConnectionId(config.connectionId);
-    const entry = activeConnections.get(connectionId);
+        const ws = new WebSocket(config.url, config.protocols ?? [], {
+          headers: config.headers ?? {},
+          maxPayload: MAX_MESSAGE_SIZE,
+          followRedirects: true,
+          handshakeTimeout: 30000,
+        });
 
-    if (!entry || entry.ws.readyState !== WebSocket.OPEN) {
-      return { success: false, error: 'Not connected' };
-    }
+        const entry: ActiveWebSocket = {
+          ws,
+          connectionId,
+          url: config.url,
+          createdAt: Date.now(),
+        };
 
-    try {
-      if (config.binary) {
-        const buf = Buffer.from(config.message, 'hex');
-        entry.ws.send(buf);
-      } else {
-        entry.ws.send(config.message);
+        ws.on('open', () => {
+          emit(`ws:open:${connectionId}`);
+        });
+
+        ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+          if (isBinary) {
+            const hex = Buffer.isBuffer(data) ? data.toString('hex') : Buffer.from(data as ArrayBuffer).toString('hex');
+            emit(`ws:message:${connectionId}`, { type: 'binary', data: hex });
+          } else {
+            emit(`ws:message:${connectionId}`, { type: 'text', data: data.toString() });
+          }
+        });
+
+        ws.on('error', (err: Error) => {
+          emit(`ws:error:${connectionId}`, { message: err.message });
+        });
+
+        ws.on('close', (code: number, reason: Buffer) => {
+          activeConnections.delete(connectionId);
+          // Only forward unexpected closes; explicit ws:disconnect is already acked to the renderer
+          if (!explicitlyClosed) {
+            emit(`ws:close:${connectionId}`, { code, reason: reason.toString() });
+          }
+        });
+
+        entry.setExplicitlyClosed = () => { explicitlyClosed = true; };
+        activeConnections.set(connectionId, entry);
+        return { success: true };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to connect',
+        };
+      }
+    })
+  );
+
+  ipcMain.handle(
+    'ws:send',
+    createValidatedHandler('ws:send', WsSendSchema, async (config) => {
+      const connectionId = config.connectionId;
+      const entry = activeConnections.get(connectionId);
+
+      if (!entry || entry.ws.readyState !== WebSocket.OPEN) {
+        return { success: false, error: 'Not connected' };
+      }
+
+      try {
+        if (config.binary) {
+          const buf = Buffer.from(config.message, 'hex');
+          entry.ws.send(buf);
+        } else {
+          entry.ws.send(config.message);
+        }
+        return { success: true };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Send failed',
+        };
+      }
+    })
+  );
+
+  ipcMain.handle(
+    'ws:disconnect',
+    createValidatedHandler('ws:disconnect', WsDisconnectSchema, async (config) => {
+      const connectionId = config.connectionId;
+      const entry = activeConnections.get(connectionId);
+      if (entry) {
+        entry.setExplicitlyClosed?.();
+        entry.ws.close(1000, 'Client disconnected');
+        activeConnections.delete(connectionId);
       }
       return { success: true };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Send failed',
-      };
-    }
-  });
-
-  // Disconnect
-  ipcMain.handle('ws:disconnect', async (_event, config: { connectionId: string }) => {
-    const connectionId = sanitizeConnectionId(config.connectionId);
-    const entry = activeConnections.get(connectionId);
-    if (entry) {
-      entry.ws.close(1000, 'Client disconnected');
-      activeConnections.delete(connectionId);
-    }
-    return { success: true };
-  });
+    })
+  );
 }
 
 export function stopWebSocketCleanup(): void {
