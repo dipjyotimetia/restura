@@ -307,6 +307,88 @@ message TestMessage {
       expect(result.services).toHaveLength(0);
       expect(result.messages).toEqual({});
     });
+
+    it('should strip block comments before parsing', () => {
+      const protoContent = `
+/* file-level comment */
+package comments.v1;
+
+/*
+ * Multi-line block comment
+ */
+service CommentService {
+  /* inline */ rpc GetData (DataRequest) returns (DataResponse);
+}
+
+message DataRequest {
+  /* comment */ string id = 1;
+  int32 count = 2;
+}
+`;
+      const result = parseProtoFile(protoContent);
+      expect(result.package).toBe('comments.v1');
+      expect(result.services).toHaveLength(1);
+      expect(result.services[0]!.name).toBe('CommentService');
+      expect(result.services[0]!.methods).toHaveLength(1);
+      expect(result.services[0]!.methods[0]!.name).toBe('GetData');
+      expect(result.messages['DataRequest']).toBeDefined();
+      expect(result.messages['DataRequest']!.fields).toHaveLength(2);
+      expect(result.messages['DataRequest']!.fields[0]!.name).toBe('id');
+      expect(result.messages['DataRequest']!.fields[1]!.name).toBe('count');
+    });
+
+    it('should parse rpc definitions that span multiple lines', () => {
+      const protoContent = `
+package multiline.v1;
+
+service MultilineService {
+  rpc UnaryCall (
+    UnaryRequest
+  ) returns (
+    UnaryResponse
+  );
+  rpc StreamCall (stream
+    StreamRequest) returns (stream
+    StreamResponse);
+}
+`;
+      const result = parseProtoFile(protoContent);
+      expect(result.services).toHaveLength(1);
+      expect(result.services[0]!.methods).toHaveLength(2);
+      const unary = result.services[0]!.methods[0]!;
+      expect(unary.name).toBe('UnaryCall');
+      expect(unary.inputType).toBe('UnaryRequest');
+      expect(unary.outputType).toBe('UnaryResponse');
+      expect(unary.clientStreaming).toBe(false);
+      expect(unary.serverStreaming).toBe(false);
+      const streaming = result.services[0]!.methods[1]!;
+      expect(streaming.name).toBe('StreamCall');
+      expect(streaming.clientStreaming).toBe(true);
+      expect(streaming.serverStreaming).toBe(true);
+    });
+
+    it('should parse service and message with opening brace on next line', () => {
+      const protoContent = `
+package nextline.v1;
+
+service NextLineService
+{
+  rpc Ping (PingRequest) returns (PingResponse);
+}
+
+message PingRequest
+{
+  string payload = 1;
+}
+`;
+      const result = parseProtoFile(protoContent);
+      expect(result.package).toBe('nextline.v1');
+      expect(result.services).toHaveLength(1);
+      expect(result.services[0]!.name).toBe('NextLineService');
+      expect(result.services[0]!.methods[0]!.name).toBe('Ping');
+      expect(result.messages['PingRequest']).toBeDefined();
+      expect(result.messages['PingRequest']!.fields[0]!.name).toBe('payload');
+    });
   });
 
   describe('prepareGrpcRequest', () => {

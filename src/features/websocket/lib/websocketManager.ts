@@ -7,6 +7,7 @@ class WebSocketManager {
   private electronConnections: Set<string> = new Set();
   private reconnectTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private connectionTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map();
   private static DEFAULT_CONNECTION_TIMEOUT = 30000; // 30 seconds
 
   // Validate WebSocket URL
@@ -90,6 +91,12 @@ class WebSocketManager {
         state.setReconnectAttempts(connectionId, 0);
         state.setLastConnectedAt(connectionId, Date.now());
         state.addMessage(connectionId, 'system', `Connected to ${url}`);
+
+        // Start heartbeat if configured
+        const conn = state.connections[connectionId];
+        if (conn && conn.heartbeatInterval > 0) {
+          this.startHeartbeat(connectionId, conn.heartbeatInterval, conn.heartbeatMessage);
+        }
       };
 
       ws.onmessage = (event) => {
@@ -120,6 +127,8 @@ class WebSocketManager {
       ws.onclose = (event) => {
         const state = useWebSocketStore.getState();
         const connection = state.connections[connectionId];
+
+        this.stopHeartbeat(connectionId);
 
         state.addMessage(
           connectionId,
@@ -171,6 +180,8 @@ class WebSocketManager {
       clearTimeout(connectionTimeout);
       this.connectionTimeouts.delete(connectionId);
     }
+
+    this.stopHeartbeat(connectionId);
 
     // Handle Electron-managed connections
     if (this.electronConnections.has(connectionId)) {
@@ -312,6 +323,27 @@ class WebSocketManager {
     api?.websocket?.removeAllListeners(`ws:close:${connectionId}`);
   }
 
+  private startHeartbeat(connectionId: string, interval: number, message: string): void {
+    this.stopHeartbeat(connectionId);
+    const id = setInterval(() => {
+      const ws = this.connections.get(connectionId);
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      } else {
+        this.stopHeartbeat(connectionId);
+      }
+    }, interval);
+    this.heartbeatIntervals.set(connectionId, id);
+  }
+
+  private stopHeartbeat(connectionId: string): void {
+    const id = this.heartbeatIntervals.get(connectionId);
+    if (id !== undefined) {
+      clearInterval(id);
+      this.heartbeatIntervals.delete(connectionId);
+    }
+  }
+
   private scheduleReconnect(connectionId: string): void {
     const state = useWebSocketStore.getState();
     const connection = state.connections[connectionId];
@@ -368,6 +400,14 @@ class WebSocketManager {
   cleanup(): void {
     for (const [connectionId] of this.connections) {
       this.disconnect(connectionId);
+    }
+  }
+
+  updateHeartbeat(connectionId: string, interval: number, message: string): void {
+    this.stopHeartbeat(connectionId);
+    const ws = this.connections.get(connectionId);
+    if (ws?.readyState === WebSocket.OPEN && interval > 0) {
+      this.startHeartbeat(connectionId, interval, message);
     }
   }
 }

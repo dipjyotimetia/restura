@@ -6,7 +6,7 @@ import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { parseVariables, generateVariablesTemplate } from '@/features/graphql/lib/queryParser';
 import { formatQuery } from '@/features/graphql/lib/formatter';
 import { validateQuery } from '@/features/graphql/lib/validation';
-import { buildSchemaFromIntrospection } from '@/features/graphql/lib/introspection';
+import { buildSchemaFromIntrospection, exportSchemaToSDL } from '@/features/graphql/lib/introspection';
 import {
   Loader2,
   RefreshCw,
@@ -17,6 +17,7 @@ import {
   Wand2,
   PanelRightClose,
   PanelRight,
+  Download,
 } from 'lucide-react';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 
@@ -148,6 +149,24 @@ export default function GraphQLBodyEditor({
             )}
             Explorer
           </Button>
+          {executableSchema && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const sdl = exportSchemaToSDL(executableSchema);
+                const blob = new Blob([sdl], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'schema.graphql';
+                a.click();
+                URL.revokeObjectURL(a.href);
+              }}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              SDL
+            </Button>
+          )}
           {status && (
             <div className={`flex items-center gap-1 text-xs ${status.color}`}>
               <status.icon className={`h-3 w-3 ${status.spin ? 'animate-spin' : ''}`} />
@@ -166,7 +185,7 @@ export default function GraphQLBodyEditor({
           <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-500">
             {validationErrors.slice(0, 3).map((error, i) => (
               <div key={i} className="flex items-start gap-1">
-                <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                 <span>{error}</span>
               </div>
             ))}

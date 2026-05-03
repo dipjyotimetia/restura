@@ -643,6 +643,10 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           write: (msg: unknown) => {
             if (inputQueue.length >= MAX_STREAM_QUEUE_SIZE) {
               console.warn(`[gRPC] Stream queue full (${MAX_STREAM_QUEUE_SIZE} messages), dropping message`);
+              event.sender.send(`grpc:error:${requestId}`, {
+                status: 8, // RESOURCE_EXHAUSTED
+                details: `Stream send queue is full (limit: ${MAX_STREAM_QUEUE_SIZE} messages). Message dropped.`,
+              });
               return;
             }
             inputQueue.push(msg);

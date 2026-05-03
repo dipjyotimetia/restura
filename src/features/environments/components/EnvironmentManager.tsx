@@ -218,6 +218,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                     valuePlaceholder="Variable value"
                     addButtonText="Add Variable"
                     itemType="variable"
+                    enableSecrets
                   />
 
                   <div className="mt-4 p-3 bg-surface-2 rounded border border-border">
@@ -227,10 +228,13 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                       <code className="bg-surface-3 px-1 py-0.5 rounded text-primary">{'{{variableName}}'}</code>
                     </p>
                     <p className="text-xs text-muted-foreground font-mono mt-1">
-                      Example:{' '}
-                      <code className="bg-surface-3 px-1 py-0.5 rounded text-muted-foreground">
-                        https://{'{{host}}'}/api/{'{{version}}'}
-                      </code>
+                      Dynamic:{' '}
+                      <code className="bg-surface-3 px-1 py-0.5 rounded text-muted-foreground">{'{{$timestamp}}'}</code>
+                      {' '}<code className="bg-surface-3 px-1 py-0.5 rounded text-muted-foreground">{'{{$guid}}'}</code>
+                      {' '}<code className="bg-surface-3 px-1 py-0.5 rounded text-muted-foreground">{'{{$randomInt}}'}</code>
+                    </p>
+                    <p className="text-xs text-muted-foreground font-mono mt-1">
+                      Click <span className="text-amber-500">🔒</span> on a variable to mask its value as secret.
                     </p>
                   </div>
                 </div>
