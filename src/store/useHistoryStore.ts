@@ -10,7 +10,7 @@ interface HistoryState {
 
   // Actions
   addHistoryItem: (request: Request, response?: Response) => void;
-  deleteHistoryItem: (id: string) => void;
+  removeHistoryItem: (id: string) => void;
   clearHistory: () => void;
   toggleFavorite: (id: string) => void;
   getHistoryById: (id: string) => HistoryItem | undefined;
@@ -55,7 +55,7 @@ export const useHistoryStore = create<HistoryState>()(
           return { history: updatedHistory };
         }),
 
-      deleteHistoryItem: (id) =>
+      removeHistoryItem: (id) =>
         set((state) => ({
           history: state.history.filter((item) => item.id !== id),
           favorites: state.favorites.filter((favId) => favId !== id),

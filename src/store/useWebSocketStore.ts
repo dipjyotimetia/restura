@@ -40,7 +40,7 @@ interface WebSocketState {
 
   // Actions
   createConnection: (url?: string) => string;
-  deleteConnection: (id: string) => void;
+  removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
 
   // Connection state
@@ -57,7 +57,7 @@ interface WebSocketState {
   // Headers
   addHeader: (connectionId: string) => void;
   updateHeader: (connectionId: string, headerId: string, updates: Partial<KeyValue>) => void;
-  deleteHeader: (connectionId: string, headerId: string) => void;
+  removeHeader: (connectionId: string, headerId: string) => void;
 
   // Protocols
   setProtocols: (connectionId: string, protocols: string[]) => void;
@@ -107,7 +107,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         return id;
       },
 
-      deleteConnection: (id) =>
+      removeConnection: (id) =>
         set((state) => {
           const { [id]: _, ...rest } = state.connections;
           return {
@@ -266,7 +266,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           };
         }),
 
-      deleteHeader: (connectionId, headerId) =>
+      removeHeader: (connectionId, headerId) =>
         set((state) => {
           const connection = state.connections[connectionId];
           if (!connection) return state;

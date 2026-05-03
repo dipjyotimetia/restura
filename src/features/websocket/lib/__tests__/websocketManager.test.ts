@@ -46,7 +46,7 @@ describe('WebSocketManager', () => {
     });
 
     afterEach(() => {
-      useWebSocketStore.getState().deleteConnection(connectionId);
+      useWebSocketStore.getState().removeConnection(connectionId);
     });
 
     it('should reject empty URL', () => {
@@ -131,7 +131,7 @@ describe('WebSocketManager', () => {
 
     afterEach(() => {
       websocketManager.disconnect(connectionId);
-      useWebSocketStore.getState().deleteConnection(connectionId);
+      useWebSocketStore.getState().removeConnection(connectionId);
     });
 
     it('should set status to connecting when connect is called', () => {
@@ -194,7 +194,7 @@ describe('WebSocketManager', () => {
 
     afterEach(() => {
       websocketManager.disconnect(connectionId);
-      useWebSocketStore.getState().deleteConnection(connectionId);
+      useWebSocketStore.getState().removeConnection(connectionId);
     });
 
     it('should not send when not connected', () => {

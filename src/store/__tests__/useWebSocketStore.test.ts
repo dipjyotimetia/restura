@@ -6,7 +6,7 @@ describe('useWebSocketStore', () => {
     // Reset store state
     const store = useWebSocketStore.getState();
     Object.keys(store.connections).forEach((id) => {
-      store.deleteConnection(id);
+      store.removeConnection(id);
     });
   });
 
@@ -45,7 +45,7 @@ describe('useWebSocketStore', () => {
       const store = useWebSocketStore.getState();
       const id = store.createConnection();
 
-      store.deleteConnection(id);
+      store.removeConnection(id);
 
       expect(useWebSocketStore.getState().connections[id]).toBeUndefined();
     });
@@ -55,7 +55,7 @@ describe('useWebSocketStore', () => {
 
       expect(useWebSocketStore.getState().activeConnectionId).toBe(id);
 
-      useWebSocketStore.getState().deleteConnection(id);
+      useWebSocketStore.getState().removeConnection(id);
 
       expect(useWebSocketStore.getState().activeConnectionId).toBeNull();
     });
@@ -218,7 +218,7 @@ describe('useWebSocketStore', () => {
       store.addHeader(connectionId);
       const headerId = useWebSocketStore.getState().connections[connectionId]!.headers[0]!.id;
 
-      store.deleteHeader(connectionId, headerId);
+      store.removeHeader(connectionId, headerId);
 
       const connection = useWebSocketStore.getState().connections[connectionId];
       expect(connection!.headers).toHaveLength(0);

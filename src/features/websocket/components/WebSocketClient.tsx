@@ -61,7 +61,7 @@ function WebSocketClient() {
     clearMessages,
     addHeader,
     updateHeader,
-    deleteHeader,
+    removeHeader,
     setMessageFilter,
     setSearchQuery,
     getFilteredMessages,
@@ -160,7 +160,7 @@ function WebSocketClient() {
   };
 
   const handleDeleteHeader = (id: string) => {
-    deleteHeader(activeConnectionId, id);
+    removeHeader(activeConnectionId, id);
   };
 
   const handleExportMessages = () => {

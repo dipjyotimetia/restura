@@ -53,7 +53,7 @@ export function WorkflowManager({
   const createNewWorkflow = useWorkflowStore((s) => s.createNewWorkflow);
   const addWorkflow = useWorkflowStore((s) => s.addWorkflow);
   const updateWorkflow = useWorkflowStore((s) => s.updateWorkflow);
-  const deleteWorkflow = useWorkflowStore((s) => s.deleteWorkflow);
+  const removeWorkflow = useWorkflowStore((s) => s.removeWorkflow);
 
   const workflows = useMemo(
     () => allWorkflows.filter((wf) => wf.collectionId === collectionId),
@@ -102,7 +102,7 @@ export function WorkflowManager({
   const handleDelete = () => {
     if (!deletingWorkflow) return;
 
-    deleteWorkflow(deletingWorkflow.id);
+    removeWorkflow(deletingWorkflow.id);
     setDeletingWorkflow(null);
   };
 

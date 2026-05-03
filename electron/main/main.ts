@@ -4,6 +4,7 @@ import { createMainWindow, registerNewWindowIPC } from './window-manager';
 import { registerFileOperationsIPC } from './file-operations';
 import { registerHttpHandlerIPC } from './http-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
+import { registerGrpcReflectionIPC } from './grpc-reflection-handler';
 import { logRequest, registerRequestLoggerIPC } from './request-logger';
 import { registerWindowControlsIPC } from './window-controls';
 import { createSystemTray, destroyTray } from './system-tray';
@@ -55,6 +56,7 @@ function registerIPCHandlers(): void {
   registerFileOperationsIPC(getMainWindow);
   registerHttpHandlerIPC(logRequest);
   registerGrpcHandlerIPC(logRequest);
+  registerGrpcReflectionIPC();
   registerRequestLoggerIPC();
   registerWindowControlsIPC(getMainWindow);
   registerNewWindowIPC(isDev);

@@ -5,7 +5,7 @@ import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
 import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
 import WebSocketClient from '@/features/websocket/components/WebSocketClient';
 import ResponseViewer from '@/components/shared/ResponseViewer';
-import NetworkConsole from '@/components/shared/NetworkConsole';
+import NetworkConsole from '@/features/http/components/NetworkConsole';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import Sidebar from '@/features/collections/components/Sidebar';
 import IconRail from '@/components/shared/IconRail';

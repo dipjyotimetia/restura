@@ -48,7 +48,9 @@ interface SidebarProps {
 const HISTORY_PAGE_SIZE = 20;
 
 function Sidebar({ onClose, activePanel }: SidebarProps) {
-  const { collections, createNewCollection, addCollection, deleteCollection } = useCollectionStore();
+  const { collections, createNewCollection, addCollection, removeCollection } = useCollectionStore(
+    useShallow((s) => ({ collections: s.collections, createNewCollection: s.createNewCollection, addCollection: s.addCollection, removeCollection: s.removeCollection }))
+  );
 
   // Use granular selectors for history to minimize re-renders
   const toggleFavorite = useHistoryStore(state => state.toggleFavorite);
@@ -173,11 +175,11 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       if (isFileCollection(collectionToDelete)) {
         unregisterFileCollection(collectionToDelete);
       }
-      deleteCollection(collectionToDelete);
+      removeCollection(collectionToDelete);
       setCollectionToDelete(null);
     }
     setDeleteDialogOpen(false);
-  }, [collectionToDelete, deleteCollection, isFileCollection, unregisterFileCollection]);
+  }, [collectionToDelete, removeCollection, isFileCollection, unregisterFileCollection]);
 
   const handleOpenFromFolder = useCallback(() => {
     setDirectoryPickerMode('open');

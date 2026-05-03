@@ -28,7 +28,7 @@ export function ConflictDialog({ conflict, onClose }: ConflictDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const removeConflict = useFileCollectionStore((state) => state.removeConflict);
   const getFileInfo = useFileCollectionStore((state) => state.getFileInfo);
-  const deleteCollection = useCollectionStore((state) => state.deleteCollection);
+  const removeCollection = useCollectionStore((state) => state.removeCollection);
 
   if (!conflict) return null;
 
@@ -50,7 +50,7 @@ export function ConflictDialog({ conflict, onClose }: ConflictDialogProps) {
       const fileInfo = getFileInfo(conflict.collectionId);
       if (fileInfo) {
         // Delete current collection
-        deleteCollection(conflict.collectionId);
+        removeCollection(conflict.collectionId);
         // Reload from disk
         await loadCollectionFromDirectory(fileInfo.directoryPath);
       }

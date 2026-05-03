@@ -109,6 +109,7 @@
     "releaseType": "release"
   },
   "asar": true,
+  "asarUnpack": ["node_modules/@grpc/reflection/build/proto/**"],
   "compression": "maximum",
   "removePackageScripts": true,
   "electronDownload": {

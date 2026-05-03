@@ -47,7 +47,13 @@
       "Bash(awk *)",
       "WebFetch(domain:)",
       "Bash(npx eslint *)",
-      "sed -n *"
+      "Bash(npm show *)",
+      "Bash(npm pack *)",
+      "Read(//private/tmp/**)",
+      "Bash(tar tzf *)",
+      "Bash(tar xzf *)",
+      "Bash(sed -n '507,520p' /Users/dipjyotimetia/Documents/working/ccviews/DJ/src/features/collections/lib/importers.ts)",
+      "Bash(sed -n '638,642p' /Users/dipjyotimetia/Documents/working/ccviews/DJ/src/features/collections/lib/importers.ts)"
     ]
   }
 }

@@ -331,7 +331,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
           capturedHeaders[key] = value;
         });
 
-        response.trailer.forEach((value: string, key: string) => {
+        response.trailer?.forEach((value: string, key: string) => {
           capturedTrailers[key] = value;
         });
 
@@ -352,7 +352,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       interceptors: [headerInterceptor],
     });
 
-    // createDynamicService builds a DescService-shaped object from runtime proto data.
+    // serviceDef is structurally DescService-compatible but nominally opaque — double cast is intentional.
     const client = createClient(serviceDef as unknown as DescService, transport) as Record<string, (...args: unknown[]) => unknown>;
 
     // Add metadata

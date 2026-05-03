@@ -120,8 +120,33 @@ interface ElectronHttpAPI {
   request: (config: ElectronHttpRequestConfig) => Promise<ElectronHttpResponse>;
 }
 
+interface GrpcIpcResult {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  message?: unknown;
+  messages?: unknown[];
+  trailers: Record<string, string>;
+  error?: string;
+  details?: string;
+}
+
+interface GrpcReflectionConfig {
+  url: string;
+  reflectionService: string;
+  request: Record<string, unknown>;
+  timeout?: number;
+}
+
+interface GrpcRawReflectionResponse {
+  listServicesResponse?: { service: Array<{ name: string }> };
+  fileDescriptorResponse?: { fileDescriptorProto: string[] };
+  errorResponse?: { errorCode: number; errorMessage: string };
+}
+
 interface ElectronGrpcAPI {
-  request: (config: unknown) => Promise<unknown>;
+  request: (config: unknown) => Promise<GrpcIpcResult>;
+  reflect: (config: GrpcReflectionConfig) => Promise<GrpcRawReflectionResponse>;
   startStream: (config: unknown) => void;
   sendMessage: (requestId: string, message: unknown) => void;
   endStream: (requestId: string) => void;
@@ -196,4 +221,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, FileChangedEvent, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, GrpcIpcResult, FileChangedEvent, LogEntry };
