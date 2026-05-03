@@ -719,7 +719,8 @@ export function getSuggestedAction(statusCode: GrpcStatusCode): string {
 // Make gRPC request via server proxy
 export async function makeProxyGrpcRequest(
   request: GrpcRequest,
-  resolveVariables: (text: string) => string
+  resolveVariables: (text: string) => string,
+  timeoutMs: number = 30000
 ): Promise<GrpcResponse> {
   const prepared = prepareGrpcRequest(request, resolveVariables);
   const startTime = Date.now();
@@ -736,7 +737,7 @@ export async function makeProxyGrpcRequest(
         method: request.method,
         metadata: prepared.metadata,
         message: prepared.message,
-        timeout: 30000,
+        timeout: timeoutMs,
       }),
     });
 
