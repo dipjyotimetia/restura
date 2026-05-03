@@ -3,7 +3,6 @@
   "name": "restura",
   "compatibility_date": "2026-04-15",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "worker/index.ts",
   "pages_build_output_dir": "dist/web",
   "vars": {
     "ENVIRONMENT": "production"
