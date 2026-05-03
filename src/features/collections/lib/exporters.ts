@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Collection, CollectionItem, HttpRequest, AuthConfig, PostmanCollection, PostmanItem, PostmanAuth, InsomniaResource } from '@/types';
+import type { Collection, CollectionItem, HttpRequest, AuthConfig, PostmanCollection, PostmanItem, PostmanAuth, InsomniaResource } from '@/types';
 
 // Export to Postman Format
 export function exportToPostman(collection: Collection): PostmanCollection {

@@ -11,8 +11,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AlertTriangle, FileText, Clock } from 'lucide-react';
+import type {
+  ConflictInfo} from '@/store/useFileCollectionStore';
 import {
-  ConflictInfo,
   useFileCollectionStore,
   loadCollectionFromDirectory,
   syncFileCollection,

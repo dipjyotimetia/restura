@@ -20,7 +20,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
 import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, GitBranch, FolderOpen, HardDrive } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { ActivePanel, Workflow } from '@/types';
+import type { ActivePanel, Workflow } from '@/types';
 import { exportToPostman, exportToInsomnia, downloadJSON } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';

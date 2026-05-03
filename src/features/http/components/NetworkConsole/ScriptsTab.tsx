@@ -3,7 +3,7 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Terminal, CheckCircle2, XCircle, AlertCircle, Info } from 'lucide-react';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
-import { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
+import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
 
 interface ScriptsTabProps {
   logs: ConsoleLog[];

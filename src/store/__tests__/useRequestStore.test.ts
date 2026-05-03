@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useRequestStore } from '../useRequestStore';
-import { HttpRequest, GrpcRequest } from '@/types';
+import type { HttpRequest, GrpcRequest } from '@/types';
 
 describe('useRequestStore', () => {
   beforeEach(() => {

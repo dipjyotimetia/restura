@@ -14,9 +14,10 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import type {
+  WebSocketMessageType} from '@/store/useWebSocketStore';
 import {
-  useWebSocketStore,
-  WebSocketMessageType,
+  useWebSocketStore
 } from '@/store/useWebSocketStore';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import {
@@ -29,7 +30,7 @@ import {
   Download,
   AlertTriangle,
 } from 'lucide-react';
-import { KeyValue } from '@/types';
+import type { KeyValue } from '@/types';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { cn } from '@/lib/shared/utils';
 

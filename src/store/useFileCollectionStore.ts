@@ -8,7 +8,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ElectronAPI } from '../../electron/types/electron.d';
-import { Collection } from '@/types';
+import type { Collection } from '@/types';
 import { isElectron } from '@/lib/shared/platform';
 import { useCollectionStore } from './useCollectionStore';
 

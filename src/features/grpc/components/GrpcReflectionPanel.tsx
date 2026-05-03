@@ -11,7 +11,7 @@ import {
   formatMessageSchemaForDisplay,
 } from '@/features/grpc/lib/grpcReflection';
 import { validateGrpcUrl } from '@/features/grpc/lib/grpcClient';
-import { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult, GrpcMethodType } from '@/types';
+import type { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult, GrpcMethodType } from '@/types';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 interface GrpcReflectionPanelProps {

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { ProtoServiceDefinition } from '@/types';
+import type { ProtoServiceDefinition } from '@/types';
 
 export interface ProtoFileEntry {
   id: string;

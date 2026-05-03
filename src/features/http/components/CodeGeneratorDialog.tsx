@@ -11,8 +11,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Copy, Check } from 'lucide-react';
-import { codeGenerators, CodeGeneratorType } from '@/lib/shared/codeGenerators';
-import { HttpRequest, RequestSettings } from '@/types';
+import type { CodeGeneratorType } from '@/lib/shared/codeGenerators';
+import { codeGenerators } from '@/lib/shared/codeGenerators';
+import type { HttpRequest, RequestSettings } from '@/types';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 

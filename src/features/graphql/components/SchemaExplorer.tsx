@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
-import { GraphQLSchema, formatTypeRef } from '../types';
+import type { GraphQLSchema} from '../types';
+import { formatTypeRef } from '../types';
 import { getTypesByKind, getRootTypes, getTypeFields, getTypeByName } from '../lib/introspection';
 import { ChevronRight, ChevronDown, Search, Box, Zap, Bell } from 'lucide-react';
 

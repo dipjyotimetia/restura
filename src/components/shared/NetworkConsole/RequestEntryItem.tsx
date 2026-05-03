@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/shared/utils';
-import { ConsoleEntry } from '@/store/useConsoleStore';
+import type { ConsoleEntry } from '@/store/useConsoleStore';
 import { Badge } from '@/components/ui/badge';
 
 interface RequestEntryItemProps {

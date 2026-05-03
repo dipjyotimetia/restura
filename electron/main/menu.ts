@@ -1,4 +1,5 @@
-import { app, BrowserWindow, Menu, MenuItemConstructorOptions, shell } from 'electron';
+import type { BrowserWindow, MenuItemConstructorOptions} from 'electron';
+import { app, Menu, shell } from 'electron';
 
 export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
   const isMac = process.platform === 'darwin';

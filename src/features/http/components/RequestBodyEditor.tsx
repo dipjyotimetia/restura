@@ -1,7 +1,7 @@
 'use client';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { RequestBody } from '@/types';
+import type { RequestBody } from '@/types';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));

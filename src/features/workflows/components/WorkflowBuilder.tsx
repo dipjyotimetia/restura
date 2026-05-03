@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Workflow, WorkflowRequest, Request, HttpRequest, CollectionItem } from '@/types';
+import type { Workflow, WorkflowRequest, Request, HttpRequest, CollectionItem } from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { Button } from '@/components/ui/button';

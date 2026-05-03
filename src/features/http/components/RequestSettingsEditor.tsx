@@ -3,7 +3,7 @@
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { RequestSettings, GlobalSettings } from '@/types';
+import type { RequestSettings, GlobalSettings } from '@/types';
 
 interface RequestSettingsEditorProps {
   settings: RequestSettings | undefined;

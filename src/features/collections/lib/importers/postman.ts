@@ -1,16 +1,17 @@
 import type { AuthConfig, Collection, CollectionItem, FormDataItem, HttpRequest, KeyValue, PostmanCollection } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import {
-  Collection as PostmanSDKCollection,
+import type {
   FormParam,
   Header,
   Item,
-  ItemGroup,
   QueryParam,
   Request,
   RequestAuth,
   RequestBody,
-  Variable,
+  Variable} from 'postman-collection';
+import {
+  Collection as PostmanSDKCollection,
+  ItemGroup
 } from 'postman-collection';
 
 function getDescriptionContent(desc: string | { content?: string } | undefined): string | undefined {

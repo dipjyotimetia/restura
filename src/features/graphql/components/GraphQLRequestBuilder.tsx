@@ -7,7 +7,7 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Send } from 'lucide-react';
 import { toast } from 'sonner';
-import { HttpRequest, Response } from '@/types';
+import type { HttpRequest, Response } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
