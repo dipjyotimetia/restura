@@ -10,5 +10,12 @@
   },
   "observability": {
     "enabled": true
+  },
+  "env": {
+    "preview": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    }
   }
 }
