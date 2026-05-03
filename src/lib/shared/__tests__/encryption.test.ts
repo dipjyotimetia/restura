@@ -5,6 +5,7 @@ import {
   isEncrypted,
   encryptSensitiveFields,
   decryptSensitiveFields,
+  generateLocalEncryptionKey,
   SENSITIVE_FIELDS,
 } from '../encryption';
 
@@ -125,6 +126,17 @@ describe('Encryption Utilities', () => {
       expect(isEncrypted('plain text')).toBe(false);
       expect(isEncrypted('')).toBe(false);
       expect(isEncrypted('encryption')).toBe(false);
+    });
+  });
+
+  describe('generateLocalEncryptionKey', () => {
+    it('generates random 256-bit hex keys without browser fingerprint material', () => {
+      const key1 = generateLocalEncryptionKey();
+      const key2 = generateLocalEncryptionKey();
+
+      expect(key1).toMatch(/^[a-f0-9]{64}$/);
+      expect(key2).toMatch(/^[a-f0-9]{64}$/);
+      expect(key1).not.toBe(key2);
     });
   });
 

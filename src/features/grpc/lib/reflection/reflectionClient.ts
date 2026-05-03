@@ -1,7 +1,7 @@
 import type { ReflectionResult, ReflectionServiceInfo } from '@/types';
 import { GrpcStatusCode } from '@/types';
 import { GrpcClientError, httpStatusToGrpcStatus } from '../grpcClient';
-import { isElectron, workerBaseUrl } from '@/lib/shared/platform';
+import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 import {
   REFLECTION_SERVICE_V1,
   REFLECTION_SERVICE_V1_ALPHA,
@@ -150,7 +150,7 @@ export class GrpcReflectionClient {
     try {
       const response = await fetch(`${workerBaseUrl()}/api/grpc/reflection`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
         body: JSON.stringify({ url: this.baseUrl, request, timeout: this.timeout }),
         signal: controller.signal,
       });

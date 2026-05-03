@@ -146,28 +146,16 @@ export async function decryptValue(encryptedValue: string, password: string): Pr
 
 /**
  * Generate a secure random password for local encryption
- * Uses device fingerprint and user-provided salt
  */
 export function generateLocalEncryptionKey(): string {
   if (!isCryptoAvailable) {
     // Fallback for environments without Web Crypto
-    return 'fallback-key-' + Date.now().toString(36);
+    return `fallback-key-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   }
 
-  // Use a combination of browser/device information
-  const parts = [
-    navigator.userAgent,
-    navigator.language,
-    screen.width.toString(),
-    screen.height.toString(),
-    new Date().getTimezoneOffset().toString(),
-    // Add a random component for additional entropy
-    Array.from(crypto.getRandomValues(new Uint8Array(8)))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join(''),
-  ];
-
-  return parts.join('|');
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 /**

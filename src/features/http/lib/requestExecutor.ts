@@ -5,7 +5,7 @@ import axios from 'axios';
 import { Cookie } from 'tough-cookie';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
-import { isElectron, getElectronAPI, workerBaseUrl } from '@/lib/shared/platform';
+import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/features/http/lib/proxyHelper';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
@@ -31,7 +31,9 @@ async function executeViaCorsProxy(
     proxyBody.upstreamProxy = upstreamProxy;
   }
 
-  const response = await axios.post(`${workerBaseUrl()}/api/proxy`, proxyBody);
+  const response = await axios.post(`${workerBaseUrl()}/api/proxy`, proxyBody, {
+    headers: workerAuthHeaders(),
+  });
 
   const proxyResponse = response.data;
   const endTime = Date.now();
