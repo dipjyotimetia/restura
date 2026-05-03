@@ -116,6 +116,8 @@ export interface AuthConfig {
     clientSecret?: string;
     authorizationUrl?: string;
     tokenUrl?: string;
+    /** RFC 8628 device authorization endpoint — required for device_code grant */
+    deviceAuthorizationUrl?: string;
     scope?: string;
     redirectUri?: string;
     // Password grant only

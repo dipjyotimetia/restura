@@ -58,6 +58,12 @@ export default function GraphQLBodyEditor({
     [schemaResult]
   );
 
+  // Refs so Monaco providers always read the latest schema without re-registering
+  const schemaRef = useRef(schemaResult);
+  const executableSchemaRef = useRef(executableSchema);
+  useEffect(() => { schemaRef.current = schemaResult; }, [schemaResult]);
+  useEffect(() => { executableSchemaRef.current = executableSchema; }, [executableSchema]);
+
   const extractedVariables = useMemo(() => parseVariables(query), [query]);
 
   useEffect(() => {
@@ -92,16 +98,18 @@ export default function GraphQLBodyEditor({
   const handleQueryEditorMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
       if (!completionProviderRegistered) {
-        registerGraphQLCompletionProvider(monaco, () => schemaResult?.schema ?? null);
+        // Pass factory functions that read from refs so the provider always uses the
+        // current schema even after the URL changes — without re-registering the provider.
+        registerGraphQLCompletionProvider(monaco, () => schemaRef.current?.schema ?? null);
         completionProviderRegistered = true;
       }
       const model = editor.getModel();
       if (model) {
         diagnosticsRef.current?.dispose();
-        diagnosticsRef.current = setupDebouncedDiagnostics(monaco, model, () => executableSchema);
+        diagnosticsRef.current = setupDebouncedDiagnostics(monaco, model, () => executableSchemaRef.current);
       }
     },
-    [schemaResult, executableSchema]
+    [] // Refs are stable; no deps needed
   );
 
   useEffect(() => () => { diagnosticsRef.current?.dispose(); }, []);

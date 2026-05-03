@@ -253,6 +253,9 @@ function buildGrpcClient(
     obj = obj[part] as Record<string, unknown>;
     if (!obj) throw new Error(`Service "${serviceName}" not found in proto`);
   }
+  if (typeof obj !== 'function') {
+    throw new Error(`"${serviceName}" resolved to a non-constructor — check the service name in your proto`);
+  }
   const ServiceClient = obj as unknown as typeof grpc.Client;
   const target = url.replace(/^https?:\/\//, '');
   const credentials = url.startsWith('https://')
@@ -522,7 +525,12 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
         const csAdded = addActiveCall(requestId, {
           cancel: () => csCall.cancel(),
-          write: (msg: unknown) => csCall.write(msg),
+          write: (msg: unknown) => {
+            if (csCall.writableNeedDrain) {
+              console.warn('[gRPC] Client stream write buffer is full; message queued by kernel — consider slowing the sender');
+            }
+            csCall.write(msg);
+          },
           end: () => csCall.end()
         });
 
