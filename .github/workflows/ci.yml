@@ -81,7 +81,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: pages deploy dist/web --project-name=restura --branch=main
 
   deploy-preview:
     name: Deploy preview to Cloudflare Pages
