@@ -24,6 +24,9 @@ interface CookieStore {
   purgeExpired: () => void;
 }
 
+// Purge expired cookies once per hour during long sessions
+const PURGE_INTERVAL_MS = 60 * 60 * 1000;
+
 export const useCookieStore = create<CookieStore>()(
   persist(
     (set, get) => ({
@@ -100,12 +103,10 @@ export const useCookieStore = create<CookieStore>()(
     }),
     {
       name: 'restura-cookies',
-      version: 2, // Bumped for Dexie migration
+      version: 2,
       storage: dexieStorageAdapters.cookies(),
       migrate: (persistedState, version) => {
-        // Handle migrations between versions
         if (version === 0 || version === 1) {
-          // Migration from localStorage (v1) to Dexie (v2)
           return persistedState as CookieStore;
         }
         return persistedState as CookieStore;
@@ -116,6 +117,8 @@ export const useCookieStore = create<CookieStore>()(
         }
         if (state) {
           state.purgeExpired();
+          // Schedule periodic purge for long-running sessions
+          setInterval(() => useCookieStore.getState().purgeExpired(), PURGE_INTERVAL_MS);
         }
       },
     }

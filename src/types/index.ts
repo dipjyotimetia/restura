@@ -82,6 +82,7 @@ export interface KeyValue {
   value: string;
   enabled: boolean;
   description?: string;
+  secret?: boolean;
 }
 
 // Form Data
