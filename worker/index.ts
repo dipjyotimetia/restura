@@ -4,6 +4,7 @@ import { proxy } from './handlers/proxy';
 import { grpc } from './handlers/grpc';
 import { grpcReflection } from './handlers/grpc-reflection';
 import { mcp } from './handlers/mcp';
+import { rateLimitMiddleware } from './middleware/rateLimiter';
 
 export type Env = {
   ENVIRONMENT?: string;
@@ -12,6 +13,7 @@ export type Env = {
 const app = new Hono<{ Bindings: Env }>();
 
 app.use('/api/*', cors());
+app.use('/api/*', rateLimitMiddleware);
 
 app.post('/api/proxy', proxy);
 app.post('/api/grpc', grpc);
