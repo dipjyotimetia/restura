@@ -63,7 +63,8 @@ export async function grpcReflection(c: Context) {
     const body = await c.req.json<ReflectionRequest>();
     const { url, request, timeout = 30000 } = body;
 
-    const urlValidation = validateURL(url);
+    const isDev = c.env.ENVIRONMENT === 'development';
+    const urlValidation = validateURL(url, { allowPrivateIPs: false, allowLocalhost: isDev });
     if (!urlValidation.valid) {
       return c.json({ error: `Invalid URL: ${urlValidation.error}` }, 400);
     }

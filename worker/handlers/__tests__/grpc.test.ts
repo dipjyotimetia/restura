@@ -3,15 +3,19 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { grpc } from '../grpc';
 
-const app = new Hono();
+const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();
 app.post('/grpc', grpc);
 
-function makeRequest(body: unknown) {
-  return app.request('/grpc', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+function makeRequest(body: unknown, env: Record<string, string> = {}) {
+  return app.request(
+    '/grpc',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
 }
 
 afterEach(() => {

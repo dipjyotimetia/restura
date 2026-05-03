@@ -89,7 +89,8 @@ export async function grpc(c: Context) {
     const body = await c.req.json<GrpcProxyRequestBody>();
     const { url, service, method, metadata = {}, message = {}, timeout = 30000 } = body;
 
-    const urlValidation = validateURL(url);
+    const isDev = c.env.ENVIRONMENT === 'development';
+    const urlValidation = validateURL(url, { allowPrivateIPs: false, allowLocalhost: isDev });
     if (!urlValidation.valid) {
       return c.json({ error: `Invalid URL: ${urlValidation.error}` }, 400);
     }

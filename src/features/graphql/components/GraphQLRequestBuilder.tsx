@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import type { HttpRequest, Response } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { isElectron } from '@/lib/shared/platform';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { extractOperationType } from '@/features/graphql/lib/queryParser';
@@ -179,26 +180,63 @@ function GraphQLRequestBuilder() {
         variables,
       });
 
-      const response = await fetch(resolvedUrl, {
-        method: 'POST',
-        headers,
-        body,
-      });
-
-      const responseBody = await response.text();
-      const endTime = Date.now();
-
-      const responseData: Response = {
-        id: `response-${Date.now()}`,
-        requestId: httpRequest.id,
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries()),
-        body: responseBody,
-        size: new Blob([responseBody]).size,
-        time: endTime - startTime,
-        timestamp: Date.now(),
-      };
+      let responseData: Response;
+      if (isElectron()) {
+        const response = await fetch(resolvedUrl, {
+          method: 'POST',
+          headers,
+          body,
+        });
+        const responseBody = await response.text();
+        const endTime = Date.now();
+        responseData = {
+          id: `response-${Date.now()}`,
+          requestId: httpRequest.id,
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: responseBody,
+          size: new Blob([responseBody]).size,
+          time: endTime - startTime,
+          timestamp: Date.now(),
+        };
+      } else {
+        const proxyRes = await fetch('/api/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            method: 'POST',
+            url: resolvedUrl,
+            headers,
+            bodyType: 'json',
+            data: body,
+            timeout: 30000,
+          }),
+        });
+        if (!proxyRes.ok) {
+          const errorBody = await proxyRes.text();
+          throw new Error(`Proxy error ${proxyRes.status}: ${errorBody}`);
+        }
+        const proxyResult = await proxyRes.json() as {
+          status: number;
+          statusText: string;
+          headers: Record<string, string>;
+          data: string;
+          size: number;
+        };
+        const endTime = Date.now();
+        responseData = {
+          id: `response-${Date.now()}`,
+          requestId: httpRequest.id,
+          status: proxyResult.status,
+          statusText: proxyResult.statusText,
+          headers: proxyResult.headers,
+          body: proxyResult.data,
+          size: proxyResult.size,
+          time: endTime - startTime,
+          timestamp: Date.now(),
+        };
+      }
 
       setCurrentResponse(responseData);
       addHistoryItem(httpRequest, responseData);
@@ -222,13 +260,13 @@ function GraphQLRequestBuilder() {
 
       setScriptResult({ preRequest: preRequestResult, test: testResult });
 
-      if (response.ok) {
+      if (responseData.status >= 200 && responseData.status < 300) {
         toast.success('Request completed', {
-          description: `${response.status} ${response.statusText}`,
+          description: `${responseData.status} ${responseData.statusText}`,
         });
       } else {
-        toast.error(`Request failed: ${response.status}`, {
-          description: response.statusText,
+        toast.error(`Request failed: ${responseData.status}`, {
+          description: responseData.statusText,
         });
       }
     } catch (error) {
