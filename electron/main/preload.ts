@@ -105,6 +105,45 @@ const electronAPI = {
     }
   },
 
+  // WebSocket operations with custom header support
+  websocket: {
+    connect: (config: {
+      connectionId: string;
+      url: string;
+      headers?: Record<string, string>;
+      protocols?: string[];
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('ws:connect', config),
+
+    send: (config: {
+      connectionId: string;
+      message: string;
+      binary?: boolean;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('ws:send', config),
+
+    disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('ws:disconnect', config),
+
+    on: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('ws:')) {
+        ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+      }
+    },
+
+    removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('ws:')) {
+        ipcRenderer.removeListener(channel, callback);
+      }
+    },
+
+    removeAllListeners: (channel: string) => {
+      if (channel.startsWith('ws:')) {
+        ipcRenderer.removeAllListeners(channel);
+      }
+    },
+  },
+
   // Native notifications
   notification: {
     isSupported: (): Promise<boolean> => ipcRenderer.invoke('notification:isSupported'),

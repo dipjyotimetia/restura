@@ -5,6 +5,7 @@ import {
   type EnumValueDescriptorProto,
   type FieldDescriptorProto,
   type FileDescriptorProto,
+  type MessageOptions,
   type MethodDescriptorProto,
   type OneofDescriptorProto,
   type ServiceDescriptorProto,
@@ -82,20 +83,51 @@ export function cacheMessageTypes(fd: FileDescriptorProto): void {
   }
 }
 
+function buildFieldSchema(f: FieldDescriptorProto): FieldSchema {
+  return {
+    name: f.name || '',
+    jsonName: f.jsonName || toJsonName(f.name || ''),
+    number: f.number || 0,
+    type: PROTO_FIELD_TYPE_MAP[f.type || 0] || 'TYPE_STRING',
+    typeName: f.typeName,
+    label: PROTO_FIELD_LABEL_MAP[f.label || 1] || 'LABEL_OPTIONAL',
+    defaultValue: f.defaultValue,
+    oneofIndex: f.oneofIndex,
+  };
+}
+
 function cacheMessageType(msgType: DescriptorProto, parentName: string): void {
   const fullName = parentName ? `${parentName}.${msgType.name}` : msgType.name || '';
 
+  // Build map of nested map-entry types keyed by their short name (e.g. "LabelsEntry")
+  const mapEntries = new Map<string, DescriptorProto>();
+  if (msgType.nestedType) {
+    for (const nested of msgType.nestedType) {
+      if (nested.options?.mapEntry && nested.name) {
+        mapEntries.set(nested.name, nested);
+      }
+    }
+  }
+
   const fields: FieldSchema[] =
-    msgType.field?.map((f) => ({
-      name: f.name || '',
-      jsonName: f.jsonName || toJsonName(f.name || ''),
-      number: f.number || 0,
-      type: PROTO_FIELD_TYPE_MAP[f.type || 0] || 'TYPE_STRING',
-      typeName: f.typeName,
-      label: PROTO_FIELD_LABEL_MAP[f.label || 1] || 'LABEL_OPTIONAL',
-      defaultValue: f.defaultValue,
-      oneofIndex: f.oneofIndex,
-    })) || [];
+    msgType.field?.map((f) => {
+      const schema = buildFieldSchema(f);
+
+      // Detect map fields: LABEL_REPEATED + TYPE_MESSAGE pointing to a map-entry nested type
+      if (f.label === 3 && f.type === 11 && f.typeName && mapEntries.size > 0) {
+        // typeName is like ".pkg.Msg.FieldNameEntry" — extract the short name
+        const shortName = f.typeName.split('.').at(-1) ?? '';
+        const entryType = mapEntries.get(shortName);
+        if (entryType?.field) {
+          const keyField = entryType.field.find((ef) => ef.number === 1);
+          const valueField = entryType.field.find((ef) => ef.number === 2);
+          if (keyField) schema.mapKey = buildFieldSchema(keyField);
+          if (valueField) schema.mapValue = buildFieldSchema(valueField);
+        }
+      }
+
+      return schema;
+    }) || [];
 
   const schema: MessageSchema = {
     name: msgType.name || '',
@@ -248,6 +280,13 @@ function parseDescriptorProto(bytes: Uint8Array): DescriptorProto {
           offset = msg.newOffset;
         }
         break;
+      case 7:
+        if (wireType === 2) {
+          const msg = readLengthDelimited(bytes, offset);
+          result.options = parseMessageOptions(msg.value);
+          offset = msg.newOffset;
+        }
+        break;
       case 8:
         if (wireType === 2) {
           const msg = readLengthDelimited(bytes, offset);
@@ -258,6 +297,29 @@ function parseDescriptorProto(bytes: Uint8Array): DescriptorProto {
       default:
         offset = skipField(bytes, offset, wireType);
         break;
+    }
+  }
+
+  return result;
+}
+
+function parseMessageOptions(bytes: Uint8Array): MessageOptions {
+  const result: MessageOptions = {};
+  let offset = 0;
+
+  while (offset < bytes.length) {
+    const tag = readVarint(bytes, offset);
+    offset = tag.newOffset;
+    const fieldNumber = tag.value >> 3;
+    const wireType = tag.value & 0x7;
+
+    // MessageOptions.map_entry is field 7 (bool, varint wire type)
+    if (fieldNumber === 7 && wireType === 0) {
+      const val = readVarint(bytes, offset);
+      result.mapEntry = val.value !== 0;
+      offset = val.newOffset;
+    } else {
+      offset = skipField(bytes, offset, wireType);
     }
   }
 

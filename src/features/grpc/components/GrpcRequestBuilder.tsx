@@ -33,6 +33,7 @@ import {
   generateRequestTemplate,
   formatMessageSchemaForDisplay,
   generateProtoFromReflection,
+  validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
 import { toast } from 'sonner';
 import type { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
@@ -80,6 +81,7 @@ function GrpcRequestBuilder() {
     endStream: () => void;
     cancelStream: () => void;
   } | null>(null);
+  const [timeoutMs, setTimeoutMs] = useState(30000);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [reflectionResult, setReflectionResult] = useState<ReflectionResult | null>(null);
   const [selectedReflectionService, setSelectedReflectionService] = useState<ReflectionServiceInfo | null>(null);
@@ -361,6 +363,21 @@ function GrpcRequestBuilder() {
       return;
     }
 
+    // Schema validation against reflection schema (if available)
+    if (selectedReflectionMethod?.inputMessageSchema && grpcRequest.message) {
+      try {
+        const parsed = JSON.parse(grpcRequest.message);
+        const schemaValidation = validateRequestAgainstSchema(parsed, selectedReflectionMethod.inputMessageSchema);
+        if (!schemaValidation.valid) {
+          toast.warning('Schema validation warnings', {
+            description: schemaValidation.errors.slice(0, 3).join('; '),
+          });
+        }
+      } catch {
+        // JSON parse already handled above by validateMessage
+      }
+    }
+
     setLoading(true);
     setStreamingMessages([]);
     const startTime = Date.now();
@@ -407,7 +424,8 @@ function GrpcRequestBuilder() {
               setLoading(false);
               setStreamControl(null);
             },
-          }
+          },
+          timeoutMs
         );
         setStreamControl(control);
         return;
@@ -417,7 +435,8 @@ function GrpcRequestBuilder() {
         grpcRequest,
         protoContent,
         protoFileName,
-        resolveVariables
+        resolveVariables,
+        timeoutMs
       );
 
       setCurrentResponse(response);
@@ -524,15 +543,23 @@ function GrpcRequestBuilder() {
             <Send className="mr-1.5 h-3.5 w-3.5" />
             {isLoading ? 'Invoking...' : 'Invoke'}
           </Button>
-          <GrpcStreamingControls
-            streamControl={streamControl}
-            onCancel={() => {
-              streamControl?.cancelStream();
-              setStreamControl(null);
-              setLoading(false);
-            }}
-          />
         </div>
+
+        {/* Streaming controls row */}
+        {streamControl && (
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface-2">
+            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest shrink-0">Stream</span>
+            <GrpcStreamingControls
+              streamControl={streamControl}
+              methodType={grpcRequest.methodType}
+              onCancel={() => {
+                streamControl?.cancelStream();
+                setStreamControl(null);
+                setLoading(false);
+              }}
+            />
+          </div>
+        )}
 
         {!validation.url.valid && validation.url.error && (
           <div className="text-xs text-destructive mx-3 mt-1 flex items-center gap-1">
@@ -656,8 +683,22 @@ function GrpcRequestBuilder() {
           />
         </div>
 
-        <div className="text-xs text-muted-foreground font-mono px-3 pb-2">
-          {getMethodTypeDescription(grpcRequest.methodType)}
+        <div className="flex items-center gap-4 px-3 pb-2">
+          <span className="text-xs text-muted-foreground font-mono">
+            {getMethodTypeDescription(grpcRequest.methodType)}
+          </span>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <span className="text-[10px] font-mono text-muted-foreground shrink-0">Timeout (ms)</span>
+            <Input
+              type="number"
+              value={timeoutMs}
+              onChange={(e) => setTimeoutMs(Math.max(1000, parseInt(e.target.value, 10) || 30000))}
+              className="h-6 w-24 font-mono text-xs bg-background border-border"
+              min={1000}
+              step={1000}
+              aria-label="gRPC request timeout in milliseconds"
+            />
+          </div>
         </div>
 
         {/* Web streaming limitation warning */}

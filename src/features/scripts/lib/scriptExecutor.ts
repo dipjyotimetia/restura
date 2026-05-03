@@ -322,6 +322,80 @@ class ScriptExecutor {
     pmGlobalsObj.dispose();
 
     // Setup pm.expect and pm.response as helper functions
+    // Inject utility helpers — date, random, encoding
+    const utilsCode = `
+      // pm.utils — helpers for scripts
+      pm.utils = {
+        // Date helpers
+        timestamp: function() { return Date.now(); },
+        isoDate: function() { return new Date().toISOString(); },
+        // Random helpers
+        randomInt: function(min, max) {
+          min = min === undefined ? 0 : min;
+          max = max === undefined ? 1000000 : max;
+          return Math.floor(Math.random() * (max - min + 1)) + min;
+        },
+        randomFloat: function(min, max) {
+          min = min === undefined ? 0 : min;
+          max = max === undefined ? 1 : max;
+          return Math.random() * (max - min) + min;
+        },
+        randomChoice: function(arr) {
+          if (!arr || arr.length === 0) return undefined;
+          return arr[Math.floor(Math.random() * arr.length)];
+        },
+        // Encoding helpers
+        btoa: function(str) {
+          var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+          var out = '';
+          for (var i = 0; i < str.length; ) {
+            var c1 = str.charCodeAt(i++);
+            var c2 = i < str.length ? str.charCodeAt(i++) : 0;
+            var c3 = i < str.length ? str.charCodeAt(i++) : 0;
+            out += chars[(c1 >> 2)];
+            out += chars[((c1 & 3) << 4) | (c2 >> 4)];
+            out += chars[((c2 & 0xf) << 2) | (c3 >> 6)];
+            out += chars[c3 & 0x3f];
+          }
+          if (str.length % 3 === 1) { out = out.slice(0, -2) + '=='; }
+          else if (str.length % 3 === 2) { out = out.slice(0, -1) + '='; }
+          return out;
+        },
+        atob: function(str) {
+          var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+          str = str.replace(/=+$/, '');
+          var out = '';
+          for (var i = 0; i < str.length; ) {
+            var b1 = chars.indexOf(str[i++]);
+            var b2 = chars.indexOf(str[i++]);
+            var b3 = chars.indexOf(str[i++]);
+            var b4 = chars.indexOf(str[i++]);
+            out += String.fromCharCode((b1 << 2) | (b2 >> 4));
+            if (b3 < 64) out += String.fromCharCode(((b2 & 0xf) << 4) | (b3 >> 2));
+            if (b4 < 64) out += String.fromCharCode(((b3 & 3) << 6) | b4);
+          }
+          return out;
+        },
+        // Simple URL encode/decode
+        encodeURIComponent: function(str) {
+          return encodeURIComponent ? encodeURIComponent(str) : str;
+        },
+        decodeURIComponent: function(str) {
+          return decodeURIComponent ? decodeURIComponent(str) : str;
+        },
+      };
+      // Dynamic variables (Postman-style)
+      pm.variables.randomInt = function() { return pm.utils.randomInt(0, 1000000); };
+      pm.variables.timestamp = function() { return pm.utils.timestamp(); };
+    `;
+
+    const utilsResult = vm.evalCode(utilsCode);
+    if (utilsResult.error) {
+      utilsResult.error.dispose();
+    } else {
+      utilsResult.value.dispose();
+    }
+
     const expectCode = `
       pm.expect = function(actual) {
         return {

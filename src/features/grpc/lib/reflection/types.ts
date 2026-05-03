@@ -52,12 +52,17 @@ export interface FileDescriptorProto {
   service?: ServiceDescriptorProto[];
 }
 
+export interface MessageOptions {
+  mapEntry?: boolean;
+}
+
 export interface DescriptorProto {
   name?: string;
   field?: FieldDescriptorProto[];
   nestedType?: DescriptorProto[];
   enumType?: EnumDescriptorProto[];
   oneofDecl?: OneofDescriptorProto[];
+  options?: MessageOptions;
 }
 
 export interface FieldDescriptorProto {
