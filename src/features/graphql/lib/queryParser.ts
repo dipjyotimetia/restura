@@ -1,3 +1,4 @@
+import { parse } from 'graphql';
 import type { GraphQLVariable } from '../types';
 
 // Parse variables from a GraphQL query string
@@ -157,39 +158,16 @@ export function extractOperationType(
   return match && match[1] ? (match[1] as 'query' | 'mutation' | 'subscription') : null;
 }
 
-// Validate basic GraphQL syntax
+// Validate GraphQL syntax using the graphql parser
 export function validateGraphQLSyntax(query: string): { valid: boolean; error?: string } {
   if (!query.trim()) {
     return { valid: true };
   }
 
-  // Check for balanced braces
-  let braceCount = 0;
-  let parenCount = 0;
-  let bracketCount = 0;
-
-  for (const char of query) {
-    if (char === '{') braceCount++;
-    else if (char === '}') braceCount--;
-    else if (char === '(') parenCount++;
-    else if (char === ')') parenCount--;
-    else if (char === '[') bracketCount++;
-    else if (char === ']') bracketCount--;
-
-    if (braceCount < 0 || parenCount < 0 || bracketCount < 0) {
-      return { valid: false, error: 'Unbalanced brackets' };
-    }
+  try {
+    parse(query);
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: err instanceof Error ? err.message : 'Invalid GraphQL syntax' };
   }
-
-  if (braceCount !== 0) {
-    return { valid: false, error: 'Unbalanced curly braces' };
-  }
-  if (parenCount !== 0) {
-    return { valid: false, error: 'Unbalanced parentheses' };
-  }
-  if (bracketCount !== 0) {
-    return { valid: false, error: 'Unbalanced square brackets' };
-  }
-
-  return { valid: true };
 }

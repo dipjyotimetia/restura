@@ -23,6 +23,7 @@ export class GraphQLSubscriptionClient {
   private client: Client | null = null;
   private unsubscribe: (() => void) | null = null;
   private headers: Record<string, string>;
+  private timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(_url: string, headers: Record<string, string> = {}) {
     this.headers = headers;
@@ -44,11 +45,23 @@ export class GraphQLSubscriptionClient {
       timestamp: Date.now(),
     });
 
+    this.timeoutId = setTimeout(() => {
+      this.timeoutId = null;
+      options.onMessage({
+        id: makeId(),
+        type: 'error',
+        error: 'Connection timeout',
+        timestamp: Date.now(),
+      });
+      this.disconnect();
+    }, 30_000);
+
     this.client = createClient({
       url: wsUrl,
       connectionParams: Object.keys(this.headers).length > 0 ? this.headers : undefined,
       on: {
         connected: () => {
+          if (this.timeoutId !== null) { clearTimeout(this.timeoutId); this.timeoutId = null; }
           options.onMessage({
             id: makeId(),
             type: 'connected',
@@ -57,6 +70,7 @@ export class GraphQLSubscriptionClient {
           options.onConnected?.();
         },
         error: (err) => {
+          if (this.timeoutId !== null) { clearTimeout(this.timeoutId); this.timeoutId = null; }
           options.onMessage({
             id: makeId(),
             type: 'error',
@@ -81,7 +95,11 @@ export class GraphQLSubscriptionClient {
         options.onMessage({
           id: makeId(),
           type: 'error',
-          error: err instanceof Error ? err.message : (Array.isArray(err) ? err.map((e) => (e as Error).message).join(', ') : 'Subscription error'),
+          error: err instanceof Error
+            ? err.message
+            : Array.isArray(err)
+              ? err.map((e) => (e instanceof Error ? e.message : String(e))).join(', ')
+              : 'Subscription error',
           timestamp: Date.now(),
         });
         options.onError?.(err);
@@ -106,6 +124,7 @@ export class GraphQLSubscriptionClient {
   }
 
   disconnect(): void {
+    if (this.timeoutId !== null) { clearTimeout(this.timeoutId); this.timeoutId = null; }
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.client?.dispose();

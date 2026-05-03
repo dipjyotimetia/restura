@@ -18,7 +18,7 @@ interface CodeEditorProps {
   height?: string | number;
   minimap?: boolean;
   showCopyButton?: boolean;
-  onEditorMount?: (editor: Monaco.editor.IStandaloneCodeEditor) => void;
+  onEditorMount?: (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => void;
 }
 
 export default function CodeEditor({
@@ -38,7 +38,7 @@ export default function CodeEditor({
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
-    onEditorMount?.(editor);
+    onEditorMount?.(editor, monaco);
 
     // Register GraphQL language if needed
     if (language === 'graphql') {
