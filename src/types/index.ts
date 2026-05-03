@@ -467,6 +467,19 @@ export interface ScriptResult {
   tests?: Array<{ name: string; passed: boolean; error?: string }>;
 }
 
+// Certificate Configuration
+export interface ClientCert {
+  format: 'pfx' | 'pem';
+  pfx?: string;       // base64-encoded .p12/.pfx content
+  cert?: string;      // PEM certificate string
+  key?: string;       // PEM private key string (encrypted at rest)
+  passphrase?: string;
+}
+
+export interface CaCert {
+  pem: string;        // PEM-encoded CA certificate chain
+}
+
 // Proxy Configuration
 export type ProxyType = 'none' | 'http' | 'https' | 'socks4' | 'socks5';
 
@@ -489,6 +502,8 @@ export interface RequestSettings {
   maxRedirects: number;
   verifySsl: boolean;
   proxy?: ProxyConfig;
+  clientCert?: ClientCert;
+  caCert?: CaCert;
 }
 
 // CORS Proxy Configuration (for browser mode)
@@ -514,6 +529,9 @@ export interface AppSettings {
   allowPrivateIPs?: boolean;
   // CORS proxy settings (web-only)
   corsProxy: CorsProxyConfig;
+  // Certificate settings
+  clientCert?: ClientCert;
+  caCert?: CaCert;
 }
 
 // Alias for backwards compatibility and clarity

@@ -8,7 +8,9 @@ export interface UpstreamProxy {
 
 function buildProxyAuthHeader(auth?: { username: string; password: string }): string {
   if (!auth) return '';
-  const credentials = btoa(`${auth.username}:${auth.password}`);
+  // btoa requires Latin1 — encode individual parts to avoid InvalidCharacterError
+  const safe = (s: string) => s.replace(/[^\x00-\xFF]/g, (c) => encodeURIComponent(c));
+  const credentials = btoa(`${safe(auth.username)}:${safe(auth.password)}`);
   return `Proxy-Authorization: Basic ${credentials}\r\n`;
 }
 
@@ -86,8 +88,9 @@ export async function httpsViaConnectProxy(
 
   signal.addEventListener('abort', () => void socket.close(), { once: true });
 
+  const targetPort = targetUrl.port || '443';
   const writer = socket.writable.getWriter();
-  const connectRequest = `CONNECT ${targetUrl.hostname}:443 HTTP/1.1\r\nHost: ${targetUrl.hostname}:443\r\n${buildProxyAuthHeader(proxy.auth)}\r\n`;
+  const connectRequest = `CONNECT ${targetUrl.hostname}:${targetPort} HTTP/1.1\r\nHost: ${targetUrl.hostname}:${targetPort}\r\n${buildProxyAuthHeader(proxy.auth)}\r\n`;
   await writer.write(new TextEncoder().encode(connectRequest));
   writer.releaseLock();
 
@@ -99,33 +102,36 @@ export async function httpsViaConnectProxy(
 
   const tlsSocket = socket.startTls({ hostname: targetUrl.hostname });
 
-  // Make the real request over the TLS tunnel
-  const method = (requestInit.method ?? 'GET').toUpperCase();
-  const headers: Record<string, string> = {};
-  if (requestInit.headers) {
-    for (const [k, v] of Object.entries(requestInit.headers as Record<string, string>)) {
-      headers[k] = v;
+  try {
+    // Make the real request over the TLS tunnel
+    const method = (requestInit.method ?? 'GET').toUpperCase();
+    const headers: Record<string, string> = {};
+    if (requestInit.headers) {
+      for (const [k, v] of Object.entries(requestInit.headers as Record<string, string>)) {
+        headers[k] = v;
+      }
     }
+    headers['Host'] = targetUrl.hostname;
+
+    const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
+    if (bodyStr) headers['Content-Length'] = String(new TextEncoder().encode(bodyStr).length);
+
+    const tlsWriter = tlsSocket.writable.getWriter();
+    await tlsWriter.write(encodeRequest(method, targetUrl, headers, bodyStr));
+    tlsWriter.releaseLock();
+
+    const { statusLine: respStatusLine, headers: respHeaders, body: respBody } = await readHttpResponse(
+      tlsSocket.readable
+    );
+
+    const statusCode = parseInt(respStatusLine.split(' ')[1] ?? '502', 10);
+    return new Response(respBody, {
+      status: statusCode,
+      headers: respHeaders,
+    });
+  } finally {
+    await tlsSocket.close();
   }
-  headers['Host'] = targetUrl.hostname;
-
-  const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-  if (bodyStr) headers['Content-Length'] = String(new TextEncoder().encode(bodyStr).length);
-
-  const tlsWriter = tlsSocket.writable.getWriter();
-  await tlsWriter.write(encodeRequest(method, targetUrl, headers, bodyStr));
-  tlsWriter.releaseLock();
-
-  const { statusLine: respStatusLine, headers: respHeaders, body: respBody } = await readHttpResponse(
-    tlsSocket.readable
-  );
-  await tlsSocket.close();
-
-  const statusCode = parseInt(respStatusLine.split(' ')[1] ?? '502', 10);
-  return new Response(respBody, {
-    status: statusCode,
-    headers: respHeaders,
-  });
 }
 
 export async function httpViaProxy(

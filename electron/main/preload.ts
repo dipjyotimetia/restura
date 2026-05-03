@@ -79,6 +79,16 @@ const electronAPI = {
         };
       };
       verifySsl?: boolean;
+      clientCert?: {
+        format: 'pfx' | 'pem';
+        pfx?: string;
+        cert?: string;
+        key?: string;
+        passphrase?: string;
+      };
+      caCert?: {
+        pem: string;
+      };
     }): Promise<{
       status: number;
       statusText: string;
