@@ -153,6 +153,24 @@ interface ElectronLogAPI {
   clear: () => Promise<void>;
 }
 
+interface FileChangedEvent {
+  type: 'modified' | 'added' | 'deleted';
+  filePath: string;
+  directoryPath: string;
+  lastModified?: number;
+}
+
+interface ElectronCollectionsAPI {
+  loadFromDirectory: (path: string) => Promise<{ success: boolean; collection?: unknown; error?: string }>;
+  saveToDirectory: (collection: unknown, path: string) => Promise<{ success: boolean; error?: string }>;
+  watchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
+  unwatchDirectory: (path: string) => Promise<{ success: boolean }>;
+  selectDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
+  openInExplorer: (path: string) => Promise<{ success: boolean; error?: string }>;
+  onFileChanged: (callback: (event: FileChangedEvent) => void) => void;
+  removeFileChangedListener: () => void;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -165,6 +183,7 @@ interface ElectronAPI {
   grpc: ElectronGrpcAPI;
   store: ElectronStoreAPI;
   log: ElectronLogAPI;
+  collections: ElectronCollectionsAPI;
   // Valid channels: 'menu:import' | 'menu:export' | 'menu:new-request' | 'app:focus' | 'deep-link'
   // 'deep-link' callback receives: { host: string; params: Record<string, string> }
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
@@ -177,4 +196,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, FileChangedEvent, LogEntry };

@@ -72,7 +72,7 @@ export function validateEnvironment(env: unknown): Environment {
 export function validateCollection(collection: unknown): Collection {
   const result = collectionSchema.safeParse(collection);
   if (result.success) {
-    return result.data;
+    return result.data as Collection;
   }
 
   console.error('Collection validation failed:', result.error?.issues);

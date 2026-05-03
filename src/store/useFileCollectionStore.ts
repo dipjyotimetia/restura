@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { ElectronAPI } from '../../electron/types/electron.d';
 import { Collection } from '@/types';
 import { useCollectionStore } from './useCollectionStore';
 
@@ -174,29 +175,17 @@ export const useFileCollectionStore = create<FileCollectionState>()(
   )
 );
 
-// Type for electron API (available only in Electron)
-interface ElectronCollectionsAPI {
-  loadFromDirectory: (path: string) => Promise<{ success: boolean; collection?: any; error?: string }>;
-  saveToDirectory: (collection: any, path: string) => Promise<{ success: boolean; error?: string }>;
-  watchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
-  unwatchDirectory: (path: string) => Promise<{ success: boolean }>;
-  selectDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
-  openInExplorer: (path: string) => Promise<{ success: boolean; error?: string }>;
-  onFileChanged: (callback: (event: any) => void) => void;
-  removeFileChangedListener: () => void;
-}
-
-// Get electron API if available
-function getElectronCollections(): ElectronCollectionsAPI | null {
-  if (typeof window !== 'undefined' && (window as any).electron?.collections) {
-    return (window as any).electron.collections;
+// Get electron collections API if available
+function getElectronCollections(): ElectronAPI['collections'] | null {
+  if (typeof window !== 'undefined' && window.electron?.collections) {
+    return window.electron.collections;
   }
   return null;
 }
 
 // Check if running in Electron
 export function isElectronEnvironment(): boolean {
-  return typeof window !== 'undefined' && (window as any).electron?.isElectron === true;
+  return typeof window !== 'undefined' && window.electron?.isElectron === true;
 }
 
 // Load collection from directory
@@ -212,19 +201,21 @@ export async function loadCollectionFromDirectory(directoryPath: string): Promis
 
   const result = await electron.loadFromDirectory(directoryPath);
   if (result.success && result.collection) {
+    const collection = result.collection as Collection;
+
     // Add to collection store
     const collectionStore = useCollectionStore.getState();
-    collectionStore.addCollection(result.collection as Collection);
+    collectionStore.addCollection(collection);
 
     // Register as file collection
     const fileStore = useFileCollectionStore.getState();
-    fileStore.registerFileCollection(result.collection.id, directoryPath);
+    fileStore.registerFileCollection(collection.id, directoryPath);
 
     // Start watching
     await electron.watchDirectory(directoryPath);
-    fileStore.setWatching(result.collection.id, true);
+    fileStore.setWatching(collection.id, true);
 
-    return { success: true, collection: result.collection as Collection };
+    return { success: true, collection };
   }
 
   return result as { success: boolean; error?: string };

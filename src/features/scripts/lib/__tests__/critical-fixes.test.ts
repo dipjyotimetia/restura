@@ -83,7 +83,7 @@ describe('Critical Fixes Verification', () => {
   describe('JSON Bomb Protection - Fix #4', () => {
     it('should detect deeply nested JSON (depth > 20)', () => {
       // Create a deeply nested object (25 levels)
-      let deepObject: any = { value: 'deep' };
+      let deepObject: Record<string, unknown> = { value: 'deep' };
       for (let i = 0; i < 24; i++) {
         deepObject = { nested: deepObject };
       }

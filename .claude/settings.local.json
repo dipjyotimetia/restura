@@ -45,7 +45,9 @@
       "Bash(awk '/^\\\\/.*\\\\.ts[x]?$/{file=$0} /no-empty /{print file\" \"$0}')",
       "Bash(awk '/^\\\\/.*\\\\.ts[x]?$/{file=$0} /61:16.*\\\\x27e\\\\x27|309:63|99:14.*\\\\x27err\\\\x27/{print file\": \"$0}')",
       "Bash(awk *)",
-      "WebFetch(domain:)"
+      "WebFetch(domain:)",
+      "Bash(npx eslint *)",
+      "sed -n *"
     ]
   }
 }
