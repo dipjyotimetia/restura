@@ -22,6 +22,7 @@ import {
   GrpcClientError,
   buildAuthMetadata,
   makeElectronGrpcRequest,
+  makeProxyGrpcRequest,
   startElectronGrpcStream,
   validateGrpcUrl,
   validateServiceName,
@@ -432,6 +433,13 @@ function GrpcRequestBuilder() {
       }
 
       if (grpcRequest.methodType !== 'unary') {
+        if (!isElectron()) {
+          toast.error('Streaming gRPC requires the desktop app', {
+            description: 'Unary requests are supported in the browser via the proxy.',
+          });
+          setLoading(false);
+          return;
+        }
         const control = startElectronGrpcStream(
           grpcRequest,
           protoContent,
@@ -463,14 +471,12 @@ function GrpcRequestBuilder() {
         return;
       }
 
-      let response = await makeElectronGrpcRequest(
-        grpcRequest,
-        protoContent,
-        protoFileName,
-        resolveVariables,
-        timeoutMs,
-        useCompression
-      );
+      const executeUnary = () =>
+        isElectron()
+          ? makeElectronGrpcRequest(grpcRequest, protoContent, protoFileName, resolveVariables, timeoutMs, useCompression)
+          : makeProxyGrpcRequest(grpcRequest, resolveVariables, timeoutMs);
+
+      let response = await executeUnary();
 
       // Retry on non-OK status (status !== 0) if retry policy configured
       for (let attempt = 2; attempt <= retryMaxAttempts && response.grpcStatus !== 0; attempt++) {
@@ -478,14 +484,7 @@ function GrpcRequestBuilder() {
           await new Promise((r) => setTimeout(r, retryDelayMs));
         }
         toast.info(`Retrying... (attempt ${attempt}/${retryMaxAttempts})`);
-        response = await makeElectronGrpcRequest(
-          grpcRequest,
-          protoContent,
-          protoFileName,
-          resolveVariables,
-          timeoutMs,
-          useCompression
-        );
+        response = await executeUnary();
       }
 
       setCurrentResponse(response);

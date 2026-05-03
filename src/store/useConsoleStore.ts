@@ -52,7 +52,7 @@ export const useConsoleStore = create<ConsoleState>()(
     (set) => ({
       entries: [],
       selectedEntryId: null,
-      isExpanded: true,
+      isExpanded: false,
       panelHeight: 250,
       activeTab: 'network',
       searchFilter: '',
