@@ -291,12 +291,11 @@ async function saveDirectoryItems(items: any[], directoryPath: string): Promise<
       }
     } else if (item.type === 'request' && item.request) {
       const req = item.request;
-      const extension = req.type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
+      // Strip id and type before writing to disk; type is used here to pick the extension
+      const { id: _id, type, ...requestData } = req;
+      const extension = type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
       const filename = `${sanitizeFilename(item.name)}${extension}`;
       const filePath = path.join(directoryPath, filename);
-
-      // Strip IDs and type field for file storage
-      const { id: _id, type: _type, ...requestData } = req;
       const fileData = {
         ...requestData,
         headers: stripIdsFromKeyValues(requestData.headers),
