@@ -110,6 +110,17 @@ export interface AuthConfig {
     accessToken: string;
     tokenType?: string;
     scopes?: string[];
+    // Flow configuration
+    grantType?: 'authorization_code' | 'client_credentials' | 'password' | 'device_code';
+    clientId?: string;
+    clientSecret?: string;
+    authorizationUrl?: string;
+    tokenUrl?: string;
+    scope?: string;
+    redirectUri?: string;
+    // Password grant only
+    username?: string;
+    password?: string;
   };
   digest?: {
     username: string;

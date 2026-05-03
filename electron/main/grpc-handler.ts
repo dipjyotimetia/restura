@@ -2,7 +2,7 @@ import { ipcMain, app } from 'electron';
 import type { LogEntry } from './request-logger';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { createGrpcTransport } from '@connectrpc/connect-node';
+import { createGrpcTransport, compressionGzip } from '@connectrpc/connect-node';
 import { createClient } from '@connectrpc/connect';
 import type { Interceptor } from '@connectrpc/connect';
 import type { DescService } from '@bufbuild/protobuf';
@@ -351,6 +351,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     const transport = createGrpcTransport({
       baseUrl: config.url,
       interceptors: [headerInterceptor],
+      ...(config.useCompression && { sendCompression: compressionGzip, acceptCompression: [compressionGzip] }),
     });
 
     // serviceDef is structurally DescService-compatible but nominally opaque — double cast is intentional.
@@ -502,6 +503,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       
       const transport = createGrpcTransport({
         baseUrl: config.url,
+        ...(config.useCompression && { sendCompression: compressionGzip, acceptCompression: [compressionGzip] }),
       });
 
       const client = createClient(serviceDef as unknown as DescService, transport) as Record<string, (...args: unknown[]) => unknown>;
