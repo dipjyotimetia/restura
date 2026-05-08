@@ -232,7 +232,7 @@ export class ResturaDB extends Dexie {
     };
   }> {
     return {
-      version: 1,
+      version: 2,
       exportedAt: Date.now(),
       data: {
         collections: await this.collections.toArray(),
