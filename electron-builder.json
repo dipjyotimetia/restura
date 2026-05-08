@@ -14,7 +14,7 @@
     "package.json"
   ],
   "extraMetadata": {
-    "main": "dist/electron/main/main.js"
+    "main": "dist/electron/electron/main/main.js"
   },
   "mac": {
     "category": "public.app-category.developer-tools",

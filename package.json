@@ -5,7 +5,7 @@
   "description": "Restura - A modern multi-protocol API client for HTTP and gRPC testing",
   "author": "dipjyotimetia",
   "license": "MIT",
-  "main": "dist/electron/main/main.js",
+  "main": "dist/electron/electron/main/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

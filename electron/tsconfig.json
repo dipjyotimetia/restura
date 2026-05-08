@@ -5,14 +5,18 @@
     "module": "nodenext",
     "lib": ["ES2022", "DOM"],
     "outDir": "../dist/electron",
-    "rootDir": ".",
+    "rootDir": "..",
     "moduleResolution": "nodenext",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "allowSyntheticDefaultImports": true,
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals"],
+    "baseUrl": "..",
+    "paths": {
+      "@shared/*": ["shared/*"]
+    }
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../shared/**/*.ts"],
   "exclude": ["node_modules", "types"]
 }
