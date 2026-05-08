@@ -3,6 +3,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { RequestBody } from '@/types';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { useActiveTab } from '@/store/selectors';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 const GraphQLBodyEditor = lazyComponent(() => import('@/features/graphql/components/GraphQLBodyEditor'));
@@ -24,6 +25,7 @@ export default function RequestBodyEditor({
   graphqlVariables = '{}',
   onGraphQLVariablesChange,
 }: RequestBodyEditorProps) {
+  const activeTabId = useActiveTab()?.id;
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-4">
@@ -82,6 +84,7 @@ export default function RequestBodyEditor({
             onChange={onBodyContentChange}
             language={body.type === 'json' ? 'json' : body.type === 'xml' ? 'xml' : 'plaintext'}
             height="300px"
+            path={activeTabId ? `tab-${activeTabId}-body` : undefined}
           />
         </div>
       )}

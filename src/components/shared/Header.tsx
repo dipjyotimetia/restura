@@ -3,7 +3,6 @@
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useRequestStore } from '@/store/useRequestStore';
 import { Moon, Sun, FolderOpen, Globe, Settings2 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
@@ -54,7 +53,6 @@ export default function Header({
 
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore();
-  const { switchToHttp, switchToGrpc } = useRequestStore();
 
   useEffect(() => {
     setMounted(true);
@@ -70,13 +68,6 @@ export default function Header({
 
   const handleRequestModeChange = (mode: RequestMode) => {
     onRequestModeChange(mode);
-    // Switch to the appropriate request type, preserving state
-    if (mode === 'http' || mode === 'graphql') {
-      switchToHttp();
-    } else if (mode === 'grpc') {
-      switchToGrpc();
-    }
-    // WebSocket uses its own store
   };
 
   if (!mounted) {

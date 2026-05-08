@@ -269,7 +269,7 @@ restura/
 
 ### State Management
 
-All global state lives in Zustand stores with `persist` middleware (localStorage). Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`.
+All global state lives in Zustand stores with `persist` middleware. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`. Persistence goes through `src/lib/shared/dexie-storage.ts` (web — IndexedDB via Dexie) or `src/lib/shared/secure-storage.ts` (Electron — encrypted electron-store via IPC). The legacy `src/lib/shared/storage.ts` localStorage adapter has been removed.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -278,11 +278,10 @@ All global state lives in Zustand stores with `persist` middleware (localStorage
 │ useRequest   │ useCollection│ useEnviron-  │ useHistory       │
 │ Store        │ Store        │ mentStore    │ Store            │
 ├──────────────┼──────────────┼──────────────┼──────────────────┤
-│ url          │ collections  │ environments │ entries          │
-│ method       │ folders      │ activeEnv    │ favorites        │
-│ headers      │ CRUD ops     │ variables    │ limit            │
-│ body         │              │ CRUD ops     │                  │
-│ auth         │              │              │                  │
+│ tabs[]       │ collections  │ environments │ entries          │
+│ activeTabId  │ folders      │ activeEnv    │ favorites        │
+│ (tab-based,  │ CRUD ops     │ variables    │ limit            │
+│ see below)   │              │ CRUD ops     │                  │
 ├──────────────┴──────────────┴──────────────┴──────────────────┤
 │ useSettings  │ useWorkflow  │                                  │
 │ Store        │ Store        │                                  │
@@ -292,8 +291,23 @@ All global state lives in Zustand stores with `persist` middleware (localStorage
 └──────────────┴──────────────┴──────────────────────────────────┘
                           │
                           ▼
-                   localStorage (persist)
+            Dexie (web) / electron-store (desktop)
 ```
+
+### Multi-tab request model
+
+The renderer holds open requests as tabs in `useRequestStore`:
+
+- `tabs: RequestTab[]` — each tab has `{ id, request, response?, scriptResult?, isDirty, savedRequestId? }`
+- `activeTabId: string | null` — currently focused tab
+
+The page-level request mode is derived from the active tab's `request.type` — there is no separate "current protocol" state. Tabs persist to Dexie (`requestTabs` table, schema v2) so refresh/restart preserves the open set, including the last response per tab.
+
+Saved requests opened from the sidebar focus an existing matching tab (by `savedRequestId`) before opening a new one. The `TabBar` component (`src/components/shared/TabBar.tsx`) renders the tab strip; tab actions go through `useRequestStore` (`openTab`, `closeTab`, `switchTab`, `duplicateTab`, `reorderTabs`, `closeOtherTabs`, `closeAllTabs`, `createNewRequest`).
+
+Editor state (cursor, undo, fold) is preserved per tab via Monaco's `path` prop — each tab's editor uses `path="tab-<id>-<role>"` (where role ∈ `body | response | grpc-message | graphql-query | graphql-variables`), so Monaco automatically maintains a separate `ITextModel` per path.
+
+Selectors at `src/store/selectors.ts` expose tab-aware hooks: `useActiveTab()`, `useActiveRequest('http' | 'grpc' | 'sse' | 'mcp')`, `useActiveResponse()`. Consumers should prefer these over destructuring the whole store, since they re-render only when the relevant tab subset changes.
 
 ### Protocol Transport Abstraction
 
@@ -413,7 +427,7 @@ Pre-request and test scripts run inside a QuickJS WASM instance (`quickjs-emscri
 
 ### Input Validation
 
-All stores are validated with Zod schemas on hydration from localStorage (`src/lib/shared/store-validators.ts`).
+All stores are validated with Zod schemas on hydration from persisted storage — Dexie (web) or electron-store (desktop) — via `src/lib/shared/store-validators.ts`.
 
 ---
 
@@ -456,5 +470,5 @@ CI type-checks three independent TypeScript projects:
 2. **Feature co-location**: Each feature owns its components, hooks, stores, and tests in `src/features/<name>/`
 3. **No server-side rendering**: Pure SPA with hash routing for portability across `https://` and `file://`
 4. **Zero Worker in desktop**: The Electron build excludes `_worker.js` entirely; no Cloudflare runtime in the desktop app
-5. **Zod at boundaries**: All external inputs (localStorage hydration, IPC payloads, API responses) are validated with Zod schemas
+5. **Zod at boundaries**: All external inputs (persisted-store hydration, IPC payloads, API responses) are validated with Zod schemas
 6. **Sandbox scripts**: User-provided scripts never run in the browser's JavaScript context

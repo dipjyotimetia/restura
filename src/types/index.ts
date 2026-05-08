@@ -289,6 +289,20 @@ export interface McpResponse extends Response {
 // Union type for any request
 export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;
 
+// Multi-tab request tab
+export interface RequestTab {
+  id: string;
+  request: Request;
+  /** Last response received in this tab; persists across reloads. */
+  response?: Response | null;
+  /** Last script results (pre-request + test) for this tab's request. */
+  scriptResult?: { preRequest?: ScriptResult; test?: ScriptResult } | null;
+  /** Whether the request has unsaved changes vs the saved version (savedRequestId). */
+  isDirty: boolean;
+  /** If this tab was opened from a saved request in a collection, the saved request's id. */
+  savedRequestId?: string;
+}
+
 // Response
 export interface Response {
   id: string;

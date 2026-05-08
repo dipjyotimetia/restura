@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveRequest, useActiveResponse } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -26,27 +27,17 @@ interface UseHttpRequestReturn {
 }
 
 export function useHttpRequest(): UseHttpRequestReturn {
-  const {
-    currentRequest,
-    currentResponse,
-    updateRequest: storeUpdateRequest,
-    setLoading,
-    setCurrentResponse,
-    isLoading,
-    setScriptResult,
-  } = useRequestStore();
+  const httpRequest = useActiveRequest('http');
+  const currentResponse = useActiveResponse();
+  const storeUpdateRequest = useRequestStore((s) => s.updateRequest);
+  const setLoading = useRequestStore((s) => s.setLoading);
+  const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
+  const isLoading = useRequestStore((s) => s.isLoading);
+  const setScriptResult = useRequestStore((s) => s.setScriptResult);
 
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables, getActiveEnvironment } = useEnvironmentStore();
   const { settings: globalSettings } = useSettingsStore();
-
-  // Type guard for HTTP request
-  const httpRequest = useMemo(() => {
-    if (currentRequest?.type === 'http') {
-      return currentRequest as HttpRequest;
-    }
-    return null;
-  }, [currentRequest]);
 
   const updateRequest = useCallback(
     (updates: Partial<HttpRequest>) => {

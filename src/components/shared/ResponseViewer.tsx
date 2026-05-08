@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveResponse, useActiveTab } from '@/store/selectors';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -108,7 +109,8 @@ function ResponseSkeleton() {
 
 function ResponseViewer() {
   // Use selectors to only subscribe to needed state, reducing re-renders
-  const currentResponse = useRequestStore((state) => state.currentResponse);
+  const currentResponse = useActiveResponse();
+  const activeTabId = useActiveTab()?.id;
   const isLoading = useRequestStore((state) => state.isLoading);
   const { settings, updateSettings } = useSettingsStore();
   const [activeTab, setActiveTab] = useState('body');
@@ -312,6 +314,7 @@ function ResponseViewer() {
                     height="100%"
                     showCopyButton
                     onEditorMount={(editor) => { responseEditorRef.current = editor; }}
+                    path={activeTabId ? `tab-${activeTabId}-response` : undefined}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">

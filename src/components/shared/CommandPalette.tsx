@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveResponse } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { Separator } from '@/components/ui/separator';
 
@@ -41,7 +42,8 @@ export default function CommandPalette({
 }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
-  const { createNewHttpRequest, createNewGrpcRequest, createNewSseRequest, createNewMcpRequest, currentResponse } = useRequestStore();
+  const createNewRequest = useRequestStore((s) => s.createNewRequest);
+  const currentResponse = useActiveResponse();
   const { clearHistory } = useHistoryStore();
 
   // Toggle command palette with Cmd+K
@@ -99,28 +101,28 @@ export default function CommandPalette({
                 </Command.Item>
               )}
               <Command.Item
-                onSelect={() => runCommand(createNewHttpRequest)}
+                onSelect={() => runCommand(() => createNewRequest('http'))}
                 className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
               >
                 <Plus className="mr-2 h-4 w-4" />
                 <span>New HTTP Request</span>
               </Command.Item>
               <Command.Item
-                onSelect={() => runCommand(createNewGrpcRequest)}
+                onSelect={() => runCommand(() => createNewRequest('grpc'))}
                 className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
               >
                 <Plus className="mr-2 h-4 w-4" />
                 <span>New gRPC Request</span>
               </Command.Item>
               <Command.Item
-                onSelect={() => runCommand(createNewSseRequest)}
+                onSelect={() => runCommand(() => createNewRequest('sse'))}
                 className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
               >
                 <Plus className="mr-2 h-4 w-4" />
                 <span>New SSE Request</span>
               </Command.Item>
               <Command.Item
-                onSelect={() => runCommand(createNewMcpRequest)}
+                onSelect={() => runCommand(() => createNewRequest('mcp'))}
                 className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
               >
                 <Plus className="mr-2 h-4 w-4" />

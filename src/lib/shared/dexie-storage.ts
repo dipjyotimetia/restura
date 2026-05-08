@@ -84,7 +84,8 @@ type StorageTableName =
   | 'cookies'
   | 'workflows'
   | 'workflowExecutions'
-  | 'fileCollections';
+  | 'fileCollections'
+  | 'requestTabs';
 
 /**
  * Storage adapter configuration
@@ -249,6 +250,12 @@ export const dexieStorageAdapters = {
   fileCollections: () =>
     createDexieStorage({
       tableName: 'fileCollections',
+      encrypt: true,
+    }),
+
+  requestTabs: () =>
+    createDexieStorage({
+      tableName: 'requestTabs',
       encrypt: true,
     }),
 };

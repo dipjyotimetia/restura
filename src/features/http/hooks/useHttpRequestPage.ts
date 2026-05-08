@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveRequest } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
@@ -14,15 +15,16 @@ import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
 
 export function useHttpRequestPage() {
-  const { currentRequest, updateRequest, setLoading, setCurrentResponse, isLoading, setScriptResult } =
-    useRequestStore();
+  const httpRequest = useActiveRequest('http');
+  const updateRequest = useRequestStore((s) => s.updateRequest);
+  const setLoading = useRequestStore((s) => s.setLoading);
+  const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
+  const isLoading = useRequestStore((s) => s.isLoading);
+  const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables, getActiveEnvironment } = useEnvironmentStore();
   const { settings: globalSettings } = useSettingsStore();
   const { addEntry } = useConsoleStore();
-
-  const isHttpRequest = currentRequest?.type === 'http';
-  const httpRequest = isHttpRequest ? currentRequest : null;
 
   const { handleAdd: addParam, handleUpdate: updateParam, handleDelete: removeParam } =
     useKeyValueCollection(httpRequest?.params ?? [], (params) => updateRequest({ params }));

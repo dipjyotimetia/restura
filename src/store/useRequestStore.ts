@@ -1,8 +1,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Request, Response, HttpRequest, GrpcRequest, SseRequest, McpRequest, ScriptResult } from '@/types';
+import type {
+  Request,
+  Response,
+  RequestTab,
+  HttpRequest,
+  GrpcRequest,
+  SseRequest,
+  McpRequest,
+  ScriptResult,
+  RequestType,
+} from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
 
 interface ScriptResults {
   preRequest?: ScriptResult;
@@ -10,31 +22,31 @@ interface ScriptResults {
 }
 
 interface RequestState {
-  currentRequest: Request | null;
-  currentResponse: Response | null;
-  scriptResult: ScriptResults | null;
+  tabs: RequestTab[];
+  activeTabId: string | null;
   isLoading: boolean;
-  // Stored requests per protocol for preserving state when switching
-  httpRequest: HttpRequest | null;
-  grpcRequest: GrpcRequest | null;
-  sseRequest: SseRequest | null;
-  mcpRequest: McpRequest | null;
 
-  // Actions
-  setCurrentRequest: (request: Request) => void;
+  // Tab lifecycle
+  openTab: (request: Request, options?: { savedRequestId?: string; switchTo?: boolean }) => string;
+  closeTab: (id: string) => void;
+  switchTab: (id: string) => void;
+  duplicateTab: (id: string) => string | null;
+  reorderTabs: (orderedIds: string[]) => void;
+  closeOtherTabs: (id: string) => void;
+  closeAllTabs: () => void;
+
+  // Per-active-tab actions (names preserved for consumer compatibility)
+  updateRequest: (updates: Partial<Request>) => void;
   setCurrentResponse: (response: Response | null) => void;
   setScriptResult: (result: ScriptResults | null) => void;
   setLoading: (loading: boolean) => void;
-  createNewHttpRequest: () => void;
-  createNewGrpcRequest: () => void;
-  createNewSseRequest: () => void;
-  createNewMcpRequest: () => void;
-  switchToHttp: () => void;
-  switchToGrpc: () => void;
-  switchToSse: () => void;
-  switchToMcp: () => void;
-  updateRequest: (updates: Partial<Request>) => void;
-  clearRequest: () => void;
+  setDirty: (dirty: boolean) => void;
+
+  // Convenience
+  createNewRequest: (type: RequestType) => string;
+
+  // Selectors
+  getActiveTab: () => RequestTab | null;
 }
 
 const createDefaultHttpRequest = (): HttpRequest => ({
@@ -45,12 +57,8 @@ const createDefaultHttpRequest = (): HttpRequest => ({
   url: '',
   headers: [],
   params: [],
-  body: {
-    type: 'none',
-  },
-  auth: {
-    type: 'none',
-  },
+  body: { type: 'none' },
+  auth: { type: 'none' },
 });
 
 const createDefaultGrpcRequest = (): GrpcRequest => ({
@@ -63,9 +71,7 @@ const createDefaultGrpcRequest = (): GrpcRequest => ({
   method: '',
   metadata: [],
   message: '',
-  auth: {
-    type: 'none',
-  },
+  auth: { type: 'none' },
 });
 
 const createDefaultSseRequest = (): SseRequest => ({
@@ -75,9 +81,7 @@ const createDefaultSseRequest = (): SseRequest => ({
   url: '',
   headers: [],
   params: [],
-  auth: {
-    type: 'none',
-  },
+  auth: { type: 'none' },
   reconnectOnResume: true,
 });
 
@@ -88,128 +92,201 @@ const createDefaultMcpRequest = (): McpRequest => ({
   url: '',
   transport: 'streamable-http',
   headers: [],
-  auth: {
-    type: 'none',
-  },
+  auth: { type: 'none' },
 });
 
-// Stash the active request in its per-type slot before swapping to a new type,
-// so per-protocol edits round-trip across mode switches.
-function persistActiveByType(state: { currentRequest: Request | null }) {
-  const r = state.currentRequest;
-  if (!r) return {};
-  switch (r.type) {
-    case 'http': return { httpRequest: r };
-    case 'grpc': return { grpcRequest: r };
-    case 'sse':  return { sseRequest: r };
-    case 'mcp':  return { mcpRequest: r };
+function defaultRequestForType(type: RequestType): Request {
+  switch (type) {
+    case 'http': return createDefaultHttpRequest();
+    case 'grpc': return createDefaultGrpcRequest();
+    case 'sse': return createDefaultSseRequest();
+    case 'mcp': return createDefaultMcpRequest();
   }
+}
+
+function patchActiveTab(
+  state: { tabs: RequestTab[]; activeTabId: string | null },
+  patch: (tab: RequestTab) => RequestTab
+): RequestTab[] {
+  if (!state.activeTabId) return state.tabs;
+  return state.tabs.map((t) => (t.id === state.activeTabId ? patch(t) : t));
 }
 
 export const useRequestStore = create<RequestState>()(
   persist(
-    (set, get) => ({
-      currentRequest: createDefaultHttpRequest(),
-      currentResponse: null,
-      scriptResult: null,
-      isLoading: false,
-      httpRequest: createDefaultHttpRequest(),
-      grpcRequest: createDefaultGrpcRequest(),
-      sseRequest: createDefaultSseRequest(),
-      mcpRequest: createDefaultMcpRequest(),
+    (set, get) => {
+      // Seed initial state with one blank HTTP tab so the page never renders empty.
+      const initialTab = createTabFromRequest(createDefaultHttpRequest());
+      return {
+        tabs: [initialTab],
+        activeTabId: initialTab.id,
+        isLoading: false,
 
-      setCurrentRequest: (request) => set({ currentRequest: request }),
+        openTab: (request, options = {}) => {
+          const tab = createTabFromRequest(
+            request,
+            options.savedRequestId !== undefined ? { savedRequestId: options.savedRequestId } : {}
+          );
+          const switchTo = options.switchTo ?? true;
+          set((state) => ({
+            tabs: [...state.tabs, tab],
+            activeTabId: switchTo ? tab.id : state.activeTabId,
+          }));
+          return tab.id;
+        },
 
-      setCurrentResponse: (response) => {
-        set({ currentResponse: response });
-      },
+        closeTab: (id) => {
+          const state = get();
+          const idx = findTabIndex(state.tabs, id);
+          if (idx === -1) return;
+          const newTabs = state.tabs.filter((t) => t.id !== id);
+          let nextActive: string | null = state.activeTabId;
+          if (state.activeTabId === id) {
+            // Pick neighbour to the right (same idx after filter), fallback to left
+            const fallback = newTabs[idx] ?? newTabs[idx - 1] ?? null;
+            nextActive = fallback ? fallback.id : null;
+          }
+          set({ tabs: newTabs, activeTabId: nextActive });
+        },
 
-      setScriptResult: (result) => set({ scriptResult: result }),
+        switchTab: (id) => {
+          const state = get();
+          if (findTabIndex(state.tabs, id) === -1) return;
+          set({ activeTabId: id });
+        },
 
-      setLoading: (loading) => set({ isLoading: loading }),
+        duplicateTab: (id) => {
+          const state = get();
+          const source = state.tabs.find((t) => t.id === id);
+          if (!source) return null;
+          const clonedRequest: Request = {
+            ...(JSON.parse(JSON.stringify(source.request)) as Request),
+            id: uuidv4(),
+          };
+          const tab = createTabFromRequest(clonedRequest);
+          set((s) => ({
+            tabs: [...s.tabs, tab],
+            activeTabId: tab.id,
+          }));
+          return tab.id;
+        },
 
-      createNewHttpRequest: () => {
-        const newRequest = createDefaultHttpRequest();
-        set({ currentRequest: newRequest, httpRequest: newRequest, currentResponse: null });
-      },
+        reorderTabs: (orderedIds) => {
+          const state = get();
+          if (orderedIds.length !== state.tabs.length) return;
+          const byId = new Map(state.tabs.map((t) => [t.id, t]));
+          const reordered = orderedIds
+            .map((id) => byId.get(id))
+            .filter((t): t is RequestTab => Boolean(t));
+          if (reordered.length !== state.tabs.length) return;
+          set({ tabs: reordered });
+        },
 
-      createNewGrpcRequest: () => {
-        const newRequest = createDefaultGrpcRequest();
-        set({ currentRequest: newRequest, grpcRequest: newRequest, currentResponse: null });
-      },
+        closeOtherTabs: (id) => {
+          const state = get();
+          const keep = state.tabs.find((t) => t.id === id);
+          if (!keep) return;
+          set({ tabs: [keep], activeTabId: keep.id });
+        },
 
-      createNewSseRequest: () => {
-        const newRequest = createDefaultSseRequest();
-        set({ currentRequest: newRequest, sseRequest: newRequest, currentResponse: null });
-      },
+        closeAllTabs: () => set({ tabs: [], activeTabId: null }),
 
-      createNewMcpRequest: () => {
-        const newRequest = createDefaultMcpRequest();
-        set({ currentRequest: newRequest, mcpRequest: newRequest, currentResponse: null });
-      },
+        updateRequest: (updates) => {
+          const state = get();
+          if (!state.activeTabId) return;
+          const active = state.tabs.find((t) => t.id === state.activeTabId);
+          if (!active) return;
+          let next: Request;
+          try {
+            next = validateRequestUpdate(active.request, updates);
+          } catch (error) {
+            console.error('Request update validation failed:', error);
+            next = { ...active.request, ...updates } as Request;
+          }
+          set((s) => ({
+            tabs: patchActiveTab(s, (t) => ({ ...t, request: next, isDirty: true })),
+          }));
+        },
 
-      switchToHttp: () => {
-        const state = get();
-        const persisted = persistActiveByType(state);
-        const httpReq = state.httpRequest || createDefaultHttpRequest();
-        set({ ...persisted, currentRequest: httpReq, httpRequest: httpReq, currentResponse: null });
-      },
+        setCurrentResponse: (response) => {
+          set((s) => ({
+            tabs: patchActiveTab(s, (t) => ({ ...t, response })),
+          }));
+        },
 
-      switchToGrpc: () => {
-        const state = get();
-        const persisted = persistActiveByType(state);
-        const grpcReq = state.grpcRequest || createDefaultGrpcRequest();
-        set({ ...persisted, currentRequest: grpcReq, grpcRequest: grpcReq, currentResponse: null });
-      },
+        setScriptResult: (result) => {
+          set((s) => ({
+            tabs: patchActiveTab(s, (t) => ({ ...t, scriptResult: result })),
+          }));
+        },
 
-      switchToSse: () => {
-        const state = get();
-        const persisted = persistActiveByType(state);
-        const sseReq = state.sseRequest || createDefaultSseRequest();
-        set({ ...persisted, currentRequest: sseReq, sseRequest: sseReq, currentResponse: null });
-      },
+        setLoading: (loading) => set({ isLoading: loading }),
 
-      switchToMcp: () => {
-        const state = get();
-        const persisted = persistActiveByType(state);
-        const mcpReq = state.mcpRequest || createDefaultMcpRequest();
-        set({ ...persisted, currentRequest: mcpReq, mcpRequest: mcpReq, currentResponse: null });
-      },
+        setDirty: (dirty) => {
+          set((s) => ({
+            tabs: patchActiveTab(s, (t) => ({ ...t, isDirty: dirty })),
+          }));
+        },
 
-      updateRequest: (updates) => {
-        const current = get().currentRequest;
-        if (!current) return;
-        let next: Request;
-        try {
-          next = validateRequestUpdate(current, updates);
-        } catch (error) {
-          // Soft-validation: log and apply anyway so the user isn't locked out of bad-but-recoverable state.
-          console.error('Request update validation failed:', error);
-          next = { ...current, ...updates } as Request;
-        }
-        switch (next.type) {
-          case 'http': set({ currentRequest: next, httpRequest: next as HttpRequest }); break;
-          case 'grpc': set({ currentRequest: next, grpcRequest: next as GrpcRequest }); break;
-          case 'sse':  set({ currentRequest: next, sseRequest:  next as SseRequest });  break;
-          case 'mcp':  set({ currentRequest: next, mcpRequest:  next as McpRequest });  break;
-        }
-      },
+        createNewRequest: (type) => {
+          const request = defaultRequestForType(type);
+          return get().openTab(request);
+        },
 
-      clearRequest: () => set({
-        currentRequest: null,
-        currentResponse: null,
-        scriptResult: null,
-      }),
-    }),
+        getActiveTab: () => {
+          const state = get();
+          if (!state.activeTabId) return null;
+          return state.tabs.find((t) => t.id === state.activeTabId) ?? null;
+        },
+      };
+    },
     {
       name: 'request-storage',
+      version: 3,
+      storage: dexieStorageAdapters.requestTabs(),
       partialize: (state) => ({
-        currentRequest: state.currentRequest,
-        httpRequest: state.httpRequest,
-        grpcRequest: state.grpcRequest,
-        sseRequest: state.sseRequest,
-        mcpRequest: state.mcpRequest,
+        tabs: state.tabs,
+        activeTabId: state.activeTabId,
       }),
+      migrate: (persistedState: unknown, version) => {
+        // v0/v1: pre-Dexie shape lived in localStorage
+        // v2:    Dexie-backed but still per-protocol slots
+        // v3:    tabs[] + activeTabId
+        if (version < 3 && persistedState && typeof persistedState === 'object') {
+          const legacy = persistedState as {
+            currentRequest?: Request | null;
+            httpRequest?: Request | null;
+            grpcRequest?: Request | null;
+            sseRequest?: Request | null;
+            mcpRequest?: Request | null;
+            currentResponse?: Response | null;
+          };
+          const migrated = migrateLegacyStateToTabs({
+            currentRequest: legacy.currentRequest ?? null,
+            httpRequest: legacy.httpRequest ?? null,
+            grpcRequest: legacy.grpcRequest ?? null,
+            sseRequest: legacy.sseRequest ?? null,
+            mcpRequest: legacy.mcpRequest ?? null,
+            currentResponse: legacy.currentResponse ?? null,
+          });
+          return migrated as unknown as RequestState;
+        }
+        return persistedState as RequestState;
+      },
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        // Ensure activeTabId points to a real tab; fallback to first tab.
+        if (!state.activeTabId || !state.tabs.some((t) => t.id === state.activeTabId)) {
+          const first = state.tabs[0];
+          state.activeTabId = first ? first.id : null;
+        }
+        // Ensure at least one tab exists so the page never renders empty.
+        if (state.tabs.length === 0) {
+          const blank = createTabFromRequest(createDefaultHttpRequest());
+          state.tabs = [blank];
+          state.activeTabId = blank.id;
+        }
+      },
     }
   )
 );
