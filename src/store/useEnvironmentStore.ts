@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Environment, KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
 
 interface EnvironmentState {
   environments: Environment[];
@@ -102,18 +103,8 @@ export const useEnvironmentStore = create<EnvironmentState>()(
           });
         }
 
-        // Resolve built-in dynamic variables: {{$timestamp}}, {{$isoTimestamp}}, {{$randomInt}}, {{$guid}}
-        resolved = resolved.replace(/\{\{\s*\$timestamp\s*\}\}/g, () => String(Date.now()));
-        resolved = resolved.replace(/\{\{\s*\$isoTimestamp\s*\}\}/g, () => new Date().toISOString());
-        resolved = resolved.replace(/\{\{\s*\$randomInt\s*\}\}/g, () =>
-          String(Math.floor(Math.random() * 1000))
-        );
-        resolved = resolved.replace(/\{\{\s*\$guid\s*\}\}/g, () => uuidv4());
-        resolved = resolved.replace(/\{\{\s*\$randomAlphaNumeric\s*\}\}/g, () =>
-          Math.random().toString(36).slice(2, 10)
-        );
-
-        return resolved;
+        // Resolve built-in dynamic variables (Postman-name compatible)
+        return applyDynamicVariables(resolved);
       },
 
       createNewEnvironment: (name) => ({
