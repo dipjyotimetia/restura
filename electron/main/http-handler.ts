@@ -9,6 +9,8 @@ import { createRateLimiter } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from './request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
+import { executeHttpProxy } from '@shared/protocol/http-proxy';
+import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
 
 const httpRateLimiter = createRateLimiter(60, 60_000);
 
@@ -56,10 +58,7 @@ export interface HttpResponse {
   data: unknown;
 }
 
-// Maximum response size (10MB)
-const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
-
-// Connection timeout (10 seconds)
+// Connection timeout (10 seconds) — operates below the shared core's request timeout.
 const CONNECTION_TIMEOUT = 10000;
 
 function createSecureLookup(hostname: string, allowLocalhost: boolean): NonNullable<http.RequestOptions['lookup']> {
@@ -180,13 +179,191 @@ function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: num
   });
 }
 
+function tryParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+// Build the Electron-side fetcher closure that the shared core invokes after URL validation,
+// header sanitisation, and body building. All Electron-specific transport concerns
+// (Node http/https request, SOCKS agent, mTLS, CA, connection timer, abort propagation)
+// live inside this closure.
+function buildElectronFetcher(
+  electronConfig: HttpRequestConfig,
+  socksSocket: net.Socket | null
+): Fetcher {
+  return (req: FetcherRequest): Promise<FetcherResponse> => {
+    return new Promise<FetcherResponse>((resolve, reject) => {
+      try {
+        const url = new URL(req.url);
+        const isHttps = url.protocol === 'https:';
+        const verifySsl = electronConfig.verifySsl !== false;
+        if (!verifySsl) {
+          console.warn('SSL certificate verification disabled for this Electron HTTP request.');
+        }
+
+        const requestOptions: http.RequestOptions | https.RequestOptions = {
+          method: req.method,
+          hostname: url.hostname,
+          port: url.port || (isHttps ? 443 : 80),
+          path: url.pathname + url.search,
+          headers: req.headers,
+          timeout: electronConfig.timeout ?? 30000,
+          lookup: createSecureLookup(url.hostname, true),
+        };
+
+        // Apply proxy settings (HTTP/HTTPS or SOCKS)
+        if (electronConfig.proxy?.enabled && electronConfig.proxy.host) {
+          const proxyType = electronConfig.proxy.type;
+          if (proxyType === 'http' || proxyType === 'https') {
+            requestOptions.hostname = electronConfig.proxy.host;
+            requestOptions.port = electronConfig.proxy.port;
+            requestOptions.path = url.href;
+            requestOptions.lookup = createSecureLookup(electronConfig.proxy.host, true);
+            requestOptions.headers = {
+              ...requestOptions.headers,
+              Host: url.host,
+            };
+
+            if (electronConfig.proxy.auth?.username && electronConfig.proxy.auth?.password) {
+              const auth = Buffer.from(
+                `${electronConfig.proxy.auth.username}:${electronConfig.proxy.auth.password}`
+              ).toString('base64');
+              (requestOptions.headers as Record<string, string>)['Proxy-Authorization'] = `Basic ${auth}`;
+            }
+          } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
+            // Route through the pre-established SOCKS tunnel by subclassing the agent and
+            // overriding createConnection — avoids monkey-patching the prototype at runtime.
+            const capturedSocket = socksSocket;
+            const servername = url.hostname;
+            if (isHttps) {
+              requestOptions.agent = new class extends https.Agent {
+                override createConnection(): tls.TLSSocket {
+                  return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized: verifySsl });
+                }
+              }();
+            } else {
+              requestOptions.agent = new class extends http.Agent {
+                override createConnection(): net.Socket {
+                  return capturedSocket;
+                }
+              }();
+            }
+          }
+        }
+
+        // Configure SSL verification
+        if (isHttps) {
+          (requestOptions as https.RequestOptions).rejectUnauthorized = verifySsl;
+        }
+
+        // Apply client certificate if provided (for mTLS)
+        if (isHttps && electronConfig.clientCert) {
+          if (electronConfig.clientCert.pfx) {
+            (requestOptions as https.RequestOptions).pfx = Buffer.from(electronConfig.clientCert.pfx, 'base64');
+            if (electronConfig.clientCert.passphrase) {
+              (requestOptions as https.RequestOptions).passphrase = electronConfig.clientCert.passphrase;
+            }
+          } else if (electronConfig.clientCert.cert && electronConfig.clientCert.key) {
+            (requestOptions as https.RequestOptions).cert = electronConfig.clientCert.cert;
+            (requestOptions as https.RequestOptions).key = electronConfig.clientCert.key;
+            if (electronConfig.clientCert.passphrase) {
+              (requestOptions as https.RequestOptions).passphrase = electronConfig.clientCert.passphrase;
+            }
+          }
+        }
+
+        // Apply CA certificate if provided (for custom CA / self-signed servers)
+        if (isHttps && electronConfig.caCert?.pem) {
+          (requestOptions as https.RequestOptions).ca = electronConfig.caCert.pem;
+        }
+
+        const protocol = isHttps ? https : http;
+        const nodeReq = protocol.request(requestOptions, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+          res.on('end', () => {
+            const text = Buffer.concat(chunks).toString('utf8');
+            resolve({
+              status: res.statusCode || 0,
+              statusText: res.statusMessage || '',
+              headers: res.headers as Record<string, string | string[]>,
+              text: () => Promise.resolve(text),
+              contentLengthHeader: (res.headers['content-length'] as string | undefined) ?? null,
+            });
+          });
+          res.on('error', (err: Error) => {
+            reject(new Error(`Request failed: ${err.message}`));
+          });
+        });
+
+        nodeReq.on('error', (err: Error) => {
+          reject(new Error(`Request failed: ${err.message}`));
+        });
+
+        nodeReq.on('timeout', () => {
+          nodeReq.destroy();
+          reject(new Error('Request timeout'));
+        });
+
+        // Connection timeout (separate from request timeout)
+        const connectionTimer = setTimeout(() => {
+          nodeReq.destroy();
+          reject(new Error(`Connection timeout after ${CONNECTION_TIMEOUT}ms`));
+        }, CONNECTION_TIMEOUT);
+
+        nodeReq.on('socket', (socket) => {
+          socket.on('connect', () => {
+            clearTimeout(connectionTimer);
+          });
+        });
+
+        // Forward the abort signal from the shared core through to the Node request.
+        const onAbort = () => {
+          clearTimeout(connectionTimer);
+          nodeReq.destroy();
+        };
+        if (req.signal.aborted) {
+          onAbort();
+        } else {
+          req.signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        // Send body. The IPC contract only ever supplies a string `data`, so the shared
+        // core hands us either undefined or a string here. Other BodyInit variants are
+        // not currently produced by this code path.
+        if (req.body !== undefined) {
+          if (typeof req.body === 'string') {
+            nodeReq.write(req.body);
+          } else if (req.body instanceof Uint8Array) {
+            nodeReq.write(Buffer.from(req.body));
+          } else {
+            clearTimeout(connectionTimer);
+            nodeReq.destroy();
+            reject(new Error('Unsupported body type for Electron fetcher'));
+            return;
+          }
+        }
+        nodeReq.end();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+}
+
 async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
   // Check body size early, before opening any connection
   if (config.data && Buffer.byteLength(config.data, 'utf8') > MAX_HTTP_BODY_BYTES) {
     throw new Error(`Request body size exceeds maximum limit of ${MAX_HTTP_BODY_BYTES / 1024 / 1024}MB`);
   }
 
-  // PAC proxy resolution (before Promise constructor)
+  // PAC proxy resolution (Electron-specific — uses Electron's session.resolveProxy)
   let resolvedConfig = config;
   if (config.proxy?.enabled && config.proxy.type === 'pac' && config.proxy.pacUrl) {
     try {
@@ -227,237 +404,87 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
   const interceptedConfig = await interceptorRegistry.runRequest(resolvedConfig);
 
-  // Pre-establish SOCKS tunnel (must be async, before Promise constructor)
+  // Pre-establish SOCKS tunnel (must be async, before invoking the fetcher)
   let socksSocket: net.Socket | null = null;
-  if (interceptedConfig.proxy?.enabled &&
-      (interceptedConfig.proxy.type === 'socks4' || interceptedConfig.proxy.type === 'socks5')) {
+  if (
+    interceptedConfig.proxy?.enabled &&
+    (interceptedConfig.proxy.type === 'socks4' || interceptedConfig.proxy.type === 'socks5')
+  ) {
     const socksUrl = new URL(interceptedConfig.url);
-    const socksTargetPort = parseInt(socksUrl.port || (socksUrl.protocol === 'https:' ? '443' : '80'), 10);
+    const socksTargetPort = parseInt(
+      socksUrl.port || (socksUrl.protocol === 'https:' ? '443' : '80'),
+      10
+    );
     socksSocket = await openSocksSocket(interceptedConfig.proxy, socksUrl.hostname, socksTargetPort);
   }
 
   let rawResult: HttpResponse;
   try {
-    rawResult = await new Promise<HttpResponse>((resolve, reject) => {
-    try {
-      // Parse URL and add query params
-      const url = new URL(interceptedConfig.url);
-      if (interceptedConfig.params) {
-        Object.entries(interceptedConfig.params).forEach(([key, value]) => {
-          url.searchParams.append(key, value);
-        });
-      }
+    const fetcher = buildElectronFetcher(interceptedConfig, socksSocket);
+    // bodyType: 'text' makes the shared core treat `data` as a UTF-8 string body and
+    // suggest 'text/plain' as Content-Type. The shared core's case-insensitive check
+    // skips the Content-Type addition when the caller (renderer) has already supplied
+    // one — which is the common case for HTTP requests built by the request executor.
+    const result = await executeHttpProxy(
+      {
+        method: interceptedConfig.method ?? 'GET',
+        url: interceptedConfig.url,
+        ...(interceptedConfig.headers ? { headers: interceptedConfig.headers } : {}),
+        ...(interceptedConfig.params ? { params: interceptedConfig.params } : {}),
+        bodyType: interceptedConfig.data ? 'text' : 'none',
+        ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
+        ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
+      },
+      fetcher,
+      { allowLocalhost: true }
+    );
 
-      const isHttps = url.protocol === 'https:';
-      const verifySsl = interceptedConfig.verifySsl !== false;
-      if (!verifySsl) {
-        console.warn('SSL certificate verification disabled for this Electron HTTP request.');
-      }
-
-      // Build request options
-      const requestOptions: http.RequestOptions | https.RequestOptions = {
-        method: interceptedConfig.method || 'GET',
-        hostname: url.hostname,
-        port: url.port || (isHttps ? 443 : 80),
-        path: url.pathname + url.search,
-        headers: interceptedConfig.headers || {},
-        timeout: interceptedConfig.timeout || 30000,
-        lookup: createSecureLookup(url.hostname, true),
-      };
-
-      // Apply proxy settings
-      if (interceptedConfig.proxy?.enabled && interceptedConfig.proxy.host) {
-        const proxyType = interceptedConfig.proxy.type;
-        if (proxyType === 'http' || proxyType === 'https') {
-          requestOptions.hostname = interceptedConfig.proxy.host;
-          requestOptions.port = interceptedConfig.proxy.port;
-          requestOptions.path = url.href;
-          requestOptions.lookup = createSecureLookup(interceptedConfig.proxy.host, true);
-          requestOptions.headers = {
-            ...requestOptions.headers,
-            Host: url.host,
-          };
-
-          if (interceptedConfig.proxy.auth?.username && interceptedConfig.proxy.auth?.password) {
-            const auth = Buffer.from(`${interceptedConfig.proxy.auth.username}:${interceptedConfig.proxy.auth.password}`).toString('base64');
-            (requestOptions.headers as Record<string, string>)['Proxy-Authorization'] = `Basic ${auth}`;
-          }
-        } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
-          // Route through the pre-established SOCKS tunnel by subclassing the agent and
-          // overriding createConnection — avoids monkey-patching the prototype at runtime.
-          const capturedSocket = socksSocket;
-          const servername = url.hostname;
-          if (isHttps) {
-            requestOptions.agent = new class extends https.Agent {
-              override createConnection(): tls.TLSSocket {
-                return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized: verifySsl });
-              }
-            }();
-          } else {
-            requestOptions.agent = new class extends http.Agent {
-              override createConnection(): net.Socket {
-                return capturedSocket;
-              }
-            }();
-          }
-        }
-      }
-
-      // Configure SSL verification
-      if (isHttps) {
-        (requestOptions as https.RequestOptions).rejectUnauthorized = verifySsl;
-      }
-
-      // Apply client certificate if provided (for mTLS)
-      if (isHttps && interceptedConfig.clientCert) {
-        if (interceptedConfig.clientCert.pfx) {
-          (requestOptions as https.RequestOptions).pfx = Buffer.from(interceptedConfig.clientCert.pfx, 'base64');
-          if (interceptedConfig.clientCert.passphrase) {
-            (requestOptions as https.RequestOptions).passphrase = interceptedConfig.clientCert.passphrase;
-          }
-        } else if (interceptedConfig.clientCert.cert && interceptedConfig.clientCert.key) {
-          (requestOptions as https.RequestOptions).cert = interceptedConfig.clientCert.cert;
-          (requestOptions as https.RequestOptions).key = interceptedConfig.clientCert.key;
-          if (interceptedConfig.clientCert.passphrase) {
-            (requestOptions as https.RequestOptions).passphrase = interceptedConfig.clientCert.passphrase;
-          }
-        }
-      }
-
-      // Apply CA certificate if provided (for custom CA / self-signed servers)
-      if (isHttps && interceptedConfig.caCert?.pem) {
-        (requestOptions as https.RequestOptions).ca = interceptedConfig.caCert.pem;
-      }
-
-      // Create request
-      const protocol = isHttps ? https : http;
-      const req = protocol.request(requestOptions, (res) => {
-        const chunks: Buffer[] = [];
-        let totalSize = 0;
-
-        // Check Content-Length header for early rejection
-        const contentLength = res.headers['content-length'];
-        if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
-          req.destroy();
-          reject(new Error(`Response size (${contentLength} bytes) exceeds maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`));
-          return;
-        }
-
-        res.on('data', (chunk: Buffer) => {
-          totalSize += chunk.length;
-          if (totalSize > MAX_RESPONSE_SIZE) {
-            req.destroy();
-            reject(new Error(`Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`));
-            return;
-          }
-          chunks.push(chunk);
-        });
-
-        res.on('end', () => {
-          const data = Buffer.concat(chunks).toString('utf8');
-          // Parse response headers
-          const headers: Record<string, string | string[]> = {};
-          Object.entries(res.headers).forEach(([key, value]) => {
-            if (value !== undefined) {
-              headers[key] = value;
-            }
-          });
-
-          const statusCode = res.statusCode || 0;
-
-          // Handle redirects (3xx status codes)
-          const isRedirect = statusCode >= 300 && statusCode < 400;
-          const maxRedirects = interceptedConfig.maxRedirects ?? 5; // Default to 5 if not specified
-
-          if (isRedirect && headers.location && redirectCount < maxRedirects) {
-            // Follow redirect
-            const locationHeader = Array.isArray(headers.location)
-              ? headers.location[0]
-              : headers.location;
-
-            try {
-              // Resolve relative URLs
-              const redirectUrl = new URL(locationHeader, interceptedConfig.url).href;
-
-              // For 301, 302, 303: Change POST to GET
-              // For 307, 308: Keep original method
-              const newMethod = (statusCode === 301 || statusCode === 302 || statusCode === 303)
-                && interceptedConfig.method?.toUpperCase() === 'POST'
-                ? 'GET'
-                : interceptedConfig.method;
-
-              // Make redirect request
-              makeHttpRequest(
-                {
-                  ...interceptedConfig,
-                  url: redirectUrl,
-                  method: newMethod,
-                  // Clear body for GET requests
-                  data: newMethod === 'GET' ? undefined : interceptedConfig.data,
-                },
-                redirectCount + 1
-              )
-                .then(resolve)
-                .catch(reject);
-              return;
-            } catch (err) {
-              // If redirect URL is invalid, return current response
-              console.error('Invalid redirect URL:', err);
-            }
-          }
-
-          // Try to parse JSON response
-          let responseData: unknown = data;
-          try {
-            responseData = JSON.parse(data);
-          } catch {
-            // Keep as string if not valid JSON
-          }
-
-          resolve({
-            status: statusCode,
-            statusText: res.statusMessage || '',
-            headers,
-            data: responseData,
-          });
-        });
-      });
-
-      // Handle errors
-      req.on('error', (err) => {
-        reject(new Error(`Request failed: ${err.message}`));
-      });
-
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error('Request timeout'));
-      });
-
-      // Connection timeout (separate from request timeout)
-      const connectionTimer = setTimeout(() => {
-        req.destroy();
-        reject(new Error(`Connection timeout after ${CONNECTION_TIMEOUT}ms`));
-      }, CONNECTION_TIMEOUT);
-
-      req.on('socket', (socket) => {
-        socket.on('connect', () => {
-          clearTimeout(connectionTimer);
-        });
-      });
-
-      // Send request body if present
-      if (interceptedConfig.data) {
-        req.write(interceptedConfig.data);
-      }
-
-      req.end();
-    } catch (err) {
-      reject(err);
+    if (!result.ok) {
+      throw new Error(result.payload.error);
     }
-  });
 
+    // Translate NormalizedResponse → legacy IPC HttpResponse shape (parses JSON when possible).
+    rawResult = {
+      status: result.response.status,
+      statusText: result.response.statusText,
+      headers: result.response.headers,
+      data: tryParseJson(result.response.body),
+    };
+
+    // Manual redirect handling — Node http doesn't follow redirects natively.
+    const isRedirect = rawResult.status >= 300 && rawResult.status < 400;
+    if (isRedirect) {
+      const locationHeader = rawResult.headers['location'];
+      const maxRedirects = interceptedConfig.maxRedirects ?? 5;
+      if (locationHeader && redirectCount < maxRedirects) {
+        const locationStr = Array.isArray(locationHeader) ? locationHeader[0] : (locationHeader as string);
+        if (locationStr) {
+          try {
+            const redirectUrl = new URL(locationStr, interceptedConfig.url).href;
+            // For 301, 302, 303: change POST to GET. For 307, 308: keep original method.
+            const isMethodReset =
+              (rawResult.status === 301 || rawResult.status === 302 || rawResult.status === 303) &&
+              interceptedConfig.method?.toUpperCase() === 'POST';
+            const newMethod = isMethodReset ? 'GET' : interceptedConfig.method;
+
+            // Destroy the SOCKS socket before recursing — the next request opens its own tunnel.
+            if (socksSocket && !socksSocket.destroyed) socksSocket.destroy();
+
+            const next: HttpRequestConfig = {
+              ...interceptedConfig,
+              url: redirectUrl,
+              method: newMethod,
+              ...(isMethodReset ? { data: undefined } : {}),
+            };
+            return makeHttpRequest(next, redirectCount + 1);
+          } catch (err) {
+            // If redirect URL is invalid, fall through and return current response.
+            console.error('Invalid redirect URL:', err);
+          }
+        }
+      }
+    }
   } catch (err) {
-    // Destroy the SOCKS socket if the request failed before the agent could take ownership
     if (socksSocket && !socksSocket.destroyed) socksSocket.destroy();
     throw err;
   }
