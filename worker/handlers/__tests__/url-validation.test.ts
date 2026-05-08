@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { validateURL, isPrivateAddress } from '../../shared/url-validation';
+import { validateURL, isPrivateAddress } from '@shared/protocol/url-validation';
 
 describe('validateURL', () => {
   it('valid public URL returns valid: true', () => {

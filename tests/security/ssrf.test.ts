@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { validateURL } from '../../worker/shared/url-validation';
+import { validateURL } from '@shared/protocol/url-validation';
 
 describe('SSRF protection', () => {
   it('AWS metadata endpoint is blocked', () => {

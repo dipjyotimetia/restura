@@ -24,68 +24,53 @@ interface ProxyRequestBody {
   upstreamProxy?: UpstreamProxyConfig;
 }
 
-interface FetcherState {
-  abortObserved: boolean;
-}
-
 function buildFetcher(
   isDev: boolean,
-  upstream: UpstreamProxyConfig | undefined,
-  state: FetcherState
+  upstream: UpstreamProxyConfig | undefined
 ): Fetcher {
   return async (req) => {
-    try {
-      let response: Response;
-      if (upstream) {
-        // Reject hostnames with URL-injection characters before constructing the validation URL
-        if (!/^[a-zA-Z0-9.\-[\]:]+$/.test(upstream.host)) {
-          throw new Error('Invalid proxy host: contains illegal characters');
-        }
-        const proxyValidation = validateURL(`http://${upstream.host}:${upstream.port}`, {
-          allowPrivateIPs: false,
-          allowLocalhost: isDev,
-        });
-        if (!proxyValidation.valid) {
-          throw new Error(`Invalid upstream proxy: ${proxyValidation.error}`);
-        }
-        const targetUrl = new URL(req.url);
-        const init: RequestInit = {
-          method: req.method,
-          headers: req.headers,
-          signal: req.signal,
-          redirect: 'follow',
-        };
-        if (req.body !== undefined) init.body = req.body;
-        response =
-          targetUrl.protocol === 'https:'
-            ? await httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
-            : await httpViaProxy(targetUrl, upstream, init, req.signal);
-      } else {
-        const init: RequestInit = {
-          method: req.method,
-          headers: req.headers,
-          signal: req.signal,
-          redirect: 'follow',
-        };
-        if (req.body !== undefined) init.body = req.body;
-        response = await fetch(req.url, init);
+    let response: Response;
+    if (upstream) {
+      // Reject hostnames with URL-injection characters before constructing the validation URL
+      if (!/^[a-zA-Z0-9.\-[\]:]+$/.test(upstream.host)) {
+        throw new Error('Invalid proxy host: contains illegal characters');
       }
-      return {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-        text: () => response.text(),
-        contentLengthHeader: response.headers.get('content-length'),
+      const proxyValidation = validateURL(`http://${upstream.host}:${upstream.port}`, {
+        allowPrivateIPs: false,
+        allowLocalhost: isDev,
+      });
+      if (!proxyValidation.valid) {
+        throw new Error(`Invalid upstream proxy: ${proxyValidation.error}`);
+      }
+      const targetUrl = new URL(req.url);
+      const init: RequestInit = {
+        method: req.method,
+        headers: req.headers,
+        signal: req.signal,
+        redirect: 'follow',
       };
-    } catch (err) {
-      // Preserve worker's historical behaviour: any AbortError surfaces as a timeout (504),
-      // even when the upstream rejects with AbortError without first aborting the signal
-      // (e.g. mocked `fetch` in tests). The shared core only checks `signal.aborted`.
-      if (err instanceof Error && err.name === 'AbortError') {
-        state.abortObserved = true;
-      }
-      throw err;
+      if (req.body !== undefined) init.body = req.body;
+      response =
+        targetUrl.protocol === 'https:'
+          ? await httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
+          : await httpViaProxy(targetUrl, upstream, init, req.signal);
+    } else {
+      const init: RequestInit = {
+        method: req.method,
+        headers: req.headers,
+        signal: req.signal,
+        redirect: 'follow',
+      };
+      if (req.body !== undefined) init.body = req.body;
+      response = await fetch(req.url, init);
     }
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+      text: () => response.text(),
+      contentLengthHeader: response.headers.get('content-length'),
+    };
   };
 }
 
@@ -100,7 +85,6 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
     return c.json({ error: `Proxy error: ${message}` }, 500);
   }
 
-  const fetcherState: FetcherState = { abortObserved: false };
   const result = await executeHttpProxy(
     {
       method: body.method,
@@ -112,16 +96,11 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
       formData: body.formData,
       timeout: body.timeout,
     },
-    buildFetcher(isDev, body.upstreamProxy, fetcherState),
+    buildFetcher(isDev, body.upstreamProxy),
     { allowLocalhost: isDev }
   );
 
   if (!result.ok) {
-    // Map upstream AbortError → 504 to preserve historical behaviour.
-    if (fetcherState.abortObserved && result.status === 502) {
-      const timeout = body.timeout ?? 30000;
-      return c.json({ error: `Request timeout after ${timeout}ms` }, 504);
-    }
     return c.json(result.payload, result.status as 400 | 413 | 502 | 504);
   }
   // Preserve the worker's historical response shape: `data` instead of `body`.

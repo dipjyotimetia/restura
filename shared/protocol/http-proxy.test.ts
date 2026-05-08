@@ -206,4 +206,19 @@ describe('executeHttpProxy', () => {
     expect(r.ok).toBe(true);
     expect(fetcher).toHaveBeenCalled();
   });
+
+  it('treats fetcher rejection with AbortError-named error as timeout (504), even without signal abort', async () => {
+    const fetcher: Fetcher = async () => {
+      const e = new Error('aborted by upstream library');
+      e.name = 'AbortError';
+      throw e;
+    };
+    const r = await executeHttpProxy(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(504);
+  });
 });

@@ -1,5 +1,5 @@
 import { connect } from 'cloudflare:sockets';
-import { MAX_RESPONSE_SIZE } from './constants';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
 export interface UpstreamProxy {
   host: string;

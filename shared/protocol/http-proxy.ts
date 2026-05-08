@@ -88,7 +88,10 @@ export async function executeHttpProxy(
       },
     };
   } catch (err) {
-    if (controller.signal.aborted) {
+    const isAbort =
+      controller.signal.aborted ||
+      (err instanceof Error && err.name === 'AbortError');
+    if (isAbort) {
       return {
         ok: false,
         status: 504,
