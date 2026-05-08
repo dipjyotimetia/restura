@@ -42,7 +42,7 @@ The Worker runs as a Cloudflare Pages Function, co-deployed with the SPA. It han
 - gRPC reflection (`/api/grpc/reflection`)
 - MCP server proxy (`/api/mcp`)
 
-SSRF guards in `worker/shared/url-validation.ts` block private/localhost URLs in production.
+SSRF guards in `shared/protocol/url-validation.ts` block private/localhost URLs in production. See [Shared Protocol Layer](#shared-protocol-layer) below — the same guard runs on the desktop side.
 
 ### Electron path
 
@@ -51,6 +51,66 @@ User → Vite SPA → window.electronAPI (preload IPC) → main process handlers
 ```
 
 The Electron main process exposes native handlers via a secure context-isolated preload script. No Worker is bundled; the desktop app uses Node.js APIs directly for all protocols.
+
+---
+
+## Shared Protocol Layer
+
+### Goal
+
+Each protocol (HTTP, gRPC, MCP) is implemented **once** in `shared/protocol/`, not twice. The Worker and Electron main process each supply only the transport: they call into the same orchestrator with the same validation rules, the same body builders, the same header sanitisers, and the same response shape. Before this refactor each protocol was duplicated across the two backends and the two copies had already drifted (notably the SSRF guard).
+
+### Layout
+
+```
+shared/protocol/
+  ├── types.ts              ── RequestSpec, Fetcher, ExecuteResult discriminated union
+  ├── url-validation.ts     ── SSRF guard (single source of truth)
+  ├── header-policy.ts      ── Hop-by-hop deny lists + sanitisers
+  ├── body-builder.ts       ── JSON / text / form-urlencoded / form-data / binary
+  ├── http-proxy.ts         ── executeHttpProxy(spec, fetcher, options)
+  ├── grpc-proxy.ts         ── executeGrpcProxy(spec, fetcher, options)
+  ├── grpc-status.ts        ── gRPC status code enum + reverse map
+  └── mcp-proxy.ts          ── validateMcpSpec(spec, allowLocalhost)
+```
+
+| Module | Responsibility |
+|---|---|
+| `shared/protocol/url-validation.ts` | SSRF guard: blocks RFC 1918, RFC 6598 (CGNAT), link-local, loopback, and cloud-metadata endpoints; DNS-rebind check |
+| `shared/protocol/header-policy.ts` | Hop-by-hop deny lists + header sanitisers |
+| `shared/protocol/body-builder.ts` | JSON / text / form-urlencoded / form-data / binary body construction |
+| `shared/protocol/types.ts` | `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union |
+| `shared/protocol/http-proxy.ts` | `executeHttpProxy(spec, fetcher, options)` — HTTP orchestrator + `MAX_RESPONSE_SIZE` cap |
+| `shared/protocol/grpc-proxy.ts` | `executeGrpcProxy(spec, fetcher, options)` — Connect-protocol orchestrator |
+| `shared/protocol/grpc-status.ts` | gRPC status code enum + reverse map |
+| `shared/protocol/mcp-proxy.ts` | `validateMcpSpec(spec, allowLocalhost)` — JSON-RPC envelope + URL validation |
+
+### Backend adapters
+
+Each backend supplies a `Fetcher` — `(req: FetcherRequest) => Promise<FetcherResponse>` — that performs the actual transport call given a normalised request, returning a normalised response. The shared core is invoked the same way in both places:
+
+```
+              ┌──────────────────────────────────────────┐
+              │     shared/protocol/{http,grpc,mcp}      │
+              │     (validation, body, headers, shape)   │
+              └────────────────┬─────────────────────────┘
+                               │ Fetcher
+              ┌────────────────┴─────────────────┐
+              ▼                                  ▼
+   worker/handlers/*.ts                electron/main/http-handler.ts
+   (globalThis.fetch)                  (Node http/https)
+```
+
+- **Cloudflare Worker** — `worker/handlers/{proxy,grpc,mcp}.ts` wrap `globalThis.fetch`. Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
+- **Electron main process** — `electron/main/http-handler.ts` wraps Node's `http`/`https`. Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, DNS-rebind guard at lookup time) live inside the Electron fetcher closure — **not** in shared. The shared core stays backend-agnostic.
+
+### Adding a new protocol
+
+1. Add a `shared/protocol/<name>-proxy.ts` module exposing an `execute<Name>Proxy(spec, fetcher, options)` orchestrator that returns `ExecuteResult`.
+2. Add a Worker handler (~30 lines) that builds a `Fetcher` over `globalThis.fetch` and forwards the result.
+3. Add an Electron handler (~30 lines) that builds a `Fetcher` over Node `http`/`https` (or whatever transport the protocol needs) and forwards the result.
+
+SSRF rules, header sanitisers, body construction, error mapping, and timeouts come for free.
 
 ---
 
@@ -105,16 +165,26 @@ restura/
 │   ├── store/                    # Zustand store re-exports
 │   └── lib/shared/               # utils, encryption, storage, platform, validations, lazyComponent
 │
-├── worker/                       # Cloudflare Pages Function (web only)
+├── shared/                       # Backend-agnostic protocol core (used by Worker + Electron)
+│   └── protocol/
+│       ├── url-validation.ts     # SSRF guards (single source of truth)
+│       ├── header-policy.ts      # Hop-by-hop deny lists + sanitisers
+│       ├── body-builder.ts       # JSON / text / form / binary body construction
+│       ├── types.ts              # RequestSpec, Fetcher, ExecuteResult union
+│       ├── http-proxy.ts         # executeHttpProxy(spec, fetcher, options)
+│       ├── grpc-proxy.ts         # executeGrpcProxy(spec, fetcher, options)
+│       ├── grpc-status.ts        # gRPC status code enum + reverse map
+│       └── mcp-proxy.ts          # validateMcpSpec(spec, allowLocalhost)
+│
+├── worker/                       # Cloudflare Pages Function (web only) — thin Fetcher adapters
 │   ├── index.ts                  # Hono app — route mounting, CORS
 │   ├── handlers/
-│   │   ├── proxy.ts              # HTTP proxy handler
-│   │   ├── grpc.ts               # gRPC handler
+│   │   ├── proxy.ts              # Worker Fetcher → executeHttpProxy
+│   │   ├── grpc.ts               # Worker Fetcher → executeGrpcProxy
 │   │   ├── grpc-reflection.ts    # gRPC reflection handler
-│   │   └── mcp.ts                # MCP handler
+│   │   └── mcp.ts                # validateMcpSpec + global fetch
 │   ├── shared/
-│   │   ├── url-validation.ts     # SSRF guards
-│   │   └── grpc-status.ts        # gRPC status code enum
+│   │   └── tcp-proxy.ts          # Worker-only: upstream-proxy via Cloudflare Sockets API
 │   └── tsconfig.json
 │
 ├── electron/
@@ -256,7 +326,7 @@ The Worker is a Hono application deployed as a Cloudflare Pages Function (`_work
 - Bundled into `dist/web/_worker.js` by `@cloudflare/vite-plugin` during `vite build`
 - Excluded from the Electron build (`VITE_IS_ELECTRON_BUILD=true` skips the Cloudflare plugin)
 - Compatibility flag: `nodejs_compat`
-- SSRF protection: `worker/shared/url-validation.ts` blocks private/loopback IPs in production; the `ENVIRONMENT` var gates `allowLocalhost`
+- SSRF protection: `shared/protocol/url-validation.ts` blocks private/loopback IPs in production; the `ENVIRONMENT` var gates `allowLocalhost`. The same module runs on the Electron side — see [Shared Protocol Layer](#shared-protocol-layer)
 
 ### Route Map
 
@@ -327,7 +397,7 @@ main.ts (entry)
 
 ### SSRF Prevention
 
-`worker/shared/url-validation.ts` rejects requests to private IP ranges (RFC 1918), loopback, and link-local addresses in the production Worker. The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for local development.
+`shared/protocol/url-validation.ts` rejects requests to private IP ranges (RFC 1918, RFC 6598 carrier-grade NAT), loopback, link-local addresses, and known cloud-metadata endpoints in the production Worker and on Electron alike. The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for local development on the Worker; the Electron path receives the same `allowLocalhost` flag through the fetcher options.
 
 ### Electron Hardening
 
