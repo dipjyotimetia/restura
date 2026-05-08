@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveRequest } from '@/store/selectors';
+import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type {
@@ -65,6 +65,7 @@ interface ValidationState {
 
 function GrpcRequestBuilder() {
   const currentRequest = useActiveRequest('grpc');
+  const activeTabId = useActiveTab()?.id;
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const setLoading = useRequestStore((s) => s.setLoading);
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
@@ -903,6 +904,7 @@ function GrpcRequestBuilder() {
               onChange={handleMessageChange}
               language="json"
               height="400px"
+              path={activeTabId ? `tab-${activeTabId}-grpc-message` : undefined}
             />
           </div>
         </TabsContent>
