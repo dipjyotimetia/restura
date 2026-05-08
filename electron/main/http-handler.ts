@@ -8,6 +8,7 @@ import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } 
 import { createRateLimiter } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from './request-logger';
+import { assertResolvedAddressAllowed } from '@shared/protocol/url-validation';
 
 const httpRateLimiter = createRateLimiter(60, 60_000);
 
@@ -61,53 +62,22 @@ const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 // Connection timeout (10 seconds)
 const CONNECTION_TIMEOUT = 10000;
 
-function isPrivateAddress(address: string): boolean {
-  const normalized = address.startsWith('::ffff:') ? address.slice(7) : address;
-  const family = net.isIP(normalized);
-
-  if (family === 4) {
-    const parts = normalized.split('.').map((part) => Number.parseInt(part, 10));
-    const [a = 0, b = 0] = parts;
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    );
-  }
-
-  if (family === 6) {
-    const lower = normalized.toLowerCase();
-    return lower === '::1' || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80:');
-  }
-
-  return false;
-}
-
-function hostAllowsPrivateAddress(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
-  return lower === 'localhost' || lower.endsWith('.localhost') || (net.isIP(hostname) !== 0 && isPrivateAddress(hostname));
-}
-
-function createSecureLookup(hostname: string): NonNullable<http.RequestOptions['lookup']> {
+function createSecureLookup(hostname: string, allowLocalhost: boolean): NonNullable<http.RequestOptions['lookup']> {
   return (lookupHostname, options, callback) => {
     dns.lookup(lookupHostname, options, (error, address, family) => {
       if (error) {
         callback(error, address as never, family as never);
         return;
       }
-
       const addresses = Array.isArray(address) ? address : [{ address, family }];
-      const blocked = addresses.find((entry) => isPrivateAddress(entry.address));
-      if (blocked && !hostAllowsPrivateAddress(hostname)) {
-        callback(new Error(`DNS resolution for ${hostname} returned private address ${blocked.address}`), address as never, family as never);
-        return;
+      try {
+        for (const entry of addresses) {
+          assertResolvedAddressAllowed(hostname, entry.address, { allowLocalhost });
+        }
+        callback(null, address as never, family as never);
+      } catch (err) {
+        callback(err as Error, address as never, family as never);
       }
-
-      callback(null, address as never, family as never);
     });
   };
 }
@@ -119,7 +89,7 @@ function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: num
     const socket = net.createConnection({
       host: proxy.host,
       port: proxy.port,
-      lookup: createSecureLookup(proxy.host),
+      lookup: createSecureLookup(proxy.host, true),
     });
     socket.once('error', reject);
 
@@ -291,7 +261,7 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
         path: url.pathname + url.search,
         headers: interceptedConfig.headers || {},
         timeout: interceptedConfig.timeout || 30000,
-        lookup: createSecureLookup(url.hostname),
+        lookup: createSecureLookup(url.hostname, true),
       };
 
       // Apply proxy settings
@@ -301,7 +271,7 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
           requestOptions.hostname = interceptedConfig.proxy.host;
           requestOptions.port = interceptedConfig.proxy.port;
           requestOptions.path = url.href;
-          requestOptions.lookup = createSecureLookup(interceptedConfig.proxy.host);
+          requestOptions.lookup = createSecureLookup(interceptedConfig.proxy.host, true);
           requestOptions.headers = {
             ...requestOptions.headers,
             Host: url.host,
