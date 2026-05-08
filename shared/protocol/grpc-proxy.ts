@@ -38,30 +38,46 @@ const SERVICE_RE = /^[a-zA-Z][a-zA-Z0-9_.]*$/;
 const METHOD_RE = /^[A-Za-z][a-zA-Z0-9]*$/;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-function parseConnectError(body: string): { code: number; message: string } {
+function byteLength(s: string): number {
+  return new Blob([s]).size;
+}
+
+const CONNECT_CODE_TO_GRPC: Record<string, GrpcStatusCode> = {
+  canceled: GrpcStatusCode.CANCELLED,
+  unknown: GrpcStatusCode.UNKNOWN,
+  invalid_argument: GrpcStatusCode.INVALID_ARGUMENT,
+  deadline_exceeded: GrpcStatusCode.DEADLINE_EXCEEDED,
+  not_found: GrpcStatusCode.NOT_FOUND,
+  already_exists: GrpcStatusCode.ALREADY_EXISTS,
+  permission_denied: GrpcStatusCode.PERMISSION_DENIED,
+  resource_exhausted: GrpcStatusCode.RESOURCE_EXHAUSTED,
+  failed_precondition: GrpcStatusCode.FAILED_PRECONDITION,
+  aborted: GrpcStatusCode.ABORTED,
+  out_of_range: GrpcStatusCode.OUT_OF_RANGE,
+  unimplemented: GrpcStatusCode.UNIMPLEMENTED,
+  internal: GrpcStatusCode.INTERNAL,
+  unavailable: GrpcStatusCode.UNAVAILABLE,
+  data_loss: GrpcStatusCode.DATA_LOSS,
+  unauthenticated: GrpcStatusCode.UNAUTHENTICATED,
+};
+
+function emptyGrpcResponse(code: GrpcStatusCode, error: string): GrpcNormalizedResponse {
+  return {
+    grpcStatus: code,
+    grpcStatusText: GrpcStatusCodeName[code] ?? 'UNKNOWN',
+    headers: {},
+    trailers: {},
+    data: { error },
+    size: 0,
+  };
+}
+
+function parseConnectError(body: string): { code: GrpcStatusCode; message: string } {
   try {
     const error = JSON.parse(body);
     if (error.code && typeof error.code === 'string') {
-      const map: Record<string, number> = {
-        canceled: GrpcStatusCode.CANCELLED,
-        unknown: GrpcStatusCode.UNKNOWN,
-        invalid_argument: GrpcStatusCode.INVALID_ARGUMENT,
-        deadline_exceeded: GrpcStatusCode.DEADLINE_EXCEEDED,
-        not_found: GrpcStatusCode.NOT_FOUND,
-        already_exists: GrpcStatusCode.ALREADY_EXISTS,
-        permission_denied: GrpcStatusCode.PERMISSION_DENIED,
-        resource_exhausted: GrpcStatusCode.RESOURCE_EXHAUSTED,
-        failed_precondition: GrpcStatusCode.FAILED_PRECONDITION,
-        aborted: GrpcStatusCode.ABORTED,
-        out_of_range: GrpcStatusCode.OUT_OF_RANGE,
-        unimplemented: GrpcStatusCode.UNIMPLEMENTED,
-        internal: GrpcStatusCode.INTERNAL,
-        unavailable: GrpcStatusCode.UNAVAILABLE,
-        data_loss: GrpcStatusCode.DATA_LOSS,
-        unauthenticated: GrpcStatusCode.UNAUTHENTICATED,
-      };
       return {
-        code: map[error.code] ?? GrpcStatusCode.UNKNOWN,
+        code: CONNECT_CODE_TO_GRPC[error.code] ?? GrpcStatusCode.UNKNOWN,
         message: error.message || 'Unknown error',
       };
     }
@@ -112,12 +128,13 @@ export async function executeGrpcProxy(
       signal: controller.signal,
     });
 
+    const tooLargeMsg = `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`;
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
-      return { ok: false, status: 413, payload: { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` } };
+      return { ok: false, status: 413, payload: emptyGrpcResponse(GrpcStatusCode.RESOURCE_EXHAUSTED, tooLargeMsg) };
     }
     const text = await response.text();
     if (text.length > MAX_RESPONSE_SIZE) {
-      return { ok: false, status: 413, payload: { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` } };
+      return { ok: false, status: 413, payload: emptyGrpcResponse(GrpcStatusCode.RESOURCE_EXHAUSTED, tooLargeMsg) };
     }
 
     const sanitized = sanitizeResponseHeaders(response.headers);
@@ -131,13 +148,13 @@ export async function executeGrpcProxy(
       }
     }
 
-    let grpcStatus: number = GrpcStatusCode.OK;
+    let grpcStatus: GrpcStatusCode = GrpcStatusCode.OK;
     let grpcStatusText = 'OK';
     let data: unknown = {};
     if (response.status < 200 || response.status >= 300) {
       const info = parseConnectError(text);
       grpcStatus = info.code;
-      grpcStatusText = GrpcStatusCodeName[grpcStatus as GrpcStatusCode] ?? 'UNKNOWN';
+      grpcStatusText = GrpcStatusCodeName[grpcStatus] ?? 'UNKNOWN';
       data = { error: info.message };
     } else {
       try {
@@ -155,7 +172,7 @@ export async function executeGrpcProxy(
         headers: headersOut,
         trailers,
         data,
-        size: text.length,
+        size: byteLength(text),
       },
     };
   } catch (err) {
@@ -166,28 +183,14 @@ export async function executeGrpcProxy(
       return {
         ok: false,
         status: 504,
-        payload: {
-          grpcStatus: GrpcStatusCode.DEADLINE_EXCEEDED,
-          grpcStatusText: 'DEADLINE_EXCEEDED',
-          headers: {},
-          trailers: {},
-          data: { error: `Request timeout after ${timeout}ms` },
-          size: 0,
-        },
+        payload: emptyGrpcResponse(GrpcStatusCode.DEADLINE_EXCEEDED, `Request timeout after ${timeout}ms`),
       };
     }
     const message = err instanceof Error ? err.message : 'Proxy request failed';
     return {
       ok: false,
       status: 502,
-      payload: {
-        grpcStatus: GrpcStatusCode.UNAVAILABLE,
-        grpcStatusText: 'UNAVAILABLE',
-        headers: {},
-        trailers: {},
-        data: { error: `Proxy request failed: ${message}` },
-        size: 0,
-      },
+      payload: emptyGrpcResponse(GrpcStatusCode.UNAVAILABLE, `Proxy request failed: ${message}`),
     };
   } finally {
     clearTimeout(timer);

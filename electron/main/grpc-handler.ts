@@ -16,6 +16,7 @@ import {
   createValidatedListener
 } from './ipc-validators';
 import { createRateLimiter } from './ipc-rate-limiter';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
 const grpcRateLimiter = createRateLimiter(30, 60_000);
 
@@ -58,9 +59,6 @@ const activeCalls = new Map<string, ActiveCall>();
 
 // Timeout for stale streams (5 minutes)
 const STREAM_TIMEOUT_MS = 5 * 60 * 1000;
-
-// Maximum response size (10MB)
-const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 
 // Helper to estimate object size in bytes
 function estimateSize(obj: unknown): number {

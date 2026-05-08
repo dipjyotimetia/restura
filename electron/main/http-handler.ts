@@ -211,7 +211,6 @@ function buildElectronFetcher(
           port: url.port || (isHttps ? 443 : 80),
           path: url.pathname + url.search,
           headers: req.headers,
-          timeout: electronConfig.timeout ?? 30000,
           lookup: createSecureLookup(url.hostname, true),
         };
 
@@ -306,12 +305,7 @@ function buildElectronFetcher(
           reject(new Error(`Request failed: ${err.message}`));
         });
 
-        nodeReq.on('timeout', () => {
-          nodeReq.destroy();
-          reject(new Error('Request timeout'));
-        });
-
-        // Connection timeout (separate from request timeout)
+        // Connection timeout (separate from the shared core's request timeout)
         const connectionTimer = setTimeout(() => {
           nodeReq.destroy();
           reject(new Error(`Connection timeout after ${CONNECTION_TIMEOUT}ms`));
@@ -421,17 +415,13 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
   let rawResult: HttpResponse;
   try {
     const fetcher = buildElectronFetcher(interceptedConfig, socksSocket);
-    // bodyType: 'text' makes the shared core treat `data` as a UTF-8 string body and
-    // suggest 'text/plain' as Content-Type. The shared core's case-insensitive check
-    // skips the Content-Type addition when the caller (renderer) has already supplied
-    // one — which is the common case for HTTP requests built by the request executor.
     const result = await executeHttpProxy(
       {
         method: interceptedConfig.method ?? 'GET',
         url: interceptedConfig.url,
         ...(interceptedConfig.headers ? { headers: interceptedConfig.headers } : {}),
         ...(interceptedConfig.params ? { params: interceptedConfig.params } : {}),
-        bodyType: interceptedConfig.data ? 'text' : 'none',
+        bodyType: interceptedConfig.data ? 'raw' : 'none',
         ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
         ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
       },

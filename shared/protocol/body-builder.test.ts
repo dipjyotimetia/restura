@@ -22,6 +22,12 @@ describe('buildRequestBody', () => {
     expect(r.contentType).toBe('text/plain');
   });
 
+  it('returns raw body without suggesting a Content-Type', () => {
+    const r = buildRequestBody({ bodyType: 'raw', data: 'hello' });
+    expect(r.body).toBe('hello');
+    expect(r.contentType).toBeUndefined();
+  });
+
   it('builds form-urlencoded from formData', () => {
     const r = buildRequestBody({
       bodyType: 'form-urlencoded',

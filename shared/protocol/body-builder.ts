@@ -9,6 +9,7 @@ export type BodyType =
   | 'none'
   | 'json'
   | 'text'
+  | 'raw'
   | 'form-urlencoded'
   | 'form-data'
   | 'binary';
@@ -24,7 +25,21 @@ export interface BuiltRequestBody {
   contentType: string | undefined;
 }
 
+type Uint8ArrayCtorWithBase64 = typeof Uint8Array & {
+  fromBase64?: (s: string) => Uint8Array<ArrayBuffer>;
+};
+
 function base64ToUint8Array(b64: string): Uint8Array<ArrayBuffer> {
+  const ctor = Uint8Array as Uint8ArrayCtorWithBase64;
+  if (typeof ctor.fromBase64 === 'function') {
+    return ctor.fromBase64(b64);
+  }
+  if (typeof Buffer !== 'undefined') {
+    const buf = Buffer.from(b64, 'base64');
+    const out = new ArrayBuffer(buf.byteLength);
+    new Uint8Array(out).set(buf);
+    return new Uint8Array(out);
+  }
   const binary = atob(b64);
   const buffer = new ArrayBuffer(binary.length);
   const bytes = new Uint8Array(buffer);
@@ -46,6 +61,8 @@ export function buildRequestBody(args: BuildRequestBodyArgs): BuiltRequestBody {
       return { body: data, contentType: 'application/json' };
     case 'text':
       return { body: data, contentType: 'text/plain' };
+    case 'raw':
+      return { body: data, contentType: undefined };
     case 'form-urlencoded': {
       const params = new URLSearchParams();
       if (formData) {

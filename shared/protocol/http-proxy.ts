@@ -7,6 +7,10 @@ export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD']);
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+function byteLength(s: string): number {
+  return new Blob([s]).size;
+}
+
 export interface ExecuteHttpProxyOptions {
   allowLocalhost: boolean;
 }
@@ -84,7 +88,7 @@ export async function executeHttpProxy(
         statusText: response.statusText,
         headers: sanitizeResponseHeaders(response.headers),
         body: text,
-        size: text.length,
+        size: byteLength(text),
       },
     };
   } catch (err) {

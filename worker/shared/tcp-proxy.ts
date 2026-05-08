@@ -1,6 +1,8 @@
 import { connect } from 'cloudflare:sockets';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
+const ENCODER = new TextEncoder();
+
 export interface UpstreamProxy {
   host: string;
   port: number;
@@ -22,7 +24,7 @@ function encodeRequest(
   method: string,
   url: URL,
   headers: Record<string, string>,
-  body?: BodyInit | null
+  bodyBytes?: Uint8Array
 ): Uint8Array {
   const path = url.pathname + url.search;
   let raw = `${method} ${path} HTTP/1.1\r\nHost: ${url.host}\r\n`;
@@ -30,10 +32,8 @@ function encodeRequest(
     raw += `${k}: ${v}\r\n`;
   }
   raw += '\r\n';
-  const encoder = new TextEncoder();
-  if (!body || typeof body !== 'string') return encoder.encode(raw);
-  const bodyBytes = encoder.encode(body);
-  const headBytes = encoder.encode(raw);
+  const headBytes = ENCODER.encode(raw);
+  if (!bodyBytes || bodyBytes.length === 0) return headBytes;
   const combined = new Uint8Array(headBytes.length + bodyBytes.length);
   combined.set(headBytes);
   combined.set(bodyBytes, headBytes.length);
@@ -96,7 +96,7 @@ export async function httpsViaConnectProxy(
   const targetPort = targetUrl.port || '443';
   const writer = socket.writable.getWriter();
   const connectRequest = `CONNECT ${targetUrl.hostname}:${targetPort} HTTP/1.1\r\nHost: ${targetUrl.hostname}:${targetPort}\r\n${buildProxyAuthHeader(proxy.auth)}\r\n`;
-  await writer.write(new TextEncoder().encode(connectRequest));
+  await writer.write(ENCODER.encode(connectRequest));
   writer.releaseLock();
 
   const { statusLine } = await readHttpResponse(socket.readable);
@@ -119,10 +119,11 @@ export async function httpsViaConnectProxy(
     headers['Host'] = targetUrl.hostname;
 
     const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-    if (bodyStr) headers['Content-Length'] = String(new TextEncoder().encode(bodyStr).length);
+    const bodyBytes = bodyStr ? ENCODER.encode(bodyStr) : undefined;
+    if (bodyBytes) headers['Content-Length'] = String(bodyBytes.length);
 
     const tlsWriter = tlsSocket.writable.getWriter();
-    await tlsWriter.write(encodeRequest(method, targetUrl, headers, bodyStr));
+    await tlsWriter.write(encodeRequest(method, targetUrl, headers, bodyBytes));
     tlsWriter.releaseLock();
 
     const { statusLine: respStatusLine, headers: respHeaders, body: respBody } = await readHttpResponse(
@@ -162,7 +163,8 @@ export async function httpViaProxy(
   }
 
   const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-  if (bodyStr) headers['Content-Length'] = String(new TextEncoder().encode(bodyStr).length);
+  const bodyBytes = bodyStr ? ENCODER.encode(bodyStr) : undefined;
+  if (bodyBytes) headers['Content-Length'] = String(bodyBytes.length);
 
   // HTTP proxy uses absolute URI
   let raw = `${method} ${targetUrl.toString()} HTTP/1.1\r\nHost: ${targetUrl.host}\r\n`;
@@ -170,10 +172,19 @@ export async function httpViaProxy(
     if (k.toLowerCase() !== 'host') raw += `${k}: ${v}\r\n`;
   }
   raw += '\r\n';
-  if (bodyStr) raw += bodyStr;
+
+  const headBytes = ENCODER.encode(raw);
+  const wireBytes = bodyBytes
+    ? (() => {
+        const out = new Uint8Array(headBytes.length + bodyBytes.length);
+        out.set(headBytes);
+        out.set(bodyBytes, headBytes.length);
+        return out;
+      })()
+    : headBytes;
 
   const writer = socket.writable.getWriter();
-  await writer.write(new TextEncoder().encode(raw));
+  await writer.write(wireBytes);
   writer.releaseLock();
 
   const { statusLine, headers: respHeaders, body: respBody } = await readHttpResponse(socket.readable);

@@ -41,6 +41,7 @@ async function readSseForReply(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let cursor = 0;
   let totalBytes = 0;
 
   try {
@@ -52,9 +53,9 @@ async function readSseForReply(
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n');
 
       let dblIdx: number;
-      while ((dblIdx = buffer.indexOf('\n\n')) >= 0) {
-        const block = buffer.slice(0, dblIdx);
-        buffer = buffer.slice(dblIdx + 2);
+      while ((dblIdx = buffer.indexOf('\n\n', cursor)) >= 0) {
+        const block = buffer.slice(cursor, dblIdx);
+        cursor = dblIdx + 2;
 
         const dataLines: string[] = [];
         for (const line of block.split('\n')) {
@@ -71,11 +72,16 @@ async function readSseForReply(
           /* non-JSON event — skip */
         }
       }
+
+      // Compact the buffer once consumed bytes exceed retained bytes, so the
+      // string doesn't grow unboundedly across many small SSE events.
+      if (cursor > buffer.length / 2) {
+        buffer = buffer.slice(cursor);
+        cursor = 0;
+      }
     }
     throw new Error('SSE stream ended without a matching JSON-RPC reply');
   } finally {
-    // Cancel the reader on any exit (matched, errored, or stream ended) so the
-    // upstream connection closes promptly instead of staying open until GC.
     try { await reader.cancel(); } catch { /* already done */ }
   }
 }
