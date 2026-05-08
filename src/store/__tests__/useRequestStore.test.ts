@@ -1,236 +1,289 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useRequestStore } from '../useRequestStore';
-import type { HttpRequest, GrpcRequest } from '@/types';
+import type { HttpRequest, GrpcRequest, Response as ApiResponse } from '@/types';
 
-describe('useRequestStore', () => {
+const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
+  id: 'r-' + Math.random().toString(36).slice(2),
+  name: 'Test',
+  type: 'http',
+  method: 'GET',
+  url: 'https://example.com/',
+  headers: [],
+  params: [],
+  body: { type: 'none' },
+  auth: { type: 'none' },
+  ...overrides,
+});
+
+const makeGrpc = (overrides: Partial<GrpcRequest> = {}): GrpcRequest => ({
+  id: 'r-' + Math.random().toString(36).slice(2),
+  name: 'Test gRPC',
+  type: 'grpc',
+  methodType: 'unary',
+  url: 'grpc.example.com',
+  service: 'svc.Foo',
+  method: 'Bar',
+  metadata: [],
+  message: '',
+  auth: { type: 'none' },
+  ...overrides,
+});
+
+const makeResponse = (requestId: string): ApiResponse => ({
+  id: 'res-' + Math.random().toString(36).slice(2),
+  requestId,
+  status: 200,
+  statusText: 'OK',
+  headers: {},
+  body: '{}',
+  size: 2,
+  time: 50,
+  timestamp: Date.now(),
+});
+
+describe('useRequestStore — tabs', () => {
   beforeEach(() => {
-    // Reset store state before each test
     useRequestStore.setState({
-      currentRequest: null,
-      currentResponse: null,
-      scriptResult: null,
+      tabs: [],
+      activeTabId: null,
       isLoading: false,
     });
-    localStorage.clear();
   });
 
-  describe('initial state', () => {
-    it('should start with null current request when reset', () => {
+  describe('openTab / switchTab / closeTab', () => {
+    it('opens a tab and sets it as active by default', () => {
+      const id = useRequestStore.getState().openTab(makeHttp());
       const state = useRequestStore.getState();
-      expect(state.currentRequest).toBeNull();
-      expect(state.currentResponse).toBeNull();
-      expect(state.isLoading).toBe(false);
-    });
-  });
-
-  describe('createNewHttpRequest', () => {
-    it('should create a new HTTP request with default values', () => {
-      const { createNewHttpRequest } = useRequestStore.getState();
-      createNewHttpRequest();
-
-      const state = useRequestStore.getState();
-      const request = state.currentRequest as HttpRequest;
-
-      expect(request).toBeDefined();
-      expect(request.type).toBe('http');
-      expect(request.method).toBe('GET');
-      expect(request.url).toBe('');
-      expect(request.headers).toEqual([]);
-      expect(request.params).toEqual([]);
-      expect(request.body.type).toBe('none');
-      expect(request.auth.type).toBe('none');
-      expect(request.id).toBeDefined();
-      expect(request.name).toBe('New Request');
+      expect(state.tabs).toHaveLength(1);
+      expect(state.activeTabId).toBe(id);
     });
 
-    it('should clear current response when creating new request', () => {
-      const { setCurrentResponse, createNewHttpRequest } = useRequestStore.getState();
-      setCurrentResponse({
-        id: 'test',
-        requestId: 'test',
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        body: '{}',
-        size: 2,
-        time: 100,
-        timestamp: Date.now(),
-      });
-
-      createNewHttpRequest();
-      const state = useRequestStore.getState();
-      expect(state.currentResponse).toBeNull();
+    it('opens a tab without switching when switchTo: false', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().openTab(makeGrpc(), { switchTo: false });
+      expect(useRequestStore.getState().activeTabId).toBe(a);
     });
-  });
 
-  describe('createNewGrpcRequest', () => {
-    it('should create a new gRPC request with default values', () => {
-      const { createNewGrpcRequest } = useRequestStore.getState();
-      createNewGrpcRequest();
+    it('switches active tab', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().switchTab(a);
+      expect(useRequestStore.getState().activeTabId).toBe(a);
+      useRequestStore.getState().switchTab(b);
+      expect(useRequestStore.getState().activeTabId).toBe(b);
+    });
 
-      const state = useRequestStore.getState();
-      const request = state.currentRequest as GrpcRequest;
+    it('switchTab is a no-op for unknown id', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().switchTab('nope');
+      expect(useRequestStore.getState().activeTabId).toBe(a);
+    });
 
-      expect(request).toBeDefined();
-      expect(request.type).toBe('grpc');
-      expect(request.methodType).toBe('unary');
-      expect(request.url).toBe('');
-      expect(request.service).toBe('');
-      expect(request.method).toBe('');
-      expect(request.metadata).toEqual([]);
-      expect(request.message).toBe('');
-      expect(request.auth.type).toBe('none');
+    it('closing the active tab activates the right neighbour, then left', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeGrpc());
+      const c = useRequestStore.getState().openTab(makeHttp());
+      // Active is c (last opened). Close b — active stays c.
+      useRequestStore.getState().closeTab(b);
+      expect(useRequestStore.getState().activeTabId).toBe(c);
+      // Close c — active falls back to a (left neighbour, since no right).
+      useRequestStore.getState().closeTab(c);
+      expect(useRequestStore.getState().activeTabId).toBe(a);
+    });
+
+    it('closing a non-active tab keeps active', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().switchTab(a);
+      useRequestStore.getState().closeTab(b);
+      expect(useRequestStore.getState().activeTabId).toBe(a);
+    });
+
+    it('closing the last tab leaves activeTabId null', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().closeTab(a);
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+      expect(useRequestStore.getState().activeTabId).toBeNull();
     });
   });
 
   describe('updateRequest', () => {
-    it('should update HTTP request fields', () => {
-      const { createNewHttpRequest, updateRequest } = useRequestStore.getState();
-      createNewHttpRequest();
-
-      updateRequest({
-        url: 'https://api.example.com',
-        method: 'POST',
-      });
-
-      const state = useRequestStore.getState();
-      const request = state.currentRequest as HttpRequest;
-      expect(request.url).toBe('https://api.example.com');
-      expect(request.method).toBe('POST');
+    it('mutates the active tab and marks isDirty', () => {
+      useRequestStore.getState().openTab(makeHttp({ url: 'https://a.com' }));
+      useRequestStore.getState().updateRequest({ url: 'https://b.com' });
+      const tab = useRequestStore.getState().getActiveTab()!;
+      expect((tab.request as HttpRequest).url).toBe('https://b.com');
+      expect(tab.isDirty).toBe(true);
     });
 
-    it('should update headers array', () => {
-      const { createNewHttpRequest, updateRequest } = useRequestStore.getState();
-      createNewHttpRequest();
-
-      const newHeaders = [
-        { id: '1', key: 'Content-Type', value: 'application/json', enabled: true },
-        { id: '2', key: 'Authorization', value: 'Bearer token', enabled: true },
-      ];
-
-      updateRequest({ headers: newHeaders });
-
-      const state = useRequestStore.getState();
-      const request = state.currentRequest as HttpRequest;
-      expect(request.headers).toEqual(newHeaders);
+    it('does not mutate other tabs', () => {
+      const a = useRequestStore.getState().openTab(makeHttp({ url: 'https://a.com' }));
+      useRequestStore.getState().openTab(makeHttp({ url: 'https://b.com' }));
+      // The newly opened tab is now active; mutate it
+      useRequestStore.getState().updateRequest({ url: 'https://b-edited.com' });
+      const tabA = useRequestStore.getState().tabs.find((t) => t.id === a)!;
+      expect((tabA.request as HttpRequest).url).toBe('https://a.com');
     });
 
-    it('should not update if no current request exists', () => {
-      const { updateRequest } = useRequestStore.getState();
-      updateRequest({ url: 'https://api.example.com' });
-
-      const state = useRequestStore.getState();
-      expect(state.currentRequest).toBeNull();
+    it('is a no-op when no active tab', () => {
+      useRequestStore.getState().updateRequest({ url: 'https://x.com' } as Partial<HttpRequest>);
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
     });
   });
 
-  describe('setLoading', () => {
-    it('should set loading state', () => {
-      const { setLoading } = useRequestStore.getState();
+  describe('setCurrentResponse / setScriptResult', () => {
+    it('sets response on the active tab only', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeGrpc());
+      const responseB = makeResponse('whatever');
+      useRequestStore.getState().setCurrentResponse(responseB);
+      const tabA = useRequestStore.getState().tabs.find((t) => t.id === a)!;
+      const tabB = useRequestStore.getState().tabs.find((t) => t.id === b)!;
+      expect(tabA.response).toBeUndefined();
+      expect(tabB.response).toEqual(responseB);
+    });
 
-      setLoading(true);
+    it('clears the active tab response when set to null', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().setCurrentResponse(makeResponse('x'));
+      useRequestStore.getState().setCurrentResponse(null);
+      expect(useRequestStore.getState().getActiveTab()!.response).toBeNull();
+    });
+
+    it('sets scriptResult on the active tab only', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().setScriptResult({
+        preRequest: { success: true, logs: [], errors: [], variables: {} },
+      });
+      const tabA = useRequestStore.getState().tabs.find((t) => t.id === a)!;
+      expect(tabA.scriptResult).toBeUndefined();
+      expect(useRequestStore.getState().getActiveTab()!.scriptResult).toBeDefined();
+    });
+  });
+
+  describe('duplicateTab', () => {
+    it('creates a new tab with the same request data but a fresh request id', () => {
+      const a = useRequestStore.getState().openTab(
+        makeHttp({ id: 'orig', url: 'https://a.com' })
+      );
+      const dup = useRequestStore.getState().duplicateTab(a)!;
+      expect(dup).not.toBe(a);
+      const dupTab = useRequestStore.getState().tabs.find((t) => t.id === dup)!;
+      expect((dupTab.request as HttpRequest).url).toBe('https://a.com');
+      expect(dupTab.request.id).not.toBe('orig');
+    });
+
+    it('returns null when source tab does not exist', () => {
+      expect(useRequestStore.getState().duplicateTab('nonexistent')).toBeNull();
+    });
+  });
+
+  describe('reorderTabs', () => {
+    it('reorders to match the supplied id list', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeGrpc());
+      const c = useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().reorderTabs([c, a, b]);
+      const ids = useRequestStore.getState().tabs.map((t) => t.id);
+      expect(ids).toEqual([c, a, b]);
+    });
+
+    it('rejects orderedIds with wrong length', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().openTab(makeGrpc());
+      const before = useRequestStore.getState().tabs.map((t) => t.id);
+      useRequestStore.getState().reorderTabs(['only-one']);
+      const after = useRequestStore.getState().tabs.map((t) => t.id);
+      expect(after).toEqual(before);
+    });
+
+    it('rejects orderedIds containing unknown ids', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeGrpc());
+      const before = useRequestStore.getState().tabs.map((t) => t.id);
+      useRequestStore.getState().reorderTabs([a, 'unknown']);
+      void b;
+      const after = useRequestStore.getState().tabs.map((t) => t.id);
+      expect(after).toEqual(before);
+    });
+  });
+
+  describe('closeOtherTabs / closeAllTabs', () => {
+    it('closeOtherTabs leaves only the named tab active', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().closeOtherTabs(b);
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+      expect(useRequestStore.getState().activeTabId).toBe(b);
+    });
+
+    it('closeOtherTabs is a no-op for unknown id', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().closeOtherTabs('unknown');
+      expect(useRequestStore.getState().tabs).toHaveLength(2);
+    });
+
+    it('closeAllTabs clears everything', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().closeAllTabs();
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+      expect(useRequestStore.getState().activeTabId).toBeNull();
+    });
+  });
+
+  describe('createNewRequest', () => {
+    it('opens a new HTTP tab with default values', () => {
+      const id = useRequestStore.getState().createNewRequest('http');
+      const tab = useRequestStore.getState().tabs.find((t) => t.id === id)!;
+      expect(tab.request.type).toBe('http');
+      expect(tab.request.name).toBe('New Request');
+    });
+
+    it('opens a new gRPC tab', () => {
+      const id = useRequestStore.getState().createNewRequest('grpc');
+      const tab = useRequestStore.getState().tabs.find((t) => t.id === id)!;
+      expect(tab.request.type).toBe('grpc');
+    });
+
+    it('opens a new SSE tab', () => {
+      const id = useRequestStore.getState().createNewRequest('sse');
+      const tab = useRequestStore.getState().tabs.find((t) => t.id === id)!;
+      expect(tab.request.type).toBe('sse');
+    });
+
+    it('opens a new MCP tab', () => {
+      const id = useRequestStore.getState().createNewRequest('mcp');
+      const tab = useRequestStore.getState().tabs.find((t) => t.id === id)!;
+      expect(tab.request.type).toBe('mcp');
+    });
+  });
+
+  describe('isLoading', () => {
+    it('toggles the global loading flag', () => {
+      useRequestStore.getState().setLoading(true);
       expect(useRequestStore.getState().isLoading).toBe(true);
-
-      setLoading(false);
+      useRequestStore.getState().setLoading(false);
       expect(useRequestStore.getState().isLoading).toBe(false);
     });
   });
 
-  describe('setCurrentResponse', () => {
-    it('should set the current response', () => {
-      const { setCurrentResponse } = useRequestStore.getState();
-      const response = {
-        id: 'resp-1',
-        requestId: 'req-1',
-        status: 200,
-        statusText: 'OK',
-        headers: { 'content-type': 'application/json' },
-        body: '{"message": "success"}',
-        size: 24,
-        time: 150,
-        timestamp: Date.now(),
-      };
-
-      setCurrentResponse(response);
-      const state = useRequestStore.getState();
-      expect(state.currentResponse).toEqual(response);
+  describe('setDirty', () => {
+    it('marks the active tab dirty', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().setDirty(true);
+      expect(useRequestStore.getState().getActiveTab()!.isDirty).toBe(true);
     });
 
-    it('should clear response when set to null', () => {
-      const { setCurrentResponse } = useRequestStore.getState();
-      setCurrentResponse({
-        id: 'test',
-        requestId: 'test',
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        body: '{}',
-        size: 2,
-        time: 100,
-        timestamp: Date.now(),
-      });
-
-      setCurrentResponse(null);
-      expect(useRequestStore.getState().currentResponse).toBeNull();
-    });
-  });
-
-  describe('setScriptResult', () => {
-    it('should set script results', () => {
-      const { setScriptResult } = useRequestStore.getState();
-      const results = {
-        preRequest: {
-          success: true,
-          logs: [{ type: 'log' as const, message: 'test', timestamp: Date.now() }],
-          errors: [],
-          variables: { key: 'value' },
-        },
-        test: {
-          success: true,
-          logs: [],
-          errors: [],
-          variables: {},
-          tests: [{ name: 'Test 1', passed: true }],
-        },
-      };
-
-      setScriptResult(results);
-      expect(useRequestStore.getState().scriptResult).toEqual(results);
-    });
-  });
-
-  describe('clearRequest', () => {
-    it('should clear all request-related state', () => {
-      const { createNewHttpRequest, setCurrentResponse, setScriptResult, clearRequest } =
-        useRequestStore.getState();
-
-      createNewHttpRequest();
-      setCurrentResponse({
-        id: 'test',
-        requestId: 'test',
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        body: '{}',
-        size: 2,
-        time: 100,
-        timestamp: Date.now(),
-      });
-      setScriptResult({
-        preRequest: {
-          success: true,
-          logs: [],
-          errors: [],
-          variables: {},
-        },
-      });
-
-      clearRequest();
-
-      const state = useRequestStore.getState();
-      expect(state.currentRequest).toBeNull();
-      expect(state.currentResponse).toBeNull();
-      expect(state.scriptResult).toBeNull();
+    it('clears the active tab dirty flag', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().updateRequest({ url: 'https://x' });
+      expect(useRequestStore.getState().getActiveTab()!.isDirty).toBe(true);
+      useRequestStore.getState().setDirty(false);
+      expect(useRequestStore.getState().getActiveTab()!.isDirty).toBe(false);
     });
   });
 });
