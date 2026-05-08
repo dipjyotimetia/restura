@@ -16,6 +16,7 @@ import CommandPalette from '@/components/shared/CommandPalette';
 import ClientHydration from '@/components/shared/ClientHydration';
 import StatusBar from '@/components/shared/StatusBar';
 import KeyboardShortcutsPanel from '@/components/shared/KeyboardShortcutsPanel';
+import { TabBar } from '@/components/shared/TabBar';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import EnvironmentManager from '@/features/environments/components/EnvironmentManager';
 import ImportDialog from '@/components/shared/ImportDialog';
@@ -182,6 +183,7 @@ export default function Home() {
           />
 
           <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <TabBar />
             <div className="flex flex-1 flex-col min-h-0">
               {renderRequestBuilder()}
             </div>
