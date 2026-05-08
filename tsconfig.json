@@ -11,8 +11,10 @@
     "jsx": "react-jsx",
     "incremental": true,
     "types": ["vite/client", "node"],
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@shared/*": ["./shared/*"]
     },
     "noUncheckedIndexedAccess": true,
     "allowUnusedLabels": false,
@@ -23,7 +25,8 @@
     "**/*.ts",
     "**/*.tsx",
     "vite.config.mts",
-    "electron/types/**/*.ts"
+    "electron/types/**/*.ts",
+    "shared/**/*.ts"
   ],
   "exclude": [
     "node_modules",
