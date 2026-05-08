@@ -82,6 +82,14 @@ export interface FileCollectionRecord {
   encryptedData: string;
 }
 
+export interface RequestTabsRecord {
+  id: string;
+  name: string;
+  updatedAt: number;
+  // Encrypted JSON string containing: tabs, activeTabId
+  encryptedData: string;
+}
+
 // Metadata table for app state
 export interface MetadataRecord {
   key: string;
@@ -102,6 +110,7 @@ export class ResturaDB extends Dexie {
   workflows!: Table<WorkflowRecord, string>;
   workflowExecutions!: Table<WorkflowExecutionRecord, string>;
   fileCollections!: Table<FileCollectionRecord, string>;
+  requestTabs!: Table<RequestTabsRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
   constructor() {
@@ -136,6 +145,11 @@ export class ResturaDB extends Dexie {
       // Metadata - key-value store for app state
       metadata: 'key',
     });
+
+    this.version(2).stores({
+      // Schema v2 — add requestTabs table for multi-tab persistence
+      requestTabs: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -151,6 +165,7 @@ export class ResturaDB extends Dexie {
       this.workflows,
       this.workflowExecutions,
       this.fileCollections,
+      this.requestTabs,
       this.metadata,
     ], async () => {
       await this.collections.clear();
@@ -161,6 +176,7 @@ export class ResturaDB extends Dexie {
       await this.workflows.clear();
       await this.workflowExecutions.clear();
       await this.fileCollections.clear();
+      await this.requestTabs.clear();
       await this.metadata.clear();
     });
   }
@@ -182,6 +198,7 @@ export class ResturaDB extends Dexie {
       workflows: await this.workflows.count(),
       workflowExecutions: await this.workflowExecutions.count(),
       fileCollections: await this.fileCollections.count(),
+      requestTabs: await this.requestTabs.count(),
     };
 
     const totalRecords = Object.values(tables).reduce((a, b) => a + b, 0);
@@ -211,6 +228,7 @@ export class ResturaDB extends Dexie {
       workflows: WorkflowRecord[];
       workflowExecutions: WorkflowExecutionRecord[];
       fileCollections: FileCollectionRecord[];
+      requestTabs?: RequestTabsRecord[];
     };
   }> {
     return {
@@ -225,6 +243,7 @@ export class ResturaDB extends Dexie {
         workflows: await this.workflows.toArray(),
         workflowExecutions: await this.workflowExecutions.toArray(),
         fileCollections: await this.fileCollections.toArray(),
+        requestTabs: await this.requestTabs.toArray(),
       },
     };
   }
@@ -243,6 +262,7 @@ export class ResturaDB extends Dexie {
       workflows?: WorkflowRecord[];
       workflowExecutions?: WorkflowExecutionRecord[];
       fileCollections?: FileCollectionRecord[];
+      requestTabs?: RequestTabsRecord[];
     };
   }): Promise<void> {
     await this.transaction('rw', [
@@ -254,6 +274,7 @@ export class ResturaDB extends Dexie {
       this.workflows,
       this.workflowExecutions,
       this.fileCollections,
+      this.requestTabs,
     ], async () => {
       if (backup.data.collections) {
         await this.collections.bulkPut(backup.data.collections);
@@ -278,6 +299,9 @@ export class ResturaDB extends Dexie {
       }
       if (backup.data.fileCollections) {
         await this.fileCollections.bulkPut(backup.data.fileCollections);
+      }
+      if (backup.data.requestTabs) {
+        await this.requestTabs.bulkPut(backup.data.requestTabs);
       }
     });
   }
