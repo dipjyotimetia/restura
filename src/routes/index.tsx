@@ -21,13 +21,16 @@ import EnvironmentManager from '@/features/environments/components/EnvironmentMa
 import ImportDialog from '@/components/shared/ImportDialog';
 import SettingsDialog from '@/components/shared/SettingsDialog';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveTab } from '@/store/selectors';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import type { RequestMode, ActivePanel } from '@/types';
 
 export default function Home() {
   const [activePanel, setActivePanel] = useState<ActivePanel | null>('collections');
-  const [requestMode, setRequestMode] = useState<RequestMode>('http');
+  // Optional override for modes that don't map 1:1 to a RequestType (graphql, websocket).
+  // When null, requestMode is derived from the active tab's request type.
+  const [modeOverride, setModeOverride] = useState<RequestMode | null>(null);
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -36,8 +39,34 @@ export default function Home() {
   );
 
   useStoreHydration();
-  const { scriptResult, setScriptResult } = useRequestStore();
+  const activeTab = useActiveTab();
+  const scriptResult = activeTab?.scriptResult ?? null;
+  const setScriptResult = useRequestStore((s) => s.setScriptResult);
+  const createNewRequest = useRequestStore((s) => s.createNewRequest);
   const { settings } = useSettingsStore();
+
+  // Derive request mode: prefer the explicit override (for graphql/websocket which aren't
+  // tab types), otherwise fall back to the active tab's request type.
+  const requestMode: RequestMode = modeOverride ?? activeTab?.request.type ?? 'http';
+
+  const handleRequestModeChange = useCallback(
+    (mode: RequestMode) => {
+      if (mode === 'graphql' || mode === 'websocket') {
+        // No matching tab type — track the UI override and (for graphql) ensure an HTTP tab.
+        setModeOverride(mode);
+        if (mode === 'graphql' && activeTab?.request.type !== 'http') {
+          createNewRequest('http');
+        }
+        return;
+      }
+      // Clear any override and open a new tab of the requested type.
+      setModeOverride(null);
+      if (activeTab?.request.type !== mode) {
+        createNewRequest(mode);
+      }
+    },
+    [activeTab?.request.type, createNewRequest]
+  );
 
   const effectiveLayout = windowWidth < 1280 ? 'vertical' : settings.layoutOrientation;
 
@@ -147,7 +176,7 @@ export default function Home() {
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           <TopBar
             requestMode={requestMode}
-            onRequestModeChange={setRequestMode}
+            onRequestModeChange={handleRequestModeChange}
             onOpenImport={() => setImportDialogOpen(true)}
             setEnvManagerOpen={setEnvManagerOpen}
           />
@@ -174,7 +203,7 @@ export default function Home() {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenImport={() => setImportDialogOpen(true)}
         onSendRequest={handleSendRequest}
-        onChangeMode={setRequestMode}
+        onChangeMode={handleRequestModeChange}
       />
       <KeyboardShortcutsPanel />
       <WelcomeOnboarding />

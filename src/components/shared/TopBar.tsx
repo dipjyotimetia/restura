@@ -35,18 +35,18 @@ export default function TopBar({
   const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore(
     useShallow((s) => ({ environments: s.environments, activeEnvironmentId: s.activeEnvironmentId, setActiveEnvironment: s.setActiveEnvironment }))
   );
-  const { switchToHttp, switchToGrpc, switchToSse, switchToMcp } = useRequestStore();
+  const createNewRequest = useRequestStore((s) => s.createNewRequest);
 
   const handleModeChange = (mode: RequestMode) => {
     onRequestModeChange(mode);
     if (mode === 'http' || mode === 'graphql') {
-      switchToHttp();
+      createNewRequest('http');
     } else if (mode === 'grpc') {
-      switchToGrpc();
+      createNewRequest('grpc');
     } else if (mode === 'sse') {
-      switchToSse();
+      createNewRequest('sse');
     } else if (mode === 'mcp') {
-      switchToMcp();
+      createNewRequest('mcp');
     }
   };
 

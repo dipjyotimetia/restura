@@ -54,7 +54,7 @@ export default function Header({
 
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore();
-  const { switchToHttp, switchToGrpc } = useRequestStore();
+  const createNewRequest = useRequestStore((s) => s.createNewRequest);
 
   useEffect(() => {
     setMounted(true);
@@ -70,11 +70,11 @@ export default function Header({
 
   const handleRequestModeChange = (mode: RequestMode) => {
     onRequestModeChange(mode);
-    // Switch to the appropriate request type, preserving state
+    // Open a new tab for the appropriate request type
     if (mode === 'http' || mode === 'graphql') {
-      switchToHttp();
+      createNewRequest('http');
     } else if (mode === 'grpc') {
-      switchToGrpc();
+      createNewRequest('grpc');
     }
     // WebSocket uses its own store
   };
