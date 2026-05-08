@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useRequestStore } from '@/store/useRequestStore';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +33,8 @@ export function TabBar() {
   const closeAllTabs = useRequestStore((s) => s.closeAllTabs);
   const duplicateTab = useRequestStore((s) => s.duplicateTab);
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
+  const reorderTabs = useRequestStore((s) => s.reorderTabs);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   return (
     <div className="flex items-center gap-1 border-b bg-background px-2 py-1">
@@ -48,6 +51,25 @@ export function TabBar() {
                     aria-selected={isActive}
                     aria-label={tab.request.name}
                     onClick={() => switchTab(tab.id)}
+                    draggable
+                    onDragStart={(e) => {
+                      setDraggingId(tab.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (!draggingId || draggingId === tab.id) return;
+                      const ids = tabs.map((t) => t.id);
+                      const fromIdx = ids.indexOf(draggingId);
+                      const toIdx = ids.indexOf(tab.id);
+                      if (fromIdx === -1 || toIdx === -1) return;
+                      ids.splice(fromIdx, 1);
+                      ids.splice(toIdx, 0, draggingId);
+                      reorderTabs(ids);
+                      setDraggingId(null);
+                    }}
+                    onDragEnd={() => setDraggingId(null)}
                     className={[
                       'group flex items-center gap-2 rounded-md px-3 py-1 text-sm shrink-0',
                       isActive

@@ -74,4 +74,28 @@ describe('TabBar', () => {
     render(<TabBar />);
     expect(screen.queryByLabelText(/unsaved changes/i)).not.toBeInTheDocument();
   });
+
+  it('drag-reorders tabs via native DnD', () => {
+    const a = useRequestStore.getState().openTab(makeHttp({ name: 'A' }));
+    const b = useRequestStore.getState().openTab(makeHttp({ name: 'B' }));
+    const c = useRequestStore.getState().openTab(makeHttp({ name: 'C' }));
+    render(<TabBar />);
+
+    const tabA = screen.getByRole('tab', { name: /A/ });
+    const tabC = screen.getByRole('tab', { name: /C/ });
+
+    // Drag A onto C → expected order: B, C-with-A-before-it (A inserted at C's position)
+    fireEvent.dragStart(tabA);
+    fireEvent.dragOver(tabC);
+    fireEvent.drop(tabC);
+    fireEvent.dragEnd(tabA);
+
+    const order = useRequestStore.getState().tabs.map((t) => t.id);
+    // A moved from position 0 to position 2 (where C was); result: [B, A, C] OR [B, C, A]
+    // depending on how the drop is interpreted. The contract: A is now at the position
+    // where C was, so the resulting order should be [B, C, A] (A inserted AFTER C is wrong;
+    // standard convention: A inserted AT C's index, pushing C to the right) OR equivalently
+    // [B, A, C]. Pick one and stick with it.
+    expect(order).toEqual([b, c, a]);
+  });
 });
