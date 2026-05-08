@@ -8,7 +8,7 @@ import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } 
 import { createRateLimiter } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from './request-logger';
-import { assertResolvedAddressAllowed } from '@shared/protocol/url-validation';
+import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 
 const httpRateLimiter = createRateLimiter(60, 60_000);
 
@@ -63,6 +63,7 @@ const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 const CONNECTION_TIMEOUT = 10000;
 
 function createSecureLookup(hostname: string, allowLocalhost: boolean): NonNullable<http.RequestOptions['lookup']> {
+  const allowPrivateLiteralHost = net.isIP(hostname) !== 0 && isPrivateAddress(hostname);
   return (lookupHostname, options, callback) => {
     dns.lookup(lookupHostname, options, (error, address, family) => {
       if (error) {
@@ -72,7 +73,7 @@ function createSecureLookup(hostname: string, allowLocalhost: boolean): NonNulla
       const addresses = Array.isArray(address) ? address : [{ address, family }];
       try {
         for (const entry of addresses) {
-          assertResolvedAddressAllowed(hostname, entry.address, { allowLocalhost });
+          assertResolvedAddressAllowed(hostname, entry.address, { allowLocalhost, allowPrivateLiteralHost });
         }
         callback(null, address as never, family as never);
       } catch (err) {

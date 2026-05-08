@@ -72,6 +72,27 @@ describe('assertResolvedAddressAllowed', () => {
       assertResolvedAddressAllowed('api.example.com', '93.184.216.34', {})
     ).not.toThrow();
   });
+
+  it('proxy host that is a literal private IP can resolve to itself when allowPrivateLiteralHost is true', () => {
+    expect(() =>
+      assertResolvedAddressAllowed('192.168.1.1', '192.168.1.1', { allowPrivateLiteralHost: true })
+    ).not.toThrow();
+    expect(() =>
+      assertResolvedAddressAllowed('10.0.0.5', '10.0.0.5', { allowPrivateLiteralHost: true })
+    ).not.toThrow();
+  });
+
+  it('without allowPrivateLiteralHost, literal-IP hostname still rejected', () => {
+    expect(() =>
+      assertResolvedAddressAllowed('192.168.1.1', '192.168.1.1', {})
+    ).toThrow(/private/);
+  });
+
+  it('handles upper-case IPv6 resolved addresses (DNS may return uppercase)', () => {
+    expect(() =>
+      assertResolvedAddressAllowed('attacker.example.com', 'FE80::1', {})
+    ).toThrow(/private/);
+  });
 });
 
 describe('isPrivateAddress', () => {
@@ -96,5 +117,22 @@ describe('isPrivateAddress', () => {
   it('strips IPv4-mapped IPv6 prefix', () => {
     expect(isPrivateAddress('::ffff:10.0.0.1')).toBe(true);
     expect(isPrivateAddress('::ffff:8.8.8.8')).toBe(false);
+  });
+
+  it('identifies CGNAT (100.64.0.0/10) including boundaries', () => {
+    expect(isPrivateAddress('100.64.0.1')).toBe(true);
+    expect(isPrivateAddress('100.127.255.254')).toBe(true);
+    expect(isPrivateAddress('100.63.255.255')).toBe(false); // just below
+    expect(isPrivateAddress('100.128.0.1')).toBe(false);    // just above
+  });
+
+  it('rejects all of 127.0.0.0/8 (loopback range)', () => {
+    expect(isPrivateAddress('127.0.0.1')).toBe(true);
+    expect(isPrivateAddress('127.5.5.5')).toBe(true);
+  });
+
+  it('rejects all of 0.0.0.0/8 (this-network)', () => {
+    expect(isPrivateAddress('0.0.0.0')).toBe(true);
+    expect(isPrivateAddress('0.1.2.3')).toBe(true);
   });
 });
