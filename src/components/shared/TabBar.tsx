@@ -54,7 +54,7 @@ export function TabBar() {
                     draggable
                     onDragStart={(e) => {
                       setDraggingId(tab.id);
-                      e.dataTransfer.effectAllowed = 'move';
+                      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
                     }}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
