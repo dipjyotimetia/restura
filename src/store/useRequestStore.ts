@@ -12,6 +12,7 @@ import type {
   RequestType,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { toast } from 'sonner';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
@@ -200,8 +201,10 @@ export const useRequestStore = create<RequestState>()(
           try {
             next = validateRequestUpdate(active.request, updates);
           } catch (error) {
-            console.error('Request update validation failed:', error);
-            next = { ...active.request, ...updates } as Request;
+            const msg = error instanceof Error ? error.message : 'Invalid request update';
+            console.warn('Request update rejected:', msg, updates);
+            toast.error('Invalid input', { description: msg });
+            return; // do NOT apply
           }
           set((s) => ({
             tabs: patchActiveTab(s, (t) => ({ ...t, request: next, isDirty: true })),
