@@ -217,6 +217,32 @@ function ResponseViewer() {
           <span className="text-[10px] font-mono text-muted-foreground/60 ml-3">
             {formatTime(currentResponse.time)} · {formatBytes(currentResponse.size)}
           </span>
+          {currentResponse.negotiatedAlpn && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="ml-2 inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+                >
+                  {currentResponse.negotiatedAlpn === 'h2'
+                    ? 'HTTP/2'
+                    : currentResponse.negotiatedAlpn === 'h3'
+                      ? 'HTTP/3'
+                      : 'HTTP/1.1'}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  Connection negotiated{' '}
+                  {currentResponse.negotiatedAlpn === 'h2'
+                    ? 'HTTP/2'
+                    : currentResponse.negotiatedAlpn === 'h3'
+                      ? 'HTTP/3'
+                      : 'HTTP/1.1'}{' '}
+                  via ALPN
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           {/* Right side: layout toggle */}
           <div className="flex-1" />

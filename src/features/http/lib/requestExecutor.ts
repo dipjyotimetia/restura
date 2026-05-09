@@ -249,6 +249,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
                 statusText: string;
                 headers: Record<string, string>;
                 data: unknown;
+                negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
               }>;
             };
           }).http.request({
@@ -294,6 +295,9 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             size: new Blob([JSON.stringify(electronResponse.data)]).size,
             time: endTime - startTime,
             timestamp: Date.now(),
+            ...(electronResponse.negotiatedAlpn !== undefined
+              ? { negotiatedAlpn: electronResponse.negotiatedAlpn }
+              : {}),
           };
         } catch (err) {
           console.warn('Electron proxy IPC failed, falling back to Axios', err);
