@@ -1,52 +1,44 @@
 /**
- * SSE wire-format parser. Implements the spec at
- * https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream
+ * Compatibility shim around the canonical SSE parser at
+ * `@shared/protocol/sse-parser`. The renderer's existing public API —
+ * string-based feed with a callback, `event` defaulting to 'message',
+ * `lastEventId` carried across events per the W3C spec, and `parseSseStream`
+ * one-shot helper — is preserved so callsites in `sseManager` and tests do not
+ * need to change.
  *
- * Use a single instance per connection: it carries buffered text across reads,
- * since chunks from a network stream don't honor SSE's line/event boundaries.
- *
- * Parsed events arrive via the callback in `feed()`. Comments (lines starting
- * with `:`) are silently dropped. Unknown fields are silently dropped per spec.
+ * TODO(plan: 2026-05-09-streaming-and-h2): once consumers migrate to the
+ * shared parser's `feed(Uint8Array): SseEvent[]` API directly, delete this
+ * shim.
  */
+
+import { SseParser as SharedSseParser, type SseEvent } from '@shared/protocol/sse-parser';
 
 export interface ParsedSseEvent {
   /** Server-supplied event name; defaults to "message" */
   event: string;
   /** Concatenated `data:` lines, joined with LF */
   data: string;
-  /** Server-supplied `id:` value if present in this event */
+  /** Server-supplied `id:` value if present (or carried from a prior event) */
   lastEventId?: string;
   /** Server-supplied `retry:` value (ms) if present in this event */
   retry?: number;
 }
 
 export class SseParser {
-  private buffer = '';
+  private inner = new SharedSseParser();
+  private encoder = new TextEncoder();
   /** Carry between events per spec — `id:` persists until a new id is received. */
   private currentLastEventId: string | undefined;
-  /** In-progress event being accumulated. Must persist across feed() calls
-   *  because the network can split a single event into multiple chunks. */
-  private pendingEventName: string | undefined;
-  private pendingDataLines: string[] = [];
-  private pendingRetry: number | undefined;
 
-  private flushEvent(onEvent: (e: ParsedSseEvent) => void): void {
-    if (this.pendingDataLines.length === 0) {
-      // Reset the per-event state but don't dispatch
-      this.pendingEventName = undefined;
-      this.pendingRetry = undefined;
-      return;
-    }
+  private dispatch(e: SseEvent, onEvent: (e: ParsedSseEvent) => void): void {
+    if (e.id !== undefined) this.currentLastEventId = e.id;
     const built: ParsedSseEvent = {
-      event: this.pendingEventName || 'message',
-      data: this.pendingDataLines.join('\n'),
+      event: e.event ?? 'message',
+      data: e.data,
       ...(this.currentLastEventId !== undefined ? { lastEventId: this.currentLastEventId } : {}),
-      ...(this.pendingRetry !== undefined ? { retry: this.pendingRetry } : {}),
+      ...(e.retry !== undefined ? { retry: e.retry } : {}),
     };
     onEvent(built);
-    this.pendingEventName = undefined;
-    this.pendingDataLines = [];
-    this.pendingRetry = undefined;
   }
 
   /**
@@ -54,64 +46,14 @@ export class SseParser {
    * Safe to call with any chunk size including partial lines.
    */
   feed(chunk: string, onEvent: (e: ParsedSseEvent) => void): void {
-    // Normalize the new chunk only — leftover in `this.buffer` was already normalized
-    // on its previous feed(), so re-scanning it would be O(buffer²) on long streams.
-    this.buffer += chunk.replace(/\r\n?/g, '\n');
-
-    let eolIndex: number;
-    while ((eolIndex = this.buffer.indexOf('\n')) >= 0) {
-      const line = this.buffer.slice(0, eolIndex);
-      this.buffer = this.buffer.slice(eolIndex + 1);
-
-      if (line === '') {
-        // Empty line = event boundary — dispatch
-        this.flushEvent(onEvent);
-        continue;
-      }
-
-      if (line.startsWith(':')) {
-        // Comment line — ignored
-        continue;
-      }
-
-      // Field is everything before the first colon. Value is everything after.
-      // If there's no colon, the whole line is the field name with empty value.
-      const colonIdx = line.indexOf(':');
-      const field = colonIdx === -1 ? line : line.slice(0, colonIdx);
-      // Per spec, a single leading space in the value is removed.
-      let value = colonIdx === -1 ? '' : line.slice(colonIdx + 1);
-      if (value.startsWith(' ')) value = value.slice(1);
-
-      switch (field) {
-        case 'event':
-          this.pendingEventName = value;
-          break;
-        case 'data':
-          this.pendingDataLines.push(value);
-          break;
-        case 'id':
-          // Per spec, ignore id values that contain a NULL character.
-          if (!value.includes('\0')) this.currentLastEventId = value;
-          break;
-        case 'retry': {
-          const n = Number(value);
-          if (Number.isInteger(n) && n >= 0) this.pendingRetry = n;
-          break;
-        }
-        default:
-          // Unknown field — ignore per spec
-          break;
-      }
-    }
+    const bytes = this.encoder.encode(chunk);
+    for (const e of this.inner.feed(bytes)) this.dispatch(e, onEvent);
   }
 
   /** Drop any buffered partial line and pending event. Call on connection close. */
   reset(): void {
-    this.buffer = '';
+    this.inner = new SharedSseParser();
     this.currentLastEventId = undefined;
-    this.pendingEventName = undefined;
-    this.pendingDataLines = [];
-    this.pendingRetry = undefined;
   }
 
   /** Read the current Last-Event-ID for use in reconnect headers. */
