@@ -1,0 +1,28 @@
+# .circleci/config.yml
+version: 2.1
+
+jobs:
+  api-tests:
+    docker:
+      - image: cimg/node:22.0
+    steps:
+      - checkout
+      - run:
+          name: Install Restura CLI
+          command: npm install -g @restura/cli
+      - run:
+          name: Run API tests
+          command: |
+            restura run ./api-tests \
+              --env ./api-tests/env.ci.yaml \
+              --reporter junit \
+              --output junit.xml
+      - store_test_results:
+          path: junit.xml
+      - store_artifacts:
+          path: junit.xml
+
+workflows:
+  test:
+    jobs:
+      - api-tests

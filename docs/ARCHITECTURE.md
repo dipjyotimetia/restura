@@ -483,6 +483,26 @@ See `docs/adr/0004-security-hardening.md` for design rationale.
 
 ---
 
+## CLI runner
+
+The `@restura/cli` package (`cli/` directory) is the third backend consuming `shared/protocol/`. Where the Worker uses `globalThis.fetch` and Electron uses `undici` via `http-handler.ts`, the CLI uses `undici` directly via `cli/src/runner/undiciFetcher.ts`.
+
+Components:
+
+- `cli/src/runner/collectionLoader.ts` — walks a directory and parses every `_collection.yaml` + `*.{http,grpc,sse,mcp}.yaml` using the file-collection schema from `src/lib/shared/file-collection-schema.ts`
+- `cli/src/runner/envLoader.ts` — loads env vars from JSON or YAML, with `${VAR}` expansion from `process.env`
+- `cli/src/runner/runner.ts` — orchestrator: per-request, builds `RequestSpec` (resolving `{{KEY}}` against env + collection vars), calls `executeHttpProxy(spec, undiciFetcher, options)`, tallies results
+- `cli/src/reporters/{json,junit,html,live}.ts` — implementations of the `Reporter` interface
+- `cli/src/commands/run.ts` — Commander wire-up
+
+Built with `tsup` into a single 40 KB esm file at `cli/dist/index.js`. Exit codes: 0 if all passed, 1 if any failed, 2 on internal error.
+
+For v0.1, only HTTP requests run. gRPC / SSE / MCP request types yield "unsupported" results (deferred). Test scripts are not yet executed (pass/fail is HTTP 2xx).
+
+See `docs/cli/README.md` for usage and `docs/adr/0005-cli-runner.md` for design rationale.
+
+---
+
 ## Testing
 
 Tests are colocated with source files as `*.test.ts` / `*.test.tsx`. Vitest runs in jsdom environment with React Testing Library. Setup file: `tests/setup.ts`.
