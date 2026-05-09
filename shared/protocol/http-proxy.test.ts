@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executeHttpProxy, MAX_RESPONSE_SIZE } from './http-proxy';
+import { executeHttpProxy, executeHttpProxyStreaming, MAX_RESPONSE_SIZE } from './http-proxy';
 import type { Fetcher } from './types';
 
 function makeFetcher(
@@ -220,5 +220,217 @@ describe('executeHttpProxy', () => {
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.status).toBe(504);
+  });
+});
+
+describe('executeHttpProxyStreaming', () => {
+  it('returns the upstream body without calling text()', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('chunk1'));
+        controller.enqueue(new TextEncoder().encode('chunk2'));
+        controller.close();
+      },
+    });
+    const fetcher: Fetcher = vi.fn(async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'text/event-stream' },
+      text: async () => {
+        throw new Error('text() must not be called in streaming mode');
+      },
+      contentLengthHeader: null,
+      body: stream,
+    }));
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/sse', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const reader = r.response.body.getReader();
+      const a = await reader.read();
+      expect(new TextDecoder().decode(a.value)).toBe('chunk1');
+      const b = await reader.read();
+      expect(new TextDecoder().decode(b.value)).toBe('chunk2');
+      const c = await reader.read();
+      expect(c.done).toBe(true);
+    }
+  });
+
+  it('returns 502 if the fetcher does not provide body', async () => {
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      text: async () => 'oops',
+      contentLengthHeader: null,
+    });
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(502);
+      expect(r.payload.error).toMatch(/streaming/i);
+    }
+  });
+
+  it('forwards sanitized headers in the streaming response', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {
+        'content-type': 'application/x-ndjson',
+        'transfer-encoding': 'chunked',
+      },
+      text: async () => '',
+      contentLengthHeader: null,
+      body: stream,
+    });
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.response.headers['content-type']).toBe('application/x-ndjson');
+      expect(r.response.headers['transfer-encoding']).toBeUndefined();
+    }
+  });
+
+  it('rejects disallowed methods (validation runs before fetcher call)', async () => {
+    const fetcher = vi.fn();
+    const r = await executeHttpProxyStreaming(
+      { method: 'TRACE', url: 'https://example.com/', timeout: 1000 },
+      fetcher as Fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('rejects URL pointing to private IP', async () => {
+    const fetcher = vi.fn();
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'http://10.0.0.1/', timeout: 1000 },
+      fetcher as Fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(400);
+  });
+
+  it('passes sanitized request headers to the fetcher', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.close(); },
+    });
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      text: async () => '',
+      contentLengthHeader: null,
+      body: stream,
+    }));
+    await executeHttpProxyStreaming(
+      {
+        method: 'GET',
+        url: 'https://example.com/',
+        headers: { Host: 'attacker.com', 'X-OK': 'yes' },
+        timeout: 1000,
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    const arg = fetcher.mock.calls[0]?.[0];
+    expect(arg?.headers.Host).toBeUndefined();
+    expect(arg?.headers['X-OK']).toBe('yes');
+  });
+
+  it('aborts on timeout', async () => {
+    const fetcher: Fetcher = (req) =>
+      new Promise((_, reject) => {
+        req.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/', timeout: 50 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(504);
+  });
+
+  it('returns 502 on fetcher error (non-abort)', async () => {
+    const fetcher: Fetcher = async () => {
+      throw new Error('upstream gone');
+    };
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(502);
+      expect(r.payload.error).toMatch(/upstream gone/);
+    }
+  });
+
+  it('does NOT enforce MAX_RESPONSE_SIZE on the streaming path', async () => {
+    // Streaming is unbounded by design — the upstream may legitimately send
+    // gigabytes of NDJSON. The shared core does not cap; consumers (renderer
+    // viewer) impose their own per-chunk or windowed-render budgets.
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.close(); },
+    });
+    const huge = String(MAX_RESPONSE_SIZE * 100);
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      text: async () => '',
+      contentLengthHeader: huge,
+      body: stream,
+    });
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('propagates negotiatedAlpn when fetcher provides it', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.close(); },
+    });
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      text: async () => '',
+      contentLengthHeader: null,
+      body: stream,
+      negotiatedAlpn: 'h2' as const,
+    });
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.response.negotiatedAlpn).toBe('h2');
   });
 });

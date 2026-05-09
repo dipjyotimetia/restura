@@ -119,6 +119,11 @@ interface ElectronHttpResponse {
   statusText: string;
   headers: Record<string, string>;
   data: unknown;
+  /**
+   * Negotiated ALPN protocol from undici (h2 / h1.1 / h3 when available).
+   * Surfaced by the renderer as a small "HTTP/2" / "HTTP/1.1" badge.
+   */
+  negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
 }
 
 interface ElectronHttpAPI {

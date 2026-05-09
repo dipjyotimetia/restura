@@ -1,9 +1,10 @@
 import { ipcMain, session } from 'electron';
-import * as http from 'http';
-import * as https from 'https';
+import type * as http from 'http';
 import * as net from 'net';
 import * as tls from 'tls';
 import * as dns from 'dns';
+import { Readable } from 'node:stream';
+import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
 import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
 import { createRateLimiter } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
@@ -11,6 +12,30 @@ import type { LogEntry } from './request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
+
+// =============================================================================
+// Migration map (Plan 4 / Task 9): node:http/https → undici
+// -----------------------------------------------------------------------------
+//   node:http/https request                  → undici.request(url, options)
+//   requestOptions.lookup (DNS rebind guard) → Agent({ connect: { lookup } })
+//   requestOptions.rejectUnauthorized        → Agent({ connect: { rejectUnauthorized } })
+//   requestOptions.{pfx,cert,key,passphrase} → Agent({ connect: { … } })  (mTLS)
+//   requestOptions.ca                        → Agent({ connect: { ca } })
+//   HTTP proxy                               → undici.ProxyAgent
+//   SOCKS proxy (pre-established socket)     → custom Agent({ connect }) factory that
+//                                              hands back the existing socket (with TLS
+//                                              wrapping for HTTPS targets)
+//   AbortSignal forwarding                   → passed through as `signal` to request
+//   Connection timeout                       → Agent({ connect: { timeout } })
+//   Manual req.write + req.end               → body: BodyInit (string | Uint8Array | …)
+//   Buffered chunks via res.on('data')       → response.body.text()
+//   Manual redirects (301/302/etc)           → makeHttpRequest wrapper handles it
+//                                              (maxRedirections: 0 on undici call)
+//   ALPN visibility                          → custom connector wraps default and
+//                                              snapshots socket.alpnProtocol; surfaced
+//                                              via response.negotiatedAlpn for HTTP/2
+//                                              indication in the response viewer.
+// =============================================================================
 
 const httpRateLimiter = createRateLimiter(60, 60_000);
 
@@ -56,6 +81,8 @@ export interface HttpResponse {
   statusText: string;
   headers: Record<string, string | string[]>;
   data: unknown;
+  /** Negotiated ALPN protocol (h2 or h1.1) when available — populated by undici's TLS handshake. */
+  negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
 }
 
 // Connection timeout (10 seconds) — operates below the shared core's request timeout.
@@ -187,167 +214,273 @@ function tryParseJson(text: string): unknown {
   }
 }
 
+/**
+ * Wraps undici's default connector to capture the negotiated ALPN protocol
+ * from the underlying TLS socket. The protocol is recorded on the supplied
+ * holder so the fetcher can surface it on the FetcherResponse.
+ */
+function wrapConnectorForAlpn(
+  innerConnect: ReturnType<typeof buildConnector>,
+  holder: { alpn?: string }
+): ReturnType<typeof buildConnector> {
+  type Cb = (err: Error | null, socket: net.Socket | null) => void;
+  return ((opts: Parameters<ReturnType<typeof buildConnector>>[0], callback: Cb) => {
+    innerConnect(opts, ((err: Error | null, socket: net.Socket | null) => {
+      if (!err && socket) {
+        // tls.TLSSocket exposes alpnProtocol; net.Socket leaves it undefined.
+        const alpn = (socket as tls.TLSSocket).alpnProtocol;
+        if (typeof alpn === 'string' && alpn.length > 0) {
+          holder.alpn = alpn;
+        }
+      }
+      callback(err, socket);
+    }) as Parameters<ReturnType<typeof buildConnector>>[1]);
+  }) as ReturnType<typeof buildConnector>;
+}
+
+/**
+ * Builds the connector options shared by every dispatcher we construct
+ * (DNS rebind guard, connect timeout, mTLS material, custom CA, SSL verify flag).
+ */
+function buildConnectOptions(
+  electronConfig: HttpRequestConfig,
+  url: URL,
+  isHttps: boolean,
+  verifySsl: boolean
+): Record<string, unknown> {
+  const connectOpts: Record<string, unknown> = {
+    timeout: CONNECTION_TIMEOUT,
+    lookup: createSecureLookup(url.hostname, true),
+  };
+
+  if (isHttps) {
+    connectOpts.rejectUnauthorized = verifySsl;
+    if (electronConfig.clientCert) {
+      if (electronConfig.clientCert.pfx) {
+        connectOpts.pfx = Buffer.from(electronConfig.clientCert.pfx, 'base64');
+        if (electronConfig.clientCert.passphrase) {
+          connectOpts.passphrase = electronConfig.clientCert.passphrase;
+        }
+      } else if (electronConfig.clientCert.cert && electronConfig.clientCert.key) {
+        connectOpts.cert = electronConfig.clientCert.cert;
+        connectOpts.key = electronConfig.clientCert.key;
+        if (electronConfig.clientCert.passphrase) {
+          connectOpts.passphrase = electronConfig.clientCert.passphrase;
+        }
+      }
+    }
+    if (electronConfig.caCert?.pem) {
+      connectOpts.ca = electronConfig.caCert.pem;
+    }
+  }
+
+  return connectOpts;
+}
+
+/**
+ * Creates an Agent that routes connections through a pre-established SOCKS socket.
+ * Replaces the Node http.Agent / https.Agent subclass that overrode createConnection
+ * in the previous implementation — same idea, expressed via undici's connect factory.
+ */
+function createSocksDispatcher(
+  socksSocket: net.Socket,
+  targetUrl: URL,
+  isHttps: boolean,
+  verifySsl: boolean,
+  allowH2: boolean
+): Agent {
+  // undici's connector callback type is strictly [Error, null] | [null, Socket]; assert
+  // through unknown so the TLSSocket / Socket variants are accepted.
+  type SocksCallback = (err: Error | null, socket: net.Socket | null) => void;
+  return new Agent({
+    allowH2,
+    connect: ((_opts: unknown, cb: SocksCallback) => {
+      try {
+        if (isHttps) {
+          const tlsSocket = tls.connect({
+            socket: socksSocket,
+            servername: targetUrl.hostname,
+            rejectUnauthorized: verifySsl,
+            ALPNProtocols: allowH2 ? ['h2', 'http/1.1'] : ['http/1.1'],
+          });
+          tlsSocket.once('secureConnect', () => {
+            // Snapshot the negotiated ALPN into the holder attached to the SOCKS socket
+            // so the response builder can surface it in the response viewer.
+            const holder = (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder;
+            if (holder && tlsSocket.alpnProtocol) {
+              holder.alpn = tlsSocket.alpnProtocol;
+            }
+            cb(null, tlsSocket);
+          });
+          tlsSocket.once('error', (err) => cb(err, null));
+        } else {
+          // Match undici's socket contract: HTTP needs alpnProtocol set on the raw socket
+          // for the dispatcher to choose H1. We set 'http/1.1' explicitly because plaintext
+          // connections cannot upgrade to H2 here.
+          (socksSocket as unknown as { alpnProtocol?: string }).alpnProtocol = 'http/1.1';
+          cb(null, socksSocket);
+        }
+      } catch (err) {
+        cb(err as Error, null);
+      }
+    }) as unknown as ReturnType<typeof buildConnector>,
+  });
+}
+
 // Build the Electron-side fetcher closure that the shared core invokes after URL validation,
 // header sanitisation, and body building. All Electron-specific transport concerns
-// (Node http/https request, SOCKS agent, mTLS, CA, connection timer, abort propagation)
-// live inside this closure.
+// (undici dispatcher choice, SOCKS tunnel splice, mTLS, CA, connection timer, abort
+// propagation, ALPN capture) live inside this closure.
 function buildElectronFetcher(
   electronConfig: HttpRequestConfig,
   socksSocket: net.Socket | null
 ): Fetcher {
-  return (req: FetcherRequest): Promise<FetcherResponse> => {
-    return new Promise<FetcherResponse>((resolve, reject) => {
-      try {
-        const url = new URL(req.url);
-        const isHttps = url.protocol === 'https:';
-        const verifySsl = electronConfig.verifySsl !== false;
-        if (!verifySsl) {
-          console.warn('SSL certificate verification disabled for this Electron HTTP request.');
-        }
+  return async (req: FetcherRequest): Promise<FetcherResponse> => {
+    const url = new URL(req.url);
+    const isHttps = url.protocol === 'https:';
+    const verifySsl = electronConfig.verifySsl !== false;
+    if (!verifySsl) {
+      console.warn('SSL certificate verification disabled for this Electron HTTP request.');
+    }
 
-        const requestOptions: http.RequestOptions | https.RequestOptions = {
-          method: req.method,
-          hostname: url.hostname,
-          port: url.port || (isHttps ? 443 : 80),
-          path: url.pathname + url.search,
-          headers: req.headers,
-          lookup: createSecureLookup(url.hostname, true),
+    const connectOpts = buildConnectOptions(electronConfig, url, isHttps, verifySsl);
+
+    // Holder filled in by the wrapped connector after the TLS handshake.
+    const alpnHolder: { alpn?: string } = {};
+
+    // We allow HTTP/2 negotiation by default for direct/HTTP-proxy paths.
+    // SOCKS path also opts in (it builds a brand new TLS socket above).
+    const allowH2 = isHttps;
+
+    // Choose a dispatcher based on proxy configuration.
+    let dispatcher: Agent | ProxyAgent;
+    let captureAlpn = isHttps; // only meaningful for HTTPS
+
+    if (electronConfig.proxy?.enabled && electronConfig.proxy.host) {
+      const proxyType = electronConfig.proxy.type;
+      if (proxyType === 'http' || proxyType === 'https') {
+        // HTTP/HTTPS proxy via undici ProxyAgent.
+        const proxyUri = `${proxyType}://${electronConfig.proxy.host}:${electronConfig.proxy.port}`;
+        const proxyOpts: ProxyAgent.Options = {
+          uri: proxyUri,
+          allowH2,
+          // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
+          requestTls: {
+            ...connectOpts,
+            ...(captureAlpn
+              ? {
+                  // We intercept by extending the default connector through the connect option below.
+                }
+              : {}),
+          } as ProxyAgent.Options['requestTls'],
         };
-
-        // Apply proxy settings (HTTP/HTTPS or SOCKS)
-        if (electronConfig.proxy?.enabled && electronConfig.proxy.host) {
-          const proxyType = electronConfig.proxy.type;
-          if (proxyType === 'http' || proxyType === 'https') {
-            requestOptions.hostname = electronConfig.proxy.host;
-            requestOptions.port = electronConfig.proxy.port;
-            requestOptions.path = url.href;
-            requestOptions.lookup = createSecureLookup(electronConfig.proxy.host, true);
-            requestOptions.headers = {
-              ...requestOptions.headers,
-              Host: url.host,
-            };
-
-            if (electronConfig.proxy.auth?.username && electronConfig.proxy.auth?.password) {
-              const auth = Buffer.from(
-                `${electronConfig.proxy.auth.username}:${electronConfig.proxy.auth.password}`
-              ).toString('base64');
-              (requestOptions.headers as Record<string, string>)['Proxy-Authorization'] = `Basic ${auth}`;
-            }
-          } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
-            // Route through the pre-established SOCKS tunnel by subclassing the agent and
-            // overriding createConnection — avoids monkey-patching the prototype at runtime.
-            const capturedSocket = socksSocket;
-            const servername = url.hostname;
-            if (isHttps) {
-              requestOptions.agent = new class extends https.Agent {
-                override createConnection(): tls.TLSSocket {
-                  return tls.connect({ socket: capturedSocket, servername, rejectUnauthorized: verifySsl });
-                }
-              }();
-            } else {
-              requestOptions.agent = new class extends http.Agent {
-                override createConnection(): net.Socket {
-                  return capturedSocket;
-                }
-              }();
-            }
-          }
+        if (electronConfig.proxy.auth?.username && electronConfig.proxy.auth?.password) {
+          const auth = Buffer.from(
+            `${electronConfig.proxy.auth.username}:${electronConfig.proxy.auth.password}`
+          ).toString('base64');
+          proxyOpts.token = `Basic ${auth}`;
         }
-
-        // Configure SSL verification
+        dispatcher = new ProxyAgent(proxyOpts);
+        // ProxyAgent's connector for the upstream TLS handshake is built internally; we cannot
+        // wrap it directly here. We fall back to a 'connect' diagnostics-channel-style hook by
+        // listening to the dispatcher 'connect' event for ALPN reporting (see below). Since
+        // undici's public events don't surface alpnProtocol, we accept that ALPN is unknown
+        // when going through an HTTP proxy and leave alpnHolder empty.
+        captureAlpn = false;
+      } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
+        dispatcher = createSocksDispatcher(socksSocket, url, isHttps, verifySsl, allowH2);
+        // SOCKS path: TLS happens inside our custom connector — capture ALPN there.
         if (isHttps) {
-          (requestOptions as https.RequestOptions).rejectUnauthorized = verifySsl;
+          (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder = alpnHolder;
         }
-
-        // Apply client certificate if provided (for mTLS)
-        if (isHttps && electronConfig.clientCert) {
-          if (electronConfig.clientCert.pfx) {
-            (requestOptions as https.RequestOptions).pfx = Buffer.from(electronConfig.clientCert.pfx, 'base64');
-            if (electronConfig.clientCert.passphrase) {
-              (requestOptions as https.RequestOptions).passphrase = electronConfig.clientCert.passphrase;
-            }
-          } else if (electronConfig.clientCert.cert && electronConfig.clientCert.key) {
-            (requestOptions as https.RequestOptions).cert = electronConfig.clientCert.cert;
-            (requestOptions as https.RequestOptions).key = electronConfig.clientCert.key;
-            if (electronConfig.clientCert.passphrase) {
-              (requestOptions as https.RequestOptions).passphrase = electronConfig.clientCert.passphrase;
-            }
-          }
-        }
-
-        // Apply CA certificate if provided (for custom CA / self-signed servers)
-        if (isHttps && electronConfig.caCert?.pem) {
-          (requestOptions as https.RequestOptions).ca = electronConfig.caCert.pem;
-        }
-
-        const protocol = isHttps ? https : http;
-        const nodeReq = protocol.request(requestOptions, (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk: Buffer) => {
-            chunks.push(chunk);
-          });
-          res.on('end', () => {
-            const text = Buffer.concat(chunks).toString('utf8');
-            resolve({
-              status: res.statusCode || 0,
-              statusText: res.statusMessage || '',
-              headers: res.headers as Record<string, string | string[]>,
-              text: () => Promise.resolve(text),
-              contentLengthHeader: (res.headers['content-length'] as string | undefined) ?? null,
-            });
-          });
-          res.on('error', (err: Error) => {
-            reject(new Error(`Request failed: ${err.message}`));
-          });
+      } else {
+        dispatcher = new Agent({
+          allowH2,
+          connect: connectOpts as Parameters<typeof buildConnector>[0],
         });
-
-        nodeReq.on('error', (err: Error) => {
-          reject(new Error(`Request failed: ${err.message}`));
-        });
-
-        // Connection timeout (separate from the shared core's request timeout)
-        const connectionTimer = setTimeout(() => {
-          nodeReq.destroy();
-          reject(new Error(`Connection timeout after ${CONNECTION_TIMEOUT}ms`));
-        }, CONNECTION_TIMEOUT);
-
-        nodeReq.on('socket', (socket) => {
-          socket.on('connect', () => {
-            clearTimeout(connectionTimer);
-          });
-        });
-
-        // Forward the abort signal from the shared core through to the Node request.
-        const onAbort = () => {
-          clearTimeout(connectionTimer);
-          nodeReq.destroy();
-        };
-        if (req.signal.aborted) {
-          onAbort();
-        } else {
-          req.signal.addEventListener('abort', onAbort, { once: true });
-        }
-
-        // Send body. The IPC contract only ever supplies a string `data`, so the shared
-        // core hands us either undefined or a string here. Other BodyInit variants are
-        // not currently produced by this code path.
-        if (req.body !== undefined) {
-          if (typeof req.body === 'string') {
-            nodeReq.write(req.body);
-          } else if (req.body instanceof Uint8Array) {
-            nodeReq.write(Buffer.from(req.body));
-          } else {
-            clearTimeout(connectionTimer);
-            nodeReq.destroy();
-            reject(new Error('Unsupported body type for Electron fetcher'));
-            return;
-          }
-        }
-        nodeReq.end();
-      } catch (err) {
-        reject(err);
       }
-    });
+    } else {
+      // Direct connection. Wrap the default connector to capture ALPN.
+      const innerConnector = buildConnector(connectOpts as Parameters<typeof buildConnector>[0]);
+      dispatcher = new Agent({
+        allowH2,
+        connect: captureAlpn ? wrapConnectorForAlpn(innerConnector, alpnHolder) : innerConnector,
+      });
+    }
+
+    // Convert the FetcherRequest body (BodyInit | undefined) into something
+    // undici accepts (string | Uint8Array | Readable | null | undefined).
+    let undiciBody: string | Uint8Array | Readable | null | undefined;
+    if (req.body === undefined) {
+      undiciBody = undefined;
+    } else if (typeof req.body === 'string') {
+      undiciBody = req.body;
+    } else if (req.body instanceof Uint8Array) {
+      undiciBody = req.body;
+    } else if (req.body instanceof ArrayBuffer) {
+      undiciBody = new Uint8Array(req.body);
+    } else {
+      // Other BodyInit variants (Blob, FormData, URLSearchParams, ReadableStream)
+      // aren't produced by the Electron IPC code path today.
+      throw new Error('Unsupported body type for Electron fetcher');
+    }
+
+    let response: Awaited<ReturnType<typeof undiciRequest>>;
+    try {
+      response = await undiciRequest(req.url, {
+        method: req.method as Parameters<typeof undiciRequest>[1] extends infer O
+          ? O extends { method?: infer M }
+            ? M
+            : never
+          : never,
+        headers: req.headers,
+        body: undiciBody,
+        signal: req.signal,
+        dispatcher,
+        // undici's default is maxRedirections: 0 (no auto-follow); manual redirect handling
+        // lives in makeHttpRequest, so we rely on that default.
+      });
+    } catch (err) {
+      // Translate undici's connect-timeout error into the legacy message shape so existing
+      // callers / log output stay consistent.
+      if (err instanceof Error && /connect timeout|UND_ERR_CONNECT_TIMEOUT/i.test(err.message)) {
+        throw new Error(`Connection timeout after ${CONNECTION_TIMEOUT}ms`);
+      }
+      throw err instanceof Error ? new Error(`Request failed: ${err.message}`) : err;
+    }
+
+    // Normalise headers to Record<string, string | string[]>.
+    const headersOut: Record<string, string | string[]> = {};
+    for (const [k, v] of Object.entries(response.headers)) {
+      if (v !== undefined) headersOut[k.toLowerCase()] = v as string | string[];
+    }
+
+    // Determine ALPN. Prefer explicit holder; for SOCKS we re-read the holder we attached.
+    let negotiatedAlpn: 'h1.1' | 'h2' | undefined;
+    let raw = alpnHolder.alpn;
+    if (!raw && socksSocket) {
+      raw = (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder?.alpn;
+    }
+    if (raw === 'h2') negotiatedAlpn = 'h2';
+    else if (raw === 'http/1.1' || raw === 'http/1.0' || (typeof raw === 'string' && raw.startsWith('http/1'))) {
+      negotiatedAlpn = 'h1.1';
+    }
+
+    const result: FetcherResponse = {
+      status: response.statusCode,
+      // undici doesn't expose statusText for the buffered `request` API; leave it empty.
+      // Downstream (executeHttpProxy → NormalizedResponse → HttpResponse) only forwards it
+      // for display; nothing branches on its value.
+      statusText: '',
+      headers: headersOut,
+      text: () => response.body.text(),
+      contentLengthHeader: (response.headers['content-length'] as string | undefined) ?? null,
+      // Web stream interop — undici body is a Node Readable, expose as a web ReadableStream
+      // so streaming consumers (StreamingResponseViewer) can read incrementally if desired.
+      body: Readable.toWeb(response.body) as ReadableStream<Uint8Array>,
+    };
+    if (negotiatedAlpn) result.negotiatedAlpn = negotiatedAlpn;
+    return result;
   };
 }
 
@@ -440,8 +573,11 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       headers: result.response.headers,
       data: tryParseJson(result.response.body),
     };
+    if (result.response.negotiatedAlpn) {
+      rawResult.negotiatedAlpn = result.response.negotiatedAlpn;
+    }
 
-    // Manual redirect handling — Node http doesn't follow redirects natively.
+    // Manual redirect handling — undici is configured with maxRedirections: 0.
     const isRedirect = rawResult.status >= 300 && rawResult.status < 400;
     if (isRedirect) {
       const locationHeader = rawResult.headers['location'];

@@ -314,6 +314,11 @@ export interface Response {
   size: number;
   time: number;
   timestamp: number;
+  /**
+   * Negotiated ALPN protocol when known. Populated by Electron's undici fetcher;
+   * absent for the worker path (CF runtime doesn't expose ALPN).
+   */
+  negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
 }
 
 // gRPC Response (specialized for gRPC)

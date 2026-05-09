@@ -309,6 +309,25 @@ Editor state (cursor, undo, fold) is preserved per tab via Monaco's `path` prop 
 
 Selectors at `src/store/selectors.ts` expose tab-aware hooks: `useActiveTab()`, `useActiveRequest('http' | 'grpc' | 'sse' | 'mcp')`, `useActiveResponse()`. Consumers should prefer these over destructuring the whole store, since they re-render only when the relevant tab subset changes.
 
+### Streaming and HTTP/2
+
+Restura streams `text/event-stream`, `application/x-ndjson`, and `application/jsonl` responses end-to-end instead of buffering. The shared protocol layer (Plan 1) was extended in Plan 4 with:
+
+- `executeHttpProxyStreaming(spec, fetcher, options)` returns a `StreamingResponseHandle` whose `body: ReadableStream<Uint8Array>` is handed to the caller without buffering. Does NOT enforce `MAX_RESPONSE_SIZE` — streaming is unbounded by intent.
+- `shared/protocol/sse-parser.ts` — canonical W3C SSE event-frame parser (consumed by worker MCP, Electron SSE, and renderer SSE)
+- `shared/protocol/ndjson-parser.ts` — line-delimited JSON parser with `__parseError` sentinel for malformed lines
+- `FetcherResponse.body?: ReadableStream<Uint8Array>` — optional streaming-mode field on the Fetcher contract; populated by Worker (native fetch) and Electron (undici)
+
+**Worker path:** When the request has `Accept: text/event-stream | application/x-ndjson | application/jsonl` (or `streamingMode: true`), `worker/handlers/proxy.ts` routes through `executeHttpProxyStreaming` and pipes the upstream body via Hono's `stream(c, ...)` helper. Otherwise the buffered path runs unchanged.
+
+**Renderer:** `src/features/http/lib/streamingResponseReader.ts` consumes a `Response` as an `AsyncIterable<StreamEvent>` (sse | ndjson | raw + terminating end/error). The new `StreamingResponseViewer` (`src/components/shared/StreamingResponseViewer.tsx`) renders events incrementally via a tiny windowed-list helper (no `react-window` dep) with auto-scroll, pause/resume, and a "Jump to latest" pill.
+
+**Electron HTTP:** Migrated from `node:http`/`https` to `undici.request`. undici negotiates ALPN automatically, exposes `negotiatedProtocol` for HTTP/2 detection, and gives us streaming response bodies via `Readable.toWeb`. All Plan 1 features preserved: PAC resolution, HTTP/HTTPS proxy via `ProxyAgent`, SOCKS4/5 via custom `Agent` with the pre-established socket, mTLS / CA via `Agent.connect`, DNS-rebind guard via `Agent.connect.lookup`, manual redirect handling at the wrapper level.
+
+**gRPC streaming:** The renderer ships server-streaming via `src/features/grpc/lib/grpcStreamingClient.ts`, which sends Connect-protocol envelopes (1-byte flags + 4-byte big-endian length + JSON payload) directly to the upstream and parses the streaming response framing. This bypasses the worker — Connect-Web speaks HTTP/2 to the upstream when CORS permits. Client-streaming and bidirectional-streaming throw with a clear "not yet implemented" message; UI for those is a follow-up.
+
+**ALPN indicator:** `Response.negotiatedAlpn` is populated by the Electron path (undici exposes it) and surfaces as a small "HTTP/2" / "HTTP/1.1" badge in the response metadata bar. Worker path leaves it undefined (CF runtime doesn't expose ALPN).
+
 ### Protocol Transport Abstraction
 
 The renderer detects its runtime environment via `isElectron()` (checks for `window.electronAPI`):

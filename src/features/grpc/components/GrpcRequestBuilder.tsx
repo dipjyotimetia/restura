@@ -44,6 +44,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
+import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
@@ -886,6 +887,14 @@ function GrpcRequestBuilder() {
               <span className="ml-1 text-[10px] text-muted-foreground">({streamingMessages.length})</span>
             </TabsTrigger>
           )}
+          {grpcRequest.methodType !== 'unary' && (
+            <TabsTrigger
+              value="web-stream"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              Web Stream
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="message" className="flex-1 overflow-auto p-4 m-0">
@@ -1011,6 +1020,12 @@ function GrpcRequestBuilder() {
         {streamingMessages.length > 0 && (
           <TabsContent value="streaming" className="flex-1 overflow-auto p-4 m-0">
             <GrpcStreamingMessages messages={streamingMessages} />
+          </TabsContent>
+        )}
+
+        {grpcRequest.methodType !== 'unary' && (
+          <TabsContent value="web-stream" className="flex-1 overflow-hidden p-0 m-0">
+            <GrpcStreamingPanel request={grpcRequest} />
           </TabsContent>
         )}
       </Tabs>
