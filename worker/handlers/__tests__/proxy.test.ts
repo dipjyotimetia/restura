@@ -151,4 +151,122 @@ describe('proxy handler', () => {
     const res = await makeRequest({ method: 'GET', url: 'https://example.com/api' });
     expect(res.status).toBe(502);
   });
+
+  describe('streaming proxy', () => {
+    it('forwards a text/event-stream upstream as a streamed Response', async () => {
+      const upstreamBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: a\n\n'));
+          controller.enqueue(new TextEncoder().encode('data: b\n\n'));
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(upstreamBody, {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        ),
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/sse',
+        headers: { Accept: 'text/event-stream' },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+      const text = await res.text();
+      expect(text).toContain('data: a');
+      expect(text).toContain('data: b');
+    });
+
+    it('forwards an application/x-ndjson upstream as a streamed Response', async () => {
+      const upstreamBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"a":1}\n'));
+          controller.enqueue(new TextEncoder().encode('{"b":2}\n'));
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(upstreamBody, {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/x-ndjson' },
+          }),
+        ),
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/ndjson',
+        headers: { Accept: 'application/x-ndjson' },
+      });
+
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain('"a":1');
+      expect(text).toContain('"b":2');
+    });
+
+    it('falls back to buffered path when Accept does not indicate streaming', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response('{"hello":"world"}', {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/json',
+        headers: { Accept: 'application/json' },
+      });
+
+      // Buffered path returns the worker's JSON envelope, not the raw body
+      const json = (await res.json()) as { status: number; data: string };
+      expect(json.status).toBe(200);
+      expect(json.data).toContain('hello');
+    });
+
+    it('streamingMode flag forces the streaming path even for unknown content types', async () => {
+      const upstreamBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('chunk1'));
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(upstreamBody, {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'text/plain' },
+          }),
+        ),
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/raw',
+        streamingMode: true,
+      });
+
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toBe('chunk1');
+    });
+  });
 });

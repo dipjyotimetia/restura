@@ -1,6 +1,8 @@
 import type { Context } from 'hono';
+import { stream } from 'hono/streaming';
+import type { StatusCode } from 'hono/utils/http-status';
 import type { Env } from '../index';
-import { executeHttpProxy } from '@shared/protocol/http-proxy';
+import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { Fetcher } from '@shared/protocol/types';
 import type { FormField, BodyType } from '@shared/protocol/body-builder';
@@ -22,6 +24,26 @@ interface ProxyRequestBody {
   formData?: FormField[];
   timeout?: number;
   upstreamProxy?: UpstreamProxyConfig;
+  /**
+   * Forces the streaming pass-through path even when the Accept header doesn't
+   * advertise a known streaming content type. Useful for raw byte streams.
+   */
+  streamingMode?: boolean;
+}
+
+const STREAMING_ACCEPT_TYPES = [
+  'text/event-stream',
+  'application/x-ndjson',
+  'application/jsonl',
+  'application/grpc-web',
+];
+
+function isStreamingRequest(body: ProxyRequestBody): boolean {
+  if (body.streamingMode === true) return true;
+  const accept =
+    body.headers?.['Accept'] ?? body.headers?.['accept'] ?? '';
+  const lower = accept.toLowerCase();
+  return STREAMING_ACCEPT_TYPES.some((t) => lower.includes(t));
 }
 
 function buildFetcher(
@@ -70,6 +92,7 @@ function buildFetcher(
       headers: response.headers,
       text: () => response.text(),
       contentLengthHeader: response.headers.get('content-length'),
+      body: response.body,
     };
   };
 }
@@ -83,6 +106,44 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return c.json({ error: `Proxy error: ${message}` }, 500);
+  }
+
+  if (isStreamingRequest(body)) {
+    const streamingResult = await executeHttpProxyStreaming(
+      {
+        method: body.method,
+        url: body.url,
+        headers: body.headers,
+        params: body.params,
+        bodyType: body.bodyType,
+        data: body.data,
+        formData: body.formData,
+        timeout: body.timeout,
+      },
+      buildFetcher(isDev, body.upstreamProxy),
+      { allowLocalhost: isDev }
+    );
+
+    if (!streamingResult.ok) {
+      return c.json(
+        streamingResult.payload,
+        streamingResult.status as 400 | 502 | 504
+      );
+    }
+
+    // Forward sanitised upstream headers verbatim to the renderer.
+    for (const [k, v] of Object.entries(streamingResult.response.headers)) {
+      c.header(k, v);
+    }
+    // Forward the upstream status code (200 typical, but any 2xx/4xx/5xx is valid).
+    c.status(streamingResult.response.status as StatusCode);
+
+    // Pipe upstream body through Hono's streaming helper. Hono's stream() takes
+    // care of stream lifecycle (close, abort propagation) for us.
+    const upstreamBody = streamingResult.response.body;
+    return stream(c, async (s) => {
+      await s.pipe(upstreamBody);
+    });
   }
 
   const result = await executeHttpProxy(
