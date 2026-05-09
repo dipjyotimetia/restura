@@ -300,4 +300,74 @@ describe('useRequestStore — tabs', () => {
       expect(useRequestStore.getState().getActiveTab()!.isDirty).toBe(false);
     });
   });
+
+  describe('setStreamingEvents / clearStreamingEvents', () => {
+    async function* emptyEvents(): AsyncIterable<{ type: 'sse'; payload: { data: string } }> {
+      yield { type: 'sse', payload: { data: 'a' } };
+    }
+
+    it('attaches the iterable to the active tab and clears the buffered response', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().setCurrentResponse(makeResponse('whatever'));
+      const events = emptyEvents();
+      useRequestStore.getState().setStreamingEvents(events);
+      const tab = useRequestStore.getState().getActiveTab()!;
+      expect(tab.streamingEvents).toBe(events);
+      // Buffered response is cleared so ResponseViewer dispatches unambiguously
+      expect(tab.response).toBeNull();
+    });
+
+    it('only sets streamingEvents on the active tab', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeGrpc());
+      const events = emptyEvents();
+      useRequestStore.getState().setStreamingEvents(events);
+      const tabA = useRequestStore.getState().tabs.find((t) => t.id === a)!;
+      const tabB = useRequestStore.getState().tabs.find((t) => t.id === b)!;
+      expect(tabA.streamingEvents).toBeUndefined();
+      expect(tabB.streamingEvents).toBe(events);
+    });
+
+    it('clearStreamingEvents removes the field from the active tab', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().setStreamingEvents(emptyEvents());
+      expect(useRequestStore.getState().getActiveTab()!.streamingEvents).toBeDefined();
+      useRequestStore.getState().clearStreamingEvents();
+      expect(useRequestStore.getState().getActiveTab()!.streamingEvents).toBeUndefined();
+    });
+
+    it('clearStreamingEvents is a no-op when no streaming is in flight', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      const before = useRequestStore.getState().getActiveTab()!;
+      useRequestStore.getState().clearStreamingEvents();
+      const after = useRequestStore.getState().getActiveTab()!;
+      // No structural change — the same tab object reference is preserved
+      expect(after).toBe(before);
+    });
+
+    it('replacing streamingEvents on a subsequent call drops the prior iterable', () => {
+      useRequestStore.getState().openTab(makeHttp());
+      const first = emptyEvents();
+      useRequestStore.getState().setStreamingEvents(first);
+      const second = emptyEvents();
+      useRequestStore.getState().setStreamingEvents(second);
+      expect(useRequestStore.getState().getActiveTab()!.streamingEvents).toBe(second);
+      expect(useRequestStore.getState().getActiveTab()!.streamingEvents).not.toBe(first);
+    });
+
+    it('streamingEvents is JSON-serializable safe via partialize-style stripping', () => {
+      // Simulates the persist middleware's partialize stripping streamingEvents.
+      // We verify that after stripping, the tabs array can be JSON-serialized
+      // without losing any other state.
+      useRequestStore.getState().openTab(makeHttp({ url: 'https://example.com' }));
+      useRequestStore.getState().setStreamingEvents(emptyEvents());
+      const stripped = useRequestStore.getState().tabs.map(
+        ({ streamingEvents: _drop, ...rest }) => rest
+      );
+      const json = JSON.stringify(stripped);
+      const parsed = JSON.parse(json) as Array<{ streamingEvents?: unknown; request: HttpRequest }>;
+      expect(parsed[0]!.streamingEvents).toBeUndefined();
+      expect(parsed[0]!.request.url).toBe('https://example.com');
+    });
+  });
 });

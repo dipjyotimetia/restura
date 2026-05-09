@@ -10,6 +10,7 @@ import type {
   McpRequest,
   ScriptResult,
   RequestType,
+  StreamEventLike,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
@@ -42,6 +43,14 @@ interface RequestState {
   setScriptResult: (result: ScriptResults | null) => void;
   setLoading: (loading: boolean) => void;
   setDirty: (dirty: boolean) => void;
+  /**
+   * Attach an in-flight streaming response to the active tab. Replaces any
+   * prior streaming events on that tab and clears the buffered response so
+   * `ResponseViewer` dispatches to `StreamingResponseViewer`.
+   */
+  setStreamingEvents: (events: AsyncIterable<StreamEventLike>) => void;
+  /** Drop the streaming events from the active tab (no-op if none). */
+  clearStreamingEvents: () => void;
 
   // Convenience
   createNewRequest: (type: RequestType) => string;
@@ -217,6 +226,28 @@ export const useRequestStore = create<RequestState>()(
           }));
         },
 
+        setStreamingEvents: (events) => {
+          set((s) => ({
+            tabs: patchActiveTab(s, (t) => ({
+              ...t,
+              streamingEvents: events,
+              // Clear any prior buffered response so the viewer dispatches
+              // unambiguously to the streaming view.
+              response: null,
+            })),
+          }));
+        },
+
+        clearStreamingEvents: () => {
+          set((s) => ({
+            tabs: patchActiveTab(s, (t) => {
+              if (!t.streamingEvents) return t;
+              const { streamingEvents: _drop, ...rest } = t;
+              return rest;
+            }),
+          }));
+        },
+
         setScriptResult: (result) => {
           set((s) => ({
             tabs: patchActiveTab(s, (t) => ({ ...t, scriptResult: result })),
@@ -248,7 +279,10 @@ export const useRequestStore = create<RequestState>()(
       version: 3,
       storage: dexieStorageAdapters.requestTabs(),
       partialize: (state) => ({
-        tabs: state.tabs,
+        // Strip `streamingEvents` from each tab — AsyncIterables aren't JSON-
+        // serializable and streams are transient by nature. A page reload
+        // intentionally aborts any in-flight stream.
+        tabs: state.tabs.map(({ streamingEvents: _drop, ...rest }) => rest),
         activeTabId: state.activeTabId,
       }),
       migrate: (persistedState: unknown, version) => {

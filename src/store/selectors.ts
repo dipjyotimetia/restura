@@ -13,6 +13,7 @@ import type {
   McpRequest,
   RequestTab,
   Response as ApiResponse,
+  StreamEventLike,
 } from '@/types';
 import { useRequestStore } from './useRequestStore';
 
@@ -166,5 +167,17 @@ export function useActiveResponse(): ApiResponse | null {
   return useRequestStore((s) => {
     const tab = s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) : null;
     return tab?.response ?? null;
+  });
+}
+
+/**
+ * The active tab's in-flight streaming events iterator, or null. Components
+ * branch on this to render `StreamingResponseViewer` instead of the buffered
+ * Monaco view.
+ */
+export function useActiveStreamingEvents(): AsyncIterable<StreamEventLike> | null {
+  return useRequestStore((s) => {
+    const tab = s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) : null;
+    return tab?.streamingEvents ?? null;
   });
 }

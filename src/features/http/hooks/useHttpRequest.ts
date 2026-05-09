@@ -8,7 +8,8 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { executeRequest, executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
+import { isElectron } from '@/lib/shared/platform';
 
 interface UseHttpRequestReturn {
   request: HttpRequest | null;
@@ -135,6 +136,9 @@ export function useHttpRequest(): UseHttpRequestReturn {
     if (!httpRequest) return;
 
     setLoading(true);
+    // Always wipe any prior streaming state so a previous SSE/NDJSON run
+    // doesn't bleed into this request — even if this one is buffered.
+    useRequestStore.getState().clearStreamingEvents();
 
     try {
       // Get current environment variables
@@ -146,6 +150,33 @@ export function useHttpRequest(): UseHttpRequestReturn {
           .forEach((v) => {
             envVars[v.key] = v.value;
           });
+      }
+
+      // Detect streaming Accept and dispatch through the streaming pipeline.
+      // Electron's IPC path doesn't yet support streaming response bodies, so
+      // fall through to the buffered executor on desktop.
+      const headersRecord: Record<string, string> = {};
+      httpRequest.headers
+        .filter((h) => h.enabled && h.key)
+        .forEach((h) => {
+          headersRecord[h.key] = h.value;
+        });
+
+      if (isStreamingAccept(headersRecord) && !isElectron()) {
+        const { events } = await executeStreamingRequest({
+          request: httpRequest,
+          envVars,
+          globalSettings,
+          resolveVariables,
+        });
+        // Clear any buffered response from a prior run and attach the stream.
+        setCurrentResponse(null);
+        setScriptResult(null);
+        useRequestStore.getState().setStreamingEvents(events);
+        // The stream renders incrementally; flip loading off so the viewer
+        // becomes interactive immediately. The status pill inside
+        // StreamingResponseViewer reflects ongoing/closed/error state.
+        return;
       }
 
       const result = await executeRequest({
