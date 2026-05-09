@@ -4,7 +4,7 @@ import type { StatusCode } from 'hono/utils/http-status';
 import type { Env } from '../index';
 import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { validateURL } from '@shared/protocol/url-validation';
-import type { Fetcher } from '@shared/protocol/types';
+import type { Fetcher, ProtocolAuthConfig } from '@shared/protocol/types';
 import type { FormField, BodyType } from '@shared/protocol/body-builder';
 import { httpsViaConnectProxy, httpViaProxy } from '../shared/tcp-proxy';
 
@@ -24,6 +24,13 @@ interface ProxyRequestBody {
   formData?: FormField[];
   timeout?: number;
   upstreamProxy?: UpstreamProxyConfig;
+  /**
+   * Sign-at-wire auth (currently AWS SigV4). Forwarded to executeHttpProxy so
+   * the signature covers the exact bytes this worker sends to the upstream.
+   * Renderer-side `applyAuthHeaders` no longer signs SigV4 — it passes the
+   * auth config through to us instead.
+   */
+  auth?: ProtocolAuthConfig;
   /**
    * Forces the streaming pass-through path even when the Accept header doesn't
    * advertise a known streaming content type. Useful for raw byte streams.
@@ -119,6 +126,7 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
         data: body.data,
         formData: body.formData,
         timeout: body.timeout,
+        auth: body.auth,
       },
       buildFetcher(isDev, body.upstreamProxy),
       { allowLocalhost: isDev }
@@ -156,13 +164,14 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
       data: body.data,
       formData: body.formData,
       timeout: body.timeout,
+      auth: body.auth,
     },
     buildFetcher(isDev, body.upstreamProxy),
     { allowLocalhost: isDev }
   );
 
   if (!result.ok) {
-    return c.json(result.payload, result.status as 400 | 413 | 502 | 504);
+    return c.json(result.payload, result.status as 400 | 413 | 500 | 502 | 504);
   }
   // Preserve the worker's historical response shape: `data` instead of `body`.
   // Renderer (`requestExecutor.ts`) reads `proxyResponse.data`.

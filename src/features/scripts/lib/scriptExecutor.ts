@@ -584,27 +584,12 @@ class ScriptExecutor {
       };
     }
 
-    // Security: Basic script validation to catch obvious attack patterns
-    const dangerousPatterns = [
-      /\beval\s*\(/,
-      /\bFunction\s*\(/,
-      /\b__proto__\b/,
-      /\bconstructor\s*\[/,
-      /\bObject\.prototype\b/,
-    ];
-
-    for (const pattern of dangerousPatterns) {
-      if (pattern.test(trimmedScript)) {
-        this.addLog('error', `Script contains potentially dangerous pattern: ${pattern.source}`);
-        return {
-          success: false,
-          logs: this.logs,
-          errors: ['Script contains blocked patterns'],
-          variables: { ...this.envVars },
-          tests: undefined,
-        };
-      }
-    }
+    // Note: no source-level pattern filter. The QuickJS runtime is the security
+    // boundary — it's WASM-isolated with no host bridge, so eval / Function() /
+    // __proto__ / constructor[] / Object.prototype inside the user script cannot
+    // reach any native API. A regex blocklist would only break legitimate code
+    // (Function.prototype.bind, obj.constructor.name, JSON revivers, etc.) without
+    // adding security. See ADR-0004.
 
     try {
       // Initialize QuickJS runtime with security constraints

@@ -6,14 +6,7 @@ import { AlertTriangle, Info, X } from 'lucide-react';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
 import { readFileAsText } from '@/lib/shared/file-utils';
-
-function SectionHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
-      {children}
-    </p>
-  );
-}
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 
 export function CertificatesSettings() {
   const { settings, setClientCert, setCaCert } = useSettingsStore();
@@ -56,7 +49,14 @@ export function CertificatesSettings() {
     <div className="space-y-6">
       {/* ── Section A: Client Certificate ─────────────────────────────── */}
       <div className="space-y-4">
-        <SectionHeader>Client Certificate (mTLS)</SectionHeader>
+        <div className="flex items-baseline mb-3">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            Client Certificate (mTLS)
+          </p>
+          <DesktopOnlyBadge
+            title="Browsers don't allow JavaScript to present a client certificate. mTLS is only enforced in the Electron desktop app."
+          />
+        </div>
 
         <CertificateOverride clientCert={clientCert} onCertChange={setClientCert} />
 
@@ -70,7 +70,14 @@ export function CertificatesSettings() {
 
       {/* ── Section B: Custom CA Certificate ──────────────────────────── */}
       <div className="space-y-4">
-        <SectionHeader>Custom CA Certificate</SectionHeader>
+        <div className="flex items-baseline mb-3">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            Custom CA Certificate
+          </p>
+          <DesktopOnlyBadge
+            title="Browsers can't override the system trust store. Custom CA certificates are only honoured in the Electron desktop app."
+          />
+        </div>
 
         <div className="space-y-1.5">
           <Label className="text-xs font-mono">CA Certificate File (.pem / .crt / .cer)</Label>

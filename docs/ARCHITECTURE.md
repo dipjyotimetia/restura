@@ -328,6 +328,20 @@ Restura streams `text/event-stream`, `application/x-ndjson`, and `application/js
 
 **ALPN indicator:** `Response.negotiatedAlpn` is populated by the Electron path (undici exposes it) and surfaces as a small "HTTP/2" / "HTTP/1.1" badge in the response metadata bar. Worker path leaves it undefined (CF runtime doesn't expose ALPN).
 
+### Web vs Desktop feature parity
+
+Some Restura features depend on capabilities the browser doesn't expose. They're available in the Electron desktop app but hidden / disabled in the web client:
+
+- **mTLS** (client certificates): browsers don't allow JavaScript to present a client certificate. Electron uses Node TLS via undici.
+- **Custom CA certificates**: same restriction — the browser uses the system trust store and doesn't let pages override it. Electron honours a user-supplied PEM via undici's `Agent.connect.ca`.
+- **SOCKS proxies** (SOCKS4 / SOCKS5): browsers can't open raw TCP. Electron tunnels via Node `net` and a custom undici dispatcher.
+- **PAC files** (Proxy Auto-Config): Electron uses `session.resolveProxy()`; browsers don't expose this.
+- **System proxy detection**: Electron reads OS proxy settings; browsers only honour what the OS configures globally and don't let pages introspect.
+- **"Verify SSL = off"**: browsers always validate TLS regardless of any app toggle. Only Electron can opt out (`rejectUnauthorized: false`) for self-signed dev certificates.
+- **Hardware-backed encryption**: Electron uses `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret); web defaults to in-memory ephemeral encryption per session.
+
+The web client surfaces a "Desktop only" badge (`src/components/shared/DesktopOnlyBadge.tsx`) on UI fields that depend on these capabilities, with a tooltip explaining the difference. Inside Electron the badge renders nothing.
+
 ### Protocol Transport Abstraction
 
 The renderer detects its runtime environment via `isElectron()` (checks for `window.electronAPI`):
@@ -426,27 +440,46 @@ main.ts (entry)
 
 ---
 
-## Security
+## Security model
 
-### SSRF Prevention
+Restura's security posture is asymmetric between the Electron desktop client and the Web/PWA client by virtue of platform capability gaps. See [Web vs Desktop feature parity](#web-vs-desktop-feature-parity) for the user-visible side; this section covers the implementation.
 
-`shared/protocol/url-validation.ts` rejects requests to private IP ranges (RFC 1918, RFC 6598 carrier-grade NAT), loopback, link-local addresses, and known cloud-metadata endpoints in the production Worker and on Electron alike. The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for local development on the Worker; the Electron path receives the same `allowLocalhost` flag through the fetcher options.
+### Encryption keys
 
-### Electron Hardening
+The `KeyProvider` interface (`src/lib/shared/keyProvider.ts`) abstracts where the encryption key for the renderer's Dexie store comes from:
+
+- **Electron**: `ElectronSafeStorageKeyProvider` persists the key via the existing `electronAPI.store` IPC, which is `safeStorage`-protected at the Electron main level (`electron/main/store-handler.ts`). The OS keychain holds the wrapping key — macOS Keychain, Windows Credential Manager, Linux libsecret.
+- **Web**: `EphemeralKeyProvider` by default — a fresh random key per session. The `WebSessionPassphraseProvider` (PBKDF2-derived from a user passphrase) is available but requires a UI passphrase prompt that hasn't shipped yet.
+
+### Auth-at-the-wire
+
+Auth that requires byte-for-byte signature fidelity (currently AWS SigV4) signs INSIDE the shared protocol core (`shared/protocol/auth-signer.ts`), after body construction and before the fetcher call. `RequestSpec.auth: AuthConfig | undefined` is the contract; the renderer passes auth config through to the proxy/IPC layer instead of pre-signing. Other auth types (Bearer, Basic, API-key, OAuth2) are still applied client-side because they don't depend on the body.
+
+### Sandbox
+
+User test scripts run in a QuickJS WASM sandbox (`src/features/scripts/lib/scriptExecutor.ts`) with 10 MB memory and 5 s execution-time limits. No host bridge, no filesystem, no network. The previous source-level regex blocklist (`dangerousPatterns`) was deleted in Plan 3 — it provided no security (the sandbox is the boundary) but broke legitimate user code.
+
+### Network — SSRF prevention
+
+SSRF guards on both Worker (`shared/protocol/url-validation.ts`) and Electron paths block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. Electron additionally enforces a DNS-rebind guard at lookup time (`createSecureLookup`).
+
+The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for local development on the Worker; the Electron path receives the same `allowLocalhost` flag through the fetcher options.
+
+### Validation
+
+`useRequestStore.updateRequest` hard-fails on validator rejection. Invalid updates are not applied; the user sees a `toast.error` with the validation message.
+
+All stores are validated with Zod schemas on hydration from persisted storage — Dexie (web) or electron-store (desktop) — via `src/lib/shared/store-validators.ts`.
+
+### Electron hardening
 
 - Hardened runtime enabled (macOS notarization)
 - Context isolation prevents renderer from accessing Node.js
-- IPC payloads validated with Zod before any processing
+- IPC payloads validated with Zod before any processing (including the recursive `AuthConfigSchema` introduced in Plan 3 for sign-at-wire)
 - Rate limiting on all IPC handlers
 - `webSecurity` is not disabled
 
-### Script Sandboxing
-
-Pre-request and test scripts run inside a QuickJS WASM instance (`quickjs-emscripten`). They cannot access the DOM, make network requests, or escape the sandbox.
-
-### Input Validation
-
-All stores are validated with Zod schemas on hydration from persisted storage — Dexie (web) or electron-store (desktop) — via `src/lib/shared/store-validators.ts`.
+See `docs/adr/0004-security-hardening.md` for design rationale.
 
 ---
 

@@ -1,6 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useRequestStore } from '../useRequestStore';
 import type { HttpRequest, GrpcRequest, Response as ApiResponse } from '@/types';
+
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() },
+}));
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
   id: 'r-' + Math.random().toString(36).slice(2),
@@ -128,6 +132,16 @@ describe('useRequestStore — tabs', () => {
     it('is a no-op when no active tab', () => {
       useRequestStore.getState().updateRequest({ url: 'https://x.com' } as Partial<HttpRequest>);
       expect(useRequestStore.getState().tabs).toHaveLength(0);
+    });
+
+    it('rejects invalid updates and does not mutate the active tab', () => {
+      // Toast is mocked via the test setup; we verify the store doesn't mutate.
+      useRequestStore.getState().openTab(makeHttp({ url: 'https://a.com', method: 'GET' }));
+      // The validator should reject a method value that isn't a valid HTTP method
+      useRequestStore.getState().updateRequest({ method: 'NOTAVERB' as unknown as 'GET' });
+      const tab = useRequestStore.getState().getActiveTab()!;
+      expect((tab.request as HttpRequest).url).toBe('https://a.com');
+      expect((tab.request as HttpRequest).method).toBe('GET'); // unchanged
     });
   });
 

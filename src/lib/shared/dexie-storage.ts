@@ -11,67 +11,33 @@ import {
   generateLocalEncryptionKey,
   isEncrypted,
 } from './encryption';
-import { isElectron, getElectronAPI } from './platform';
-
-// Storage key for the encryption key
-const ENCRYPTION_KEY_STORAGE = 'restura-dexie-encryption-key';
+import { getKeyProvider } from './keyProvider';
 
 // Singleton encryption key cache
 let cachedEncryptionKey: string | null = null;
 
 /**
- * Get or generate the encryption key for Dexie storage
+ * Get the encryption key for Dexie storage via the active KeyProvider.
+ *
+ * Selection happens in keyProvider.ts:
+ * - Electron -> ElectronSafeStorageKeyProvider (safeStorage-protected IPC)
+ * - Web -> EphemeralKeyProvider (Task 4 will swap in WebSessionPassphraseProvider)
+ *
+ * Caches the key locally to avoid repeated provider/IPC round-trips.
  */
 async function getEncryptionKey(): Promise<string> {
-  if (cachedEncryptionKey) {
-    return cachedEncryptionKey;
-  }
-
-  if (typeof window === 'undefined') {
-    return 'server-fallback-key';
-  }
-
-  // For Electron, use safeStorage if available
-  if (isElectron()) {
-    const api = getElectronAPI();
-    if (api?.store) {
-      try {
-        const storedKey = await api.store.get(ENCRYPTION_KEY_STORAGE);
-        if (storedKey) {
-          cachedEncryptionKey = storedKey;
-          return storedKey;
-        }
-
-        // Generate and store new key
-        const newKey = generateLocalEncryptionKey();
-        await api.store.set(ENCRYPTION_KEY_STORAGE, newKey);
-        cachedEncryptionKey = newKey;
-        return newKey;
-      } catch (error) {
-        console.error('Failed to get encryption key from electron-store:', error);
-      }
-    }
-  }
-
-  // Web fallback - store in metadata table
+  if (cachedEncryptionKey) return cachedEncryptionKey;
+  if (typeof window === 'undefined') return 'server-fallback-key';
   try {
-    const metadata = await db.metadata.get(ENCRYPTION_KEY_STORAGE);
-    if (metadata) {
-      cachedEncryptionKey = metadata.value;
-      return metadata.value;
-    }
-
-    // Generate and store new key
-    const newKey = generateLocalEncryptionKey();
-    await db.metadata.put({ key: ENCRYPTION_KEY_STORAGE, value: newKey });
-    cachedEncryptionKey = newKey;
-    return newKey;
+    const key = await getKeyProvider().getKey();
+    cachedEncryptionKey = key;
+    return key;
   } catch (error) {
-    console.error('Failed to get encryption key from IndexedDB:', error);
-    // Final fallback
-    const fallbackKey = generateLocalEncryptionKey();
-    cachedEncryptionKey = fallbackKey;
-    return fallbackKey;
+    console.error('Failed to fetch encryption key from provider:', error);
+    // Final fallback - generate ephemeral key so the app stays functional
+    const fallback = generateLocalEncryptionKey();
+    cachedEncryptionKey = fallback;
+    return fallback;
   }
 }
 

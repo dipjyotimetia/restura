@@ -36,6 +36,21 @@ const CaCertSchema = z.object({
   pem: z.string().min(1),
 });
 
+// Sign-at-wire auth. Only `aws-signature` is acted on by the shared core;
+// other types pass through and are no-ops in the proxy (they were already
+// applied by the renderer's applyAuthHeaders before the IPC).
+const AuthConfigSchema = z.object({
+  type: z.enum(['none', 'basic', 'bearer', 'api-key', 'oauth2', 'digest', 'aws-signature']),
+  awsSignature: z
+    .object({
+      accessKey: z.string(),
+      secretKey: z.string(),
+      region: z.string(),
+      service: z.string(),
+    })
+    .optional(),
+});
+
 export const HttpRequestConfigSchema = z.object({
   method: z.string(),
   url: z.string().url('Invalid URL format'),
@@ -48,6 +63,7 @@ export const HttpRequestConfigSchema = z.object({
   verifySsl: z.boolean().optional(),
   clientCert: ClientCertSchema.optional(),
   caCert: CaCertSchema.optional(),
+  auth: AuthConfigSchema.optional(),
 });
 
 export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;

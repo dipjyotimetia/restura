@@ -11,7 +11,7 @@ import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from './request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
-import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
+import type { Fetcher, FetcherRequest, FetcherResponse, ProtocolAuthConfig } from '@shared/protocol/types';
 
 // =============================================================================
 // Migration map (Plan 4 / Task 9): node:http/https → undici
@@ -74,6 +74,11 @@ export interface HttpRequestConfig {
   verifySsl?: boolean;
   clientCert?: ClientCert;
   caCert?: CaCert;
+  /**
+   * Sign-at-wire auth (currently AWS SigV4). Forwarded to executeHttpProxy
+   * so the signature covers the exact bytes undici sends to the upstream.
+   */
+  auth?: ProtocolAuthConfig;
 }
 
 export interface HttpResponse {
@@ -557,6 +562,7 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
         bodyType: interceptedConfig.data ? 'raw' : 'none',
         ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
         ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
+        ...(interceptedConfig.auth ? { auth: interceptedConfig.auth } : {}),
       },
       fetcher,
       { allowLocalhost: true }

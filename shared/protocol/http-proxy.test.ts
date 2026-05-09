@@ -223,6 +223,90 @@ describe('executeHttpProxy', () => {
   });
 });
 
+describe('executeHttpProxy with SigV4 auth', () => {
+  it('signs the request and adds Authorization header before invoking fetcher', async () => {
+    const fetcher = vi.fn(makeFetcher('{}'));
+    await executeHttpProxy(
+      {
+        method: 'POST',
+        url: 'https://s3.amazonaws.com/bucket/key',
+        bodyType: 'json',
+        data: '{"k":"v"}',
+        timeout: 1000,
+        auth: {
+          type: 'aws-signature',
+          awsSignature: {
+            accessKey: 'AKIAEXAMPLE',
+            secretKey: 'secret',
+            region: 'us-east-1',
+            service: 's3',
+          },
+        },
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    const arg = fetcher.mock.calls[0]?.[0];
+    expect(arg?.headers.Authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE\//);
+    expect(arg?.headers.Authorization).toMatch(/SignedHeaders=/);
+    expect(arg?.headers.Authorization).toMatch(/Signature=[a-f0-9]{64}$/);
+    expect(arg?.headers['X-Amz-Date']).toMatch(/^\d{8}T\d{6}Z$/);
+    expect(arg?.headers['X-Amz-Content-Sha256']).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('returns 500 if auth signing throws (e.g., missing credentials)', async () => {
+    const fetcher = vi.fn();
+    const r = await executeHttpProxy(
+      {
+        method: 'GET',
+        url: 'https://s3.amazonaws.com/bucket/key',
+        timeout: 1000,
+        auth: {
+          type: 'aws-signature',
+          awsSignature: {
+            accessKey: '',
+            secretKey: '',
+            region: '',
+            service: '',
+          },
+        },
+      },
+      fetcher as unknown as Fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(500);
+      expect(r.payload.error).toMatch(/auth signing/i);
+    }
+    // Fetcher should NOT have been called — signing failed before transport
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('skips auth for type === "none"', async () => {
+    const fetcher = vi.fn(makeFetcher('{}'));
+    await executeHttpProxy(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000, auth: { type: 'none' } },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    const arg = fetcher.mock.calls[0]?.[0];
+    expect(arg?.headers.Authorization).toBeUndefined();
+    expect(arg?.headers['X-Amz-Date']).toBeUndefined();
+  });
+
+  it('does not add SigV4 headers when auth is omitted', async () => {
+    const fetcher = vi.fn(makeFetcher('{}'));
+    await executeHttpProxy(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    const arg = fetcher.mock.calls[0]?.[0];
+    expect(arg?.headers.Authorization).toBeUndefined();
+  });
+});
+
 describe('executeHttpProxyStreaming', () => {
   it('returns the upstream body without calling text()', async () => {
     const stream = new ReadableStream<Uint8Array>({
