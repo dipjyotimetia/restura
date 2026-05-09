@@ -1,0 +1,11 @@
+version: v2
+inputs:
+  - directory: e2e/mocks/proto
+plugins:
+  # @bufbuild/protoc-gen-es generates ES module TypeScript with message
+  # schemas and service descriptors. The generated descriptors are usable
+  # directly with @connectrpc/connect-node's `ConnectRouter.service()`.
+  - local: ./node_modules/.bin/protoc-gen-es
+    out: e2e/mocks/proto/gen
+    opt:
+      - target=ts
