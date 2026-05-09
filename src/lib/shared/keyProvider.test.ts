@@ -3,6 +3,9 @@ import {
   EphemeralKeyProvider,
   WebSessionPassphraseProvider,
   ElectronSafeStorageKeyProvider,
+  getKeyProvider,
+  setKeyProvider,
+  __resetKeyProviderForTests,
 } from './keyProvider';
 
 describe('EphemeralKeyProvider', () => {
@@ -138,5 +141,31 @@ describe('ElectronSafeStorageKeyProvider', () => {
       get: vi.fn(), set: vi.fn(), has: vi.fn(),
     });
     expect(p.label).toMatch(/keychain|secure storage/i);
+  });
+});
+
+describe('getKeyProvider / setKeyProvider', () => {
+  beforeEach(() => {
+    __resetKeyProviderForTests();
+  });
+
+  it('returns Ephemeral by default in test env (no Electron API)', () => {
+    const provider = getKeyProvider();
+    expect(provider).toBeInstanceOf(EphemeralKeyProvider);
+  });
+
+  it('caches the resolved provider across calls', () => {
+    const a = getKeyProvider();
+    const b = getKeyProvider();
+    expect(a).toBe(b);
+  });
+
+  it('setKeyProvider overrides the cached selection', () => {
+    const original = getKeyProvider();
+    const replacement = new WebSessionPassphraseProvider();
+    setKeyProvider(replacement);
+    const after = getKeyProvider();
+    expect(after).toBe(replacement);
+    expect(after).not.toBe(original);
   });
 });

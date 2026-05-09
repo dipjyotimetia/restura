@@ -1,4 +1,5 @@
 import { generateLocalEncryptionKey } from './encryption';
+import { isElectron, getElectronAPI } from './platform';
 
 export interface KeyProvider {
   getKey(): Promise<string>;
@@ -118,4 +119,46 @@ export class ElectronSafeStorageKeyProvider implements KeyProvider {
     this.cached = fresh;
     return fresh;
   }
+}
+
+let activeProvider: KeyProvider | null = null;
+
+/**
+ * Lazily resolve the active KeyProvider for the current environment.
+ *
+ * Selection rules:
+ * - Electron with `electronAPI.store` available -> ElectronSafeStorageKeyProvider
+ *   backed by the existing safeStorage-protected electron-store IPC.
+ * - Web (or Electron without store IPC) -> EphemeralKeyProvider as the default.
+ *   Task 4's UI calls setKeyProvider(new WebSessionPassphraseProvider()) after
+ *   the user supplies a passphrase.
+ *
+ * Once resolved, the provider is cached for the lifetime of the module.
+ * setKeyProvider() lets callers swap in a different provider (used by the
+ * web passphrase UI to upgrade Ephemeral -> WebSessionPassphrase).
+ */
+export function getKeyProvider(): KeyProvider {
+  if (activeProvider) return activeProvider;
+  if (isElectron()) {
+    const api = getElectronAPI();
+    if (api?.store) {
+      activeProvider = new ElectronSafeStorageKeyProvider({
+        get: api.store.get.bind(api.store),
+        set: api.store.set.bind(api.store),
+        has: api.store.has.bind(api.store),
+      });
+      return activeProvider;
+    }
+  }
+  activeProvider = new EphemeralKeyProvider();
+  return activeProvider;
+}
+
+export function setKeyProvider(provider: KeyProvider): void {
+  activeProvider = provider;
+}
+
+/** Test-only: clear the cached provider so the next getKeyProvider() re-resolves. */
+export function __resetKeyProviderForTests(): void {
+  activeProvider = null;
 }
