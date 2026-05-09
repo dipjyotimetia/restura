@@ -1,11 +1,21 @@
 import { createServer as createHttpServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
+import { gzipSync } from 'node:zlib';
 import { URL } from 'node:url';
 import { execute, parse, validate, type DocumentNode } from 'graphql';
 import { createSession, type Session } from 'better-sse';
 import { getSelfSignedCert } from './cert';
 import { schema as graphqlSchema } from './graphqlSchema';
-import { applyCors, bindLocalhost, closeServer, handlePreflight, readBody } from '../utils/serverHelpers';
+import {
+  applyCors,
+  bindLocalhost,
+  closeServer,
+  handlePreflight,
+  isSecure,
+  readBody,
+  writeJson as json,
+} from '../utils/serverHelpers';
+import { authRoutes, resetAuthState } from './authRoutes';
 
 export interface MockHttpServerHandle {
   port: number;
@@ -38,17 +48,11 @@ interface Route {
   handle: (ctx: RouteContext) => void | Promise<void>;
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json' });
-  res.end(JSON.stringify(body));
-}
-
 const routes: Route[] = [
   {
     method: 'GET',
     test: '/json',
-    handle: ({ res, req }) =>
-      json(res, 200, { hello: 'world', secure: (req.socket as { encrypted?: boolean }).encrypted === true }),
+    handle: ({ res, req }) => json(res, 200, { hello: 'world', secure: isSecure(req) }),
   },
   {
     method: 'GET',
@@ -126,6 +130,51 @@ const routes: Route[] = [
       res.end();
     },
   },
+  // Resume: clients reconnect with `Last-Event-ID` and the server starts
+  // streaming from the next id. Mirrors the EventSource resume protocol.
+  {
+    method: 'GET',
+    test: '/stream/sse-resume',
+    handle: async ({ req, res }) => {
+      const startId = Number(req.headers['last-event-id'] ?? '0') || 0;
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      let aborted = false;
+      req.on('close', () => { aborted = true; });
+      // Suggest 50ms reconnect delay via the SSE retry directive.
+      res.write('retry: 50\n\n');
+      for (let i = startId + 1; i <= startId + 3; i += 1) {
+        await new Promise((r) => setTimeout(r, 10));
+        if (aborted) return;
+        res.write(`id: ${i}\ndata: ${JSON.stringify({ n: i })}\n\n`);
+      }
+      res.end();
+    },
+  },
+  // SSE comments + multi-line data values + retry directive.
+  {
+    method: 'GET',
+    test: '/stream/sse-comments',
+    handle: async ({ req, res }) => {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      let aborted = false;
+      req.on('close', () => { aborted = true; });
+      res.write(': heartbeat\n\n');
+      res.write('retry: 5000\n\n');
+      // Multi-line data field — EventSource concatenates with `\n`.
+      res.write('id: 1\ndata: line one\ndata: line two\ndata: line three\n\n');
+      await new Promise((r) => setTimeout(r, 20));
+      if (!aborted) res.write('id: 2\ndata: final\n\n');
+      res.end();
+    },
+  },
   {
     method: 'GET',
     test: '/stream/ndjson',
@@ -149,6 +198,185 @@ const routes: Route[] = [
     handle: async ({ res, body }) => {
       const result = await handleGraphQL(body);
       json(res, result.status, result.body);
+    },
+  },
+
+  // -- Cookies ---------------------------------------------------------------
+  {
+    method: 'GET',
+    test: '/cookies/set',
+    handle: ({ res, url }) => {
+      const cookies: string[] = [];
+      url.searchParams.forEach((v, k) => {
+        cookies.push(`${k}=${encodeURIComponent(v)}; Path=/; SameSite=Lax`);
+      });
+      if (cookies.length === 0) cookies.push('session=abc123; Path=/; HttpOnly');
+      res.writeHead(200, {
+        'set-cookie': cookies,
+        'content-type': 'application/json',
+      });
+      res.end(JSON.stringify({ set: cookies.length }));
+    },
+  },
+  {
+    method: 'GET',
+    test: '/cookies',
+    handle: ({ res, req }) => {
+      const cookies: Record<string, string> = {};
+      const raw = req.headers.cookie ?? '';
+      for (const pair of raw.split(';')) {
+        const trimmed = pair.trim();
+        if (!trimmed) continue;
+        const eq = trimmed.indexOf('=');
+        if (eq === -1) continue;
+        cookies[trimmed.slice(0, eq)] = decodeURIComponent(trimmed.slice(eq + 1));
+      }
+      json(res, 200, { cookies });
+    },
+  },
+
+  // -- Auth ------------------------------------------------------------------
+  {
+    method: 'GET',
+    test: /^\/basic-auth\/([^/]+)\/([^/]+)$/,
+    handle: ({ res, req, match }) => {
+      const expected = `Basic ${Buffer.from(`${decodeURIComponent(match![1]!)}:${decodeURIComponent(match![2]!)}`).toString('base64')}`;
+      const provided = req.headers.authorization ?? '';
+      if (provided === expected) {
+        json(res, 200, { authenticated: true, user: decodeURIComponent(match![1]!) });
+        return;
+      }
+      res.writeHead(401, {
+        'content-type': 'application/json',
+        'www-authenticate': 'Basic realm="restura-mock"',
+      });
+      res.end(JSON.stringify({ authenticated: false }));
+    },
+  },
+  {
+    method: 'GET',
+    test: '/bearer',
+    handle: ({ res, req }) => {
+      const auth = req.headers.authorization ?? '';
+      const m = /^Bearer\s+(.+)$/.exec(auth);
+      if (!m) {
+        res.writeHead(401, {
+          'content-type': 'application/json',
+          'www-authenticate': 'Bearer realm="restura-mock"',
+        });
+        res.end(JSON.stringify({ authenticated: false }));
+        return;
+      }
+      json(res, 200, { authenticated: true, token: m[1] });
+    },
+  },
+
+  // -- Encoding / large body / chunked ---------------------------------------
+  {
+    method: 'GET',
+    test: '/gzip',
+    handle: ({ res }) => {
+      const payload = Buffer.from(JSON.stringify({ gzipped: true, size: 'small' }));
+      const compressed = gzipSync(payload);
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-encoding': 'gzip',
+        'content-length': String(compressed.length),
+      });
+      res.end(compressed);
+    },
+  },
+  {
+    method: 'GET',
+    test: /^\/bytes\/(\d+)$/,
+    handle: ({ res, match }) => {
+      const n = Math.min(Number(match![1]), 5 * 1024 * 1024);
+      const buf = Buffer.alloc(n, 0x61);
+      res.writeHead(200, {
+        'content-type': 'application/octet-stream',
+        'content-length': String(n),
+      });
+      res.end(buf);
+    },
+  },
+  {
+    method: 'GET',
+    test: '/chunked',
+    handle: ({ req, res }) => {
+      res.writeHead(200, { 'content-type': 'text/plain', 'transfer-encoding': 'chunked' });
+      res.write('chunk-1\n');
+      const t1 = setTimeout(() => res.write('chunk-2\n'), 30);
+      const t2 = setTimeout(() => res.write('chunk-3\n'), 60);
+      const t3 = setTimeout(() => res.end(), 90);
+      req.on('close', () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      });
+    },
+  },
+
+  // -- Redirects -------------------------------------------------------------
+  {
+    method: 'GET',
+    test: '/redirect-to',
+    handle: ({ res, url }) => {
+      const target = url.searchParams.get('url');
+      if (!target) {
+        json(res, 400, { error: 'missing `url` query param' });
+        return;
+      }
+      res.writeHead(302, { location: target });
+      res.end();
+    },
+  },
+
+  // -- Rate limit / 429 with Retry-After -------------------------------------
+  {
+    method: 'GET',
+    test: '/rate-limit',
+    handle: ({ res }) => {
+      res.writeHead(429, {
+        'content-type': 'application/json',
+        'retry-after': '2',
+      });
+      res.end(JSON.stringify({ error: 'rate_limited' }));
+    },
+  },
+
+  ...authRoutes,
+
+  // -- Multipart upload echo -------------------------------------------------
+  {
+    method: 'POST',
+    test: '/upload',
+    handle: ({ res, req, body }) => {
+      const ct = req.headers['content-type'] ?? '';
+      const isMultipart = typeof ct === 'string' && ct.startsWith('multipart/form-data');
+      const boundaryMatch = typeof ct === 'string' ? /boundary=("?)([^";]+)\1/.exec(ct) : null;
+      if (!isMultipart || !boundaryMatch) {
+        json(res, 400, { error: 'expected multipart/form-data' });
+        return;
+      }
+      const boundary = `--${boundaryMatch[2]}`;
+      const parts = body.split(boundary).filter((p) => p && !p.startsWith('--'));
+      const fields: Array<{ name: string; filename?: string; size: number; preview: string }> = [];
+      for (const part of parts) {
+        const headerEnd = part.indexOf('\r\n\r\n');
+        if (headerEnd === -1) continue;
+        const headerBlock = part.slice(0, headerEnd);
+        const value = part.slice(headerEnd + 4).replace(/\r\n$/, '');
+        const nameMatch = /name="([^"]+)"/.exec(headerBlock);
+        const filenameMatch = /filename="([^"]+)"/.exec(headerBlock);
+        if (!nameMatch) continue;
+        fields.push({
+          name: nameMatch[1]!,
+          ...(filenameMatch ? { filename: filenameMatch[1]! } : {}),
+          size: value.length,
+          preview: value.slice(0, 120),
+        });
+      }
+      json(res, 200, { fields });
     },
   },
 ];
@@ -177,9 +405,13 @@ async function handle(
   const body = req.method === 'OPTIONS' ? '' : await readBody(req);
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   const path = url.pathname;
-  const secure = (req.socket as { encrypted?: boolean }).encrypted === true;
-
-  recorder.push({ method: req.method ?? 'GET', path: path + url.search, headers: req.headers, body, secure });
+  recorder.push({
+    method: req.method ?? 'GET',
+    path: path + url.search,
+    headers: req.headers,
+    body,
+    secure: isSecure(req),
+  });
 
   const matched = matchRoute(req, path);
   if (!matched) {
@@ -218,45 +450,62 @@ interface GraphQLBody {
   operationName?: string | null;
 }
 
-async function handleGraphQL(rawBody: string): Promise<{
-  status: number;
-  body: { data?: unknown; errors?: Array<{ message: string }> };
-}> {
-  let parsed: GraphQLBody;
-  try {
-    parsed = JSON.parse(rawBody) as GraphQLBody;
-  } catch {
-    return { status: 400, body: { errors: [{ message: 'invalid JSON' }] } };
-  }
-  if (!parsed.query) {
-    return { status: 400, body: { errors: [{ message: 'missing `query`' }] } };
-  }
+interface GraphQLPayload {
+  data?: unknown;
+  errors?: Array<{ message: string; path?: ReadonlyArray<string | number>; extensions?: Record<string, unknown> }>;
+}
 
+async function executeOne(op: GraphQLBody): Promise<GraphQLPayload> {
+  if (!op.query) {
+    return { errors: [{ message: 'missing `query`' }] };
+  }
   let document: DocumentNode;
   try {
-    document = parse(parsed.query);
+    document = parse(op.query);
   } catch (err) {
-    return { status: 400, body: { errors: [{ message: (err as Error).message }] } };
+    return { errors: [{ message: (err as Error).message }] };
   }
-
   const validationErrors = validate(graphqlSchema, document);
   if (validationErrors.length > 0) {
-    return { status: 200, body: { errors: validationErrors.map((e) => ({ message: e.message })) } };
+    return { errors: validationErrors.map((e) => ({ message: e.message })) };
   }
-
   const result = await execute({
     schema: graphqlSchema,
     document,
-    variableValues: parsed.variables,
-    operationName: parsed.operationName ?? undefined,
+    variableValues: op.variables,
+    operationName: op.operationName ?? undefined,
   });
-
   return {
-    status: 200,
-    body: {
-      ...(result.data !== undefined ? { data: result.data } : {}),
-      ...(result.errors ? { errors: result.errors.map((e) => ({ message: e.message })) } : {}),
-    },
+    ...(result.data !== undefined ? { data: result.data } : {}),
+    ...(result.errors
+      ? {
+          errors: result.errors.map((e) => ({
+            message: e.message,
+            ...(e.path ? { path: e.path } : {}),
+            ...(e.extensions ? { extensions: e.extensions } : {}),
+          })),
+        }
+      : {}),
+  };
+}
+
+async function handleGraphQL(rawBody: string): Promise<{ status: number; body: unknown }> {
+  let parsed: GraphQLBody | GraphQLBody[];
+  try {
+    parsed = JSON.parse(rawBody) as GraphQLBody | GraphQLBody[];
+  } catch {
+    return { status: 400, body: { errors: [{ message: 'invalid JSON' }] } };
+  }
+
+  if (Array.isArray(parsed)) {
+    const results = await Promise.all(parsed.map(executeOne));
+    return { status: 200, body: results };
+  }
+
+  const result = await executeOne(parsed);
+  return {
+    status: parsed.query ? 200 : 400,
+    body: result,
   };
 }
 
@@ -275,7 +524,10 @@ async function startServer(server: HttpServer | HttpsServer, scheme: 'http' | 'h
     close: () => closeServer(server),
     requestCount: () => recorder.length,
     requests: () => recorder.slice(),
-    reset: () => recorder.splice(0, recorder.length),
+    reset: () => {
+      recorder.splice(0, recorder.length);
+      resetAuthState();
+    },
   };
 }
 

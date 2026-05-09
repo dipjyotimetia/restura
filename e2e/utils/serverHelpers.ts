@@ -63,3 +63,22 @@ export function handlePreflight(req: IncomingMessage, res: ServerResponse): bool
   res.end();
   return true;
 }
+
+export function writeJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+export function basicAuthHeader(user: string, pass: string): string {
+  return `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+}
+
+export function bearerToken(req: IncomingMessage): string | null {
+  const header = String(req.headers.authorization ?? '');
+  const m = /^Bearer\s+(.+)$/.exec(header);
+  return m ? m[1]! : null;
+}
+
+export function isSecure(req: IncomingMessage): boolean {
+  return (req.socket as { encrypted?: boolean }).encrypted === true;
+}

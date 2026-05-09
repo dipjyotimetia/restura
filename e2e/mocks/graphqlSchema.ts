@@ -6,6 +6,7 @@ import {
   GraphQLID,
   GraphQLInt,
   GraphQLList,
+  GraphQLError,
 } from 'graphql';
 
 /**
@@ -63,6 +64,34 @@ const QueryType = new GraphQLObjectType({
       type: new GraphQLList(UserType),
       resolve() {
         return Array.from(userStore.values());
+      },
+    },
+    // Throws so tests can exercise the error-with-extensions path.
+    boom: {
+      type: GraphQLString,
+      args: { message: { type: GraphQLString } },
+      resolve(_root, args: { message?: string }) {
+        throw new GraphQLError(args.message ?? 'kaboom', {
+          extensions: { code: 'BOOM_HAPPENED', http: { status: 418 } },
+        });
+      },
+    },
+    // Returns partial data — mixed nullable success + error in a sibling list.
+    // Each list element resolves through its own Promise so a single failure
+    // nulls just that index instead of nulling the whole list.
+    partial: {
+      type: new GraphQLList(UserType),
+      args: { ids: { type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(GraphQLID))) } },
+      resolve(_root, args: { ids: string[] }) {
+        return args.ids.map(async (id) => {
+          const user = userStore.get(id);
+          if (!user) {
+            throw new GraphQLError(`user ${id} not found`, {
+              extensions: { code: 'NOT_FOUND', id },
+            });
+          }
+          return user;
+        });
       },
     },
   },

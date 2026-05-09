@@ -57,7 +57,7 @@ test.describe('Real MCP server', () => {
 
     const json = (await res.json()) as { jsonRpc: { result: { tools: Array<{ name: string }> } } };
     const names = json.jsonRpc.result.tools.map((t) => t.name).sort();
-    expect(names).toEqual(['add', 'echo']);
+    expect(names).toEqual(['add', 'echo', 'fail']);
   });
 
   test('Wire: tools/call echo returns the input prefixed with "echo:"', async ({ request, servers }) => {
@@ -128,10 +128,10 @@ test.describe('Real MCP server', () => {
     await page.getByRole('button', { name: /Connect/i }).click();
 
     // Tools tab badge increases as the client discovers them.
-    await expect(page.getByRole('tab', { name: /Tools \(2\)/ })).toBeVisible({ timeout: 15_000 });
-    // Each tool name renders in the left list of the tools panel.
+    await expect(page.getByRole('tab', { name: /Tools \(3\)/ })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('echo', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('add', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('fail', { exact: true }).first()).toBeVisible();
 
     // After connect we expect at least initialize + tools/list to have hit the server.
     expect(servers.mcp.methodsReceived()).toEqual(

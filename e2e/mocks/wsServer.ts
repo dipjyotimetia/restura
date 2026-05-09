@@ -39,8 +39,23 @@ export async function startMockWsServer(): Promise<MockWsServerHandle> {
   const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   const wssGraphql = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
+  // Negotiate the first subprotocol the client offers from a known list, so
+  // tests can verify Sec-WebSocket-Protocol round-trips through the upgrade.
+  const SUPPORTED_SUBPROTOCOLS = ['restura.echo.v1', 'restura.echo.v2', 'graphql-transport-ws'];
+
   httpServer.on('upgrade', (req, socket, head) => {
-    const target = (req.url ?? '/').startsWith('/graphql') ? wssGraphql : wss;
+    const url = req.url ?? '/';
+    const target = url.startsWith('/graphql') ? wssGraphql : wss;
+    const offered = (req.headers['sec-websocket-protocol'] ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const chosen = offered.find((p) => SUPPORTED_SUBPROTOCOLS.includes(p));
+    if (target === wss && offered.length > 0 && !chosen) {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req));
   });
 
@@ -83,6 +98,40 @@ export async function startMockWsServer(): Promise<MockWsServerHandle> {
           if (peer.readyState === peer.OPEN) peer.send(text);
         }
       });
+      return;
+    }
+
+    // Ping/pong path: server pings the client and tracks pong replies.
+    // Cap the buffer so a misbehaving test can't grow it without bound.
+    if (url.startsWith('/ping')) {
+      const pongs: Buffer[] = [];
+      const PONG_CAP = 32;
+      ws.on('pong', (data) => {
+        if (pongs.length >= PONG_CAP) return;
+        pongs.push(Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer));
+      });
+      ws.on('message', (data, isBinary) => {
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+        if (!isBinary && buf.toString('utf8') === 'PING_ME') {
+          ws.ping('mock-ping');
+          return;
+        }
+        if (!isBinary && buf.toString('utf8') === 'REPORT') {
+          ws.send(JSON.stringify({ pongs: pongs.map((p) => p.toString('utf8')) }));
+          pongs.length = 0;
+        }
+      });
+      return;
+    }
+
+    // Close-code path: closes with the code embedded in the path query.
+    // /close?code=4001&reason=bye
+    if (url.startsWith('/close')) {
+      const params = new URL(url, 'http://localhost').searchParams;
+      const code = Math.min(Math.max(Number(params.get('code') ?? '1000'), 1000), 4999);
+      const reason = params.get('reason') ?? 'normal';
+      ws.send('about-to-close');
+      setTimeout(() => ws.close(code, reason), 5);
       return;
     }
 

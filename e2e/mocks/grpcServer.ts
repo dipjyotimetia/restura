@@ -1,6 +1,6 @@
 import { createServer as createHttp1Server } from 'node:http';
 import { createServer as createH2cServer, type Http2Server } from 'node:http2';
-import type { ConnectRouter as ConnectRouterType } from '@connectrpc/connect';
+import { ConnectError, Code, type ConnectRouter as ConnectRouterType, type HandlerContext } from '@connectrpc/connect';
 import { connectNodeAdapter } from '@connectrpc/connect-node';
 import { create } from '@bufbuild/protobuf';
 import {
@@ -32,35 +32,115 @@ interface Counters {
   reflection: number;
 }
 
+/**
+ * Magic message values that drive the server into specific error paths
+ * without changing the proto. Tests reference these via `FAIL_TRIGGERS.X`
+ * (typed const) so a typo is a compile error rather than a silent
+ * happy-path. `slowMessage(ms, body)` produces the corresponding control
+ * string for delay-based tests.
+ */
+export const FAIL_TRIGGERS = {
+  NotFound: 'FAIL_NOT_FOUND',
+  InvalidArgument: 'FAIL_INVALID_ARGUMENT',
+  PermissionDenied: 'FAIL_PERMISSION_DENIED',
+  Unauthenticated: 'FAIL_UNAUTHENTICATED',
+  ResourceExhausted: 'FAIL_RESOURCE_EXHAUSTED',
+  Internal: 'FAIL_INTERNAL',
+  Unavailable: 'FAIL_UNAVAILABLE',
+  DeadlineExceeded: 'FAIL_DEADLINE_EXCEEDED',
+  Unimplemented: 'FAIL_UNIMPLEMENTED',
+} as const;
+
+export function slowMessage(ms: number, body: string): string {
+  return `SLOW_${ms}:${body}`;
+}
+
+const ERROR_TRIGGERS: Record<string, Code> = {
+  [FAIL_TRIGGERS.NotFound]: Code.NotFound,
+  [FAIL_TRIGGERS.InvalidArgument]: Code.InvalidArgument,
+  [FAIL_TRIGGERS.PermissionDenied]: Code.PermissionDenied,
+  [FAIL_TRIGGERS.Unauthenticated]: Code.Unauthenticated,
+  [FAIL_TRIGGERS.ResourceExhausted]: Code.ResourceExhausted,
+  [FAIL_TRIGGERS.Internal]: Code.Internal,
+  [FAIL_TRIGGERS.Unavailable]: Code.Unavailable,
+  [FAIL_TRIGGERS.DeadlineExceeded]: Code.DeadlineExceeded,
+  [FAIL_TRIGGERS.Unimplemented]: Code.Unimplemented,
+};
+
+function maybeThrow(message: string): void {
+  const code = ERROR_TRIGGERS[message];
+  if (code !== undefined) {
+    throw new ConnectError(`mock-server triggered ${message}`, code);
+  }
+}
+
+/**
+ * Echo metadata back to the client: any inbound `x-echo-*` header is mirrored
+ * onto the response headers, and a final `x-echo-count` lands as a trailer.
+ * This lets metadata-propagation tests assert both header and trailer paths.
+ */
+function echoMetadata(ctx: HandlerContext, count: number): void {
+  for (const [name, value] of ctx.requestHeader) {
+    if (name.toLowerCase().startsWith('x-echo-')) {
+      ctx.responseHeader.set(name, value);
+    }
+  }
+  ctx.responseTrailer.set('x-echo-count', String(count));
+}
+
 function registerRoutes(router: ConnectRouterType, counters: Counters): void {
   router.service(EchoService, {
-    async unaryEcho(req: EchoRequest) {
+    async unaryEcho(req: EchoRequest, ctx: HandlerContext) {
       counters.unary += 1;
+      maybeThrow(req.message);
+      echoMetadata(ctx, 1);
       return create(EchoReplySchema, { message: `echo: ${req.message}`, index: 0 });
     },
-    async *serverStreamingEcho(req: EchoRequest) {
+    async *serverStreamingEcho(req: EchoRequest, ctx: HandlerContext) {
       counters.serverStream += 1;
+      maybeThrow(req.message);
       const total = Math.min(Math.max(req.count || 3, 1), 10);
+      echoMetadata(ctx, total);
+      // SLOW_<ms>:<body> inserts a delay between yields so deadline tests
+      // can exercise client-side cancellation. Fast-path the common case.
+      let delayMs = 0;
+      let body = req.message;
+      if (req.message.startsWith('SLOW_')) {
+        const slowMatch = /^SLOW_(\d+):(.*)$/.exec(req.message);
+        if (slowMatch) {
+          delayMs = Math.min(Number(slowMatch[1]), 5_000);
+          body = slowMatch[2]!;
+        }
+      }
       for (let i = 0; i < total; i += 1) {
-        yield create(EchoReplySchema, { message: `echo[${i}]: ${req.message}`, index: i });
+        if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+        if (ctx.signal.aborted) return;
+        yield create(EchoReplySchema, { message: `echo[${i}]: ${body}`, index: i });
       }
     },
-    async clientStreamingEcho(reqs: AsyncIterable<EchoRequest>) {
+    async clientStreamingEcho(reqs: AsyncIterable<EchoRequest>, ctx: HandlerContext) {
       counters.clientStream += 1;
       const buffered: string[] = [];
-      for await (const r of reqs) buffered.push(r.message);
+      for await (const r of reqs) {
+        maybeThrow(r.message);
+        buffered.push(r.message);
+      }
+      echoMetadata(ctx, buffered.length);
       return create(EchoSummarySchema, {
         messageCount: buffered.length,
         concatenated: buffered.join('|'),
       });
     },
-    async *bidirectionalEcho(reqs: AsyncIterable<EchoRequest>) {
+    async *bidirectionalEcho(reqs: AsyncIterable<EchoRequest>, ctx: HandlerContext) {
       counters.bidi += 1;
       let i = 0;
       for await (const r of reqs) {
+        maybeThrow(r.message);
+        if (ctx.signal.aborted) return;
         yield create(EchoReplySchema, { message: `echo: ${r.message}`, index: i });
         i += 1;
       }
+      echoMetadata(ctx, i);
     },
   });
 }

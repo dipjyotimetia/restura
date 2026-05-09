@@ -10,6 +10,11 @@ export interface MockProxyServerHandle {
   connectCount: () => number;
   forwardCount: () => number;
   connectHosts: () => string[];
+  authChallengeCount: () => number;
+  /** Require these Basic credentials on every forward and CONNECT. */
+  setBasicAuth: (user: string, pass: string) => void;
+  /** Disable auth (the default state). */
+  clearBasicAuth: () => void;
   reset: () => void;
 }
 
@@ -21,6 +26,7 @@ interface Closable {
 export async function startMockProxyServer(): Promise<MockProxyServerHandle> {
   let connectCount = 0;
   let forwardCount = 0;
+  let authChallengeCount = 0;
   const connectHosts: string[] = [];
   const liveSockets = new Set<Closable>();
   const trackSocket = (s: Closable): void => {
@@ -28,7 +34,29 @@ export async function startMockProxyServer(): Promise<MockProxyServerHandle> {
     s.once('close', () => liveSockets.delete(s));
   };
 
+  let expectedAuth: string | null = null;
+  function setBasicAuth(user: string, pass: string): void {
+    expectedAuth = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+  }
+  function clearBasicAuth(): void {
+    expectedAuth = null;
+  }
+  function authOk(headerValue: string | undefined): boolean {
+    if (expectedAuth === null) return true;
+    return headerValue === expectedAuth;
+  }
+
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    if (!authOk(req.headers['proxy-authorization'])) {
+      authChallengeCount += 1;
+      res.writeHead(407, {
+        'content-type': 'text/plain',
+        'proxy-authenticate': 'Basic realm="restura-mock-proxy"',
+      });
+      res.end('Proxy: authentication required');
+      return;
+    }
+
     forwardCount += 1;
 
     const target = (() => {
@@ -83,6 +111,14 @@ export async function startMockProxyServer(): Promise<MockProxyServerHandle> {
   });
 
   server.on('connect', (req, clientSocket, head) => {
+    if (!authOk(req.headers['proxy-authorization'])) {
+      authChallengeCount += 1;
+      clientSocket.end(
+        'HTTP/1.1 407 Proxy Authentication Required\r\n' +
+          'Proxy-Authenticate: Basic realm="restura-mock-proxy"\r\n\r\n'
+      );
+      return;
+    }
     connectCount += 1;
     const hostHeader = req.url ?? '';
     connectHosts.push(hostHeader);
@@ -124,10 +160,15 @@ export async function startMockProxyServer(): Promise<MockProxyServerHandle> {
     connectCount: () => connectCount,
     forwardCount: () => forwardCount,
     connectHosts: () => connectHosts.slice(),
+    authChallengeCount: () => authChallengeCount,
+    setBasicAuth,
+    clearBasicAuth,
     reset: () => {
       connectCount = 0;
       forwardCount = 0;
+      authChallengeCount = 0;
       connectHosts.splice(0, connectHosts.length);
+      expectedAuth = null;
     },
   };
 }
