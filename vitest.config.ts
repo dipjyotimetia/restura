@@ -13,6 +13,7 @@ export default defineConfig({
       'tests/**/*.{test,spec}.{ts,tsx}',
       'electron/main/__tests__/**/*.{test,spec}.ts',
       'worker/**/__tests__/**/*.{test,spec}.ts',
+      'shared/**/*.{test,spec}.{ts,tsx}',
     ],
     exclude: ['node_modules', 'dist', 'out', '.next'],
     coverage: {
@@ -36,6 +37,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@shared': path.resolve(__dirname, './shared'),
       // cloudflare:sockets is a runtime-only Cloudflare Workers API; stub it in tests
       'cloudflare:sockets': path.resolve(__dirname, './tests/__mocks__/cloudflare-sockets.ts'),
     },

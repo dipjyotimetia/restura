@@ -289,6 +289,45 @@ export interface McpResponse extends Response {
 // Union type for any request
 export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;
 
+/**
+ * Stream event union for HTTP streaming responses (SSE / NDJSON / raw).
+ *
+ * Defined inline here (rather than imported from
+ * `@/features/http/lib/streamingResponseReader`) so that `src/types`
+ * remains a leaf module — importing from features into types creates a
+ * dependency cycle since features re-export types from here.
+ *
+ * The shape must remain assignment-compatible with `StreamEvent` in
+ * `streamingResponseReader.ts` (which uses the raw `SseEvent` from
+ * `shared/protocol/sse-parser` for the SSE payload).
+ */
+export type StreamEventLike =
+  | { type: 'sse'; payload: { id?: string; event?: string; data: string; retry?: number } }
+  | { type: 'ndjson'; payload: unknown }
+  | { type: 'raw'; payload: string }
+  | { type: 'end'; bytesRead: number; durationMs: number }
+  | { type: 'error'; error: string; bytesRead: number };
+
+// Multi-tab request tab
+export interface RequestTab {
+  id: string;
+  request: Request;
+  /** Last response received in this tab; persists across reloads. */
+  response?: Response | null;
+  /** Last script results (pre-request + test) for this tab's request. */
+  scriptResult?: { preRequest?: ScriptResult; test?: ScriptResult } | null;
+  /** Whether the request has unsaved changes vs the saved version (savedRequestId). */
+  isDirty: boolean;
+  /** If this tab was opened from a saved request in a collection, the saved request's id. */
+  savedRequestId?: string;
+  /**
+   * In-flight or recently completed streaming response. NOT persisted —
+   * AsyncIterables aren't JSON-serializable and streams are inherently
+   * transient. Stripped by `partialize` in `useRequestStore`.
+   */
+  streamingEvents?: AsyncIterable<StreamEventLike>;
+}
+
 // Response
 export interface Response {
   id: string;
@@ -300,6 +339,11 @@ export interface Response {
   size: number;
   time: number;
   timestamp: number;
+  /**
+   * Negotiated ALPN protocol when known. Populated by Electron's undici fetcher;
+   * absent for the worker path (CF runtime doesn't expose ALPN).
+   */
+  negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
 }
 
 // gRPC Response (specialized for gRPC)

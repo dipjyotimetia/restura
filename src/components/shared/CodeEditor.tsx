@@ -19,6 +19,13 @@ interface CodeEditorProps {
   minimap?: boolean;
   showCopyButton?: boolean;
   onEditorMount?: (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => void;
+  /**
+   * Optional Monaco model path. When provided, @monaco-editor/react keeps a
+   * dedicated ITextModel per path so cursor, selection, fold state and the
+   * undo stack survive remounts/tab switches. Use a stable, unique key per
+   * editor role (e.g. `tab-<id>-body`).
+   */
+  path?: string;
 }
 
 export default function CodeEditor({
@@ -30,6 +37,7 @@ export default function CodeEditor({
   minimap = false,
   showCopyButton = true,
   onEditorMount,
+  path,
 }: CodeEditorProps) {
   const { theme } = useTheme();
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -129,6 +137,7 @@ export default function CodeEditor({
         theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
         onChange={handleChange}
         onMount={handleEditorDidMount}
+        path={path}
         options={{
           readOnly,
           minimap: { enabled: minimap },

@@ -3,7 +3,19 @@
  * Use these with shallow equality for optimal re-render performance
  */
 
-import type { HistoryItem, Collection, Environment, Request, Response } from '@/types';
+import type {
+  HistoryItem,
+  Collection,
+  Environment,
+  HttpRequest,
+  GrpcRequest,
+  SseRequest,
+  McpRequest,
+  RequestTab,
+  Response as ApiResponse,
+  StreamEventLike,
+} from '@/types';
+import { useRequestStore } from './useRequestStore';
 
 // History Store Types
 interface HistoryState {
@@ -125,48 +137,47 @@ export const selectEnvironmentCount = (state: EnvironmentState): number =>
   state.environments.length;
 
 // ============================================================================
-// Request Store Types & Selectors
+// Request Tab Hooks (live store subscriptions)
 // ============================================================================
 
-interface RequestState {
-  currentRequest: Request | null;
-  currentResponse: Response | null;
-  isLoading: boolean;
-  error: string | null;
+/** The currently active tab, or null if none. */
+export function useActiveTab(): RequestTab | null {
+  return useRequestStore((s) =>
+    s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) ?? null : null
+  );
+}
+
+/** The active tab's request, narrowed to the given type, or null if no tab or wrong type. */
+export function useActiveRequest(type: 'http'): HttpRequest | null;
+export function useActiveRequest(type: 'grpc'): GrpcRequest | null;
+export function useActiveRequest(type: 'sse'): SseRequest | null;
+export function useActiveRequest(type: 'mcp'): McpRequest | null;
+export function useActiveRequest(
+  type: 'http' | 'grpc' | 'sse' | 'mcp'
+): HttpRequest | GrpcRequest | SseRequest | McpRequest | null {
+  return useRequestStore((s) => {
+    const tab = s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) : null;
+    if (!tab || tab.request.type !== type) return null;
+    return tab.request as HttpRequest | GrpcRequest | SseRequest | McpRequest;
+  });
+}
+
+/** The active tab's last response, or null. */
+export function useActiveResponse(): ApiResponse | null {
+  return useRequestStore((s) => {
+    const tab = s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) : null;
+    return tab?.response ?? null;
+  });
 }
 
 /**
- * Select loading state only
+ * The active tab's in-flight streaming events iterator, or null. Components
+ * branch on this to render `StreamingResponseViewer` instead of the buffered
+ * Monaco view.
  */
-export const selectIsLoading = (state: RequestState): boolean =>
-  state.isLoading;
-
-/**
- * Select error state only
- */
-export const selectError = (state: RequestState): string | null =>
-  state.error;
-
-/**
- * Select if there's a current response
- */
-export const selectHasResponse = (state: RequestState): boolean =>
-  state.currentResponse !== null;
-
-/**
- * Select response status
- */
-export const selectResponseStatus = (state: RequestState): number | null =>
-  state.currentResponse?.status ?? null;
-
-/**
- * Select response time
- */
-export const selectResponseTime = (state: RequestState): number | null =>
-  state.currentResponse?.time ?? null;
-
-/**
- * Select current request type
- */
-export const selectRequestType = (state: RequestState): 'http' | 'grpc' | 'sse' | 'mcp' | null =>
-  state.currentRequest?.type ?? null;
+export function useActiveStreamingEvents(): AsyncIterable<StreamEventLike> | null {
+  return useRequestStore((s) => {
+    const tab = s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) : null;
+    return tab?.streamingEvents ?? null;
+  });
+}

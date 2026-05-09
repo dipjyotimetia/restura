@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
-import { validateURL } from '../shared/url-validation';
+import { validateMcpSpec, type McpSpec } from '@shared/protocol/mcp-proxy';
+import { SseParser } from '@shared/protocol/sse-parser';
 import type { Env } from '../index';
 
 /**
@@ -10,41 +11,17 @@ import type { Env } from '../index';
  * `text/event-stream` response from the upstream and unwrap to the matching
  * JSON-RPC reply by id.
  *
+ * Validation, URL guards, header sanitisation, JSON-RPC envelope construction,
+ * and timeout clamping live in `shared/protocol/mcp-proxy.ts`. This handler
+ * keeps the SSE-decoding and the upstream fetch — those are Worker-runtime
+ * concerns.
+ *
  * For long-lived MCP subscriptions (server-pushed notifications without a
  * matching request), the renderer should use the existing /api/proxy SSE-friendly
  * path or run in Electron — this handler is intentionally one-shot.
  */
 
-const HEADER_DENYLIST = new Set([
-  'host',
-  'connection',
-  'content-length',
-  'transfer-encoding',
-  'upgrade',
-  'proxy-connection',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'cookie',
-]);
-
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB cap on JSON-RPC replies
-const DEFAULT_TIMEOUT_MS = 60_000;
-
-interface McpProxyRequestBody {
-  url: string;
-  transport: 'streamable-http' | 'http-sse';
-  headers?: Record<string, string>;
-  /** Direct POST endpoint (http-sse transport pre-discovered by client) */
-  postEndpoint?: string;
-  /** Mcp-Session-Id header captured from a prior call (streamable-http) */
-  sessionId?: string;
-  jsonRpc: {
-    method: string;
-    params?: unknown;
-    id: string | number;
-  };
-  timeout?: number;
-}
 
 interface JsonRpcReply {
   jsonrpc: '2.0';
@@ -53,18 +30,12 @@ interface JsonRpcReply {
   error?: { code: number; message: string; data?: unknown };
 }
 
-function filterHeaders(input: Record<string, string> | undefined): Record<string, string> {
-  if (!input) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(input)) {
-    if (!HEADER_DENYLIST.has(k.toLowerCase())) out[k] = v;
-  }
-  return out;
-}
-
 /**
  * Read an SSE-framed response and pull out the first JSON-RPC reply matching
  * the expected id. Aborts cleanly if the stream ends without a match.
+ *
+ * Delegates SSE event-frame parsing to the canonical shared parser; this
+ * function only owns the byte-cap accounting and the JSON-RPC id matching.
  */
 async function readSseForReply(
   body: ReadableStream<Uint8Array>,
@@ -72,9 +43,18 @@ async function readSseForReply(
   byteCap: number
 ): Promise<JsonRpcReply> {
   const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  const parser = new SseParser();
   let totalBytes = 0;
+
+  const tryMatch = (data: string): JsonRpcReply | null => {
+    try {
+      const parsed = JSON.parse(data) as JsonRpcReply;
+      if (parsed.id === expectedId) return parsed;
+    } catch {
+      /* non-JSON event — skip */
+    }
+    return null;
+  };
 
   try {
     while (true) {
@@ -82,93 +62,50 @@ async function readSseForReply(
       if (done) break;
       totalBytes += value.byteLength;
       if (totalBytes > byteCap) throw new Error(`Response exceeds ${byteCap} byte cap`);
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n');
 
-      let dblIdx: number;
-      while ((dblIdx = buffer.indexOf('\n\n')) >= 0) {
-        const block = buffer.slice(0, dblIdx);
-        buffer = buffer.slice(dblIdx + 2);
-
-        const dataLines: string[] = [];
-        for (const line of block.split('\n')) {
-          if (line.startsWith('data:')) {
-            dataLines.push(line.slice(5).replace(/^ /, ''));
-          }
-        }
-        if (dataLines.length === 0) continue;
-
-        try {
-          const parsed = JSON.parse(dataLines.join('\n')) as JsonRpcReply;
-          if (parsed.id === expectedId) return parsed;
-        } catch {
-          /* non-JSON event — skip */
-        }
+      for (const event of parser.feed(value)) {
+        const match = tryMatch(event.data);
+        if (match) return match;
       }
+    }
+    // Drain any trailing partial event (stream ended without a final blank line).
+    for (const event of parser.flush()) {
+      const match = tryMatch(event.data);
+      if (match) return match;
     }
     throw new Error('SSE stream ended without a matching JSON-RPC reply');
   } finally {
-    // Cancel the reader on any exit (matched, errored, or stream ended) so the
-    // upstream connection closes promptly instead of staying open until GC.
     try { await reader.cancel(); } catch { /* already done */ }
   }
 }
 
 export async function mcp(c: Context<{ Bindings: Env }>) {
-  let body: McpProxyRequestBody;
+  let raw: McpSpec;
   try {
-    body = await c.req.json<McpProxyRequestBody>();
+    raw = await c.req.json<McpSpec>();
   } catch {
     return c.json({ error: 'Invalid JSON request body' }, 400);
   }
 
-  if (!body.url || typeof body.url !== 'string') {
+  if (!raw.url || typeof raw.url !== 'string') {
     return c.json({ error: 'Missing or invalid `url`' }, 400);
-  }
-  if (body.transport !== 'streamable-http' && body.transport !== 'http-sse') {
-    return c.json({ error: 'Invalid `transport` (expected "streamable-http" or "http-sse")' }, 400);
-  }
-  if (!body.jsonRpc || typeof body.jsonRpc.method !== 'string' || body.jsonRpc.id === undefined) {
-    return c.json({ error: 'Invalid `jsonRpc` (method and id are required)' }, 400);
-  }
-
-  const targetUrl = body.transport === 'http-sse'
-    ? (body.postEndpoint && body.postEndpoint.length > 0 ? body.postEndpoint : null)
-    : body.url;
-
-  if (!targetUrl) {
-    return c.json({ error: 'http-sse transport requires `postEndpoint`' }, 400);
   }
 
   const isDev = c.env.ENVIRONMENT === 'development';
-  const validation = validateURL(targetUrl, {
-    allowPrivateIPs: false,
-    allowLocalhost: isDev,
-  });
-  if (!validation.valid) {
-    return c.json({ error: `Invalid URL: ${validation.error}` }, 400);
+  const validation = validateMcpSpec(raw, isDev);
+  if (!validation.ok) {
+    return c.json({ error: validation.error }, validation.status as 400);
   }
 
-  const timeoutMs = Math.min(body.timeout ?? DEFAULT_TIMEOUT_MS, 120_000);
+  const { targetUrl, headers, body, timeoutMs } = validation;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json, text/event-stream',
-      ...filterHeaders(body.headers),
-    };
-    if (body.sessionId) headers['Mcp-Session-Id'] = body.sessionId;
-
     const upstream = await fetch(targetUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: body.jsonRpc.id,
-        method: body.jsonRpc.method,
-        ...(body.jsonRpc.params !== undefined ? { params: body.jsonRpc.params } : {}),
-      }),
+      body,
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -177,10 +114,13 @@ export async function mcp(c: Context<{ Bindings: Env }>) {
 
     if (!upstream.ok) {
       const text = await upstream.text();
-      return c.json({
-        error: `Upstream HTTP ${upstream.status} ${upstream.statusText}`,
-        upstreamBody: text.slice(0, 2048),
-      }, 502);
+      return c.json(
+        {
+          error: `Upstream HTTP ${upstream.status} ${upstream.statusText}`,
+          upstreamBody: text.slice(0, 2048),
+        },
+        502
+      );
     }
 
     const ct = upstream.headers.get('content-type') ?? '';
@@ -201,7 +141,7 @@ export async function mcp(c: Context<{ Bindings: Env }>) {
         return c.json({ error: 'Upstream SSE response has no body' }, 502);
       }
       try {
-        reply = await readSseForReply(upstream.body, body.jsonRpc.id, MAX_RESPONSE_BYTES);
+        reply = await readSseForReply(upstream.body, raw.jsonRpc.id, MAX_RESPONSE_BYTES);
       } catch (err) {
         return c.json({ error: err instanceof Error ? err.message : 'SSE read failed' }, 502);
       }

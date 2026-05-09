@@ -4,9 +4,9 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useShallow } from 'zustand/react/shallow';
 import type {
   AuthConfig as AuthConfigType,
   GrpcMethodType,
@@ -44,6 +44,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
+import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
@@ -64,9 +65,13 @@ interface ValidationState {
 }
 
 function GrpcRequestBuilder() {
-  const { currentRequest, updateRequest, setLoading, setCurrentResponse, setScriptResult, isLoading } = useRequestStore(
-    useShallow((s) => ({ currentRequest: s.currentRequest, updateRequest: s.updateRequest, setLoading: s.setLoading, setCurrentResponse: s.setCurrentResponse, setScriptResult: s.setScriptResult, isLoading: s.isLoading }))
-  );
+  const currentRequest = useActiveRequest('grpc');
+  const activeTabId = useActiveTab()?.id;
+  const updateRequest = useRequestStore((s) => s.updateRequest);
+  const setLoading = useRequestStore((s) => s.setLoading);
+  const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
+  const setScriptResult = useRequestStore((s) => s.setScriptResult);
+  const isLoading = useRequestStore((s) => s.isLoading);
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables, getActiveEnvironment, updateVariable } = useEnvironmentStore();
   const [activeTab, setActiveTab] = useState('message');
@@ -95,7 +100,7 @@ function GrpcRequestBuilder() {
   const [showSchemaInfo, setShowSchemaInfo] = useState(false);
 
   // Stable URL reference for use in callbacks and effects — must compute before early return
-  const grpcUrl = (currentRequest as GrpcRequest | null)?.url;
+  const grpcUrl = currentRequest?.url;
 
   // All hooks must be called before any early return — Rules of Hooks
   const {
@@ -103,7 +108,7 @@ function GrpcRequestBuilder() {
     handleUpdate: handleUpdateMetadata,
     handleDelete: handleDeleteMetadata,
   } = useKeyValueCollection(
-    (currentRequest as GrpcRequest | null)?.metadata ?? [],
+    currentRequest?.metadata ?? [],
     (metadata) => updateRequest({ metadata })
   );
 
@@ -296,7 +301,7 @@ function GrpcRequestBuilder() {
 
   // Auto-discover services when URL changes
   useEffect(() => {
-    if (!currentRequest || currentRequest.type !== 'grpc') return;
+    if (!currentRequest) return;
     const url = grpcUrl ?? '';
     if (!url) return;
     const { valid } = validateGrpcUrl(url);
@@ -321,11 +326,11 @@ function GrpcRequestBuilder() {
     };
   }, []);
 
-  if (!currentRequest || currentRequest.type !== 'grpc') {
+  if (!currentRequest) {
     return null;
   }
 
-  const grpcRequest = currentRequest as GrpcRequest;
+  const grpcRequest: GrpcRequest = currentRequest;
 
   const handleMethodTypeChange = (methodType: GrpcMethodType) => {
     updateRequest({ methodType });
@@ -882,6 +887,14 @@ function GrpcRequestBuilder() {
               <span className="ml-1 text-[10px] text-muted-foreground">({streamingMessages.length})</span>
             </TabsTrigger>
           )}
+          {grpcRequest.methodType !== 'unary' && (
+            <TabsTrigger
+              value="web-stream"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              Web Stream
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="message" className="flex-1 overflow-auto p-4 m-0">
@@ -900,6 +913,7 @@ function GrpcRequestBuilder() {
               onChange={handleMessageChange}
               language="json"
               height="400px"
+              path={activeTabId ? `tab-${activeTabId}-grpc-message` : undefined}
             />
           </div>
         </TabsContent>
@@ -1006,6 +1020,12 @@ function GrpcRequestBuilder() {
         {streamingMessages.length > 0 && (
           <TabsContent value="streaming" className="flex-1 overflow-auto p-4 m-0">
             <GrpcStreamingMessages messages={streamingMessages} />
+          </TabsContent>
+        )}
+
+        {grpcRequest.methodType !== 'unary' && (
+          <TabsContent value="web-stream" className="flex-1 overflow-hidden p-0 m-0">
+            <GrpcStreamingPanel request={grpcRequest} />
           </TabsContent>
         )}
       </Tabs>

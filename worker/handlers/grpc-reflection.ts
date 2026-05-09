@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
-import { validateURL } from '../shared/url-validation';
-import { MAX_RESPONSE_SIZE } from '../shared/constants';
+import { validateURL } from '@shared/protocol/url-validation';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
 const REFLECTION_SERVICE_V1 = 'grpc.reflection.v1.ServerReflection';
 const REFLECTION_SERVICE_V1_ALPHA = 'grpc.reflection.v1alpha.ServerReflection';

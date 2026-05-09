@@ -10,13 +10,16 @@ import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/fea
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
+import { applyAuth } from '@shared/protocol/auth-signer';
+import { readStreamingResponse, type StreamEvent } from '@/features/http/lib/streamingResponseReader';
 
 // Execute request via CORS proxy (browser mode)
 async function executeViaCorsProxy(
   config: AxiosRequestConfig,
   startTime: number,
   requestId: string,
-  upstreamProxy?: { host: string; port: number; auth?: { username: string; password: string } }
+  upstreamProxy?: { host: string; port: number; auth?: { username: string; password: string } },
+  auth?: HttpRequest['auth']
 ): Promise<ApiResponse> {
   const proxyBody: Record<string, unknown> = {
     method: config.method,
@@ -26,6 +29,13 @@ async function executeViaCorsProxy(
     data: config.data,
     timeout: config.timeout,
   };
+
+  // Pass sign-at-wire auth (currently AWS SigV4) through to the worker.
+  // The worker signs against the exact bytes it sends so the upstream
+  // doesn't see a SignatureDoesNotMatch from worker-side body re-encoding.
+  if (auth && auth.type !== 'none') {
+    proxyBody.auth = auth;
+  }
 
   if (upstreamProxy) {
     proxyBody.upstreamProxy = upstreamProxy;
@@ -200,7 +210,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             }
           : undefined;
 
-      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy);
+      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy, request.auth);
     } catch (error: unknown) {
       const endTime = Date.now();
       const isAxiosError = axios.isAxiosError(error);
@@ -249,6 +259,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
                 statusText: string;
                 headers: Record<string, string>;
                 data: unknown;
+                negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
               }>;
             };
           }).http.request({
@@ -257,6 +268,11 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             verifySsl: effectiveSettings.verifySsl,
             clientCert: effectiveSettings.clientCert,
             caCert: effectiveSettings.caCert,
+            // Pass sign-at-wire auth through to the Electron handler so SigV4
+            // signs against the exact bytes undici sends.
+            ...(request.auth && request.auth.type !== 'none'
+              ? { auth: request.auth }
+              : {}),
           });
 
           // Process Set-Cookie headers
@@ -294,6 +310,9 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             size: new Blob([JSON.stringify(electronResponse.data)]).size,
             time: endTime - startTime,
             timestamp: Date.now(),
+            ...(electronResponse.negotiatedAlpn !== undefined
+              ? { negotiatedAlpn: electronResponse.negotiatedAlpn }
+              : {}),
           };
         } catch (err) {
           console.warn('Electron proxy IPC failed, falling back to Axios', err);
@@ -309,8 +328,30 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     }
   }
 
-  // If responseData is not set (Electron failed or not Electron), use Axios
+  // If responseData is not set (Electron failed or not Electron), use Axios.
+  // This path bypasses both the worker and Electron's HTTP IPC, so we must
+  // apply sign-at-wire auth (SigV4) here ourselves — the shared auth-signer
+  // is pure Web Crypto and works fine in the renderer.
   if (typeof responseData === 'undefined') {
+    if (request.auth && request.auth.type === 'aws-signature') {
+      try {
+        const finalUrl = new URL(resolvedUrl);
+        Object.entries(params).forEach(([k, v]) => finalUrl.searchParams.append(k, v));
+        const applied = await applyAuth(request.auth, {
+          method: request.method,
+          url: finalUrl.toString(),
+          headers,
+          body: request.body.type !== 'none' ? request.body.raw : undefined,
+        });
+        Object.assign(headers, applied.headers);
+        // axiosConfig.headers references the same object, but defensively reassign.
+        axiosConfig.headers = headers;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'auth signing failed';
+        throw new Error(`Auth signing failed: ${message}`);
+      }
+    }
+
     try {
       const response = await axios(axiosConfig);
       const endTime = Date.now();
@@ -390,4 +431,141 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     envVars,
     sentHeaders: headers,
   };
+}
+
+// ============================================================================
+// Streaming HTTP requests (SSE / NDJSON / raw byte streams)
+// ============================================================================
+
+/** Accept-header content types that route through the streaming pipeline. */
+const STREAMING_ACCEPT_TYPES = [
+  'text/event-stream',
+  'application/x-ndjson',
+  'application/jsonl',
+];
+
+/**
+ * Returns true when the supplied request headers ask for a streaming
+ * content type (SSE / NDJSON / JSON Lines). Header lookup is
+ * case-insensitive; compound Accept values (e.g. `text/event-stream,
+ * application/json`) match if any element is a streaming type.
+ */
+export function isStreamingAccept(headers: Record<string, string>): boolean {
+  const accept = headers['Accept'] ?? headers['accept'] ?? '';
+  if (!accept) return false;
+  const lower = accept.toLowerCase();
+  return STREAMING_ACCEPT_TYPES.some((t) => lower.includes(t));
+}
+
+export interface StreamingExecutionResult {
+  /** Async iterable of stream events, drained by `StreamingResponseViewer`. */
+  events: AsyncIterable<StreamEvent>;
+  /** Status + headers, available as soon as the upstream response begins. */
+  responseMeta: {
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+  };
+}
+
+/**
+ * Execute a streaming HTTP request via the worker proxy. The worker pipes
+ * the upstream body through and we return an `AsyncIterable<StreamEvent>`
+ * that the response viewer consumes incrementally.
+ *
+ * Web only — Electron's IPC path doesn't currently stream response bodies.
+ * Callers should fall back to {@link executeRequest} when running in
+ * Electron.
+ *
+ * Uses native `fetch()` (not Axios) because Axios buffers the entire body
+ * before resolving, defeating the point of streaming.
+ */
+export async function executeStreamingRequest(
+  options: RequestExecutorOptions
+): Promise<StreamingExecutionResult> {
+  const { request, envVars, globalSettings, resolveVariables } = options;
+
+  const resolveLocal = (text: string) => {
+    let result = text;
+    Object.entries(envVars).forEach(([key, value]) => {
+      result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+    });
+    return resolveVariables(result);
+  };
+
+  const resolvedUrl = resolveLocal(request.url);
+
+  const urlValidation = validateURL(resolvedUrl, {
+    allowPrivateIPs: false,
+    allowLocalhost: globalSettings.allowLocalhost ?? true,
+  });
+  if (!urlValidation.valid) {
+    throw new Error(`Invalid URL: ${urlValidation.error}`);
+  }
+
+  const params: Record<string, string> = {};
+  request.params
+    .filter((p) => p.enabled && p.key)
+    .forEach((p) => {
+      params[p.key] = resolveLocal(p.value);
+    });
+
+  const headers: Record<string, string> = {};
+  request.headers
+    .filter((h) => h.enabled && h.key)
+    .forEach((h) => {
+      headers[h.key] = resolveLocal(h.value);
+    });
+
+  // Apply auth headers (e.g. bearer, basic, AWS SigV4 — though SigV4 is
+  // unlikely to be paired with a streaming Accept in practice).
+  const headersWithAuth = await applyAuthHeaders(
+    request.auth,
+    headers,
+    resolvedUrl,
+    request.method,
+    request.body.type !== 'none' ? request.body.raw : undefined
+  );
+  Object.assign(headers, headersWithAuth);
+
+  Object.assign(params, applyApiKeyQueryParam(request.auth, params));
+
+  const cookies = useCookieStore.getState().getCookiesForUrl(resolvedUrl);
+  if (cookies.length > 0) {
+    headers['Cookie'] = cookies.map((c) => `${c.key}=${c.value}`).join('; ');
+  }
+
+  const proxyBody: Record<string, unknown> = {
+    method: request.method,
+    url: resolvedUrl,
+    headers,
+    params,
+    bodyType: request.body.type === 'none' ? 'none' : 'raw',
+    data: request.body.type !== 'none' ? request.body.raw : undefined,
+    streamingMode: true,
+    // No client-side timeout for streams — the upstream chooses when to end.
+    timeout: 0,
+  };
+
+  if (request.auth && request.auth.type !== 'none') {
+    proxyBody.auth = request.auth;
+  }
+
+  const response = await fetch(`${workerBaseUrl()}/api/proxy`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...workerAuthHeaders(),
+    },
+    body: JSON.stringify(proxyBody),
+  });
+
+  const responseMeta = {
+    status: response.status,
+    statusText: response.statusText,
+    headers: Object.fromEntries(response.headers.entries()),
+  };
+
+  const events = readStreamingResponse(response);
+  return { events, responseMeta };
 }

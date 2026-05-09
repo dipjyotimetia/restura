@@ -23,6 +23,7 @@ import {
   Download,
 } from 'lucide-react';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { useActiveTab } from '@/store/selectors';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 const SchemaExplorer = lazyComponent(() => import('./SchemaExplorer'));
@@ -49,6 +50,7 @@ export default function GraphQLBodyEditor({
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const { fetchSchema, getSchema, isLoading } = useGraphQLSchemaStore();
   const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
+  const activeTabId = useActiveTab()?.id;
 
   const schemaResult = url ? getSchema(url) : null;
   const loading = url ? isLoading(url) : false;
@@ -241,6 +243,7 @@ export default function GraphQLBodyEditor({
             language="graphql"
             height="250px"
             onEditorMount={handleQueryEditorMount}
+            path={activeTabId ? `tab-${activeTabId}-graphql-query` : undefined}
           />
         </div>
 
@@ -282,6 +285,7 @@ export default function GraphQLBodyEditor({
                 onChange={onVariablesChange}
                 language="json"
                 height="150px"
+                path={activeTabId ? `tab-${activeTabId}-graphql-variables` : undefined}
               />
             </div>
           )}

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import type { RequestSettings, GlobalSettings } from '@/types';
 import { CertificateOverride } from './CertificateOverride';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 
 interface RequestSettingsEditorProps {
   settings: RequestSettings | undefined;
@@ -104,7 +105,12 @@ export default function RequestSettingsEditor({
           {/* SSL Verification */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>Verify SSL Certificates</Label>
+              <div className="flex items-center">
+                <Label>Verify SSL Certificates</Label>
+                <DesktopOnlyBadge
+                  title="Browsers always validate TLS — this toggle has no effect in the web client. The Electron desktop app honours it for self-signed / dev certificates."
+                />
+              </div>
               <p className="text-sm text-muted-foreground">Validate SSL/TLS certificates</p>
             </div>
             <Switch
@@ -200,7 +206,12 @@ export default function RequestSettingsEditor({
           <div className="space-y-4 rounded-lg border border-border p-4 bg-background">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label className="text-base font-medium">Client Certificate for this Request</Label>
+                <div className="flex items-center">
+                  <Label className="text-base font-medium">Client Certificate for this Request</Label>
+                  <DesktopOnlyBadge
+                    title="Browsers don't allow JavaScript to present a client certificate. mTLS is only enforced in the Electron desktop app."
+                  />
+                </div>
                 <p className="text-sm text-muted-foreground">Use a custom client certificate (mTLS)</p>
               </div>
               <Switch

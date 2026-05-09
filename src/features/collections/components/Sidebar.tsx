@@ -58,7 +58,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const favorites = useHistoryStore(useShallow(selectFavoriteIds));
   const totalHistoryCount = useHistoryStore(selectHistoryCount);
 
-  const { setCurrentRequest } = useRequestStore();
+  const tabs = useRequestStore((s) => s.tabs);
+  const openTab = useRequestStore((s) => s.openTab);
+  const switchTab = useRequestStore((s) => s.switchTab);
   const [activeTab, setActiveTab] = useState<string>(activePanel ?? 'collections');
 
   // Sync when activePanel prop changes
@@ -206,11 +208,17 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const handleLoadHistoryItem = useCallback(
     (itemId: string) => {
       const item = getHistoryById(itemId);
-      if (item) {
-        setCurrentRequest(item.request);
+      if (!item) return;
+      // Focus an existing tab linked to this saved request, otherwise open a new tab.
+      // History items aren't saved requests themselves, so we always open a fresh tab.
+      const existing = tabs.find((t) => t.savedRequestId === item.request.id);
+      if (existing) {
+        switchTab(existing.id);
+        return;
       }
+      openTab(item.request, { savedRequestId: item.request.id });
     },
-    [getHistoryById, setCurrentRequest]
+    [getHistoryById, tabs, openTab, switchTab]
   );
 
   return (

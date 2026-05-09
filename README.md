@@ -51,7 +51,20 @@ It runs as a **web app** on Cloudflare Pages and as a native **desktop app** on 
 
 **Proxy support** — Route through HTTP/HTTPS proxies, chain proxies, attach client certificates.
 
-**Privacy first** — Everything is stored in `localStorage`. No accounts, no telemetry, no cloud sync.
+**Privacy first** — Everything is stored locally (IndexedDB on web, encrypted electron-store on desktop). No accounts, no telemetry, no cloud sync.
+
+---
+
+## Security model
+
+Restura's security posture is asymmetric between the desktop and web clients by virtue of platform capability gaps. The web client surfaces a "Desktop only" badge on UI fields whose underlying capability isn't available in the browser.
+
+- **Desktop (Electron)** — Encryption keys are persisted via Electron's `safeStorage`, which wraps them with the OS keychain (macOS Keychain, Windows Credential Manager, Linux libsecret). Stored data is encrypted with AES-256-GCM keyed by that hardware-backed key. mTLS, custom CA certificates, SOCKS proxies, PAC resolution, and disabling TLS verification all work because Electron uses Node's TLS / `net` stack.
+- **Web** — Encryption keys default to in-memory ephemeral (regenerated per session) — strictly better than persisting the key alongside the ciphertext, but it does mean encrypted data does not survive a reload. A future release will add an opt-in passphrase prompt that derives a stable session key via PBKDF2; for now, web users opting into encryption should treat it as session-scoped. mTLS, custom CA, SOCKS, and "Verify SSL = off" are not available in the web client because the browser sandbox doesn't expose them.
+- **Network** — SSRF guards (RFC 1918, RFC 6598 CGNAT, link-local 169.254/16, cloud metadata endpoints, IPv6 unique-local, IPv4-mapped IPv6) on both Worker and Electron paths. Electron additionally enforces a DNS-rebind guard at lookup time. AWS SigV4 is signed at the wire (in the Worker / Electron handler, not the renderer) so the signature matches the exact bytes the upstream receives.
+- **Sandbox** — User pre-request and test scripts run in a [QuickJS](https://bellard.org/quickjs/) WASM sandbox with memory and execution-time limits. No host bridge, no filesystem, no network.
+
+See [`docs/adr/0004-security-hardening.md`](docs/adr/0004-security-hardening.md) for design rationale.
 
 ---
 

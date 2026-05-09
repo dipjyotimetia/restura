@@ -1,8 +1,7 @@
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import { selectActiveEnvironment } from '@/store/selectors';
-import { useShallow } from 'zustand/react/shallow';
+import { selectActiveEnvironment, useActiveResponse } from '@/store/selectors';
 import { Wifi, WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -18,9 +17,8 @@ const getStatusTextColor = (status: number) => {
 
 export default function StatusBar() {
   const activeEnv = useEnvironmentStore(selectActiveEnvironment);
-  const { isLoading, currentResponse } = useRequestStore(
-    useShallow((s) => ({ isLoading: s.isLoading, currentResponse: s.currentResponse }))
-  );
+  const isLoading = useRequestStore((s) => s.isLoading);
+  const currentResponse = useActiveResponse();
   const todayRequests = useHistoryStore((state) => {
     const todayStr = new Date().toDateString();
     return state.history.filter((h) => new Date(h.timestamp).toDateString() === todayStr).length;

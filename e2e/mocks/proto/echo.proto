@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package echo.v1;
+
+// EchoService exposes one method per gRPC streaming variant so the e2e
+// suite can exercise unary, server-streaming, client-streaming, and
+// bidirectional flows against a real server.
+service EchoService {
+  // Unary: one request, one reply.
+  rpc UnaryEcho(EchoRequest) returns (EchoReply);
+
+  // Server-streaming: one request, N replies.
+  rpc ServerStreamingEcho(EchoRequest) returns (stream EchoReply);
+
+  // Client-streaming: N requests, one summary reply.
+  rpc ClientStreamingEcho(stream EchoRequest) returns (EchoSummary);
+
+  // Bidirectional: each request gets an immediate echo back.
+  rpc BidirectionalEcho(stream EchoRequest) returns (stream EchoReply);
+}
+
+message EchoRequest {
+  // Body to echo back.
+  string message = 1;
+  // For ServerStreamingEcho: number of replies to emit (clamped 1-10).
+  int32 count = 2;
+}
+
+message EchoReply {
+  // The echoed body, prefixed with `echo:`.
+  string message = 1;
+  // Server-streaming reply index, 0-based.
+  int32 index = 2;
+}
+
+message EchoSummary {
+  // Number of inbound messages observed.
+  int32 message_count = 1;
+  // Concatenation of all inbound messages, joined with `|`.
+  string concatenated = 2;
+}

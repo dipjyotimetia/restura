@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
+import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -108,7 +110,9 @@ function ResponseSkeleton() {
 
 function ResponseViewer() {
   // Use selectors to only subscribe to needed state, reducing re-renders
-  const currentResponse = useRequestStore((state) => state.currentResponse);
+  const currentResponse = useActiveResponse();
+  const streamingEvents = useActiveStreamingEvents();
+  const activeTabId = useActiveTab()?.id;
   const isLoading = useRequestStore((state) => state.isLoading);
   const { settings, updateSettings } = useSettingsStore();
   const [activeTab, setActiveTab] = useState('body');
@@ -170,6 +174,47 @@ function ResponseViewer() {
     }
   };
 
+  // Streaming dispatch: when an SSE/NDJSON stream is in flight or recently
+  // ended, render the dedicated streaming viewer. The buffered response is
+  // explicitly cleared by `setStreamingEvents`, so we don't need to worry
+  // about the two paths colliding.
+  if (streamingEvents) {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <div className="h-full flex flex-col bg-background relative z-20 border-l border-border">
+          <div className="h-11 flex items-center px-3 border-b border-border bg-surface-2/50">
+            <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
+              Streaming response
+            </span>
+            <div className="flex-1" />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleLayout}
+                  className="h-7 w-7"
+                >
+                  {settings.layoutOrientation === 'vertical' ? (
+                    <Columns className="h-3.5 w-3.5" />
+                  ) : (
+                    <Rows className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Switch to {settings.layoutOrientation === 'vertical' ? 'side-by-side' : 'stacked'} layout</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="flex-1 min-h-0">
+            <StreamingResponseViewer events={streamingEvents} />
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={300}>
       <AnimatePresence mode="wait">
@@ -215,6 +260,32 @@ function ResponseViewer() {
           <span className="text-[10px] font-mono text-muted-foreground/60 ml-3">
             {formatTime(currentResponse.time)} · {formatBytes(currentResponse.size)}
           </span>
+          {currentResponse.negotiatedAlpn && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="ml-2 inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+                >
+                  {currentResponse.negotiatedAlpn === 'h2'
+                    ? 'HTTP/2'
+                    : currentResponse.negotiatedAlpn === 'h3'
+                      ? 'HTTP/3'
+                      : 'HTTP/1.1'}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  Connection negotiated{' '}
+                  {currentResponse.negotiatedAlpn === 'h2'
+                    ? 'HTTP/2'
+                    : currentResponse.negotiatedAlpn === 'h3'
+                      ? 'HTTP/3'
+                      : 'HTTP/1.1'}{' '}
+                  via ALPN
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           {/* Right side: layout toggle */}
           <div className="flex-1" />
@@ -312,6 +383,7 @@ function ResponseViewer() {
                     height="100%"
                     showCopyButton
                     onEditorMount={(editor) => { responseEditorRef.current = editor; }}
+                    path={activeTabId ? `tab-${activeTabId}-response` : undefined}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">

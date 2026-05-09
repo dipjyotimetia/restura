@@ -1,0 +1,9 @@
+version: v2
+modules:
+  - path: e2e/mocks/proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

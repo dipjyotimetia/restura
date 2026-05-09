@@ -1,12 +1,20 @@
 import type { AuthConfig } from '@/types';
-import { signRequest } from './awsSigV4';
 
+/**
+ * Apply auth types whose values DO NOT depend on the wire-byte body —
+ * Bearer, Basic, API-key (header), OAuth2.
+ *
+ * AWS SigV4 is intentionally NOT handled here: it hashes the body bytes,
+ * so it must be signed inside the proxy (shared/protocol/auth-signer.ts)
+ * against the exact bytes the upstream receives. The renderer passes the
+ * raw `auth` object through to the proxy spec instead.
+ */
 export async function applyAuthHeaders(
   auth: AuthConfig,
   headers: Record<string, string>,
-  url: string,
-  method: string,
-  body?: string
+  _url: string,
+  _method: string,
+  _body?: string
 ): Promise<Record<string, string>> {
   const result = { ...headers };
 
@@ -38,24 +46,9 @@ export async function applyAuthHeaders(
       }
       break;
 
+    // 'aws-signature' is signed at wire time inside the proxy. The renderer
+    // passes the auth config through to the proxy spec — see requestExecutor.ts.
     case 'aws-signature':
-      if (auth.awsSignature?.accessKey && auth.awsSignature?.secretKey && auth.awsSignature?.region && auth.awsSignature?.service) {
-        const signed = await signRequest({
-          accessKey: auth.awsSignature.accessKey,
-          secretKey: auth.awsSignature.secretKey,
-          region: auth.awsSignature.region,
-          service: auth.awsSignature.service,
-          url,
-          method,
-          headers: result,
-          body,
-        });
-        result['Authorization'] = signed.Authorization;
-        result['x-amz-date'] = signed['x-amz-date'];
-        result['x-amz-content-sha256'] = signed['x-amz-content-sha256'];
-      }
-      break;
-
     case 'digest':
     case 'none':
     default:

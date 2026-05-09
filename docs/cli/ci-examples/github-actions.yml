@@ -1,0 +1,45 @@
+# .github/workflows/api-tests.yml
+name: API tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Restura CLI
+        run: npm install -g @restura/cli
+
+      - name: Run API tests
+        run: |
+          restura run ./api-tests \
+            --env ./api-tests/env.ci.yaml \
+            --reporter junit \
+            --output junit.xml
+        env:
+          # Secrets injected as env vars; the env file uses ${VAR} syntax to reference them.
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+
+      - name: Upload JUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-results
+          path: junit.xml
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: API Tests
+          path: junit.xml
+          reporter: java-junit

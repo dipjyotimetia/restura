@@ -1,38 +1,12 @@
 import type { Context } from 'hono';
-import { validateURL } from '../shared/url-validation';
-import { MAX_RESPONSE_SIZE } from '../shared/constants';
+import { stream } from 'hono/streaming';
+import type { StatusCode } from 'hono/utils/http-status';
 import type { Env } from '../index';
+import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
+import { validateURL } from '@shared/protocol/url-validation';
+import type { Fetcher, ProtocolAuthConfig } from '@shared/protocol/types';
+import type { FormField, BodyType } from '@shared/protocol/body-builder';
 import { httpsViaConnectProxy, httpViaProxy } from '../shared/tcp-proxy';
-
-const BLOCKED_REQUEST_HEADERS = [
-  'host',
-  'connection',
-  'content-length',
-  'transfer-encoding',
-  'upgrade',
-  'proxy-connection',
-  'proxy-authenticate',
-  'proxy-authorization',
-];
-
-const BLOCKED_RESPONSE_HEADERS = [
-  'transfer-encoding',
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'trailer',
-  'upgrade',
-];
-
-const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'];
-
-interface FormField {
-  name: string;
-  value: string;
-  filename?: string;
-  contentType?: string;
-}
 
 interface UpstreamProxyConfig {
   host: string;
@@ -45,187 +19,167 @@ interface ProxyRequestBody {
   url: string;
   headers?: Record<string, string>;
   params?: Record<string, string>;
-  bodyType?: 'json' | 'text' | 'form-urlencoded' | 'form-data' | 'binary' | 'none';
+  bodyType?: BodyType;
   data?: string;
   formData?: FormField[];
   timeout?: number;
   upstreamProxy?: UpstreamProxyConfig;
+  /**
+   * Sign-at-wire auth (currently AWS SigV4). Forwarded to executeHttpProxy so
+   * the signature covers the exact bytes this worker sends to the upstream.
+   * Renderer-side `applyAuthHeaders` no longer signs SigV4 — it passes the
+   * auth config through to us instead.
+   */
+  auth?: ProtocolAuthConfig;
+  /**
+   * Forces the streaming pass-through path even when the Accept header doesn't
+   * advertise a known streaming content type. Useful for raw byte streams.
+   */
+  streamingMode?: boolean;
 }
 
-function base64ToUint8Array(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+const STREAMING_ACCEPT_TYPES = [
+  'text/event-stream',
+  'application/x-ndjson',
+  'application/jsonl',
+  'application/grpc-web',
+];
+
+function isStreamingRequest(body: ProxyRequestBody): boolean {
+  if (body.streamingMode === true) return true;
+  const accept =
+    body.headers?.['Accept'] ?? body.headers?.['accept'] ?? '';
+  const lower = accept.toLowerCase();
+  return STREAMING_ACCEPT_TYPES.some((t) => lower.includes(t));
 }
 
-function buildRequestBody(
-  bodyType: string | undefined,
-  data: string | undefined,
-  formData: FormField[] | undefined
-): { body: BodyInit | undefined; contentType: string | undefined } {
-  if (!bodyType || bodyType === 'none') {
-    return { body: undefined, contentType: undefined };
-  }
-
-  switch (bodyType) {
-    case 'json':
-      return { body: data, contentType: 'application/json' };
-    case 'text':
-      return { body: data, contentType: 'text/plain' };
-    case 'form-urlencoded': {
-      const params = new URLSearchParams();
-      if (formData) {
-        formData.forEach((field) => {
-          params.append(field.name, field.value);
-        });
-      } else if (data) {
-        return { body: data, contentType: 'application/x-www-form-urlencoded' };
+function buildFetcher(
+  isDev: boolean,
+  upstream: UpstreamProxyConfig | undefined
+): Fetcher {
+  return async (req) => {
+    let response: Response;
+    if (upstream) {
+      // Reject hostnames with URL-injection characters before constructing the validation URL
+      if (!/^[a-zA-Z0-9.\-[\]:]+$/.test(upstream.host)) {
+        throw new Error('Invalid proxy host: contains illegal characters');
       }
-      return { body: params.toString(), contentType: 'application/x-www-form-urlencoded' };
-    }
-    case 'form-data': {
-      const formDataObj = new FormData();
-      if (formData) {
-        formData.forEach((field) => {
-          if (field.filename) {
-            const bytes = base64ToUint8Array(field.value);
-            const blob = new Blob([bytes], { type: field.contentType || 'application/octet-stream' });
-            formDataObj.append(field.name, blob, field.filename);
-          } else {
-            formDataObj.append(field.name, field.value);
-          }
-        });
+      const proxyValidation = validateURL(`http://${upstream.host}:${upstream.port}`, {
+        allowPrivateIPs: false,
+        allowLocalhost: isDev,
+      });
+      if (!proxyValidation.valid) {
+        throw new Error(`Invalid upstream proxy: ${proxyValidation.error}`);
       }
-      return { body: formDataObj, contentType: undefined };
+      const targetUrl = new URL(req.url);
+      const init: RequestInit = {
+        method: req.method,
+        headers: req.headers,
+        signal: req.signal,
+        redirect: 'follow',
+      };
+      if (req.body !== undefined) init.body = req.body;
+      response =
+        targetUrl.protocol === 'https:'
+          ? await httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
+          : await httpViaProxy(targetUrl, upstream, init, req.signal);
+    } else {
+      const init: RequestInit = {
+        method: req.method,
+        headers: req.headers,
+        signal: req.signal,
+        redirect: 'follow',
+      };
+      if (req.body !== undefined) init.body = req.body;
+      response = await fetch(req.url, init);
     }
-    case 'binary': {
-      if (data) {
-        return { body: base64ToUint8Array(data), contentType: 'application/octet-stream' };
-      }
-      return { body: undefined, contentType: undefined };
-    }
-    default:
-      return { body: data, contentType: undefined };
-  }
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+      text: () => response.text(),
+      contentLengthHeader: response.headers.get('content-length'),
+      body: response.body,
+    };
+  };
 }
 
 export async function proxy(c: Context<{ Bindings: Env }>) {
+  const isDev = c.env.ENVIRONMENT === 'development';
+
+  let body: ProxyRequestBody;
   try {
-    const body = await c.req.json<ProxyRequestBody>();
-    const { method, url, headers = {}, params = {}, data, formData, bodyType, timeout = 30000, upstreamProxy } = body;
-
-    if (!ALLOWED_METHODS.includes(method.toUpperCase())) {
-      return c.json({ error: `Method ${method} is not allowed` }, 400);
-    }
-
-    const isDev = c.env.ENVIRONMENT === 'development';
-    const urlValidation = validateURL(url, {
-      allowPrivateIPs: false,
-      allowLocalhost: isDev,
-    });
-
-    if (!urlValidation.valid) {
-      return c.json({ error: `Invalid URL: ${urlValidation.error}` }, 400);
-    }
-
-    const targetUrl = new URL(url);
-    Object.entries(params).forEach(([key, value]) => {
-      targetUrl.searchParams.append(key, value);
-    });
-
-    const proxyHeaders: Record<string, string> = {};
-    Object.entries(headers).forEach(([key, value]) => {
-      if (!BLOCKED_REQUEST_HEADERS.includes(key.toLowerCase())) {
-        proxyHeaders[key] = value;
-      }
-    });
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    try {
-      const { body: requestBody, contentType } = buildRequestBody(bodyType, data, formData);
-
-      if (contentType && !Object.keys(proxyHeaders).some((k) => k.toLowerCase() === 'content-type')) {
-        proxyHeaders['Content-Type'] = contentType;
-      }
-
-      const fetchOptions: RequestInit = {
-        method: method.toUpperCase(),
-        headers: proxyHeaders,
-        signal: controller.signal,
-        redirect: 'follow',
-      };
-
-      if (requestBody && !['GET', 'HEAD'].includes(method.toUpperCase())) {
-        fetchOptions.body = requestBody;
-      }
-
-      let response: Response;
-      if (upstreamProxy) {
-        // Reject hostnames with URL-injection characters before constructing the validation URL
-        if (!/^[a-zA-Z0-9.\-[\]:]+$/.test(upstreamProxy.host)) {
-          clearTimeout(timeoutId);
-          return c.json({ error: 'Invalid proxy host: contains illegal characters' }, 400);
-        }
-        const proxyValidation = validateURL(`http://${upstreamProxy.host}:${upstreamProxy.port}`, {
-          allowPrivateIPs: false,
-          allowLocalhost: isDev,
-        });
-        if (!proxyValidation.valid) {
-          clearTimeout(timeoutId);
-          return c.json({ error: `Invalid upstream proxy: ${proxyValidation.error}` }, 400);
-        }
-
-        const isHttps = targetUrl.protocol === 'https:';
-        response = isHttps
-          ? await httpsViaConnectProxy(targetUrl, upstreamProxy, fetchOptions, controller.signal)
-          : await httpViaProxy(targetUrl, upstreamProxy, fetchOptions, controller.signal);
-      } else {
-        response = await fetch(targetUrl.toString(), fetchOptions);
-      }
-      clearTimeout(timeoutId);
-
-      const contentLength = response.headers.get('content-length');
-      if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
-        return c.json({ error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` }, 413);
-      }
-
-      const responseBody = await response.text();
-
-      if (responseBody.length > MAX_RESPONSE_SIZE) {
-        return c.json({ error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` }, 413);
-      }
-
-      const responseHeaders: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        if (!BLOCKED_RESPONSE_HEADERS.includes(key.toLowerCase())) {
-          responseHeaders[key] = value;
-        }
-      });
-
-      return c.json({
-        status: response.status,
-        statusText: response.statusText,
-        headers: responseHeaders,
-        data: responseBody,
-        size: responseBody.length,
-      });
-    } catch (fetchError: unknown) {
-      clearTimeout(timeoutId);
-      if (fetchError instanceof Error) {
-        if (fetchError.name === 'AbortError') {
-          return c.json({ error: `Request timeout after ${timeout}ms` }, 504);
-        }
-        return c.json({ error: `Proxy request failed: ${fetchError.message}` }, 502);
-      }
-      return c.json({ error: 'Proxy request failed' }, 502);
-    }
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    body = await c.req.json<ProxyRequestBody>();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
     return c.json({ error: `Proxy error: ${message}` }, 500);
   }
+
+  if (isStreamingRequest(body)) {
+    const streamingResult = await executeHttpProxyStreaming(
+      {
+        method: body.method,
+        url: body.url,
+        headers: body.headers,
+        params: body.params,
+        bodyType: body.bodyType,
+        data: body.data,
+        formData: body.formData,
+        timeout: body.timeout,
+        auth: body.auth,
+      },
+      buildFetcher(isDev, body.upstreamProxy),
+      { allowLocalhost: isDev }
+    );
+
+    if (!streamingResult.ok) {
+      return c.json(
+        streamingResult.payload,
+        streamingResult.status as 400 | 502 | 504
+      );
+    }
+
+    // Forward sanitised upstream headers verbatim to the renderer.
+    for (const [k, v] of Object.entries(streamingResult.response.headers)) {
+      c.header(k, v);
+    }
+    // Forward the upstream status code (200 typical, but any 2xx/4xx/5xx is valid).
+    c.status(streamingResult.response.status as StatusCode);
+
+    // Pipe upstream body through Hono's streaming helper. Hono's stream() takes
+    // care of stream lifecycle (close, abort propagation) for us.
+    const upstreamBody = streamingResult.response.body;
+    return stream(c, async (s) => {
+      await s.pipe(upstreamBody);
+    });
+  }
+
+  const result = await executeHttpProxy(
+    {
+      method: body.method,
+      url: body.url,
+      headers: body.headers,
+      params: body.params,
+      bodyType: body.bodyType,
+      data: body.data,
+      formData: body.formData,
+      timeout: body.timeout,
+      auth: body.auth,
+    },
+    buildFetcher(isDev, body.upstreamProxy),
+    { allowLocalhost: isDev }
+  );
+
+  if (!result.ok) {
+    return c.json(result.payload, result.status as 400 | 413 | 500 | 502 | 504);
+  }
+  // Preserve the worker's historical response shape: `data` instead of `body`.
+  // Renderer (`requestExecutor.ts`) reads `proxyResponse.data`.
+  return c.json({
+    status: result.response.status,
+    statusText: result.response.statusText,
+    headers: result.response.headers,
+    data: result.response.body,
+    size: result.response.size,
+  });
 }

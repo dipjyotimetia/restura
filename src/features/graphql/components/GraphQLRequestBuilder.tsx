@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveRequest } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Send, Plug, PlugZap, CheckCircle } from 'lucide-react';
@@ -23,7 +24,13 @@ import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 
 function GraphQLRequestBuilder() {
-  const { currentRequest, updateRequest, setLoading, setCurrentResponse, setScriptResult, isLoading } = useRequestStore();
+  // GraphQL is HTTP under the hood — narrow the active tab to an HttpRequest.
+  const currentRequest = useActiveRequest('http');
+  const updateRequest = useRequestStore((s) => s.updateRequest);
+  const setLoading = useRequestStore((s) => s.setLoading);
+  const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
+  const setScriptResult = useRequestStore((s) => s.setScriptResult);
+  const isLoading = useRequestStore((s) => s.isLoading);
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables, getActiveEnvironment, updateVariable } = useEnvironmentStore();
   const [activeTab, setActiveTab] = useState('query');
@@ -38,15 +45,15 @@ function GraphQLRequestBuilder() {
     handleUpdate: handleUpdateHeader,
     handleDelete: handleDeleteHeader,
   } = useKeyValueCollection(
-    (currentRequest as HttpRequest | null)?.headers ?? [],
+    currentRequest?.headers ?? [],
     (headers) => updateRequest({ headers })
   );
 
-  if (!currentRequest || currentRequest.type !== 'http') {
+  if (!currentRequest) {
     return null;
   }
 
-  const httpRequest = currentRequest as HttpRequest;
+  const httpRequest: HttpRequest = currentRequest;
   const query = httpRequest.body.raw || '';
   const operationType = extractOperationType(query);
   const isSubscription = operationType === 'subscription';

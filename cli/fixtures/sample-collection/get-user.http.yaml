@@ -1,0 +1,9 @@
+name: Get user
+method: GET
+url: '{{API_BASE}}/users/1'
+headers:
+  - { key: Accept, value: application/json }
+testScript: |
+  pm.test('status is 200', () => {
+    if (response.status !== 200) throw new Error('expected 200, got ' + response.status);
+  });

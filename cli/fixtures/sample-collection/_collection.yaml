@@ -1,0 +1,4 @@
+name: Sample
+description: Demo collection for CLI tests
+variables:
+  - { key: API_BASE, value: https://api.example.com, enabled: true }

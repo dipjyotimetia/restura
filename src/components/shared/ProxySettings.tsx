@@ -12,6 +12,7 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ProxyType } from '@/types';
 import { Plus, Trash2, Shield, Globe, Zap, Eye, EyeOff } from 'lucide-react';
 import { isWeb } from '@/lib/shared/platform';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 
 export default function ProxySettings() {
   const { settings, updateProxy, setProxyAuth, clearProxyAuth, addBypassHost, removeBypassHost, setCorsProxyEnabled } = useSettingsStore();
@@ -115,10 +116,20 @@ export default function ProxySettings() {
                 <SelectContent>
                   <SelectItem value="http">HTTP</SelectItem>
                   <SelectItem value="https">HTTPS</SelectItem>
-                  <SelectItem value="socks4">SOCKS4</SelectItem>
-                  <SelectItem value="socks5">SOCKS5</SelectItem>
+                  <SelectItem value="socks4">SOCKS4 {inBrowser ? '(Desktop only)' : ''}</SelectItem>
+                  <SelectItem value="socks5">SOCKS5 {inBrowser ? '(Desktop only)' : ''}</SelectItem>
                 </SelectContent>
               </Select>
+              {inBrowser && (proxy.type === 'socks4' || proxy.type === 'socks5') && (
+                <div className="flex items-center gap-1.5">
+                  <DesktopOnlyBadge
+                    title="Browsers can't open raw TCP, so SOCKS proxies aren't available in the web client. Use the Electron desktop app to tunnel through SOCKS4 / SOCKS5."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    SOCKS proxies require the desktop app — the web client will fall back to HTTP.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Host and Port */}

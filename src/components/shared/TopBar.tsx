@@ -4,7 +4,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/u
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useRequestStore } from '@/store/useRequestStore';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/shared/utils';
 import { motion } from '@/components/ui/motion';
@@ -35,19 +34,8 @@ export default function TopBar({
   const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore(
     useShallow((s) => ({ environments: s.environments, activeEnvironmentId: s.activeEnvironmentId, setActiveEnvironment: s.setActiveEnvironment }))
   );
-  const { switchToHttp, switchToGrpc, switchToSse, switchToMcp } = useRequestStore();
-
   const handleModeChange = (mode: RequestMode) => {
     onRequestModeChange(mode);
-    if (mode === 'http' || mode === 'graphql') {
-      switchToHttp();
-    } else if (mode === 'grpc') {
-      switchToGrpc();
-    } else if (mode === 'sse') {
-      switchToSse();
-    } else if (mode === 'mcp') {
-      switchToMcp();
-    }
   };
 
   return (
