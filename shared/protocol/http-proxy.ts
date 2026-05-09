@@ -1,6 +1,7 @@
 import { validateURL } from './url-validation';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { buildRequestBody } from './body-builder';
+import { applyAuth } from './auth-signer';
 import type { Fetcher, RequestSpec, ExecuteResult } from './types';
 
 export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
@@ -56,6 +57,29 @@ export async function executeHttpProxy(
 
   try {
     const finalBody = !['GET', 'HEAD'].includes(method) ? body : undefined;
+
+    // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
+    // and BEFORE the fetcher — the signature must cover the exact bytes the
+    // upstream receives, including the canonical URL with query params.
+    if (spec.auth && spec.auth.type !== 'none') {
+      try {
+        const applied = await applyAuth(spec.auth, {
+          method,
+          url: targetUrl.toString(),
+          headers,
+          body: finalBody,
+        });
+        Object.assign(headers, applied.headers);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'unknown';
+        return {
+          ok: false,
+          status: 500,
+          payload: { error: `Auth signing failed: ${message}` },
+        };
+      }
+    }
+
     const response = await fetcher({
       url: targetUrl.toString(),
       method,
@@ -191,6 +215,28 @@ export async function executeHttpProxyStreaming(
 
   try {
     const finalBody = !['GET', 'HEAD'].includes(method) ? requestBody : undefined;
+
+    // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
+    // and BEFORE the fetcher. See executeHttpProxy above for rationale.
+    if (spec.auth && spec.auth.type !== 'none') {
+      try {
+        const applied = await applyAuth(spec.auth, {
+          method,
+          url: targetUrl.toString(),
+          headers,
+          body: finalBody,
+        });
+        Object.assign(headers, applied.headers);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'unknown';
+        return {
+          ok: false,
+          status: 500,
+          payload: { error: `Auth signing failed: ${message}` },
+        };
+      }
+    }
+
     const response = await fetcher({
       url: targetUrl.toString(),
       method,

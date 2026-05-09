@@ -1,5 +1,40 @@
 import type { BodyType, FormField } from './body-builder';
 
+/**
+ * Auth configuration consumed by the shared protocol core.
+ *
+ * This is a structural subset of `AuthConfig` from `src/types/index.ts`. It
+ * lives here (rather than being imported from `@/types`) so the shared core
+ * has no compile-time dependency on the renderer source tree — keeping the
+ * Worker bundle and Electron build self-contained.
+ *
+ * Sign-at-wire auth (currently AWS SigV4) is applied by `applyAuth` against
+ * the exact body bytes the upstream receives. Other auth types (Bearer,
+ * Basic, API-key, OAuth2) are still applied by the renderer before the
+ * request reaches the proxy — they don't depend on wire-byte fidelity.
+ */
+export type ProtocolAuthType =
+  | 'none'
+  | 'basic'
+  | 'bearer'
+  | 'api-key'
+  | 'oauth2'
+  | 'digest'
+  | 'aws-signature';
+
+export interface ProtocolAuthConfig {
+  type: ProtocolAuthType;
+  awsSignature?: {
+    accessKey: string;
+    secretKey: string;
+    region: string;
+    service: string;
+  };
+  // Other auth shapes (basic/bearer/apiKey/oauth2/digest) intentionally omitted —
+  // the shared core only needs to act on `aws-signature`. Passing through
+  // unknown auth types is a no-op.
+}
+
 export interface RequestSpec {
   method: string;
   url: string;
@@ -9,6 +44,15 @@ export interface RequestSpec {
   data?: string;
   formData?: FormField[];
   timeout?: number;
+  /**
+   * Auth that requires sign-at-wire fidelity (AWS SigV4 hashes the body bytes,
+   * so the signature must be computed against the exact bytes the fetcher sends
+   * — not a renderer-side reconstruction the worker may transform).
+   *
+   * Bearer / Basic / API-key / OAuth2 are still applied by the renderer before
+   * the request reaches the proxy; they don't depend on wire-byte fidelity.
+   */
+  auth?: ProtocolAuthConfig;
 }
 
 export interface NormalizedResponse {

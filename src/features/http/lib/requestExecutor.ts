@@ -10,13 +10,15 @@ import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/fea
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
+import { applyAuth } from '@shared/protocol/auth-signer';
 
 // Execute request via CORS proxy (browser mode)
 async function executeViaCorsProxy(
   config: AxiosRequestConfig,
   startTime: number,
   requestId: string,
-  upstreamProxy?: { host: string; port: number; auth?: { username: string; password: string } }
+  upstreamProxy?: { host: string; port: number; auth?: { username: string; password: string } },
+  auth?: HttpRequest['auth']
 ): Promise<ApiResponse> {
   const proxyBody: Record<string, unknown> = {
     method: config.method,
@@ -26,6 +28,13 @@ async function executeViaCorsProxy(
     data: config.data,
     timeout: config.timeout,
   };
+
+  // Pass sign-at-wire auth (currently AWS SigV4) through to the worker.
+  // The worker signs against the exact bytes it sends so the upstream
+  // doesn't see a SignatureDoesNotMatch from worker-side body re-encoding.
+  if (auth && auth.type !== 'none') {
+    proxyBody.auth = auth;
+  }
 
   if (upstreamProxy) {
     proxyBody.upstreamProxy = upstreamProxy;
@@ -200,7 +209,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             }
           : undefined;
 
-      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy);
+      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy, request.auth);
     } catch (error: unknown) {
       const endTime = Date.now();
       const isAxiosError = axios.isAxiosError(error);
@@ -258,6 +267,11 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             verifySsl: effectiveSettings.verifySsl,
             clientCert: effectiveSettings.clientCert,
             caCert: effectiveSettings.caCert,
+            // Pass sign-at-wire auth through to the Electron handler so SigV4
+            // signs against the exact bytes undici sends.
+            ...(request.auth && request.auth.type !== 'none'
+              ? { auth: request.auth }
+              : {}),
           });
 
           // Process Set-Cookie headers
@@ -313,8 +327,30 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     }
   }
 
-  // If responseData is not set (Electron failed or not Electron), use Axios
+  // If responseData is not set (Electron failed or not Electron), use Axios.
+  // This path bypasses both the worker and Electron's HTTP IPC, so we must
+  // apply sign-at-wire auth (SigV4) here ourselves — the shared auth-signer
+  // is pure Web Crypto and works fine in the renderer.
   if (typeof responseData === 'undefined') {
+    if (request.auth && request.auth.type === 'aws-signature') {
+      try {
+        const finalUrl = new URL(resolvedUrl);
+        Object.entries(params).forEach(([k, v]) => finalUrl.searchParams.append(k, v));
+        const applied = await applyAuth(request.auth, {
+          method: request.method,
+          url: finalUrl.toString(),
+          headers,
+          body: request.body.type !== 'none' ? request.body.raw : undefined,
+        });
+        Object.assign(headers, applied.headers);
+        // axiosConfig.headers references the same object, but defensively reassign.
+        axiosConfig.headers = headers;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'auth signing failed';
+        throw new Error(`Auth signing failed: ${message}`);
+      }
+    }
+
     try {
       const response = await axios(axiosConfig);
       const endTime = Date.now();
