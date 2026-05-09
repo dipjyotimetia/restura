@@ -3,6 +3,7 @@ import type * as http from 'http';
 import * as net from 'net';
 import * as tls from 'tls';
 import * as dns from 'dns';
+import * as diagnosticsChannel from 'node:diagnostics_channel';
 import { Readable } from 'node:stream';
 import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
 import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
@@ -244,6 +245,51 @@ function wrapConnectorForAlpn(
 }
 
 /**
+ * Subscribes to undici's `undici:client:connected` diagnostics channel for
+ * the lifetime of a single request through an HTTP/HTTPS proxy. The TLS
+ * handshake to the upstream happens inside ProxyAgent (after the CONNECT
+ * tunnel) and we have no public hook to wrap that connector — so we listen
+ * on the global channel and correlate by host/port from `connectParams`.
+ *
+ * Returns an unsubscribe function the caller MUST invoke once the request
+ * finishes or errors, otherwise the listener leaks.
+ */
+function subscribeProxyAlpnCapture(
+  hostname: string,
+  port: number,
+  holder: { alpn?: string }
+): () => void {
+  type ConnectedEvent = {
+    connectParams?: { host?: string; hostname?: string; port?: number; protocol?: string };
+    socket?: net.Socket | tls.TLSSocket;
+  };
+  const handler = (raw: unknown): void => {
+    const evt = raw as ConnectedEvent;
+    const cp = evt.connectParams;
+    if (!cp) return;
+    const cpHost = (cp.hostname ?? cp.host ?? '').toLowerCase();
+    const cpPort = cp.port ?? (cp.protocol === 'https:' ? 443 : 80);
+    if (cpHost !== hostname.toLowerCase() || cpPort !== port) return;
+    const sock = evt.socket as tls.TLSSocket | undefined;
+    const alpn = sock && 'alpnProtocol' in sock ? sock.alpnProtocol : undefined;
+    if (typeof alpn === 'string' && alpn.length > 0) {
+      holder.alpn = alpn;
+    }
+  };
+  diagnosticsChannel.subscribe('undici:client:connected', handler);
+  let unsubscribed = false;
+  return () => {
+    if (unsubscribed) return;
+    unsubscribed = true;
+    try {
+      diagnosticsChannel.unsubscribe('undici:client:connected', handler);
+    } catch {
+      // ignore — best-effort cleanup
+    }
+  };
+}
+
+/**
  * Builds the connector options shared by every dispatcher we construct
  * (DNS rebind guard, connect timeout, mTLS material, custom CA, SSL verify flag).
  */
@@ -359,7 +405,11 @@ function buildElectronFetcher(
 
     // Choose a dispatcher based on proxy configuration.
     let dispatcher: Agent | ProxyAgent;
-    let captureAlpn = isHttps; // only meaningful for HTTPS
+    const captureAlpn = isHttps; // only meaningful for HTTPS
+    // Set if we subscribed to the global 'undici:client:connected' channel for
+    // proxy-path ALPN capture; called after the request completes to avoid
+    // leaking the listener across requests.
+    let unsubscribeProxyAlpn: (() => void) | null = null;
 
     if (electronConfig.proxy?.enabled && electronConfig.proxy.host) {
       const proxyType = electronConfig.proxy.type;
@@ -370,14 +420,7 @@ function buildElectronFetcher(
           uri: proxyUri,
           allowH2,
           // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
-          requestTls: {
-            ...connectOpts,
-            ...(captureAlpn
-              ? {
-                  // We intercept by extending the default connector through the connect option below.
-                }
-              : {}),
-          } as ProxyAgent.Options['requestTls'],
+          requestTls: { ...connectOpts } as ProxyAgent.Options['requestTls'],
         };
         if (electronConfig.proxy.auth?.username && electronConfig.proxy.auth?.password) {
           const auth = Buffer.from(
@@ -386,12 +429,16 @@ function buildElectronFetcher(
           proxyOpts.token = `Basic ${auth}`;
         }
         dispatcher = new ProxyAgent(proxyOpts);
-        // ProxyAgent's connector for the upstream TLS handshake is built internally; we cannot
-        // wrap it directly here. We fall back to a 'connect' diagnostics-channel-style hook by
-        // listening to the dispatcher 'connect' event for ALPN reporting (see below). Since
-        // undici's public events don't surface alpnProtocol, we accept that ALPN is unknown
-        // when going through an HTTP proxy and leave alpnHolder empty.
-        captureAlpn = false;
+        // ProxyAgent builds the upstream connector internally from `requestTls`,
+        // so we can't wrap it directly. Instead we subscribe to undici's
+        // diagnostics channel for the lifetime of this request and snapshot
+        // alpnProtocol from the upstream TLS socket on the 'connected' event.
+        if (captureAlpn) {
+          const upstreamPort = url.port
+            ? parseInt(url.port, 10)
+            : (isHttps ? 443 : 80);
+          unsubscribeProxyAlpn = subscribeProxyAlpnCapture(url.hostname, upstreamPort, alpnHolder);
+        }
       } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
         dispatcher = createSocksDispatcher(socksSocket, url, isHttps, verifySsl, allowH2);
         // SOCKS path: TLS happens inside our custom connector — capture ALPN there.
@@ -446,6 +493,7 @@ function buildElectronFetcher(
         // lives in makeHttpRequest, so we rely on that default.
       });
     } catch (err) {
+      if (unsubscribeProxyAlpn) unsubscribeProxyAlpn();
       // Translate undici's connect-timeout error into the legacy message shape so existing
       // callers / log output stay consistent.
       if (err instanceof Error && /connect timeout|UND_ERR_CONNECT_TIMEOUT/i.test(err.message)) {
@@ -453,6 +501,11 @@ function buildElectronFetcher(
       }
       throw err instanceof Error ? new Error(`Request failed: ${err.message}`) : err;
     }
+
+    // Unsubscribe the diagnostic-channel listener now that the upstream
+    // 'connected' event has either fired (and the holder is filled) or won't
+    // (no upstream TLS socket — e.g. plain-HTTP target through HTTP proxy).
+    if (unsubscribeProxyAlpn) unsubscribeProxyAlpn();
 
     // Normalise headers to Record<string, string | string[]>.
     const headersOut: Record<string, string | string[]> = {};
