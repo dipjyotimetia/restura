@@ -328,6 +328,20 @@ Restura streams `text/event-stream`, `application/x-ndjson`, and `application/js
 
 **ALPN indicator:** `Response.negotiatedAlpn` is populated by the Electron path (undici exposes it) and surfaces as a small "HTTP/2" / "HTTP/1.1" badge in the response metadata bar. Worker path leaves it undefined (CF runtime doesn't expose ALPN).
 
+### Web vs Desktop feature parity
+
+Some Restura features depend on capabilities the browser doesn't expose. They're available in the Electron desktop app but hidden / disabled in the web client:
+
+- **mTLS** (client certificates): browsers don't allow JavaScript to present a client certificate. Electron uses Node TLS via undici.
+- **Custom CA certificates**: same restriction — the browser uses the system trust store and doesn't let pages override it. Electron honours a user-supplied PEM via undici's `Agent.connect.ca`.
+- **SOCKS proxies** (SOCKS4 / SOCKS5): browsers can't open raw TCP. Electron tunnels via Node `net` and a custom undici dispatcher.
+- **PAC files** (Proxy Auto-Config): Electron uses `session.resolveProxy()`; browsers don't expose this.
+- **System proxy detection**: Electron reads OS proxy settings; browsers only honour what the OS configures globally and don't let pages introspect.
+- **"Verify SSL = off"**: browsers always validate TLS regardless of any app toggle. Only Electron can opt out (`rejectUnauthorized: false`) for self-signed dev certificates.
+- **Hardware-backed encryption**: Electron uses `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret); web defaults to in-memory ephemeral encryption per session.
+
+The web client surfaces a "Desktop only" badge (`src/components/shared/DesktopOnlyBadge.tsx`) on UI fields that depend on these capabilities, with a tooltip explaining the difference. Inside Electron the badge renders nothing.
+
 ### Protocol Transport Abstraction
 
 The renderer detects its runtime environment via `isElectron()` (checks for `window.electronAPI`):

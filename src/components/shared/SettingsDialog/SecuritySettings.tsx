@@ -2,6 +2,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { AlertTriangle } from 'lucide-react';
 import type { AppSettings } from '@/types';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 
 interface SecuritySettingsProps {
   settings: AppSettings;
@@ -24,7 +25,12 @@ export function SecuritySettings({ settings, onChange }: SecuritySettingsProps) 
 
         <div className="flex items-center justify-between py-1">
           <div>
-            <Label htmlFor="verify-ssl" className="text-xs font-mono">Verify SSL Certificates</Label>
+            <div className="flex items-center">
+              <Label htmlFor="verify-ssl" className="text-xs font-mono">Verify SSL Certificates</Label>
+              <DesktopOnlyBadge
+                title="Browsers always validate TLS — this toggle has no effect in the web client. The Electron desktop app honours it for self-signed / dev certificates."
+              />
+            </div>
             <p id="verify-ssl-desc" className="text-xs text-muted-foreground mt-0.5">
               Validate SSL/TLS certificates for HTTPS requests
             </p>
