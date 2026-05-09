@@ -11,23 +11,16 @@ npm run test:e2e:ui         # Playwright UI mode
 npm run test:e2e:report     # open the last HTML report
 ```
 
-The Playwright config (`playwright.config.ts` at the repo root) starts the
-Vite dev server automatically via `webServer`, so no manual `npm run dev`
-is required. If a server is already running on port 5173, Playwright
-reuses it.
+That's it. From a fresh checkout `npm install && npm run test:e2e` is the
+whole flow — the runner bootstraps everything automatically:
 
-## Worker dev mode
-
-Some tests use the Cloudflare Worker at `/api/proxy`, `/api/grpc`,
-`/api/grpc/reflection`. The Worker is gated behind production auth by default,
-so tests rely on a `.dev.vars` file at the repo root containing:
-
-```
-ENVIRONMENT=development
-```
-
-That flag (a) bypasses the Worker's auth middleware and (b) lets it reach
-localhost upstream targets. `.dev.vars` is gitignored.
+| Prereq | How it's auto-handled |
+|---|---|
+| Vite dev server (port 5173) | `webServer` config spawns `npm run dev`. CI starts cold; locally a hot dev server is reused. |
+| Mock servers (HTTP/HTTPS/proxy/gRPC/WS/MCP) | Worker-scoped fixture in `e2e/fixtures/servers.ts` — one set per Playwright worker. |
+| `.dev.vars` (worker dev mode) | Created/merged at config-load time by `bootstrapPrereqs()` in `e2e/global-setup.ts` — runs **before** miniflare starts so the worker boots in dev mode (auth bypass + localhost allowed). |
+| Self-signed TLS cert | Generated lazily on first HTTPS server start, cached under `os.tmpdir()` between runs. |
+| Playwright Chromium binary | Installed once via `playwright install chromium` from `globalSetup` if the cache is missing. |
 
 ## Layout
 

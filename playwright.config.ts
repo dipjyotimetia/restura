@@ -1,7 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
+import { bootstrapPrereqs } from './e2e/global-setup';
+
+// Runs synchronously at config-load time, BEFORE Playwright spawns
+// webServer. That ordering is load-bearing — `.dev.vars` must exist before
+// miniflare reads it on `npm run dev` startup, otherwise the Worker boots
+// in production mode and the proxy/grpc/mcp tests get 503s.
+bootstrapPrereqs();
 
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -28,7 +36,11 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:5173',
-    reuseExistingServer: true,
+    // CI always starts cold so .dev.vars is guaranteed to be loaded by miniflare.
+    // Locally we reuse a hot dev server for fast iteration.
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    stdout: 'ignore',
+    stderr: 'pipe',
   },
 });
