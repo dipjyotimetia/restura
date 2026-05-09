@@ -29,13 +29,18 @@ type Uint8ArrayCtorWithBase64 = typeof Uint8Array & {
   fromBase64?: (s: string) => Uint8Array<ArrayBuffer>;
 };
 
+interface BufferLike {
+  from(s: string, encoding: 'base64'): Uint8Array;
+}
+
 function base64ToUint8Array(b64: string): Uint8Array<ArrayBuffer> {
   const ctor = Uint8Array as Uint8ArrayCtorWithBase64;
   if (typeof ctor.fromBase64 === 'function') {
     return ctor.fromBase64(b64);
   }
-  if (typeof Buffer !== 'undefined') {
-    const buf = Buffer.from(b64, 'base64');
+  const maybeBuffer = (globalThis as { Buffer?: BufferLike }).Buffer;
+  if (maybeBuffer) {
+    const buf = maybeBuffer.from(b64, 'base64');
     const out = new ArrayBuffer(buf.byteLength);
     new Uint8Array(out).set(buf);
     return new Uint8Array(out);
