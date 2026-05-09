@@ -460,6 +460,29 @@ function buildElectronFetcher(
       });
     }
 
+    // Track resources that must be released once the request completes —
+    // the dispatcher (which holds connection pools, keep-alive timers, and
+    // TLS contexts) and the proxy ALPN diagnostic listener. Without explicit
+    // close() the dispatcher pins resources until GC, defeating undici's
+    // h2 multiplexing benefits and slowly leaking sockets under high load.
+    //
+    // Note: we deliberately do NOT pool the dispatcher at module scope.
+    // connect.lookup is per-host (createSecureLookup closes over the
+    // request hostname for the DNS-rebind guard), so a shared Agent would
+    // leak the wrong lookup function across hosts. Closing per-request is
+    // the correct trade-off for this codebase.
+    let cleaned = false;
+    const cleanup = (): void => {
+      if (cleaned) return;
+      cleaned = true;
+      if (unsubscribeProxyAlpn) {
+        try { unsubscribeProxyAlpn(); } catch { /* ignore */ }
+        unsubscribeProxyAlpn = null;
+      }
+      // Fire-and-forget — close() returns a Promise but we don't need to await.
+      void dispatcher.close().catch(() => { /* ignore */ });
+    };
+
     // Convert the FetcherRequest body (BodyInit | undefined) into something
     // undici accepts (string | Uint8Array | Readable | null | undefined).
     let undiciBody: string | Uint8Array | Readable | null | undefined;
@@ -493,7 +516,9 @@ function buildElectronFetcher(
         // lives in makeHttpRequest, so we rely on that default.
       });
     } catch (err) {
-      if (unsubscribeProxyAlpn) unsubscribeProxyAlpn();
+      // Connection / dispatch failed — release the dispatcher and any
+      // diagnostic-channel listener immediately.
+      cleanup();
       // Translate undici's connect-timeout error into the legacy message shape so existing
       // callers / log output stay consistent.
       if (err instanceof Error && /connect timeout|UND_ERR_CONNECT_TIMEOUT/i.test(err.message)) {
@@ -502,10 +527,17 @@ function buildElectronFetcher(
       throw err instanceof Error ? new Error(`Request failed: ${err.message}`) : err;
     }
 
-    // Unsubscribe the diagnostic-channel listener now that the upstream
-    // 'connected' event has either fired (and the holder is filled) or won't
-    // (no upstream TLS socket — e.g. plain-HTTP target through HTTP proxy).
-    if (unsubscribeProxyAlpn) unsubscribeProxyAlpn();
+    // Wire up cleanup once the response body finishes (consumed via text() or
+    // streamed via the web ReadableStream), errors, or the upstream signal aborts.
+    response.body.once('end', cleanup);
+    response.body.once('error', cleanup);
+    response.body.once('close', cleanup);
+    if (req.signal && !req.signal.aborted) {
+      req.signal.addEventListener('abort', cleanup, { once: true });
+    } else if (req.signal?.aborted) {
+      // Already aborted by the time we got here — clean up immediately.
+      cleanup();
+    }
 
     // Normalise headers to Record<string, string | string[]>.
     const headersOut: Record<string, string | string[]> = {};
