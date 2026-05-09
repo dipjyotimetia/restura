@@ -288,37 +288,89 @@ interface DecodedEnvelope {
   data: Uint8Array;
 }
 
-/** Streaming envelope decoder — buffers partial chunks across reads. */
+/**
+ * Streaming envelope decoder — buffers partial chunks across reads.
+ *
+ * Implementation: holds a single growable Uint8Array with an offset cursor
+ * (`cursor` = next byte to parse) and a write offset (`writeOffset` = end of
+ * valid data). feed() copies the chunk into the buffer at `writeOffset`,
+ * advances the cursor as envelopes are consumed, and periodically compacts
+ * the buffer in place once consumed bytes exceed retained bytes.
+ *
+ * This makes feed amortised O(1) per envelope rather than O(n) (the previous
+ * `new Uint8Array + set` per feed and `buffer.slice(totalLen)` per envelope
+ * was quadratic on high-rate streams). Mirrors the SSE/NDJSON parser pattern
+ * in `shared/protocol/`.
+ */
 export class EnvelopeStreamDecoder {
-  private buffer: Uint8Array = new Uint8Array(0);
+  private buffer: Uint8Array = new Uint8Array(8192);
+  private cursor = 0;
+  private writeOffset = 0;
 
   feed(chunk: Uint8Array): DecodedEnvelope[] {
-    const out: DecodedEnvelope[] = [];
-    if (this.buffer.length === 0) {
-      this.buffer = chunk;
-    } else {
-      const merged = new Uint8Array(this.buffer.length + chunk.length);
-      merged.set(this.buffer, 0);
-      merged.set(chunk, this.buffer.length);
-      this.buffer = merged;
+    // Ensure capacity for the incoming chunk, compacting / growing as needed.
+    if (this.writeOffset + chunk.length > this.buffer.length) {
+      this.compactOrGrow(chunk.length);
     }
+    this.buffer.set(chunk, this.writeOffset);
+    this.writeOffset += chunk.length;
 
-    while (this.buffer.length >= 5) {
-      const flags = this.buffer[0]!;
+    const out: DecodedEnvelope[] = [];
+    while (this.writeOffset - this.cursor >= 5) {
+      const flags = this.buffer[this.cursor]!;
       const view = new DataView(
         this.buffer.buffer,
-        this.buffer.byteOffset + 1,
+        this.buffer.byteOffset + this.cursor + 1,
         4
       );
       const length = view.getUint32(0, false); // big-endian
       const totalLen = 5 + length;
-      if (this.buffer.length < totalLen) break;
-      const data = this.buffer.slice(5, totalLen);
+      if (this.writeOffset - this.cursor < totalLen) break;
+      // Copy the payload — consumers may retain it past the next feed (which
+      // could compact the buffer and invalidate a subarray reference).
+      const data = new Uint8Array(
+        this.buffer.subarray(this.cursor + 5, this.cursor + totalLen)
+      );
       out.push({ flags, data });
-      this.buffer = this.buffer.slice(totalLen);
+      this.cursor += totalLen;
+    }
+
+    // Periodic compaction — once consumed bytes exceed retained, shift the
+    // remaining bytes back to the start so the buffer doesn't grow unboundedly.
+    if (this.cursor > this.buffer.length / 2) {
+      const remaining = this.writeOffset - this.cursor;
+      if (remaining > 0) {
+        this.buffer.copyWithin(0, this.cursor, this.writeOffset);
+      }
+      this.cursor = 0;
+      this.writeOffset = remaining;
     }
 
     return out;
+  }
+
+  private compactOrGrow(needed: number): void {
+    const remaining = this.writeOffset - this.cursor;
+    const required = remaining + needed;
+    if (required <= this.buffer.length) {
+      // Compact in place — the existing buffer is large enough.
+      if (remaining > 0 && this.cursor > 0) {
+        this.buffer.copyWithin(0, this.cursor, this.writeOffset);
+      }
+      this.cursor = 0;
+      this.writeOffset = remaining;
+      return;
+    }
+    // Grow — double until we have capacity.
+    let newSize = this.buffer.length * 2;
+    while (newSize < required) newSize *= 2;
+    const next = new Uint8Array(newSize);
+    if (remaining > 0) {
+      next.set(this.buffer.subarray(this.cursor, this.writeOffset));
+    }
+    this.buffer = next;
+    this.cursor = 0;
+    this.writeOffset = remaining;
   }
 }
 

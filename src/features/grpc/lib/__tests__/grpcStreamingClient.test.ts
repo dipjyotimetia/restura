@@ -67,6 +67,49 @@ describe('EnvelopeStreamDecoder', () => {
   });
 });
 
+describe('EnvelopeStreamDecoder — high-rate behaviour', () => {
+  it('handles 1000 small envelopes without losing data (offset-cursor compaction)', () => {
+    // We don't measure allocations directly — instead we assert correctness
+    // on a high-event-count stream (which would have been quadratic under the
+    // old slice-per-envelope implementation) and trust that the offset-cursor
+    // makes feed amortised O(1).
+    const dec = new EnvelopeStreamDecoder();
+    const events: { flags: number; data: Uint8Array }[] = [];
+    for (let i = 0; i < 1000; i += 1) {
+      events.push(...dec.feed(jsonEnvelope({ i })));
+    }
+    expect(events).toHaveLength(1000);
+    expect(JSON.parse(new TextDecoder().decode(events[0]!.data))).toEqual({ i: 0 });
+    expect(JSON.parse(new TextDecoder().decode(events[999]!.data))).toEqual({ i: 999 });
+  });
+
+  it('handles envelopes split mid-header across multiple feeds', () => {
+    const dec = new EnvelopeStreamDecoder();
+    const env = jsonEnvelope({ a: 1 });
+    // Split inside the 5-byte header — bytes 0..2 then 3..end.
+    const a = dec.feed(env.slice(0, 3));
+    const b = dec.feed(env.slice(3));
+    expect(a).toEqual([]);
+    expect(b).toHaveLength(1);
+    expect(JSON.parse(new TextDecoder().decode(b[0]!.data))).toEqual({ a: 1 });
+  });
+
+  it('grows the internal buffer for an envelope larger than the initial capacity', () => {
+    const dec = new EnvelopeStreamDecoder();
+    // Initial buffer is 8192 bytes; this payload + framing exceeds it.
+    const big = 'x'.repeat(20_000);
+    const env = jsonEnvelope({ big });
+    // Feed in 1 KiB slices to exercise the grow path while data is in-flight.
+    const events: { flags: number; data: Uint8Array }[] = [];
+    for (let i = 0; i < env.length; i += 1024) {
+      events.push(...dec.feed(env.slice(i, Math.min(i + 1024, env.length))));
+    }
+    expect(events).toHaveLength(1);
+    const parsed = JSON.parse(new TextDecoder().decode(events[0]!.data)) as { big: string };
+    expect(parsed.big).toBe(big);
+  });
+});
+
 describe('startGrpcStream', () => {
   it('throws for client-streaming until implemented', async () => {
     await expect(
