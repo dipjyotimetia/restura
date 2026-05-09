@@ -1,0 +1,3 @@
+name: List posts
+method: GET
+url: '{{API_BASE}}/posts'
