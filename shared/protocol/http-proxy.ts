@@ -81,7 +81,7 @@ export async function executeHttpProxy(
       };
     }
 
-    return {
+    const normalized: ExecuteResult = {
       ok: true,
       response: {
         status: response.status,
@@ -91,6 +91,10 @@ export async function executeHttpProxy(
         size: byteLength(text),
       },
     };
+    if (normalized.ok && response.negotiatedAlpn) {
+      normalized.response.negotiatedAlpn = response.negotiatedAlpn;
+    }
+    return normalized;
   } catch (err) {
     const isAbort =
       controller.signal.aborted ||
