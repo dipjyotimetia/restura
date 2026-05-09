@@ -33,6 +33,7 @@
     "dist",
     "out",
     "worker",
-    "electron/main"
+    "electron/main",
+    "cli"
   ]
 }
