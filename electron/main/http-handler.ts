@@ -303,7 +303,15 @@ function createSocksDispatcher(
             rejectUnauthorized: verifySsl,
             ALPNProtocols: allowH2 ? ['h2', 'http/1.1'] : ['http/1.1'],
           });
-          tlsSocket.once('secureConnect', () => cb(null, tlsSocket));
+          tlsSocket.once('secureConnect', () => {
+            // Snapshot the negotiated ALPN into the holder attached to the SOCKS socket
+            // so the response builder can surface it in the response viewer.
+            const holder = (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder;
+            if (holder && tlsSocket.alpnProtocol) {
+              holder.alpn = tlsSocket.alpnProtocol;
+            }
+            cb(null, tlsSocket);
+          });
           tlsSocket.once('error', (err) => cb(err, null));
         } else {
           // Match undici's socket contract: HTTP needs alpnProtocol set on the raw socket
