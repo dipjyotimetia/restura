@@ -429,8 +429,8 @@ function buildElectronFetcher(
         body: undiciBody,
         signal: req.signal,
         dispatcher,
-        // We keep manual redirect handling in makeHttpRequest, so undici should not follow.
-        maxRedirections: 0,
+        // undici's default is maxRedirections: 0 (no auto-follow); manual redirect handling
+        // lives in makeHttpRequest, so we rely on that default.
       });
     } catch (err) {
       // Translate undici's connect-timeout error into the legacy message shape so existing
