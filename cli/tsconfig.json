@@ -1,0 +1,29 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node", "vitest/globals"],
+    "outDir": "./dist",
+    "rootDir": "..",
+    "noEmit": false,
+    "declaration": false,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "baseUrl": "..",
+    "paths": {
+      "@shared/*": ["shared/*"],
+      "@/*": ["src/*"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "../shared/**/*.ts",
+    "../src/lib/shared/file-collection-schema.ts",
+    "../src/lib/shared/validations.ts",
+    "../src/types/index.ts"
+  ],
+  "exclude": ["node_modules", "dist", "fixtures", "**/*.test.ts"]
+}
