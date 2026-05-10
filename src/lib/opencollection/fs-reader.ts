@@ -7,11 +7,29 @@ import type { OpenCollection } from './schemas';
 const ROOT_FILES = ['opencollection.yml', 'opencollection.yaml'];
 const FOLDER_META = '_folder.yaml';
 
+/**
+ * Load a bundled OpenCollection YAML file from disk and validate it.
+ *
+ * **Caller MUST validate that `path` is in an allowed directory.** This
+ * function does no path-traversal checking; that responsibility lives
+ * with the IPC handler / file picker that produced the path. See
+ * `electron/main/file-operations.ts:isPathSafe` for the canonical check.
+ */
 export async function loadCollectionFromFile(path: string): Promise<OpenCollection> {
   const raw = await readFile(path, 'utf8');
   return parseOpenCollectionYAML(raw);
 }
 
+/**
+ * Load a directory-layout OpenCollection from disk: reads `opencollection.yml`
+ * (or `.yaml`) at `dir`, then walks subdirectories as folders and `*.yaml`
+ * files as items. The result has `bundled: false`.
+ *
+ * **Caller MUST validate that `dir` is in an allowed directory.** Subdirectory
+ * traversal during the walk is bounded by the on-disk layout (no symlink
+ * resolution), but if `dir` itself is attacker-controlled, every path under
+ * it becomes readable. See `electron/main/file-operations.ts:isPathSafe`.
+ */
 export async function loadCollectionFromDir(dir: string): Promise<OpenCollection> {
   const rootPath = await findRootFile(dir);
   if (!rootPath) {
@@ -38,14 +56,17 @@ async function findRootFile(dir: string): Promise<string | null> {
 
 async function readItems(dir: string): Promise<unknown[]> {
   const entries = await readdir(dir, { withFileTypes: true });
-  const items: unknown[] = [];
+  // Track each item alongside the source filename so we can break sort ties
+  // deterministically. `readdir` order varies across filesystems; pinning the
+  // tie-break to alphabetical filename keeps CI output stable across OSes.
+  const indexed: Array<{ item: unknown; sortName: string }> = [];
 
   for (const entry of entries) {
     const fullPath = join(dir, entry.name);
 
     if (entry.isDirectory()) {
       const folder = await readFolder(fullPath);
-      items.push(folder);
+      indexed.push({ item: folder, sortName: entry.name });
       continue;
     }
 
@@ -56,17 +77,20 @@ async function readItems(dir: string): Promise<unknown[]> {
 
     const raw = await readFile(fullPath, 'utf8');
     const parsed = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
-    items.push(parsed);
+    indexed.push({ item: parsed, sortName: entry.name });
   }
 
-  // Sort items by info.seq if present, else by file name (stable)
-  items.sort((a: any, b: any) => {
-    const sa = a?.info?.seq ?? Number.MAX_SAFE_INTEGER;
-    const sb = b?.info?.seq ?? Number.MAX_SAFE_INTEGER;
-    return sa - sb;
+  // Primary sort: info.seq ascending (missing → MAX_SAFE_INTEGER).
+  // Secondary sort: filename ascending. Together this gives deterministic
+  // output regardless of the underlying filesystem's readdir order.
+  indexed.sort((a, b) => {
+    const sa = (a.item as { info?: { seq?: number } })?.info?.seq ?? Number.MAX_SAFE_INTEGER;
+    const sb = (b.item as { info?: { seq?: number } })?.info?.seq ?? Number.MAX_SAFE_INTEGER;
+    if (sa !== sb) return sa - sb;
+    return a.sortName.localeCompare(b.sortName);
   });
 
-  return items;
+  return indexed.map((entry) => entry.item);
 }
 
 async function readFolder(dir: string): Promise<unknown> {
