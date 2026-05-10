@@ -14,18 +14,13 @@
  */
 
 import { test, expect } from './fixtures/app';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(
-  __dirname,
-  '..',
-  'tests',
-  'fixtures',
-  'opencollection',
-  'simple-http.yaml',
-);
+// Playwright is invoked with the project root as cwd, so a relative path
+// against process.cwd() points at the fixture deterministically. Avoids
+// `import.meta.url` + `fileURLToPath`, which the Playwright loader treats
+// as ESM-only and refuses to transpile in its default CJS-flavoured mode.
+const FIXTURE = resolve(process.cwd(), 'tests/fixtures/opencollection/simple-http.yaml');
 
 test.describe('OpenCollection import (web)', () => {
   test('imports a bundled YAML file and shows the request in the sidebar', async ({ app: page }) => {

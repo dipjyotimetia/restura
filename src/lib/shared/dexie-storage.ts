@@ -149,8 +149,11 @@ export function createDexieStorage<T = unknown>(
         const record = createStorageRecord(name, dataToStore);
         await table.put(record);
       } catch (error) {
+        // Log and swallow — persistence is best-effort. Re-throwing escapes
+        // zustand's persist middleware as an unhandled rejection in test
+        // environments without IndexedDB (jsdom + fake-indexeddb races on
+        // module-load cookie hydration). Mirrors getItem/removeItem above.
         console.error(`Failed to set item ${name} in Dexie:`, error);
-        throw error;
       }
     },
 
