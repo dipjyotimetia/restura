@@ -4,9 +4,12 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-05-08",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    { "pattern": "api.restura.dev", "custom_domain": true }
+  ],
   "vars": {
     "ENVIRONMENT": "production",
-    "ALLOWED_ORIGIN": "https://restura.pages.dev,https://*.restura.pages.dev",
+    "ALLOWED_ORIGIN": "https://restura.dev,https://restura.pages.dev,https://*.restura.pages.dev",
   },
   "observability": {
     "enabled": true,
@@ -15,7 +18,7 @@
     "preview": {
       "vars": {
         "ENVIRONMENT": "preview",
-        "ALLOWED_ORIGIN": "https://*.restura.pages.dev",
+        "ALLOWED_ORIGIN": "https://restura.dev,https://*.restura.pages.dev",
       },
     },
   },
