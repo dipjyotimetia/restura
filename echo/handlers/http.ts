@@ -53,7 +53,13 @@ export async function httpEcho(c: Context<{ Bindings: Env }>): Promise<Response>
         // already cancelled/closed
       }
     }
-    body = new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
+    const merged = new Uint8Array(bodySize);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    body = new TextDecoder().decode(merged);
   }
 
   const response: EchoResponse = {
