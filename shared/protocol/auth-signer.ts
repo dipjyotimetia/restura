@@ -1,14 +1,24 @@
-// AWS Signature Version 4 signing — pure Web Crypto, runs in both Worker and
-// Electron environments. Adapted from the legacy renderer-side awsSigV4.ts.
+// Sign-at-wire auth signers — pure Web Crypto / pure JS, runs in both Worker
+// and Electron environments. Adapted from the legacy renderer-side awsSigV4.ts.
 //
-// Why sign-at-wire: SigV4 hashes the body bytes; if the renderer signs a
-// reconstructed body and the worker (or any intermediary) re-encodes it
-// (e.g. multipart boundary regenerated, JSON whitespace normalised), the
-// upstream sees a payload hash mismatch and returns SignatureDoesNotMatch.
+// Why sign-at-wire:
+//   - AWS SigV4 hashes the body bytes; if the renderer signs a reconstructed
+//     body and the worker (or any intermediary) re-encodes it (e.g. multipart
+//     boundary regenerated, JSON whitespace normalised), the upstream sees a
+//     payload hash mismatch and returns SignatureDoesNotMatch.
+//   - OAuth 1.0a's signature includes the request URL (with query params),
+//     method, and — when `addParamsToBody` is set — the form-encoded body.
+//     Signing inside the proxy guarantees the URL we sign is the URL we send.
+//   - WSSE doesn't depend on the body, but living next to the others keeps
+//     the auth pipeline in one place.
+//
 // Signing inside the proxy — after body construction, before the fetcher —
-// guarantees we sign the exact bytes the upstream receives.
+// keeps the renderer ignorant of wire-byte details and centralises the auth
+// pipeline so Electron + Worker behave identically.
 
 import type { ProtocolAuthConfig } from './types';
+import { buildOAuth1Header } from './oauth1-signer';
+import { buildWsseHeader } from './wsse-header';
 
 export interface ApplyAuthArgs {
   method: string;
@@ -213,9 +223,20 @@ async function signSigV4(
 // ---------------------------------------------------------------------------
 
 /**
- * Apply auth that requires the exact wire-bytes (currently AWS SigV4).
- * Bearer / Basic / API-key / OAuth2 are still applied client-side
- * because they don't depend on the request body or its content-type.
+ * Apply auth that needs to be computed against the canonical request that
+ * the proxy will actually emit (URL with query params, body bytes, etc.):
+ *
+ *   - AWS SigV4 — hashes body bytes; must sign post-body-construction.
+ *   - OAuth 1.0a — signature includes URL + method (and optionally body
+ *     params); building the header against the renderer-side URL would
+ *     miss query params the proxy may add via spec.params.
+ *   - WSSE — independent of body, but lives here so the auth pipeline is
+ *     centralised and the renderer doesn't have to replicate the SHA-1
+ *     digest logic.
+ *
+ * Bearer / Basic / API-key / OAuth2 are still applied client-side because
+ * they don't depend on URL canonicalisation or body bytes (see
+ * src/features/http/lib/applyAuthHeaders.ts).
  *
  * Returns the headers to merge into the outbound request. Throws on
  * misconfiguration so the caller can surface a 500 to the renderer.
@@ -234,6 +255,40 @@ export async function applyAuth(
     }
     const headers = await signSigV4(args, auth.awsSignature);
     return { headers };
+  }
+
+  if (auth.type === 'oauth1') {
+    if (!auth.oauth1) {
+      // Defensive: missing config shouldn't crash the proxy. Log and skip so
+      // the request still goes through (auth will fail upstream with 401,
+      // surfacing the misconfiguration to the user).
+      console.warn('OAuth1 auth selected but oauth1 config missing — skipping');
+      return { headers: {} };
+    }
+    let bodyParams: Record<string, string> = {};
+    // Parse body as form params only when addParamsToBody is set and the body
+    // is a plain string we can interpret as application/x-www-form-urlencoded.
+    if (auth.oauth1.addParamsToBody && typeof args.body === 'string') {
+      try {
+        for (const [k, v] of new URLSearchParams(args.body).entries()) {
+          bodyParams[k] = v;
+        }
+      } catch {
+        // Malformed body — fall through with empty bodyParams.
+        bodyParams = {};
+      }
+    }
+    const authHeader = buildOAuth1Header(args.method, args.url, auth.oauth1, bodyParams);
+    return { headers: { Authorization: authHeader } };
+  }
+
+  if (auth.type === 'wsse') {
+    if (!auth.wsse) {
+      console.warn('WSSE auth selected but wsse config missing — skipping');
+      return { headers: {} };
+    }
+    const wsseValue = await buildWsseHeader(auth.wsse);
+    return { headers: { 'X-WSSE': wsseValue } };
   }
 
   // Other auth types are handled in the renderer (applyAuthHeaders.ts).

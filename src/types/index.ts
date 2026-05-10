@@ -711,6 +711,10 @@ export interface InsomniaResource {
   };
   parentId?: string;
   data?: Record<string, unknown>; // For environment variables
+  /** Insomnia 8+ pre-request script (runs before request is sent) */
+  preRequestScript?: string;
+  /** Insomnia 8+ after-response script (semantically equivalent to "tests") */
+  afterResponseScript?: string;
 }
 
 export interface InsomniaCollection {
