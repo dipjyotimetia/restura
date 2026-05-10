@@ -13,6 +13,7 @@ export default defineConfig({
       'tests/**/*.{test,spec}.{ts,tsx}',
       'electron/main/__tests__/**/*.{test,spec}.ts',
       'worker/**/__tests__/**/*.{test,spec}.ts',
+      'echo/**/__tests__/**/*.{test,spec}.ts',
       'shared/**/*.{test,spec}.{ts,tsx}',
     ],
     exclude: ['node_modules', 'dist', 'out', '.next'],
