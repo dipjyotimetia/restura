@@ -4,7 +4,7 @@
 
 **The API client that speaks every protocol.**
 
-HTTP · GraphQL · gRPC · WebSocket · SSE · MCP
+🌐 HTTP · 🧬 GraphQL · ⚙️ gRPC · 💬 WebSocket · 🔥 SSE · 🤖 MCP
 
 [![CI](https://github.com/dipjyotimetia/restura/actions/workflows/ci.yml/badge.svg)](https://github.com/dipjyotimetia/restura/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -20,11 +20,13 @@ HTTP · GraphQL · gRPC · WebSocket · SSE · MCP
 
 Restura is a multi-protocol API client for developers who are tired of switching tools. Test HTTP endpoints, debug gRPC services, send WebSocket frames, watch SSE streams, and call MCP servers — all from one place, with no account required and no data leaving your machine.
 
-It runs as a **web app** on Cloudflare Pages and as a native **desktop app** on macOS, Windows, and Linux. Both are free forever.
+It runs as a **web app** on Cloudflare Pages and as a native **desktop app** on macOS, Windows, and Linux. Cloudflare Pages and Cloudflare Workers power the public web deployment, giving the app fast edge hosting, secure same-origin proxying, and a reliable preview environment for contributors.
+
+Both are free forever.
 
 ---
 
-## Protocols
+## Protocols 🧩
 
 | | Protocol | What works today |
 |:---:|---|---|
@@ -37,7 +39,7 @@ It runs as a **web app** on Cloudflare Pages and as a native **desktop app** on 
 
 ---
 
-## Highlights
+## Highlights ✨
 
 **Request scripting** — Write pre-request and test scripts in JavaScript. They run in an isolated [QuickJS](https://bellard.org/quickjs/) WASM sandbox: no DOM access, no network escape.
 
@@ -55,7 +57,7 @@ It runs as a **web app** on Cloudflare Pages and as a native **desktop app** on 
 
 ---
 
-## Security model
+## Security model 🔒
 
 Restura's security posture is asymmetric between the desktop and web clients by virtue of platform capability gaps. The web client surfaces a "Desktop only" badge on UI fields whose underlying capability isn't available in the browser.
 
@@ -68,7 +70,7 @@ See [`docs/adr/0004-security-hardening.md`](docs/adr/0004-security-hardening.md)
 
 ---
 
-## Quick Start
+## Quick Start 🚀
 
 **Prerequisites:** Node.js 22+, npm
 
@@ -150,7 +152,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a full breakdown.
 
 | Concern | Choice |
 |---|---|
-| Build | Vite 7 + `@cloudflare/vite-plugin` |
+| Build | Vite 8 + `@cloudflare/vite-plugin` |
 | UI | React 19, TailwindCSS v4, shadcn/ui, Radix UI |
 | Routing | React Router v7 (hash mode — works on `file://` and `https://`) |
 | State | Zustand v5 with `persist` middleware |
@@ -178,7 +180,7 @@ CI runs on every PR: type-check (renderer + Electron main + Worker), lint, secur
 
 ---
 
-## Contributing
+## Contributing 🤝
 
 All contributions are welcome — bug fixes, new features, docs improvements.
 
@@ -192,9 +194,20 @@ git commit -m 'fix: my thing'
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit format, and the PR checklist.
 
+## Open source & community 🌍
+
+Restura is open source under the MIT License and designed to be welcoming for contributors:
+
+- `MIT` licensing for use, contribution, and redistribution.
+- `CONTRIBUTING.md` for development workflows, branch policies, and PR guidance.
+- `CODE_OF_CONDUCT.md` for respectful, community-first collaboration.
+- CI validates every PR with types, linting, tests, and Cloudflare Pages preview deploys.
+
+The public web app is hosted on Cloudflare Pages with a Cloudflare Workers backend, which provides free edge-hosted delivery, secure API proxying, and a stable contributor preview environment.
+
 ---
 
-## Links
+## Links 🔗
 
 - [Architecture](docs/ARCHITECTURE.md) — system design, security model, IPC internals
 - [Roadmap](docs/ROADMAP.md) — what's planned
@@ -204,4 +217,4 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit format, and th
 
 ---
 
-MIT License · Made by [dipjyotimetia](https://github.com/dipjyotimetia)
+MIT License · Hosted on Cloudflare Pages · Made by [dipjyotimetia](https://github.com/dipjyotimetia)
