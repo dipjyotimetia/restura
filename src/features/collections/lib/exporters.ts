@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Collection, CollectionItem, HttpRequest, AuthConfig, PostmanCollection, PostmanItem, PostmanAuth, InsomniaResource } from '@/types';
+import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
 
 // Export to Postman Format
 export function exportToPostman(collection: Collection): PostmanCollection {
@@ -552,6 +553,28 @@ function authToOpenAPISecurity(auth: AuthConfig): Record<string, string[]> | nul
 // Download helper
 export function downloadJSON(data: unknown, filename: string): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Export a Restura collection as a bundled OpenCollection v1.0.0 YAML
+ * document. Uses the `_oc` passthrough bag from the importer to emit
+ * byte-stable YAML when nothing has been edited.
+ */
+export function exportToOpenCollection(collection: Collection): string {
+  const oc = internalToOC(collection as Collection & { _oc?: unknown });
+  return serializeOpenCollectionYAML({ ...oc, bundled: true });
+}
+
+export function downloadText(content: string, filename: string, mimeType = 'text/plain'): void {
+  const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

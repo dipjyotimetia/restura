@@ -333,7 +333,16 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
   // apply sign-at-wire auth (SigV4) here ourselves — the shared auth-signer
   // is pure Web Crypto and works fine in the renderer.
   if (typeof responseData === 'undefined') {
-    if (request.auth && request.auth.type === 'aws-signature') {
+    // The local axios fallback bypasses both the worker and Electron's IPC, so
+    // we need to apply sign-at-wire auth ourselves. The shared `applyAuth`
+    // module is pure Web Crypto / pure JS and works fine in the renderer.
+    // SigV4, OAuth1, and WSSE all live there.
+    const needsSharedSigning =
+      request.auth &&
+      (request.auth.type === 'aws-signature' ||
+        request.auth.type === 'oauth1' ||
+        request.auth.type === 'wsse');
+    if (needsSharedSigning) {
       try {
         const finalUrl = new URL(resolvedUrl);
         Object.entries(params).forEach(([k, v]) => finalUrl.searchParams.append(k, v));

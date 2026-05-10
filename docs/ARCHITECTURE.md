@@ -440,6 +440,14 @@ main.ts (entry)
 
 ---
 
+## Collection format
+
+Restura speaks **OpenCollection v1.0.0** natively (the format Bruno 3.1+ uses). Implementation lives at [`src/lib/opencollection/`](../src/lib/opencollection/) — vendored JSON Schema, generated TS types, Zod runtime validators, YAML serializer, fs reader/writer, and bidirectional bridges to the internal `Collection` model. SSE and MCP requests live under the spec's `extensions` field as `x-restura-sse` / `x-restura-mcp` (round-trip stable).
+
+A legacy `.http.yaml`/`.grpc.yaml`/`.sse.yaml`/`.mcp.yaml` per-request format also exists at `src/lib/shared/file-collection-schema.ts` and is still used by the CLI runner and the existing Electron file watcher; it's marked `@deprecated` and migration to OpenCollection is tracked in the Phase 1/3 roadmap. See [`docs/opencollection.md`](./opencollection.md) for the user-facing format guide.
+
+---
+
 ## Security model
 
 Restura's security posture is asymmetric between the Electron desktop client and the Web/PWA client by virtue of platform capability gaps. See [Web vs Desktop feature parity](#web-vs-desktop-feature-parity) for the user-visible side; this section covers the implementation.

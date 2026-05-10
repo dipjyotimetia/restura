@@ -1,13 +1,19 @@
 import type { AuthConfig } from '@/types';
 
 /**
- * Apply auth types whose values DO NOT depend on the wire-byte body —
- * Bearer, Basic, API-key (header), OAuth2.
+ * Apply auth types whose values DO NOT depend on the wire-byte body or the
+ * canonical (post-query-merge) URL — Bearer, Basic, API-key (header), OAuth2.
  *
- * AWS SigV4 is intentionally NOT handled here: it hashes the body bytes,
- * so it must be signed inside the proxy (shared/protocol/auth-signer.ts)
- * against the exact bytes the upstream receives. The renderer passes the
- * raw `auth` object through to the proxy spec instead.
+ * The following auth types are intentionally NOT handled here and are
+ * applied at the proxy layer (shared/protocol/auth-signer.ts) so the
+ * signature/digest covers the exact bytes the upstream receives:
+ *   - `aws-signature`: hashes body bytes; must sign post-body-construction.
+ *   - `oauth1`: signature includes URL+method (and body for form-encoded
+ *     POSTs); the proxy may add params.
+ *   - `wsse`: independent of body, but lives next to the others to keep
+ *     the auth pipeline centralised.
+ *
+ * The renderer passes the raw `auth` object through to the proxy spec instead.
  */
 export async function applyAuthHeaders(
   auth: AuthConfig,
@@ -46,9 +52,13 @@ export async function applyAuthHeaders(
       }
       break;
 
-    // 'aws-signature' is signed at wire time inside the proxy. The renderer
-    // passes the auth config through to the proxy spec — see requestExecutor.ts.
+    // 'aws-signature', 'oauth1', and 'wsse' are signed at wire time inside the
+    // proxy (shared/protocol/auth-signer.ts). The renderer passes the auth
+    // config through to the proxy spec — see requestExecutor.ts. 'digest' is
+    // handled elsewhere (challenge/response, not a single header value).
     case 'aws-signature':
+    case 'oauth1':
+    case 'wsse':
     case 'digest':
     case 'none':
     default:

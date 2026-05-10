@@ -49,7 +49,18 @@ export const requestSettingsSchema = z.object({
 
 // Auth Schema
 export const authConfigSchema = z.object({
-  type: z.enum(['none', 'basic', 'bearer', 'api-key', 'oauth2', 'digest', 'aws-signature']),
+  type: z.enum([
+    'none',
+    'basic',
+    'bearer',
+    'api-key',
+    'oauth2',
+    'digest',
+    'aws-signature',
+    'oauth1',
+    'ntlm',
+    'wsse',
+  ]),
   basic: z
     .object({
       username: z.string(),
@@ -72,6 +83,19 @@ export const authConfigSchema = z.object({
     .object({
       accessToken: z.string(),
       tokenType: z.string().optional(),
+      scopes: z.array(z.string()).optional(),
+      grantType: z
+        .enum(['authorization_code', 'client_credentials', 'password', 'device_code'])
+        .optional(),
+      clientId: z.string().optional(),
+      clientSecret: z.string().optional(),
+      authorizationUrl: z.string().optional(),
+      tokenUrl: z.string().optional(),
+      deviceAuthorizationUrl: z.string().optional(),
+      scope: z.string().optional(),
+      redirectUri: z.string().optional(),
+      username: z.string().optional(),
+      password: z.string().optional(),
     })
     .optional(),
   digest: z
@@ -86,6 +110,34 @@ export const authConfigSchema = z.object({
       secretKey: z.string(),
       region: z.string(),
       service: z.string(),
+    })
+    .optional(),
+  oauth1: z
+    .object({
+      consumerKey: z.string(),
+      consumerSecret: z.string(),
+      accessToken: z.string().optional(),
+      accessTokenSecret: z.string().optional(),
+      signatureMethod: z.enum(['HMAC-SHA1', 'HMAC-SHA256', 'PLAINTEXT']).optional(),
+      realm: z.string().optional(),
+      nonce: z.string().optional(),
+      timestamp: z.string().optional(),
+      addParamsToBody: z.boolean().optional(),
+    })
+    .optional(),
+  ntlm: z
+    .object({
+      username: z.string(),
+      password: z.string(),
+      domain: z.string().optional(),
+      workstation: z.string().optional(),
+    })
+    .optional(),
+  wsse: z
+    .object({
+      username: z.string(),
+      password: z.string(),
+      passwordType: z.enum(['PasswordDigest', 'PasswordText']).optional(),
     })
     .optional(),
 });
@@ -208,3 +260,15 @@ export const validateXML = (value: string): boolean => {
     return false;
   }
 };
+
+/**
+ * Format a Zod parse error as a short human-readable string for surfacing
+ * in error messages. Caps at `max` issues so a deeply broken document
+ * doesn't dump kilobytes into the toast.
+ */
+export function formatZodIssues(error: z.ZodError, max = 5): string {
+  return error.issues
+    .slice(0, max)
+    .map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
+    .join('; ');
+}

@@ -1,8 +1,13 @@
 /**
- * File Collection Schema
+ * File Collection Schema (Restura legacy format)
  *
- * Defines the YAML file format for Git-native collections.
- * Collections are stored as directories with YAML files:
+ * @deprecated New code should target the OpenCollection v1.0.0 spec via
+ * `@/lib/opencollection`. This module is kept because the CLI runner
+ * (`cli/src/runner/collectionLoader.ts`) and the Electron file watcher
+ * still read the legacy layout. Removal is tracked in the Phase 1/3
+ * roadmap (see `docs/superpowers/plans/2026-05-10-restura-roadmap.md`).
+ *
+ * Legacy on-disk layout:
  *
  * collection/
  *   _collection.yaml     # Collection metadata
@@ -10,6 +15,9 @@
  *     _folder.yaml       # Folder metadata
  *     request.http.yaml  # HTTP request
  *     service.grpc.yaml  # gRPC request
+ *
+ * The new OpenCollection layout uses `opencollection.yml` + slugified
+ * `.yaml` files (one per request, with type discriminated by `info.type`).
  */
 
 import { z } from 'zod';

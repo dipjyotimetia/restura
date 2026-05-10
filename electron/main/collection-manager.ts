@@ -5,7 +5,7 @@
  * Handles loading, saving, watching, and conflict detection.
  */
 
-import type { BrowserWindow} from 'electron';
+import type { BrowserWindow } from 'electron';
 import { ipcMain, dialog, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -15,6 +15,12 @@ import chokidar from 'chokidar';
 import { z } from 'zod';
 import { createValidatedHandler, FilePathSchema } from './ipc-validators';
 import { isPathSafe } from './file-operations';
+import {
+  fileKeyValueSchema,
+  fileCollectionMetaSchema,
+  fileFolderMetaSchema,
+} from '../../src/lib/shared/file-collection-schema';
+import { debounce } from './watcher-utils';
 
 // File extension constants (must match renderer types)
 const FILE_EXTENSIONS = {
@@ -23,38 +29,6 @@ const FILE_EXTENSIONS = {
   HTTP_REQUEST: '.http.yaml',
   GRPC_REQUEST: '.grpc.yaml',
 } as const;
-
-// Schemas for YAML file content validation
-const fileKeyValueSchema = z.object({
-  key: z.string(),
-  value: z.string(),
-  enabled: z.boolean().optional(),
-  description: z.string().optional(),
-});
-
-const fileAuthConfigSchema = z.object({
-  type: z.enum(['none', 'basic', 'bearer', 'api-key', 'oauth2', 'digest', 'aws-signature']),
-  basic: z.object({ username: z.string(), password: z.string() }).optional(),
-  bearer: z.object({ token: z.string() }).optional(),
-  apiKey: z.object({ key: z.string(), value: z.string(), in: z.enum(['header', 'query']) }).optional(),
-  oauth2: z.object({ accessToken: z.string(), tokenType: z.string().optional() }).optional(),
-  digest: z.object({ username: z.string(), password: z.string() }).optional(),
-  awsSignature: z
-    .object({ accessKey: z.string(), secretKey: z.string(), region: z.string(), service: z.string() })
-    .optional(),
-});
-
-const fileCollectionMetaSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  auth: fileAuthConfigSchema.optional(),
-  variables: z.array(fileKeyValueSchema).optional(),
-});
-
-const fileFolderMetaSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-});
 
 interface FileKeyValue {
   id: string;
@@ -95,6 +69,29 @@ const activeWatchers = new Map<string, FSWatcher>();
 
 // Track file modification times for conflict detection
 const fileModTimes = new Map<string, number>();
+
+const FILE_CHANGE_DEBOUNCE_MS = 250;
+// Cache of debounced sender functions, keyed by (directoryPath::type::filePath).
+// Each unique (path, type) pair gets its own debounced flusher so distinct events
+// across files can still fire in parallel; only repeat events for the same pair
+// coalesce.
+const debouncedSenders = new Map<string, (payload: unknown) => void>();
+
+function sendFileChange(
+  payload: { type: 'modified' | 'added' | 'deleted'; filePath: string; directoryPath: string; lastModified?: number },
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  const key = `${payload.directoryPath}::${payload.type}::${payload.filePath}`;
+  let sender = debouncedSenders.get(key);
+  if (!sender) {
+    sender = debounce((p: unknown) => {
+      const w = getMainWindow();
+      if (w) w.webContents.send('collection:file-changed', p);
+    }, FILE_CHANGE_DEBOUNCE_MS);
+    debouncedSenders.set(key, sender);
+  }
+  sender(payload);
+}
 
 // Generate unique ID
 function generateId(): string {
@@ -379,44 +376,30 @@ function watchCollectionDirectory(
 
     watcher
       .on('change', (filePath) => {
-        const mainWindow = getMainWindow();
-        if (mainWindow) {
-          const lastMod = fileModTimes.get(filePath);
-          const currentMod = fs.statSync(filePath).mtimeMs;
+        const lastMod = fileModTimes.get(filePath);
+        const currentMod = fs.statSync(filePath).mtimeMs;
 
-          if (lastMod && currentMod > lastMod) {
-            // File was modified externally - potential conflict
-            mainWindow.webContents.send('collection:file-changed', {
+        if (lastMod && currentMod > lastMod) {
+          // File was modified externally - potential conflict
+          sendFileChange(
+            {
               type: 'modified',
               filePath,
               directoryPath,
               lastModified: currentMod,
-            });
-          }
-
-          fileModTimes.set(filePath, currentMod);
+            },
+            getMainWindow,
+          );
         }
+
+        fileModTimes.set(filePath, currentMod);
       })
       .on('add', (filePath) => {
-        const mainWindow = getMainWindow();
-        if (mainWindow) {
-          mainWindow.webContents.send('collection:file-changed', {
-            type: 'added',
-            filePath,
-            directoryPath,
-          });
-        }
+        sendFileChange({ type: 'added', filePath, directoryPath }, getMainWindow);
       })
       .on('unlink', (filePath) => {
-        const mainWindow = getMainWindow();
-        if (mainWindow) {
-          mainWindow.webContents.send('collection:file-changed', {
-            type: 'deleted',
-            filePath,
-            directoryPath,
-          });
-          fileModTimes.delete(filePath);
-        }
+        sendFileChange({ type: 'deleted', filePath, directoryPath }, getMainWindow);
+        fileModTimes.delete(filePath);
       })
       .on('error', (error) => {
         console.error('File watcher error:', error);

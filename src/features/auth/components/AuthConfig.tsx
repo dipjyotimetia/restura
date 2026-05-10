@@ -4,8 +4,11 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { AuthConfig, AuthType } from '@/types';
-import { Lock, Loader2 } from 'lucide-react';
+import { Lock, Loader2, AlertTriangle } from 'lucide-react';
+import { isElectron } from '@/lib/shared/platform';
 import {
   fetchClientCredentialsToken,
   fetchPasswordToken,
@@ -399,6 +402,276 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
           </div>
         );
 
+      case 'oauth1': {
+        const o = auth.oauth1;
+        const signatureMethod = o?.signatureMethod ?? 'HMAC-SHA1';
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Consumer Key</label>
+              <Input
+                value={o?.consumerKey ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), consumerKey: e.target.value },
+                  })
+                }
+                placeholder="Enter consumer key"
+                className="font-mono bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Consumer Secret</label>
+              <Input
+                type="password"
+                value={o?.consumerSecret ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), consumerSecret: e.target.value },
+                  })
+                }
+                placeholder="Enter consumer secret"
+                className="font-mono bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Access Token (optional)</label>
+              <Input
+                value={o?.accessToken ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), accessToken: e.target.value },
+                  })
+                }
+                placeholder="Enter access token"
+                className="font-mono bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Access Token Secret (optional)</label>
+              <Input
+                type="password"
+                value={o?.accessTokenSecret ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), accessTokenSecret: e.target.value },
+                  })
+                }
+                placeholder="Enter access token secret"
+                className="font-mono bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Signature Method</label>
+              <Select
+                value={signatureMethod}
+                onValueChange={(v) =>
+                  onChange({
+                    ...auth,
+                    oauth1: {
+                      ...(o ?? { consumerKey: '', consumerSecret: '' }),
+                      signatureMethod: v as 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT',
+                    },
+                  })
+                }
+              >
+                <SelectTrigger className="bg-background border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HMAC-SHA1">HMAC-SHA1</SelectItem>
+                  <SelectItem value="HMAC-SHA256">HMAC-SHA256</SelectItem>
+                  <SelectItem value="PLAINTEXT">PLAINTEXT</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Realm (optional)</label>
+              <Input
+                value={o?.realm ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), realm: e.target.value },
+                  })
+                }
+                placeholder="Enter realm"
+                className="bg-background border-border"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="oauth1-add-params-to-body"
+                checked={o?.addParamsToBody ?? false}
+                onCheckedChange={(checked) =>
+                  onChange({
+                    ...auth,
+                    oauth1: {
+                      ...(o ?? { consumerKey: '', consumerSecret: '' }),
+                      addParamsToBody: checked === true,
+                    },
+                  })
+                }
+              />
+              <label htmlFor="oauth1-add-params-to-body" className="text-sm font-medium cursor-pointer">
+                Include body params in signature (RFC 5849 §3.4.1.3.1)
+              </label>
+            </div>
+          </div>
+        );
+      }
+
+      case 'ntlm': {
+        const n = auth.ntlm;
+        const inElectron = isElectron();
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Badge variant={inElectron ? 'info' : 'warning'} data-testid="ntlm-platform-badge">
+                Desktop only
+              </Badge>
+              {!inElectron && (
+                <p className="text-xs text-amber-500 flex items-center gap-1" data-testid="ntlm-web-warning">
+                  <AlertTriangle className="h-3 w-3" />
+                  Will not run in browser; use the desktop app.
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Username</label>
+              <Input
+                value={n?.username ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    ntlm: { ...(n ?? { username: '', password: '' }), username: e.target.value },
+                  })
+                }
+                placeholder="Enter username"
+                className="bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Password</label>
+              <Input
+                type="password"
+                value={n?.password ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    ntlm: { ...(n ?? { username: '', password: '' }), password: e.target.value },
+                  })
+                }
+                placeholder="Enter password"
+                className="bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Domain (optional)</label>
+              <Input
+                value={n?.domain ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    ntlm: { ...(n ?? { username: '', password: '' }), domain: e.target.value },
+                  })
+                }
+                placeholder="e.g., CORP"
+                className="bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Workstation (optional)</label>
+              <Input
+                value={n?.workstation ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    ntlm: { ...(n ?? { username: '', password: '' }), workstation: e.target.value },
+                  })
+                }
+                placeholder="Workstation name"
+                className="bg-background border-border"
+              />
+            </div>
+          </div>
+        );
+      }
+
+      case 'wsse': {
+        const w = auth.wsse;
+        const passwordType = w?.passwordType ?? 'PasswordDigest';
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Username</label>
+              <Input
+                value={w?.username ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    wsse: { ...(w ?? { username: '', password: '' }), username: e.target.value },
+                  })
+                }
+                placeholder="Enter username"
+                className="bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Password</label>
+              <Input
+                type="password"
+                value={w?.password ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    ...auth,
+                    wsse: { ...(w ?? { username: '', password: '' }), password: e.target.value },
+                  })
+                }
+                placeholder="Enter password"
+                className="bg-background border-border"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Password Type</label>
+              <Select
+                value={passwordType}
+                onValueChange={(v) =>
+                  onChange({
+                    ...auth,
+                    wsse: {
+                      ...(w ?? { username: '', password: '' }),
+                      passwordType: v as 'PasswordDigest' | 'PasswordText',
+                    },
+                  })
+                }
+              >
+                <SelectTrigger className="bg-background border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PasswordDigest">PasswordDigest (recommended)</SelectItem>
+                  <SelectItem value="PasswordText">PasswordText (clear)</SelectItem>
+                </SelectContent>
+              </Select>
+              {passwordType === 'PasswordText' && (
+                <p
+                  className="text-xs text-amber-500 flex items-center gap-1 mt-2"
+                  data-testid="wsse-password-text-warning"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  PasswordText sends the password in the clear over the wire. Prefer PasswordDigest.
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      }
+
       case 'none':
       default:
         return (
@@ -425,8 +698,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             <SelectItem value="bearer">Bearer Token</SelectItem>
             <SelectItem value="api-key">API Key</SelectItem>
             <SelectItem value="oauth2">OAuth 2.0</SelectItem>
+            <SelectItem value="oauth1">OAuth 1.0</SelectItem>
             <SelectItem value="digest">Digest Auth</SelectItem>
             <SelectItem value="aws-signature">AWS Signature</SelectItem>
+            <SelectItem value="ntlm">NTLM</SelectItem>
+            <SelectItem value="wsse">WSSE</SelectItem>
           </SelectContent>
         </Select>
       </div>

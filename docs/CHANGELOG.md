@@ -9,7 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Request Chaining & Workflows** - Execute requests sequentially with data passing between them
+- **OpenCollection v1.0.0 native support** — Restura now reads and writes the same YAML format as Bruno 3.1+ (see [docs/opencollection.md](./opencollection.md))
+  - `src/lib/opencollection/` module: vendored JSON Schema, generated TS types, hand-written Zod runtime validators, YAML serializer, filesystem reader/writer (bundled and directory layouts), bidirectional bridges to Restura's internal Collection model
+  - Importer: new "OpenCollection" tab in the Import dialog accepts bundled YAML files; SSE/MCP requests are surfaced via the spec's `extensions` field (`x-restura-sse`, `x-restura-mcp`); unrecognized HTTP body shapes are reported via `getAndResetUnrecognizedBodyCount()` and a `console.warn` so the user can detect data not surfaced in the editor (the original is preserved via `_oc` for export round-trip)
+  - Exporter: new "OpenCollection (YAML)" entry in the collection export menu emits a bundled YAML document; the `_oc` passthrough bag keeps unmodified items byte-stable. When some items are edited but the collection root still has `_oc`, root metadata (config, docs, non-restura extensions, info extras) is preserved while only the items array and Restura-managed extensions are rebuilt
+  - Vendored fixture set (simple HTTP, multi-protocol, directory layout) at `tests/fixtures/opencollection/`
+  - 23 new unit/integration tests covering schemas, serializer, fs-reader, fs-writer, roundtrip, importer, exporter, and the to/from-internal bridges
+  - Web-mode Playwright smoke test for the import drop-zone happy path and error path (`e2e/opencollection-import.spec.ts`)
+- **Request Chaining & Workflows** — Execute requests sequentially with data passing between them
   - Create and manage workflows within collections
   - Add steps from existing requests in your collection
   - Variable extraction from responses using:
