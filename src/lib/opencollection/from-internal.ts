@@ -17,12 +17,23 @@ import type { OpenCollection } from './schemas';
  * Bridge from Restura internal `Collection` (and its `_oc` passthrough bags) →
  * OpenCollection (v1.0.0). Inverse of `to-internal.ts`.
  *
- * Strategy:
- *   - If every item in the collection still has its `_oc` bag (i.e. nothing
- *     was edited), emit the cached OC verbatim — byte-stable on disk.
- *   - Otherwise, rebuild the OC document from the internal model. Items that
- *     still have `_oc` are emitted via their cached bag; rebuilt items are
- *     synthesised fresh.
+ * Strategy is layered for diff-friendliness:
+ *
+ *   1. **Whole-collection shortcut.** If every level still has its `_oc` bag
+ *      AND the collection itself has `_oc` (i.e. nothing was edited),
+ *      return the cached OC verbatim. Byte-identical to the input.
+ *   2. **Root-preserving rebuild.** If the collection has `_oc` but some
+ *      items were edited, the rebuild starts from the cached root (so
+ *      `info` extras, `config` extras, `docs`, request defaults, and any
+ *      non-restura extensions survive) and only the `items` array plus
+ *      Restura-managed extensions (`x-restura-sse` / `x-restura-mcp`) get
+ *      replaced with fresh values.
+ *   3. **Synthesise from scratch.** No `_oc` on the collection — likely
+ *      authored in-app rather than imported. Build a minimal OC document
+ *      from the internal model alone.
+ *
+ * Per-item, every emitter falls back to `wit._oc ?? rebuild()` so unmodified
+ * items always emit verbatim regardless of which strategy fires above.
  *
  * Special cases mirroring `to-internal.ts`:
  *   - Internal HttpRequest with `body.type === 'graphql'` originated from an
@@ -40,7 +51,7 @@ import type { OpenCollection } from './schemas';
 type WithOC<T> = T & { _oc?: unknown };
 
 export function internalToOC(c: WithOC<Collection>): OpenCollection {
-  // Byte-stable shortcut: if every level still has its _oc bag, emit verbatim.
+  // Strategy 1 — whole-collection shortcut.
   if (c._oc && allItemsHaveOcBag(c.items)) {
     return c._oc as OpenCollection;
   }
@@ -69,6 +80,28 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     items.push(wit._oc ?? requestFromInternal(it.name, r));
   }
 
+  // Strategy 2 — root-preserving rebuild. Start from the cached OC root,
+  // replace items + Restura-managed extensions only.
+  if (c._oc) {
+    const cached = c._oc as OpenCollection;
+    const oc: OpenCollection = { ...cached, items };
+
+    // Merge extensions: keep non-restura keys from the cache, overwrite the
+    // restura-managed ones with fresh arrays (or remove if empty so the YAML
+    // stays compact).
+    const cachedExt = (cached.extensions ?? {}) as Record<string, unknown>;
+    const merged: Record<string, unknown> = { ...cachedExt };
+    delete merged['x-restura-sse'];
+    delete merged['x-restura-mcp'];
+    if (sseItems.length > 0) merged['x-restura-sse'] = sseItems;
+    if (mcpItems.length > 0) merged['x-restura-mcp'] = mcpItems;
+    if (Object.keys(merged).length > 0) oc.extensions = merged;
+    else delete oc.extensions;
+
+    return oc;
+  }
+
+  // Strategy 3 — synthesise from scratch.
   const oc: OpenCollection = {
     opencollection: '1.0.0',
     info: {
