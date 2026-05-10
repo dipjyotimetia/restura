@@ -156,10 +156,23 @@ export async function startMockWsServer(): Promise<MockWsServerHandle> {
       chatPeers.clear();
     },
     close: async () => {
-      for (const ws of [...wss.clients, ...wssGraphql.clients]) {
-        try { ws.terminate(); } catch { /* already gone */ }
-      }
+      // With noServer:true, wss.close(cb) only fires cb once wss.clients is
+      // empty. ws.terminate() destroys the underlying socket synchronously but
+      // the WebSocket 'close' event (which removes clients from the set) fires
+      // asynchronously. Calling wss.close() before those events propagate causes
+      // it to wait indefinitely, blowing the 60-second Playwright teardown budget.
+      // Fix: register each client's 'close' listener first, then await them all
+      // before calling wss.close() so the clients set is guaranteed empty.
+      const terminated = [...wss.clients, ...wssGraphql.clients].map(
+        (client) =>
+          new Promise<void>((resolve) => {
+            if (client.readyState === client.CLOSED) { resolve(); return; }
+            client.once('close', resolve);
+            try { client.terminate(); } catch { resolve(); }
+          })
+      );
       chatPeers.clear();
+      await Promise.all(terminated);
       await Promise.all([
         new Promise<void>((resolve) => wss.close(() => resolve())),
         new Promise<void>((resolve) => wssGraphql.close(() => resolve())),
