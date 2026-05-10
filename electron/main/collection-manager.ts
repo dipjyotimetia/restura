@@ -15,6 +15,11 @@ import chokidar from 'chokidar';
 import { z } from 'zod';
 import { createValidatedHandler, FilePathSchema } from './ipc-validators';
 import { isPathSafe } from './file-operations';
+import {
+  fileKeyValueSchema,
+  fileCollectionMetaSchema,
+  fileFolderMetaSchema,
+} from '../../src/lib/shared/file-collection-schema';
 
 // File extension constants (must match renderer types)
 const FILE_EXTENSIONS = {
@@ -23,38 +28,6 @@ const FILE_EXTENSIONS = {
   HTTP_REQUEST: '.http.yaml',
   GRPC_REQUEST: '.grpc.yaml',
 } as const;
-
-// Schemas for YAML file content validation
-const fileKeyValueSchema = z.object({
-  key: z.string(),
-  value: z.string(),
-  enabled: z.boolean().optional(),
-  description: z.string().optional(),
-});
-
-const fileAuthConfigSchema = z.object({
-  type: z.enum(['none', 'basic', 'bearer', 'api-key', 'oauth2', 'digest', 'aws-signature']),
-  basic: z.object({ username: z.string(), password: z.string() }).optional(),
-  bearer: z.object({ token: z.string() }).optional(),
-  apiKey: z.object({ key: z.string(), value: z.string(), in: z.enum(['header', 'query']) }).optional(),
-  oauth2: z.object({ accessToken: z.string(), tokenType: z.string().optional() }).optional(),
-  digest: z.object({ username: z.string(), password: z.string() }).optional(),
-  awsSignature: z
-    .object({ accessKey: z.string(), secretKey: z.string(), region: z.string(), service: z.string() })
-    .optional(),
-});
-
-const fileCollectionMetaSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  auth: fileAuthConfigSchema.optional(),
-  variables: z.array(fileKeyValueSchema).optional(),
-});
-
-const fileFolderMetaSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-});
 
 interface FileKeyValue {
   id: string;
