@@ -73,7 +73,17 @@ export interface RequestBody {
 }
 
 // Authentication Types
-export type AuthType = 'none' | 'basic' | 'bearer' | 'api-key' | 'oauth2' | 'digest' | 'aws-signature';
+export type AuthType =
+  | 'none'
+  | 'basic'
+  | 'bearer'
+  | 'api-key'
+  | 'oauth2'
+  | 'digest'
+  | 'aws-signature'
+  | 'oauth1'
+  | 'ntlm'
+  | 'wsse';
 
 // Key-Value Pair
 export interface KeyValue {
@@ -133,6 +143,34 @@ export interface AuthConfig {
     secretKey: string;
     region: string;
     service: string;
+  };
+  oauth1?: {
+    consumerKey: string;
+    consumerSecret: string;
+    accessToken?: string;
+    accessTokenSecret?: string;
+    /** Default HMAC-SHA1 if omitted. */
+    signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT';
+    realm?: string;
+    /** If set, used as-is. Otherwise generated per request. */
+    nonce?: string;
+    /** Unix seconds. If set, used as-is. Otherwise generated per request. */
+    timestamp?: string;
+    /** Add to body params for form-encoded POSTs (RFC 5849 §3.4.1.3.1). */
+    addParamsToBody?: boolean;
+  };
+  /** NTLM is desktop-only (Electron). The browser/Worker emit a warning at request time. */
+  ntlm?: {
+    username: string;
+    password: string;
+    domain?: string;
+    workstation?: string;
+  };
+  wsse?: {
+    username: string;
+    password: string;
+    /** PasswordDigest = sha1(nonce + created + password) base64. PasswordText sends the password verbatim (avoid). */
+    passwordType?: 'PasswordDigest' | 'PasswordText';
   };
 }
 

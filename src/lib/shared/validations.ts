@@ -49,7 +49,18 @@ export const requestSettingsSchema = z.object({
 
 // Auth Schema
 export const authConfigSchema = z.object({
-  type: z.enum(['none', 'basic', 'bearer', 'api-key', 'oauth2', 'digest', 'aws-signature']),
+  type: z.enum([
+    'none',
+    'basic',
+    'bearer',
+    'api-key',
+    'oauth2',
+    'digest',
+    'aws-signature',
+    'oauth1',
+    'ntlm',
+    'wsse',
+  ]),
   basic: z
     .object({
       username: z.string(),
@@ -99,6 +110,34 @@ export const authConfigSchema = z.object({
       secretKey: z.string(),
       region: z.string(),
       service: z.string(),
+    })
+    .optional(),
+  oauth1: z
+    .object({
+      consumerKey: z.string(),
+      consumerSecret: z.string(),
+      accessToken: z.string().optional(),
+      accessTokenSecret: z.string().optional(),
+      signatureMethod: z.enum(['HMAC-SHA1', 'HMAC-SHA256', 'PLAINTEXT']).optional(),
+      realm: z.string().optional(),
+      nonce: z.string().optional(),
+      timestamp: z.string().optional(),
+      addParamsToBody: z.boolean().optional(),
+    })
+    .optional(),
+  ntlm: z
+    .object({
+      username: z.string(),
+      password: z.string(),
+      domain: z.string().optional(),
+      workstation: z.string().optional(),
+    })
+    .optional(),
+  wsse: z
+    .object({
+      username: z.string(),
+      password: z.string(),
+      passwordType: z.enum(['PasswordDigest', 'PasswordText']).optional(),
     })
     .optional(),
 });
