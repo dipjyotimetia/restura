@@ -6,8 +6,23 @@
 **Vendored on:** 2026-05-10
 **Spec version:** v1.0.0
 
-To re-pin: bump the commit, re-run the fetch in Task 1, run `npm run gen:opencollection-types`,
-re-run `npm run validate`, and update this file with the new SHA.
+The pinned commit SHA above was resolved from upstream's `main` branch HEAD at vendoring time.
+
+## Re-pin
+
+To re-pin to a newer upstream commit:
+
+```bash
+# Re-pin to a newer upstream commit
+COMMIT_SHA=$(gh api repos/opencollection-dev/opencollection/commits/main --jq '.sha')
+gh api repos/opencollection-dev/opencollection/contents/packages/oc-schema/src/opencollection.schema.json --jq '.content' | base64 -d > vendor/opencollection/v1.0.0/schema.json
+# Then update the "Pinned commit" line in this file with the new $COMMIT_SHA value.
+```
+
+After re-pinning, run `npm run gen:opencollection-types` to regenerate the TS types
+(this script is added once `src/lib/opencollection/` lands — it is part of the
+project's lifecycle, not a precondition at this commit) and then `npm run validate`
+for the full check.
 
 ## License note
 
