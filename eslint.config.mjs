@@ -39,7 +39,7 @@ export default tseslint.config(
       ...sharedTsRules,
     },
     settings: {
-      react: { version: 'detect' },
+      react: { version: '19' },
     },
   },
   // Non-renderer environments: shared TS overrides only

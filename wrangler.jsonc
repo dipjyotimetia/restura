@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "restura",
   "main": "worker/index.ts",
-  "compatibility_date": "2026-05-08",
+  "compatibility_date": "2026-05-07",
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
     { "pattern": "api.restura.dev", "custom_domain": true }

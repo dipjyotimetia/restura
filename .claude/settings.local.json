@@ -79,7 +79,8 @@
       "Bash(grep -n \"}\\);$\\\\|describe\\\\|it\\(\" /Users/dipjyotimetia/Documents/working/ccviews/restura/electron/main/__tests__/ipc-validators.test.ts)",
       "Bash(sort -t '|' -k2 -n)",
       "Bash(sort -t '|' -k3 -n)",
-      "mcp__plugin_cloudflare_cloudflare-docs__search_cloudflare_documentation"
+      "mcp__plugin_cloudflare_cloudflare-docs__search_cloudflare_documentation",
+      "Bash(npm view *)"
     ]
   }
 }
