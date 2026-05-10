@@ -8,15 +8,15 @@
 
 ## Phase Map
 
-| # | Plan | Dependency | Outcome | Plan file |
-|---|------|------------|---------|-----------|
-| 0 | **OpenCollection Foundation** | — | Restura speaks OpenCollection v1.0.0 natively. Bruno 3.1+ repos open and roundtrip cleanly. | `2026-05-10-phase-0-opencollection-foundation.md` |
-| 1 | **Workspace = Git Repo** | 0 | `restura init` scaffolds a git-ready workspace; `${{ secrets.X }}` template syntax with encrypted `.restura/secrets.enc`; in-app "Open Repo" UX. | `2026-05-10-phase-1-git-workspace.md` (TBD) |
-| 2 | **Bruno Legacy + cURL + HAR Import** | 0 | One-click import from `.bru` DSL files, raw cURL strings, and HAR captures. | `2026-05-10-phase-2-importers.md` (TBD) |
-| 3 | **CLI Runner Parity** | 0 | `@restura/cli` executes HTTP **and** gRPC/SSE/MCP/WebSocket requests with full QuickJS script support. JUnit/JSON/HTML reporters. CI-ready. | `2026-05-10-phase-3-cli-runner.md` (TBD) |
-| 4 | **Auth Completion** | 0 | OAuth1.0a, NTLM, WSSE, Hawk, ASAP, Akamai EdgeGrid, OAuth2 silent refresh, mTLS per-environment. | `2026-05-10-phase-4-auth.md` (TBD) |
-| 5 | **Streaming + Large-Response UX** | — | Virtualized response viewer for >100MB streams; no truncation; on-disk spillover (Electron); replayable WebSocket/SSE/gRPC streams. | `2026-05-10-phase-5-streaming.md` (TBD) |
-| 6 | **Mock + Contract + Load via Embedded Tools** | 0 | Prism (mock) and k6 (load) ship as embedded binaries on Electron / Worker subprocess; contract testing against OpenAPI 3.2 + AsyncAPI. | `2026-05-10-phase-6-mock-contract-load.md` (TBD) |
+| #   | Plan                                          | Dependency | Outcome                                                                                                                                          | Plan file                                         |
+| --- | --------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| 0   | **OpenCollection Foundation**                 | —          | Restura speaks OpenCollection v1.0.0 natively. Bruno 3.1+ repos open and roundtrip cleanly.                                                      | `2026-05-10-phase-0-opencollection-foundation.md` |
+| 1   | **Workspace = Git Repo**                      | 0          | `restura init` scaffolds a git-ready workspace; `${{ secrets.X }}` template syntax with encrypted `.restura/secrets.enc`; in-app "Open Repo" UX. | `2026-05-10-phase-1-git-workspace.md` (TBD)       |
+| 2   | **Bruno Legacy + cURL + HAR Import**          | 0          | One-click import from `.bru` DSL files, raw cURL strings, and HAR captures.                                                                      | `2026-05-10-phase-2-importers.md` (TBD)           |
+| 3   | **CLI Runner Parity**                         | 0          | `@restura/cli` executes HTTP **and** gRPC/SSE/MCP/WebSocket requests with full QuickJS script support. JUnit/JSON/HTML reporters. CI-ready.      | `2026-05-10-phase-3-cli-runner.md` (TBD)          |
+| 4   | **Auth Completion**                           | 0          | OAuth1.0a, NTLM, WSSE, Hawk, ASAP, Akamai EdgeGrid, OAuth2 silent refresh, mTLS per-environment.                                                 | `2026-05-10-phase-4-auth.md` (TBD)                |
+| 5   | **Streaming + Large-Response UX**             | —          | Virtualized response viewer for >100MB streams; no truncation; on-disk spillover (Electron); replayable WebSocket/SSE/gRPC streams.              | `2026-05-10-phase-5-streaming.md` (TBD)           |
+| 6   | **Mock + Contract + Load via Embedded Tools** | 0          | Prism (mock) and k6 (load) ship as embedded binaries on Electron / Worker subprocess; contract testing against OpenAPI 3.2 + AsyncAPI.           | `2026-05-10-phase-6-mock-contract-load.md` (TBD)  |
 
 ## Sequencing rationale
 
@@ -55,14 +55,14 @@ Every plan must respect:
 
 A prior roadmap (`2026-05-08-roadmap.md`) sequenced 6 internal-architecture plans. This new roadmap is **product-led** (migration target positioning); the prior one is **engineering-led** (debt cleanup). They are **complementary, not duplicative**. Mapping:
 
-| 2026-05-08 plan (engineering) | 2026-05-10 phase (product) | Relationship |
-|---|---|---|
-| 1: Shared protocol layer | (Phase 0 prerequisite) | In flight on branch `refactor/shared-protocol-layer`. **Land first**; everything below assumes a unified handler. |
-| 2: Multi-tab store + storage consolidation | (independent) | Land independently. Tab state is renderer-only; OpenCollection format is disk-only. No collision. |
-| 3: Security hardening | Phase 4 (Auth completion) | Phase 4 adds OAuth1/NTLM/Hawk; old Plan 3 fixes the signing-at-wire problem. **Phase 4 must land after old Plan 3** so new auth methods are signed at the wire from day one. |
-| 4: Streaming + gRPC streaming + HTTP/2 | Phase 5 (Streaming UX) | Same scope. **Treat as one plan.** Use the 2026-05-08 plan's tasks; Phase 5 in this roadmap can be deleted/marked superseded. |
-| 5: CLI runner | Phase 3 (CLI runner parity) | 2026-05-08 plan ships the foundation; my Phase 3 adds gRPC/SSE/MCP execution and OpenCollection input. **Phase 3 extends, doesn't replace.** |
-| 6: Plugins + docs/mock | Phase 6 (Mock + contract + load) | Different framing. Old Plan 6 builds the primitive (`restura mock`). Phase 6 here proposes integrating Prism/k6 instead of inventing — **review tradeoff before starting either**. |
+| 2026-05-08 plan (engineering)              | 2026-05-10 phase (product)       | Relationship                                                                                                                                                                       |
+| ------------------------------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1: Shared protocol layer                   | (Phase 0 prerequisite)           | In flight on branch `refactor/shared-protocol-layer`. **Land first**; everything below assumes a unified handler.                                                                  |
+| 2: Multi-tab store + storage consolidation | (independent)                    | Land independently. Tab state is renderer-only; OpenCollection format is disk-only. No collision.                                                                                  |
+| 3: Security hardening                      | Phase 4 (Auth completion)        | Phase 4 adds OAuth1/NTLM/Hawk; old Plan 3 fixes the signing-at-wire problem. **Phase 4 must land after old Plan 3** so new auth methods are signed at the wire from day one.       |
+| 4: Streaming + gRPC streaming + HTTP/2     | Phase 5 (Streaming UX)           | Same scope. **Treat as one plan.** Use the 2026-05-08 plan's tasks; Phase 5 in this roadmap can be deleted/marked superseded.                                                      |
+| 5: CLI runner                              | Phase 3 (CLI runner parity)      | 2026-05-08 plan ships the foundation; my Phase 3 adds gRPC/SSE/MCP execution and OpenCollection input. **Phase 3 extends, doesn't replace.**                                       |
+| 6: Plugins + docs/mock                     | Phase 6 (Mock + contract + load) | Different framing. Old Plan 6 builds the primitive (`restura mock`). Phase 6 here proposes integrating Prism/k6 instead of inventing — **review tradeoff before starting either**. |
 
 **New work that wasn't in the 2026-05-08 roadmap:**
 

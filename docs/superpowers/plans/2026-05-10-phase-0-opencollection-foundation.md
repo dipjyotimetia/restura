@@ -13,6 +13,7 @@
 ## File Structure
 
 **New:**
+
 - `vendor/opencollection/v1.0.0/schema.json` — pinned upstream JSON Schema
 - `vendor/opencollection/v1.0.0/SOURCE.md` — commit hash, license note
 - `vendor/opencollection/v1.0.0/LICENSE` — upstream MIT license text
@@ -38,6 +39,7 @@
 - `scripts/gen-opencollection-types.mjs`
 
 **Modified:**
+
 - `package.json` — add `json-schema-to-typescript` devDep + scripts
 - `src/lib/shared/file-collection-schema.ts` — replaced with thin re-export shim
 - `electron/main/collection-manager.ts` — remove duplicated schema, import from `src/lib/opencollection/schemas.ts`, debounce watcher
@@ -48,6 +50,7 @@
 - `src/features/collections/components/CollectionExportMenu.tsx` (or equivalent) — wire OpenCollection menu item
 
 **Deleted:**
+
 - None. The old `file-collection-schema.ts` becomes a re-export shim, not a deletion (callers keep working through one release for safety).
 
 ---
@@ -68,6 +71,7 @@
 **Why:** Pinning a copy of the schema kills "format drift" risk. Upstream is `opencollection-dev/opencollection`.
 
 **Files:**
+
 - Create: `vendor/opencollection/v1.0.0/schema.json`
 - Create: `vendor/opencollection/v1.0.0/SOURCE.md`
 - Create: `vendor/opencollection/v1.0.0/LICENSE`
@@ -121,6 +125,7 @@ git commit -m "feat(opencollection): vendor schema v1.0.0"
 **Why:** The schema has 90+ definitions. Hand-writing TS types is tedious and drift-prone. We commit the generated file so editors and CI don't need to regenerate.
 
 **Files:**
+
 - Modify: `package.json`
 - Create: `scripts/gen-opencollection-types.mjs`
 - Create: `src/lib/opencollection/spec-types.ts` (committed)
@@ -213,6 +218,7 @@ git commit -m "feat(opencollection): generate TS types from schema"
 **Why:** Tests need real OpenCollection input. Synthetic fixtures hide format quirks.
 
 **Files:**
+
 - Create: `tests/fixtures/opencollection/simple-http.yaml`
 - Create: `tests/fixtures/opencollection/multi-protocol.yaml`
 - Create: `tests/fixtures/opencollection/dir-layout/opencollection.yml`
@@ -222,10 +228,10 @@ git commit -m "feat(opencollection): generate TS types from schema"
 - [ ] **Step 1: Create `simple-http.yaml`**
 
 ```yaml
-opencollection: "1.0.0"
+opencollection: '1.0.0'
 info:
   name: Simple HTTP Demo
-  version: "0.1.0"
+  version: '0.1.0'
   authors:
     - name: Restura Test Fixture
 bundled: true
@@ -245,10 +251,10 @@ items:
 - [ ] **Step 2: Create `multi-protocol.yaml`**
 
 ```yaml
-opencollection: "1.0.0"
+opencollection: '1.0.0'
 info:
   name: Multi-Protocol Demo
-  version: "0.1.0"
+  version: '0.1.0'
 bundled: true
 config:
   environments:
@@ -260,27 +266,27 @@ items:
   - info: { type: http, name: Health Check, seq: 1 }
     http:
       method: GET
-      url: "{{API_HOST}}/health"
+      url: '{{API_HOST}}/health'
   - info: { type: graphql, name: List Users, seq: 2 }
     graphql:
-      url: "{{API_HOST}}/graphql"
-      query: "query { users { id name } }"
+      url: '{{API_HOST}}/graphql'
+      query: 'query { users { id name } }'
   - info: { type: grpc, name: GetUser, seq: 3 }
     grpc:
-      url: "{{API_HOST}}:9090"
+      url: '{{API_HOST}}:9090'
       service: users.v1.UserService
       method: GetUser
       methodType: unary
-      message: "{ \"id\": 1 }"
+      message: '{ "id": 1 }'
   - info: { type: websocket, name: Stock Ticker, seq: 4 }
     websocket:
-      url: "ws://{{API_HOST}}/stream"
+      url: 'ws://{{API_HOST}}/stream'
 extensions:
   x-restura-sse:
     - info: { type: sse, name: Server Events, seq: 5 }
       sse:
-        url: "{{API_HOST}}/events"
-        eventFilter: ["user.created", "user.updated"]
+        url: '{{API_HOST}}/events'
+        eventFilter: ['user.created', 'user.updated']
 ```
 
 - [ ] **Step 3: Create directory-layout fixture**
@@ -288,10 +294,10 @@ extensions:
 `tests/fixtures/opencollection/dir-layout/opencollection.yml`:
 
 ```yaml
-opencollection: "1.0.0"
+opencollection: '1.0.0'
 info:
   name: Dir Layout Demo
-  version: "0.1.0"
+  version: '0.1.0'
 bundled: false
 config:
   environments:
@@ -316,7 +322,7 @@ info:
   name: Get User
 http:
   method: GET
-  url: "{{API_HOST}}/users/1"
+  url: '{{API_HOST}}/users/1'
 ```
 
 - [ ] **Step 4: Commit**
@@ -333,6 +339,7 @@ git commit -m "test(opencollection): add 3 fixture collections"
 **Why:** TS types are compile-time only. We need runtime validation when reading user files. Restrict to the protocol subset Restura supports + the spec's open `extensions` field.
 
 **Files:**
+
 - Create: `src/lib/opencollection/schemas.ts`
 - Create: `src/lib/opencollection/__tests__/schemas.test.ts`
 
@@ -395,7 +402,10 @@ Create `src/lib/opencollection/schemas.ts`:
 ```typescript
 import { z } from 'zod';
 
-const description = z.union([z.string(), z.object({ content: z.string(), mimeType: z.string().optional() })]);
+const description = z.union([
+  z.string(),
+  z.object({ content: z.string(), mimeType: z.string().optional() }),
+]);
 
 const author = z.object({
   name: z.string().optional(),
@@ -414,7 +424,12 @@ const variableValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 const variable = z.object({
   name: z.string(),
-  value: z.union([variableValue, z.array(z.object({ name: z.string().optional(), value: variableValue }))]).optional(),
+  value: z
+    .union([
+      variableValue,
+      z.array(z.object({ name: z.string().optional(), value: variableValue })),
+    ])
+    .optional(),
   description: description.optional(),
   disabled: z.boolean().optional(),
 });
@@ -455,12 +470,35 @@ const auth = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }),
   z.object({ type: z.literal('basic'), username: z.string(), password: z.string() }),
   z.object({ type: z.literal('bearer'), token: z.string() }),
-  z.object({ type: z.literal('apiKey'), key: z.string(), value: z.string(), placement: z.enum(['header', 'query']) }),
+  z.object({
+    type: z.literal('apiKey'),
+    key: z.string(),
+    value: z.string(),
+    placement: z.enum(['header', 'query']),
+  }),
   z.object({ type: z.literal('digest'), username: z.string(), password: z.string() }),
-  z.object({ type: z.literal('ntlm'), username: z.string(), password: z.string(), domain: z.string().optional() }),
-  z.object({ type: z.literal('oauth1'), consumerKey: z.string(), consumerSecret: z.string(), token: z.string().optional(), tokenSecret: z.string().optional() }),
+  z.object({
+    type: z.literal('ntlm'),
+    username: z.string(),
+    password: z.string(),
+    domain: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('oauth1'),
+    consumerKey: z.string(),
+    consumerSecret: z.string(),
+    token: z.string().optional(),
+    tokenSecret: z.string().optional(),
+  }),
   z.object({ type: z.literal('oauth2') }).passthrough(),
-  z.object({ type: z.literal('awsv4'), accessKeyId: z.string(), secretAccessKey: z.string(), region: z.string(), service: z.string(), sessionToken: z.string().optional() }),
+  z.object({
+    type: z.literal('awsv4'),
+    accessKeyId: z.string(),
+    secretAccessKey: z.string(),
+    region: z.string(),
+    service: z.string(),
+    sessionToken: z.string().optional(),
+  }),
   z.object({ type: z.literal('wsse'), username: z.string(), password: z.string() }),
 ]);
 
@@ -607,6 +645,7 @@ git commit -m "feat(opencollection): add zod runtime validators"
 **Why:** Wraps `js-yaml` with stable options (no anchors, sorted keys off, double-quote strings with `{{}}` so YAML doesn't try to interpret them) and validates on load.
 
 **Files:**
+
 - Create: `src/lib/opencollection/serializer.ts`
 - Create: `src/lib/opencollection/__tests__/serializer.test.ts`
 
@@ -709,6 +748,7 @@ git commit -m "feat(opencollection): add YAML serializer with validation"
 **Why:** OpenCollection supports two on-disk layouts: `bundled: true` (single file) and `bundled: false` (nested folders + files). We collapse both into a single in-memory `OpenCollection` object.
 
 **Files:**
+
 - Create: `src/lib/opencollection/fs-reader.ts`
 - Create: `src/lib/opencollection/__tests__/fs-reader.test.ts`
 
@@ -865,6 +905,7 @@ git commit -m "feat(opencollection): add filesystem reader"
 **Why:** Writing a multi-file directory layout means one file per request, slugified filenames, `_folder.yaml` for folder metadata. This is what makes git diffs reviewable.
 
 **Files:**
+
 - Create: `src/lib/opencollection/fs-writer.ts`
 - Create: `src/lib/opencollection/__tests__/fs-writer.test.ts`
 
@@ -890,7 +931,12 @@ describe('fs-writer', () => {
       opencollection: '1.0.0',
       info: { name: 'Bundled Demo' },
       bundled: true,
-      items: [{ info: { type: 'http', name: 'Get root' }, http: { method: 'GET', url: 'https://example.com' } }],
+      items: [
+        {
+          info: { type: 'http', name: 'Get root' },
+          http: { method: 'GET', url: 'https://example.com' },
+        },
+      ],
     };
     const dest = join(tmp, 'bundled.yaml');
     await saveCollectionToFile(oc, dest);
@@ -909,7 +955,10 @@ describe('fs-writer', () => {
         {
           info: { name: 'users', description: 'User CRUD' },
           items: [
-            { info: { type: 'http', name: 'Get User By ID' }, http: { method: 'GET', url: '/u/1' } },
+            {
+              info: { type: 'http', name: 'Get User By ID' },
+              http: { method: 'GET', url: '/u/1' },
+            },
           ],
         },
       ],
@@ -975,7 +1024,11 @@ export async function saveCollectionToDir(oc: OpenCollection, dir: string): Prom
   const { items, ...rootRest } = oc;
   // Root file holds metadata + config; items live as nested files
   const root = compact({ ...rootRest, bundled: false });
-  await writeFile(join(dir, 'opencollection.yml'), serializeOpenCollectionYAML(root as OpenCollection), 'utf8');
+  await writeFile(
+    join(dir, 'opencollection.yml'),
+    serializeOpenCollectionYAML(root as OpenCollection),
+    'utf8'
+  );
   await writeItems(items ?? [], dir);
 }
 
@@ -988,14 +1041,22 @@ async function writeItems(items: unknown[], dir: string): Promise<void> {
       await mkdir(folderDir, { recursive: true });
       const folderMeta = compact({ info: item.info, request: item.request, docs: item.docs });
       if (Object.keys(folderMeta as object).length > 0) {
-        await writeFile(join(folderDir, '_folder.yaml'), serializeOpenCollectionYAML(folderMeta as OpenCollection), 'utf8');
+        await writeFile(
+          join(folderDir, '_folder.yaml'),
+          serializeOpenCollectionYAML(folderMeta as OpenCollection),
+          'utf8'
+        );
       }
-      await writeItems(((item.items as unknown[]) ?? []), folderDir);
+      await writeItems((item.items as unknown[]) ?? [], folderDir);
     } else {
       const info = item.info as { name: string; type: string };
       const slug = slugify(info.name);
       const filename = `${slug}.yaml`;
-      await writeFile(join(dir, filename), serializeOpenCollectionYAML(compact(item) as OpenCollection), 'utf8');
+      await writeFile(
+        join(dir, filename),
+        serializeOpenCollectionYAML(compact(item) as OpenCollection),
+        'utf8'
+      );
     }
   }
 }
@@ -1006,13 +1067,14 @@ function isFolder(item: Record<string, unknown>): boolean {
 }
 
 function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    || 'item';
+  return (
+    name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'item'
+  );
 }
 
 function compact<T>(obj: T): T {
@@ -1058,6 +1120,7 @@ git commit -m "feat(opencollection): add filesystem writer with slugified filena
 **Why:** A single test that loads each fixture, writes it, reloads, and asserts deep equality. Catches subtle losses (key ordering, optional fields, extensions block).
 
 **Files:**
+
 - Create: `src/lib/opencollection/__tests__/roundtrip.test.ts`
 
 - [ ] **Step 1: Write the test**
@@ -1072,8 +1135,12 @@ import { saveCollectionToFile, saveCollectionToDir } from '../fs-writer';
 
 describe('OpenCollection roundtrip', () => {
   let tmp: string;
-  beforeEach(async () => { tmp = await mkdtemp(join(tmpdir(), 'oc-rt-')); });
-  afterEach(async () => { await rm(tmp, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'oc-rt-'));
+  });
+  afterEach(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
 
   it('simple-http.yaml: file → save → reload', async () => {
     const oc1 = await loadCollectionFromFile('tests/fixtures/opencollection/simple-http.yaml');
@@ -1125,6 +1192,7 @@ git commit -m "test(opencollection): add roundtrip suite"
 Read the existing types first to align field names. The relevant files are `src/types/index.ts` (or wherever `Collection`, `HttpRequest`, `GrpcRequest`, `KeyValue`, `AuthConfig` are defined). The mapper preserves any unrecognized fields in `_oc` (a private "passthrough bag") so Task 10 can reverse-map without losing user data.
 
 **Files:**
+
 - Create: `src/lib/opencollection/to-internal.ts`
 - Create: `src/lib/opencollection/__tests__/to-internal.test.ts`
 
@@ -1202,10 +1270,7 @@ export function ocToInternal(oc: OpenCollection): Internal {
     description: typeof oc.docs === 'string' ? oc.docs : undefined,
     variables: extractRootVariables(oc),
     auth: undefined,
-    items: [
-      ...((oc.items ?? []).map(itemToInternal)),
-      ...extensionItems(oc.extensions),
-    ],
+    items: [...(oc.items ?? []).map(itemToInternal), ...extensionItems(oc.extensions)],
     _oc: oc, // full passthrough — written back verbatim if user doesn't edit it
   };
 }
@@ -1254,7 +1319,10 @@ function requestToInternal(item: any, kind: 'http' | 'grpc' | 'graphql' | 'webso
         service: item.grpc.service,
         method: item.grpc.method,
         methodType: methodTypeToInternal(item.grpc.methodType),
-        message: typeof item.grpc.message === 'string' ? item.grpc.message : JSON.stringify(item.grpc.message ?? ''),
+        message:
+          typeof item.grpc.message === 'string'
+            ? item.grpc.message
+            : JSON.stringify(item.grpc.message ?? ''),
         metadata: (item.grpc.metadata ?? []).map(kvToInternal),
         auth: authToInternal(item.grpc.auth),
       };
@@ -1292,7 +1360,8 @@ function bodyToInternal(body: any): any {
   // Heuristic: spec-defined raw body has `raw.<lang>`, multipart has `multipartForm.parts`, formUrlEncoded has `formUrlEncoded.parts`
   if (body.raw) return { type: body.raw.format ?? 'text', raw: body.raw.value ?? '' };
   if (body.multipartForm) return { type: 'form-data', formData: body.multipartForm.parts };
-  if (body.formUrlEncoded) return { type: 'x-www-form-urlencoded', formData: body.formUrlEncoded.parts };
+  if (body.formUrlEncoded)
+    return { type: 'x-www-form-urlencoded', formData: body.formUrlEncoded.parts };
   if (body.graphql) return { type: 'graphql', raw: JSON.stringify(body.graphql) };
   if (body.file) return { type: 'binary', binary: body.file };
   return { type: 'none' };
@@ -1301,12 +1370,27 @@ function bodyToInternal(body: any): any {
 function authToInternal(auth: any): any {
   if (!auth || auth.type === 'none') return { type: 'none' };
   switch (auth.type) {
-    case 'basic':   return { type: 'basic', basic: { username: auth.username, password: auth.password } };
-    case 'bearer':  return { type: 'bearer', bearer: { token: auth.token } };
-    case 'apiKey':  return { type: 'api-key', apiKey: { key: auth.key, value: auth.value, in: auth.placement } };
-    case 'awsv4':   return { type: 'aws-signature', awsSignature: { accessKey: auth.accessKeyId, secretKey: auth.secretAccessKey, region: auth.region, service: auth.service, sessionToken: auth.sessionToken } };
-    case 'digest':  return { type: 'digest', digest: { username: auth.username, password: auth.password } };
-    case 'oauth2':  return { type: 'oauth2', oauth2: auth }; // pass-through; runtime not implemented for all flows in Phase 0
+    case 'basic':
+      return { type: 'basic', basic: { username: auth.username, password: auth.password } };
+    case 'bearer':
+      return { type: 'bearer', bearer: { token: auth.token } };
+    case 'apiKey':
+      return { type: 'api-key', apiKey: { key: auth.key, value: auth.value, in: auth.placement } };
+    case 'awsv4':
+      return {
+        type: 'aws-signature',
+        awsSignature: {
+          accessKey: auth.accessKeyId,
+          secretKey: auth.secretAccessKey,
+          region: auth.region,
+          service: auth.service,
+          sessionToken: auth.sessionToken,
+        },
+      };
+    case 'digest':
+      return { type: 'digest', digest: { username: auth.username, password: auth.password } };
+    case 'oauth2':
+      return { type: 'oauth2', oauth2: auth }; // pass-through; runtime not implemented for all flows in Phase 0
     case 'oauth1':
     case 'ntlm':
     case 'wsse':
@@ -1318,11 +1402,15 @@ function authToInternal(auth: any): any {
 
 function methodTypeToInternal(t?: string): string {
   switch (t) {
-    case 'serverStreaming':   return 'server-streaming';
-    case 'clientStreaming':   return 'client-streaming';
-    case 'bidirectional':     return 'bidirectional-streaming';
+    case 'serverStreaming':
+      return 'server-streaming';
+    case 'clientStreaming':
+      return 'client-streaming';
+    case 'bidirectional':
+      return 'bidirectional-streaming';
     case 'unary':
-    default:                  return 'unary';
+    default:
+      return 'unary';
   }
 }
 
@@ -1390,6 +1478,7 @@ git commit -m "feat(opencollection): map spec → Restura internal Collection"
 **Why:** The reverse direction. Must use the `_oc` passthrough bag from Task 9 so unmodified items emit byte-stable YAML.
 
 **Files:**
+
 - Create: `src/lib/opencollection/from-internal.ts`
 - Create: `src/lib/opencollection/__tests__/from-internal.test.ts`
 
@@ -1418,13 +1507,31 @@ describe('internalToOC', () => {
 
   it('emits a fresh OC for an internal Collection without _oc passthrough', () => {
     const internal = {
-      id: 'x', name: 'Fresh', items: [
-        { id: 'r', type: 'request', name: 'Hello', request: { type: 'http', method: 'GET', url: 'https://x', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' } } },
+      id: 'x',
+      name: 'Fresh',
+      items: [
+        {
+          id: 'r',
+          type: 'request',
+          name: 'Hello',
+          request: {
+            type: 'http',
+            method: 'GET',
+            url: 'https://x',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
+          },
+        },
       ],
     };
     const oc = internalToOC(internal as any);
     expect(oc.info.name).toBe('Fresh');
-    expect(oc.items?.[0]).toMatchObject({ info: { type: 'http', name: 'Hello' }, http: { method: 'GET', url: 'https://x' } });
+    expect(oc.items?.[0]).toMatchObject({
+      info: { type: 'http', name: 'Hello' },
+      http: { method: 'GET', url: 'https://x' },
+    });
   });
 });
 ```
@@ -1461,8 +1568,14 @@ export function internalToOC(c: Internal): OpenCollection {
     }
     const r = it.request;
     if (!r) continue;
-    if (r.type === 'sse') { sseItems.push(it._oc ?? sseToOC(it)); continue; }
-    if (r.type === 'mcp') { mcpItems.push(it._oc ?? mcpToOC(it)); continue; }
+    if (r.type === 'sse') {
+      sseItems.push(it._oc ?? sseToOC(it));
+      continue;
+    }
+    if (r.type === 'mcp') {
+      mcpItems.push(it._oc ?? mcpToOC(it));
+      continue;
+    }
     items.push(it._oc ?? requestFromInternal(it));
   }
 
@@ -1481,12 +1594,18 @@ export function internalToOC(c: Internal): OpenCollection {
 
   if ((c.variables ?? []).length) {
     oc.config = {
-      environments: [{
-        name: 'default',
-        variables: c.variables.filter((v: any) => v.enabled !== false).map((v: any) => ({
-          name: v.key, value: v.value, ...(v.description ? { description: v.description } : {}),
-        })),
-      }],
+      environments: [
+        {
+          name: 'default',
+          variables: c.variables
+            .filter((v: any) => v.enabled !== false)
+            .map((v: any) => ({
+              name: v.key,
+              value: v.value,
+              ...(v.description ? { description: v.description } : {}),
+            })),
+        },
+      ],
     };
   }
 
@@ -1495,7 +1614,9 @@ export function internalToOC(c: Internal): OpenCollection {
 
 function allItemsHaveOcBag(items: any[] | undefined): boolean {
   if (!items) return true;
-  return items.every((it) => it._oc !== undefined && (it.type !== 'folder' || allItemsHaveOcBag(it.items)));
+  return items.every(
+    (it) => it._oc !== undefined && (it.type !== 'folder' || allItemsHaveOcBag(it.items))
+  );
 }
 
 function folderFromInternal(it: any): unknown {
@@ -1515,8 +1636,12 @@ function requestFromInternal(it: any): unknown {
         http: {
           method: r.method,
           url: r.url,
-          ...(r.headers?.length ? { headers: r.headers.filter((h: any) => h.enabled !== false).map(kv) } : {}),
-          ...(r.params?.length ? { params: r.params.filter((p: any) => p.enabled !== false).map(kv) } : {}),
+          ...(r.headers?.length
+            ? { headers: r.headers.filter((h: any) => h.enabled !== false).map(kv) }
+            : {}),
+          ...(r.params?.length
+            ? { params: r.params.filter((p: any) => p.enabled !== false).map(kv) }
+            : {}),
           ...(r.body && r.body.type !== 'none' ? { body: bodyFromInternal(r.body) } : {}),
           ...(r.auth && r.auth.type !== 'none' ? { auth: authFromInternal(r.auth) } : {}),
         },
@@ -1525,7 +1650,9 @@ function requestFromInternal(it: any): unknown {
       return {
         info: { type: 'grpc', name: it.name },
         grpc: {
-          url: r.url, service: r.service, method: r.method,
+          url: r.url,
+          service: r.service,
+          method: r.method,
           methodType: methodTypeFromInternal(r.methodType),
           ...(r.message ? { message: r.message } : {}),
           ...(r.metadata?.length ? { metadata: r.metadata.map(kv) } : {}),
@@ -1548,7 +1675,10 @@ function requestFromInternal(it: any): unknown {
 function sseToOC(it: any): unknown {
   return {
     info: { type: 'sse', name: it.name },
-    sse: { url: it.request.url, ...(it.request.eventFilter ? { eventFilter: it.request.eventFilter } : {}) },
+    sse: {
+      url: it.request.url,
+      ...(it.request.eventFilter ? { eventFilter: it.request.eventFilter } : {}),
+    },
   };
 }
 
@@ -1569,39 +1699,66 @@ function kv(k: any) {
 
 function bodyFromInternal(body: any): unknown {
   switch (body.type) {
-    case 'json':                       return { raw: { format: 'json', value: body.raw ?? '' } };
-    case 'xml':                        return { raw: { format: 'xml', value: body.raw ?? '' } };
-    case 'text':                       return { raw: { format: 'text', value: body.raw ?? '' } };
-    case 'graphql':                    return { graphql: JSON.parse(body.raw || '{}') };
-    case 'binary':                     return { file: body.binary };
-    case 'form-data':                  return { multipartForm: { parts: body.formData } };
-    case 'x-www-form-urlencoded':      return { formUrlEncoded: { parts: body.formData } };
-    default:                           return { raw: { format: 'text', value: '' } };
+    case 'json':
+      return { raw: { format: 'json', value: body.raw ?? '' } };
+    case 'xml':
+      return { raw: { format: 'xml', value: body.raw ?? '' } };
+    case 'text':
+      return { raw: { format: 'text', value: body.raw ?? '' } };
+    case 'graphql':
+      return { graphql: JSON.parse(body.raw || '{}') };
+    case 'binary':
+      return { file: body.binary };
+    case 'form-data':
+      return { multipartForm: { parts: body.formData } };
+    case 'x-www-form-urlencoded':
+      return { formUrlEncoded: { parts: body.formData } };
+    default:
+      return { raw: { format: 'text', value: '' } };
   }
 }
 
 function authFromInternal(a: any): unknown {
   switch (a.type) {
-    case 'basic':           return { type: 'basic', username: a.basic.username, password: a.basic.password };
-    case 'bearer':          return { type: 'bearer', token: a.bearer.token };
-    case 'api-key':         return { type: 'apiKey', key: a.apiKey.key, value: a.apiKey.value, placement: a.apiKey.in };
-    case 'aws-signature':   return { type: 'awsv4', accessKeyId: a.awsSignature.accessKey, secretAccessKey: a.awsSignature.secretKey, region: a.awsSignature.region, service: a.awsSignature.service, ...(a.awsSignature.sessionToken ? { sessionToken: a.awsSignature.sessionToken } : {}) };
-    case 'digest':          return { type: 'digest', username: a.digest.username, password: a.digest.password };
-    case 'oauth2':          return a.oauth2;
+    case 'basic':
+      return { type: 'basic', username: a.basic.username, password: a.basic.password };
+    case 'bearer':
+      return { type: 'bearer', token: a.bearer.token };
+    case 'api-key':
+      return { type: 'apiKey', key: a.apiKey.key, value: a.apiKey.value, placement: a.apiKey.in };
+    case 'aws-signature':
+      return {
+        type: 'awsv4',
+        accessKeyId: a.awsSignature.accessKey,
+        secretAccessKey: a.awsSignature.secretKey,
+        region: a.awsSignature.region,
+        service: a.awsSignature.service,
+        ...(a.awsSignature.sessionToken ? { sessionToken: a.awsSignature.sessionToken } : {}),
+      };
+    case 'digest':
+      return { type: 'digest', username: a.digest.username, password: a.digest.password };
+    case 'oauth2':
+      return a.oauth2;
     case 'oauth1':
     case 'ntlm':
-    case 'wsse':            return a[a.type];
-    default:                return { type: 'none' };
+    case 'wsse':
+      return a[a.type];
+    default:
+      return { type: 'none' };
   }
 }
 
 function methodTypeFromInternal(t?: string): string {
   switch (t) {
-    case 'server-streaming':         return 'serverStreaming';
-    case 'client-streaming':         return 'clientStreaming';
-    case 'bidirectional-streaming':  return 'bidirectional';
+    case 'server-streaming':
+      return 'serverStreaming';
+    case 'client-streaming':
+      return 'clientStreaming';
+    case 'bidirectional-streaming':
+      return 'bidirectional';
     case 'unary':
-    default:                         return 'unary';
+    default:
+      return 'unary';
   }
 }
 ```
@@ -1628,6 +1785,7 @@ git commit -m "feat(opencollection): map Restura internal Collection → spec"
 **Why:** One import path for callers. Avoids deep imports leaking module structure.
 
 **Files:**
+
 - Create: `src/lib/opencollection/index.ts`
 
 - [ ] **Step 1: Write the index**
@@ -1661,6 +1819,7 @@ git commit -m "feat(opencollection): expose public API"
 **Why:** ~10–15 files import from `@/lib/shared/file-collection-schema`. We don't break them — we make the old module a thin shim that re-exports from `@/lib/opencollection` and keeps legacy filename helpers.
 
 **Files:**
+
 - Modify: `src/lib/shared/file-collection-schema.ts`
 
 - [ ] **Step 1: Find all callers**
@@ -1701,8 +1860,15 @@ export function getRequestTypeFromFilename(_filename: string): null {
   return null;
 }
 
-export function getFilenameForRequest(name: string, _type: 'http' | 'grpc' | 'sse' | 'mcp'): string {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'item';
+export function getFilenameForRequest(
+  name: string,
+  _type: 'http' | 'grpc' | 'sse' | 'mcp'
+): string {
+  const slug =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'item';
   return `${slug}.yaml`;
 }
 
@@ -1744,6 +1910,7 @@ git commit -m "refactor(file-schema): shim to OpenCollection re-export"
 **Why:** `electron/main/collection-manager.ts:28-57` re-declares the file Zod schema. After Task 4, it should import from the renderer module via the relative path `../../src/lib/opencollection/schemas`.
 
 **Files:**
+
 - Modify: `electron/main/collection-manager.ts`
 
 - [ ] **Step 1: Confirm tsconfig allows the import**
@@ -1820,6 +1987,7 @@ git commit -m "refactor(electron): use shared OpenCollection schema in collectio
 **Why:** Surface the new format as a first-class import option in the existing import menu.
 
 **Files:**
+
 - Create: `src/features/collections/lib/importers/opencollection.ts`
 - Modify: `src/features/collections/lib/importers/index.ts`
 - Modify: `src/features/collections/lib/importers.ts`
@@ -1880,12 +2048,18 @@ import { importOpenCollection } from '../importers/opencollection';
 
 describe('importOpenCollection', () => {
   it('imports a file source', async () => {
-    const c = await importOpenCollection({ kind: 'file', path: 'tests/fixtures/opencollection/simple-http.yaml' });
+    const c = await importOpenCollection({
+      kind: 'file',
+      path: 'tests/fixtures/opencollection/simple-http.yaml',
+    });
     expect(c.name).toBe('Simple HTTP Demo');
     expect(c.items.length).toBe(1);
   });
   it('imports a dir source', async () => {
-    const c = await importOpenCollection({ kind: 'dir', path: 'tests/fixtures/opencollection/dir-layout' });
+    const c = await importOpenCollection({
+      kind: 'dir',
+      path: 'tests/fixtures/opencollection/dir-layout',
+    });
     expect(c.items.length).toBe(1);
   });
 });
@@ -1925,6 +2099,7 @@ git commit -m "feat(collections): add OpenCollection importer"
 **Why:** Mirror of Task 14 — write the current Restura collection back to OpenCollection format, either as a single bundled file or a directory.
 
 **Files:**
+
 - Modify: `src/features/collections/lib/exporters.ts`
 
 - [ ] **Step 1: Add the export function**
@@ -1932,7 +2107,12 @@ git commit -m "feat(collections): add OpenCollection importer"
 In `src/features/collections/lib/exporters.ts`, add:
 
 ```typescript
-import { internalToOC, serializeOpenCollectionYAML, saveCollectionToDir, saveCollectionToFile } from '@/lib/opencollection';
+import {
+  internalToOC,
+  serializeOpenCollectionYAML,
+  saveCollectionToDir,
+  saveCollectionToFile,
+} from '@/lib/opencollection';
 
 export type OpenCollectionExportTarget =
   | { kind: 'bundled-file' } // returns YAML string in `files`
@@ -1963,12 +2143,17 @@ import { importOpenCollection } from '../importers/opencollection';
 
 describe('exportOpenCollection', () => {
   it('roundtrips a collection through bundled-file export → import', async () => {
-    const original = await importOpenCollection({ kind: 'file', path: 'tests/fixtures/opencollection/multi-protocol.yaml' });
+    const original = await importOpenCollection({
+      kind: 'file',
+      path: 'tests/fixtures/opencollection/multi-protocol.yaml',
+    });
     const { files } = await exportOpenCollection(original, { kind: 'bundled-file' });
     const yaml = files.get('opencollection.yaml')!;
     const reimported = await importOpenCollection({ kind: 'raw', content: yaml });
     // Compare on stable shape: same names, same types
-    expect(reimported.items.map((i: any) => i.name)).toEqual(original.items.map((i: any) => i.name));
+    expect(reimported.items.map((i: any) => i.name)).toEqual(
+      original.items.map((i: any) => i.name)
+    );
   });
 });
 ```
@@ -1982,6 +2167,7 @@ npx vitest run src/features/collections/lib/__tests__/export-opencollection.test
 - [ ] **Step 4: Wire into export menu**
 
 Find the export menu component (parallel to import in Task 14 Step 5) and add an "OpenCollection (YAML)" option:
+
 - For bundled-file: use the existing browser-download path with the returned string
 - For directory: only show in Electron; calls `dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })`
 
@@ -2003,6 +2189,7 @@ git commit -m "feat(collections): add OpenCollection exporter"
 **Why:** Watcher already exists in `electron/main/collection-manager.ts` but lacks debouncing — saving multiple files in a burst (which Restura does on directory export) fires N events. Renderer should see one. Also verify the IPC channel name and event payload match what `useFileCollectionStore` expects.
 
 **Files:**
+
 - Modify: `electron/main/collection-manager.ts`
 
 - [ ] **Step 1: Locate the watcher**
@@ -2070,7 +2257,9 @@ describe('debounce', () => {
   it('coalesces multiple calls within the window', async () => {
     const fn = vi.fn();
     const d = debounce(fn, 50);
-    d(1); d(2); d(3);
+    d(1);
+    d(2);
+    d(3);
     expect(fn).not.toHaveBeenCalled();
     await new Promise((r) => setTimeout(r, 80));
     expect(fn).toHaveBeenCalledTimes(1);
@@ -2109,6 +2298,7 @@ git commit -m "feat(collection-manager): debounce watcher events"
 **Why:** Proves the full loop: open a directory collection → run a request → modify → save → diff is clean.
 
 **Files:**
+
 - Create: `tests/e2e/opencollection-roundtrip.spec.ts`
 
 - [ ] **Step 1: Write the test**
@@ -2126,10 +2316,15 @@ test.describe('OpenCollection roundtrip @e2e', () => {
   test.beforeAll(() => {
     tmpRepo = mkdtempSync(join(tmpdir(), 'oc-e2e-'));
     cpSync('tests/fixtures/opencollection/dir-layout', tmpRepo, { recursive: true });
-    execSync('git init -q && git add . && git -c user.email=test@x.y -c user.name=t commit -q -m base', { cwd: tmpRepo });
+    execSync(
+      'git init -q && git add . && git -c user.email=test@x.y -c user.name=t commit -q -m base',
+      { cwd: tmpRepo }
+    );
   });
 
-  test.afterAll(() => { rmSync(tmpRepo, { recursive: true, force: true }); });
+  test.afterAll(() => {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  });
 
   test('open dir → run request → save back → diff is clean', async ({ page }) => {
     await page.goto('http://localhost:5173/');
@@ -2140,7 +2335,10 @@ test.describe('OpenCollection roundtrip @e2e', () => {
     await page.getByText(/directory/i).click();
 
     // The directory picker is OS-native in Electron; in web mode this test is skipped.
-    test.skip(process.env.PLAYWRIGHT_TARGET !== 'electron', 'Directory import requires Electron in this test');
+    test.skip(
+      process.env.PLAYWRIGHT_TARGET !== 'electron',
+      'Directory import requires Electron in this test'
+    );
 
     // (Electron path — replace with your existing electron Playwright bootstrap)
     // ... select tmpRepo via dialog stub
@@ -2158,7 +2356,9 @@ test.describe('OpenCollection roundtrip @e2e', () => {
     const diff = execSync('git diff --unified=0', { cwd: tmpRepo, encoding: 'utf8' });
     expect(diff).toMatch(/-.*users\/1/);
     expect(diff).toMatch(/\+.*users\/2/);
-    expect(diff.split('\n').filter((l) => l.startsWith('+') || l.startsWith('-')).length).toBeLessThan(10);
+    expect(
+      diff.split('\n').filter((l) => l.startsWith('+') || l.startsWith('-')).length
+    ).toBeLessThan(10);
   });
 });
 ```
@@ -2185,6 +2385,7 @@ git commit -m "test(e2e): OpenCollection directory roundtrip smoke"
 **Why:** Bring everything together: full validate, update CHANGELOG, document the new format in user-facing docs.
 
 **Files:**
+
 - Modify: `docs/CHANGELOG.md`
 - Modify: `docs/ARCHITECTURE.md`
 - Create: `docs/opencollection.md`
@@ -2203,22 +2404,25 @@ Prepend a new entry under "Unreleased":
 
 ```markdown
 ### Added
+
 - Native support for **OpenCollection v1.0.0** — Restura now reads and writes the same YAML format as Bruno 3.1+.
 - Importer + exporter for OpenCollection (single-file and directory layouts).
 - `src/lib/opencollection/` module: schemas, serializer, fs-reader, fs-writer, internal-model bridges.
 - Vendored OpenCollection schema at `vendor/opencollection/v1.0.0/`.
 
 ### Changed
+
 - `electron/main/collection-manager.ts` now imports its YAML schema from the shared OpenCollection module instead of redeclaring it.
 - File watcher in Electron debounces with a 250ms window to avoid duplicate events on multi-file saves.
 
 ### Deprecated
+
 - `src/lib/shared/file-collection-schema.ts` is now a thin shim re-exporting from `@/lib/opencollection`. Will be removed in Phase 1.
 ```
 
 - [ ] **Step 3: Add `docs/opencollection.md`**
 
-```markdown
+````markdown
 # OpenCollection in Restura
 
 Restura uses the [OpenCollection v1.0.0](https://spec.opencollection.com/) specification as its
@@ -2230,8 +2434,9 @@ any other OpenCollection-compliant tool.
 A collection on disk is either:
 
 **Bundled (single file):**
+
 ```yaml
-opencollection: "1.0.0"
+opencollection: '1.0.0'
 info:
   name: My API
 bundled: true
@@ -2239,8 +2444,10 @@ items:
   - info: { type: http, name: Health }
     http: { method: GET, url: https://example.com/health }
 ```
+````
 
 **Directory (multi-file, recommended for git):**
+
 ```
 my-api/
 ├── opencollection.yml         # collection metadata + config
@@ -2277,7 +2484,8 @@ re-emits them on save.
 
 Bundled output is convenient for sharing a single file; directory output is recommended for
 checking into git, since each request is its own diffable file.
-```
+
+````
 
 - [ ] **Step 4: Update `docs/ARCHITECTURE.md`**
 
@@ -2288,7 +2496,7 @@ Add a section "Collection format" pointing to `docs/opencollection.md`. Keep it 
 ```bash
 git add docs
 git commit -m "docs(opencollection): user guide and architecture note"
-```
+````
 
 ---
 
@@ -2329,11 +2537,11 @@ npm run electron:dev
 
 ## Appendix B — Risk register
 
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| OpenCollection spec adds breaking changes in v1.x | Medium | Pinned vendor copy. Bump intentionally with a re-test cycle. |
-| `js-yaml` reorders keys on roundtrip | Low | Use `sortKeys: false`. Roundtrip tests in Task 8 catch drift. |
-| `_oc` passthrough bag leaks into UI state | Medium | Do not bind UI components to `_oc`. Keep it on the model only. Filter before dispatching to Zustand if needed. |
-| Auto-generated types don't match Zod-validated runtime | Low | Both derive from the same vendored schema. Mismatch surfaces in Task 4 tests immediately. |
-| Slugified filename collides with another in same folder | Low | Append `-2`, `-3` on collision. Implement in Task 7's `slugify` if the e2e test catches it. |
-| Watcher fires for files Restura just wrote | Medium | Already handled via mtime tracking in `collection-manager.ts`. Verify in Task 16's manual test. |
+| Risk                                                    | Likelihood | Mitigation                                                                                                     |
+| ------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------- |
+| OpenCollection spec adds breaking changes in v1.x       | Medium     | Pinned vendor copy. Bump intentionally with a re-test cycle.                                                   |
+| `js-yaml` reorders keys on roundtrip                    | Low        | Use `sortKeys: false`. Roundtrip tests in Task 8 catch drift.                                                  |
+| `_oc` passthrough bag leaks into UI state               | Medium     | Do not bind UI components to `_oc`. Keep it on the model only. Filter before dispatching to Zustand if needed. |
+| Auto-generated types don't match Zod-validated runtime  | Low        | Both derive from the same vendored schema. Mismatch surfaces in Task 4 tests immediately.                      |
+| Slugified filename collides with another in same folder | Low        | Append `-2`, `-3` on collision. Implement in Task 7's `slugify` if the e2e test catches it.                    |
+| Watcher fires for files Restura just wrote              | Medium     | Already handled via mtime tracking in `collection-manager.ts`. Verify in Task 16's manual test.                |
