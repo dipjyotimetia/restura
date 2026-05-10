@@ -7,6 +7,7 @@ import {
   getAndResetUnrecognizedScripts,
   type OpenCollection,
 } from '@/lib/opencollection';
+import { formatZodIssues } from '@/lib/shared/validations';
 import type { ImportResult, ImportWarning } from './types';
 
 /**
@@ -30,11 +31,7 @@ export interface OpenCollectionImportResult {
 export function importOpenCollection(data: unknown): ImportResult {
   const result = openCollectionSchema.safeParse(data);
   if (!result.success) {
-    const issues = result.error.issues
-      .slice(0, 5)
-      .map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
-      .join('; ');
-    throw new Error(`Invalid OpenCollection document: ${issues}`);
+    throw new Error(`Invalid OpenCollection document: ${formatZodIssues(result.error)}`);
   }
   const oc = result.data;
   const collection = ocToInternal(oc) as Collection;

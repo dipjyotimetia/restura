@@ -11,6 +11,7 @@ import type {
   RequestBody,
 } from '@/types';
 import type { ImportResult, ImportWarning } from './types';
+import { formatZodIssues } from '@/lib/shared/validations';
 
 /**
  * Hoppscotch collection importer.
@@ -119,11 +120,7 @@ export function importHoppscotchEnvironment(data: unknown): Environment {
 export function importHoppscotchCollection(data: unknown): ImportResult {
   const r = hoppCollection.safeParse(data);
   if (!r.success) {
-    const issues = r.error.issues
-      .slice(0, 5)
-      .map((i) => `${i.path.join('.')}: ${i.message}`)
-      .join('; ');
-    throw new Error(`Invalid Hoppscotch collection: ${issues}`);
+    throw new Error(`Invalid Hoppscotch collection: ${formatZodIssues(r.error)}`);
   }
   const warnings: ImportWarning[] = [];
   const root = r.data as any;
@@ -183,6 +180,8 @@ function requestToInternal(rq: any, parent: any, warnings: ImportWarning[]): Htt
 }
 
 function combineScripts(collection: string, request: string): string | undefined {
+  // Fast path: both empty (common case for collections without scripts).
+  if (!collection && !request) return undefined;
   const parts: string[] = [];
   if (collection.trim()) parts.push(`// --- inherited from collection ---\n${collection}`);
   if (request.trim()) parts.push(request);

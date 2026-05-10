@@ -220,6 +220,19 @@ function bruRequestToItem(
 ): CollectionItem {
   const meta = isRecord(bru.meta) ? bru.meta : {};
   const name = typeof meta.name === 'string' && meta.name.length > 0 ? meta.name : fallbackName;
+  // Bruno's meta.type can be 'http', 'graphql', 'grpc', 'ws'. Restura's
+  // bru-importer currently models everything as HttpRequest — GraphQL bodies
+  // are handled inside bruToHttpRequest by detecting body.graphql, but
+  // gRPC and WebSocket requests need the dedicated request types we don't
+  // map yet. Warn so users see what was downgraded.
+  const metaType = typeof meta.type === 'string' ? meta.type : 'http';
+  if (metaType !== 'http' && metaType !== 'graphql') {
+    warnings.push({
+      kind: 'platform-unsupported',
+      feature: `Bruno meta.type='${metaType}' (mapped to HttpRequest)`,
+      requestName: name,
+    });
+  }
   return {
     id: uuid(),
     name,
@@ -252,14 +265,33 @@ function bruToHttpRequest(
   ).toUpperCase() as HttpMethod;
   const url = typeof httpMeta.url === 'string' ? httpMeta.url : '';
 
-  // Detect Bruno-specific syntax in URL/body and warn once per pattern per request.
-  const haystack = JSON.stringify(bru);
+  // Detect Bruno-specific syntax in URL/body/headers and warn once per pattern.
+  // Scan only the fields where these patterns can meaningfully appear; previously
+  // we serialized the whole `bru` object per request, which is O(N) in body size
+  // for every request. Targeted scan is constant in the number of relevant strings.
+  const bodyStrings: string[] = [];
+  if (isRecord(bru.body)) {
+    for (const v of Object.values(bru.body)) {
+      if (typeof v === 'string') bodyStrings.push(v);
+    }
+  }
+  const headerValues = Array.isArray(bru.headers)
+    ? bru.headers
+        .filter(isRecord)
+        .map((h) => (typeof h.value === 'string' ? h.value : ''))
+    : [];
+  const haystacks = [url, ...headerValues, ...bodyStrings];
   const seenLabels = new Set<string>();
   for (const { pattern, label } of BRUNO_SYNTAX_PATTERNS) {
-    pattern.lastIndex = 0;
-    if (pattern.test(haystack) && !seenLabels.has(label)) {
-      warnings.push({ kind: 'bruno-syntax', pattern: label, requestName: name });
-      seenLabels.add(label);
+    if (seenLabels.has(label)) continue;
+    for (const s of haystacks) {
+      if (!s) continue;
+      pattern.lastIndex = 0;
+      if (pattern.test(s)) {
+        warnings.push({ kind: 'bruno-syntax', pattern: label, requestName: name });
+        seenLabels.add(label);
+        break;
+      }
     }
   }
 

@@ -15,7 +15,6 @@ import {
   importHoppscotchEnvironment,
   isHoppscotchEnvironment,
   importBrunoCollection,
-  type BrunoSource,
   type ImportResult,
   type ImportWarning,
 } from '@/features/collections/lib/importers';
@@ -217,18 +216,16 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
       addEnvironment(env);
       return { kind: 'environment-only', environmentName: env.name };
     }
-    // Bruno: pass raw text to the importer (which lazy-loads @usebruno/lang).
-    if (type === 'bruno') {
-      const source: BrunoSource = { kind: 'single', content: text };
-      return importBrunoCollection(source);
-    }
+    // Bruno: parseFileContent passes .bru text through unparsed; the IMPORTERS
+    // entry wraps it in BrunoSource. No special case needed here.
     return IMPORTERS[type](data);
   };
 
   const handleImportSuccess = (outcome: ProcessOutcome) => {
     if ('kind' in outcome) {
       setImportStatus('success');
-      setWarnings([]);
+      // Skip the [] -> [] re-render if warnings was already empty.
+      setWarnings((prev) => (prev.length === 0 ? prev : []));
       setEnvironmentOnlyName(outcome.environmentName);
       setTimeout(() => {
         onOpenChange(false);

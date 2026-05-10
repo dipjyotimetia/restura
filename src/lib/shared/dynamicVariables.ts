@@ -1,5 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
-import { faker } from '@faker-js/faker';
+// Use the locale-scoped entry point — `@faker-js/faker` (no locale) pulls every
+// locale into the renderer bundle (~3 MB). The `/locale/en` entry tree-shakes
+// to ~1 MB and is sufficient for Postman dynamic-var parity (all $random*
+// helpers we surface are locale-agnostic strings).
+import { faker } from '@faker-js/faker/locale/en';
 
 const FIRST_NAMES = ['alice', 'bob', 'carol', 'dave', 'eve', 'frank', 'grace', 'henry'];
 const DOMAINS = ['example.com', 'test.io', 'sample.net', 'demo.dev'];

@@ -260,3 +260,15 @@ export const validateXML = (value: string): boolean => {
     return false;
   }
 };
+
+/**
+ * Format a Zod parse error as a short human-readable string for surfacing
+ * in error messages. Caps at `max` issues so a deeply broken document
+ * doesn't dump kilobytes into the toast.
+ */
+export function formatZodIssues(error: z.ZodError, max = 5): string {
+  return error.issues
+    .slice(0, max)
+    .map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
+    .join('; ');
+}

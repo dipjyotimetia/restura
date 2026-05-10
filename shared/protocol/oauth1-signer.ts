@@ -18,102 +18,15 @@
 
 import OAuth from 'oauth-1.0a';
 import type { ProtocolAuthConfig } from './types';
+import { bytesToBase64, concatBytes, sha1Sync, utf8 } from './crypto-utils';
 
 // ---------------------------------------------------------------------------
-// SHA-1 / SHA-256 — pure-JS, sync. Fed into oauth-1.0a's hash_function.
+// SHA-256 — pure-JS, sync. SHA-1 lives in crypto-utils (shared with WSSE).
+// Fed into oauth-1.0a's hash_function alongside sha1Sync.
 // ---------------------------------------------------------------------------
-
-function rotl32(x: number, n: number): number {
-  return ((x << n) | (x >>> (32 - n))) >>> 0;
-}
 
 function rotr32(x: number, n: number): number {
   return ((x >>> n) | (x << (32 - n))) >>> 0;
-}
-
-/**
- * SHA-1 (FIPS 180-4 §6.1). Returns a 20-byte digest as a Uint8Array.
- *
- * Pure JS so it runs in environments without `crypto.subtle.digest` available
- * synchronously (oauth-1.0a's `hash_function` contract is sync).
- */
-function sha1(message: Uint8Array): Uint8Array {
-  // Pad message: append 0x80, zeros, then 64-bit big-endian length in bits.
-  const ml = message.length;
-  const bitLen = ml * 8;
-  // 1 byte (0x80) + zero padding + 8 bytes (length) ≡ 56 (mod 64).
-  const padLen = (56 - ((ml + 1) % 64) + 64) % 64;
-  const total = ml + 1 + padLen + 8;
-  const padded = new Uint8Array(total);
-  padded.set(message);
-  padded[ml] = 0x80;
-  // length is a 64-bit big-endian. JS bitwise is 32-bit, so write hi/lo.
-  // SHA-1 specifies a 64-bit length but JS numbers can't represent ml*8 if
-  // ml > 2^29 — fine for our purposes (request payloads).
-  const dv = new DataView(padded.buffer);
-  dv.setUint32(total - 8, Math.floor(bitLen / 0x100000000), false);
-  dv.setUint32(total - 4, bitLen >>> 0, false);
-
-  let h0 = 0x67452301;
-  let h1 = 0xefcdab89;
-  let h2 = 0x98badcfe;
-  let h3 = 0x10325476;
-  let h4 = 0xc3d2e1f0;
-
-  const w = new Uint32Array(80);
-  for (let chunk = 0; chunk < total; chunk += 64) {
-    for (let i = 0; i < 16; i++) {
-      w[i] = dv.getUint32(chunk + i * 4, false);
-    }
-    for (let i = 16; i < 80; i++) {
-      w[i] = rotl32((w[i - 3]! ^ w[i - 8]! ^ w[i - 14]! ^ w[i - 16]!) >>> 0, 1);
-    }
-
-    let a = h0;
-    let b = h1;
-    let c = h2;
-    let d = h3;
-    let e = h4;
-
-    for (let i = 0; i < 80; i++) {
-      let f: number;
-      let k: number;
-      if (i < 20) {
-        f = (b & c) | (~b & d);
-        k = 0x5a827999;
-      } else if (i < 40) {
-        f = b ^ c ^ d;
-        k = 0x6ed9eba1;
-      } else if (i < 60) {
-        f = (b & c) | (b & d) | (c & d);
-        k = 0x8f1bbcdc;
-      } else {
-        f = b ^ c ^ d;
-        k = 0xca62c1d6;
-      }
-      const temp = (rotl32(a, 5) + (f >>> 0) + e + k + w[i]!) >>> 0;
-      e = d;
-      d = c;
-      c = rotl32(b, 30);
-      b = a;
-      a = temp;
-    }
-
-    h0 = (h0 + a) >>> 0;
-    h1 = (h1 + b) >>> 0;
-    h2 = (h2 + c) >>> 0;
-    h3 = (h3 + d) >>> 0;
-    h4 = (h4 + e) >>> 0;
-  }
-
-  const out = new Uint8Array(20);
-  const odv = new DataView(out.buffer);
-  odv.setUint32(0, h0, false);
-  odv.setUint32(4, h1, false);
-  odv.setUint32(8, h2, false);
-  odv.setUint32(12, h3, false);
-  odv.setUint32(16, h4, false);
-  return out;
 }
 
 // SHA-256 round constants (FIPS 180-4 §4.2.2).
@@ -240,30 +153,8 @@ function hmac(
     oKeyPad[i] = k[i]! ^ 0x5c;
     iKeyPad[i] = k[i]! ^ 0x36;
   }
-  const inner = hash(concat(iKeyPad, message));
-  return hash(concat(oKeyPad, inner));
-}
-
-function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
-}
-
-function bytesToBase64(b: Uint8Array): string {
-  if (typeof btoa === 'function') {
-    let s = '';
-    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]!);
-    return btoa(s);
-  }
-  // Node fallback (Electron main process / SSR)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (globalThis as any).Buffer.from(b).toString('base64');
-}
-
-function utf8(s: string): Uint8Array {
-  return new TextEncoder().encode(s);
+  const inner = hash(concatBytes(iKeyPad, message));
+  return hash(concatBytes(oKeyPad, inner));
 }
 
 /**
@@ -271,7 +162,7 @@ function utf8(s: string): Uint8Array {
  * shape oauth-1.0a expects from `hash_function`.
  */
 export function hmacSha1Base64(baseString: string, key: string): string {
-  return bytesToBase64(hmac(sha1, 64, utf8(key), utf8(baseString)));
+  return bytesToBase64(hmac(sha1Sync, 64, utf8(key), utf8(baseString)));
 }
 
 /**
