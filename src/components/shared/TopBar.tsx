@@ -40,9 +40,9 @@ export default function TopBar({
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex h-11 items-center justify-between border-b border-border bg-background/95 backdrop-blur px-3 shrink-0">
+      <div className="flex h-11 items-center justify-between border-b glass-border-default glass-2 px-3 shrink-0">
         {/* Left: Mode switcher */}
-        <div role="group" aria-label="Request mode" className="flex items-center gap-0.5 bg-muted/60 rounded-md p-0.5 border border-border/50">
+        <div role="group" aria-label="Request mode" className="flex items-center gap-0.5 bg-black/[0.06] dark:bg-white/[0.08] glass-border-default rounded-full p-0.5 border">
           {(['http', 'graphql', 'grpc', 'websocket', 'sse', 'mcp'] as RequestMode[]).map((mode) => (
             <button
               key={mode}
@@ -57,7 +57,7 @@ export default function TopBar({
               {requestMode === mode && (
                 <motion.span
                   layoutId="mode-pill"
-                  className="absolute inset-0 bg-background shadow-sm border border-border/40 rounded"
+                  className="absolute inset-0 bg-black/[0.06] dark:bg-white/[0.12] shadow-sm rounded-full"
                   transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                 />
               )}
@@ -73,7 +73,7 @@ export default function TopBar({
             value={activeEnvironmentId ?? 'none'}
             onValueChange={(value) => setActiveEnvironment(value === 'none' ? null : value)}
           >
-            <SelectTrigger className="h-7 w-35 border-transparent bg-muted/30 hover:bg-muted/50 focus:ring-0 text-[10px]">
+            <SelectTrigger className="h-7 w-35 bg-white/[0.45] dark:bg-white/[0.025] glass-border-subtle border hover:bg-white/[0.6] dark:hover:bg-white/[0.06] focus:ring-0 text-[10px]">
               <div className="flex items-center gap-1.5 overflow-hidden">
                 <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
                 <span className="truncate">

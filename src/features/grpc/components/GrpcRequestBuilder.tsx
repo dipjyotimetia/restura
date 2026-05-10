@@ -77,6 +77,7 @@ function GrpcRequestBuilder() {
   const [activeTab, setActiveTab] = useState('message');
   const [protoFile, setProtoFile] = useState<File | null>(null);
   const [protoInfo, setProtoInfo] = useState<ProtoFileInfo | null>(null);
+  const [resolvedProto, setResolvedProto] = useState<{ content: string; fileName: string } | null>(null);
   const [validation, setValidation] = useState<ValidationState>({
     url: { valid: true },
     service: { valid: true },
@@ -436,6 +437,8 @@ function GrpcRequestBuilder() {
         setLoading(false);
         return;
       }
+
+      setResolvedProto({ content: protoContent, fileName: protoFileName });
 
       if (grpcRequest.methodType !== 'unary') {
         if (!isElectron()) {
@@ -1025,7 +1028,11 @@ function GrpcRequestBuilder() {
 
         {grpcRequest.methodType !== 'unary' && (
           <TabsContent value="web-stream" className="flex-1 overflow-hidden p-0 m-0">
-            <GrpcStreamingPanel request={grpcRequest} />
+            <GrpcStreamingPanel
+              request={grpcRequest}
+              protoContent={resolvedProto?.content}
+              protoFileName={resolvedProto?.fileName}
+            />
           </TabsContent>
         )}
       </Tabs>

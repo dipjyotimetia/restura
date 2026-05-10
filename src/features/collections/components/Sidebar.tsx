@@ -31,7 +31,7 @@ import {
   HardDrive,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import type { ActivePanel, CollectionItem, Workflow } from '@/types';
+import type { ActivePanel, AuthConfig, Collection, CollectionItem, Workflow } from '@/types';
 import {
   exportToPostman,
   exportToInsomnia,
@@ -40,6 +40,8 @@ import {
   downloadText,
 } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import AuthConfigComponent from '@/features/auth/components/AuthConfig';
 import { cn } from '@/lib/shared/utils';
 import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
 import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
@@ -65,12 +67,13 @@ interface SidebarProps {
 const HISTORY_PAGE_SIZE = 20;
 
 function Sidebar({ onClose, activePanel }: SidebarProps) {
-  const { collections, createNewCollection, addCollection, removeCollection } = useCollectionStore(
+  const { collections, createNewCollection, addCollection, removeCollection, updateCollection } = useCollectionStore(
     useShallow((s) => ({
       collections: s.collections,
       createNewCollection: s.createNewCollection,
       addCollection: s.addCollection,
       removeCollection: s.removeCollection,
+      updateCollection: s.updateCollection,
     }))
   );
 
@@ -93,6 +96,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   }, [activePanel]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<string | null>(null);
+  const [settingsDialogCollection, setSettingsDialogCollection] = useState<Collection | null>(null);
+  const [settingsDraftAuth, setSettingsDraftAuth] = useState<AuthConfig>({ type: 'none' });
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(HISTORY_PAGE_SIZE);
@@ -321,9 +326,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <aside className="bg-card flex flex-col h-full">
+      <aside aria-label="Collections, history, and workflows" className="glass-2 glass-border-default flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-3 py-2 border-b glass-border-subtle shrink-0">
           <span className="text-[10px] font-mono font-semibold tracking-widest text-muted-foreground uppercase">
             {activeTab === 'collections'
               ? 'Collections'
@@ -514,6 +519,16 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                                 )}
                               </>
                             )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSettingsDraftAuth(collection.auth ?? { type: 'none' });
+                                setSettingsDialogCollection(collection);
+                              }}
+                              className="text-xs"
+                            >
+                              Collection settings
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => handleDeleteClick(collection.id)}
@@ -749,6 +764,43 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
           }}
         />
       </aside>
+
+      <Dialog
+        open={!!settingsDialogCollection}
+        onOpenChange={(open) => { if (!open) setSettingsDialogCollection(null); }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Collection settings — {settingsDialogCollection?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Default Auth</label>
+              <AuthConfigComponent
+                auth={settingsDraftAuth}
+                onChange={setSettingsDraftAuth}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSettingsDialogCollection(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (settingsDialogCollection) {
+                  updateCollection(settingsDialogCollection.id, { auth: settingsDraftAuth });
+                }
+                setSettingsDialogCollection(null);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }

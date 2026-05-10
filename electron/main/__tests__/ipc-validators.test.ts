@@ -3,6 +3,8 @@ import { vi } from 'vitest';
 import {
   HttpRequestConfigSchema,
   GrpcRequestConfigSchema,
+  GrpcSendMessageSchema,
+  GrpcStreamRequestIdSchema,
   FilePathSchema,
   ShellUrlSchema,
   validateIpcInput,
@@ -79,6 +81,73 @@ describe('validateIpcInput', () => {
     it('shell URL with http:// passes', () => {
       expect(() => validateIpcInput(ShellUrlSchema, 'http://example.com', 'shell:openExternal')).not.toThrow();
     });
+  });
+});
+
+describe('GrpcRequestConfigSchema — streaming method types', () => {
+  const validGrpc = {
+    url: 'https://grpc.example.com',
+    service: 'MyService',
+    method: 'MyMethod',
+    methodType: 'unary' as const,
+    metadata: {},
+    message: {},
+    protoContent: 'syntax = "proto3";',
+    protoFileName: 'my.proto',
+  };
+
+  it('accepts methodType client-streaming', () => {
+    expect(() =>
+      validateIpcInput(
+        GrpcRequestConfigSchema,
+        { ...validGrpc, methodType: 'client-streaming' },
+        'grpc:start-stream'
+      )
+    ).not.toThrow();
+  });
+
+  it('accepts methodType bidirectional-streaming', () => {
+    expect(() =>
+      validateIpcInput(
+        GrpcRequestConfigSchema,
+        { ...validGrpc, methodType: 'bidirectional-streaming' },
+        'grpc:start-stream'
+      )
+    ).not.toThrow();
+  });
+});
+
+describe('GrpcSendMessageSchema', () => {
+  it('accepts a plain object message', () => {
+    expect(() =>
+      validateIpcInput(GrpcSendMessageSchema, ['req-id-1', { field: 'value' }], 'grpc:send-message')
+    ).not.toThrow();
+  });
+
+  it('accepts an array message', () => {
+    expect(() =>
+      validateIpcInput(GrpcSendMessageSchema, ['req-id-1', [1, 2, 3]], 'grpc:send-message')
+    ).not.toThrow();
+  });
+
+  it('rejects empty request ID', () => {
+    expect(() =>
+      validateIpcInput(GrpcSendMessageSchema, ['', { field: 'value' }], 'grpc:send-message')
+    ).toThrow();
+  });
+});
+
+describe('GrpcStreamRequestIdSchema', () => {
+  it('accepts a valid request ID', () => {
+    expect(() =>
+      validateIpcInput(GrpcStreamRequestIdSchema, 'req-abc-123', 'grpc:end-stream')
+    ).not.toThrow();
+  });
+
+  it('rejects an empty string request ID', () => {
+    expect(() =>
+      validateIpcInput(GrpcStreamRequestIdSchema, '', 'grpc:end-stream')
+    ).toThrow();
   });
 });
 

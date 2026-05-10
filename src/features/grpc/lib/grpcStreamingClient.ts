@@ -31,6 +31,7 @@ import {
   validateServiceName,
   validateMethodName,
 } from './grpcClient';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 
 export interface GrpcStreamFinal {
   headers: Record<string, string>;
@@ -70,6 +71,10 @@ export interface StartGrpcStreamArgs {
   fetcher?: StreamFetcher;
   /** Connection timeout in ms. */
   timeoutMs?: number;
+  /** Proto file content — required for Electron IPC client/bidi streaming. */
+  protoContent?: string;
+  /** Proto file name — required for Electron IPC client/bidi streaming. */
+  protoFileName?: string;
 }
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -118,9 +123,13 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   }
 
   if (args.request.methodType === 'client-streaming' || args.request.methodType === 'bidirectional-streaming') {
-    throw new Error(
-      `${args.request.methodType} is not yet implemented. Use 'unary' or 'server-streaming' for now.`
-    );
+    if (!isElectron()) {
+      throw new Error(
+        `${args.request.methodType} is currently available in the desktop app only. ` +
+        `Use the Electron desktop app to send and receive client or bidirectional streams.`
+      );
+    }
+    return startElectronInteractiveStream<TIn, TOut>(args) as GrpcStreamingHandle<TIn, TOut>;
   }
   if (args.request.methodType !== 'server-streaming') {
     throw new Error(
@@ -259,6 +268,193 @@ function startServerStream<TIn, TOut>(args: ServerStreamArgs): GrpcStreamingHand
     cancel() {
       controller.abort();
       clearTimeout(timer);
+    },
+    done,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Electron IPC interactive streaming (client-streaming & bidirectional-streaming)
+// ---------------------------------------------------------------------------
+
+class AsyncMessageQueue<T> {
+  private buffer: Array<{ value: T } | { error: Error } | 'done'> = [];
+  private waiters: Array<() => void> = [];
+  private finished = false;
+
+  push(value: T): void {
+    this.buffer.push({ value });
+    this.notify();
+  }
+
+  fail(err: Error): void {
+    if (this.finished) return;
+    this.buffer.push({ error: err });
+    this.finished = true;
+    this.notify();
+  }
+
+  close(): void {
+    if (this.finished) return;
+    this.buffer.push('done');
+    this.finished = true;
+    this.notify();
+  }
+
+  private notify(): void {
+    const ws = this.waiters.splice(0);
+    ws.forEach((w) => w());
+  }
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<T> {
+    while (true) {
+      while (this.buffer.length > 0) {
+        const item = this.buffer.shift()!;
+        if (item === 'done') return;
+        if ('error' in item) throw item.error;
+        yield item.value;
+      }
+      if (this.finished) return;
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+  }
+}
+
+function startElectronInteractiveStream<TIn, TOut>(
+  args: StartGrpcStreamArgs
+): GrpcStreamingHandle<TIn, TOut> {
+  const api = getElectronAPI();
+  if (!api) throw new Error('Electron API not available');
+
+  const requestId = args.request.id || crypto.randomUUID();
+  const queue = new AsyncMessageQueue<TOut>();
+
+  let doneResolve!: (v: GrpcStreamFinal) => void;
+  let doneReject!: (e: Error) => void;
+  const done = new Promise<GrpcStreamFinal>((res, rej) => {
+    doneResolve = res;
+    doneReject = rej;
+  });
+
+  const prepared = prepareGrpcRequest(args.request, args.resolveVariables);
+  const authMetadata = buildAuthMetadata(args.request.auth);
+
+  let cancelled = false;
+
+  const onData = (data: unknown) => {
+    if (!cancelled) queue.push(data as TOut);
+  };
+  const onError = (err: unknown) => {
+    if (cancelled) return;
+    const msg = (err as { message?: string })?.message ?? 'Stream error';
+    const e = new Error(msg);
+    queue.fail(e);
+    doneReject(e);
+    cleanup();
+  };
+  const onStatus = (status: unknown) => {
+    if (cancelled) return;
+    const s = status as { code?: number; details?: string };
+    queue.close();
+    doneResolve({
+      headers: {},
+      trailers: {},
+      status: s.code ?? GrpcStatusCode.OK,
+      statusMessage: s.details,
+    });
+    cleanup();
+  };
+
+  const cleanup = () => {
+    api.grpc.removeListener(`grpc:data:${requestId}`, onData);
+    api.grpc.removeListener(`grpc:error:${requestId}`, onError);
+    api.grpc.removeListener(`grpc:status:${requestId}`, onStatus);
+  };
+
+  api.grpc.on(`grpc:data:${requestId}`, onData);
+  api.grpc.on(`grpc:error:${requestId}`, onError);
+  api.grpc.on(`grpc:status:${requestId}`, onStatus);
+
+  try {
+    api.grpc.startStream({
+      id: requestId,
+      url: prepared.url,
+      service: args.request.service,
+      method: args.request.method,
+      methodType: args.request.methodType,
+      metadata: { ...prepared.metadata, ...authMetadata },
+      message: prepared.message,
+      protoContent: args.protoContent ?? '',
+      protoFileName: args.protoFileName ?? 'request.proto',
+    });
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
+
+  return {
+    messages: queue[Symbol.asyncIterator](),
+    async send(message: TIn) {
+      api.grpc.sendMessage(requestId, message);
+    },
+    closeSend() {
+      api.grpc.endStream(requestId);
+    },
+    cancel() {
+      if (cancelled) return;
+      cancelled = true;
+      api.grpc.cancelStream(requestId);
+      cleanup();
+      queue.close();
+      doneResolve({
+        headers: {},
+        trailers: {},
+        status: GrpcStatusCode.CANCELLED,
+        statusMessage: 'Stream cancelled',
+      });
+    },
+    done,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Test factory — injects a synthetic transport without Electron or fetch
+// ---------------------------------------------------------------------------
+
+export interface TestInteractiveStreamOptions<TIn, TOut = unknown> {
+  methodType: 'client-streaming' | 'bidirectional-streaming';
+  onSend?: (message: TIn) => void;
+  onEnd?: () => void;
+  inboundMessages?: TOut[];
+}
+
+export function createInteractiveGrpcStreamForTest<TIn = unknown, TOut = unknown>(
+  opts: TestInteractiveStreamOptions<TIn, TOut>
+): GrpcStreamingHandle<TIn, TOut> {
+  const queue = new AsyncMessageQueue<TOut>();
+  // Pre-load any inbound messages for bidi tests
+  for (const msg of opts.inboundMessages ?? []) {
+    queue.push(msg);
+  }
+
+  let doneResolve!: (v: GrpcStreamFinal) => void;
+  const done = new Promise<GrpcStreamFinal>((res) => {
+    doneResolve = res;
+  });
+
+  return {
+    messages: queue[Symbol.asyncIterator](),
+    async send(message: TIn) {
+      opts.onSend?.(message);
+    },
+    closeSend() {
+      opts.onEnd?.();
+      queue.close();
+      doneResolve({ headers: {}, trailers: {}, status: GrpcStatusCode.OK });
+    },
+    cancel() {
+      queue.close();
+      doneResolve({ headers: {}, trailers: {}, status: GrpcStatusCode.CANCELLED, statusMessage: 'cancelled' });
     },
     done,
   };

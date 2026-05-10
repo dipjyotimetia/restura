@@ -3,6 +3,7 @@ import {
   startGrpcStream,
   encodeEnvelope,
   EnvelopeStreamDecoder,
+  createInteractiveGrpcStreamForTest,
   type StreamFetcher,
 } from '../grpcStreamingClient';
 import type { GrpcRequest } from '@/types';
@@ -111,22 +112,22 @@ describe('EnvelopeStreamDecoder — high-rate behaviour', () => {
 });
 
 describe('startGrpcStream', () => {
-  it('throws for client-streaming until implemented', async () => {
+  it('throws for client-streaming in web mode with desktop-only message', async () => {
     await expect(
       startGrpcStream({
         request: { ...baseRequest, methodType: 'client-streaming' },
         resolveVariables: (s) => s,
       })
-    ).rejects.toThrow(/not yet implemented/);
+    ).rejects.toThrow(/desktop app only/);
   });
 
-  it('throws for bidirectional-streaming until implemented', async () => {
+  it('throws for bidirectional-streaming in web mode with desktop-only message', async () => {
     await expect(
       startGrpcStream({
         request: { ...baseRequest, methodType: 'bidirectional-streaming' },
         resolveVariables: (s) => s,
       })
-    ).rejects.toThrow(/not yet implemented/);
+    ).rejects.toThrow(/desktop app only/);
   });
 
   it('throws on invalid JSON in message', async () => {
@@ -273,5 +274,47 @@ describe('startGrpcStream', () => {
     } catch {
       // ignore — abort path is allowed to throw
     }
+  });
+});
+
+describe('createInteractiveGrpcStreamForTest', () => {
+  it('supports client-streaming send and close through an injected transport', async () => {
+    const writes: unknown[] = [];
+    const ends: string[] = [];
+    const handle = createInteractiveGrpcStreamForTest({
+      methodType: 'client-streaming',
+      onSend: (msg) => writes.push(msg),
+      onEnd: () => ends.push('end'),
+    });
+
+    await handle.send({ id: 1 });
+    await handle.send({ id: 2 });
+    handle.closeSend();
+
+    expect(writes).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(ends).toEqual(['end']);
+  });
+
+  it('yields inbound messages for bidi-streaming and resolves done', async () => {
+    const handle = createInteractiveGrpcStreamForTest<unknown, { seq: number }>({
+      methodType: 'bidirectional-streaming',
+      inboundMessages: [{ seq: 1 }, { seq: 2 }],
+    });
+
+    handle.closeSend();
+
+    const collected: { seq: number }[] = [];
+    for await (const msg of handle.messages) collected.push(msg);
+
+    expect(collected).toEqual([{ seq: 1 }, { seq: 2 }]);
+    const final = await handle.done;
+    expect(final.status).toBe(GrpcStatusCode.OK);
+  });
+
+  it('cancel() resolves done with CANCELLED status', async () => {
+    const handle = createInteractiveGrpcStreamForTest({ methodType: 'client-streaming' });
+    handle.cancel();
+    const final = await handle.done;
+    expect(final.status).toBe(GrpcStatusCode.CANCELLED);
   });
 });

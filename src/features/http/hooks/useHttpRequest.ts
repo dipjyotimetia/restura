@@ -10,6 +10,7 @@ import type { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from 
 import { v4 as uuidv4 } from 'uuid';
 import { executeRequest, executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
 import { isElectron } from '@/lib/shared/platform';
+import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 
 interface UseHttpRequestReturn {
   request: HttpRequest | null;
@@ -30,6 +31,7 @@ interface UseHttpRequestReturn {
 export function useHttpRequest(): UseHttpRequestReturn {
   const httpRequest = useActiveRequest('http');
   const currentResponse = useActiveResponse();
+  const { announceRequestSent, announceRequestComplete, announceRequestFailed } = useRequestAnnouncements();
   const storeUpdateRequest = useRequestStore((s) => s.updateRequest);
   const setLoading = useRequestStore((s) => s.setLoading);
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
@@ -136,6 +138,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
     if (!httpRequest) return;
 
     setLoading(true);
+    announceRequestSent();
     // Always wipe any prior streaming state so a previous SSE/NDJSON run
     // doesn't bleed into this request — even if this one is buffered.
     useRequestStore.getState().clearStreamingEvents();
@@ -189,11 +192,12 @@ export function useHttpRequest(): UseHttpRequestReturn {
       setScriptResult(result.scriptResult || {});
       setCurrentResponse(result.response);
       addHistoryItem(httpRequest, result.response);
+      announceRequestComplete(result.response.status, result.response.time);
     } catch (error: unknown) {
       // Error handling is mostly done in executeRequest but if it throws, we catch here
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
       console.error('Request execution error:', errorMessage);
-      // We could set an error response here if executeRequest throws without returning a response
+      announceRequestFailed(errorMessage);
     } finally {
       setLoading(false);
     }

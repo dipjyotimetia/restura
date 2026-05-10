@@ -229,4 +229,67 @@ describe('internalToOC', () => {
     expect(ext.info.type).toBe('sse');
     expect(ext.sse.url).toBe('https://x/events');
   });
+
+  it('emits scripts from preRequestScript and testScript', () => {
+    const internal: any = {
+      id: 'col-scripts',
+      name: 'Scripts Col',
+      items: [
+        {
+          id: 'r-scripts',
+          type: 'request',
+          name: 'With Scripts',
+          request: {
+            id: 'r-scripts',
+            name: 'With Scripts',
+            type: 'http',
+            method: 'POST',
+            url: 'https://api.example.com',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
+            preRequestScript: 'console.log("pre");',
+            testScript: 'pm.test("ok", () => {});',
+          },
+        },
+      ],
+    };
+    const oc = internalToOC(internal);
+    const item = oc.items?.[0] as any;
+    expect(item?.runtime?.scripts).toHaveLength(2);
+    expect(item.runtime.scripts[0].type).toBe('before-request');
+    expect(item.runtime.scripts[1].type).toBe('tests');
+  });
+
+  it('handles gRPC streaming method types in conversion', () => {
+    const methodTypes = ['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming'] as const;
+    for (const mt of methodTypes) {
+      const internal: any = {
+        id: 'col-grpc',
+        name: 'gRPC Col',
+        items: [
+          {
+            id: `r-${mt}`,
+            type: 'request',
+            name: mt,
+            request: {
+              id: `r-${mt}`,
+              name: mt,
+              type: 'grpc',
+              methodType: mt,
+              url: 'https://grpc.example.com',
+              service: 'svc.v1.Service',
+              method: 'Call',
+              metadata: [],
+              message: '{}',
+              auth: { type: 'none' },
+            },
+          },
+        ],
+      };
+      // Should not throw — coverage goal is to exercise all methodTypeFromInternal branches
+      expect(() => internalToOC(internal)).not.toThrow();
+    }
+  });
 });

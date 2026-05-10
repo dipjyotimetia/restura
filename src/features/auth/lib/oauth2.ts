@@ -253,3 +253,26 @@ export async function pollForDeviceToken(
 
   throw new Error('Device code flow timed out');
 }
+
+export interface RefreshTokenConfig {
+  clientId: string;
+  tokenUrl: string;
+  refreshToken: string;
+  clientSecret?: string;
+  scope?: string;
+}
+
+export async function fetchRefreshToken(config: RefreshTokenConfig): Promise<OAuth2TokenResponse> {
+  const params: Record<string, string> = {
+    grant_type: 'refresh_token',
+    client_id: config.clientId,
+    refresh_token: config.refreshToken,
+  };
+  if (config.clientSecret) params.client_secret = config.clientSecret;
+  if (config.scope) params.scope = config.scope;
+  return postToken(config.tokenUrl, params);
+}
+
+export function tokenExpiresAt(nowMs: number, expiresInSeconds?: number): number | undefined {
+  return expiresInSeconds ? nowMs + expiresInSeconds * 1000 : undefined;
+}

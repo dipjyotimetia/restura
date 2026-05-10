@@ -2,12 +2,23 @@ import { describe, it, expect } from 'vitest';
 import {
   encryptValue,
   decryptValue,
+  encryptAuthConfig,
+  decryptAuthConfig,
   isEncrypted,
   encryptSensitiveFields,
   decryptSensitiveFields,
   generateLocalEncryptionKey,
   SENSITIVE_FIELDS,
 } from '../encryption';
+
+describe('encryptAuthConfig / decryptAuthConfig', () => {
+  it('round-trips auth config', async () => {
+    const auth = { type: 'bearer', bearer: { token: 'secret-jwt' } };
+    const encrypted = await encryptAuthConfig(auth, 'pw');
+    const decrypted = await decryptAuthConfig(encrypted, 'pw');
+    expect(decrypted).toEqual(auth);
+  });
+});
 
 describe('Encryption Utilities', () => {
   const testPassword = 'test-password-123';
@@ -249,6 +260,38 @@ describe('Encryption Utilities', () => {
       const auth = decrypted.auth as Record<string, Record<string, unknown>>;
       expect(auth.basic?.password).toBe('pass123');
       expect(auth.bearer?.token).toBe('jwt-token');
+    });
+
+    it('should handle nested objects', async () => {
+      const obj = { level1: { level2: { password: 'secret' } } };
+      const encrypted = await encryptSensitiveFields(obj, testPassword);
+      expect((encrypted.level1 as Record<string, Record<string, string>>).level2?.password?.startsWith('ENC:')).toBe(true);
+    });
+
+    it('should handle arrays of objects', async () => {
+      const obj = { items: [{ password: 'p1' }, { password: 'p2' }] };
+      const encrypted = await encryptSensitiveFields(obj, testPassword);
+      const items = encrypted.items as Array<{ password: string }>;
+      expect(items[0]?.password?.startsWith('ENC:')).toBe(true);
+    });
+
+    it('should pass through null/undefined values', async () => {
+      const obj = { token: null as unknown as string, key: undefined as unknown as string, name: 'test' };
+      const encrypted = await encryptSensitiveFields(obj, testPassword);
+      expect(encrypted.token).toBeNull();
+      expect(encrypted.key).toBeUndefined();
+    });
+
+    it('handles arrays of primitives', async () => {
+      const obj = { tags: ['a', 'b', 'c'] };
+      const encrypted = await encryptSensitiveFields(obj, testPassword);
+      expect(encrypted.tags).toEqual(['a', 'b', 'c']);
+    });
+
+    it('handles decryption failure gracefully (keeps encrypted value)', async () => {
+      const obj = { token: 'ENC:invalid-encrypted-value' };
+      const result = await decryptSensitiveFields(obj, testPassword);
+      expect(result.token).toBe('ENC:invalid-encrypted-value');
     });
 
     it('should handle mixed encrypted and plain values', async () => {

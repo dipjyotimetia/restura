@@ -13,6 +13,7 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import type { CollectionItem, HttpRequest, Response as ApiResponse } from '@/types';
 import { Play, StopCircle, CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
@@ -112,8 +113,12 @@ function CollectionRunner() {
           continue;
         }
 
+        const requestWithAuth = withEffectiveAuth(
+          item.request as HttpRequest,
+          selectedCollection.auth
+        );
         const result = await executeRequest({
-          request: item.request as HttpRequest,
+          request: requestWithAuth,
           envVars,
           globalSettings,
           resolveVariables: (text) => {
