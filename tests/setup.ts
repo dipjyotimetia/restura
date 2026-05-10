@@ -1,5 +1,40 @@
 import { afterEach, beforeAll, vi } from 'vitest';
 
+// Dexie (IndexedDB) is not available in jsdom — mock the storage layer so
+// Zustand persist middleware never fires real async I/O during unit tests.
+// Without this, setState() triggers setItem() which fails post-teardown and
+// produces EnvironmentTeardownError ("onUserConsoleLog" pending).
+// dexie-storage.ts is already excluded from coverage (see vitest.config.ts).
+// NOTE: factory must be self-contained — vi.mock() is hoisted before const declarations.
+vi.mock('@/lib/shared/dexie-storage', () => {
+  const noop = {
+    getItem: async () => null,
+    setItem: async () => undefined,
+    removeItem: async () => undefined,
+  };
+  const f = () => noop;
+  return {
+    createDexieStorage: () => noop,
+    dexieStorageAdapters: {
+      collections: f,
+      environments: f,
+      history: f,
+      settings: f,
+      cookies: f,
+      workflows: f,
+      workflowExecutions: f,
+      fileCollections: f,
+      requestTabs: f,
+    },
+    checkDexieStorageHealth: async () => ({ available: false, healthy: false }),
+    clearDexieStorage: async () => undefined,
+    getDexieStorageStats: async () => ({ totalRecords: 0, tables: {}, estimatedSize: 0, formattedSize: '0 B' }),
+    exportDexieData: async () => '{}',
+    importDexieData: async () => undefined,
+    secureDeleteRecord: async () => undefined,
+  };
+});
+
 const isBrowser = typeof window !== 'undefined';
 
 if (isBrowser) {
