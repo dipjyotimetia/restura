@@ -186,7 +186,10 @@ function requestFromInternal(name: string, r: Request): unknown {
       }
       const auth = authFromInternal(hr.auth);
       if (auth) http.auth = auth;
-      return { info: { type: 'http', name }, http };
+      const out: Record<string, unknown> = { info: { type: 'http', name }, http };
+      const runtime = runtimeFromInternal(hr.preRequestScript, hr.testScript);
+      if (runtime) out.runtime = runtime;
+      return out;
     }
     case 'grpc': {
       const gr = r as GrpcRequest;
@@ -204,7 +207,10 @@ function requestFromInternal(name: string, r: Request): unknown {
       }
       const auth = authFromInternal(gr.auth);
       if (auth) grpc.auth = auth;
-      return { info: { type: 'grpc', name }, grpc };
+      const out: Record<string, unknown> = { info: { type: 'grpc', name }, grpc };
+      const runtime = runtimeFromInternal(gr.preRequestScript, gr.testScript);
+      if (runtime) out.runtime = runtime;
+      return out;
     }
     case 'sse':
     case 'mcp':
@@ -310,6 +316,23 @@ function authFromInternal(a?: AuthConfig): unknown {
     default:
       return undefined;
   }
+}
+
+/**
+ * Build a `runtime` object with `scripts: Script[]` from the internal
+ * preRequestScript / testScript fields. Returns undefined if neither is set,
+ * so the caller can omit the `runtime` key entirely and keep YAML compact.
+ */
+function runtimeFromInternal(preRequest?: string, test?: string): Record<string, unknown> | undefined {
+  const scripts: Array<{ type: string; code: string }> = [];
+  if (preRequest && preRequest.trim().length > 0) {
+    scripts.push({ type: 'before-request', code: preRequest });
+  }
+  if (test && test.trim().length > 0) {
+    scripts.push({ type: 'tests', code: test });
+  }
+  if (scripts.length === 0) return undefined;
+  return { scripts };
 }
 
 function methodTypeFromInternal(t: GrpcMethodType): string {

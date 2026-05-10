@@ -3,15 +3,17 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import {
   importPostmanCollection,
   importInsomniaCollection,
   importOpenAPICollection,
   importOpenCollection,
+  type ImportResult,
+  type ImportWarning,
 } from '@/features/collections/lib/importers';
 import { FileJson, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import YAML from 'yaml';
-import type { Collection } from '@/types';
 
 type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection';
 
@@ -22,13 +24,18 @@ const TYPE_LABELS: Record<ImportType, string> = {
   opencollection: 'OpenCollection',
 };
 
-const IMPORTERS: Record<ImportType, (data: unknown) => Collection | Promise<Collection>> = {
+/**
+ * Every importer returns the unified ImportResult shape. Legacy importers
+ * (postman, insomnia, openapi) that still return a bare Collection get
+ * adapted here with empty warnings.
+ */
+const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  postman: (data) => importPostmanCollection(data as any),
+  postman: async (data) => ({ collection: await importPostmanCollection(data as any), warnings: [] }),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  insomnia: (data) => importInsomniaCollection(data as any),
-  openapi: (data) => importOpenAPICollection(data),
-  opencollection: (data) => importOpenCollection(data),
+  insomnia: async (data) => ({ collection: await importInsomniaCollection(data as any), warnings: [] }),
+  openapi: async (data) => ({ collection: await importOpenAPICollection(data), warnings: [] }),
+  opencollection: async (data) => importOpenCollection(data),
 };
 
 const FEATURE_LISTS: Record<ImportType, string[]> = {
@@ -107,6 +114,27 @@ function DropZone({ type, onFileUpload, onDrop }: DropZoneProps) {
   );
 }
 
+function describeWarning(w: ImportWarning): string {
+  switch (w.kind) {
+    case 'unrecognized-body':
+      return `Unknown body shape in "${w.requestName}" — preserved on round-trip but not editable`;
+    case 'unrecognized-script-type':
+      return `Script type "${w.scriptType}" dropped from "${w.requestName}"`;
+    case 'unsupported-auth':
+      return `Auth "${w.authType}" not supported in "${w.requestName}"`;
+    case 'unknown-dynamic-var':
+      return `{{$${w.varName}}} referenced ${w.count}× but not implemented`;
+    case 'bruno-syntax':
+      return `Bruno-specific syntax "${w.pattern}" in "${w.requestName}"`;
+    case 'platform-unsupported':
+      return `${w.feature} not available on this platform (${w.requestName})`;
+    case 'schema-version':
+      return `${w.format} v${w.version}: ${w.note}`;
+    default:
+      return 'Unknown warning';
+  }
+}
+
 interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -114,8 +142,10 @@ interface ImportDialogProps {
 
 export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { addCollection } = useCollectionStore();
+  const { addEnvironment } = useEnvironmentStore();
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [warnings, setWarnings] = useState<ImportResult['warnings']>([]);
   const [activeTab, setActiveTab] = useState<ImportType>('postman');
 
   const parseFileContent = (text: string, fileName: string): unknown => {
@@ -131,13 +161,21 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     return IMPORTERS[type](data);
   };
 
-  const handleImportSuccess = (collection: Collection) => {
-    addCollection(collection);
+  const handleImportSuccess = (result: ImportResult) => {
+    addCollection(result.collection);
+    for (const env of result.environments ?? []) {
+      addEnvironment(env);
+    }
     setImportStatus('success');
-    setTimeout(() => {
-      onOpenChange(false);
-      setImportStatus('idle');
-    }, 1500);
+    setWarnings(result.warnings);
+    if (result.warnings.length === 0) {
+      // No issues — auto-close after the success flash
+      setTimeout(() => {
+        onOpenChange(false);
+        setImportStatus('idle');
+      }, 1500);
+    }
+    // With warnings: stay open until user dismisses
   };
 
   const handleImportError = (error: unknown) => {
@@ -184,10 +222,44 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
           </DialogDescription>
         </DialogHeader>
 
-        {importStatus === 'success' && (
+        {importStatus === 'success' && warnings.length === 0 && (
           <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400 text-xs font-mono">
             <CheckCircle className="h-4 w-4 shrink-0" />
             <span>Collection imported successfully!</span>
+          </div>
+        )}
+
+        {importStatus === 'success' && warnings.length > 0 && (
+          <div className="space-y-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded text-xs font-mono">
+            <div className="flex items-center gap-2 text-amber-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="font-medium">Imported with {warnings.length} warning{warnings.length === 1 ? '' : 's'}</span>
+            </div>
+            <ul className="space-y-1 text-muted-foreground max-h-40 overflow-y-auto">
+              {warnings.slice(0, 20).map((w: ImportWarning, i: number) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-amber-400/60">›</span>
+                  <span>{describeWarning(w)}</span>
+                </li>
+              ))}
+              {warnings.length > 20 && (
+                <li className="text-muted-foreground/60 italic">… and {warnings.length - 20} more</li>
+              )}
+            </ul>
+            <div className="flex gap-2 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono text-xs"
+                onClick={() => {
+                  onOpenChange(false);
+                  setImportStatus('idle');
+                  setWarnings([]);
+                }}
+              >
+                Dismiss
+              </Button>
+            </div>
           </div>
         )}
 

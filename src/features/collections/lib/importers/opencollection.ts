@@ -1,15 +1,20 @@
-import type { Collection } from '@/types';
+import { v4 as uuid } from 'uuid';
+import type { Collection, Environment } from '@/types';
 import {
   openCollectionSchema,
   ocToInternal,
   getAndResetUnrecognizedBodyCount,
+  getAndResetUnrecognizedScripts,
+  type OpenCollection,
 } from '@/lib/opencollection';
+import type { ImportResult, ImportWarning } from './types';
 
+/**
+ * @deprecated Maintained for callers using the legacy single-field result.
+ * Prefer {@link importOpenCollection} which returns the unified ImportResult.
+ */
 export interface OpenCollectionImportResult {
   collection: Collection;
-  /** Number of HTTP request bodies that didn't match any known shape and
-   * were imported as `type: 'none'`. The original body is still preserved
-   * in the `_oc` passthrough bag and will round-trip on export. */
   unrecognizedBodies: number;
 }
 
@@ -22,17 +27,7 @@ export interface OpenCollectionImportResult {
  * `loadCollectionFromDir` — this entry point handles the in-memory case used
  * by the renderer's drop-zone uploader.
  */
-export function importOpenCollection(data: unknown): Collection {
-  return importOpenCollectionDetailed(data).collection;
-}
-
-/**
- * Like {@link importOpenCollection}, but also returns the count of
- * unrecognized HTTP bodies dropped during import. UI surfaces use this
- * to alert the user that imported requests have content the editor can't
- * surface (data is still preserved via `_oc` for export round-trip).
- */
-export function importOpenCollectionDetailed(data: unknown): OpenCollectionImportResult {
+export function importOpenCollection(data: unknown): ImportResult {
   const result = openCollectionSchema.safeParse(data);
   if (!result.success) {
     const issues = result.error.issues
@@ -41,6 +36,54 @@ export function importOpenCollectionDetailed(data: unknown): OpenCollectionImpor
       .join('; ');
     throw new Error(`Invalid OpenCollection document: ${issues}`);
   }
-  const collection = ocToInternal(result.data) as Collection;
-  return { collection, unrecognizedBodies: getAndResetUnrecognizedBodyCount() };
+  const oc = result.data;
+  const collection = ocToInternal(oc) as Collection;
+  const environments = extractAdditionalEnvironments(oc);
+
+  const warnings: ImportWarning[] = [];
+  const bodyCount = getAndResetUnrecognizedBodyCount();
+  if (bodyCount > 0) {
+    warnings.push({ kind: 'unrecognized-body', requestName: `(${bodyCount} requests)` });
+  }
+  for (const s of getAndResetUnrecognizedScripts()) {
+    warnings.push({ kind: 'unrecognized-script-type', scriptType: s.type, requestName: s.requestName });
+  }
+
+  return { collection, environments, warnings };
+}
+
+/**
+ * Legacy detailed result. Returns just the bodyCount field that early
+ * callers depended on. New code should use {@link importOpenCollection}.
+ */
+export function importOpenCollectionDetailed(data: unknown): OpenCollectionImportResult {
+  const r = importOpenCollection(data);
+  const unrecognizedBodies = r.warnings.filter((w) => w.kind === 'unrecognized-body').length;
+  return { collection: r.collection, unrecognizedBodies };
+}
+
+/**
+ * Extract environments beyond the first (the first env's variables are
+ * already merged into Collection.variables for back-compat). Each becomes
+ * a standalone Environment record the caller pushes to useEnvironmentStore.
+ */
+function extractAdditionalEnvironments(oc: OpenCollection): Environment[] {
+  const envs = oc.config?.environments ?? [];
+  if (envs.length <= 1) return [];
+  return envs.slice(1).map((e) => {
+    const env = e as { name: string; variables?: Array<Record<string, unknown>> };
+    return {
+      id: uuid(),
+      name: env.name,
+      variables: (env.variables ?? [])
+        .filter((v) => !('secret' in v))
+        .map((v) => ({
+          id: uuid(),
+          key: (v.name as string) ?? '',
+          value: typeof v.value === 'string' ? v.value : JSON.stringify(v.value ?? ''),
+          enabled: !v.disabled,
+          ...(typeof v.description === 'string' ? { description: v.description } : {}),
+        })),
+    };
+  });
 }

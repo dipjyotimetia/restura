@@ -39,9 +39,12 @@ import type { OpenCollection } from './schemas';
 type WithOC<T> = T & { _oc?: unknown };
 
 export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
-  // Reset the import-time data-loss counter so callers reading
-  // getAndResetUnrecognizedBodyCount() afterward get this run's tally.
+  // Reset the import-time data-loss counters so callers reading
+  // getAndResetUnrecognizedBodyCount()/getAndResetUnrecognizedScripts()
+  // afterward get this run's tally.
   unrecognizedBodyCount = 0;
+  unrecognizedScriptCount = 0;
+  unrecognizedScriptDetails.length = 0;
   const variables = extractRootVariables(oc);
   const items: WithOC<CollectionItem>[] = [
     ...((oc.items ?? []) as unknown[]).flatMap((it) => itemToInternal(it)),
@@ -144,6 +147,7 @@ function httpToInternal(item: Record<string, unknown>): HttpRequest {
   const info = (item.info ?? {}) as { name?: string };
   const http = (item.http ?? {}) as Record<string, unknown>;
   const name = info.name ?? 'HTTP';
+  const scripts = extractScripts(item, name);
   return {
     id: uuid(),
     name,
@@ -154,18 +158,22 @@ function httpToInternal(item: Record<string, unknown>): HttpRequest {
     params: ((http.params as unknown[]) ?? []).map(kvToInternal),
     body: bodyToInternal(http.body, name),
     auth: authToInternal(http.auth),
+    ...(scripts.preRequest ? { preRequestScript: scripts.preRequest } : {}),
+    ...(scripts.test ? { testScript: scripts.test } : {}),
   };
 }
 
 function graphqlToHttpRequest(item: Record<string, unknown>): HttpRequest {
   const info = (item.info ?? {}) as { name?: string };
   const gql = (item.graphql ?? {}) as Record<string, unknown>;
+  const name = info.name ?? 'GraphQL';
   const query = (gql.query as string) ?? '';
   const variables = (gql.variables as string) ?? '';
   const raw = JSON.stringify({ query, variables });
+  const scripts = extractScripts(item, name);
   return {
     id: uuid(),
-    name: info.name ?? 'GraphQL',
+    name,
     type: 'http',
     method: 'POST' as HttpMethod,
     url: (gql.url as string) ?? '',
@@ -173,16 +181,20 @@ function graphqlToHttpRequest(item: Record<string, unknown>): HttpRequest {
     params: [],
     body: { type: 'graphql' as BodyType, raw },
     auth: authToInternal(gql.auth),
+    ...(scripts.preRequest ? { preRequestScript: scripts.preRequest } : {}),
+    ...(scripts.test ? { testScript: scripts.test } : {}),
   };
 }
 
 function grpcToInternal(item: Record<string, unknown>): GrpcRequest {
   const info = (item.info ?? {}) as { name?: string };
   const grpc = (item.grpc ?? {}) as Record<string, unknown>;
+  const name = info.name ?? 'gRPC';
   const message = grpc.message;
+  const scripts = extractScripts(item, name);
   return {
     id: uuid(),
-    name: info.name ?? 'gRPC',
+    name,
     type: 'grpc',
     methodType: methodTypeToInternal(grpc.methodType as string | undefined),
     url: (grpc.url as string) ?? '',
@@ -191,6 +203,49 @@ function grpcToInternal(item: Record<string, unknown>): GrpcRequest {
     metadata: ((grpc.metadata as unknown[]) ?? []).map(kvToInternal),
     message: typeof message === 'string' ? message : JSON.stringify(message ?? ''),
     auth: authToInternal(grpc.auth),
+    ...(scripts.preRequest ? { preRequestScript: scripts.preRequest } : {}),
+    ...(scripts.test ? { testScript: scripts.test } : {}),
+  };
+}
+
+/**
+ * Pull `scripts: Script[]` out of an OpenCollection request item's `runtime`
+ * field and group them by lifecycle stage. Multiple scripts of the same
+ * type concatenate with a clear separator. Unsupported types
+ * (`after-response`, `hooks`) increment the unrecognized-script counter.
+ */
+function extractScripts(item: Record<string, unknown>, requestName: string): {
+  preRequest?: string;
+  test?: string;
+} {
+  const runtime = (item.runtime ?? {}) as Record<string, unknown>;
+  const scripts = runtime.scripts;
+  if (!Array.isArray(scripts)) return {};
+
+  const pre: string[] = [];
+  const test: string[] = [];
+  for (const s of scripts) {
+    const script = (s ?? {}) as { type?: string; code?: string; file?: { path?: string } };
+    const code = typeof script.code === 'string' ? script.code : '';
+    if (!code) continue; // file-ref scripts (script.file.path) deferred to Phase 1
+    switch (script.type) {
+      case 'before-request':
+        pre.push(code);
+        break;
+      case 'tests':
+        test.push(code);
+        break;
+      case 'after-response':
+      case 'hooks':
+        unrecognizedScriptCount++;
+        unrecognizedScriptDetails.push({ type: script.type, requestName });
+        break;
+    }
+  }
+  const SEP = '\n\n// --- next script ---\n\n';
+  return {
+    ...(pre.length > 0 ? { preRequest: pre.join(SEP) } : {}),
+    ...(test.length > 0 ? { test: test.join(SEP) } : {}),
   };
 }
 
@@ -213,11 +268,20 @@ function kvToInternal(kv: unknown): KeyValue {
  * start of every ocToInternal invocation.
  */
 let unrecognizedBodyCount = 0;
+let unrecognizedScriptCount = 0;
+const unrecognizedScriptDetails: Array<{ type: string; requestName: string }> = [];
 
 export function getAndResetUnrecognizedBodyCount(): number {
   const n = unrecognizedBodyCount;
   unrecognizedBodyCount = 0;
   return n;
+}
+
+export function getAndResetUnrecognizedScripts(): Array<{ type: string; requestName: string }> {
+  const out = unrecognizedScriptDetails.slice();
+  unrecognizedScriptCount = 0;
+  unrecognizedScriptDetails.length = 0;
+  return out;
 }
 
 function bodyToInternal(body: unknown, context: string): RequestBody {
