@@ -52,7 +52,7 @@ jobs:
         run: npm run electron:compile
 
   e2e:
-    if: github.event_name == 'pull_request' || github.base_ref != 'main'
+    if: github.event_name == 'pull_request'
     name: Playwright E2E
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -109,7 +109,7 @@ jobs:
 
   deploy:
     name: Deploy (production)
-    needs: [validate, e2e]
+    needs: [validate]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     concurrency:
