@@ -50,7 +50,7 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
   // Single buffer accumulates all decoded bytes; headerBodySplit tracks the \r\n\r\n offset once found.
   let buf = '';
   let totalBytes = 0;
-  let headers: Record<string, string> = {};
+  const headers: Record<string, string> = {};
   let statusLine = '';
   let headerBodySplit = -1;
   let contentLength: number | null = null;
