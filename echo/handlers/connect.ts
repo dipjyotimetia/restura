@@ -20,13 +20,11 @@ const router = createConnectRouter().service(EchoService, {
     }
   },
   async clientStreamingEcho(reqs) {
-    let count = 0;
     const parts: string[] = [];
     for await (const req of reqs) {
-      count++;
       parts.push(req.message);
     }
-    return create(EchoSummarySchema, { messageCount: count, concatenated: parts.join('|') });
+    return create(EchoSummarySchema, { messageCount: parts.length, concatenated: parts.join('|') });
   },
   async *bidirectionalEcho(reqs) {
     let idx = 0;
@@ -48,7 +46,11 @@ async function* bodyToIterable(
       yield value;
     }
   } finally {
-    reader.releaseLock();
+    try {
+      await reader.cancel();
+    } catch {
+      // already cancelled/closed
+    }
   }
 }
 
@@ -69,13 +71,14 @@ export async function connectEcho(req: Request): Promise<Response | null> {
   const universalRes = await handler(universalReq);
 
   const headers = new Headers(universalRes.header);
-  if (!universalRes.body) {
+  const body = universalRes.body;
+  if (!body) {
     return new Response(null, { status: universalRes.status, headers });
   }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      for await (const chunk of universalRes.body!) {
+      for await (const chunk of body) {
         controller.enqueue(chunk);
       }
       controller.close();
