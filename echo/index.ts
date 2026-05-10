@@ -5,6 +5,7 @@ import { httpEcho } from './handlers/http';
 import { graphqlEcho } from './handlers/graphql';
 import { sseEcho } from './handlers/sse';
 import { websocketEcho } from './handlers/websocket';
+import { connectEcho } from './handlers/connect';
 
 export type Env = {
   ENVIRONMENT?: string;
@@ -17,6 +18,11 @@ app.use('*', cors({ origin: '*' }));
 app.get('/ws', upgradeWebSocket(websocketEcho));
 app.get('/sse', sseEcho);
 app.all('/graphql', graphqlEcho);
+app.use('/*', async (c, next) => {
+  const res = await connectEcho(c.req.raw);
+  if (res !== null) return res;
+  return next();
+});
 app.all('*', httpEcho);
 
 export default app;
