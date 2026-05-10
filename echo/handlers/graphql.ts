@@ -291,6 +291,9 @@ export async function graphqlEcho(c: Context<{ Bindings: Env }>): Promise<Respon
   let body: { query?: unknown; variables?: unknown; operationName?: unknown };
   try {
     const text = await c.req.text();
+    if (text.length > 65_536) {
+      return c.json({ errors: [{ message: 'Request body too large' }] }, 413);
+    }
     body = JSON.parse(text) as { query?: unknown; variables?: unknown; operationName?: unknown };
     if (typeof body !== 'object' || body === null) {
       throw new Error('Not an object');
@@ -301,11 +304,11 @@ export async function graphqlEcho(c: Context<{ Bindings: Env }>): Promise<Respon
 
   const query = typeof body.query === 'string' ? body.query : '';
 
-  if (!query || isIntrospectionQuery(query)) {
-    if (isIntrospectionQuery(query)) {
-      return c.json(INTROSPECTION_RESPONSE);
-    }
-    return c.json({ errors: [{ message: 'Invalid JSON body' }] }, 400);
+  if (!query) {
+    return c.json({ errors: [{ message: 'query field is required' }] }, 400);
+  }
+  if (isIntrospectionQuery(query)) {
+    return c.json(INTROSPECTION_RESPONSE);
   }
 
   const operation = detectOperationType(query);

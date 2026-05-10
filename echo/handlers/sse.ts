@@ -7,16 +7,12 @@ const INTERVAL_MS = 2_000;
 
 export function sseEcho(c: Context<{ Bindings: Env }>): Response {
   const url = new URL(c.req.url);
-  const query: Record<string, string> = {};
-  url.searchParams.forEach((v, k) => {
-    query[k] = v;
-  });
+  const query = Object.fromEntries(url.searchParams);
 
   return streamSSE(c, async (stream) => {
     const start = Date.now();
     let seq = 0;
 
-    // First event: connected
     await stream.writeSSE({
       event: 'connected',
       id: String(seq),

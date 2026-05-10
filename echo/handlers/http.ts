@@ -18,10 +18,7 @@ interface EchoResponse {
 export async function httpEcho(c: Context<{ Bindings: Env }>): Promise<Response> {
   const url = new URL(c.req.url);
 
-  const query: Record<string, string> = {};
-  url.searchParams.forEach((value, key) => {
-    query[key] = value;
-  });
+  const query = Object.fromEntries(url.searchParams);
 
   const headers: Record<string, string> = {};
   c.req.raw.headers.forEach((value, key) => {
@@ -42,11 +39,11 @@ export async function httpEcho(c: Context<{ Bindings: Env }>): Promise<Response>
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        bodySize += value.byteLength;
-        if (bodySize > BODY_CAP) {
+        if (bodySize + value.byteLength > BODY_CAP) {
           bodyTruncated = true;
           break;
         }
+        bodySize += value.byteLength;
         chunks.push(value);
       }
     } finally {
@@ -56,14 +53,7 @@ export async function httpEcho(c: Context<{ Bindings: Env }>): Promise<Response>
         // already cancelled/closed
       }
     }
-    const totalSize = chunks.reduce((acc, c) => acc + c.byteLength, 0);
-    const merged = new Uint8Array(totalSize);
-    let offset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    body = new TextDecoder().decode(merged);
+    body = new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
   }
 
   const response: EchoResponse = {

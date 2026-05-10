@@ -2,6 +2,8 @@ import type { Context } from 'hono';
 import type { WSContext, WSEvents } from 'hono/ws';
 import type { Env } from '../index';
 
+const encoder = new TextEncoder();
+
 export const websocketEcho = (_c: Context<{ Bindings: Env }>): Omit<WSEvents<WebSocket>, 'onOpen'> => ({
   onMessage(event: MessageEvent, ws: WSContext<WebSocket>) {
     const raw = event.data as unknown;
@@ -11,7 +13,6 @@ export const websocketEcho = (_c: Context<{ Bindings: Env }>): Omit<WSEvents<Web
       return;
     }
 
-    // Blob check for environments that deliver binary as Blob (defensive)
     if (typeof Blob !== 'undefined' && raw instanceof Blob) {
       void raw.arrayBuffer().then((buf) => ws.send(buf));
       return;
@@ -29,10 +30,10 @@ export const websocketEcho = (_c: Context<{ Bindings: Env }>): Omit<WSEvents<Web
       echo: true,
       received: text,
       timestamp: new Date().toISOString(),
-      size: new TextEncoder().encode(text).byteLength,
+      size: encoder.encode(text).byteLength,
     };
     if (parsed !== undefined) {
-      reply['parsed'] = parsed;
+      reply.parsed = parsed;
     }
 
     ws.send(JSON.stringify(reply));
