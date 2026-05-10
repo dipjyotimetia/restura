@@ -3,25 +3,50 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import { importPostmanCollection, importInsomniaCollection, importOpenAPICollection } from '@/features/collections/lib/importers';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import {
+  importPostmanCollection,
+  importPostmanEnvironment,
+  isPostmanEnvironment,
+  importInsomniaCollection,
+  importOpenAPICollection,
+  importOpenCollection,
+  importHoppscotchCollection,
+  importHoppscotchEnvironment,
+  isHoppscotchEnvironment,
+  importBrunoCollection,
+  type ImportResult,
+  type ImportWarning,
+} from '@/features/collections/lib/importers';
 import { FileJson, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import YAML from 'yaml';
-import type { Collection } from '@/types';
 
-type ImportType = 'postman' | 'insomnia' | 'openapi';
+type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection' | 'hoppscotch' | 'bruno';
 
 const TYPE_LABELS: Record<ImportType, string> = {
   postman: 'Postman',
   insomnia: 'Insomnia',
   openapi: 'OpenAPI / Swagger',
+  opencollection: 'OpenCollection',
+  hoppscotch: 'Hoppscotch',
+  bruno: 'Bruno',
 };
 
-const IMPORTERS: Record<ImportType, (data: unknown) => Collection | Promise<Collection>> = {
+/**
+ * Every importer returns the unified ImportResult shape. Legacy importers
+ * (postman, openapi) that still return a bare Collection get adapted here
+ * with empty warnings. Insomnia and OpenCollection return ImportResult
+ * directly — multi-environment + script extraction surface through that path.
+ */
+const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  postman: (data) => importPostmanCollection(data as any),
+  postman: async (data) => ({ collection: await importPostmanCollection(data as any), warnings: [] }),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  insomnia: (data) => importInsomniaCollection(data as any),
-  openapi: (data) => importOpenAPICollection(data),
+  insomnia: async (data) => importInsomniaCollection(data as any),
+  openapi: async (data) => ({ collection: await importOpenAPICollection(data), warnings: [] }),
+  opencollection: async (data) => importOpenCollection(data),
+  hoppscotch: async (data) => importHoppscotchCollection(data),
+  bruno: async (data) => importBrunoCollection({ kind: 'single', content: typeof data === 'string' ? data : JSON.stringify(data) }),
 };
 
 const FEATURE_LISTS: Record<ImportType, string[]> = {
@@ -50,6 +75,32 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
     'Security schemes (Basic, Bearer, API Key, OAuth2)',
     'Server URL configuration',
   ],
+  opencollection: [
+    'OpenCollection v1.0.0 (compatible with Bruno 3.1+)',
+    'HTTP, gRPC, GraphQL, WebSocket requests',
+    'SSE and MCP via x-restura-* extensions',
+    'Authentication (Basic, Bearer, API Key, Digest, OAuth2, AWS SigV4)',
+    'Environment variables and secret variables',
+    'Folder hierarchy and request metadata',
+    'Bundled (single file) format',
+  ],
+  hoppscotch: [
+    'Hoppscotch JSON exports (collections + environments)',
+    'Folders and nested requests with full hierarchy',
+    'Pre-request and test scripts (collection AND request level)',
+    'Authentication (Basic, Bearer, API Key, OAuth2, AWS SigV4, Digest)',
+    'Environment variables with secret flag',
+    'pw.* and hopp.* script API aliases (mapped to pm.*)',
+  ],
+  bruno: [
+    'Bruno legacy .bru files (text DSL)',
+    'For Bruno 3.1+ collections, use the OpenCollection tab instead',
+    'Single .bru file: drop or paste the file contents',
+    'Authentication (Basic, Bearer, API Key, Digest, OAuth2, OAuth1, NTLM, WSSE, AWS SigV4)',
+    'Pre-request scripts, test scripts, and assertions',
+    'Variables: pre-request and post-response',
+    'Bruno-specific syntax ({{process.env.X}}, response chaining) emits warnings',
+  ],
 };
 
 interface DropZoneProps {
@@ -67,7 +118,7 @@ function DropZone({ type, onFileUpload, onDrop }: DropZoneProps) {
     >
       <input
         type="file"
-        accept=".json,.yaml,.yml"
+        accept={type === 'bruno' ? '.bru' : '.json,.yaml,.yml'}
         onChange={(e) => onFileUpload(e, type)}
         className="hidden"
         id={`file-upload-${type}`}
@@ -91,6 +142,27 @@ function DropZone({ type, onFileUpload, onDrop }: DropZoneProps) {
   );
 }
 
+function describeWarning(w: ImportWarning): string {
+  switch (w.kind) {
+    case 'unrecognized-body':
+      return `Unknown body shape in "${w.requestName}" — preserved on round-trip but not editable`;
+    case 'unrecognized-script-type':
+      return `Script type "${w.scriptType}" dropped from "${w.requestName}"`;
+    case 'unsupported-auth':
+      return `Auth "${w.authType}" not supported in "${w.requestName}"`;
+    case 'unknown-dynamic-var':
+      return `{{$${w.varName}}} referenced ${w.count}× but not implemented`;
+    case 'bruno-syntax':
+      return `Bruno-specific syntax "${w.pattern}" in "${w.requestName}"`;
+    case 'platform-unsupported':
+      return `${w.feature} not available on this platform (${w.requestName})`;
+    case 'schema-version':
+      return `${w.format} v${w.version}: ${w.note}`;
+    default:
+      return 'Unknown warning';
+  }
+}
+
 interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -98,30 +170,85 @@ interface ImportDialogProps {
 
 export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { addCollection } = useCollectionStore();
+  const { addEnvironment } = useEnvironmentStore();
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [warnings, setWarnings] = useState<ImportResult['warnings']>([]);
   const [activeTab, setActiveTab] = useState<ImportType>('postman');
+  // Set when the user dropped a Postman environment file (not a collection).
+  // Surfaces a tailored success label so the user knows nothing went wrong
+  // even though no collection appeared.
+  const [environmentOnlyName, setEnvironmentOnlyName] = useState<string | null>(null);
 
   const parseFileContent = (text: string, fileName: string): unknown => {
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
       return YAML.parse(text);
     }
+    if (fileName.endsWith('.bru')) {
+      // Bruno files are not JSON or YAML — return raw text; the importer parses it.
+      return text;
+    }
     return JSON.parse(text);
   };
 
-  const processImportFile = async (file: File, type: ImportType) => {
+  /**
+   * `processImportFile` returns either a normal ImportResult or a special
+   * `{ kind: 'environment-only', name }` marker when the dropped file is a
+   * Postman or Hoppscotch environment export. The marker lets the success
+   * handler skip the addCollection() call and surface a tailored success
+   * message.
+   */
+  type ProcessOutcome = ImportResult | { kind: 'environment-only'; environmentName: string };
+
+  const processImportFile = async (file: File, type: ImportType): Promise<ProcessOutcome> => {
     const text = await file.text();
     const data = parseFileContent(text, file.name);
+    // Postman environment files are auto-detected regardless of selected tab —
+    // they look nothing like a collection, so the inferred behaviour is safe.
+    if (type === 'postman' && isPostmanEnvironment(data)) {
+      const env = importPostmanEnvironment(data);
+      addEnvironment(env);
+      return { kind: 'environment-only', environmentName: env.name };
+    }
+    // Hoppscotch environment files: same auto-detect pattern.
+    if (type === 'hoppscotch' && isHoppscotchEnvironment(data)) {
+      const env = importHoppscotchEnvironment(data);
+      addEnvironment(env);
+      return { kind: 'environment-only', environmentName: env.name };
+    }
+    // Bruno: parseFileContent passes .bru text through unparsed; the IMPORTERS
+    // entry wraps it in BrunoSource. No special case needed here.
     return IMPORTERS[type](data);
   };
 
-  const handleImportSuccess = (collection: Collection) => {
-    addCollection(collection);
+  const handleImportSuccess = (outcome: ProcessOutcome) => {
+    if ('kind' in outcome) {
+      setImportStatus('success');
+      // Skip the [] -> [] re-render if warnings was already empty.
+      setWarnings((prev) => (prev.length === 0 ? prev : []));
+      setEnvironmentOnlyName(outcome.environmentName);
+      setTimeout(() => {
+        onOpenChange(false);
+        setImportStatus('idle');
+        setEnvironmentOnlyName(null);
+      }, 1500);
+      return;
+    }
+    addCollection(outcome.collection);
+    for (const env of outcome.environments ?? []) {
+      addEnvironment(env);
+    }
     setImportStatus('success');
-    setTimeout(() => {
-      onOpenChange(false);
-      setImportStatus('idle');
-    }, 1500);
+    setWarnings(outcome.warnings);
+    setEnvironmentOnlyName(null);
+    if (outcome.warnings.length === 0) {
+      // No issues — auto-close after the success flash
+      setTimeout(() => {
+        onOpenChange(false);
+        setImportStatus('idle');
+      }, 1500);
+    }
+    // With warnings: stay open until user dismisses
   };
 
   const handleImportError = (error: unknown) => {
@@ -136,8 +263,8 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     if (!file) return;
 
     try {
-      const collection = await processImportFile(file, type);
-      handleImportSuccess(collection);
+      const outcome = await processImportFile(file, type);
+      handleImportSuccess(outcome);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -151,8 +278,8 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     if (!file) return;
 
     try {
-      const collection = await processImportFile(file, type);
-      handleImportSuccess(collection);
+      const outcome = await processImportFile(file, type);
+      handleImportSuccess(outcome);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -164,14 +291,52 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
         <DialogHeader>
           <DialogTitle className="font-mono text-sm tracking-wide">IMPORT COLLECTION</DialogTitle>
           <DialogDescription className="font-mono text-xs">
-            Import from Postman, Insomnia, or OpenAPI/Swagger
+            Import from Postman, Insomnia, OpenAPI/Swagger, OpenCollection, Hoppscotch, or Bruno
           </DialogDescription>
         </DialogHeader>
 
-        {importStatus === 'success' && (
+        {importStatus === 'success' && warnings.length === 0 && (
           <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400 text-xs font-mono">
             <CheckCircle className="h-4 w-4 shrink-0" />
-            <span>Collection imported successfully!</span>
+            <span>
+              {environmentOnlyName
+                ? `Imported environment: ${environmentOnlyName}`
+                : 'Collection imported successfully!'}
+            </span>
+          </div>
+        )}
+
+        {importStatus === 'success' && warnings.length > 0 && (
+          <div className="space-y-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded text-xs font-mono">
+            <div className="flex items-center gap-2 text-amber-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="font-medium">Imported with {warnings.length} warning{warnings.length === 1 ? '' : 's'}</span>
+            </div>
+            <ul className="space-y-1 text-muted-foreground max-h-40 overflow-y-auto">
+              {warnings.slice(0, 20).map((w: ImportWarning, i: number) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-amber-400/60">›</span>
+                  <span>{describeWarning(w)}</span>
+                </li>
+              ))}
+              {warnings.length > 20 && (
+                <li className="text-muted-foreground/60 italic">… and {warnings.length - 20} more</li>
+              )}
+            </ul>
+            <div className="flex gap-2 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono text-xs"
+                onClick={() => {
+                  onOpenChange(false);
+                  setImportStatus('idle');
+                  setWarnings([]);
+                }}
+              >
+                Dismiss
+              </Button>
+            </div>
           </div>
         )}
 
@@ -205,9 +370,27 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
             >
               OpenAPI
             </TabsTrigger>
+            <TabsTrigger
+              value="opencollection"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              OpenCollection
+            </TabsTrigger>
+            <TabsTrigger
+              value="hoppscotch"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              Hoppscotch
+            </TabsTrigger>
+            <TabsTrigger
+              value="bruno"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              Bruno
+            </TabsTrigger>
           </TabsList>
 
-          {(['postman', 'insomnia', 'openapi'] as const).map((type) => (
+          {(['postman', 'insomnia', 'openapi', 'opencollection', 'hoppscotch', 'bruno'] as const).map((type) => (
             <TabsContent key={type} value={type} className="space-y-4 mt-4">
               <DropZone type={type} onFileUpload={handleFileUpload} onDrop={handleDrop} />
               <div className="space-y-1.5">

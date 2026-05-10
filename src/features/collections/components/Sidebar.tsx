@@ -21,7 +21,7 @@ import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
 import { FolderPlus, History, Star, X, MoreVertical, Download, Trash2, GitBranch, FolderOpen, HardDrive } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { ActivePanel, Workflow } from '@/types';
-import { exportToPostman, exportToInsomnia, downloadJSON } from '@/features/collections/lib/exporters';
+import { exportToPostman, exportToInsomnia, exportToOpenCollection, downloadJSON, downloadText } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';
 import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
@@ -153,16 +153,19 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   }, [collections, createNewCollection, addCollection]);
 
   const handleExportCollection = useCallback(
-    (collectionId: string, format: 'postman' | 'insomnia') => {
+    (collectionId: string, format: 'postman' | 'insomnia' | 'opencollection') => {
       const collection = collections.find((c) => c.id === collectionId);
       if (!collection) return;
 
       if (format === 'postman') {
         const postmanData = exportToPostman(collection);
         downloadJSON(postmanData, `${collection.name}.postman_collection.json`);
-      } else {
+      } else if (format === 'insomnia') {
         const insomniaData = exportToInsomnia(collection);
         downloadJSON(insomniaData, `${collection.name}.insomnia.json`);
+      } else {
+        const yamlText = exportToOpenCollection(collection);
+        downloadText(yamlText, `${collection.name}.opencollection.yaml`, 'application/x-yaml');
       }
     },
     [collections]
@@ -348,6 +351,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleExportCollection(collection.id, 'insomnia')} className="text-xs">
                                     Insomnia Collection
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleExportCollection(collection.id, 'opencollection')} className="text-xs">
+                                    OpenCollection (YAML)
                                   </DropdownMenuItem>
                                 </DropdownMenuSubContent>
                               </DropdownMenuSub>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyDynamicVariables } from './dynamicVariables';
+import { applyDynamicVariables, getAndResetUnknownDynamicVarCounts } from './dynamicVariables';
 
 describe('applyDynamicVariables', () => {
   it('expands $timestamp', () => {
@@ -64,3 +64,61 @@ describe('applyDynamicVariables', () => {
     expect(out).toBe('x={{regularVar}}');
   });
 });
+
+describe('applyDynamicVariables — Postman parity helpers (faker-backed)', () => {
+  it('expands $randomFirstName to a non-empty string', () => {
+    const out = applyDynamicVariables('{{$randomFirstName}}');
+    expect(out.length).toBeGreaterThan(0);
+    expect(out).not.toBe('{{$randomFirstName}}');
+  });
+
+  it('expands $randomFullName to a non-empty string with at least one space', () => {
+    const out = applyDynamicVariables('{{$randomFullName}}');
+    expect(out).toMatch(/\S+\s+\S+/);
+  });
+
+  it('expands $randomIP to a dotted IPv4 address', () => {
+    const out = applyDynamicVariables('{{$randomIP}}');
+    expect(out).toMatch(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
+  });
+
+  it('expands $randomURL to a string starting with http(s)://', () => {
+    const out = applyDynamicVariables('{{$randomURL}}');
+    expect(out).toMatch(/^https?:\/\//);
+  });
+
+  it('expands $randomCreditCardMask to **** **** **** dddd', () => {
+    const out = applyDynamicVariables('{{$randomCreditCardMask}}');
+    expect(out).toMatch(/^\*{4} \*{4} \*{4} \d{4}$/);
+  });
+
+  it('expands $randomDateRecent to an ISO-8601 timestamp', () => {
+    const out = applyDynamicVariables('{{$randomDateRecent}}');
+    expect(out).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+});
+
+describe('getAndResetUnknownDynamicVarCounts', () => {
+  it('counts each unknown $-var reference and resets after read', () => {
+    // Drain anything left over from prior tests
+    getAndResetUnknownDynamicVarCounts();
+
+    applyDynamicVariables('{{$randomNotARealHelper}} {{$alsoFake}} {{$randomNotARealHelper}}');
+    const first = getAndResetUnknownDynamicVarCounts();
+    const fakeOne = first.find((e) => e.name === 'randomNotARealHelper');
+    const fakeTwo = first.find((e) => e.name === 'alsoFake');
+    expect(fakeOne?.count).toBe(2);
+    expect(fakeTwo?.count).toBe(1);
+
+    // Counter resets after read
+    const second = getAndResetUnknownDynamicVarCounts();
+    expect(second).toEqual([]);
+  });
+
+  it('does not count known helpers as unknown', () => {
+    getAndResetUnknownDynamicVarCounts();
+    applyDynamicVariables('{{$timestamp}} {{$guid}}');
+    expect(getAndResetUnknownDynamicVarCounts()).toEqual([]);
+  });
+});
+

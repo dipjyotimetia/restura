@@ -1,0 +1,6 @@
+info:
+  type: http
+  name: Get User
+http:
+  method: GET
+  url: "{{API_HOST}}/users/1"

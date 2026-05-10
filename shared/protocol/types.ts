@@ -20,7 +20,10 @@ export type ProtocolAuthType =
   | 'api-key'
   | 'oauth2'
   | 'digest'
-  | 'aws-signature';
+  | 'aws-signature'
+  | 'oauth1'
+  | 'ntlm'
+  | 'wsse';
 
 export interface ProtocolAuthConfig {
   type: ProtocolAuthType;
@@ -30,9 +33,31 @@ export interface ProtocolAuthConfig {
     region: string;
     service: string;
   };
+  oauth1?: {
+    consumerKey: string;
+    consumerSecret: string;
+    accessToken?: string;
+    accessTokenSecret?: string;
+    signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT';
+    realm?: string;
+    nonce?: string;
+    timestamp?: string;
+    addParamsToBody?: boolean;
+  };
+  ntlm?: {
+    username: string;
+    password: string;
+    domain?: string;
+    workstation?: string;
+  };
+  wsse?: {
+    username: string;
+    password: string;
+    passwordType?: 'PasswordDigest' | 'PasswordText';
+  };
   // Other auth shapes (basic/bearer/apiKey/oauth2/digest) intentionally omitted —
-  // the shared core only needs to act on `aws-signature`. Passing through
-  // unknown auth types is a no-op.
+  // the shared core only needs to act on `aws-signature`, `oauth1`, `ntlm`, `wsse`.
+  // Passing through unknown auth types is a no-op.
 }
 
 export interface RequestSpec {

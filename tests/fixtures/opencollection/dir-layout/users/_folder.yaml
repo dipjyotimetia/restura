@@ -1,0 +1,3 @@
+info:
+  name: users
+  description: User CRUD endpoints
