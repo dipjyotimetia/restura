@@ -5,7 +5,7 @@
  * Handles loading, saving, watching, and conflict detection.
  */
 
-import type { BrowserWindow} from 'electron';
+import type { BrowserWindow } from 'electron';
 import { ipcMain, dialog, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -20,6 +20,7 @@ import {
   fileCollectionMetaSchema,
   fileFolderMetaSchema,
 } from '../../src/lib/shared/file-collection-schema';
+import { debounce } from './watcher-utils';
 
 // File extension constants (must match renderer types)
 const FILE_EXTENSIONS = {
@@ -68,27 +69,6 @@ const activeWatchers = new Map<string, FSWatcher>();
 
 // Track file modification times for conflict detection
 const fileModTimes = new Map<string, number>();
-
-/**
- * Coalesces a flurry of calls with identical arguments into a single
- * trailing-edge invocation. Used to debounce file-watcher IPC events
- * so that bulk-save operations don't fire N notifications.
- *
- * Exported for unit testing — see `__tests__/watcher.test.ts`.
- */
-export function debounce<F extends (...args: any[]) => void>(fn: F, ms: number): F {
-  let timer: NodeJS.Timeout | null = null;
-  let lastArgs: unknown[] = [];
-  const debounced = ((...args: unknown[]) => {
-    lastArgs = args;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      (fn as (...a: unknown[]) => void)(...lastArgs);
-    }, ms);
-  }) as F;
-  return debounced;
-}
 
 const FILE_CHANGE_DEBOUNCE_MS = 250;
 // Cache of debounced sender functions, keyed by (directoryPath::type::filePath).
