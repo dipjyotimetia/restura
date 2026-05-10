@@ -69,6 +69,50 @@ const activeWatchers = new Map<string, FSWatcher>();
 // Track file modification times for conflict detection
 const fileModTimes = new Map<string, number>();
 
+/**
+ * Coalesces a flurry of calls with identical arguments into a single
+ * trailing-edge invocation. Used to debounce file-watcher IPC events
+ * so that bulk-save operations don't fire N notifications.
+ *
+ * Exported for unit testing — see `__tests__/watcher.test.ts`.
+ */
+export function debounce<F extends (...args: any[]) => void>(fn: F, ms: number): F {
+  let timer: NodeJS.Timeout | null = null;
+  let lastArgs: unknown[] = [];
+  const debounced = ((...args: unknown[]) => {
+    lastArgs = args;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      (fn as (...a: unknown[]) => void)(...lastArgs);
+    }, ms);
+  }) as F;
+  return debounced;
+}
+
+const FILE_CHANGE_DEBOUNCE_MS = 250;
+// Cache of debounced sender functions, keyed by (directoryPath::type::filePath).
+// Each unique (path, type) pair gets its own debounced flusher so distinct events
+// across files can still fire in parallel; only repeat events for the same pair
+// coalesce.
+const debouncedSenders = new Map<string, (payload: unknown) => void>();
+
+function sendFileChange(
+  payload: { type: 'modified' | 'added' | 'deleted'; filePath: string; directoryPath: string; lastModified?: number },
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  const key = `${payload.directoryPath}::${payload.type}::${payload.filePath}`;
+  let sender = debouncedSenders.get(key);
+  if (!sender) {
+    sender = debounce((p: unknown) => {
+      const w = getMainWindow();
+      if (w) w.webContents.send('collection:file-changed', p);
+    }, FILE_CHANGE_DEBOUNCE_MS);
+    debouncedSenders.set(key, sender);
+  }
+  sender(payload);
+}
+
 // Generate unique ID
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
@@ -352,44 +396,30 @@ function watchCollectionDirectory(
 
     watcher
       .on('change', (filePath) => {
-        const mainWindow = getMainWindow();
-        if (mainWindow) {
-          const lastMod = fileModTimes.get(filePath);
-          const currentMod = fs.statSync(filePath).mtimeMs;
+        const lastMod = fileModTimes.get(filePath);
+        const currentMod = fs.statSync(filePath).mtimeMs;
 
-          if (lastMod && currentMod > lastMod) {
-            // File was modified externally - potential conflict
-            mainWindow.webContents.send('collection:file-changed', {
+        if (lastMod && currentMod > lastMod) {
+          // File was modified externally - potential conflict
+          sendFileChange(
+            {
               type: 'modified',
               filePath,
               directoryPath,
               lastModified: currentMod,
-            });
-          }
-
-          fileModTimes.set(filePath, currentMod);
+            },
+            getMainWindow,
+          );
         }
+
+        fileModTimes.set(filePath, currentMod);
       })
       .on('add', (filePath) => {
-        const mainWindow = getMainWindow();
-        if (mainWindow) {
-          mainWindow.webContents.send('collection:file-changed', {
-            type: 'added',
-            filePath,
-            directoryPath,
-          });
-        }
+        sendFileChange({ type: 'added', filePath, directoryPath }, getMainWindow);
       })
       .on('unlink', (filePath) => {
-        const mainWindow = getMainWindow();
-        if (mainWindow) {
-          mainWindow.webContents.send('collection:file-changed', {
-            type: 'deleted',
-            filePath,
-            directoryPath,
-          });
-          fileModTimes.delete(filePath);
-        }
+        sendFileChange({ type: 'deleted', filePath, directoryPath }, getMainWindow);
+        fileModTimes.delete(filePath);
       })
       .on('error', (error) => {
         console.error('File watcher error:', error);
