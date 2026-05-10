@@ -10,8 +10,6 @@ export {
   type OpenCollection,
 } from './schemas';
 export { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
-export { loadCollectionFromFile, loadCollectionFromDir } from './fs-reader';
-export { saveCollectionToFile, saveCollectionToDir } from './fs-writer';
 export {
   ocToInternal,
   getAndResetUnrecognizedBodyCount,
