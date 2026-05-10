@@ -1,0 +1,10 @@
+opencollection: "1.0.0"
+info:
+  name: Dir Layout Demo
+  version: "0.1.0"
+bundled: false
+config:
+  environments:
+    - name: dev
+      variables:
+        - { name: API_HOST, value: http://localhost:8080 }

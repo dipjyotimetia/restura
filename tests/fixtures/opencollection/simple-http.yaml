@@ -1,0 +1,18 @@
+opencollection: "1.0.0"
+info:
+  name: Simple HTTP Demo
+  version: "0.1.0"
+  authors:
+    - name: Restura Test Fixture
+bundled: true
+items:
+  - info:
+      type: http
+      name: Get JSON Placeholder Post
+      seq: 1
+    http:
+      method: GET
+      url: https://jsonplaceholder.typicode.com/posts/1
+      headers:
+        - name: Accept
+          value: application/json

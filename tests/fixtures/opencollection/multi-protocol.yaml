@@ -1,0 +1,36 @@
+opencollection: "1.0.0"
+info:
+  name: Multi-Protocol Demo
+  version: "0.1.0"
+bundled: true
+config:
+  environments:
+    - name: dev
+      variables:
+        - name: API_HOST
+          value: http://localhost:8080
+items:
+  - info: { type: http, name: Health Check, seq: 1 }
+    http:
+      method: GET
+      url: "{{API_HOST}}/health"
+  - info: { type: graphql, name: List Users, seq: 2 }
+    graphql:
+      url: "{{API_HOST}}/graphql"
+      query: "query { users { id name } }"
+  - info: { type: grpc, name: GetUser, seq: 3 }
+    grpc:
+      url: "{{API_HOST}}:9090"
+      service: users.v1.UserService
+      method: GetUser
+      methodType: unary
+      message: "{ \"id\": 1 }"
+  - info: { type: websocket, name: Stock Ticker, seq: 4 }
+    websocket:
+      url: "ws://{{API_HOST}}/stream"
+extensions:
+  x-restura-sse:
+    - info: { type: sse, name: Server Events, seq: 5 }
+      sse:
+        url: "{{API_HOST}}/events"
+        eventFilter: ["user.created", "user.updated"]
