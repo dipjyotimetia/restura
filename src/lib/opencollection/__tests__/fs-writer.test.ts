@@ -79,4 +79,47 @@ describe('fs-writer', () => {
     const content = await readFile(dest, 'utf8');
     expect(content).not.toContain('items: []');
   });
+
+  it('disambiguates colliding slugs by appending -2, -3, ...', async () => {
+    const oc: OpenCollection = {
+      opencollection: '1.0.0',
+      info: { name: 'Collisions' },
+      items: [
+        { info: { type: 'http', name: 'User' }, http: { method: 'GET', url: '/u' } },
+        { info: { type: 'http', name: 'User !' }, http: { method: 'GET', url: '/u2' } },
+        { info: { type: 'http', name: 'User?' }, http: { method: 'GET', url: '/u3' } },
+      ],
+    };
+    await saveCollectionToDir(oc, tmp);
+
+    // All three slug variants exist on disk — no item silently overwritten.
+    const onDisk1 = await readFile(join(tmp, 'user.yaml'), 'utf8');
+    const onDisk2 = await readFile(join(tmp, 'user-2.yaml'), 'utf8');
+    const onDisk3 = await readFile(join(tmp, 'user-3.yaml'), 'utf8');
+    expect(onDisk1).toMatch(/User/);
+    expect(onDisk2).toMatch(/User/);
+    expect(onDisk3).toMatch(/User/);
+
+    // Reloading preserves all three names (order may vary; just count).
+    const reloaded = await loadCollectionFromDir(tmp);
+    const names = (reloaded.items ?? []).map((it: any) => it.info.name);
+    expect(names.length).toBe(3);
+    expect(names).toEqual(expect.arrayContaining(['User', 'User !', 'User?']));
+  });
+
+  it('also dedupes folder slugs with -2 suffix', async () => {
+    const oc: OpenCollection = {
+      opencollection: '1.0.0',
+      info: { name: 'FolderCollisions' },
+      items: [
+        { info: { name: 'Users' }, items: [] },
+        { info: { name: 'Users !' }, items: [] },
+      ],
+    };
+    await saveCollectionToDir(oc, tmp);
+    const m1 = await readFile(join(tmp, 'users', '_folder.yaml'), 'utf8');
+    const m2 = await readFile(join(tmp, 'users-2', '_folder.yaml'), 'utf8');
+    expect(m1).toMatch(/Users/);
+    expect(m2).toMatch(/Users/);
+  });
 });
