@@ -547,6 +547,18 @@ class ScriptExecutor {
 
     vm.setProp(vm.global, 'pm', pmObj);
     pmObj.dispose();
+
+    // Hoppscotch compatibility: their scripts use `pw.*` (legacy v0-v11) and
+    // `hopp.*` (v12+) instead of `pm.*`. Both are aliased to the same `pm`
+    // surface as a best-effort. Some methods diverge slightly between
+    // hopp/pm (e.g. response.to.have.status signatures); imported scripts
+    // may need manual review.
+    const aliasResult = vm.evalCode('globalThis.pw = pm; globalThis.hopp = pm;');
+    if (aliasResult.error) {
+      aliasResult.error.dispose();
+    } else {
+      aliasResult.value.dispose();
+    }
   }
 
   async executeScript(
