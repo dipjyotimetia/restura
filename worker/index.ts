@@ -1,11 +1,11 @@
+import type { Context, Next } from 'hono';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { proxy } from './handlers/proxy';
 import { grpc } from './handlers/grpc';
 import { grpcReflection } from './handlers/grpc-reflection';
 import { mcp } from './handlers/mcp';
+import { proxy } from './handlers/proxy';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
-import type { Context, Next } from 'hono';
 
 export type Env = {
   ENVIRONMENT?: string;
@@ -35,11 +35,12 @@ function resolveCorsOrigin(origin: string | undefined, env: Env): string {
     .map((item) => item.trim())
     .filter(Boolean);
 
-  const allowedOrigins = configuredOrigins.length > 0
-    ? configuredOrigins
-    : isDevelopment(env)
-      ? ['http://localhost:5173', 'http://127.0.0.1:5173']
-      : ['https://restura.pages.dev'];
+  const allowedOrigins =
+    configuredOrigins.length > 0
+      ? configuredOrigins
+      : isDevelopment(env)
+        ? ['http://localhost:5173', 'http://127.0.0.1:5173']
+        : ['https://restura.dev'];
 
   return allowedOrigins.some((allowed) => originAllowedByPattern(origin, allowed)) ? origin : '';
 }
@@ -58,14 +59,19 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-async function proxyAuthMiddleware(c: Context<{ Bindings: Env }>, next: Next): Promise<Response | void> {
+async function proxyAuthMiddleware(
+  c: Context<{ Bindings: Env }>,
+  next: Next
+): Promise<Response | void> {
   if (c.req.method === 'OPTIONS' || isDevelopment(c.env)) {
     return next();
   }
 
   const configuredToken = c.env.WORKER_PROXY_TOKEN;
   if (configuredToken) {
-    const providedToken = c.req.header('X-Restura-Proxy-Token') ?? c.req.header('Authorization')?.replace(/^Bearer\s+/i, '');
+    const providedToken =
+      c.req.header('X-Restura-Proxy-Token') ??
+      c.req.header('Authorization')?.replace(/^Bearer\s+/i, '');
     if (providedToken && timingSafeEqual(providedToken, configuredToken)) {
       return next();
     }
@@ -86,7 +92,7 @@ app.use(
   '/api/*',
   cors({
     origin: (origin, c) => resolveCorsOrigin(origin, c.env),
-  }),
+  })
 );
 app.use('/api/*', proxyAuthMiddleware);
 app.use('/api/*', rateLimitMiddleware);
