@@ -603,7 +603,7 @@ function GrpcRequestBuilder() {
           <Input
             value={grpcRequest.url}
             onChange={(e) => handleUrlChange(e.target.value)}
-            placeholder="https://api.example.com"
+            placeholder="https://echo.restura.dev"
             className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:ring-0 focus-visible:ring-offset-0"
             aria-label="gRPC server URL"
           />
