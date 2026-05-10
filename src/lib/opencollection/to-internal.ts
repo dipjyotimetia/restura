@@ -43,7 +43,6 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
   // getAndResetUnrecognizedBodyCount()/getAndResetUnrecognizedScripts()
   // afterward get this run's tally.
   unrecognizedBodyCount = 0;
-  unrecognizedScriptCount = 0;
   unrecognizedScriptDetails.length = 0;
   const variables = extractRootVariables(oc);
   const items: WithOC<CollectionItem>[] = [
@@ -237,7 +236,6 @@ function extractScripts(item: Record<string, unknown>, requestName: string): {
         break;
       case 'after-response':
       case 'hooks':
-        unrecognizedScriptCount++;
         unrecognizedScriptDetails.push({ type: script.type, requestName });
         break;
     }
@@ -268,7 +266,6 @@ function kvToInternal(kv: unknown): KeyValue {
  * start of every ocToInternal invocation.
  */
 let unrecognizedBodyCount = 0;
-let unrecognizedScriptCount = 0;
 const unrecognizedScriptDetails: Array<{ type: string; requestName: string }> = [];
 
 export function getAndResetUnrecognizedBodyCount(): number {
@@ -279,7 +276,6 @@ export function getAndResetUnrecognizedBodyCount(): number {
 
 export function getAndResetUnrecognizedScripts(): Array<{ type: string; requestName: string }> {
   const out = unrecognizedScriptDetails.slice();
-  unrecognizedScriptCount = 0;
   unrecognizedScriptDetails.length = 0;
   return out;
 }
