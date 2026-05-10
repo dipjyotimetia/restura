@@ -2,21 +2,21 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "restura",
   "main": "worker/index.ts",
-  "compatibility_date": "2026-04-15",
+  "compatibility_date": "2026-05-08",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "ENVIRONMENT": "production",
-    "ALLOWED_ORIGIN": "https://restura.pages.dev"
+    "ALLOWED_ORIGIN": "https://restura.pages.dev,https://*.restura.pages.dev",
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "env": {
     "preview": {
       "vars": {
         "ENVIRONMENT": "preview",
-        "ALLOWED_ORIGIN": "https://*.restura.pages.dev"
-      }
-    }
-  }
+        "ALLOWED_ORIGIN": "https://*.restura.pages.dev",
+      },
+    },
+  },
 }

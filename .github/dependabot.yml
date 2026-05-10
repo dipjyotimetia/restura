@@ -9,7 +9,7 @@ updates:
       - "github-actions"
 
   - package-ecosystem: "npm"
-    directory: "/web-client"
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "tuesday"

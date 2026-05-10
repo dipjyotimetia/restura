@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import type { Env } from '../index';
 import { validateURL } from '@shared/protocol/url-validation';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
@@ -58,7 +59,7 @@ async function sendReflectionRequest(
   }
 }
 
-export async function grpcReflection(c: Context) {
+export async function grpcReflection(c: Context<{ Bindings: Env }>) {
   try {
     const body = await c.req.json<ReflectionRequest>();
     const { url, request, timeout = 30000 } = body;

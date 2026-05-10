@@ -8,6 +8,7 @@
     "buildResources": "electron/resources"
   },
   "files": [
+    "!dist/web/restura/**",
     "dist/web/client/**/*",
     "dist/electron/**/*",
     "electron/resources/**/*",
