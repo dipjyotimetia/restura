@@ -39,7 +39,26 @@ export function TabBar() {
   return (
     <div className="flex items-center gap-1 border-b glass-border-subtle glass-2 px-2 py-1">
       <ScrollArea className="flex-1">
-        <div className="flex items-center gap-1" role="tablist">
+        <div
+          className="flex items-center gap-1"
+          role="tablist"
+          aria-label="Request tabs"
+          onKeyDown={(e) => {
+            const idx = tabs.findIndex((t) => t.id === activeTabId);
+            if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              const next = tabs[(idx + 1) % tabs.length];
+              if (next) switchTab(next.id);
+            } else if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
+              if (prev) switchTab(prev.id);
+            } else if (e.key === 'Delete' && activeTabId) {
+              e.preventDefault();
+              closeTab(activeTabId);
+            }
+          }}
+        >
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
             return (
@@ -50,7 +69,14 @@ export function TabBar() {
                     role="tab"
                     aria-selected={isActive}
                     aria-label={tab.request.name}
+                    tabIndex={isActive ? 0 : -1}
                     onClick={() => switchTab(tab.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        switchTab(tab.id);
+                      }
+                    }}
                     draggable
                     onDragStart={(e) => {
                       setDraggingId(tab.id);

@@ -182,7 +182,7 @@ export default function Home() {
             setEnvManagerOpen={setEnvManagerOpen}
           />
 
-          <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
+          <main aria-label="Request workspace" className="flex flex-1 flex-col min-h-0 overflow-hidden">
             <TabBar />
             <div className="flex flex-1 flex-col min-h-0">
               {renderRequestBuilder()}

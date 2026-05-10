@@ -11,6 +11,7 @@ import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
 import { applyAuth } from '@shared/protocol/auth-signer';
+import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { readStreamingResponse, type StreamEvent } from '@/features/http/lib/streamingResponseReader';
 
 // Execute request via CORS proxy (browser mode)
@@ -69,6 +70,7 @@ export interface RequestExecutionResult {
   };
   envVars?: Record<string, string>;
   sentHeaders: Record<string, string>;
+  refreshedAuth?: HttpRequest['auth'];
 }
 
 export interface RequestExecutorOptions {
@@ -146,9 +148,12 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
       headers[h.key] = resolveLocal(h.value);
     });
 
+  // Refresh OAuth2 token if near expiry before signing
+  const effectiveAuth = await refreshOAuth2Auth(request.auth);
+
   // Apply auth headers (includes AWS SigV4 signing)
   const headersWithAuth = await applyAuthHeaders(
-    request.auth,
+    effectiveAuth,
     headers,
     resolvedUrl,
     request.method,
@@ -157,7 +162,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
   Object.assign(headers, headersWithAuth);
 
   // Apply API key query params
-  Object.assign(params, applyApiKeyQueryParam(request.auth, params));
+  Object.assign(params, applyApiKeyQueryParam(effectiveAuth, params));
 
   // Add Cookies
   // Note: useCookieStore is a hook/store. We can access getState() outside components.
@@ -210,7 +215,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             }
           : undefined;
 
-      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy, request.auth);
+      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy, effectiveAuth);
     } catch (error: unknown) {
       const endTime = Date.now();
       const isAxiosError = axios.isAxiosError(error);
@@ -431,7 +436,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     });
   }
 
-  return {
+  const result: RequestExecutionResult = {
     response: responseData,
     scriptResult: {
       preRequest: preRequestResult,
@@ -440,6 +445,10 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     envVars,
     sentHeaders: headers,
   };
+  if (effectiveAuth !== request.auth) {
+    result.refreshedAuth = effectiveAuth;
+  }
+  return result;
 }
 
 // ============================================================================

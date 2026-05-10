@@ -288,7 +288,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 <p className="text-muted-foreground">Waiting for authorization...</p>
               </div>
             )}
-            {tokenError && <p className="text-xs text-red-500">{tokenError}</p>}
+            {tokenError && <p role="alert" className="text-xs text-red-500">{tokenError}</p>}
             <div className="border-t border-border pt-4">
               <label className="text-sm font-medium mb-2 block">Access Token</label>
               <Input

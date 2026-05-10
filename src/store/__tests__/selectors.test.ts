@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   selectHistoryPage,
   selectHistoryCount,
@@ -276,5 +276,40 @@ describe('Environment Selectors', () => {
     it('should return total environment count', () => {
       expect(selectEnvironmentCount(environmentState)).toBe(2);
     });
+  });
+});
+
+// React hook selectors — test via renderHook
+import { renderHook } from '@testing-library/react';
+import { useActiveTab, useActiveRequest, useActiveResponse, useActiveStreamingEvents } from '../selectors';
+import { useRequestStore } from '../useRequestStore';
+
+describe('useActiveTab / useActiveRequest / useActiveResponse hooks', () => {
+  beforeEach(() => {
+    useRequestStore.setState({
+      tabs: [],
+      activeTabId: null,
+      isLoading: false,
+    });
+  });
+
+  it('useActiveTab returns null when no tabs', () => {
+    const { result } = renderHook(() => useActiveTab());
+    expect(result.current).toBeNull();
+  });
+
+  it('useActiveRequest returns null when no tabs', () => {
+    const { result } = renderHook(() => useActiveRequest('http'));
+    expect(result.current).toBeNull();
+  });
+
+  it('useActiveResponse returns null when no tabs', () => {
+    const { result } = renderHook(() => useActiveResponse());
+    expect(result.current).toBeNull();
+  });
+
+  it('useActiveStreamingEvents returns null when no tabs', () => {
+    const { result } = renderHook(() => useActiveStreamingEvents());
+    expect(result.current).toBeNull();
   });
 });

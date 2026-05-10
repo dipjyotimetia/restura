@@ -7,7 +7,9 @@ import type {
   Response,
   HttpRequest,
   AppSettings,
+  AuthConfig,
 } from '@/types';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { v4 as uuidv4 } from 'uuid';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { extractVariables } from './variableExtractor';
@@ -19,6 +21,7 @@ export interface WorkflowExecutorOptions {
   envVars: Record<string, string>;
   globalSettings: AppSettings;
   resolveVariables: (text: string) => string;
+  getInheritedAuth?: (requestId: string) => AuthConfig | undefined;
   onStepStart?: (step: WorkflowExecutionStep) => void;
   onStepComplete?: (step: WorkflowExecutionStep) => void;
   onLog?: (message: string, level: 'info' | 'warn' | 'error') => void;
@@ -37,6 +40,7 @@ export async function executeWorkflow(
     envVars,
     globalSettings,
     resolveVariables,
+    getInheritedAuth,
     onStepStart,
     onStepComplete,
     onLog,
@@ -92,10 +96,13 @@ export async function executeWorkflow(
 
     try {
       // Get the actual request
-      const request = getRequestById(workflowRequest.requestId);
-      if (!request) {
+      const rawRequest = getRequestById(workflowRequest.requestId);
+      if (!rawRequest) {
         throw new Error(`Request not found: ${workflowRequest.requestId}`);
       }
+      const request = getInheritedAuth
+        ? withEffectiveAuth(rawRequest, getInheritedAuth(workflowRequest.requestId))
+        : rawRequest;
 
       // Check precondition
       if (workflowRequest.precondition) {

@@ -414,4 +414,32 @@ describe('workflowExecutor', () => {
     expect(result.status).toBe('stopped');
     expect(mockExecuteRequest).not.toHaveBeenCalled();
   });
+
+  it('applies inherited auth when getInheritedAuth is provided', async () => {
+    const bearerAuth = { type: 'bearer' as const, bearer: { token: 'collection-token' } };
+    const requestWithNoAuth: HttpRequest = { ...mockRequest, auth: { type: 'none' } };
+    getRequestById.mockReturnValue(requestWithNoAuth);
+    mockExecuteRequest.mockResolvedValue({ response: mockResponse, sentHeaders: {}, envVars: {} });
+
+    const workflow: Workflow = {
+      id: 'wf-1',
+      name: 'Auth Inherit Test',
+      collectionId: 'col-1',
+      requests: [{ id: 'wr-1', requestId: 'req-1', name: 'Request' }],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await executeWorkflow({
+      workflow,
+      getRequestById,
+      envVars: {},
+      globalSettings: mockSettings,
+      resolveVariables,
+      getInheritedAuth: () => bearerAuth,
+    });
+
+    const calledRequest = (mockExecuteRequest.mock.calls[0] as [{ request: HttpRequest }])[0]?.request;
+    expect(calledRequest?.auth).toEqual(bearerAuth);
+  });
 });

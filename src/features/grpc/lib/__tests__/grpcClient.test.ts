@@ -617,6 +617,56 @@ message PingRequest
       const action = getSuggestedAction(GrpcStatusCode.UNAVAILABLE);
       expect(action).toContain('server');
     });
+
+    it('covers all remaining status code branches', () => {
+      expect(getSuggestedAction(GrpcStatusCode.PERMISSION_DENIED)).toContain('permissions');
+      expect(getSuggestedAction(GrpcStatusCode.INVALID_ARGUMENT)).toContain('message format');
+      expect(getSuggestedAction(GrpcStatusCode.DEADLINE_EXCEEDED)).toContain('timeout');
+      expect(getSuggestedAction(GrpcStatusCode.UNIMPLEMENTED)).toContain('supported');
+      expect(getSuggestedAction(GrpcStatusCode.INTERNAL)).toContain('internal error');
+      expect(getSuggestedAction(GrpcStatusCode.RESOURCE_EXHAUSTED)).toContain('Rate limit');
+      expect(getSuggestedAction(GrpcStatusCode.CANCELLED)).toContain('error details');
+    });
+  });
+
+  describe('getMethodTypeDescription default branch', () => {
+    it('returns unknown for unknown method type', () => {
+      expect(getMethodTypeDescription('unknown-type')).toContain('Unknown');
+    });
+  });
+
+  describe('prepareGrpcRequest metadata size validation', () => {
+    const baseGrpcReq: GrpcRequest = {
+      id: 'req-meta',
+      name: 'Test',
+      type: 'grpc',
+      methodType: 'unary',
+      url: 'https://api.example.com',
+      service: 'svc.v1.Service',
+      method: 'Call',
+      metadata: [],
+      message: '{}',
+      auth: { type: 'none' },
+    };
+
+    it('throws when a single metadata header exceeds 1KB', () => {
+      const req: GrpcRequest = {
+        ...baseGrpcReq,
+        metadata: [{ id: '1', key: 'x-big', value: 'x'.repeat(1025), enabled: true }],
+      };
+      expect(() => prepareGrpcRequest(req, (s) => s)).toThrow(GrpcClientError);
+    });
+
+    it('throws when total metadata exceeds 8KB', () => {
+      const entries = Array.from({ length: 20 }, (_, i) => ({
+        id: String(i),
+        key: `x-key-${i}`,
+        value: 'x'.repeat(450),
+        enabled: true,
+      }));
+      const req: GrpcRequest = { ...baseGrpcReq, metadata: entries };
+      expect(() => prepareGrpcRequest(req, (s) => s)).toThrow(GrpcClientError);
+    });
   });
 
   describe('getMethodTypeDescription', () => {
@@ -664,6 +714,131 @@ message PingRequest
       expect(error.statusCode).toBe(GrpcStatusCode.UNKNOWN);
       expect(error.details).toBe('');
       expect(error.metadata).toEqual({});
+    });
+  });
+
+  describe('makeElectronGrpcRequest (Electron mocked)', () => {
+    const grpcReq: GrpcRequest = {
+      id: 'req-el-1',
+      name: 'Test',
+      type: 'grpc',
+      methodType: 'unary',
+      url: 'https://api.example.com',
+      service: 'pkg.TestService',
+      method: 'GetItem',
+      metadata: [],
+      message: '{"id": 1}',
+      auth: { type: 'none' },
+    };
+
+    it('makes request and returns response in Electron mode', async () => {
+      const mockGrpcResponse = {
+        status: 0,
+        statusText: 'OK',
+        headers: {},
+        trailers: {},
+        message: { result: 'ok' },
+        messages: undefined,
+        size: 50,
+      };
+
+      const mockElectron = {
+        isElectron: true,
+        grpc: {
+          request: vi.fn().mockResolvedValue(mockGrpcResponse),
+          reflect: vi.fn(),
+          startStream: vi.fn(),
+          sendMessage: vi.fn(),
+          endStream: vi.fn(),
+          cancelStream: vi.fn(),
+          on: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      };
+
+      Object.defineProperty(window, 'electron', {
+        value: mockElectron,
+        writable: true,
+        configurable: true,
+      });
+
+      try {
+        const result = await makeElectronGrpcRequest(grpcReq, 'syntax = "proto3";', 'test.proto', (s) => s);
+        expect(result.status).toBe(0);
+        expect(result.grpcStatus).toBe(0);
+        expect(mockElectron.grpc.request).toHaveBeenCalledOnce();
+      } finally {
+        Object.defineProperty(window, 'electron', { value: undefined, writable: true, configurable: true });
+      }
+    });
+
+    it('handles streaming messages array in response', async () => {
+      const mockGrpcResponseWithMessages = {
+        status: 0,
+        statusText: 'OK',
+        headers: {},
+        trailers: {},
+        message: undefined,
+        messages: [{ item: 1 }, { item: 2 }],
+        size: 200,
+      };
+
+      const mockElectron2 = {
+        isElectron: true,
+        grpc: {
+          request: vi.fn().mockResolvedValue(mockGrpcResponseWithMessages),
+          reflect: vi.fn(),
+          startStream: vi.fn(),
+          sendMessage: vi.fn(),
+          endStream: vi.fn(),
+          cancelStream: vi.fn(),
+          on: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      };
+
+      Object.defineProperty(window, 'electron', {
+        value: mockElectron2,
+        writable: true,
+        configurable: true,
+      });
+
+      try {
+        const result = await makeElectronGrpcRequest(grpcReq, 'syntax = "proto3";', 'test.proto', (s) => s);
+        expect(result.isStreaming).toBe(true);
+        expect(result.messages).toHaveLength(2);
+      } finally {
+        Object.defineProperty(window, 'electron', { value: undefined, writable: true, configurable: true });
+      }
+    });
+
+    it('returns error response when Electron API throws', async () => {
+      const mockElectron = {
+        isElectron: true,
+        grpc: {
+          request: vi.fn().mockRejectedValue(new Error('IPC error')),
+          reflect: vi.fn(),
+          startStream: vi.fn(),
+          sendMessage: vi.fn(),
+          endStream: vi.fn(),
+          cancelStream: vi.fn(),
+          on: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      };
+
+      Object.defineProperty(window, 'electron', {
+        value: mockElectron,
+        writable: true,
+        configurable: true,
+      });
+
+      try {
+        const result = await makeElectronGrpcRequest(grpcReq, 'syntax = "proto3";', 'test.proto', (s) => s);
+        expect(result.status).toBeGreaterThanOrEqual(0);
+      } finally {
+        Object.defineProperty(window, 'electron', { value: undefined, writable: true, configurable: true });
+      }
     });
   });
 
@@ -823,6 +998,66 @@ message PingRequest
         writable: true,
         configurable: true,
       });
+    });
+  });
+
+  describe('makeProxyGrpcRequest', () => {
+    it('makes proxy gRPC request and returns response', async () => {
+      const mockResponse = {
+        grpcStatus: 0,
+        grpcStatusText: 'OK',
+        data: { id: 1 },
+        headers: { 'content-type': 'application/grpc' },
+        size: 100,
+        trailers: {},
+      };
+      vi.stubGlobal('fetch', vi.fn(async () =>
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      ));
+
+      const { makeProxyGrpcRequest } = await import('../grpcClient');
+
+      const grpcReq = {
+        id: 'req-proxy-1',
+        name: 'Test',
+        type: 'grpc' as const,
+        methodType: 'unary' as const,
+        url: 'https://grpc.example.com',
+        service: 'svc.TestService',
+        method: 'GetUser',
+        metadata: [],
+        message: '{"id": 1}',
+        auth: { type: 'none' as const },
+      };
+
+      const result = await makeProxyGrpcRequest(grpcReq, (s) => s);
+      expect(result.status).toBe(0);
+      expect(result.grpcStatus).toBe(0);
+    });
+
+    it('returns error response when fetch throws', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('Network error'); }));
+
+      const { makeProxyGrpcRequest } = await import('../grpcClient');
+
+      const grpcReq = {
+        id: 'req-proxy-2',
+        name: 'Test',
+        type: 'grpc' as const,
+        methodType: 'unary' as const,
+        url: 'https://grpc.example.com',
+        service: 'svc.TestService',
+        method: 'GetUser',
+        metadata: [],
+        message: '{"id": 1}',
+        auth: { type: 'none' as const },
+      };
+
+      const result = await makeProxyGrpcRequest(grpcReq, (s) => s);
+      expect(result.status).toBeGreaterThanOrEqual(0);
     });
   });
 });

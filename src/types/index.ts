@@ -119,6 +119,8 @@ export interface AuthConfig {
   oauth2?: {
     accessToken: string;
     tokenType?: string;
+    refreshToken?: string;
+    expiresAt?: number;
     scopes?: string[];
     // Flow configuration
     grantType?: 'authorization_code' | 'client_credentials' | 'password' | 'device_code';
