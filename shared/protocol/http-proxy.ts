@@ -53,7 +53,7 @@ export async function executeHttpProxy(
 
   const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
+  const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
 
   try {
     const finalBody = !['GET', 'HEAD'].includes(method) ? body : undefined;
@@ -133,7 +133,7 @@ export async function executeHttpProxy(
     const message = err instanceof Error ? err.message : 'Proxy request failed';
     return { ok: false, status: 502, payload: { error: `Proxy request failed: ${message}` } };
   } finally {
-    clearTimeout(timer);
+    if (timer !== null) clearTimeout(timer);
   }
 }
 
@@ -211,7 +211,7 @@ export async function executeHttpProxyStreaming(
 
   const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
+  const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
 
   try {
     const finalBody = !['GET', 'HEAD'].includes(method) ? requestBody : undefined;
@@ -278,6 +278,6 @@ export async function executeHttpProxyStreaming(
     const message = err instanceof Error ? err.message : 'Proxy request failed';
     return { ok: false, status: 502, payload: { error: `Proxy request failed: ${message}` } };
   } finally {
-    clearTimeout(timer);
+    if (timer !== null) clearTimeout(timer);
   }
 }

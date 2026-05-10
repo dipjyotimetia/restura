@@ -36,7 +36,11 @@ export async function rateLimitMiddleware(c: Context<{ Bindings: Env }>, next: N
   const timestamps = requestLog.get(ip) ?? [];
   // After pruning, all stored timestamps are already within the window.
   if (timestamps.length >= MAX_REQUESTS) {
-    return c.json({ error: `Rate limit exceeded. Maximum ${MAX_REQUESTS} requests per minute.` }, 429);
+    return c.json(
+      { error: `Rate limit exceeded. Maximum ${MAX_REQUESTS} requests per minute.` },
+      429,
+      { 'Retry-After': '60' }
+    );
   }
 
   timestamps.push(now);

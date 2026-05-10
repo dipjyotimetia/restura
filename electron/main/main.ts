@@ -53,6 +53,9 @@ if (!gotTheLock) {
 // (requires single-instance lock to be requested before calling this)
 registerDeepLinkHandler(getMainWindow);
 
+// Register security measures early so all web-contents are protected from creation
+setupSecurityMeasures();
+
 // Register all IPC handlers
 function registerIPCHandlers(): void {
   registerAutoUpdaterIPC(isDev);
@@ -160,5 +163,3 @@ app.on('will-quit', () => {
   destroyTray();
 });
 
-// Setup security measures
-setupSecurityMeasures();

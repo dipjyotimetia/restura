@@ -47,8 +47,13 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
 }> {
   const reader = readable.getReader();
   const decoder = new TextDecoder();
-  let text = '';
+  // Single buffer accumulates all decoded bytes; headerBodySplit tracks the \r\n\r\n offset once found.
+  let buf = '';
   let totalBytes = 0;
+  let headers: Record<string, string> = {};
+  let statusLine = '';
+  let headerBodySplit = -1;
+  let contentLength: number | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -58,26 +63,41 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
       reader.releaseLock();
       throw new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
     }
-    text += decoder.decode(value, { stream: true });
-    const headerEnd = text.indexOf('\r\n\r\n');
-    if (headerEnd !== -1) {
-      reader.releaseLock();
-      const headerSection = text.slice(0, headerEnd);
-      const body = text.slice(headerEnd + 4);
-      const lines = headerSection.split('\r\n');
-      const statusLine = lines[0] ?? '';
-      const headers: Record<string, string> = {};
+    buf += decoder.decode(value, { stream: true });
+
+    if (headerBodySplit === -1) {
+      headerBodySplit = buf.indexOf('\r\n\r\n');
+      if (headerBodySplit === -1) continue;
+
+      const lines = buf.slice(0, headerBodySplit).split('\r\n');
+      statusLine = lines[0] ?? '';
       for (const line of lines.slice(1)) {
         const colon = line.indexOf(':');
         if (colon !== -1) {
           headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
         }
       }
+
+      const cl = headers['content-length'];
+      if (cl !== undefined) {
+        const n = parseInt(cl, 10);
+        if (!isNaN(n)) contentLength = n;
+      }
+    }
+
+    const bodyStart = headerBodySplit + 4;
+    if (contentLength === null || buf.length - bodyStart >= contentLength) {
+      reader.releaseLock();
+      const body = contentLength !== null
+        ? buf.slice(bodyStart, bodyStart + contentLength)
+        : buf.slice(bodyStart);
       return { statusLine, headers, body };
     }
   }
+
   reader.releaseLock();
-  return { statusLine: '', headers: {}, body: '' };
+  const body = headerBodySplit !== -1 ? buf.slice(headerBodySplit + 4) : '';
+  return { statusLine, headers, body };
 }
 
 export async function httpsViaConnectProxy(
