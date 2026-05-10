@@ -277,7 +277,7 @@ function WebSocketClient() {
           <Input
             value={connection.url}
             onChange={(e) => updateConnectionUrl(activeConnectionId, e.target.value)}
-            placeholder="ws://localhost:8080 or wss://example.com/socket"
+            placeholder="wss://echo.restura.dev/ws"
             className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:ring-0 focus-visible:ring-offset-0"
             disabled={isConnected || isConnecting}
             aria-label="WebSocket URL"

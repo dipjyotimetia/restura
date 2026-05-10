@@ -90,7 +90,7 @@ export default function SseClient() {
       <div className="flex items-center gap-2 p-3 border-b border-border bg-background/60">
         <Badge className={cn('uppercase', CONNECTION_STATUS_COLORS[active.status])}>{active.status}</Badge>
         <Input
-          placeholder="https://example.com/events"
+          placeholder="https://echo.restura.dev/sse"
           value={active.url}
           onChange={(e) => updateConnectionUrl(active.id, e.target.value)}
           disabled={isConnected || isConnecting}

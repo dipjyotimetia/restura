@@ -371,7 +371,7 @@ function GraphQLRequestBuilder() {
         <Input
           value={httpRequest.url}
           onChange={(e) => updateRequest({ url: e.target.value })}
-          placeholder="Enter GraphQL endpoint URL"
+          placeholder="https://echo.restura.dev/graphql"
           className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:ring-0 focus-visible:ring-offset-0"
           aria-label="GraphQL endpoint URL"
         />

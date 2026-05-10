@@ -98,7 +98,7 @@ export default function RequestLine({
         <Input
           value={url}
           onChange={(e) => handleUrlChange(e.target.value)}
-          placeholder="https://api.example.com/users"
+          placeholder="https://echo.restura.dev/anything"
           className={cn(
             'flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2',
             'focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none',
