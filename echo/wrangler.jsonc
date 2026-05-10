@@ -1,0 +1,10 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "restura-echo",
+  "main": "index.ts",
+  "compatibility_date": "2026-05-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "echo.restura.dev", "custom_domain": true }],
+  "vars": { "ENVIRONMENT": "production" },
+  "observability": { "enabled": true },
+}
