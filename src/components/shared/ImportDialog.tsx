@@ -3,17 +3,23 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import { importPostmanCollection, importInsomniaCollection, importOpenAPICollection } from '@/features/collections/lib/importers';
+import {
+  importPostmanCollection,
+  importInsomniaCollection,
+  importOpenAPICollection,
+  importOpenCollection,
+} from '@/features/collections/lib/importers';
 import { FileJson, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import YAML from 'yaml';
 import type { Collection } from '@/types';
 
-type ImportType = 'postman' | 'insomnia' | 'openapi';
+type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection';
 
 const TYPE_LABELS: Record<ImportType, string> = {
   postman: 'Postman',
   insomnia: 'Insomnia',
   openapi: 'OpenAPI / Swagger',
+  opencollection: 'OpenCollection',
 };
 
 const IMPORTERS: Record<ImportType, (data: unknown) => Collection | Promise<Collection>> = {
@@ -22,6 +28,7 @@ const IMPORTERS: Record<ImportType, (data: unknown) => Collection | Promise<Coll
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   insomnia: (data) => importInsomniaCollection(data as any),
   openapi: (data) => importOpenAPICollection(data),
+  opencollection: (data) => importOpenCollection(data),
 };
 
 const FEATURE_LISTS: Record<ImportType, string[]> = {
@@ -49,6 +56,15 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
     'Tag-based folder organization',
     'Security schemes (Basic, Bearer, API Key, OAuth2)',
     'Server URL configuration',
+  ],
+  opencollection: [
+    'OpenCollection v1.0.0 (compatible with Bruno 3.1+)',
+    'HTTP, gRPC, GraphQL, WebSocket requests',
+    'SSE and MCP via x-restura-* extensions',
+    'Authentication (Basic, Bearer, API Key, Digest, OAuth2, AWS SigV4)',
+    'Environment variables and secret variables',
+    'Folder hierarchy and request metadata',
+    'Bundled (single file) format',
   ],
 };
 
@@ -164,7 +180,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
         <DialogHeader>
           <DialogTitle className="font-mono text-sm tracking-wide">IMPORT COLLECTION</DialogTitle>
           <DialogDescription className="font-mono text-xs">
-            Import from Postman, Insomnia, or OpenAPI/Swagger
+            Import from Postman, Insomnia, OpenAPI/Swagger, or OpenCollection
           </DialogDescription>
         </DialogHeader>
 
@@ -205,9 +221,15 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
             >
               OpenAPI
             </TabsTrigger>
+            <TabsTrigger
+              value="opencollection"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              OpenCollection
+            </TabsTrigger>
           </TabsList>
 
-          {(['postman', 'insomnia', 'openapi'] as const).map((type) => (
+          {(['postman', 'insomnia', 'openapi', 'opencollection'] as const).map((type) => (
             <TabsContent key={type} value={type} className="space-y-4 mt-4">
               <DropZone type={type} onFileUpload={handleFileUpload} onDrop={handleDrop} />
               <div className="space-y-1.5">

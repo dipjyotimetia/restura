@@ -1,1 +1,6 @@
-export { importPostmanCollection, importInsomniaCollection, importOpenAPICollection } from './importers/index';
+export {
+  importPostmanCollection,
+  importInsomniaCollection,
+  importOpenAPICollection,
+  importOpenCollection,
+} from './importers/index';
