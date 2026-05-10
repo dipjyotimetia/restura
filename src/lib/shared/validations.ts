@@ -72,6 +72,19 @@ export const authConfigSchema = z.object({
     .object({
       accessToken: z.string(),
       tokenType: z.string().optional(),
+      scopes: z.array(z.string()).optional(),
+      grantType: z
+        .enum(['authorization_code', 'client_credentials', 'password', 'device_code'])
+        .optional(),
+      clientId: z.string().optional(),
+      clientSecret: z.string().optional(),
+      authorizationUrl: z.string().optional(),
+      tokenUrl: z.string().optional(),
+      deviceAuthorizationUrl: z.string().optional(),
+      scope: z.string().optional(),
+      redirectUri: z.string().optional(),
+      username: z.string().optional(),
+      password: z.string().optional(),
     })
     .optional(),
   digest: z

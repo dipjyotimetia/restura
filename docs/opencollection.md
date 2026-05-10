@@ -74,11 +74,13 @@ OpenCollection v1.0.0 includes more authentication methods than Restura currentl
 
 Directory-layout import/export through a native folder picker lands in **Phase 1** alongside the broader git-workspace work. The unit and filesystem-layer tests in [`src/lib/opencollection/__tests__/`](../src/lib/opencollection/__tests__/) already exercise the directory format end-to-end.
 
-## Byte-stable roundtrip
+## Stable roundtrip
 
-The importer attaches the original parsed OpenCollection document to the in-memory collection as a non-typed `_oc` passthrough bag. When exporting, if every item still has its `_oc` bag intact (i.e. nothing has been edited), Restura emits the cached document verbatim — the YAML diff in your repo is whatever you actually changed, with no whitespace churn or key reordering.
+The importer attaches the original parsed OpenCollection document to the in-memory collection as a non-typed `_oc` passthrough bag, and the directory writer (`saveCollectionToDir`) uses it to emit the cached document verbatim when nothing has been edited.
 
-If any item has been modified, the exporter falls back to rebuilding from the internal model, which produces clean OpenCollection YAML but may have minor stylistic differences from the source.
+The bundled-export path used by the **Export → OpenCollection (YAML)** menu always re-serializes through `internalToOC` + the YAML emitter, so its output is *semantically* identical to the input but may differ in minor stylistic ways (key ordering inside an object, whitespace inside multi-line strings, removal of explicitly-empty arrays). For repo-friendly diffs prefer the directory layout and the Phase 1 directory-export workflow once it ships.
+
+If any item has been modified, both paths fall back to rebuilding from the internal model, which produces clean OpenCollection YAML.
 
 ## Verifying the schema
 
