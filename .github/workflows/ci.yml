@@ -52,6 +52,7 @@ jobs:
         run: npm run electron:compile
 
   e2e:
+    if: github.event_name == 'pull_request' || github.base_ref != 'main'
     name: Playwright E2E
     runs-on: ubuntu-latest
     timeout-minutes: 20
