@@ -321,9 +321,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <aside className="bg-card flex flex-col h-full">
+      <aside className="glass-2 glass-border-default flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-3 py-2 border-b glass-border-subtle shrink-0">
           <span className="text-[10px] font-mono font-semibold tracking-widest text-muted-foreground uppercase">
             {activeTab === 'collections'
               ? 'Collections'

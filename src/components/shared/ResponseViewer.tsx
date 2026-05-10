@@ -223,11 +223,13 @@ function ResponseViewer() {
             <ResponseSkeleton />
           </motion.div>
         ) : !currentResponse ? (
-          <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground/50 bg-background relative z-20 border-l border-border">
-            <Zap className="h-6 w-6" />
-            <div className="text-center">
-              <p className="text-xs font-mono">Send a request to see the response</p>
-              <p className="text-[10px] font-mono mt-1 text-muted-foreground/30">⌘ Enter</p>
+          <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="h-full flex flex-col items-center justify-center gap-4 text-muted-foreground/50 glass-3 relative z-20 border-l glass-border-subtle">
+            <div className="flex flex-col items-center gap-3 glass-1 rounded-2xl border glass-border-subtle px-8 py-6 shadow-sm">
+              <Zap className="h-6 w-6 text-primary/40" />
+              <div className="text-center">
+                <p className="text-xs font-mono">Send a request to see the response</p>
+                <p className="text-[10px] font-mono mt-1 text-muted-foreground/30">⌘ Enter</p>
+              </div>
             </div>
           </motion.div>
         ) : (

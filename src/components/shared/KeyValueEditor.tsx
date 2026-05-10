@@ -58,8 +58,8 @@ export default function KeyValueEditor({
     <TooltipProvider delayDuration={300}>
     <div className="space-y-3">
         {items.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground/50">
-            <ListPlus className="h-5 w-5" />
+          <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground/50 glass-3 rounded-xl border glass-border-subtle mx-1">
+            <ListPlus className="h-5 w-5 text-primary/40" />
             <p className="text-xs font-mono">No {itemType}s added</p>
           </div>
         )}

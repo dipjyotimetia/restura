@@ -7,25 +7,25 @@
 
 @layer base {
   :root {
-    --background: 0 0% 98.5%;
+    --background: 250 25% 97%;
     --foreground: 240 15% 8%;
     --card: 240 10% 97%;
     --card-foreground: 240 15% 8%;
     --popover: 240 10% 97%;
     --popover-foreground: 240 15% 8%;
-    --primary: 252 72% 55%;
+    --primary: 218 85% 53%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 244 12% 93%;
-    --secondary-foreground: 240 15% 8%;
-    --muted: 244 12% 93%;
-    --muted-foreground: 248 12% 48%;
-    --accent: 244 12% 90%;
-    --accent-foreground: 240 15% 8%;
+    --secondary: 214 12% 93%;
+    --secondary-foreground: 220 15% 8%;
+    --muted: 214 12% 93%;
+    --muted-foreground: 218 12% 48%;
+    --accent: 214 12% 90%;
+    --accent-foreground: 220 15% 8%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 244 12% 88%;
-    --input: 244 12% 88%;
-    --ring: 252 72% 55%;
+    --border: 214 12% 88%;
+    --input: 214 12% 88%;
+    --ring: 218 85% 53%;
     --radius: 0.5rem;
     --success: 158 64% 40%;
     --warning: 43 96% 50%;
@@ -44,25 +44,25 @@
   }
 
   .dark {
-    --background: 240 15% 4%;
+    --background: 240 20% 5%;
     --foreground: 248 25% 94%;
     --card: 240 15% 7%;
     --card-foreground: 248 25% 94%;
     --popover: 240 15% 7%;
     --popover-foreground: 248 25% 94%;
-    --primary: 252 88% 70%;
-    --primary-foreground: 240 15% 4%;
-    --secondary: 244 12% 14%;
-    --secondary-foreground: 248 25% 94%;
-    --muted: 244 12% 13%;
-    --muted-foreground: 248 15% 55%;
-    --accent: 244 12% 16%;
-    --accent-foreground: 248 25% 94%;
+    --primary: 218 90% 68%;
+    --primary-foreground: 220 20% 5%;
+    --secondary: 214 12% 14%;
+    --secondary-foreground: 218 25% 94%;
+    --muted: 214 12% 13%;
+    --muted-foreground: 218 15% 55%;
+    --accent: 214 12% 16%;
+    --accent-foreground: 218 25% 94%;
     --destructive: 0 84% 70%;
     --destructive-foreground: 0 0% 100%;
-    --border: 244 12% 16%;
-    --input: 244 12% 16%;
-    --ring: 252 88% 70%;
+    --border: 214 12% 16%;
+    --input: 214 12% 16%;
+    --ring: 218 90% 68%;
     --success: 158 64% 52%;
     --warning: 43 96% 56%;
     --info: 187 96% 45%;
@@ -143,6 +143,40 @@
   .contain-strict {
     contain: strict;
   }
+
+  /* Strata Glass Tiers — light is default, .dark overrides */
+  .glass-1 {
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .dark .glass-1 {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .glass-2 {
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .dark .glass-2 {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .glass-3 {
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .dark .glass-3 {
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  /* Glass border utilities */
+  .glass-border-subtle  { border-color: rgba(0, 0, 0, 0.05); }
+  .glass-border-default { border-color: rgba(0, 0, 0, 0.07); }
+  .dark .glass-border-subtle  { border-color: rgba(255, 255, 255, 0.06); }
+  .dark .glass-border-default { border-color: rgba(255, 255, 255, 0.09); }
 
   /* Gradient border animation for loading states */
   .gradient-border-animated {
@@ -274,112 +308,8 @@ textarea {
 }
 
 
-/* Animated gradient mesh background */
-.gradient-mesh-bg {
-  position: fixed;
-  inset: 0;
-  z-index: -10;
-  overflow: hidden;
-  background: hsl(var(--background));
-}
-
-.gradient-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(120px);
-  opacity: 0.15;
-  will-change: transform;
-}
-
-/* Subtle colorful orbs for soft ambient background effect */
-.gradient-orb-1 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, hsl(252 72% 55% / 0.06) 0%, transparent 70%);
-  top: -15%;
-  left: -10%;
-  animation: float-slow 30s ease-in-out infinite;
-}
-
-.gradient-orb-2 {
-  width: 450px;
-  height: 450px;
-  background: radial-gradient(circle, hsl(252 72% 55% / 0.05) 0%, transparent 70%);
-  bottom: -15%;
-  right: -10%;
-  animation: float-slower 40s ease-in-out infinite;
-}
-
-/* Third accent orb for subtle color variety */
-.gradient-orb-3 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, hsl(252 72% 55% / 0.04) 0%, transparent 70%);
-  top: 30%;
-  right: 20%;
-  animation: float-reverse 35s ease-in-out infinite;
-}
-
-.gradient-orb-4 {
-  display: none;
-}
-
-@keyframes float-slow {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(30px, -50px) scale(1.05);
-  }
-  66% {
-    transform: translate(-20px, 20px) scale(0.95);
-  }
-}
-
-@keyframes float-slower {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(-40px, -30px) scale(1.1);
-  }
-}
-
-@keyframes float-reverse {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(-30px, 40px) scale(0.95);
-  }
-  66% {
-    transform: translate(25px, -25px) scale(1.05);
-  }
-}
-
-/* Dark mode adjustments for orbs - subtle and not distracting */
-.dark .gradient-orb {
-  opacity: 0.1;
-}
-
-.dark .gradient-orb-1 {
-  background: radial-gradient(circle, hsl(252 88% 70% / 0.08) 0%, transparent 70%);
-}
-
-.dark .gradient-orb-2 {
-  background: radial-gradient(circle, hsl(252 88% 70% / 0.06) 0%, transparent 70%);
-}
-
-.dark .gradient-orb-3 {
-  background: radial-gradient(circle, hsl(252 88% 70% / 0.05) 0%, transparent 70%);
-}
-
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .gradient-orb {
-    animation: none !important;
-  }
-
   .animate-shimmer {
     animation: none !important;
   }
@@ -391,13 +321,13 @@ textarea {
   }
 }
 
-/* Selection with new purple theme */
+/* Selection */
 ::selection {
   background-color: hsl(var(--primary) / 0.25);
   color: hsl(var(--foreground));
 }
 
-/* Focus ring with purple glow */
+/* Focus ring */
 :focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
@@ -423,14 +353,9 @@ textarea {
   opacity: 0.04;
 }
 
-/* Button glow animation on hover */
 @keyframes button-glow {
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(123, 110, 246, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 30px rgba(123, 110, 246, 0.5);
-  }
+  0%, 100% { box-shadow: 0 0 20px hsl(var(--primary) / 0.3); }
+  50%       { box-shadow: 0 0 30px hsl(var(--primary) / 0.5); }
 }
 
 .animate-button-glow {

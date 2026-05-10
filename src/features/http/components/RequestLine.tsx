@@ -57,17 +57,17 @@ export default function RequestLine({
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-1 px-3 h-12 border-y border-border bg-surface-2 shrink-0">
+      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3 shrink-0">
         <Select value={method} onValueChange={(value) => onMethodChange(value as HttpMethod)}>
           <SelectTrigger
             className={cn(
-              'w-20 h-7 font-mono font-bold text-[11px] border border-border bg-surface-3',
-              method === 'GET' && 'text-emerald-400',
-              method === 'POST' && 'text-amber-400',
-              method === 'PUT' && 'text-blue-400',
-              method === 'DELETE' && 'text-red-400',
-              method === 'PATCH' && 'text-violet-400',
-              (method === 'OPTIONS' || method === 'HEAD') && 'text-muted-foreground'
+              'w-20 h-7 font-mono font-bold text-[11px] border',
+              method === 'GET' && 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400',
+              method === 'POST' && 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400',
+              method === 'PUT' && 'bg-blue-500/[0.12] border-blue-500/25 text-blue-400',
+              method === 'DELETE' && 'bg-rose-500/[0.12] border-rose-500/25 text-rose-400',
+              method === 'PATCH' && 'bg-violet-500/[0.12] border-violet-500/25 text-violet-400',
+              (method === 'OPTIONS' || method === 'HEAD') && 'bg-muted/[0.12] border-border text-muted-foreground'
             )}
             aria-label="HTTP Method"
           >
@@ -115,7 +115,7 @@ export default function RequestLine({
           size="sm"
           onClick={onSend}
           disabled={isLoading || !url || !!urlError}
-          className="h-7 min-w-[72px] text-xs font-medium"
+          className="h-7 min-w-[72px] text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
           aria-label={isLoading ? 'Sending request' : 'Send request'}
         >
           {isLoading ? (

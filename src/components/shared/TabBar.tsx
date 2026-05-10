@@ -37,7 +37,7 @@ export function TabBar() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   return (
-    <div className="flex items-center gap-1 border-b bg-background px-2 py-1">
+    <div className="flex items-center gap-1 border-b glass-border-subtle glass-2 px-2 py-1">
       <ScrollArea className="flex-1">
         <div className="flex items-center gap-1" role="tablist">
           {tabs.map((tab) => {
@@ -71,10 +71,10 @@ export function TabBar() {
                     }}
                     onDragEnd={() => setDraggingId(null)}
                     className={[
-                      'group flex items-center gap-2 rounded-md px-3 py-1 text-sm shrink-0',
+                      'group flex items-center gap-2 rounded-md px-3 py-1 text-sm shrink-0 transition-colors duration-150',
                       isActive
-                        ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-accent/50',
+                        ? 'glass-1 text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08]',
                     ].join(' ')}
                   >
                     <span className="text-xs font-mono opacity-60">
