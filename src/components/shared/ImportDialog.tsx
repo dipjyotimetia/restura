@@ -11,19 +11,26 @@ import {
   importInsomniaCollection,
   importOpenAPICollection,
   importOpenCollection,
+  importHoppscotchCollection,
+  importHoppscotchEnvironment,
+  isHoppscotchEnvironment,
+  importBrunoCollection,
+  type BrunoSource,
   type ImportResult,
   type ImportWarning,
 } from '@/features/collections/lib/importers';
 import { FileJson, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import YAML from 'yaml';
 
-type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection';
+type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection' | 'hoppscotch' | 'bruno';
 
 const TYPE_LABELS: Record<ImportType, string> = {
   postman: 'Postman',
   insomnia: 'Insomnia',
   openapi: 'OpenAPI / Swagger',
   opencollection: 'OpenCollection',
+  hoppscotch: 'Hoppscotch',
+  bruno: 'Bruno',
 };
 
 /**
@@ -39,6 +46,8 @@ const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = 
   insomnia: async (data) => importInsomniaCollection(data as any),
   openapi: async (data) => ({ collection: await importOpenAPICollection(data), warnings: [] }),
   opencollection: async (data) => importOpenCollection(data),
+  hoppscotch: async (data) => importHoppscotchCollection(data),
+  bruno: async (data) => importBrunoCollection({ kind: 'single', content: typeof data === 'string' ? data : JSON.stringify(data) }),
 };
 
 const FEATURE_LISTS: Record<ImportType, string[]> = {
@@ -76,6 +85,23 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
     'Folder hierarchy and request metadata',
     'Bundled (single file) format',
   ],
+  hoppscotch: [
+    'Hoppscotch JSON exports (collections + environments)',
+    'Folders and nested requests with full hierarchy',
+    'Pre-request and test scripts (collection AND request level)',
+    'Authentication (Basic, Bearer, API Key, OAuth2, AWS SigV4, Digest)',
+    'Environment variables with secret flag',
+    'pw.* and hopp.* script API aliases (mapped to pm.*)',
+  ],
+  bruno: [
+    'Bruno legacy .bru files (text DSL)',
+    'For Bruno 3.1+ collections, use the OpenCollection tab instead',
+    'Single .bru file: drop or paste the file contents',
+    'Authentication (Basic, Bearer, API Key, Digest, OAuth2, OAuth1, NTLM, WSSE, AWS SigV4)',
+    'Pre-request scripts, test scripts, and assertions',
+    'Variables: pre-request and post-response',
+    'Bruno-specific syntax ({{process.env.X}}, response chaining) emits warnings',
+  ],
 };
 
 interface DropZoneProps {
@@ -93,7 +119,7 @@ function DropZone({ type, onFileUpload, onDrop }: DropZoneProps) {
     >
       <input
         type="file"
-        accept=".json,.yaml,.yml"
+        accept={type === 'bruno' ? '.bru' : '.json,.yaml,.yml'}
         onChange={(e) => onFileUpload(e, type)}
         className="hidden"
         id={`file-upload-${type}`}
@@ -159,14 +185,19 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
       return YAML.parse(text);
     }
+    if (fileName.endsWith('.bru')) {
+      // Bruno files are not JSON or YAML — return raw text; the importer parses it.
+      return text;
+    }
     return JSON.parse(text);
   };
 
   /**
    * `processImportFile` returns either a normal ImportResult or a special
    * `{ kind: 'environment-only', name }` marker when the dropped file is a
-   * Postman environment export. The marker lets the success handler skip
-   * the addCollection() call and surface a tailored success message.
+   * Postman or Hoppscotch environment export. The marker lets the success
+   * handler skip the addCollection() call and surface a tailored success
+   * message.
    */
   type ProcessOutcome = ImportResult | { kind: 'environment-only'; environmentName: string };
 
@@ -179,6 +210,17 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
       const env = importPostmanEnvironment(data);
       addEnvironment(env);
       return { kind: 'environment-only', environmentName: env.name };
+    }
+    // Hoppscotch environment files: same auto-detect pattern.
+    if (type === 'hoppscotch' && isHoppscotchEnvironment(data)) {
+      const env = importHoppscotchEnvironment(data);
+      addEnvironment(env);
+      return { kind: 'environment-only', environmentName: env.name };
+    }
+    // Bruno: pass raw text to the importer (which lazy-loads @usebruno/lang).
+    if (type === 'bruno') {
+      const source: BrunoSource = { kind: 'single', content: text };
+      return importBrunoCollection(source);
     }
     return IMPORTERS[type](data);
   };
@@ -252,7 +294,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
         <DialogHeader>
           <DialogTitle className="font-mono text-sm tracking-wide">IMPORT COLLECTION</DialogTitle>
           <DialogDescription className="font-mono text-xs">
-            Import from Postman, Insomnia, OpenAPI/Swagger, or OpenCollection
+            Import from Postman, Insomnia, OpenAPI/Swagger, OpenCollection, Hoppscotch, or Bruno
           </DialogDescription>
         </DialogHeader>
 
@@ -337,9 +379,21 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
             >
               OpenCollection
             </TabsTrigger>
+            <TabsTrigger
+              value="hoppscotch"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              Hoppscotch
+            </TabsTrigger>
+            <TabsTrigger
+              value="bruno"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+            >
+              Bruno
+            </TabsTrigger>
           </TabsList>
 
-          {(['postman', 'insomnia', 'openapi', 'opencollection'] as const).map((type) => (
+          {(['postman', 'insomnia', 'openapi', 'opencollection', 'hoppscotch', 'bruno'] as const).map((type) => (
             <TabsContent key={type} value={type} className="space-y-4 mt-4">
               <DropZone type={type} onFileUpload={handleFileUpload} onDrop={handleDrop} />
               <div className="space-y-1.5">
