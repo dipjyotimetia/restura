@@ -36,6 +36,9 @@ jobs:
       - name: Type-check (worker)
         run: npx tsc --noEmit -p worker/tsconfig.json
 
+      - name: Type-check (echo)
+        run: npx tsc --noEmit -p echo/tsconfig.json
+
       - name: Lint
         run: npm run lint
 
@@ -144,6 +147,14 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: dist/web/restura
+          command: deploy
+
+      - name: Deploy Echo Worker (echo.restura.dev)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: echo
           command: deploy
 
       - name: Ensure Pages project exists

@@ -44,7 +44,7 @@ export default tseslint.config(
   },
   // Non-renderer environments: shared TS overrides only
   {
-    files: ['electron/main/**/*.ts', 'worker/**/*.ts'],
+    files: ['electron/main/**/*.ts', 'worker/**/*.ts', 'echo/**/*.ts'],
     rules: sharedTsRules,
   },
   // Electron main uses require() for CJS-only packages (electron-store, electron-squirrel-startup)
