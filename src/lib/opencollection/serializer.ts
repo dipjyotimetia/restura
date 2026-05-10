@@ -22,6 +22,6 @@ export function serializeOpenCollectionYAML(oc: OpenCollection): string {
     noRefs: true,
     sortKeys: false,
     quotingType: '"',
-    forceQuotes: false,
+    forceQuotes: true,
   });
 }
