@@ -1,5 +1,7 @@
 export {
   importPostmanCollection,
+  importPostmanEnvironment,
+  isPostmanEnvironment,
   importInsomniaCollection,
   importOpenAPICollection,
   importOpenCollection,

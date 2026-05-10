@@ -6,6 +6,8 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import {
   importPostmanCollection,
+  importPostmanEnvironment,
+  isPostmanEnvironment,
   importInsomniaCollection,
   importOpenAPICollection,
   importOpenCollection,
@@ -26,14 +28,15 @@ const TYPE_LABELS: Record<ImportType, string> = {
 
 /**
  * Every importer returns the unified ImportResult shape. Legacy importers
- * (postman, insomnia, openapi) that still return a bare Collection get
- * adapted here with empty warnings.
+ * (postman, openapi) that still return a bare Collection get adapted here
+ * with empty warnings. Insomnia and OpenCollection return ImportResult
+ * directly — multi-environment + script extraction surface through that path.
  */
 const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   postman: async (data) => ({ collection: await importPostmanCollection(data as any), warnings: [] }),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  insomnia: async (data) => ({ collection: await importInsomniaCollection(data as any), warnings: [] }),
+  insomnia: async (data) => importInsomniaCollection(data as any),
   openapi: async (data) => ({ collection: await importOpenAPICollection(data), warnings: [] }),
   opencollection: async (data) => importOpenCollection(data),
 };
@@ -147,6 +150,10 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   const [errorMessage, setErrorMessage] = useState('');
   const [warnings, setWarnings] = useState<ImportResult['warnings']>([]);
   const [activeTab, setActiveTab] = useState<ImportType>('postman');
+  // Set when the user dropped a Postman environment file (not a collection).
+  // Surfaces a tailored success label so the user knows nothing went wrong
+  // even though no collection appeared.
+  const [environmentOnlyName, setEnvironmentOnlyName] = useState<string | null>(null);
 
   const parseFileContent = (text: string, fileName: string): unknown => {
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
@@ -155,20 +162,47 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     return JSON.parse(text);
   };
 
-  const processImportFile = async (file: File, type: ImportType) => {
+  /**
+   * `processImportFile` returns either a normal ImportResult or a special
+   * `{ kind: 'environment-only', name }` marker when the dropped file is a
+   * Postman environment export. The marker lets the success handler skip
+   * the addCollection() call and surface a tailored success message.
+   */
+  type ProcessOutcome = ImportResult | { kind: 'environment-only'; environmentName: string };
+
+  const processImportFile = async (file: File, type: ImportType): Promise<ProcessOutcome> => {
     const text = await file.text();
     const data = parseFileContent(text, file.name);
+    // Postman environment files are auto-detected regardless of selected tab —
+    // they look nothing like a collection, so the inferred behaviour is safe.
+    if (type === 'postman' && isPostmanEnvironment(data)) {
+      const env = importPostmanEnvironment(data);
+      addEnvironment(env);
+      return { kind: 'environment-only', environmentName: env.name };
+    }
     return IMPORTERS[type](data);
   };
 
-  const handleImportSuccess = (result: ImportResult) => {
-    addCollection(result.collection);
-    for (const env of result.environments ?? []) {
+  const handleImportSuccess = (outcome: ProcessOutcome) => {
+    if ('kind' in outcome) {
+      setImportStatus('success');
+      setWarnings([]);
+      setEnvironmentOnlyName(outcome.environmentName);
+      setTimeout(() => {
+        onOpenChange(false);
+        setImportStatus('idle');
+        setEnvironmentOnlyName(null);
+      }, 1500);
+      return;
+    }
+    addCollection(outcome.collection);
+    for (const env of outcome.environments ?? []) {
       addEnvironment(env);
     }
     setImportStatus('success');
-    setWarnings(result.warnings);
-    if (result.warnings.length === 0) {
+    setWarnings(outcome.warnings);
+    setEnvironmentOnlyName(null);
+    if (outcome.warnings.length === 0) {
       // No issues — auto-close after the success flash
       setTimeout(() => {
         onOpenChange(false);
@@ -190,8 +224,8 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     if (!file) return;
 
     try {
-      const collection = await processImportFile(file, type);
-      handleImportSuccess(collection);
+      const outcome = await processImportFile(file, type);
+      handleImportSuccess(outcome);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -205,8 +239,8 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     if (!file) return;
 
     try {
-      const collection = await processImportFile(file, type);
-      handleImportSuccess(collection);
+      const outcome = await processImportFile(file, type);
+      handleImportSuccess(outcome);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -225,7 +259,11 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
         {importStatus === 'success' && warnings.length === 0 && (
           <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400 text-xs font-mono">
             <CheckCircle className="h-4 w-4 shrink-0" />
-            <span>Collection imported successfully!</span>
+            <span>
+              {environmentOnlyName
+                ? `Imported environment: ${environmentOnlyName}`
+                : 'Collection imported successfully!'}
+            </span>
           </div>
         )}
 

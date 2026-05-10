@@ -211,6 +211,14 @@ function convertPostmanSDKAuth(auth: RequestAuth): AuthConfig {
     const param = params.find((p: Variable) => p.key === key);
     return param?.value?.toString() || '';
   };
+  const getParamOpt = (key: string): string | undefined => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RequestAuth.parameters() is not typed
+    const params = (auth as any).parameters?.() || [];
+    const param = params.find((p: Variable) => p.key === key);
+    if (!param) return undefined;
+    const v = param.value?.toString();
+    return v && v.length > 0 ? v : undefined;
+  };
 
   switch (type) {
     case 'basic':
@@ -222,8 +230,28 @@ function convertPostmanSDKAuth(auth: RequestAuth): AuthConfig {
         type: 'api-key',
         apiKey: { key: getParam('key'), value: getParam('value'), in: getParam('in') === 'query' ? 'query' : 'header' },
       };
-    case 'oauth2':
-      return { type: 'oauth2', oauth2: { accessToken: getParam('accessToken'), tokenType: getParam('tokenType') } };
+    case 'oauth2': {
+      // Postman exposes oauth2 with many flow fields. Pull every field we model
+      // and strip undefined values so Restura's runtime sees only what was set.
+      const oauth2: NonNullable<AuthConfig['oauth2']> = {
+        accessToken: getParam('accessToken'),
+        tokenType: getParamOpt('tokenType'),
+        grantType: mapPostmanGrantType(getParamOpt('grant_type')),
+        clientId: getParamOpt('clientId'),
+        clientSecret: getParamOpt('clientSecret'),
+        authorizationUrl: getParamOpt('authUrl'),
+        tokenUrl: getParamOpt('accessTokenUrl'),
+        scope: getParamOpt('scope'),
+        redirectUri: getParamOpt('redirect_uri'),
+        username: getParamOpt('username'),
+        password: getParamOpt('password'),
+      };
+      // Strip undefined keys so consumers don't see explicit `undefined`s.
+      for (const k of Object.keys(oauth2) as Array<keyof typeof oauth2>) {
+        if (oauth2[k] === undefined) delete oauth2[k];
+      }
+      return { type: 'oauth2', oauth2 };
+    }
     case 'digest':
       return { type: 'digest', digest: { username: getParam('username'), password: getParam('password') } };
     case 'awsv4':
@@ -239,5 +267,26 @@ function convertPostmanSDKAuth(auth: RequestAuth): AuthConfig {
     case 'noauth':
     default:
       return { type: 'none' };
+  }
+}
+
+/**
+ * Map a Postman `grant_type` value to our internal AuthConfig.oauth2.grantType.
+ * Postman's PKCE variant collapses to plain authorization_code on our side
+ * (PKCE params live in the redirect/scope flow regardless). Implicit isn't
+ * modeled — return undefined and let the runtime fall back to the default.
+ */
+function mapPostmanGrantType(p: string | undefined): NonNullable<AuthConfig['oauth2']>['grantType'] {
+  switch (p) {
+    case 'authorization_code':
+    case 'authorization_code_with_pkce':
+      return 'authorization_code';
+    case 'client_credentials':
+      return 'client_credentials';
+    case 'password_credentials':
+      return 'password';
+    case 'implicit':
+    default:
+      return undefined;
   }
 }
