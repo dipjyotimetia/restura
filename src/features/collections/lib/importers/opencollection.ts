@@ -1,5 +1,17 @@
 import type { Collection } from '@/types';
-import { openCollectionSchema, ocToInternal } from '@/lib/opencollection';
+import {
+  openCollectionSchema,
+  ocToInternal,
+  getAndResetUnrecognizedBodyCount,
+} from '@/lib/opencollection';
+
+export interface OpenCollectionImportResult {
+  collection: Collection;
+  /** Number of HTTP request bodies that didn't match any known shape and
+   * were imported as `type: 'none'`. The original body is still preserved
+   * in the `_oc` passthrough bag and will round-trip on export. */
+  unrecognizedBodies: number;
+}
 
 /**
  * Import an OpenCollection v1.0.0 document (already parsed from YAML or JSON)
@@ -11,6 +23,16 @@ import { openCollectionSchema, ocToInternal } from '@/lib/opencollection';
  * by the renderer's drop-zone uploader.
  */
 export function importOpenCollection(data: unknown): Collection {
+  return importOpenCollectionDetailed(data).collection;
+}
+
+/**
+ * Like {@link importOpenCollection}, but also returns the count of
+ * unrecognized HTTP bodies dropped during import. UI surfaces use this
+ * to alert the user that imported requests have content the editor can't
+ * surface (data is still preserved via `_oc` for export round-trip).
+ */
+export function importOpenCollectionDetailed(data: unknown): OpenCollectionImportResult {
   const result = openCollectionSchema.safeParse(data);
   if (!result.success) {
     const issues = result.error.issues
@@ -19,8 +41,6 @@ export function importOpenCollection(data: unknown): Collection {
       .join('; ');
     throw new Error(`Invalid OpenCollection document: ${issues}`);
   }
-  // ocToInternal augments the returned Collection with a non-typed `_oc` bag
-  // that the exporter uses for byte-stable round-trip. Cast so callers receive
-  // the standard Collection type.
-  return ocToInternal(result.data) as Collection;
+  const collection = ocToInternal(result.data) as Collection;
+  return { collection, unrecognizedBodies: getAndResetUnrecognizedBodyCount() };
 }

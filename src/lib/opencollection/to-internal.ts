@@ -39,6 +39,9 @@ import type { OpenCollection } from './schemas';
 type WithOC<T> = T & { _oc?: unknown };
 
 export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
+  // Reset the import-time data-loss counter so callers reading
+  // getAndResetUnrecognizedBodyCount() afterward get this run's tally.
+  unrecognizedBodyCount = 0;
   const variables = extractRootVariables(oc);
   const items: WithOC<CollectionItem>[] = [
     ...((oc.items ?? []) as unknown[]).flatMap((it) => itemToInternal(it)),
@@ -140,15 +143,16 @@ function isFolder(item: Record<string, unknown>): boolean {
 function httpToInternal(item: Record<string, unknown>): HttpRequest {
   const info = (item.info ?? {}) as { name?: string };
   const http = (item.http ?? {}) as Record<string, unknown>;
+  const name = info.name ?? 'HTTP';
   return {
     id: uuid(),
-    name: info.name ?? 'HTTP',
+    name,
     type: 'http',
     method: ((http.method as string) ?? 'GET').toUpperCase() as HttpMethod,
     url: (http.url as string) ?? '',
     headers: ((http.headers as unknown[]) ?? []).map(kvToInternal),
     params: ((http.params as unknown[]) ?? []).map(kvToInternal),
-    body: bodyToInternal(http.body),
+    body: bodyToInternal(http.body, name),
     auth: authToInternal(http.auth),
   };
 }
@@ -202,8 +206,25 @@ function kvToInternal(kv: unknown): KeyValue {
   return out;
 }
 
-function bodyToInternal(body: unknown): RequestBody {
+/**
+ * Tracks whether the importer encountered a body shape it didn't recognize
+ * during the most recent ocToInternal call. UI surfaces (toasts) read this
+ * to alert the user that some content was dropped on import. Reset at the
+ * start of every ocToInternal invocation.
+ */
+let unrecognizedBodyCount = 0;
+
+export function getAndResetUnrecognizedBodyCount(): number {
+  const n = unrecognizedBodyCount;
+  unrecognizedBodyCount = 0;
+  return n;
+}
+
+function bodyToInternal(body: unknown, context: string): RequestBody {
   if (!body) return { type: 'none' };
+  // Array form is HttpRequestBodyVariant[]: per-environment bodies. We don't
+  // currently surface this in the UI; preserve via _oc and return 'none' for
+  // the active body. This is a known limitation, not a silent drop.
   if (Array.isArray(body)) return { type: 'none' };
   const b = body as Record<string, unknown>;
   if (b.raw) {
@@ -222,6 +243,16 @@ function bodyToInternal(body: unknown): RequestBody {
     return { type: 'x-www-form-urlencoded', formData: (fue.parts as never[]) ?? [] };
   }
   if (b.graphql) return { type: 'graphql', raw: JSON.stringify(b.graphql) };
+  // Body present but matches no known shape. Likely a forward-compat
+  // OpenCollection field we don't yet handle. Warn so the user can spot
+  // data loss; the original is preserved in `_oc` for byte-stable export.
+  unrecognizedBodyCount++;
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[opencollection] Unrecognized body shape on import (request: ${context}); ` +
+      `falling back to type 'none'. The original is preserved via the _oc passthrough ` +
+      `and will round-trip on export, but won't be editable in the UI.`,
+  );
   return { type: 'none' };
 }
 
