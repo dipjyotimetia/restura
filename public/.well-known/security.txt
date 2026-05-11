@@ -1,0 +1,9 @@
+# Restura Security Policy
+# https://securitytxt.org — RFC 9116
+
+Contact: https://github.com/dipjyotimetia/restura/security/advisories/new
+Expires: 2027-05-11T00:00:00Z
+Canonical: https://restura.dev/.well-known/security.txt
+Policy: https://github.com/dipjyotimetia/restura/blob/main/SECURITY.md
+Preferred-Languages: en
+Acknowledgments: https://github.com/dipjyotimetia/restura/blob/main/SECURITY.md#security-audits

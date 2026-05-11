@@ -28,5 +28,9 @@
   Cache-Control: public, max-age=86400
   Content-Type: application/xml; charset=utf-8
 
+/.well-known/security.txt
+  Cache-Control: public, max-age=86400
+  Content-Type: text/plain; charset=utf-8
+
 /index.html
   Cache-Control: no-cache, no-store, must-revalidate
