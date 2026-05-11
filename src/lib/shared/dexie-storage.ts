@@ -157,9 +157,7 @@ export function createDexieStorage<T = unknown>(
         // environments without IndexedDB (jsdom + fake-indexeddb races on
         // module-load cookie hydration). Mirrors getItem/removeItem above.
         if (error instanceof Error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('restura:storage-quota-exceeded', { bubbles: true }));
-          }
+          window.dispatchEvent(new CustomEvent('restura:storage-quota-exceeded', { bubbles: true }));
         }
         console.error(`Failed to set item ${name} in Dexie:`, error);
       }

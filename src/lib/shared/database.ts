@@ -90,26 +90,16 @@ export interface RequestTabsRecord {
   encryptedData: string;
 }
 
-export interface WebSocketConnectionsRecord {
+export interface NamedEncryptedRecord {
   id: string;
   name: string;
   updatedAt: number;
   encryptedData: string;
 }
 
-export interface SseConnectionsRecord {
-  id: string;
-  name: string;
-  updatedAt: number;
-  encryptedData: string;
-}
-
-export interface McpConnectionsRecord {
-  id: string;
-  name: string;
-  updatedAt: number;
-  encryptedData: string;
-}
+export type WebSocketConnectionsRecord = NamedEncryptedRecord;
+export type SseConnectionsRecord = NamedEncryptedRecord;
+export type McpConnectionsRecord = NamedEncryptedRecord;
 
 // Metadata table for app state
 export interface MetadataRecord {
@@ -200,21 +190,23 @@ export class ResturaDB extends Dexie {
       this.sseConnections,
       this.mcpConnections,
       this.metadata,
-    ], async () => {
-      await this.collections.clear();
-      await this.environments.clear();
-      await this.history.clear();
-      await this.settings.clear();
-      await this.cookies.clear();
-      await this.workflows.clear();
-      await this.workflowExecutions.clear();
-      await this.fileCollections.clear();
-      await this.requestTabs.clear();
-      await this.websocketConnections.clear();
-      await this.sseConnections.clear();
-      await this.mcpConnections.clear();
-      await this.metadata.clear();
-    });
+    ], () =>
+      Promise.all([
+        this.collections.clear(),
+        this.environments.clear(),
+        this.history.clear(),
+        this.settings.clear(),
+        this.cookies.clear(),
+        this.workflows.clear(),
+        this.workflowExecutions.clear(),
+        this.fileCollections.clear(),
+        this.requestTabs.clear(),
+        this.websocketConnections.clear(),
+        this.sseConnections.clear(),
+        this.mcpConnections.clear(),
+        this.metadata.clear(),
+      ])
+    );
   }
 
   /**
@@ -268,10 +260,13 @@ export class ResturaDB extends Dexie {
       workflowExecutions: WorkflowExecutionRecord[];
       fileCollections: FileCollectionRecord[];
       requestTabs?: RequestTabsRecord[];
+      websocketConnections?: WebSocketConnectionsRecord[];
+      sseConnections?: SseConnectionsRecord[];
+      mcpConnections?: McpConnectionsRecord[];
     };
   }> {
     return {
-      version: 2,
+      version: 3,
       exportedAt: Date.now(),
       data: {
         collections: await this.collections.toArray(),
@@ -283,6 +278,9 @@ export class ResturaDB extends Dexie {
         workflowExecutions: await this.workflowExecutions.toArray(),
         fileCollections: await this.fileCollections.toArray(),
         requestTabs: await this.requestTabs.toArray(),
+        websocketConnections: await this.websocketConnections.toArray(),
+        sseConnections: await this.sseConnections.toArray(),
+        mcpConnections: await this.mcpConnections.toArray(),
       },
     };
   }
@@ -302,6 +300,9 @@ export class ResturaDB extends Dexie {
       workflowExecutions?: WorkflowExecutionRecord[];
       fileCollections?: FileCollectionRecord[];
       requestTabs?: RequestTabsRecord[];
+      websocketConnections?: WebSocketConnectionsRecord[];
+      sseConnections?: SseConnectionsRecord[];
+      mcpConnections?: McpConnectionsRecord[];
     };
   }): Promise<void> {
     await this.transaction('rw', [
@@ -314,34 +315,22 @@ export class ResturaDB extends Dexie {
       this.workflowExecutions,
       this.fileCollections,
       this.requestTabs,
+      this.websocketConnections,
+      this.sseConnections,
+      this.mcpConnections,
     ], async () => {
-      if (backup.data.collections) {
-        await this.collections.bulkPut(backup.data.collections);
-      }
-      if (backup.data.environments) {
-        await this.environments.bulkPut(backup.data.environments);
-      }
-      if (backup.data.history) {
-        await this.history.bulkPut(backup.data.history);
-      }
-      if (backup.data.settings) {
-        await this.settings.bulkPut(backup.data.settings);
-      }
-      if (backup.data.cookies) {
-        await this.cookies.bulkPut(backup.data.cookies);
-      }
-      if (backup.data.workflows) {
-        await this.workflows.bulkPut(backup.data.workflows);
-      }
-      if (backup.data.workflowExecutions) {
-        await this.workflowExecutions.bulkPut(backup.data.workflowExecutions);
-      }
-      if (backup.data.fileCollections) {
-        await this.fileCollections.bulkPut(backup.data.fileCollections);
-      }
-      if (backup.data.requestTabs) {
-        await this.requestTabs.bulkPut(backup.data.requestTabs);
-      }
+      if (backup.data.collections) await this.collections.bulkPut(backup.data.collections);
+      if (backup.data.environments) await this.environments.bulkPut(backup.data.environments);
+      if (backup.data.history) await this.history.bulkPut(backup.data.history);
+      if (backup.data.settings) await this.settings.bulkPut(backup.data.settings);
+      if (backup.data.cookies) await this.cookies.bulkPut(backup.data.cookies);
+      if (backup.data.workflows) await this.workflows.bulkPut(backup.data.workflows);
+      if (backup.data.workflowExecutions) await this.workflowExecutions.bulkPut(backup.data.workflowExecutions);
+      if (backup.data.fileCollections) await this.fileCollections.bulkPut(backup.data.fileCollections);
+      if (backup.data.requestTabs) await this.requestTabs.bulkPut(backup.data.requestTabs);
+      if (backup.data.websocketConnections) await this.websocketConnections.bulkPut(backup.data.websocketConnections);
+      if (backup.data.sseConnections) await this.sseConnections.bulkPut(backup.data.sseConnections);
+      if (backup.data.mcpConnections) await this.mcpConnections.bulkPut(backup.data.mcpConnections);
     });
   }
 }
