@@ -15,6 +15,7 @@ interface CollectionState {
   setActiveCollection: (id: string | null) => void;
   addItemToCollection: (collectionId: string, item: CollectionItem, parentId?: string) => void;
   updateCollectionItem: (collectionId: string, itemId: string, updates: Partial<CollectionItem>) => void;
+  updateAnyCollectionItem: (itemId: string, updates: Partial<CollectionItem>) => void;
   removeCollectionItem: (collectionId: string, itemId: string) => void;
   getCollectionById: (id: string) => Collection | undefined;
   createNewCollection: (name: string) => Collection;
@@ -106,6 +107,15 @@ export const useCollectionStore = create<CollectionState>()(
             return { ...col, items: removeItem(col.items) };
           }),
         })),
+
+      updateAnyCollectionItem: (itemId, updates) => {
+        const col = get().collections.find((c) => {
+          const search = (items: CollectionItem[]): boolean =>
+            items.some((i) => i.id === itemId || (i.items ? search(i.items) : false));
+          return search(c.items);
+        });
+        if (col) get().updateCollectionItem(col.id, itemId, updates);
+      },
 
       getCollectionById: (id) => get().collections.find((col) => col.id === id),
 
