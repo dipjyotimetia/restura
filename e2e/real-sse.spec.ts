@@ -10,7 +10,7 @@ test.describe('Real SSE server', () => {
   test('UI connects, receives 3 events, and shows the count', async ({ app: page, servers }) => {
     await switchMode(page, 'sse');
 
-    const urlField = page.getByPlaceholder('https://example.com/events');
+    const urlField = page.getByPlaceholder('https://echo.restura.dev/sse');
     await urlField.fill(`${servers.http.url}/stream/sse`);
 
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
@@ -31,7 +31,7 @@ test.describe('Real SSE server', () => {
 
     // /slow keeps the connection open long enough to see the button. Use a
     // long sleep — the test cancels it via Disconnect before completion.
-    await page.getByPlaceholder('https://example.com/events')
+    await page.getByPlaceholder('https://echo.restura.dev/sse')
       .fill(`${servers.http.url}/stream/sse`);
 
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
