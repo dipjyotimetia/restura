@@ -6,6 +6,7 @@ import { graphqlEcho } from './handlers/graphql';
 import { sseEcho } from './handlers/sse';
 import { websocketEcho } from './handlers/websocket';
 import { connectEcho } from './handlers/connect';
+import { rateLimitMiddleware } from './middleware/rateLimiter';
 
 export type Env = {
   ENVIRONMENT?: string;
@@ -14,6 +15,7 @@ export type Env = {
 const app = new Hono<{ Bindings: Env }>();
 
 app.use('*', cors({ origin: '*' }));
+app.use('*', rateLimitMiddleware);
 
 app.get('/ws', upgradeWebSocket(websocketEcho));
 app.get('/sse', sseEcho);
