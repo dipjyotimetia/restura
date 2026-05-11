@@ -10,7 +10,10 @@
     "isolatedModules": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
-    "baseUrl": ".."
+    "baseUrl": "..",
+    "paths": {
+      "@shared/*": ["shared/*"]
+    }
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts", "../shared/**/*.ts"]
 }

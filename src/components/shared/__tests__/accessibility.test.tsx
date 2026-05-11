@@ -37,7 +37,7 @@ vi.mock('@/store/useRequestStore', () => ({
 }));
 
 describe('IconRail accessibility', () => {
-  it('renders a nav landmark with label Primary', () => {
+  it('renders a nav landmark with label Main navigation', () => {
     render(
       <IconRail
         activePanel={null}
@@ -45,7 +45,7 @@ describe('IconRail accessibility', () => {
         onOpenSettings={vi.fn()}
       />
     );
-    expect(screen.getByRole('navigation', { name: /primary/i })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: /main navigation/i })).toBeInTheDocument();
   });
 
   it('nav items have accessible labels', () => {
