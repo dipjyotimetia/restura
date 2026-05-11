@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 export type WebSocketMessageType = 'sent' | 'received' | 'system';
 export type WebSocketDataType = 'text' | 'binary';
@@ -349,6 +350,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     }),
     {
       name: 'websocket-storage',
+      storage: dexieStorageAdapters.websocketConnections(),
       partialize: (state) => ({
         // Don't persist messages or connection status to avoid stale data
         connections: Object.fromEntries(

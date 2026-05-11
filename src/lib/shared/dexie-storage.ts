@@ -51,7 +51,10 @@ type StorageTableName =
   | 'workflows'
   | 'workflowExecutions'
   | 'fileCollections'
-  | 'requestTabs';
+  | 'requestTabs'
+  | 'websocketConnections'
+  | 'sseConnections'
+  | 'mcpConnections';
 
 /**
  * Storage adapter configuration
@@ -153,6 +156,11 @@ export function createDexieStorage<T = unknown>(
         // zustand's persist middleware as an unhandled rejection in test
         // environments without IndexedDB (jsdom + fake-indexeddb races on
         // module-load cookie hydration). Mirrors getItem/removeItem above.
+        if (error instanceof Error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('restura:storage-quota-exceeded', { bubbles: true }));
+          }
+        }
         console.error(`Failed to set item ${name} in Dexie:`, error);
       }
     },
@@ -227,6 +235,15 @@ export const dexieStorageAdapters = {
       tableName: 'requestTabs',
       encrypt: true,
     }),
+
+  websocketConnections: () =>
+    createDexieStorage({ tableName: 'websocketConnections', encrypt: true }),
+
+  sseConnections: () =>
+    createDexieStorage({ tableName: 'sseConnections', encrypt: true }),
+
+  mcpConnections: () =>
+    createDexieStorage({ tableName: 'mcpConnections', encrypt: true }),
 };
 
 /**

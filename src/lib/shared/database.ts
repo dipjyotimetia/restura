@@ -90,6 +90,27 @@ export interface RequestTabsRecord {
   encryptedData: string;
 }
 
+export interface WebSocketConnectionsRecord {
+  id: string;
+  name: string;
+  updatedAt: number;
+  encryptedData: string;
+}
+
+export interface SseConnectionsRecord {
+  id: string;
+  name: string;
+  updatedAt: number;
+  encryptedData: string;
+}
+
+export interface McpConnectionsRecord {
+  id: string;
+  name: string;
+  updatedAt: number;
+  encryptedData: string;
+}
+
 // Metadata table for app state
 export interface MetadataRecord {
   key: string;
@@ -111,6 +132,9 @@ export class ResturaDB extends Dexie {
   workflowExecutions!: Table<WorkflowExecutionRecord, string>;
   fileCollections!: Table<FileCollectionRecord, string>;
   requestTabs!: Table<RequestTabsRecord, string>;
+  websocketConnections!: Table<WebSocketConnectionsRecord, string>;
+  sseConnections!: Table<SseConnectionsRecord, string>;
+  mcpConnections!: Table<McpConnectionsRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
   constructor() {
@@ -150,6 +174,12 @@ export class ResturaDB extends Dexie {
       // Schema v2 — add requestTabs table for multi-tab persistence
       requestTabs: 'id, name, updatedAt',
     });
+
+    this.version(3).stores({
+      websocketConnections: 'id, name, updatedAt',
+      sseConnections: 'id, name, updatedAt',
+      mcpConnections: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -166,6 +196,9 @@ export class ResturaDB extends Dexie {
       this.workflowExecutions,
       this.fileCollections,
       this.requestTabs,
+      this.websocketConnections,
+      this.sseConnections,
+      this.mcpConnections,
       this.metadata,
     ], async () => {
       await this.collections.clear();
@@ -177,6 +210,9 @@ export class ResturaDB extends Dexie {
       await this.workflowExecutions.clear();
       await this.fileCollections.clear();
       await this.requestTabs.clear();
+      await this.websocketConnections.clear();
+      await this.sseConnections.clear();
+      await this.mcpConnections.clear();
       await this.metadata.clear();
     });
   }
@@ -199,6 +235,9 @@ export class ResturaDB extends Dexie {
       workflowExecutions: await this.workflowExecutions.count(),
       fileCollections: await this.fileCollections.count(),
       requestTabs: await this.requestTabs.count(),
+      websocketConnections: await this.websocketConnections.count(),
+      sseConnections: await this.sseConnections.count(),
+      mcpConnections: await this.mcpConnections.count(),
     };
 
     const totalRecords = Object.values(tables).reduce((a, b) => a + b, 0);

@@ -6,6 +6,7 @@ import type {
   McpServerCapabilities,
   McpTransportType,
 } from '@/types';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -189,6 +190,7 @@ export const useMcpStore = create<McpState>()(
     }),
     {
       name: 'mcp-storage',
+      storage: dexieStorageAdapters.mcpConnections(),
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, c]) => [
