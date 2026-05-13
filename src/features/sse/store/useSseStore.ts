@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 export type SseConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -279,6 +280,7 @@ export const useSseStore = create<SseState>()(
     }),
     {
       name: 'sse-storage',
+      storage: dexieStorageAdapters.sseConnections(),
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, conn]) => [

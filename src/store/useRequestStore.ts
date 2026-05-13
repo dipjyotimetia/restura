@@ -54,6 +54,9 @@ interface RequestState {
 
   // Convenience
   createNewRequest: (type: RequestType) => string;
+  renameTab: (tabId: string, name: string) => void;
+  linkTabToSavedRequest: (tabId: string, savedRequestId: string) => void;
+  clearTabDirty: (tabId: string) => void;
 
   // Selectors
   getActiveTab: () => RequestTab | null;
@@ -265,6 +268,34 @@ export const useRequestStore = create<RequestState>()(
         createNewRequest: (type) => {
           const request = defaultRequestForType(type);
           return get().openTab(request);
+        },
+
+        renameTab: (tabId, name) => {
+          const existing = get().tabs.find((t) => t.id === tabId);
+          if (!existing || existing.request.name === name) return;
+          set((s) => ({
+            tabs: s.tabs.map((t) =>
+              t.id === tabId ? { ...t, request: { ...t.request, name }, isDirty: true } : t
+            ),
+          }));
+        },
+
+        linkTabToSavedRequest: (tabId, savedRequestId) => {
+          const existing = get().tabs.find((t) => t.id === tabId);
+          if (!existing || (existing.savedRequestId === savedRequestId && !existing.isDirty)) return;
+          set((s) => ({
+            tabs: s.tabs.map((t) =>
+              t.id === tabId ? { ...t, savedRequestId, isDirty: false } : t
+            ),
+          }));
+        },
+
+        clearTabDirty: (tabId) => {
+          const existing = get().tabs.find((t) => t.id === tabId);
+          if (!existing?.isDirty) return;
+          set((s) => ({
+            tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, isDirty: false } : t)),
+          }));
         },
 
         getActiveTab: () => {

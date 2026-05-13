@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from '@/components/ui/motion';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
@@ -22,9 +22,11 @@ import EnvironmentManager from '@/features/environments/components/EnvironmentMa
 import ImportDialog from '@/components/shared/ImportDialog';
 import SettingsDialog from '@/components/shared/SettingsDialog';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import { useActiveTab } from '@/store/selectors';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
+import { SaveToCollectionDialog } from '@/components/shared/SaveToCollectionDialog';
 import type { RequestMode, ActivePanel } from '@/types';
 
 export default function Home() {
@@ -35,6 +37,7 @@ export default function Home() {
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [saveDialogTabId, setSaveDialogTabId] = useState<string | null>(null);
   const [windowWidth, setWindowWidth] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1920
   );
@@ -45,6 +48,11 @@ export default function Home() {
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
   const { settings } = useSettingsStore();
+
+  // Keep a ref so the Cmd+S keydown handler always sees the latest activeTab without
+  // adding it as a dep (which would cause listener churn on every render).
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
 
   // Derive request mode: prefer the explicit override (for graphql/websocket which aren't
   // tab types), otherwise fall back to the active tab's request type.
@@ -98,6 +106,20 @@ export default function Home() {
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault();
         setSettingsOpen(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        const tab = activeTabRef.current;
+        if (!tab?.isDirty) return;
+        if (tab.savedRequestId) {
+          useCollectionStore.getState().updateAnyCollectionItem(tab.savedRequestId, {
+            name: tab.request.name,
+            request: tab.request,
+          });
+          useRequestStore.getState().clearTabDirty(tab.id);
+        } else {
+          setSaveDialogTabId(tab.id);
+        }
       }
     };
 
@@ -183,7 +205,7 @@ export default function Home() {
           />
 
           <main aria-label="Request workspace" className="flex flex-1 flex-col min-h-0 overflow-hidden">
-            <TabBar />
+            <TabBar onSaveToCollection={setSaveDialogTabId} />
             <div className="flex flex-1 flex-col min-h-0">
               {renderRequestBuilder()}
             </div>
@@ -214,6 +236,13 @@ export default function Home() {
       <EnvironmentManager open={envManagerOpen} onOpenChange={setEnvManagerOpen} />
       <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      {saveDialogTabId && (
+        <SaveToCollectionDialog
+          tabId={saveDialogTabId}
+          open={true}
+          onOpenChange={(o) => { if (!o) setSaveDialogTabId(null); }}
+        />
+      )}
     </div>
   );
 }

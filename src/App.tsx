@@ -1,5 +1,6 @@
+import { useEffect } from 'react';
 import { createHashRouter, RouterProvider } from 'react-router-dom';
-import { Toaster } from 'sonner';
+import { toast, Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { PlatformProvider } from '@/components/providers/PlatformProvider';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
@@ -20,6 +21,16 @@ const router = createHashRouter([
 ]);
 
 export default function App() {
+  useEffect(() => {
+    const handler = () => {
+      toast.error('Storage full', {
+        description: 'Browser storage is full. Delete history or collections to free space.',
+      });
+    };
+    window.addEventListener('restura:storage-quota-exceeded', handler);
+    return () => window.removeEventListener('restura:storage-quota-exceeded', handler);
+  }, []);
+
   return (
     <>
       <div className="noise-texture fixed inset-0 pointer-events-none z-[-1]" />

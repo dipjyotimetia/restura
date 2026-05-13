@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -13,6 +13,12 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { useShallow } from 'zustand/react/shallow';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
@@ -29,6 +35,7 @@ import {
   GitBranch,
   FolderOpen,
   HardDrive,
+  Pencil,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { ActivePanel, AuthConfig, Collection, CollectionItem, Workflow } from '@/types';
@@ -67,13 +74,21 @@ interface SidebarProps {
 const HISTORY_PAGE_SIZE = 20;
 
 function Sidebar({ onClose, activePanel }: SidebarProps) {
-  const { collections, createNewCollection, addCollection, removeCollection, updateCollection } = useCollectionStore(
+  const {
+    collections,
+    createNewCollection,
+    addCollection,
+    removeCollection,
+    updateCollection,
+    updateCollectionItem,
+  } = useCollectionStore(
     useShallow((s) => ({
       collections: s.collections,
       createNewCollection: s.createNewCollection,
       addCollection: s.addCollection,
       removeCollection: s.removeCollection,
       updateCollection: s.updateCollection,
+      updateCollectionItem: s.updateCollectionItem,
     }))
   );
 
@@ -106,6 +121,20 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const [directoryPickerMode, setDirectoryPickerMode] = useState<'open' | 'save'>('open');
   const [saveCollectionId, setSaveCollectionId] = useState<string | undefined>();
+
+  // Inline rename state for collections
+  const [renamingCollectionId, setRenamingCollectionId] = useState<string | null>(null);
+  const [collectionRenameValue, setCollectionRenameValue] = useState('');
+  const collectionRenameRef = useRef<HTMLInputElement>(null);
+  const collectionRenameValueRef = useRef(collectionRenameValue);
+  collectionRenameValueRef.current = collectionRenameValue;
+
+  // Inline rename state for collection items
+  const [renamingItemId, setRenamingItemId] = useState<string | null>(null);
+  const [itemRenameValue, setItemRenameValue] = useState('');
+  const itemRenameRef = useRef<HTMLInputElement>(null);
+  const itemRenameValueRef = useRef(itemRenameValue);
+  itemRenameValueRef.current = itemRenameValue;
 
   // File collection state
   const conflicts = useFileCollectionStore((state) => state.conflicts);
@@ -239,6 +268,35 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     await syncFileCollection(collectionId);
   }, []);
 
+  const startCollectionRename = useCallback((id: string, currentName: string) => {
+    setRenamingCollectionId(id);
+    setCollectionRenameValue(currentName);
+    setTimeout(() => collectionRenameRef.current?.select(), 0);
+  }, []);
+
+  const commitCollectionRename = useCallback(() => {
+    if (renamingCollectionId && collectionRenameValueRef.current.trim()) {
+      updateCollection(renamingCollectionId, { name: collectionRenameValueRef.current.trim() });
+    }
+    setRenamingCollectionId(null);
+  }, [renamingCollectionId, updateCollection]);
+
+  const startItemRename = useCallback((itemId: string, currentName: string) => {
+    setRenamingItemId(itemId);
+    setItemRenameValue(currentName);
+    setTimeout(() => itemRenameRef.current?.select(), 0);
+  }, []);
+
+  const commitItemRename = useCallback(
+    (collectionId: string, itemId: string) => {
+      if (itemRenameValueRef.current.trim()) {
+        updateCollectionItem(collectionId, itemId, { name: itemRenameValueRef.current.trim() });
+      }
+      setRenamingItemId(null);
+    },
+    [updateCollectionItem]
+  );
+
   const handleLoadHistoryItem = useCallback(
     (itemId: string) => {
       const item = getHistoryById(itemId);
@@ -269,21 +327,54 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   );
 
   const renderCollectionItems = useCallback(
-    (items: CollectionItem[], depth = 0) =>
+    (items: CollectionItem[], collectionId: string, depth = 0) =>
       items.map((item) => {
         const indent = Math.min(depth, 3) * 10;
+        const isRenamingThis = item.id === renamingItemId;
 
         if (item.type === 'folder') {
           return (
             <div key={item.id} className="space-y-1">
-              <div
-                className="flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground"
-                style={{ marginLeft: indent }}
-              >
-                <FolderPlus className="h-3 w-3 shrink-0 text-primary/60" />
-                <span className="truncate">{item.name}</span>
-              </div>
-              {item.items && item.items.length > 0 && renderCollectionItems(item.items, depth + 1)}
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <div
+                    className="group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent cursor-default"
+                    style={{ marginLeft: indent }}
+                  >
+                    <FolderPlus className="h-3 w-3 shrink-0 text-primary/60" />
+                    {isRenamingThis ? (
+                      <input
+                        ref={itemRenameRef}
+                        value={itemRenameValue}
+                        onChange={(e) => setItemRenameValue(e.target.value)}
+                        onBlur={() => commitItemRename(collectionId, item.id)}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === 'Enter') commitItemRename(collectionId, item.id);
+                          if (e.key === 'Escape') setRenamingItemId(null);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 bg-transparent border-b border-primary outline-none text-[11px] text-foreground"
+                        aria-label="Rename folder"
+                      />
+                    ) : (
+                      <span className="truncate">{item.name}</span>
+                    )}
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    className="text-xs"
+                    onClick={() => startItemRename(item.id, item.name)}
+                  >
+                    <Pencil className="mr-2 h-3.5 w-3.5" />
+                    Rename
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+              {item.items &&
+                item.items.length > 0 &&
+                renderCollectionItems(item.items, collectionId, depth + 1)}
             </div>
           );
         }
@@ -299,29 +390,64 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
             : PROTOCOL_COLORS[request?.type ?? ''];
 
         return (
-          <button
-            key={item.id}
-            type="button"
-            className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            style={{ marginLeft: indent }}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleOpenCollectionItem(item);
-            }}
-          >
-            <span
-              className={cn(
-                'shrink-0 rounded px-1 py-0.5 text-[9px] font-mono font-medium leading-none',
-                color ?? 'bg-muted text-muted-foreground border border-border'
-              )}
-            >
-              {label}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
-          </button>
+          <ContextMenu key={item.id}>
+            <ContextMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                style={{ marginLeft: indent }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!isRenamingThis) handleOpenCollectionItem(item);
+                }}
+              >
+                <span
+                  className={cn(
+                    'shrink-0 rounded px-1 py-0.5 text-[9px] font-mono font-medium leading-none',
+                    color ?? 'bg-muted text-muted-foreground border border-border'
+                  )}
+                >
+                  {label}
+                </span>
+                {isRenamingThis ? (
+                  <input
+                    ref={itemRenameRef}
+                    value={itemRenameValue}
+                    onChange={(e) => setItemRenameValue(e.target.value)}
+                    onBlur={() => commitItemRename(collectionId, item.id)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === 'Enter') commitItemRename(collectionId, item.id);
+                      if (e.key === 'Escape') setRenamingItemId(null);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-1 bg-transparent border-b border-primary outline-none text-[11px] text-foreground"
+                    aria-label="Rename request"
+                  />
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
+                )}
+              </button>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem
+                className="text-xs"
+                onClick={() => startItemRename(item.id, item.name)}
+              >
+                <Pencil className="mr-2 h-3.5 w-3.5" />
+                Rename
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         );
       }),
-    [handleOpenCollectionItem]
+    [
+      handleOpenCollectionItem,
+      renamingItemId,
+      itemRenameValue,
+      commitItemRename,
+      startItemRename,
+    ]
   );
 
   return (
@@ -436,9 +562,26 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                           <FolderPlus className="h-3.5 w-3.5 text-primary shrink-0" />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-medium truncate">
-                                {collection.name}
-                              </span>
+                              {renamingCollectionId === collection.id ? (
+                                <input
+                                  ref={collectionRenameRef}
+                                  value={collectionRenameValue}
+                                  onChange={(e) => setCollectionRenameValue(e.target.value)}
+                                  onBlur={commitCollectionRename}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === 'Enter') commitCollectionRename();
+                                    if (e.key === 'Escape') setRenamingCollectionId(null);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex-1 bg-transparent border-b border-primary outline-none text-xs font-medium text-foreground"
+                                  aria-label="Rename collection"
+                                />
+                              ) : (
+                                <span className="text-xs font-medium truncate">
+                                  {collection.name}
+                                </span>
+                              )}
                               <FileStatusBadge collectionId={collection.id} />
                             </div>
                             <span className="text-[10px] text-muted-foreground">
@@ -460,6 +603,14 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => startCollectionRename(collection.id, collection.name)}
+                              className="text-xs"
+                            >
+                              <Pencil className="mr-2 h-3.5 w-3.5" />
+                              Rename
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuSub>
                               <DropdownMenuSubTrigger className="text-xs">
                                 <Download className="mr-2 h-3.5 w-3.5" />
@@ -543,7 +694,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                       {collection.items.length > 0 && (
                         <div className="border-t border-border/60 px-2 py-1.5">
                           <div className="space-y-0.5">
-                            {renderCollectionItems(collection.items)}
+                            {renderCollectionItems(collection.items, collection.id)}
                           </div>
                         </div>
                       )}

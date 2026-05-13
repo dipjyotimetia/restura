@@ -1,5 +1,5 @@
 import { createServer as createHttp1Server } from 'node:http';
-import { createServer as createH2cServer, type Http2Server } from 'node:http2';
+import { createServer as createH2cServer, type Http2Server, type ServerHttp2Session } from 'node:http2';
 import { ConnectError, Code, type ConnectRouter as ConnectRouterType, type HandlerContext } from '@connectrpc/connect';
 import { connectNodeAdapter } from '@connectrpc/connect-node';
 import { create } from '@bufbuild/protobuf';
@@ -215,13 +215,31 @@ export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
     connectHandler(req, res);
   });
 
+  // http2.Http2Server does not have closeAllConnections(), so closeServer()
+  // alone cannot drain sessions held open by Miniflare's connection pool.
+  // Track sessions explicitly and destroy them before calling close().
+  const activeSessions = new Set<ServerHttp2Session>();
+  h2c.on('session', (session: ServerHttp2Session) => {
+    activeSessions.add(session);
+    session.once('close', () => activeSessions.delete(session));
+  });
+
   const [port, h2cPort] = await Promise.all([bindLocalhost(http1), bindLocalhost(h2c)]);
 
   return {
     port,
     url: `http://127.0.0.1:${port}`,
     h2cUrl: `http://127.0.0.1:${h2cPort}`,
-    close: () => Promise.all([closeServer(http1), closeServer(h2c)]).then(() => undefined),
+    close: async () => {
+      // Stop tracking new sessions; destroy any that arrive during shutdown immediately.
+      h2c.removeAllListeners('session');
+      h2c.on('session', (s: ServerHttp2Session) => { try { s.destroy(); } catch { /* ok */ } });
+      for (const session of activeSessions) {
+        try { session.destroy(); } catch { /* already destroyed */ }
+      }
+      activeSessions.clear();
+      await Promise.all([closeServer(http1), closeServer(h2c)]);
+    },
     unaryCount: () => counters.unary,
     serverStreamCount: () => counters.serverStream,
     clientStreamCount: () => counters.clientStream,

@@ -24,6 +24,7 @@ const shortcutGroups: ShortcutGroup[] = [
     title: 'Request Builder',
     shortcuts: [
       { keys: ['⌘', '↵'], description: 'Send request' },
+      { keys: ['⌘', 'S'], description: 'Save request to collection' },
       { keys: ['⌥', '1'], description: 'Switch to Params tab' },
       { keys: ['⌥', '2'], description: 'Switch to Headers tab' },
       { keys: ['⌥', '3'], description: 'Switch to Body tab' },

@@ -42,7 +42,7 @@ export default function IconRail({
 
   return (
     <TooltipProvider delayDuration={400}>
-      <nav aria-label="Primary" className="flex flex-col h-full w-12 glass-1 glass-border-default border-r items-center py-3 gap-1 select-none shrink-0">
+      <nav aria-label="Main navigation" className="flex flex-col h-full w-12 glass-1 glass-border-default border-r items-center py-3 gap-1 select-none shrink-0">
         {/* Logo */}
         <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/20 border border-primary/30 mb-2">
           <span className="text-primary font-bold text-base font-mono">R</span>

@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Allow: /.well-known/
 
 Sitemap: https://restura.dev/sitemap.xml
