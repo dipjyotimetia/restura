@@ -18,14 +18,14 @@ describe('SSRF protection', () => {
     expect(result.valid).toBe(false);
   });
 
-  it('IPv6 loopback http://[::1]/ is not blocked (URL.hostname includes brackets, bypasses ::1 pattern)', () => {
+  it('IPv6 loopback http://[::1]/ is blocked', () => {
     const result = validateURL('http://[::1]/');
-    expect(result.valid).toBe(true);
+    expect(result.valid).toBe(false);
   });
 
-  it('IPv6 ULA http://[fc00::1]/ is not blocked (URL.hostname includes brackets, bypasses fc00: pattern)', () => {
+  it('IPv6 ULA http://[fc00::1]/ is blocked', () => {
     const result = validateURL('http://[fc00::1]/');
-    expect(result.valid).toBe(true);
+    expect(result.valid).toBe(false);
   });
 
   it('http://0.0.0.0/ is blocked', () => {
