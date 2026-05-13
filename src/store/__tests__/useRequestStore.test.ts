@@ -370,4 +370,64 @@ describe('useRequestStore — tabs', () => {
       expect(parsed[0]!.request.url).toBe('https://example.com');
     });
   });
+
+  describe('persist.partialize', () => {
+    it('strips tab.response from persisted state (kept in memory only)', () => {
+      // Response bodies can be tens of MB; they already live in useHistoryStore.
+      // Persisting them per tab makes every tab switch + write a hot-path cost.
+      const opts = useRequestStore.persist.getOptions();
+      const partialize = opts.partialize as (s: unknown) => unknown;
+      const sample = {
+        activeTabId: 't1',
+        tabs: [
+          {
+            id: 't1',
+            request: makeHttp({ id: 'r1', url: 'https://x' }),
+            response: {
+              id: 'res-1',
+              requestId: 'r1',
+              status: 200,
+              statusText: 'OK',
+              body: 'x'.repeat(5_000_000),
+              size: 5_000_000,
+              headers: {},
+              time: 0,
+              timestamp: Date.now(),
+            },
+            streamingEvents: undefined,
+          },
+        ],
+      };
+      const persisted = partialize(sample) as { tabs: Array<{ response: unknown }> };
+      // Either response is omitted entirely OR set to null.
+      expect(persisted.tabs[0]!.response == null).toBe(true);
+    });
+
+    it('preserves request and other tab fields in persisted state', () => {
+      const opts = useRequestStore.persist.getOptions();
+      const partialize = opts.partialize as (s: unknown) => unknown;
+      const sample = {
+        activeTabId: 't1',
+        tabs: [
+          {
+            id: 't1',
+            savedRequestId: 'saved-1',
+            isDirty: true,
+            request: makeHttp({ id: 'r1', url: 'https://example.com' }),
+            response: { id: 'res', body: 'big' },
+            streamingEvents: undefined,
+          },
+        ],
+      };
+      const persisted = partialize(sample) as {
+        activeTabId: string;
+        tabs: Array<{ id: string; savedRequestId?: string; isDirty?: boolean; request: HttpRequest }>;
+      };
+      expect(persisted.activeTabId).toBe('t1');
+      expect(persisted.tabs[0]!.id).toBe('t1');
+      expect(persisted.tabs[0]!.savedRequestId).toBe('saved-1');
+      expect(persisted.tabs[0]!.isDirty).toBe(true);
+      expect(persisted.tabs[0]!.request.url).toBe('https://example.com');
+    });
+  });
 });
