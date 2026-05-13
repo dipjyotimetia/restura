@@ -13,19 +13,40 @@ import {
 import { httpsViaConnectProxy, httpViaProxy } from '../shared/tcp-proxy';
 import { parseJsonBody } from '../shared/validate-body';
 
-const STREAMING_ACCEPT_TYPES = [
+const STREAMING_MEDIA_TYPES = new Set([
   'text/event-stream',
   'application/x-ndjson',
   'application/jsonl',
   'application/grpc-web',
-];
+]);
 
+/**
+ * Token-parse the Accept header per RFC 7231 (media-type [;params][, ...])
+ * and exact-match against the streaming allowlist. The previous
+ * `accept.includes('text/event-stream')` check was vulnerable to
+ * `Accept: text/event-stream-evil` smuggling — that matched the substring
+ * and routed the request through the streaming pass-through, bypassing the
+ * buffered-response size cap.
+ */
+function parseAcceptMediaTypes(accept: string): string[] {
+  return accept
+    .split(',')
+    .map((entry) => entry.split(';')[0]!.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Decide whether to route through the streaming pass-through.
+ *
+ * `streamingMode: true` is an unconditional bypass for callers that need raw
+ * byte streams (e.g. binary downloads). It is validated as a boolean by the
+ * `ProxyRequestBodySchema` (Task 1.2), so a renderer cannot smuggle a
+ * non-boolean value through this branch.
+ */
 function isStreamingRequest(body: ProxyRequestBody): boolean {
   if (body.streamingMode === true) return true;
-  const accept =
-    body.headers?.['Accept'] ?? body.headers?.['accept'] ?? '';
-  const lower = accept.toLowerCase();
-  return STREAMING_ACCEPT_TYPES.some((t) => lower.includes(t));
+  const accept = body.headers?.['Accept'] ?? body.headers?.['accept'] ?? '';
+  return parseAcceptMediaTypes(accept).some((mt) => STREAMING_MEDIA_TYPES.has(mt));
 }
 
 function buildFetcher(

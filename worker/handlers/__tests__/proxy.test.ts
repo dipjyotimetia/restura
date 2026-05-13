@@ -263,6 +263,122 @@ describe('proxy handler', () => {
       expect(json.data).toContain('hello');
     });
 
+    it('does not match Accept: text/event-stream-evil as streaming', async () => {
+      // If the substring-based check were still in place, `text/event-stream-evil`
+      // would be routed through the streaming pass-through (which skips the
+      // buffered-response size cap). With proper token-parsing, this falls back
+      // to the buffered path, which returns a Hono JSON envelope.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response('{"hello":"world"}', {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/api',
+        headers: { Accept: 'text/event-stream-evil' },
+      });
+
+      // Buffered path uses Hono's c.json() which sets application/json.
+      const contentType = res.headers.get('content-type') ?? '';
+      expect(contentType).toMatch(/application\/json/);
+      const json = (await res.json()) as { status: number; data: string };
+      expect(json.status).toBe(200);
+      expect(json.data).toContain('hello');
+    });
+
+    it('matches Accept: text/event-stream; q=0.9 as streaming (strips params)', async () => {
+      const upstreamBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: x\n\n'));
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(upstreamBody, {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        ),
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/sse',
+        headers: { Accept: 'text/event-stream; q=0.9' },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+      const text = await res.text();
+      expect(text).toContain('data: x');
+    });
+
+    it('matches second media type in a comma-separated Accept list', async () => {
+      const upstreamBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: y\n\n'));
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(upstreamBody, {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        ),
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/sse',
+        headers: { Accept: 'application/json, text/event-stream' },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+    });
+
+    it('matches uppercase Accept value (case-insensitive)', async () => {
+      const upstreamBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: z\n\n'));
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(upstreamBody, {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        ),
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/sse',
+        headers: { Accept: 'TEXT/EVENT-STREAM' },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+    });
+
     it('streamingMode flag forces the streaming path even for unknown content types', async () => {
       const upstreamBody = new ReadableStream<Uint8Array>({
         start(controller) {
