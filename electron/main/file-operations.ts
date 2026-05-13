@@ -14,45 +14,86 @@ import {
 // Security: Maximum file size to prevent memory exhaustion
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 
+// Subdirectories under $HOME that hold credentials / browser data / package
+// secrets — never reachable through fs:readFile / fs:writeFile, even though
+// we still allow $HOME for the rare legitimate user-picked path. Each entry
+// is matched as a leading path component sequence.
+const HOME_BLOCKED_SUBDIRS = [
+  '.ssh',
+  '.aws',
+  '.gnupg',
+  '.kube',
+  '.docker',
+  '.npmrc',
+  '.config/gh',
+  '.config/op',
+  '.config/google-chrome',
+  '.config/Microsoft',
+  '.mozilla',
+  '.password-store',
+  'Library/Application Support',
+  'Library/Keychains',
+  'Library/Cookies',
+  'AppData/Roaming/Microsoft',
+  'AppData/Local/Google',
+  'AppData/Local/Microsoft',
+];
+
+// Block access to sensitive system directories at the OS level (cheap
+// defense-in-depth — userData/documents/home are inside the user's profile
+// so these shouldn't be reachable anyway, but a misconfigured app.getPath()
+// could return a system path).
+const BLOCKED_ROOT_PATHS = [
+  '/etc',
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/var',
+  '/root',
+  '/System',
+  '/Library',
+  '/Applications',
+  'C:\\Windows',
+  'C:\\Program Files',
+  'C:\\Program Files (x86)',
+];
+
 // Security: Validate file path to prevent path traversal attacks
 export function isPathSafe(filePath: string): boolean {
   try {
     const resolved = path.resolve(filePath);
-    const userDataPath = app.getPath('userData');
-    const documentsPath = app.getPath('documents');
-    const homePath = app.getPath('home');
+    const userDataPath = path.resolve(app.getPath('userData'));
+    const documentsPath = path.resolve(app.getPath('documents'));
+    const homePath = path.resolve(app.getPath('home'));
 
-    // Block access to sensitive system directories
-    const blockedPaths = [
-      '/etc',
-      '/usr',
-      '/bin',
-      '/sbin',
-      '/var',
-      '/root',
-      '/System',
-      '/Library',
-      '/Applications',
-      'C:\\Windows',
-      'C:\\Program Files',
-      'C:\\Program Files (x86)',
-    ];
-
-    for (const blocked of blockedPaths) {
+    // Cheap denylist for system roots
+    for (const blocked of BLOCKED_ROOT_PATHS) {
       if (resolved.toLowerCase().startsWith(blocked.toLowerCase())) {
         return false;
       }
     }
 
-    // Allow access to user data directory, documents, and home directory.
-    // Use path.sep suffix to prevent prefix-collision attacks
-    // (e.g. /home/user matching /home/username).
-    const allowedRoots = [
-      path.resolve(userDataPath),
-      path.resolve(documentsPath),
-      path.resolve(homePath),
-    ];
-    return allowedRoots.some((root) => resolved === root || resolved.startsWith(root + path.sep));
+    // Must sit under an allowed root, with path-sep guard against prefix-collision
+    const allowedRoots = [userDataPath, documentsPath, homePath];
+    const underAllowed = allowedRoots.some(
+      (root) => resolved === root || resolved.startsWith(root + path.sep)
+    );
+    if (!underAllowed) return false;
+
+    // $HOME-specific denylist
+    if (resolved === homePath || resolved.startsWith(homePath + path.sep)) {
+      const rel = path.relative(homePath, resolved);
+      // rel may be '' (the home root itself — allowed) or 'foo/bar/...'
+      if (rel === '') return true;
+      const parts = rel.split(path.sep);
+      for (const blocked of HOME_BLOCKED_SUBDIRS) {
+        const blockedParts = blocked.split('/');
+        if (blockedParts.length > parts.length) continue;
+        if (blockedParts.every((p, i) => parts[i] === p)) return false;
+      }
+    }
+
+    return true;
   } catch {
     return false;
   }

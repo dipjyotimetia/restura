@@ -1,4 +1,5 @@
 // @vitest-environment node
+import path from 'path';
 import { vi } from 'vitest';
 
 vi.mock('electron', () => {
@@ -44,6 +45,7 @@ vi.mock('electron', () => {
   };
 });
 
+import { app } from 'electron';
 import { isPathSafe } from '../file-operations';
 
 describe('isPathSafe', () => {
@@ -93,5 +95,49 @@ describe('isPathSafe', () => {
 
   it('empty string returns false', () => {
     expect(isPathSafe('')).toBe(false);
+  });
+});
+
+describe('isPathSafe — tighter allowlist', () => {
+  it('rejects ~/.ssh/id_rsa even though it sits under home', () => {
+    const home = app.getPath('home');
+    expect(isPathSafe(path.join(home, '.ssh', 'id_rsa'))).toBe(false);
+  });
+
+  it('rejects ~/.aws/credentials', () => {
+    const home = app.getPath('home');
+    expect(isPathSafe(path.join(home, '.aws', 'credentials'))).toBe(false);
+  });
+
+  it('rejects ~/.gnupg/private-keys-v1.d/abc.key', () => {
+    const home = app.getPath('home');
+    expect(isPathSafe(path.join(home, '.gnupg', 'private-keys-v1.d', 'abc.key'))).toBe(false);
+  });
+
+  it('rejects ~/.config/gh/hosts.yml', () => {
+    const home = app.getPath('home');
+    expect(isPathSafe(path.join(home, '.config', 'gh', 'hosts.yml'))).toBe(false);
+  });
+
+  it('allows files under userData', () => {
+    const u = app.getPath('userData');
+    expect(isPathSafe(path.join(u, 'collections', 'foo.json'))).toBe(true);
+  });
+
+  it('allows files under documents', () => {
+    const d = app.getPath('documents');
+    expect(isPathSafe(path.join(d, 'restura', 'foo.json'))).toBe(true);
+  });
+
+  it('rejects sibling-of-allowed-root prefix attacks', () => {
+    const u = app.getPath('userData');
+    expect(isPathSafe(u + '-evil/foo.json')).toBe(false);
+  });
+
+  it('allows ~/Documents/notes.json (non-blocked subdir under home)', () => {
+    const home = app.getPath('home');
+    // Documents is usually a separate allowed root; this path may exist under
+    // home anyway. The point: not every subdir under $HOME is blocked.
+    expect(isPathSafe(path.join(home, 'Downloads', 'foo.json'))).toBe(true);
   });
 });
