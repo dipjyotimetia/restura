@@ -9,9 +9,9 @@ import {
   NotificationMessageSchema,
   createValidatedHandler,
 } from './ipc-validators';
-import { createRateLimiter } from './ipc-rate-limiter';
+import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 
-const notificationRateLimiter = createRateLimiter(10, 60_000);
+export const notificationRateLimiter = createKeyedRateLimiter(10, 60_000);
 
 function getResourcePath(resource: string, isDev: boolean): string {
   if (isDev) {
@@ -71,14 +71,14 @@ export function registerNotificationIPC(getMainWindow: () => BrowserWindow | nul
   // Show a native notification
   ipcMain.handle(
     'notification:show',
-    createValidatedHandler('notification:show', NotificationOptionsSchema, async (options: NotificationOptions) => {
-      if (!notificationRateLimiter()) {
-        return { error: 'Rate limit exceeded' };
-      }
-      const mainWindow = getMainWindow();
-      showNativeNotification(options, mainWindow, isDev);
-      return { success: true };
-    })
+    rateLimited(
+      notificationRateLimiter,
+      createValidatedHandler('notification:show', NotificationOptionsSchema, async (options: NotificationOptions) => {
+        const mainWindow = getMainWindow();
+        showNativeNotification(options, mainWindow, isDev);
+        return { success: true };
+      })
+    )
   );
 
   // Show request completed notification

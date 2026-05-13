@@ -1,5 +1,5 @@
 import { ipcMain, webContents } from 'electron';
-import { createRateLimiter } from './ipc-rate-limiter';
+import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import {
   McpConnectSchema,
   McpRequestSchema,
@@ -23,7 +23,7 @@ import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
  *   Per spec the server advertises the POST endpoint via an `endpoint` SSE event.
  */
 
-const mcpRateLimiter = createRateLimiter(60, 60_000);
+export const mcpRateLimiter = createKeyedRateLimiter(60, 60_000);
 const MAX_CONCURRENT_MCP = 20;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -202,7 +202,7 @@ export function registerMcpHandlerIPC(): void {
     const config = validateIpcInput(McpConnectSchema, rawConfig, 'mcp:connect');
     const webContentsId = event.sender.id;
 
-    if (!mcpRateLimiter()) {
+    if (!mcpRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded.' };
     }
     if (sessions.size >= MAX_CONCURRENT_MCP) {
@@ -292,94 +292,94 @@ export function registerMcpHandlerIPC(): void {
 
   ipcMain.handle(
     'mcp:request',
-    createValidatedHandler('mcp:request', McpRequestSchema, async (config) => {
-      const session = sessions.get(config.connectionId);
-      if (!session) {
-        return { success: false, error: 'Not connected' };
-      }
-      if (!mcpRateLimiter()) {
-        return { success: false, error: 'Rate limit exceeded' };
-      }
+    rateLimited(
+      mcpRateLimiter,
+      createValidatedHandler('mcp:request', McpRequestSchema, async (config) => {
+        const session = sessions.get(config.connectionId);
+        if (!session) {
+          return { success: false, error: 'Not connected' };
+        }
 
-      const requestId = config.requestId ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
-      const body = JSON.stringify({
-        jsonrpc: '2.0',
-        id: requestId,
-        method: config.method,
-        ...(config.params !== undefined ? { params: config.params } : {}),
-      });
+        const requestId = config.requestId ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
+        const body = JSON.stringify({
+          jsonrpc: '2.0',
+          id: requestId,
+          method: config.method,
+          ...(config.params !== undefined ? { params: config.params } : {}),
+        });
 
-      try {
-        if (session.transport === 'streamable-http') {
+        try {
+          if (session.transport === 'streamable-http') {
+            const headers: Record<string, string> = {
+              'Content-Type': 'application/json',
+              Accept: 'application/json, text/event-stream',
+              ...session.headers,
+            };
+            if (session.sessionId) headers['Mcp-Session-Id'] = session.sessionId;
+
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), timeoutMs);
+            try {
+              const response = await fetch(session.url, {
+                method: 'POST',
+                headers,
+                body,
+                signal: ctl.signal,
+              });
+              const advertised = response.headers.get('mcp-session-id');
+              if (advertised) session.sessionId = advertised;
+
+              if (!response.ok) {
+                return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
+              }
+              const out = await readStreamableHttpResponse(response, requestId);
+              return out.error
+                ? { success: false, jsonRpcError: out.error }
+                : { success: true, result: out.result };
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+
+          // http-sse: POST to the advertised endpoint, await response on the SSE stream.
+          if (!session.postEndpoint) {
+            return { success: false, error: 'MCP server did not advertise a POST endpoint' };
+          }
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
-            Accept: 'application/json, text/event-stream',
             ...session.headers,
           };
-          if (session.sessionId) headers['Mcp-Session-Id'] = session.sessionId;
 
-          const ctl = new AbortController();
-          const timer = setTimeout(() => ctl.abort(), timeoutMs);
-          try {
-            const response = await fetch(session.url, {
-              method: 'POST',
-              headers,
-              body,
-              signal: ctl.signal,
-            });
-            const advertised = response.headers.get('mcp-session-id');
-            if (advertised) session.sessionId = advertised;
+          const pendingPromise = new Promise<unknown>((resolve, reject) => {
+            const timer = setTimeout(() => {
+              session.pending.delete(requestId);
+              reject(new Error(`MCP request timed out after ${timeoutMs}ms`));
+            }, timeoutMs);
+            session.pending.set(requestId, { resolve, reject, timer });
+          });
 
-            if (!response.ok) {
-              return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
+          const postResponse = await fetch(session.postEndpoint, {
+            method: 'POST',
+            headers,
+            body,
+          });
+          if (!postResponse.ok) {
+            const p = session.pending.get(requestId);
+            if (p) {
+              clearTimeout(p.timer);
+              session.pending.delete(requestId);
             }
-            const out = await readStreamableHttpResponse(response, requestId);
-            return out.error
-              ? { success: false, jsonRpcError: out.error }
-              : { success: true, result: out.result };
-          } finally {
-            clearTimeout(timer);
+            return { success: false, error: `HTTP ${postResponse.status} ${postResponse.statusText}` };
           }
+
+          const result = await pendingPromise;
+          return { success: true, result };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : 'MCP request failed' };
         }
-
-        // http-sse: POST to the advertised endpoint, await response on the SSE stream.
-        if (!session.postEndpoint) {
-          return { success: false, error: 'MCP server did not advertise a POST endpoint' };
-        }
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          ...session.headers,
-        };
-
-        const pendingPromise = new Promise<unknown>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            session.pending.delete(requestId);
-            reject(new Error(`MCP request timed out after ${timeoutMs}ms`));
-          }, timeoutMs);
-          session.pending.set(requestId, { resolve, reject, timer });
-        });
-
-        const postResponse = await fetch(session.postEndpoint, {
-          method: 'POST',
-          headers,
-          body,
-        });
-        if (!postResponse.ok) {
-          const p = session.pending.get(requestId);
-          if (p) {
-            clearTimeout(p.timer);
-            session.pending.delete(requestId);
-          }
-          return { success: false, error: `HTTP ${postResponse.status} ${postResponse.statusText}` };
-        }
-
-        const result = await pendingPromise;
-        return { success: true, result };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : 'MCP request failed' };
-      }
-    })
+      })
+    )
   );
 
   ipcMain.handle(

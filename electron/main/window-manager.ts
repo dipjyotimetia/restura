@@ -3,6 +3,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { createApplicationMenu } from './menu';
 import { SAFE_OPEN_PROTOCOLS } from './ipc-validators';
+import { bindLimiterToWebContents } from './rate-limiter-cleanup';
+import { httpRateLimiter } from './http-handler';
+import { grpcRateLimiter } from './grpc-handler';
+import { wsRateLimiter } from './websocket-handler';
+import { sseRateLimiter } from './sse-handler';
+import { mcpRateLimiter } from './mcp-handler';
+import { notificationRateLimiter } from './notifications';
 
 export interface WindowState {
   width: number;
@@ -133,6 +140,21 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
   // Create application menu
   const menu = createApplicationMenu(mainWindow);
   Menu.setApplicationMenu(menu);
+
+  // Drop per-webContents rate-limit buckets when the renderer is destroyed.
+  // Keeps the keyed-limiter Maps from accumulating dead webContents ids
+  // across the app lifetime (windows opened/closed, reloads, etc.).
+  bindLimiterToWebContents(
+    [
+      httpRateLimiter,
+      grpcRateLimiter,
+      wsRateLimiter,
+      sseRateLimiter,
+      mcpRateLimiter,
+      notificationRateLimiter,
+    ],
+    mainWindow.webContents
+  );
 
   return mainWindow;
 }

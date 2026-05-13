@@ -15,10 +15,10 @@ import {
   createValidatedHandler,
   createValidatedListener
 } from './ipc-validators';
-import { createRateLimiter } from './ipc-rate-limiter';
+import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
-const grpcRateLimiter = createRateLimiter(30, 60_000);
+export const grpcRateLimiter = createKeyedRateLimiter(30, 60_000);
 
 // Use app's userData directory for proto temp files (more secure than os.tmpdir())
 // This will be something like ~/Library/Application Support/restura/grpc-temp on macOS
@@ -376,25 +376,25 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.handle(
     'grpc:request',
-    createValidatedHandler('grpc:request', GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
-      if (!grpcRateLimiter()) {
-        return { error: 'Rate limit exceeded' };
-      }
-      const startTime = Date.now();
-      const result = await makeGrpcRequest(config);
-      if (onComplete) {
-        onComplete({
-          ts: startTime,
-          method: `${config.service}/${config.method}`,
-          url: config.url,
-          status: result.status,
-          durationMs: Date.now() - startTime,
-          protocol: 'grpc',
-          error: result.error,
-        });
-      }
-      return result;
-    })
+    rateLimited(
+      grpcRateLimiter,
+      createValidatedHandler('grpc:request', GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
+        const startTime = Date.now();
+        const result = await makeGrpcRequest(config);
+        if (onComplete) {
+          onComplete({
+            ts: startTime,
+            method: `${config.service}/${config.method}`,
+            url: config.url,
+            status: result.status,
+            durationMs: Date.now() - startTime,
+            protocol: 'grpc',
+            error: result.error,
+          });
+        }
+        return result;
+      })
+    )
   );
 
   ipcMain.on(
@@ -403,7 +403,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       const requestId = config.id;
       if (!requestId) return;
 
-      if (!grpcRateLimiter()) {
+      if (!grpcRateLimiter.check(event.sender.id)) {
         event.sender.send(`grpc:error:${requestId}`, {
           status: 14,
           details: 'Rate limit exceeded'

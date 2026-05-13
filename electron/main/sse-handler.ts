@@ -1,5 +1,5 @@
 import { ipcMain, webContents } from 'electron';
-import { createRateLimiter } from './ipc-rate-limiter';
+import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import {
   SseConnectSchema,
   SseDisconnectSchema,
@@ -10,7 +10,7 @@ import { SseParser, type ParsedSseEvent } from './lib/sse-parser';
 import { followRedirects, RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 
-const sseRateLimiter = createRateLimiter(20, 60_000);
+export const sseRateLimiter = createKeyedRateLimiter(20, 60_000);
 const MAX_CONCURRENT_SSE_CONNECTIONS = 50;
 const CONNECTION_TIMEOUT_MS = 30_000;
 
@@ -83,7 +83,7 @@ export function registerSseHandlerIPC(): void {
     const { connectionId } = config;
     const webContentsId = event.sender.id;
 
-    if (!sseRateLimiter()) {
+    if (!sseRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
     if (activeConnections.size >= MAX_CONCURRENT_SSE_CONNECTIONS) {
