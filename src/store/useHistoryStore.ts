@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { HistoryItem, Request, Response } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
 interface HistoryState {
   history: HistoryItem[];
@@ -124,10 +125,16 @@ export const useHistoryStore = create<HistoryState>()(
       name: 'history-storage',
       version: 2, // Bumped for Dexie migration + encryption
       storage: dexieStorageAdapters.history(),
-      migrate: (persistedState, version) => {
-        if (version === 0 || version === 1) {
-          // Migration from localStorage (v1) to encrypted Dexie (v2)
-          return persistedState as HistoryState;
+      migrate: (persistedState, _version) => {
+        const looksEmpty =
+          !persistedState ||
+          (typeof persistedState === 'object' &&
+            Object.keys(persistedState as object).length === 0);
+        if (looksEmpty) {
+          const legacy = migrateLegacyLocalStorage<Partial<HistoryState>>(
+            'history-storage'
+          );
+          if (legacy) return legacy as HistoryState;
         }
         return persistedState as HistoryState;
       },

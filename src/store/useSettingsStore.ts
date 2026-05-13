@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AppSettings, ProxyConfig, CorsProxyConfig, ClientCert, CaCert } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
 interface SettingsState {
   settings: AppSettings;
@@ -165,10 +166,16 @@ export const useSettingsStore = create<SettingsState>()(
       name: 'app-settings-storage',
       version: 2, // Bumped for Dexie migration
       storage: dexieStorageAdapters.settings(),
-      migrate: (persistedState, version) => {
-        if (version === 0 || version === 1) {
-          // Migration from localStorage (v1) to Dexie (v2)
-          return persistedState as SettingsState;
+      migrate: (persistedState, _version) => {
+        const looksEmpty =
+          !persistedState ||
+          (typeof persistedState === 'object' &&
+            Object.keys(persistedState as object).length === 0);
+        if (looksEmpty) {
+          const legacy = migrateLegacyLocalStorage<Partial<SettingsState>>(
+            'app-settings-storage'
+          );
+          if (legacy) return legacy as SettingsState;
         }
         return persistedState as SettingsState;
       },

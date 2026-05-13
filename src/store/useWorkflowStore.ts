@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Workflow, WorkflowRequest, WorkflowExecution, VariableExtraction } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -230,10 +231,16 @@ export const useWorkflowStore = create<WorkflowState>()(
       name: 'workflow-storage',
       version: 2, // Bumped for Dexie migration + encryption
       storage: dexieStorageAdapters.workflows(),
-      migrate: (persistedState, version) => {
-        if (version === 0 || version === 1) {
-          // Migration from localStorage (v1) to encrypted Dexie (v2)
-          return persistedState as WorkflowState;
+      migrate: (persistedState, _version) => {
+        const looksEmpty =
+          !persistedState ||
+          (typeof persistedState === 'object' &&
+            Object.keys(persistedState as object).length === 0);
+        if (looksEmpty) {
+          const legacy = migrateLegacyLocalStorage<Partial<WorkflowState>>(
+            'workflow-storage'
+          );
+          if (legacy) return legacy as WorkflowState;
         }
         return persistedState as WorkflowState;
       },

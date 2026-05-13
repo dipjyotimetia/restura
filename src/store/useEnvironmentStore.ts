@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Environment, KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
 
 interface EnvironmentState {
@@ -117,10 +118,16 @@ export const useEnvironmentStore = create<EnvironmentState>()(
       name: 'environment-storage',
       version: 2, // Bumped for Dexie migration
       storage: dexieStorageAdapters.environments(),
-      migrate: (persistedState, version) => {
-        if (version === 0 || version === 1) {
-          // Migration from localStorage (v1) to Dexie (v2)
-          return persistedState as EnvironmentState;
+      migrate: (persistedState, _version) => {
+        const looksEmpty =
+          !persistedState ||
+          (typeof persistedState === 'object' &&
+            Object.keys(persistedState as object).length === 0);
+        if (looksEmpty) {
+          const legacy = migrateLegacyLocalStorage<Partial<EnvironmentState>>(
+            'environment-storage'
+          );
+          if (legacy) return legacy as EnvironmentState;
         }
         return persistedState as EnvironmentState;
       },
