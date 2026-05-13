@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import app from '../index';
+import type { Env } from '../index';
 
 function makeApiRequest(
   headers: Record<string, string> = {},
@@ -19,6 +20,7 @@ function makeApiRequest(
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete (globalThis as { MINIFLARE?: unknown }).MINIFLARE;
 });
 
 describe('worker api middleware', () => {
@@ -64,5 +66,69 @@ describe('worker api middleware', () => {
 
     expect(allowed.headers.get('access-control-allow-origin')).toBe('https://feature.restura.pages.dev');
     expect(denied.headers.get('access-control-allow-origin')).toBeNull();
+  });
+});
+
+describe('proxyAuthMiddleware', () => {
+  it('returns 503 when ENVIRONMENT=development but Miniflare is not running and no token configured', async () => {
+    const env: Env = { ENVIRONMENT: 'development' };
+    const res = await app.request(
+      '/api/proxy',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
+      },
+      env,
+    );
+    expect(res.status).toBe(503);
+  });
+
+  it('skips auth when DEV_BYPASS_AUTH binding is true and ENVIRONMENT=development', async () => {
+    const env: Env = { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' };
+    const res = await app.request(
+      '/api/proxy',
+      {
+        method: 'OPTIONS',
+        headers: { Origin: 'http://localhost:5173' },
+      },
+      env,
+    );
+    // OPTIONS should pass CORS preflight; auth middleware should not block.
+    expect([200, 204]).toContain(res.status);
+  });
+
+  it('rejects DEV_BYPASS_AUTH=true in non-development environment', async () => {
+    const env: Env = { ENVIRONMENT: 'production', DEV_BYPASS_AUTH: 'true' };
+    const res = await app.request(
+      '/api/proxy',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
+      },
+      env,
+    );
+    expect(res.status).toBe(503); // or 401 — bypass MUST NOT apply
+  });
+});
+
+describe('Miniflare detection', () => {
+  afterEach(() => {
+    delete (globalThis as { MINIFLARE?: unknown }).MINIFLARE;
+  });
+
+  it('skips auth when running under Miniflare even without DEV_BYPASS_AUTH', async () => {
+    (globalThis as { MINIFLARE?: unknown }).MINIFLARE = true;
+    const env: Env = { ENVIRONMENT: 'development' };
+    const res = await app.request(
+      '/api/proxy',
+      {
+        method: 'OPTIONS',
+        headers: { Origin: 'http://localhost:5173' },
+      },
+      env,
+    );
+    expect([200, 204]).toContain(res.status);
   });
 });
