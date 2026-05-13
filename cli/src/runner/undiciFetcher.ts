@@ -52,9 +52,20 @@ export const undiciFetcher: Fetcher = async (
     }
   }
 
+  // undici accepts plain-object headers; the redirect-follower hands us a
+  // Headers instance on follow-up hops, so flatten when needed.
+  const undiciHeaders: Record<string, string> = (() => {
+    if (req.headers instanceof Headers) {
+      const out: Record<string, string> = {};
+      req.headers.forEach((v, k) => { out[k] = v; });
+      return out;
+    }
+    return req.headers;
+  })();
+
   const response = await undiciRequest(req.url, {
     method: method as UndiciMethod,
-    headers: req.headers,
+    headers: undiciHeaders,
     body,
     signal: req.signal,
   });

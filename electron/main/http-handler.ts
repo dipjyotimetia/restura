@@ -500,6 +500,17 @@ function buildElectronFetcher(
       throw new Error('Unsupported body type for Electron fetcher');
     }
 
+    // undici accepts plain-object headers; the redirect-follower hands us
+    // a Headers instance on follow-up hops, so flatten when needed.
+    const undiciHeaders: Record<string, string> = (() => {
+      if (req.headers instanceof Headers) {
+        const out: Record<string, string> = {};
+        req.headers.forEach((v, k) => { out[k] = v; });
+        return out;
+      }
+      return req.headers;
+    })();
+
     let response: Awaited<ReturnType<typeof undiciRequest>>;
     try {
       response = await undiciRequest(req.url, {
@@ -508,7 +519,7 @@ function buildElectronFetcher(
             ? M
             : never
           : never,
-        headers: req.headers,
+        headers: undiciHeaders,
         body: undiciBody,
         signal: req.signal,
         dispatcher,

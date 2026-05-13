@@ -1,7 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeGrpcProxy } from './grpc-proxy';
 import { GrpcStatusCode } from './grpc-status';
-import type { Fetcher } from './types';
+import type { Fetcher, FetcherRequest } from './types';
+
+/**
+ * `FetcherRequest.headers` is `Record<string, string> | Headers`. The grpc
+ * proxy only constructs plain-object headers, so this helper narrows.
+ */
+function asRecord(headers: FetcherRequest['headers'] | undefined): Record<string, string> {
+  if (!headers) return {};
+  if (headers instanceof Headers) {
+    const out: Record<string, string> = {};
+    headers.forEach((v, k) => { out[k] = v; });
+    return out;
+  }
+  return headers;
+}
 
 function makeFetcher(
   body: string,
@@ -114,7 +128,7 @@ describe('executeGrpcProxy', () => {
       fetcher,
       { allowLocalhost: false }
     );
-    const headers = fetcher.mock.calls[0]?.[0]?.headers ?? {};
+    const headers = asRecord(fetcher.mock.calls[0]?.[0]?.headers);
     expect(headers['Content-Type']).toBe('application/json');
     expect(headers['Connect-Protocol-Version']).toBe('1');
   });
@@ -132,7 +146,7 @@ describe('executeGrpcProxy', () => {
       fetcher,
       { allowLocalhost: false }
     );
-    const headers = fetcher.mock.calls[0]?.[0]?.headers ?? {};
+    const headers = asRecord(fetcher.mock.calls[0]?.[0]?.headers);
     expect(headers['X-User']).toBe('alice');
     expect(headers.Host).toBeUndefined();
   });

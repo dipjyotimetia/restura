@@ -8,6 +8,8 @@ import {
   createValidatedHandler,
 } from './ipc-validators';
 import { SseParser, type ParsedSseEvent } from './lib/sse-parser';
+import { followRedirects, RedirectPolicyError } from '@shared/protocol/redirect-follower';
+import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 
 /**
  * MCP IPC handler. Implements the client side of two HTTP-based MCP transports:
@@ -77,16 +79,16 @@ function teardownSession(connectionId: string): void {
 
 async function readSseStream(
   session: HttpSseSession,
-  response: globalThis.Response
+  body: ReadableStream<Uint8Array> | null
 ): Promise<void> {
-  if (!response.body) {
+  if (!body) {
     emitTo(session.webContentsId, `mcp:error:${session.connectionId}`, { message: 'No SSE body' });
     teardownSession(session.connectionId);
     return;
   }
   const decoder = new TextDecoder();
   const parser = new SseParser();
-  const reader = response.body.getReader();
+  const reader = body.getReader();
 
   const onEvent = (e: ParsedSseEvent) => {
     // Per the http-sse transport, the first event is `endpoint` with the POST URL.
@@ -237,22 +239,53 @@ export function registerMcpHandlerIPC(): void {
     };
     sessions.set(config.connectionId, session);
 
-    try {
-      const response = await fetch(config.url, {
-        method: 'GET',
-        headers: { Accept: 'text/event-stream', ...session.headers },
-        signal: abortController.signal,
-        redirect: 'follow',
+    // Adapter for followRedirects: native fetch with `redirect: 'manual'` so
+    // we validate every redirect target (preventing SSRF via attacker-controlled
+    // `Location: http://169.254.169.254/...` headers).
+    const mcpFetcher: Fetcher = async (req) => {
+      const res = await fetch(req.url, {
+        method: req.method,
+        headers: req.headers,
+        signal: req.signal,
+        redirect: 'manual',
       });
-      if (!response.ok) {
+      const fetcherResponse: FetcherResponse = {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+        text: () => res.text(),
+        contentLengthHeader: res.headers.get('content-length'),
+        body: res.body,
+      };
+      return fetcherResponse;
+    };
+
+    try {
+      const response = await followRedirects(
+        {
+          url: config.url,
+          method: 'GET',
+          headers: { Accept: 'text/event-stream', ...session.headers },
+          body: undefined,
+          signal: abortController.signal,
+        },
+        mcpFetcher,
+        // MCP handler is desktop-only; permit localhost (developers commonly
+        // run MCP servers locally).
+        { allowLocalhost: true }
+      );
+      if (response.status < 200 || response.status >= 300) {
         teardownSession(config.connectionId);
         return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
       }
       emitTo(webContentsId, `mcp:open:${config.connectionId}`);
-      void readSseStream(session, response);
+      void readSseStream(session, response.body ?? null);
       return { success: true };
     } catch (err) {
       teardownSession(config.connectionId);
+      if (err instanceof RedirectPolicyError) {
+        return { success: false, error: err.message };
+      }
       return { success: false, error: err instanceof Error ? err.message : 'Connection failed' };
     }
   });

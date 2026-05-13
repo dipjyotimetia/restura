@@ -7,6 +7,8 @@ import {
   createValidatedHandler,
 } from './ipc-validators';
 import { SseParser, type ParsedSseEvent } from './lib/sse-parser';
+import { followRedirects, RedirectPolicyError } from '@shared/protocol/redirect-follower';
+import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 
 const sseRateLimiter = createRateLimiter(20, 60_000);
 const MAX_CONCURRENT_SSE_CONNECTIONS = 50;
@@ -31,8 +33,11 @@ function emitTo(webContentsId: number, channel: string, ...args: unknown[]): voi
   }
 }
 
-async function readStream(entry: ActiveSse, response: globalThis.Response): Promise<void> {
-  if (!response.body) {
+async function readStream(
+  entry: ActiveSse,
+  body: ReadableStream<Uint8Array> | null
+): Promise<void> {
+  if (!body) {
     emitTo(entry.webContentsId, `sse:error:${entry.connectionId}`, { message: 'No response body' });
     emitTo(entry.webContentsId, `sse:close:${entry.connectionId}`, { reason: 'no body' });
     activeConnections.delete(entry.connectionId);
@@ -41,7 +46,7 @@ async function readStream(entry: ActiveSse, response: globalThis.Response): Prom
 
   const decoder = new TextDecoder();
   const parser = new SseParser();
-  const reader = response.body.getReader();
+  const reader = body.getReader();
 
   const onEvent = (e: ParsedSseEvent) => {
     emitTo(entry.webContentsId, `sse:event:${entry.connectionId}`, e);
@@ -106,16 +111,44 @@ export function registerSseHandlerIPC(): void {
     };
     activeConnections.set(connectionId, entry);
 
-    try {
-      const response = await fetch(config.url, {
-        method: 'GET',
-        headers: { Accept: 'text/event-stream', ...(config.headers ?? {}) },
-        signal: abortController.signal,
-        redirect: 'follow',
+    // Adapter: wraps native fetch with `redirect: 'manual'` so followRedirects
+    // can validate every hop (matches the Worker proxy's policy — Location
+    // pointing at metadata IPs etc. is rejected before we connect).
+    const sseFetcher: Fetcher = async (req) => {
+      const res = await fetch(req.url, {
+        method: req.method,
+        headers: req.headers,
+        signal: req.signal,
+        redirect: 'manual',
       });
+      const fetcherResponse: FetcherResponse = {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+        text: () => res.text(),
+        contentLengthHeader: res.headers.get('content-length'),
+        body: res.body,
+      };
+      return fetcherResponse;
+    };
+
+    try {
+      const response = await followRedirects(
+        {
+          url: config.url,
+          method: 'GET',
+          headers: { Accept: 'text/event-stream', ...(config.headers ?? {}) },
+          body: undefined,
+          signal: abortController.signal,
+        },
+        sseFetcher,
+        // SSE handler is desktop-only; mirror http-handler's permissive localhost
+        // policy (Electron users routinely target local dev servers).
+        { allowLocalhost: true }
+      );
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
+      if (response.status < 200 || response.status >= 300) {
         emitTo(webContentsId, `sse:error:${connectionId}`, {
           message: `HTTP ${response.status} ${response.statusText}`,
         });
@@ -126,11 +159,14 @@ export function registerSseHandlerIPC(): void {
 
       emitTo(webContentsId, `sse:open:${connectionId}`);
       // Drain the stream in the background — we already returned success.
-      void readStream(entry, response);
+      void readStream(entry, response.body ?? null);
       return { success: true };
     } catch (err) {
       clearTimeout(timeoutId);
       activeConnections.delete(connectionId);
+      if (err instanceof RedirectPolicyError) {
+        return { success: false, error: err.message };
+      }
       const message = err instanceof Error ? err.message : 'Connection failed';
       return { success: false, error: message };
     }

@@ -76,7 +76,7 @@ function buildFetcher(
         method: req.method,
         headers: req.headers,
         signal: req.signal,
-        redirect: 'follow',
+        redirect: 'manual',
       };
       if (req.body !== undefined) init.body = req.body;
       response =
@@ -88,7 +88,7 @@ function buildFetcher(
         method: req.method,
         headers: req.headers,
         signal: req.signal,
-        redirect: 'follow',
+        redirect: 'manual',
       };
       if (req.body !== undefined) init.body = req.body;
       response = await fetch(req.url, init);
