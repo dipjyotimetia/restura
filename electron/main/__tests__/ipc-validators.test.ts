@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { vi } from 'vitest';
+import { z } from 'zod';
 import {
   HttpRequestConfigSchema,
   GrpcRequestConfigSchema,
@@ -12,6 +13,13 @@ import {
   MAX_HTTP_BODY_BYTES,
   MAX_PROTO_CONTENT_BYTES,
 } from '../ipc-validators';
+
+// Reusable trusted event for tests that need a valid sender frame (file://
+// is what the packaged Electron renderer uses).
+const trustedEvent = {
+  sender: { id: 1 },
+  senderFrame: { url: 'file:///' },
+} as unknown as Electron.IpcMainInvokeEvent;
 
 describe('validateIpcInput', () => {
   describe('HttpRequestConfigSchema', () => {
@@ -155,7 +163,7 @@ describe('createValidatedHandler', () => {
   it('calls handler with validated input when valid', async () => {
     const handler = vi.fn().mockResolvedValue('result');
     const wrapped = createValidatedHandler('test:channel', ShellUrlSchema, handler);
-    await wrapped(undefined as unknown as Electron.IpcMainInvokeEvent, 'https://example.com');
+    await wrapped(trustedEvent, 'https://example.com');
     expect(handler).toHaveBeenCalledWith('https://example.com');
   });
 
@@ -163,7 +171,7 @@ describe('createValidatedHandler', () => {
     const handler = vi.fn();
     const wrapped = createValidatedHandler('test:channel', ShellUrlSchema, handler);
     await expect(
-      wrapped(undefined as unknown as Electron.IpcMainInvokeEvent, 'file:///etc/passwd')
+      wrapped(trustedEvent, 'file:///etc/passwd')
     ).rejects.toThrow('test:channel');
     expect(handler).not.toHaveBeenCalled();
   });
@@ -171,7 +179,63 @@ describe('createValidatedHandler', () => {
   it('passes through the handler return value', async () => {
     const handler = vi.fn().mockResolvedValue(42);
     const wrapped = createValidatedHandler('test:channel', ShellUrlSchema, handler);
-    const result = await wrapped(undefined as unknown as Electron.IpcMainInvokeEvent, 'https://example.com');
+    const result = await wrapped(trustedEvent, 'https://example.com');
     expect(result).toBe(42);
+  });
+});
+
+describe('createValidatedHandler frame validation', () => {
+  it('rejects events from non-main frames', async () => {
+    const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
+    const evt = {
+      sender: { id: 1 },
+      senderFrame: { url: 'https://attacker.example/' },
+    } as unknown as Electron.IpcMainInvokeEvent;
+    await expect(handler(evt, 'hello')).rejects.toThrow(/untrusted frame/i);
+  });
+
+  it('accepts events from the main file:// frame (Electron prod build)', async () => {
+    const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
+    const evt = {
+      sender: { id: 1 },
+      senderFrame: { url: 'file:///path/to/dist/web/index.html' },
+    } as unknown as Electron.IpcMainInvokeEvent;
+    await expect(handler(evt, 'hello')).resolves.toBe('hello');
+  });
+
+  it('accepts events from localhost:5173 dev server', async () => {
+    const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
+    const evt = {
+      sender: { id: 1 },
+      senderFrame: { url: 'http://localhost:5173/' },
+    } as unknown as Electron.IpcMainInvokeEvent;
+    await expect(handler(evt, 'hello')).resolves.toBe('hello');
+  });
+
+  it('accepts events from 127.0.0.1:5173 dev server', async () => {
+    const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
+    const evt = {
+      sender: { id: 1 },
+      senderFrame: { url: 'http://127.0.0.1:5173/' },
+    } as unknown as Electron.IpcMainInvokeEvent;
+    await expect(handler(evt, 'hello')).resolves.toBe('hello');
+  });
+
+  it('rejects when senderFrame is undefined', async () => {
+    const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
+    const evt = {
+      sender: { id: 1 },
+      senderFrame: undefined,
+    } as unknown as Electron.IpcMainInvokeEvent;
+    await expect(handler(evt, 'hello')).rejects.toThrow(/untrusted frame/i);
+  });
+
+  it('rejects http://localhost on a non-5173 port', async () => {
+    const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
+    const evt = {
+      sender: { id: 1 },
+      senderFrame: { url: 'http://localhost:8080/' },
+    } as unknown as Electron.IpcMainInvokeEvent;
+    await expect(handler(evt, 'hello')).rejects.toThrow(/untrusted frame/i);
   });
 });
