@@ -84,7 +84,8 @@
       "Bash(grep -E \"\\\\.\\(ts|js\\)$\")",
       "Bash(grep -E \"\\\\.\\(ts|tsx|json\\)$\")",
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
-      "Bash(gh api *)"
+      "Bash(gh api *)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }
