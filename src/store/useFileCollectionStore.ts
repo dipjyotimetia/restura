@@ -10,6 +10,7 @@ import { persist } from 'zustand/middleware';
 import type { ElectronAPI } from '../../electron/types/electron.d';
 import type { Collection } from '@/types';
 import { isElectron } from '@/lib/shared/platform';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { useCollectionStore } from './useCollectionStore';
 
 // Sync state for tracking file vs memory state
@@ -168,10 +169,23 @@ export const useFileCollectionStore = create<FileCollectionState>()(
     }),
     {
       name: 'file-collection-storage',
+      version: 1,
+      storage: dexieStorageAdapters.fileCollections(),
       partialize: (state) => ({
         fileCollections: state.fileCollections,
         defaultDirectory: state.defaultDirectory,
       }),
+      migrate: (persistedState, _version) => {
+        // Passthrough: accept previous localStorage shape (v0) without
+        // transformation. Task 3.3 handles the broader localStorage→Dexie
+        // backfill.
+        return persistedState as FileCollectionState;
+      },
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          console.error('File-collection store rehydration failed:', error);
+        }
+      },
     }
   )
 );
