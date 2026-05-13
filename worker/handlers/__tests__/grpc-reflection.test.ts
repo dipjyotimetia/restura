@@ -89,6 +89,29 @@ describe('grpcReflection handler', () => {
     expect(json.error).toMatch(/v1alpha error/);
   });
 
+  it('malformed JSON body returns 400 with Malformed JSON error', async () => {
+    const res = await app.request(
+      '/grpc/reflection',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{not json',
+      },
+      {},
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.error).toMatch(/Malformed JSON/);
+  });
+
+  it('schema violation (missing request) returns 400 with Invalid request body error', async () => {
+    const res = await makeRequest({ url: 'https://api.example.com' }); // missing `request`
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.error).toMatch(/Invalid request body/);
+    expect(json.error).toMatch(/request/i);
+  });
+
   it('invalid URL returns 400', async () => {
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);

@@ -4,39 +4,14 @@ import type { StatusCode } from 'hono/utils/http-status';
 import type { Env } from '../index';
 import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { validateURL } from '@shared/protocol/url-validation';
-import type { Fetcher, ProtocolAuthConfig } from '@shared/protocol/types';
-import type { FormField, BodyType } from '@shared/protocol/body-builder';
+import type { Fetcher } from '@shared/protocol/types';
+import {
+  ProxyRequestBodySchema,
+  type ProxyRequestBody,
+  type UpstreamProxyConfig,
+} from '@shared/protocol/proxy-schema';
 import { httpsViaConnectProxy, httpViaProxy } from '../shared/tcp-proxy';
-
-interface UpstreamProxyConfig {
-  host: string;
-  port: number;
-  auth?: { username: string; password: string };
-}
-
-interface ProxyRequestBody {
-  method: string;
-  url: string;
-  headers?: Record<string, string>;
-  params?: Record<string, string>;
-  bodyType?: BodyType;
-  data?: string;
-  formData?: FormField[];
-  timeout?: number;
-  upstreamProxy?: UpstreamProxyConfig;
-  /**
-   * Sign-at-wire auth (currently AWS SigV4). Forwarded to executeHttpProxy so
-   * the signature covers the exact bytes this worker sends to the upstream.
-   * Renderer-side `applyAuthHeaders` no longer signs SigV4 — it passes the
-   * auth config through to us instead.
-   */
-  auth?: ProtocolAuthConfig;
-  /**
-   * Forces the streaming pass-through path even when the Accept header doesn't
-   * advertise a known streaming content type. Useful for raw byte streams.
-   */
-  streamingMode?: boolean;
-}
+import { parseJsonBody } from '../shared/validate-body';
 
 const STREAMING_ACCEPT_TYPES = [
   'text/event-stream',
@@ -107,13 +82,11 @@ function buildFetcher(
 export async function proxy(c: Context<{ Bindings: Env }>) {
   const isDev = c.env.ENVIRONMENT === 'development';
 
-  let body: ProxyRequestBody;
-  try {
-    body = await c.req.json<ProxyRequestBody>();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return c.json({ error: `Proxy error: ${message}` }, 500);
+  const parsed = await parseJsonBody(c.req.raw, ProxyRequestBodySchema);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error }, parsed.status);
   }
+  const body: ProxyRequestBody = parsed.value;
 
   if (isStreamingRequest(body)) {
     const streamingResult = await executeHttpProxyStreaming(

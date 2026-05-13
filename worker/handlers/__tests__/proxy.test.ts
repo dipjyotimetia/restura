@@ -54,6 +54,29 @@ describe('proxy handler', () => {
     expect(res.status).toBe(400);
   });
 
+  it('malformed JSON body returns 400 with Malformed JSON error', async () => {
+    const res = await app.request(
+      '/proxy',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{not json',
+      },
+      {},
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.error).toMatch(/Malformed JSON/);
+  });
+
+  it('schema violation (missing required field) returns 400 with Invalid request body error', async () => {
+    const res = await makeRequest({ url: 'https://example.com/api' }); // missing method
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.error).toMatch(/Invalid request body/);
+    expect(json.error).toMatch(/method/i);
+  });
+
   it('private IP 192.168.1.1 is blocked and returns 400 with Invalid URL error', async () => {
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
