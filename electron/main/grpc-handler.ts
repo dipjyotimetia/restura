@@ -35,6 +35,11 @@ const getGrpcTempDir = () => {
 
 const GRPC_TEMP_BASE = getGrpcTempDir();
 
+// Belt-and-braces guard: even though GrpcRequestConfigSchema constrains `id`,
+// re-validate at the path.join site to prevent proto-write path traversal in
+// case schema constraints are loosened in the future.
+const SAFE_GRPC_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
 interface GrpcResponse {
   status: number;
   statusText: string;
@@ -272,7 +277,7 @@ function buildMetadata(map: Record<string, string> = {}): grpc.Metadata {
 }
 
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
-  const requestId = config.id || uuidv4();
+  const requestId = config.id && SAFE_GRPC_ID_RE.test(config.id) ? config.id : uuidv4();
   const tempDir = path.join(GRPC_TEMP_BASE, requestId);
   fs.mkdirSync(tempDir, { recursive: true });
 
@@ -401,7 +406,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     'grpc:start-stream',
     createValidatedListener('grpc:start-stream', GrpcRequestConfigSchema, (event, config: GrpcRequestConfig) => {
       const requestId = config.id;
-      if (!requestId) return;
+      if (!requestId || !SAFE_GRPC_ID_RE.test(requestId)) return;
 
       if (!grpcRateLimiter.check(event.sender.id)) {
         event.sender.send(`grpc:error:${requestId}`, {

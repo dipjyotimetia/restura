@@ -73,7 +73,11 @@ export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
 // ===========================
 
 export const GrpcRequestConfigSchema = z.object({
-  id: z.string().optional(),
+  id: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/, 'id must be alphanumeric with dashes/underscores')
+    .max(64, 'id too long')
+    .optional(),
   url: z.string().url('Invalid gRPC URL'),
   service: z.string().min(1, 'Service name is required'),
   method: z.string().min(1, 'Method name is required'),

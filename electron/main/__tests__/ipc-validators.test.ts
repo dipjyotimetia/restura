@@ -92,6 +92,54 @@ describe('validateIpcInput', () => {
   });
 });
 
+describe('GrpcRequestConfigSchema.id', () => {
+  const base = {
+    url: 'https://api.example.com',
+    service: 'foo.Bar',
+    method: 'Baz',
+    methodType: 'unary' as const,
+    metadata: {},
+    message: {},
+    protoContent: 'syntax = "proto3"; service Bar { rpc Baz (Empty) returns (Empty); } message Empty {}',
+    protoFileName: 'bar.proto',
+  };
+
+  it('rejects path-traversal id', () => {
+    const result = GrpcRequestConfigSchema.safeParse({ ...base, id: '../../etc/passwd' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects id with slashes', () => {
+    const result = GrpcRequestConfigSchema.safeParse({ ...base, id: 'foo/bar' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects id with backslashes', () => {
+    const result = GrpcRequestConfigSchema.safeParse({ ...base, id: 'foo\\bar' });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts UUID-shaped id', () => {
+    const result = GrpcRequestConfigSchema.safeParse({ ...base, id: '550e8400-e29b-41d4-a716-446655440000' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts alphanumeric id', () => {
+    const result = GrpcRequestConfigSchema.safeParse({ ...base, id: 'req_123_abc' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts omitted id', () => {
+    const result = GrpcRequestConfigSchema.safeParse(base);
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects id longer than 64 chars', () => {
+    const result = GrpcRequestConfigSchema.safeParse({ ...base, id: 'a'.repeat(65) });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('GrpcRequestConfigSchema — streaming method types', () => {
   const validGrpc = {
     url: 'https://grpc.example.com',
