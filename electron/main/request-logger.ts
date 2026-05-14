@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import { z } from 'zod';
 import { LogHistoryLimitSchema, validateIpcInput } from './ipc-validators';
 
 export interface LogEntry {
@@ -12,6 +13,22 @@ export interface LogEntry {
   protocol: 'http' | 'grpc';
   error?: string;
 }
+
+/**
+ * Minimal Zod schema mirroring LogEntry. We validate on read because the
+ * .jsonl file can be appended to by older app versions, partially flushed
+ * after a crash, or hand-edited — a bad line should be skipped, not crash
+ * the renderer's request-history view.
+ */
+const LogEntrySchema = z.object({
+  ts: z.number(),
+  method: z.string(),
+  url: z.string(),
+  status: z.number(),
+  durationMs: z.number(),
+  protocol: z.enum(['http', 'grpc']),
+  error: z.string().optional(),
+});
 
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
 let logFilePath: string | null = null;
@@ -50,7 +67,23 @@ export function registerRequestLoggerIPC(): void {
       const content = fs.readFileSync(filePath, 'utf8');
       const lines = content.trim().split('\n').filter(Boolean);
       const n = limit ?? 100;
-      return lines.slice(-n).map((line) => JSON.parse(line) as LogEntry);
+      const entries: LogEntry[] = [];
+      for (const line of lines.slice(-n)) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch (err) {
+          console.warn('[request-logger] skipping unparseable log line:', err);
+          continue;
+        }
+        const result = LogEntrySchema.safeParse(parsed);
+        if (!result.success) {
+          console.warn('[request-logger] skipping invalid log entry:', result.error.issues);
+          continue;
+        }
+        entries.push(result.data);
+      }
+      return entries;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
       return [];

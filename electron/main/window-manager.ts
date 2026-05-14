@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { z } from 'zod';
 import { createApplicationMenu } from './menu';
 import { SAFE_OPEN_PROTOCOLS } from './ipc-validators';
 import { bindLimiterToWebContents } from './rate-limiter-cleanup';
@@ -19,6 +20,20 @@ export interface WindowState {
   isMaximized: boolean;
 }
 
+/**
+ * Zod schema mirroring WindowState. Validated on load so that a corrupted
+ * window-state.json (partial flush after crash, hand-edit, version skew)
+ * cannot poison BrowserWindow construction with the wrong types — we just
+ * fall back to defaults.
+ */
+const WindowStateSchema = z.object({
+  width: z.number(),
+  height: z.number(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  isMaximized: z.boolean(),
+});
+
 const defaultWindowState: WindowState = {
   width: 1400,
   height: 900,
@@ -34,7 +49,19 @@ export function loadWindowState(): WindowState {
     const statePath = getWindowStatePath();
     if (fs.existsSync(statePath)) {
       const data = fs.readFileSync(statePath, 'utf-8');
-      return { ...defaultWindowState, ...JSON.parse(data) };
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(data);
+      } catch (err) {
+        console.error('[window-manager] window-state JSON parse failed:', err);
+        return defaultWindowState;
+      }
+      const result = WindowStateSchema.safeParse(parsed);
+      if (!result.success) {
+        console.error('[window-manager] window-state schema validation failed:', result.error.issues);
+        return defaultWindowState;
+      }
+      return { ...defaultWindowState, ...result.data };
     }
   } catch {
     console.error('Failed to load window state');

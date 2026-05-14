@@ -142,8 +142,17 @@ export function createDexieStorage<T = unknown>(
           }
         }
 
-        // Parse and return
-        return JSON.parse(jsonString) as StorageValue<T>;
+        // Parse and return — guard against corrupted/partial writes that would
+        // otherwise throw and surface as an unhandled rejection in the
+        // persist middleware. Treat parse failure as "no record".
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(jsonString);
+        } catch (err) {
+          console.error(`[dexie-storage] rehydration JSON parse failed for ${name}:`, err);
+          return null;
+        }
+        return parsed as StorageValue<T>;
       } catch (error) {
         console.error(`Failed to get item ${name} from Dexie:`, error);
         return null;
