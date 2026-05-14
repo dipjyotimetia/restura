@@ -3,14 +3,14 @@
 import { useCallback } from 'react';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveRequest, useActiveResponse } from '@/store/selectors';
-import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import { executeRequest, executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
+import { executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
 import { isElectron } from '@/lib/shared/platform';
 import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
+import { useRequestRunner } from '@/features/registry/useRequestRunner';
 
 interface UseHttpRequestReturn {
   request: HttpRequest | null;
@@ -38,9 +38,9 @@ export function useHttpRequest(): UseHttpRequestReturn {
   const isLoading = useRequestStore((s) => s.isLoading);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
 
-  const { addHistoryItem } = useHistoryStore();
   const { resolveVariables, getActiveEnvironment } = useEnvironmentStore();
   const { settings: globalSettings } = useSettingsStore();
+  const { run: runViaRegistry } = useRequestRunner();
 
   const updateRequest = useCallback(
     (updates: Partial<HttpRequest>) => {
@@ -144,20 +144,11 @@ export function useHttpRequest(): UseHttpRequestReturn {
     useRequestStore.getState().clearStreamingEvents();
 
     try {
-      // Get current environment variables
-      const envVars: Record<string, string> = {};
-      const activeEnv = getActiveEnvironment();
-      if (activeEnv) {
-        activeEnv.variables
-          .filter((v) => v.enabled)
-          .forEach((v) => {
-            envVars[v.key] = v.value;
-          });
-      }
-
       // Detect streaming Accept and dispatch through the streaming pipeline.
       // Electron's IPC path doesn't yet support streaming response bodies, so
-      // fall through to the buffered executor on desktop.
+      // fall through to the registry-backed buffered runner on desktop. The
+      // registry doesn't model AsyncIterable streams yet (Task 4.x), so the
+      // streaming branch keeps its bespoke executor for now.
       const headersRecord: Record<string, string> = {};
       httpRequest.headers
         .filter((h) => h.enabled && h.key)
@@ -166,6 +157,20 @@ export function useHttpRequest(): UseHttpRequestReturn {
         });
 
       if (isStreamingAccept(headersRecord) && !isElectron()) {
+        // Streaming path needs raw envVars + the global resolver. Build them
+        // here rather than inside the runner because the registry contract
+        // surfaces only a flat variables map; the streaming executor still
+        // wants the full {{var}} resolver to stay consistent with the rest
+        // of the app.
+        const envVars: Record<string, string> = {};
+        const activeEnv = getActiveEnvironment();
+        if (activeEnv) {
+          activeEnv.variables
+            .filter((v) => v.enabled)
+            .forEach((v) => {
+              envVars[v.key] = v.value;
+            });
+        }
         const { events } = await executeStreamingRequest({
           request: httpRequest,
           envVars,
@@ -182,17 +187,14 @@ export function useHttpRequest(): UseHttpRequestReturn {
         return;
       }
 
-      const result = await executeRequest({
-        request: httpRequest,
-        envVars,
-        globalSettings,
-        resolveVariables,
-      });
+      // Non-streaming path: delegate to the registry-backed runner. It
+      // handles env extraction, executor invocation, history persistence,
+      // and (via ctx.onScriptResult) pushes pre-request + test script
+      // results into the active tab so the Console panel updates.
+      const { response } = await runViaRegistry(httpRequest, 'http');
 
-      setScriptResult(result.scriptResult || {});
-      setCurrentResponse(result.response);
-      addHistoryItem(httpRequest, result.response);
-      announceRequestComplete(result.response.status, result.response.time);
+      setCurrentResponse(response);
+      announceRequestComplete(response.status, response.time);
     } catch (error: unknown) {
       // Error handling is mostly done in executeRequest but if it throws, we catch here
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
@@ -208,8 +210,11 @@ export function useHttpRequest(): UseHttpRequestReturn {
     setScriptResult,
     resolveVariables,
     setCurrentResponse,
-    addHistoryItem,
     globalSettings,
+    runViaRegistry,
+    announceRequestSent,
+    announceRequestComplete,
+    announceRequestFailed,
   ]);
 
   return {

@@ -1,9 +1,22 @@
 import type { ComponentType } from 'react';
-import type { Request, Response, RequestType } from '@/types';
+import type { Request, Response, RequestType, ScriptResult } from '@/types';
+
+export interface ProtocolScriptResult {
+  preRequest?: ScriptResult;
+  test?: ScriptResult;
+}
 
 export interface RunContext {
   signal: AbortSignal;
   variables: Record<string, string>;
+  /**
+   * Optional sink for pre-request / test script results produced by the
+   * protocol. Protocols that run user scripts call this once per run so the
+   * caller (typically `useRequestRunner`) can forward results to the
+   * Console panel via `useRequestStore.setScriptResult`. Protocols without
+   * a script pipeline may omit the call entirely.
+   */
+  onScriptResult?: (result: ProtocolScriptResult) => void;
 }
 
 export interface ProtocolModule {

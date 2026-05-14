@@ -66,6 +66,12 @@ export const httpProtocol: ProtocolModule = {
       globalSettings,
       resolveVariables: (text) => defaultResolveVariables(text, variables),
     });
+    // Forward script results (pre-request + test) to the runner so the
+    // Console panel sees logs/tests. `executeRequest` runs both scripts
+    // inline today; this is the registry-side seam that exposes them.
+    if (ctx.onScriptResult && result.scriptResult) {
+      ctx.onScriptResult(result.scriptResult);
+    }
     return result.response;
   },
 };

@@ -2,26 +2,38 @@
  * useRequestRunner — protocol-agnostic request execution hook.
  *
  * Centralizes the `script -> resolve variables -> execute -> history -> test`
- * pipeline that each Builder currently re-implements (see
- * `useHttpRequest.ts`, `GrpcRequestBuilder.tsx`, etc). Builders look up a
+ * pipeline that each Builder used to re-implement. Builders look up a
  * `ProtocolModule` by id from the registry and invoke `run()` here; the hook
- * handles AbortController lifecycle, environment variable extraction, and
- * history persistence.
+ * handles AbortController lifecycle, environment variable extraction,
+ * history persistence, and (Task 4.4) forwarding script results from the
+ * protocol to the active tab so the Console panel renders pre-request and
+ * test script logs.
  *
- * This is the skeleton introduced by Task 4.3. Pre-request and test script
- * execution are TODOs that Task 4.4 will wire when migrating HTTP through
- * this hook (the QuickJS executor in `scripts/lib/scriptExecutor.ts` has its
- * own context shape that needs adapting per-protocol).
+ * Protocols opt into the script-result side-channel by calling
+ * `ctx.onScriptResult(...)` from inside their `runRequest`. The HTTP
+ * executor runs both scripts inline today (see `requestExecutor.ts`), so
+ * the HTTP protocol simply passes the executor's `scriptResult` through.
+ * Protocols that don't have a script pipeline may omit the call entirely.
  */
 import { useCallback, useRef } from 'react';
 import { protocolRegistry } from './registry';
+import type { ProtocolScriptResult } from './types';
 import type { Request, Response } from '@/types';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useRequestStore } from '@/store/useRequestStore';
 
 export interface RunResult {
   response: Response;
   durationMs: number;
+  /**
+   * Pre-request and test script results produced by the protocol, if any.
+   * Mirrors `useRequestStore.setScriptResult`'s payload — the runner has
+   * already forwarded these to the active tab, this field exists so
+   * Builders can react to them (e.g. early-exit on test failure) without
+   * subscribing to the store.
+   */
+  scriptResult?: ProtocolScriptResult;
 }
 
 export function useRequestRunner() {
@@ -53,15 +65,24 @@ export function useRequestRunner() {
         }
       }
 
-      // FIXME(4.4): wire pre-request scripts through scripts/lib/scriptExecutor.
-      // The existing executors (e.g. http/lib/requestExecutor) run pre-request
-      // scripts inline; once we migrate them through this hook we need to lift
-      // that invocation here so every protocol benefits.
+      // Capture script results emitted by the protocol so we can both push
+      // them to the active tab (so the Console panel updates) AND surface
+      // them on `RunResult` for callers that want to react synchronously.
+      let collectedScripts: ProtocolScriptResult | undefined;
+      const onScriptResult = (result: ProtocolScriptResult) => {
+        collectedScripts = result;
+        // Push to the store immediately so Console/Tests panels render as
+        // soon as scripts finish — even if the caller never inspects
+        // `RunResult.scriptResult`. Mirrors the inline pipeline that
+        // useHttpRequest used to drive directly.
+        useRequestStore.getState().setScriptResult(result);
+      };
 
       const startedAt = performance.now();
       const response = await protocol.runRequest(request, {
         signal: ctrl.signal,
         variables,
+        onScriptResult,
       });
       const durationMs = performance.now() - startedAt;
 
@@ -69,17 +90,17 @@ export function useRequestRunner() {
       // (autoSaveHistory / maxHistoryItems) internally — no need to re-check.
       useHistoryStore.getState().addHistoryItem(request, response);
 
-      // FIXME(4.4): wire test scripts + setScriptResult similarly. The test
-      // script needs the response, env vars, and a way to push results back
-      // into useRequestStore.setScriptResult for the active tab.
-
       // Clear the abort ref only if this run is still the latest one — a
       // newer run() call would have already replaced it.
       if (abortRef.current === ctrl) {
         abortRef.current = null;
       }
 
-      return { response, durationMs };
+      const result: RunResult = { response, durationMs };
+      if (collectedScripts) {
+        result.scriptResult = collectedScripts;
+      }
+      return result;
     },
     []
   );
