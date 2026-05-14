@@ -13,6 +13,8 @@
 import { protocolRegistry } from './registry';
 import { httpProtocol } from '@/features/http/protocol';
 import { grpcProtocol } from '@/features/grpc/protocol';
+import { graphqlProtocol } from '@/features/graphql/protocol';
 
 protocolRegistry.register(httpProtocol);
 protocolRegistry.register(grpcProtocol);
+protocolRegistry.register(graphqlProtocol);
