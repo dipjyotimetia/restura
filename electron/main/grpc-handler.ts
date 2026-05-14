@@ -74,6 +74,61 @@ function estimateSize(obj: unknown): number {
   }
 }
 
+/**
+ * Minimal shape for streaming gRPC call objects. Used to narrow the
+ * `unknown` returned by {@link invokeGrpcMethod} before binding event
+ * listeners.
+ */
+type GrpcCall = {
+  on: (event: string, listener: (...args: unknown[]) => void) => GrpcCall;
+  cancel?: () => void;
+  end?: () => void;
+  write?: (message: unknown) => void;
+};
+
+/**
+ * Dynamically invoke a gRPC client method by name.
+ *
+ * gRPC client method names come from reflection or proto definitions, so
+ * they are not statically typed. Previously each call site cast the client
+ * to `Record<string, (...args: unknown[]) => unknown>` and indexed into
+ * it — which silently invokes `undefined` if the method does not exist,
+ * causing the renderer to hang on a never-resolving IPC promise.
+ *
+ * This helper centralises the dynamic lookup and throws clearly when the
+ * method is missing or not callable. The return type is `unknown` because
+ * different gRPC method types return different concrete shapes (unary call,
+ * readable stream, writable stream, duplex stream); callers narrow with a
+ * type guard before binding event listeners.
+ */
+export function invokeGrpcMethod(
+  client: grpc.Client,
+  method: string,
+  args: unknown[]
+): unknown {
+  const fn = (client as unknown as Record<string, unknown>)[method];
+  if (typeof fn !== 'function') {
+    throw new Error(`gRPC client has no method "${method}"`);
+  }
+  return (fn as (...a: unknown[]) => unknown).apply(client, args);
+}
+
+/**
+ * Type guard for the streaming-call shape returned by
+ * {@link invokeGrpcMethod} for streaming method types. Throws if the
+ * value does not look like a streaming call so callers do not silently
+ * swallow programming errors.
+ */
+function assertGrpcCall(call: unknown, method: string): asserts call is GrpcCall {
+  if (
+    typeof call !== 'object' ||
+    call === null ||
+    typeof (call as { on?: unknown }).on !== 'function'
+  ) {
+    throw new Error(`gRPC method "${method}" did not return a streaming call object`);
+  }
+}
+
 // Type guard for gRPC/Connect errors
 interface GrpcError {
   name?: string;
@@ -293,11 +348,11 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     if (config.methodType === 'unary') {
       try {
         const response = await new Promise<unknown>((resolve, reject) => {
-          const call = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+          const call = invokeGrpcMethod(grpcClient, method, [
             config.message,
             metadata,
-            (err: grpc.ServiceError | null, res: unknown) => { if (err) reject(err); else resolve(res); }
-          ) as grpc.ClientUnaryCall;
+            (err: grpc.ServiceError | null, res: unknown) => { if (err) reject(err); else resolve(res); },
+          ]) as grpc.ClientUnaryCall;
           call.on('metadata', (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap()));
           call.on('status', (st: grpc.StatusObject) => Object.assign(capturedTrailers, st.metadata.getMap()));
         });
@@ -320,10 +375,9 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       let accumulatedSize = 0;
       try {
         await new Promise<void>((resolve, reject) => {
-          const call = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
-            config.message,
-            metadata
-          ) as grpc.ClientReadableStream<unknown>;
+          const callRaw = invokeGrpcMethod(grpcClient, method, [config.message, metadata]);
+          assertGrpcCall(callRaw, method);
+          const call = callRaw as grpc.ClientReadableStream<unknown>;
           call.on('metadata', (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap()));
           call.on('data', (msg: unknown) => {
             accumulatedSize += estimateSize(msg);
@@ -491,9 +545,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       };
 
       if (config.methodType === 'server-streaming') {
-        const ssCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
-          config.message, metadata
-        ) as grpc.ClientReadableStream<unknown>;
+        const ssCallRaw = invokeGrpcMethod(grpcClient, method, [config.message, metadata]);
+        assertGrpcCall(ssCallRaw, method);
+        const ssCall = ssCallRaw as grpc.ClientReadableStream<unknown>;
         ssCall.on('data', handleData);
         ssCall.on('error', handleError);
         ssCall.on('end', handleEnd);
@@ -514,7 +568,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
 
       } else if (config.methodType === 'client-streaming') {
-        const csCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+        const csCall = invokeGrpcMethod(grpcClient, method, [
           metadata,
           (err: grpc.ServiceError | null, res: unknown) => {
             if (err) {
@@ -523,8 +577,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               handleData(res);
               handleEnd();
             }
-          }
-        ) as grpc.ClientWritableStream<unknown>;
+          },
+        ]) as grpc.ClientWritableStream<unknown>;
 
         const csAdded = addActiveCall(requestId, {
           cancel: () => csCall.cancel(),
@@ -547,9 +601,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
 
       } else if (config.methodType === 'bidirectional-streaming') {
-        const bidiCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
-          metadata
-        ) as grpc.ClientDuplexStream<unknown, unknown>;
+        const bidiCallRaw = invokeGrpcMethod(grpcClient, method, [metadata]);
+        assertGrpcCall(bidiCallRaw, method);
+        const bidiCall = bidiCallRaw as grpc.ClientDuplexStream<unknown, unknown>;
         bidiCall.on('data', handleData);
         bidiCall.on('error', handleError);
         bidiCall.on('end', handleEnd);
