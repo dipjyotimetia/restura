@@ -102,6 +102,7 @@ describe('fs-writer', () => {
 
     // Reloading preserves all three names (order may vary; just count).
     const reloaded = await loadCollectionFromDir(tmp);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this discriminated-union map (Item is folder|request)
     const names = (reloaded.items ?? []).map((it: any) => it.info.name);
     expect(names.length).toBe(3);
     expect(names).toEqual(expect.arrayContaining(['User', 'User !', 'User?']));

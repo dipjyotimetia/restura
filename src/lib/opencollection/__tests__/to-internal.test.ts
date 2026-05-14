@@ -11,6 +11,7 @@ describe('ocToInternal', () => {
     const item = collection.items[0]!;
     expect(item.type).toBe('request');
     expect(item.request?.type).toBe('http');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this discriminated-union access to HttpRequest
     expect((item.request as any).method).toBe('GET');
   });
 
@@ -33,7 +34,9 @@ describe('ocToInternal', () => {
   it('preserves OpenCollection passthrough on each item via _oc bag', async () => {
     const oc = await loadCollectionFromFile('tests/fixtures/opencollection/simple-http.yaml');
     const collection = ocToInternal(oc);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this _oc passthrough access (untyped extension bag)
     expect((collection.items[0] as any)._oc).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this _oc passthrough access (untyped extension bag)
     expect((collection as any)._oc).toBeDefined();
   });
 
