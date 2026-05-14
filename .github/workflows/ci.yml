@@ -42,6 +42,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Verify generated opencollection types are up-to-date
+        run: npm run verify:opencollection-types
+
       - name: Security audit
         run: npm audit --audit-level=critical
 
