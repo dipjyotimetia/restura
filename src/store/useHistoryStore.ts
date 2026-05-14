@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { HistoryItem, Request, Response } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
+import { useSettingsStore } from './useSettingsStore';
 
 interface HistoryState {
   history: HistoryItem[];
@@ -27,7 +28,9 @@ interface HistoryState {
   getRecentGrpcMethods: (limit?: number) => Array<{ service: string; method: string; timestamp: number }>;
 }
 
-const MAX_HISTORY_ITEMS = 100;
+// Fallback cap for when settings have no value (e.g. pre-migration persisted
+// state). Live cap is read from useSettingsStore.settings.maxHistoryItems.
+const DEFAULT_MAX_HISTORY_ITEMS = 100;
 const DEFAULT_PAGE_SIZE = 20;
 
 export const useHistoryStore = create<HistoryState>()(
@@ -39,6 +42,18 @@ export const useHistoryStore = create<HistoryState>()(
 
       addHistoryItem: (request, response) =>
         set((state) => {
+          // Honour user preferences. Cross-store read is intentional — this
+          // action is invoked imperatively from request executors, not from
+          // React render code, so there is no subscription concern.
+          const { settings } = useSettingsStore.getState();
+          if (settings.autoSaveHistory === false) {
+            return state;
+          }
+          const cap = Math.max(
+            1,
+            settings.maxHistoryItems ?? DEFAULT_MAX_HISTORY_ITEMS
+          );
+
           const newItem: HistoryItem = {
             id: `history-${Date.now()}`,
             request,
@@ -46,14 +61,9 @@ export const useHistoryStore = create<HistoryState>()(
             timestamp: Date.now(),
           };
 
-          const updatedHistory = [newItem, ...state.history];
-
-          // Keep only the latest MAX_HISTORY_ITEMS
-          if (updatedHistory.length > MAX_HISTORY_ITEMS) {
-            updatedHistory.splice(MAX_HISTORY_ITEMS);
-          }
-
-          return { history: updatedHistory };
+          return {
+            history: [newItem, ...state.history].slice(0, cap),
+          };
         }),
 
       removeHistoryItem: (id) =>
