@@ -12,7 +12,7 @@ import axios, { isAxiosError } from 'axios';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { toast } from 'sonner';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
-import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
+import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
 
 export function useHttpRequestPage() {
   const httpRequest = useActiveRequest('http');

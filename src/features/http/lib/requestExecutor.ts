@@ -9,7 +9,7 @@ import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from '@/
 import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/features/http/lib/proxyHelper';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
-import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
+import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
 import { applyAuth } from '@shared/protocol/auth-signer';
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { readStreamingResponse, type StreamEvent } from '@/features/http/lib/streamingResponseReader';
