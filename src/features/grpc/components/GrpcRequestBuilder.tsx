@@ -11,6 +11,7 @@ import type {
   AuthConfig as AuthConfigType,
   GrpcMethodType,
   GrpcRequest,
+  GrpcResponse,
   ProtoFileInfo,
 } from '@/types';
 import { Send, AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
@@ -21,15 +22,13 @@ import {
   getMethodTypeDescription,
   GrpcClientError,
   buildAuthMetadata,
-  makeElectronGrpcRequest,
-  makeProxyGrpcRequest,
   startElectronGrpcStream,
   validateGrpcUrl,
   validateServiceName,
   createErrorResponse,
 } from '@/features/grpc/lib/grpcClient';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { isElectron } from '@/lib/shared/platform';
+import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import {
   GrpcReflectionClient,
   generateRequestTemplate,
@@ -73,7 +72,8 @@ function GrpcRequestBuilder() {
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const isLoading = useRequestStore((s) => s.isLoading);
   const { addHistoryItem } = useHistoryStore();
-  const { resolveVariables, getActiveEnvironment, updateVariable } = useEnvironmentStore();
+  const { resolveVariables } = useEnvironmentStore();
+  const { run: runViaRegistry } = useRequestRunner();
   const [activeTab, setActiveTab] = useState('message');
   const [protoFile, setProtoFile] = useState<File | null>(null);
   const [protoInfo, setProtoInfo] = useState<ProtoFileInfo | null>(null);
@@ -395,31 +395,6 @@ function GrpcRequestBuilder() {
     setScriptResult(null);
     const startTime = Date.now();
 
-    // Build env vars snapshot for script execution
-    const activeEnv = getActiveEnvironment();
-    const envVars: Record<string, string> = {};
-    if (activeEnv) {
-      activeEnv.variables.filter((v) => v.enabled).forEach((v) => { envVars[v.key] = v.value; });
-    }
-
-    // Pre-request script
-    let preRequestResult;
-    if (grpcRequest.preRequestScript?.trim()) {
-      const executor = new ScriptExecutor(envVars, {});
-      preRequestResult = await executor.executeScript(grpcRequest.preRequestScript, {
-        request: { url: grpcRequest.url, method: grpcRequest.methodType, headers: {}, body: grpcRequest.message },
-      });
-      if (preRequestResult.variables) {
-        Object.assign(envVars, preRequestResult.variables);
-        if (activeEnv) {
-          Object.entries(preRequestResult.variables).forEach(([key, value]) => {
-            const variable = activeEnv.variables.find((v) => v.key === key);
-            if (variable) updateVariable(activeEnv.id, variable.id, { value });
-          });
-        }
-      }
-    }
-
     try {
       let protoContent: string;
       let protoFileName: string;
@@ -441,6 +416,9 @@ function GrpcRequestBuilder() {
       setResolvedProto({ content: protoContent, fileName: protoFileName });
 
       if (grpcRequest.methodType !== 'unary') {
+        // Streaming paths stay on the bespoke Electron IPC stream — the
+        // registry runner doesn't model long-lived streams yet
+        // (TODO(registry-streaming) on grpcProtocol).
         if (!isElectron()) {
           toast.error('Streaming gRPC requires the desktop app', {
             description: 'Unary requests are supported in the browser via the proxy.',
@@ -479,54 +457,55 @@ function GrpcRequestBuilder() {
         return;
       }
 
-      const executeUnary = () =>
-        isElectron()
-          ? makeElectronGrpcRequest(grpcRequest, protoContent, protoFileName, resolveVariables, timeoutMs, useCompression)
-          : makeProxyGrpcRequest(grpcRequest, resolveVariables, timeoutMs);
+      // Unary path: route through the registry runner. The gRPC protocol
+      // module handles transport selection (Electron vs proxy), pre/test
+      // scripts, and history persistence — Electron requires proto bytes
+      // via protocolOptions which the proxy ignores.
+      const protocolOptions = {
+        protoContent,
+        protoFileName,
+        timeoutMs,
+        useCompression,
+      };
 
-      let response = await executeUnary();
+      const runOnce = () =>
+        runViaRegistry(grpcRequest, 'grpc', { protocolOptions });
 
-      // Retry on non-OK status (status !== 0) if retry policy configured
-      for (let attempt = 2; attempt <= retryMaxAttempts && response.grpcStatus !== 0; attempt++) {
+      let { response, scriptResult } = await runOnce();
+      let grpcResponse = response as GrpcResponse;
+
+      // Retry on non-OK status if retry policy configured. We bypass the
+      // runner's history hook on retry attempts by re-running the full
+      // pipeline — addHistoryItem dedups on (request,response) timestamp
+      // so each attempt shows up. Mirrors the previous inline behavior.
+      for (
+        let attempt = 2;
+        attempt <= retryMaxAttempts && grpcResponse.grpcStatus !== 0;
+        attempt++
+      ) {
         if (retryDelayMs > 0) {
           await new Promise((r) => setTimeout(r, retryDelayMs));
         }
         toast.info(`Retrying... (attempt ${attempt}/${retryMaxAttempts})`);
-        response = await executeUnary();
+        ({ response, scriptResult } = await runOnce());
+        grpcResponse = response as GrpcResponse;
       }
 
-      setCurrentResponse(response);
-      addHistoryItem(grpcRequest, response);
+      setCurrentResponse(grpcResponse);
+      // The runner already pushed scriptResult into the active tab via
+      // ctx.onScriptResult — no additional setScriptResult call needed.
+      void scriptResult;
 
-      // Test script
-      let testResult;
-      if (grpcRequest.testScript?.trim()) {
-        const executor = new ScriptExecutor(envVars, {});
-        testResult = await executor.executeScript(grpcRequest.testScript, {
-          request: { url: grpcRequest.url, method: grpcRequest.methodType, headers: {}, body: grpcRequest.message },
-          response: {
-            status: response.grpcStatus ?? 0,
-            statusText: response.grpcStatusText ?? '',
-            headers: {},
-            body: response.body,
-            time: response.time,
-            size: response.size,
-          },
-        });
-      }
-
-      setScriptResult({ preRequest: preRequestResult, test: testResult });
-
-      if (response.grpcStatus === 0) {
+      if (grpcResponse.grpcStatus === 0) {
         toast.success('Request completed', {
           description: `${grpcRequest.methodType} call to ${grpcRequest.service}/${grpcRequest.method}`,
         });
-        if (response.messages) {
-          setStreamingMessages(response.messages);
+        if (grpcResponse.messages) {
+          setStreamingMessages(grpcResponse.messages);
         }
       } else {
-        toast.error(`gRPC Error: ${response.grpcStatus}`, {
-          description: response.grpcStatusText || 'Unknown error',
+        toast.error(`gRPC Error: ${grpcResponse.grpcStatus}`, {
+          description: grpcResponse.grpcStatusText || 'Unknown error',
         });
       }
     } catch (error: unknown) {

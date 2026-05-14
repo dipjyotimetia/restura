@@ -26,6 +26,14 @@ export interface RunContext {
    * a script pipeline may omit the call entirely.
    */
   onScriptResult?: (result: ProtocolScriptResult) => void;
+  /**
+   * Per-protocol options that don't fit on the `Request` shape itself —
+   * e.g. gRPC's transient proto content, or future cert overrides. Each
+   * protocol defines its own keys; cross-protocol callers ignore unknown
+   * entries. Intentionally untyped (`unknown`) so additions don't ripple
+   * through the registry — the protocol module narrows internally.
+   */
+  protocolOptions?: Record<string, unknown>;
 }
 
 export interface ProtocolModule {

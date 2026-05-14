@@ -36,11 +36,25 @@ export interface RunResult {
   scriptResult?: ProtocolScriptResult;
 }
 
+export interface RunOptions {
+  /**
+   * Per-protocol options forwarded to `ProtocolModule.runRequest` via
+   * `RunContext.protocolOptions`. Used by gRPC for transient proto content
+   * (which doesn't live on the Request shape) and reserved for future
+   * protocol extensions. Cross-protocol callers can omit it.
+   */
+  protocolOptions?: Record<string, unknown>;
+}
+
 export function useRequestRunner() {
   const abortRef = useRef<AbortController | null>(null);
 
   const run = useCallback(
-    async (request: Request, protocolId: string): Promise<RunResult> => {
+    async (
+      request: Request,
+      protocolId: string,
+      options?: RunOptions
+    ): Promise<RunResult> => {
       const protocol = protocolRegistry.get(protocolId);
       if (!protocol) {
         throw new Error(`Unknown protocol: ${protocolId}`);
@@ -83,6 +97,9 @@ export function useRequestRunner() {
         signal: ctrl.signal,
         variables,
         onScriptResult,
+        ...(options?.protocolOptions
+          ? { protocolOptions: options.protocolOptions }
+          : {}),
       });
       const durationMs = performance.now() - startedAt;
 
