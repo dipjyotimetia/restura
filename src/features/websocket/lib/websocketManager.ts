@@ -1,4 +1,4 @@
-import { useWebSocketStore } from '@/store/useWebSocketStore';
+import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 
 // Singleton manager for WebSocket connections

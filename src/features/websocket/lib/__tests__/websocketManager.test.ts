@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { websocketManager } from '../websocketManager';
-import { useWebSocketStore } from '@/store/useWebSocketStore';
+import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 
 // Mock WebSocket
 class MockWebSocket {
