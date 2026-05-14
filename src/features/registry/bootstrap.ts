@@ -14,7 +14,9 @@ import { protocolRegistry } from './registry';
 import { httpProtocol } from '@/features/http/protocol';
 import { grpcProtocol } from '@/features/grpc/protocol';
 import { graphqlProtocol } from '@/features/graphql/protocol';
+import { mcpProtocol } from '@/features/mcp/protocol';
 
 protocolRegistry.register(httpProtocol);
 protocolRegistry.register(grpcProtocol);
 protocolRegistry.register(graphqlProtocol);
+protocolRegistry.register(mcpProtocol);
