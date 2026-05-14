@@ -16,9 +16,11 @@ import { grpcProtocol } from '@/features/grpc/protocol';
 import { graphqlProtocol } from '@/features/graphql/protocol';
 import { mcpProtocol } from '@/features/mcp/protocol';
 import { sseProtocol } from '@/features/sse/protocol';
+import { websocketProtocol } from '@/features/websocket/protocol';
 
 protocolRegistry.register(httpProtocol);
 protocolRegistry.register(grpcProtocol);
 protocolRegistry.register(graphqlProtocol);
 protocolRegistry.register(mcpProtocol);
 protocolRegistry.register(sseProtocol);
+protocolRegistry.register(websocketProtocol);
