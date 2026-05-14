@@ -107,16 +107,17 @@ export function createConsoleEntry(
   scriptLogs?: ConsoleLog[],
   tests?: ConsoleTest[]
 ): Omit<ConsoleEntry, 'id'> {
+  const body = request.body.type !== 'none' ? request.body.raw : undefined;
   return {
     timestamp: Date.now(),
     request: {
       method: request.method,
       url: request.url,
       headers: sentHeaders,
-      body: request.body.type !== 'none' ? request.body.raw : undefined,
+      ...(body !== undefined && { body }),
     },
     response,
-    scriptLogs,
-    tests,
+    ...(scriptLogs !== undefined && { scriptLogs }),
+    ...(tests !== undefined && { tests }),
   };
 }

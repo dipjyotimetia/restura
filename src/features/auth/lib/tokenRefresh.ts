@@ -17,19 +17,22 @@ export async function refreshOAuth2Auth(auth: AuthConfig, nowMs = Date.now()): P
   const o = auth.oauth2!;
   const res = await fetchRefreshToken({
     clientId: o.clientId!,
-    clientSecret: o.clientSecret,
     tokenUrl: o.tokenUrl!,
     refreshToken: o.refreshToken!,
-    scope: o.scope,
+    ...(o.clientSecret !== undefined && { clientSecret: o.clientSecret }),
+    ...(o.scope !== undefined && { scope: o.scope }),
   });
+  const tokenType = res.token_type ?? o.tokenType;
+  const refreshToken = res.refresh_token ?? o.refreshToken;
+  const expiresAt = tokenExpiresAt(nowMs, res.expires_in) ?? o.expiresAt;
   return {
     ...auth,
     oauth2: {
       ...o,
       accessToken: res.access_token,
-      tokenType: res.token_type ?? o.tokenType,
-      refreshToken: res.refresh_token ?? o.refreshToken,
-      expiresAt: tokenExpiresAt(nowMs, res.expires_in) ?? o.expiresAt,
+      ...(tokenType !== undefined && { tokenType }),
+      ...(refreshToken !== undefined && { refreshToken }),
+      ...(expiresAt !== undefined && { expiresAt }),
     },
   };
 }

@@ -131,7 +131,7 @@ class ScriptExecutor {
   }
 
   private addTest(name: string, passed: boolean, error?: string) {
-    this.tests.push({ name, passed, error });
+    this.tests.push({ name, passed, ...(error !== undefined && { error }) });
     if (passed) {
       this.addLog('info', `✓ ${name}`);
     } else {
@@ -580,7 +580,6 @@ class ScriptExecutor {
         logs: this.logs,
         errors: this.errors,
         variables: { ...this.envVars },
-        tests: undefined,
       };
     }
 
@@ -592,7 +591,6 @@ class ScriptExecutor {
         logs: this.logs,
         errors: this.errors,
         variables: { ...this.envVars },
-        tests: undefined,
       };
     }
 
@@ -658,7 +656,7 @@ class ScriptExecutor {
         logs: this.logs,
         errors: this.errors,
         variables: { ...this.envVars },
-        tests: this.tests.length > 0 ? this.tests : undefined,
+        ...(this.tests.length > 0 && { tests: this.tests }),
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -674,7 +672,7 @@ class ScriptExecutor {
         logs: this.logs,
         errors: this.errors,
         variables: { ...this.envVars },
-        tests: this.tests.length > 0 ? this.tests : undefined,
+        ...(this.tests.length > 0 && { tests: this.tests }),
       };
     }
   }

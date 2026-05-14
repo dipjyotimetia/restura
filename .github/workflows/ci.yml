@@ -33,6 +33,9 @@ jobs:
           npm run type-check
           npx tsc --noEmit -p electron/tsconfig.json
 
+      - name: Type-check (HTTP feature, exactOptionalPropertyTypes pilot)
+        run: npx tsc --noEmit -p src/features/http/tsconfig.json
+
       - name: Type-check (worker)
         run: npx tsc --noEmit -p worker/tsconfig.json
 

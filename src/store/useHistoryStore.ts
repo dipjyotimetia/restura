@@ -57,7 +57,7 @@ export const useHistoryStore = create<HistoryState>()(
           const newItem: HistoryItem = {
             id: `history-${Date.now()}`,
             request,
-            response,
+            ...(response !== undefined && { response }),
             timestamp: Date.now(),
           };
 

@@ -34,7 +34,11 @@ export default function RequestSettingsEditor({
 
   const handleCertOverrideToggle = (enabled: boolean) => {
     if (!enabled) {
-      onSettingsChange({ clientCert: undefined });
+      // EOPT(maintainability): callers interpret an explicit `undefined` as a
+      // "clear this key" signal — Partial<T> doesn't model that under EOPT.
+      // Cast to unknown then back so the intent is preserved without widening
+      // the public type.
+      onSettingsChange({ clientCert: undefined } as unknown as Partial<RequestSettings>);
     } else {
       onSettingsChange({ clientCert: { format: settings?.clientCert?.format ?? 'pfx' } });
     }
@@ -224,7 +228,12 @@ export default function RequestSettingsEditor({
             {settings?.clientCert && (
               <CertificateOverride
                 clientCert={settings.clientCert}
-                onCertChange={(cert) => onSettingsChange({ clientCert: cert })}
+                onCertChange={(cert) =>
+                  // EOPT(maintainability): cert can be undefined to clear the
+                  // override; Partial<T> can't model that under EOPT, so we
+                  // assert through unknown to preserve the existing contract.
+                  onSettingsChange({ clientCert: cert } as Partial<RequestSettings>)
+                }
               />
             )}
           </div>

@@ -87,11 +87,12 @@ function parseVariableDefinition(def: string): GraphQLVariable | null {
   const type = typeStr.trim();
   const isRequired = type.endsWith('!');
 
+  const trimmedDefault = defaultValue?.trim();
   return {
     name,
     type,
     isRequired,
-    defaultValue: defaultValue?.trim(),
+    ...(trimmedDefault !== undefined && { defaultValue: trimmedDefault }),
   };
 }
 

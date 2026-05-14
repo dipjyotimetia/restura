@@ -46,17 +46,19 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
     setDeviceCodeInfo(null);
 
     try {
+      // EOPT: build the config without undefined-valued keys so it matches the
+      // OAuth2FlowConfig contract under exactOptionalPropertyTypes.
       const config = {
         grantType: o.grantType,
         clientId: o.clientId,
-        clientSecret: o.clientSecret,
         tokenUrl: o.tokenUrl,
-        authorizationUrl: o.authorizationUrl,
-        deviceAuthorizationUrl: o.deviceAuthorizationUrl,
-        redirectUri: o.redirectUri,
-        scope: o.scope,
-        username: o.username,
-        password: o.password,
+        ...(o.clientSecret !== undefined && { clientSecret: o.clientSecret }),
+        ...(o.authorizationUrl !== undefined && { authorizationUrl: o.authorizationUrl }),
+        ...(o.deviceAuthorizationUrl !== undefined && { deviceAuthorizationUrl: o.deviceAuthorizationUrl }),
+        ...(o.redirectUri !== undefined && { redirectUri: o.redirectUri }),
+        ...(o.scope !== undefined && { scope: o.scope }),
+        ...(o.username !== undefined && { username: o.username }),
+        ...(o.password !== undefined && { password: o.password }),
       };
 
       let token: string;
@@ -92,7 +94,14 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         return;
       }
 
-      onChange({ ...auth, oauth2: { ...auth.oauth2!, accessToken: token, tokenType } });
+      onChange({
+        ...auth,
+        oauth2: {
+          ...auth.oauth2!,
+          accessToken: token,
+          ...(tokenType !== undefined && { tokenType }),
+        },
+      });
     } catch (err) {
       setTokenError(err instanceof Error ? err.message : 'Failed to get token');
     } finally {

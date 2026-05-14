@@ -24,12 +24,12 @@ interface SettingsState {
   setCaCert: (ca: CaCert | undefined) => void;
 }
 
+// EOPT: omit optional fields rather than initialising them to undefined.
 const defaultProxyConfig: ProxyConfig = {
   enabled: false,
   type: 'http',
   host: '',
   port: 8080,
-  auth: undefined,
   bypassList: ['localhost', '127.0.0.1', '::1'],
 };
 
@@ -54,9 +54,7 @@ const defaultSettings: AppSettings = {
   allowPrivateIPs: false,
   // CORS proxy settings for web mode
   corsProxy: defaultCorsProxyConfig,
-  // Certificate settings
-  clientCert: undefined,
-  caCert: undefined,
+  // clientCert and caCert intentionally omitted (optional under EOPT)
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -100,15 +98,17 @@ export const useSettingsStore = create<SettingsState>()(
         })),
 
       clearProxyAuth: () =>
-        set((state) => ({
-          settings: {
-            ...state.settings,
-            proxy: {
-              ...state.settings.proxy,
-              auth: undefined,
+        set((state) => {
+          // EOPT: omit `auth` instead of setting it to undefined.
+          const { auth: _omit, ...rest } = state.settings.proxy;
+          void _omit;
+          return {
+            settings: {
+              ...state.settings,
+              proxy: rest,
             },
-          },
-        })),
+          };
+        }),
 
       addBypassHost: (host) =>
         set((state) => {
@@ -157,10 +157,24 @@ export const useSettingsStore = create<SettingsState>()(
         })),
 
       setClientCert: (cert) =>
-        set((s) => ({ settings: { ...s.settings, clientCert: cert } })),
+        set((s) => {
+          // EOPT: omit `clientCert` when clearing rather than setting undefined.
+          const { clientCert: _omit, ...rest } = s.settings;
+          void _omit;
+          return {
+            settings: cert === undefined ? rest : { ...rest, clientCert: cert },
+          };
+        }),
 
       setCaCert: (ca) =>
-        set((s) => ({ settings: { ...s.settings, caCert: ca } })),
+        set((s) => {
+          // EOPT: omit `caCert` when clearing rather than setting undefined.
+          const { caCert: _omit, ...rest } = s.settings;
+          void _omit;
+          return {
+            settings: ca === undefined ? rest : { ...rest, caCert: ca },
+          };
+        }),
     }),
     {
       name: 'app-settings-storage',

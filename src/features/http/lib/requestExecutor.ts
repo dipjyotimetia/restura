@@ -208,10 +208,8 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
           ? {
               host: proxyConfig.host,
               port: proxyConfig.port,
-              auth:
-                proxyConfig.auth?.username
-                  ? proxyConfig.auth
-                  : undefined,
+              // EOPT: only include `auth` when present
+              ...(proxyConfig.auth?.username ? { auth: proxyConfig.auth } : {}),
             }
           : undefined;
 
@@ -287,13 +285,17 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             cookiesToSet.forEach((cookieStr) => {
               const parsedCookie = Cookie.parse(cookieStr);
               if (parsedCookie) {
+                const expires =
+                  parsedCookie.expires === 'Infinity' || !parsedCookie.expires
+                    ? undefined
+                    : parsedCookie.expires.toString();
                 useCookieStore.getState().addCookie({
                   id: uuidv4(),
                   key: parsedCookie.key,
                   value: parsedCookie.value,
                   domain: parsedCookie.domain || new URL(resolvedUrl).hostname,
                   path: parsedCookie.path || '/',
-                  expires: parsedCookie.expires === 'Infinity' || !parsedCookie.expires ? undefined : parsedCookie.expires.toString(),
+                  ...(expires !== undefined && { expires }),
                   secure: parsedCookie.secure,
                   httpOnly: parsedCookie.httpOnly,
                   lastAccessed: new Date().toISOString(),
@@ -439,8 +441,8 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
   const result: RequestExecutionResult = {
     response: responseData,
     scriptResult: {
-      preRequest: preRequestResult,
-      test: testResult,
+      ...(preRequestResult !== undefined && { preRequest: preRequestResult }),
+      ...(testResult !== undefined && { test: testResult }),
     },
     envVars,
     sentHeaders: headers,

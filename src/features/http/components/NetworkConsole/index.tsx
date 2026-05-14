@@ -210,7 +210,7 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
             {activeTab === 'network' ? (
               <NetworkTab />
             ) : (
-              <ScriptsTab logs={scriptLogs} tests={tests} />
+              <ScriptsTab logs={scriptLogs} {...(tests !== undefined && { tests })} />
             )}
           </div>
         )}
