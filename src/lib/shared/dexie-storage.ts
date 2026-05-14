@@ -11,7 +11,7 @@ import {
   generateLocalEncryptionKey,
   isEncrypted,
 } from './encryption';
-import { getKeyProvider } from './keyProvider';
+import { getKeyProvider, type KeyProvider } from './keyProvider';
 
 // Singleton encryption key cache
 let cachedEncryptionKey: string | null = null;
@@ -21,7 +21,8 @@ let cachedEncryptionKey: string | null = null;
  *
  * Selection happens in keyProvider.ts:
  * - Electron -> ElectronSafeStorageKeyProvider (safeStorage-protected IPC)
- * - Web -> EphemeralKeyProvider (Task 4 will swap in WebSessionPassphraseProvider)
+ * - Web -> PlaintextKeyProvider (callers should check provider.isEncrypted()
+ *   first and skip the round-trip entirely when false)
  *
  * Caches the key locally to avoid repeated provider/IPC round-trips.
  */
@@ -38,6 +39,20 @@ async function getEncryptionKey(): Promise<string> {
     const fallback = generateLocalEncryptionKey();
     cachedEncryptionKey = fallback;
     return fallback;
+  }
+}
+
+/**
+ * Returns the active provider, or null on server. Used by setItem/getItem
+ * to short-circuit the encrypt/decrypt path when the provider explicitly
+ * declares it is not encrypting (see PlaintextKeyProvider).
+ */
+function activeKeyProvider(): KeyProvider | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return getKeyProvider();
+  } catch {
+    return null;
   }
 }
 
@@ -142,8 +157,13 @@ export function createDexieStorage<T = unknown>(
         const jsonString = JSON.stringify(value);
         let dataToStore = jsonString;
 
-        // Encrypt if configured
-        if (encrypt) {
+        // Encrypt if configured AND the active provider actually encrypts.
+        // PlaintextKeyProvider returns isEncrypted() === false so we skip
+        // the round-trip and store JSON as-is. The getItem path already
+        // tolerates this because it gates decryption on the "ENC:" prefix
+        // (see encryption.ts isEncrypted()) — plaintext flows through.
+        const provider = activeKeyProvider();
+        if (encrypt && provider?.isEncrypted() !== false) {
           const encryptionKey = await getEncryptionKey();
           dataToStore = await encryptValue(jsonString, encryptionKey);
         }

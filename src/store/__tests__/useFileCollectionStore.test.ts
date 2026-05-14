@@ -35,7 +35,7 @@ describe('useFileCollectionStore persistence', () => {
 
     const fullState = useFileCollectionStore.getState();
     const partialized = opts.partialize ? opts.partialize(fullState) : fullState;
-    const keys = Object.keys(partialized).sort();
+    const keys = Object.keys(partialized as object).sort();
     expect(keys).toEqual(['defaultDirectory', 'fileCollections']);
   });
 });
