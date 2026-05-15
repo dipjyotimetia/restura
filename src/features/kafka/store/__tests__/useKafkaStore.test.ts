@@ -99,6 +99,26 @@ describe('useKafkaStore', () => {
     // validated separately by inspecting the store's `persist` option.
   });
 
+  it('updateStatus(id, "connected") also stamps lastConnectedAt', () => {
+    const id = useKafkaStore.getState().createConnection();
+    expect(useKafkaStore.getState().connections[id]!.lastConnectedAt).toBeUndefined();
+    const before = Date.now();
+    useKafkaStore.getState().updateStatus(id, 'connected');
+    const after = Date.now();
+    const ts = useKafkaStore.getState().connections[id]!.lastConnectedAt;
+    expect(ts).toBeDefined();
+    expect(ts!).toBeGreaterThanOrEqual(before);
+    expect(ts!).toBeLessThanOrEqual(after);
+  });
+
+  it('updateStatus to non-connected leaves lastConnectedAt untouched', () => {
+    const id = useKafkaStore.getState().createConnection();
+    useKafkaStore.getState().updateStatus(id, 'connected');
+    const ts = useKafkaStore.getState().connections[id]!.lastConnectedAt;
+    useKafkaStore.getState().updateStatus(id, 'disconnected');
+    expect(useKafkaStore.getState().connections[id]!.lastConnectedAt).toBe(ts);
+  });
+
   it('updateConsumer merges patches and clears messages independently', () => {
     const id = useKafkaStore.getState().createConnection();
     useKafkaStore.getState().updateConsumer(id, {

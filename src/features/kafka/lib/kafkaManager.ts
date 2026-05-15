@@ -7,6 +7,7 @@ import type {
 } from '@/features/kafka/store/useKafkaStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
 import type { KafkaAuthIpc } from '../../../../electron/types/electron.d';
 
 export function kafkaSecretKey(
@@ -41,20 +42,24 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
     }
     const api = getElectronAPI();
     if (api) {
+      const readPath = (p?: string): Promise<{ success: boolean; content?: string } | null> =>
+        p ? api.fs.readFile(p) : Promise.resolve(null);
+      const [caResult, certResult, keyResult] = await Promise.all([
+        readPath(auth.tls.caPath),
+        readPath(auth.tls.certPath),
+        readPath(auth.tls.keyPath),
+      ]);
       if (auth.tls.caPath) {
-        const r = await api.fs.readFile(auth.tls.caPath);
-        if (!r.success || !r.content) return null;
-        tlsIpc.ca = r.content;
+        if (!caResult?.success || !caResult.content) return null;
+        tlsIpc.ca = caResult.content;
       }
       if (auth.tls.certPath) {
-        const r = await api.fs.readFile(auth.tls.certPath);
-        if (!r.success || !r.content) return null;
-        tlsIpc.cert = r.content;
+        if (!certResult?.success || !certResult.content) return null;
+        tlsIpc.cert = certResult.content;
       }
       if (auth.tls.keyPath) {
-        const r = await api.fs.readFile(auth.tls.keyPath);
-        if (!r.success || !r.content) return null;
-        tlsIpc.key = r.content;
+        if (!keyResult?.success || !keyResult.content) return null;
+        tlsIpc.key = keyResult.content;
       }
     }
     if (auth.tls.passphrase === KAFKA_SECRET_SENTINEL) {
@@ -127,7 +132,6 @@ class KafkaManager {
     }
 
     store.updateStatus(connection.id, 'connected');
-    store.setLastConnectedAt(connection.id, Date.now());
     store.addMessage(connection.id, {
       direction: 'system',
       topic: '',
@@ -245,13 +249,13 @@ class KafkaManager {
     const api = getElectronAPI();
     if (!api?.kafka) return;
 
-    api.kafka.on(`kafka:close:${connectionId}`, () => {
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CLOSE, connectionId), () => {
       const store = useKafkaStore.getState();
       store.updateStatus(connectionId, 'disconnected');
       store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Connection closed' });
     });
 
-    api.kafka.on(`kafka:error:${connectionId}`, (payload: unknown) => {
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId), (payload: unknown) => {
       const err = payload as { scope?: string; message?: string };
       const msg = err.message ?? 'Kafka error';
       useKafkaStore.getState().addMessage(connectionId, {
@@ -262,7 +266,7 @@ class KafkaManager {
       });
     });
 
-    api.kafka.on(`kafka:consumer-closed:${connectionId}`, () => {
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, connectionId), () => {
       const store = useKafkaStore.getState();
       store.updateConsumer(connectionId, { status: 'idle' });
       store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Consumer closed' });
@@ -272,16 +276,16 @@ class KafkaManager {
   private unbindLifecycleListeners(connectionId: string): void {
     const api = getElectronAPI();
     if (!api?.kafka) return;
-    api.kafka.removeAllListeners(`kafka:close:${connectionId}`);
-    api.kafka.removeAllListeners(`kafka:error:${connectionId}`);
-    api.kafka.removeAllListeners(`kafka:consumer-closed:${connectionId}`);
-    api.kafka.removeAllListeners(`kafka:connected:${connectionId}`);
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CLOSE, connectionId));
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId));
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, connectionId));
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId));
   }
 
   private bindMessageListener(connectionId: string): void {
     const api = getElectronAPI();
     if (!api?.kafka) return;
-    api.kafka.on(`kafka:message:${connectionId}`, (payload: unknown) => {
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId), (payload: unknown) => {
       const msg = payload as {
         topic: string;
         partition: number;
@@ -307,7 +311,7 @@ class KafkaManager {
   private unbindMessageListener(connectionId: string): void {
     const api = getElectronAPI();
     if (!api?.kafka) return;
-    api.kafka.removeAllListeners(`kafka:message:${connectionId}`);
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId));
   }
 }
 

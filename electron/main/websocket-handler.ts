@@ -1,6 +1,7 @@
-import { ipcMain, webContents } from 'electron';
+import { ipcMain } from 'electron';
 import WebSocket from 'ws';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
+import { emitTo } from './ipc-utils';
 import {
   WsConnectSchema,
   WsSendSchema,
@@ -27,13 +28,6 @@ const activeConnections = new Map<string, ActiveWebSocket>();
 
 // Maximum message size (1MB)
 const MAX_MESSAGE_SIZE = 1024 * 1024;
-
-function emitTo(webContentsId: number, channel: string, ...args: unknown[]): void {
-  const wc = webContents.fromId(webContentsId);
-  if (wc && !wc.isDestroyed()) {
-    wc.send(channel, ...args);
-  }
-}
 
 export function registerWebSocketHandlerIPC(): void {
   // ws:connect is handled manually (not via createValidatedHandler) so we can capture

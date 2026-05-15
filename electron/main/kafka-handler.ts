@@ -1,4 +1,5 @@
 import { ipcMain, webContents } from 'electron';
+import type { WebContents } from 'electron';
 import {
   Consumer,
   MessagesStreamModes,
@@ -13,6 +14,8 @@ import type {
   ProducerOptions,
 } from '@platformatic/kafka';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
+import { emitTo } from './ipc-utils';
+import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
 import {
   KafkaConnectSchema,
   KafkaProduceSchema,
@@ -38,10 +41,11 @@ interface ActiveKafka {
   producer: StringProducer;
   consumer?: StringConsumer;
   stream?: StringStream;
-  /** Cached client options so a later consumer can reuse auth/TLS/brokers. */
   clientOptions: KafkaClientOptions;
   connectionId: string;
   webContentsId: number;
+  /** Cached at connect — avoids a `webContents.fromId()` lookup per message. */
+  wc?: WebContents;
   createdAt: number;
 }
 
@@ -64,11 +68,14 @@ interface KafkaClientOptions {
 
 const activeConnections = new Map<string, ActiveKafka>();
 
-function emitTo(webContentsId: number, channel: string, ...args: unknown[]): void {
-  const wc = webContents.fromId(webContentsId);
-  if (wc && !wc.isDestroyed()) {
-    wc.send(channel, ...args);
+function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): void {
+  // Prefer the cached WebContents (faster than `webContents.fromId` per call);
+  // fall back to the shared util when the cache is missing or destroyed.
+  if (entry.wc && !entry.wc.isDestroyed()) {
+    entry.wc.send(channel, ...args);
+    return;
   }
+  emitTo(entry.webContentsId, channel, ...args);
 }
 
 function errorMessage(err: unknown): string {
@@ -93,7 +100,6 @@ function buildClientOptions(cfg: KafkaConnectConfig): KafkaClientOptions {
   }
 
   if (useTls) {
-    // Pass-through to Node's TLS layer (see @platformatic/kafka base options).
     const tls = 'tls' in cfg.auth ? cfg.auth.tls : undefined;
     opts.tls = {};
     if (tls?.ca) opts.tls.ca = tls.ca;
@@ -115,10 +121,10 @@ function headersFromMap(map: Map<string, string> | undefined): Record<string, st
   return out;
 }
 
-async function closeConnection(entry: ActiveKafka): Promise<void> {
+async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
   if (entry.stream) {
     try {
-      await (entry.stream.close() as unknown as Promise<void>);
+      await Promise.resolve(entry.stream.close());
     } catch {
       /* ignore */
     }
@@ -126,17 +132,46 @@ async function closeConnection(entry: ActiveKafka): Promise<void> {
   }
   if (entry.consumer) {
     try {
-      await (entry.consumer.close(true) as unknown as Promise<void>);
+      await Promise.resolve(entry.consumer.close(true));
     } catch {
       /* ignore */
     }
     entry.consumer = undefined;
   }
+}
+
+async function closeConnection(entry: ActiveKafka): Promise<void> {
+  await closeConsumerAndStream(entry);
   try {
-    await (entry.producer.close(true) as unknown as Promise<void>);
+    await Promise.resolve(entry.producer.close(true));
   } catch {
     /* ignore */
   }
+}
+
+function bindStreamListeners(entry: ActiveKafka, stream: StringStream): void {
+  stream.on('data', (msg: StringMessage) => {
+    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.MESSAGE, entry.connectionId), {
+      topic: msg.topic,
+      partition: msg.partition,
+      offset: msg.offset.toString(),
+      key: msg.key,
+      value: msg.value,
+      headers: headersFromMap(msg.headers as Map<string, string> | undefined),
+      timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
+    });
+  });
+
+  stream.on('error', (err: Error) => {
+    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.ERROR, entry.connectionId), {
+      scope: 'consumer',
+      message: err.message,
+    });
+  });
+
+  stream.on('close', () => {
+    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, entry.connectionId), {});
+  });
 }
 
 export function registerKafkaHandlerIPC(): void {
@@ -153,7 +188,6 @@ export function registerKafkaHandlerIPC(): void {
       return { success: false, error: 'Too many open Kafka connections.' };
     }
 
-    // Replace any prior connection with the same id
     const existing = activeConnections.get(connectionId);
     if (existing) {
       await closeConnection(existing);
@@ -169,20 +203,31 @@ export function registerKafkaHandlerIPC(): void {
       const producer = new Producer<string, string, string, string>(producerOptions);
 
       // @platformatic/kafka producers connect lazily; auth/TLS/host errors
-      // surface on the first send. We can't reliably eagerly verify because
-      // some brokers reject `metadata({ topics: [] })`. Skip the pre-fetch
-      // and trust the user's first produce to surface failures with a
-      // proper error code.
-
+      // surface on the first send rather than here. Metadata pre-fetch was
+      // tried but some brokers reject `metadata({ topics: [] })`.
+      const wc = webContents.fromId(webContentsId) ?? undefined;
       const entry: ActiveKafka = {
         producer,
         clientOptions,
         connectionId,
         webContentsId,
+        ...(wc ? { wc } : {}),
         createdAt: Date.now(),
       };
       activeConnections.set(connectionId, entry);
-      emitTo(webContentsId, `kafka:connected:${connectionId}`, { timestamp: Date.now() });
+
+      // Tear the connection down if the renderer dies without disconnecting.
+      // Otherwise the producer/consumer keep their broker sockets open until
+      // the Electron process exits — a real leak under hot-reload.
+      wc?.once('destroyed', () => {
+        const e = activeConnections.get(connectionId);
+        if (e === entry) {
+          activeConnections.delete(connectionId);
+          void closeConnection(entry);
+        }
+      });
+
+      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), { timestamp: Date.now() });
       return { success: true };
     } catch (err) {
       return { success: false, error: errorMessage(err) };
@@ -257,9 +302,6 @@ export function registerKafkaHandlerIPC(): void {
         return { success: false, error: 'Already subscribed — unsubscribe first' };
       }
       try {
-        // Bind a new Consumer to the same brokers + auth used by the producer.
-        // @platformatic/kafka requires a separate Consumer instance (it owns
-        // its own connection pool and group lifecycle).
         const consumerOptions = {
           ...entry.clientOptions,
           groupId: cfg.groupId,
@@ -272,29 +314,7 @@ export function registerKafkaHandlerIPC(): void {
           mode: cfg.fromBeginning ? MessagesStreamModes.EARLIEST : MessagesStreamModes.LATEST,
         }) as Promise<StringStream>));
 
-        stream.on('data', (msg: StringMessage) => {
-          emitTo(entry.webContentsId, `kafka:message:${cfg.connectionId}`, {
-            topic: msg.topic,
-            partition: msg.partition,
-            offset: msg.offset.toString(),
-            key: msg.key,
-            value: msg.value,
-            headers: headersFromMap(msg.headers as Map<string, string> | undefined),
-            timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
-          });
-        });
-
-        stream.on('error', (err: Error) => {
-          emitTo(entry.webContentsId, `kafka:error:${cfg.connectionId}`, {
-            scope: 'consumer',
-            message: err.message,
-          });
-        });
-
-        stream.on('close', () => {
-          emitTo(entry.webContentsId, `kafka:consumer-closed:${cfg.connectionId}`, {});
-        });
-
+        bindStreamListeners(entry, stream);
         entry.consumer = consumer;
         entry.stream = stream;
         return { success: true };
@@ -309,14 +329,7 @@ export function registerKafkaHandlerIPC(): void {
     createValidatedHandler('kafka:unsubscribe', KafkaUnsubscribeSchema, async (cfg) => {
       const entry = activeConnections.get(cfg.connectionId);
       if (!entry) return { success: false, error: 'Not connected' };
-      if (entry.stream) {
-        try { await entry.stream.close(); } catch { /* ignore */ }
-        entry.stream = undefined;
-      }
-      if (entry.consumer) {
-        try { await entry.consumer.close(true); } catch { /* ignore */ }
-        entry.consumer = undefined;
-      }
+      await closeConsumerAndStream(entry);
       return { success: true };
     })
   );
@@ -328,7 +341,7 @@ export function registerKafkaHandlerIPC(): void {
       if (entry) {
         await closeConnection(entry);
         activeConnections.delete(cfg.connectionId);
-        emitTo(entry.webContentsId, `kafka:close:${cfg.connectionId}`, {});
+        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CLOSE, cfg.connectionId), {});
       }
       return { success: true };
     })

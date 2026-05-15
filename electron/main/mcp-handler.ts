@@ -1,5 +1,6 @@
-import { ipcMain, webContents } from 'electron';
+import { ipcMain } from 'electron';
 import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
+import { emitTo } from './ipc-utils';
 import {
   McpConnectSchema,
   McpRequestSchema,
@@ -57,11 +58,6 @@ interface HttpSseSession extends SessionBase {
 type Session = StreamableHttpSession | HttpSseSession;
 
 const sessions = new Map<string, Session>();
-
-function emitTo(webContentsId: number, channel: string, ...args: unknown[]): void {
-  const wc = webContents.fromId(webContentsId);
-  if (wc && !wc.isDestroyed()) wc.send(channel, ...args);
-}
 
 function teardownSession(connectionId: string): void {
   const s = sessions.get(connectionId);

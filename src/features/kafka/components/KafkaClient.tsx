@@ -95,9 +95,16 @@ function KafkaClient() {
     setProduceValue('');
   }, [activeConnectionId]);
 
-  const filteredMessages = useMemo(() => {
-    return connection ? getFilteredMessages(connection.id) : [];
-  }, [connection, getFilteredMessages]);
+  // Recompute only when the inputs to the filter actually change. Destructuring
+  // the store with `useKafkaStore()` returns a fresh `getFilteredMessages`
+  // function on every store update, so passing it as a dep would re-run the
+  // filter on every inbound consumer message even when nothing relevant
+  // changed.
+  const filteredMessages = useMemo(
+    () => (connection ? getFilteredMessages(connection.id) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [connection?.messages, messageFilter, searchQuery]
+  );
 
   if (!isDesktop) {
     return <DesktopOnlyPanel />;
@@ -109,27 +116,31 @@ function KafkaClient() {
 
   const handleConnect = async (): Promise<void> => {
     if (!connection) return;
-    // Stash any draft secrets before connect — kafkaManager reads from
-    // secureStorage. Skip if user didn't enter anything new.
-    if (saslPasswordDraft) {
+    // Stash any draft secrets in secureStorage, then compose both auth
+    // mutations into a single updateAuth call. Doing two sequential
+    // updateAuth() calls would leave the second one operating on a stale
+    // `connection.auth` snapshot.
+    let nextAuth = connection.auth;
+    if (saslPasswordDraft && nextAuth.sasl) {
       secureStorage.set(kafkaSecretKey(connection.id, 'sasl-password'), saslPasswordDraft);
-      updateAuth(connection.id, {
-        ...connection.auth,
-        sasl: connection.auth.sasl
-          ? { ...connection.auth.sasl, password: KAFKA_SECRET_SENTINEL }
-          : undefined,
-      });
+      nextAuth = {
+        ...nextAuth,
+        sasl: { ...nextAuth.sasl, password: KAFKA_SECRET_SENTINEL },
+      };
       setSaslPasswordDraft('');
     }
     if (tlsPassphraseDraft) {
       secureStorage.set(kafkaSecretKey(connection.id, 'tls-passphrase'), tlsPassphraseDraft);
-      updateAuth(connection.id, {
-        ...connection.auth,
-        tls: { ...(connection.auth.tls ?? {}), passphrase: KAFKA_SECRET_SENTINEL },
-      });
+      nextAuth = {
+        ...nextAuth,
+        tls: { ...(nextAuth.tls ?? {}), passphrase: KAFKA_SECRET_SENTINEL },
+      };
       setTlsPassphraseDraft('');
     }
-    await kafkaManager.connect(useKafkaStore.getState().connections[connection.id]!);
+    if (nextAuth !== connection.auth) {
+      updateAuth(connection.id, nextAuth);
+    }
+    await kafkaManager.connect({ ...connection, auth: nextAuth });
   };
 
   const handleDisconnect = async (): Promise<void> => {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { capMessages } from '@/lib/shared/message-cap';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
 export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
@@ -101,8 +102,11 @@ interface KafkaState {
   ) => void;
   updateAuth: (id: string, auth: KafkaAuth) => void;
   updateConsumer: (id: string, patch: Partial<KafkaConsumerState>) => void;
+  /**
+   * Setting `status` to `'connected'` also stamps `lastConnectedAt`. Co-locating
+   * the two writes keeps callers from accidentally setting one without the other.
+   */
   updateStatus: (id: string, status: KafkaConnection['status']) => void;
-  setLastConnectedAt: (id: string, ts: number) => void;
 
   // Messages
   addMessage: (connectionId: string, message: Omit<KafkaMessage, 'id' | 'timestamp'> & { timestamp?: number }) => void;
@@ -116,8 +120,6 @@ interface KafkaState {
   getActiveConnection: () => KafkaConnection | null;
   getFilteredMessages: (connectionId: string) => KafkaMessage[];
 }
-
-const MAX_MESSAGES_PER_CONNECTION = 1000;
 
 function makeDefaultConnection(init?: Partial<Pick<KafkaConnection, 'name' | 'bootstrapBrokers' | 'clientId'>>): KafkaConnection {
   const id = uuidv4();
@@ -205,14 +207,11 @@ export const useKafkaStore = create<KafkaState>()(
         set((state) => {
           const conn = state.connections[id];
           if (!conn) return state;
-          return { connections: { ...state.connections, [id]: { ...conn, status } } };
-        }),
-
-      setLastConnectedAt: (id, ts) =>
-        set((state) => {
-          const conn = state.connections[id];
-          if (!conn) return state;
-          return { connections: { ...state.connections, [id]: { ...conn, lastConnectedAt: ts } } };
+          const next: KafkaConnection =
+            status === 'connected'
+              ? { ...conn, status, lastConnectedAt: Date.now() }
+              : { ...conn, status };
+          return { connections: { ...state.connections, [id]: next } };
         }),
 
       addMessage: (connectionId, message) =>
@@ -224,12 +223,11 @@ export const useKafkaStore = create<KafkaState>()(
             id: uuidv4(),
             timestamp: message.timestamp ?? Date.now(),
           };
-          let messages = [...conn.messages, next];
-          if (messages.length > MAX_MESSAGES_PER_CONNECTION) {
-            messages = messages.slice(-MAX_MESSAGES_PER_CONNECTION);
-          }
           return {
-            connections: { ...state.connections, [connectionId]: { ...conn, messages } },
+            connections: {
+              ...state.connections,
+              [connectionId]: { ...conn, messages: capMessages(conn.messages, next) },
+            },
           };
         }),
 
