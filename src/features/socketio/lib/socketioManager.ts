@@ -393,22 +393,25 @@ class SocketIOManager {
       })
       .then((res) => {
         if (!res?.success) {
-          const msg = res?.error ?? 'Connection failed';
-          const s = useSocketIOStore.getState();
-          s.addEvent(connectionId, { direction: 'system', eventName: '<system>', args: [`Failed to connect: ${msg}`] });
-          s.updateConnectionStatus(connectionId, 'disconnected');
-          this.electronConnections.delete(connectionId);
-          this.cleanupElectronListeners(connectionId);
+          this.handleElectronConnectFailure(connectionId, res?.error ?? 'Connection failed');
         }
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : 'Connection failed';
-        const s = useSocketIOStore.getState();
-        s.addEvent(connectionId, { direction: 'system', eventName: '<system>', args: [`Failed to connect: ${msg}`] });
-        s.updateConnectionStatus(connectionId, 'disconnected');
-        this.electronConnections.delete(connectionId);
-        this.cleanupElectronListeners(connectionId);
+        this.handleElectronConnectFailure(connectionId, msg);
       });
+  }
+
+  private handleElectronConnectFailure(connectionId: string, message: string): void {
+    const s = useSocketIOStore.getState();
+    s.addEvent(connectionId, {
+      direction: 'system',
+      eventName: '<system>',
+      args: [`Failed to connect: ${message}`],
+    });
+    s.updateConnectionStatus(connectionId, 'disconnected');
+    this.electronConnections.delete(connectionId);
+    this.cleanupElectronListeners(connectionId);
   }
 
   private cleanupElectronListeners(connectionId: string): void {

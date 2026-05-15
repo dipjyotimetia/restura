@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -142,8 +142,8 @@ function SocketIOClient() {
     };
   }, []);
 
-  // Auto-scroll events to bottom. We depend on the raw events array length plus
-  // filter state so the memo re-runs whenever an event is appended.
+  // Auto-scroll only when the user is already pinned at the bottom — otherwise
+  // appending new events would yank the viewport away while they read older ones.
   const eventsScrollRef = useRef<HTMLDivElement | null>(null);
   const rawEventsLength = connection?.events.length ?? 0;
   const filteredEvents = useMemo(
@@ -152,9 +152,29 @@ function SocketIOClient() {
     [activeConnectionId, getFilteredEvents, rawEventsLength, eventFilter, searchQuery]
   );
   useEffect(() => {
-    if (!eventsScrollRef.current) return;
-    eventsScrollRef.current.scrollTop = eventsScrollRef.current.scrollHeight;
+    const el = eventsScrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 80) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [filteredEvents.length]);
+
+  // Memoised so KeyValueEditor's props are stable across renders and don't
+  // force re-renders when an unrelated piece of state changes upstream.
+  // Defined above the early return because hooks can't be conditional;
+  // the closures fall through to no-ops when activeConnectionId is null,
+  // which only happens during the brief pre-mount window.
+  const kvHandlers = useCallback(
+    (field: 'auth' | 'query' | 'extraHeaders') => ({
+      onAdd: () => activeConnectionId && addKv(activeConnectionId, field),
+      onUpdate: (kvId: string, updates: Parameters<typeof updateKv>[3]) =>
+        activeConnectionId && updateKv(activeConnectionId, field, kvId, updates),
+      onDelete: (kvId: string) =>
+        activeConnectionId && removeKv(activeConnectionId, field, kvId),
+    }),
+    [activeConnectionId, addKv, updateKv, removeKv]
+  );
 
   if (!connection || !activeConnectionId) {
     return (
@@ -220,13 +240,6 @@ function SocketIOClient() {
     if (next.length === 0) return; // can't have zero transports
     updateConnectionField(activeConnectionId, 'transports', next);
   };
-
-  const kvHandlers = (field: 'auth' | 'query' | 'extraHeaders') => ({
-    onAdd: () => addKv(activeConnectionId, field),
-    onUpdate: (kvId: string, updates: Parameters<typeof updateKv>[3]) =>
-      updateKv(activeConnectionId, field, kvId, updates),
-    onDelete: (kvId: string) => removeKv(activeConnectionId, field, kvId),
-  });
 
   return (
     <div className="glass-1 flex h-full flex-1 flex-col gap-3 p-3">
