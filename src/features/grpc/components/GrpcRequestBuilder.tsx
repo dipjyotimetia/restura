@@ -18,15 +18,20 @@ import { Send, AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import {
-  validateMethodName,
   getMethodTypeDescription,
   GrpcClientError,
   buildAuthMetadata,
   startElectronGrpcStream,
-  validateGrpcUrl,
-  validateServiceName,
   createErrorResponse,
 } from '@/features/grpc/lib/grpcClient';
+import {
+  validateGrpcUrl,
+  validateServiceField,
+  validateMethodField,
+  validateGrpcMessage,
+  INITIAL_VALIDATION_STATE,
+  type GrpcValidationState,
+} from '@/features/grpc/lib/grpcValidation';
 import { isElectron } from '@/lib/shared/platform';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import {
@@ -48,21 +53,6 @@ import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 
 const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 
-// Pure utility — defined outside component so validateMessage useCallback captures a stable reference
-function calculateJsonDepth(obj: unknown, currentDepth = 0): number {
-  if (obj === null || typeof obj !== 'object') return currentDepth;
-  const values = Array.isArray(obj) ? obj : Object.values(obj as Record<string, unknown>);
-  if (values.length === 0) return currentDepth + 1;
-  return Math.max(...values.map((value) => calculateJsonDepth(value, currentDepth + 1)));
-}
-
-interface ValidationState {
-  url: { valid: boolean; error?: string };
-  service: { valid: boolean; error?: string };
-  method: { valid: boolean; error?: string };
-  message: { valid: boolean; error?: string };
-}
-
 function GrpcRequestBuilder() {
   const currentRequest = useActiveRequest('grpc');
   const activeTabId = useActiveTab()?.id;
@@ -78,12 +68,7 @@ function GrpcRequestBuilder() {
   const [protoFile, setProtoFile] = useState<File | null>(null);
   const [protoInfo, setProtoInfo] = useState<ProtoFileInfo | null>(null);
   const [resolvedProto, setResolvedProto] = useState<{ content: string; fileName: string } | null>(null);
-  const [validation, setValidation] = useState<ValidationState>({
-    url: { valid: true },
-    service: { valid: true },
-    method: { valid: true },
-    message: { valid: true },
-  });
+  const [validation, setValidation] = useState<GrpcValidationState>(INITIAL_VALIDATION_STATE);
   const [streamingMessages, setStreamingMessages] = useState<string[]>([]);
   const [streamControl, setStreamControl] = useState<{
     sendMessage: (msg: unknown) => void;
@@ -120,65 +105,21 @@ function GrpcRequestBuilder() {
   }, []);
 
   const validateService = useCallback((service: string) => {
-    if (!service) {
-      setValidation((prev) => ({ ...prev, service: { valid: true } }));
-      return true;
-    }
-    const result = validateServiceName(service);
+    const result = validateServiceField(service);
     setValidation((prev) => ({ ...prev, service: result }));
     return result.valid;
   }, []);
 
   const validateMethod = useCallback((method: string) => {
-    if (!method) {
-      setValidation((prev) => ({ ...prev, method: { valid: true } }));
-      return true;
-    }
-    const result = validateMethodName(method);
+    const result = validateMethodField(method);
     setValidation((prev) => ({ ...prev, method: result }));
     return result.valid;
   }, []);
 
   const validateMessage = useCallback((message: string) => {
-    if (!message || message.trim() === '') {
-      setValidation((prev) => ({ ...prev, message: { valid: true } }));
-      return true;
-    }
-    const MAX_SIZE_BYTES = 10 * 1024 * 1024;
-    const sizeBytes = new Blob([message]).size;
-    if (sizeBytes > MAX_SIZE_BYTES) {
-      setValidation((prev) => ({
-        ...prev,
-        message: {
-          valid: false,
-          error: `Message size (${(sizeBytes / 1024 / 1024).toFixed(2)}MB) exceeds maximum allowed size of 10MB`,
-        },
-      }));
-      return false;
-    }
-    try {
-      const parsed = JSON.parse(message);
-      const MAX_DEPTH = 20;
-      const depth = calculateJsonDepth(parsed);
-      if (depth > MAX_DEPTH) {
-        setValidation((prev) => ({
-          ...prev,
-          message: {
-            valid: false,
-            error: `JSON depth (${depth}) exceeds maximum allowed depth of ${MAX_DEPTH} levels`,
-          },
-        }));
-        return false;
-      }
-      setValidation((prev) => ({ ...prev, message: { valid: true } }));
-      return true;
-    } catch {
-      setValidation((prev) => ({
-        ...prev,
-        message: { valid: false, error: 'Invalid JSON format' },
-      }));
-      return false;
-    }
+    const result = validateGrpcMessage(message);
+    setValidation((prev) => ({ ...prev, message: result }));
+    return result.valid;
   }, []);
 
   const handleSelectReflectionService = useCallback((service: ReflectionServiceInfo) => {
