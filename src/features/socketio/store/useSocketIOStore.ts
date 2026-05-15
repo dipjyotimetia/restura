@@ -169,7 +169,7 @@ export const useSocketIOStore = create<SocketIOState>()(
       updateConnectionStatus: (id, status) =>
         set((state) => {
           const c = state.connections[id];
-          if (!c) return state;
+          if (!c || c.status === status) return state;
           return {
             connections: { ...state.connections, [id]: { ...c, status } },
           };
@@ -178,7 +178,7 @@ export const useSocketIOStore = create<SocketIOState>()(
       updateConnectionField: (id, field, value) =>
         set((state) => {
           const c = state.connections[id];
-          if (!c) return state;
+          if (!c || c[field] === value) return state;
           return {
             connections: { ...state.connections, [id]: { ...c, [field]: value } },
           };
@@ -187,7 +187,7 @@ export const useSocketIOStore = create<SocketIOState>()(
       setReconnectAttemptCount: (id, n) =>
         set((state) => {
           const c = state.connections[id];
-          if (!c) return state;
+          if (!c || c.reconnectAttemptCount === n) return state;
           return {
             connections: { ...state.connections, [id]: { ...c, reconnectAttemptCount: n } },
           };

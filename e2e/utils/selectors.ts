@@ -5,6 +5,7 @@ export const modes = {
   graphql: 'Switch to GraphQL mode',
   grpc: 'Switch to gRPC mode',
   ws: 'Switch to WS mode',
+  socketio: 'Switch to Socket.IO mode',
   sse: 'Switch to SSE mode',
   mcp: 'Switch to MCP mode',
 } as const;

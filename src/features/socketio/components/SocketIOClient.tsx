@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import {
   useSocketIOStore,
@@ -24,15 +26,11 @@ import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { isElectron } from '@/lib/shared/platform';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { cn } from '@/lib/shared/utils';
-import type { KeyValue } from '@/types';
 import {
   Send,
-  Plus,
   Trash2,
   Search,
   Download,
-  Eye,
-  EyeOff,
   AlertTriangle,
   RotateCw,
 } from 'lucide-react';
@@ -79,11 +77,15 @@ function parseEmitArgs(input: string): { ok: true; args: unknown[] } | { ok: fal
 }
 
 function SocketIOClient() {
+  // Subscribe with useShallow so a high-frequency server doesn't re-render the
+  // whole tree on every event arrival across unrelated connections.
+  const activeConnectionId = useSocketIOStore((s) => s.activeConnectionId);
+  const connection = useSocketIOStore((s) =>
+    s.activeConnectionId ? s.connections[s.activeConnectionId] ?? null : null
+  );
+  const eventFilter = useSocketIOStore((s) => s.eventFilter);
+  const searchQuery = useSocketIOStore((s) => s.searchQuery);
   const {
-    activeConnectionId,
-    connections,
-    eventFilter,
-    searchQuery,
     createConnection,
     updateConnectionField,
     addKv,
@@ -96,7 +98,22 @@ function SocketIOClient() {
     setEventFilter,
     setSearchQuery,
     getFilteredEvents,
-  } = useSocketIOStore();
+  } = useSocketIOStore(
+    useShallow((s) => ({
+      createConnection: s.createConnection,
+      updateConnectionField: s.updateConnectionField,
+      addKv: s.addKv,
+      updateKv: s.updateKv,
+      removeKv: s.removeKv,
+      addSubscribedEvent: s.addSubscribedEvent,
+      removeSubscribedEvent: s.removeSubscribedEvent,
+      addEvent: s.addEvent,
+      clearEvents: s.clearEvents,
+      setEventFilter: s.setEventFilter,
+      setSearchQuery: s.setSearchQuery,
+      getFilteredEvents: s.getFilteredEvents,
+    }))
+  );
 
   const { resolveVariables } = useEnvironmentStore();
 
@@ -106,9 +123,6 @@ function SocketIOClient() {
   const [emitArgsText, setEmitArgsText] = useState('"hello"');
   const [emitError, setEmitError] = useState<string | null>(null);
   const [subscribeInput, setSubscribeInput] = useState('');
-  const [showSecrets, setShowSecrets] = useState(false);
-
-  const connection = activeConnectionId ? connections[activeConnectionId] : null;
 
   // Ensure a connection always exists
   useEffect(() => {
@@ -131,11 +145,11 @@ function SocketIOClient() {
   // Auto-scroll events to bottom. We depend on the raw events array length plus
   // filter state so the memo re-runs whenever an event is appended.
   const eventsScrollRef = useRef<HTMLDivElement | null>(null);
-  const rawEvents = activeConnectionId ? connections[activeConnectionId]?.events ?? [] : [];
+  const rawEventsLength = connection?.events.length ?? 0;
   const filteredEvents = useMemo(
     () => (activeConnectionId ? getFilteredEvents(activeConnectionId) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- rawEvents.length drives re-memo on append
-    [activeConnectionId, getFilteredEvents, rawEvents.length, eventFilter, searchQuery]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rawEventsLength drives re-memo on append
+    [activeConnectionId, getFilteredEvents, rawEventsLength, eventFilter, searchQuery]
   );
   useEffect(() => {
     if (!eventsScrollRef.current) return;
@@ -207,63 +221,12 @@ function SocketIOClient() {
     updateConnectionField(activeConnectionId, 'transports', next);
   };
 
-  const renderKvList = (
-    field: 'auth' | 'query' | 'extraHeaders',
-    items: KeyValue[],
-    secretCapable = false
-  ) => (
-    <div className="space-y-2">
-      {items.length === 0 && (
-        <p className="text-xs text-muted-foreground italic">No entries — click "Add" to create one.</p>
-      )}
-      {items.map((kv) => (
-        <div key={kv.id} className="flex items-center gap-2">
-          <Switch
-            checked={kv.enabled}
-            onCheckedChange={(enabled) => updateKv(activeConnectionId, field, kv.id, { enabled })}
-            aria-label={`Enable ${kv.key || 'entry'}`}
-          />
-          <Input
-            value={kv.key}
-            placeholder="key"
-            className="h-8"
-            onChange={(e) => updateKv(activeConnectionId, field, kv.id, { key: e.target.value })}
-          />
-          <Input
-            value={kv.value}
-            type={secretCapable && !showSecrets ? 'password' : 'text'}
-            placeholder="value"
-            className="h-8"
-            onChange={(e) => updateKv(activeConnectionId, field, kv.id, { value: e.target.value })}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => removeKv(activeConnectionId, field, kv.id)}
-            aria-label="Remove entry"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ))}
-      <div className="flex items-center justify-between">
-        <Button variant="outline" size="sm" onClick={() => addKv(activeConnectionId, field)}>
-          <Plus className="h-4 w-4 mr-1" /> Add
-        </Button>
-        {secretCapable && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowSecrets((s) => !s)}
-            aria-label={showSecrets ? 'Hide values' : 'Show values'}
-          >
-            {showSecrets ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            <span className="ml-1 text-xs">{showSecrets ? 'Hide' : 'Show'}</span>
-          </Button>
-        )}
-      </div>
-    </div>
-  );
+  const kvHandlers = (field: 'auth' | 'query' | 'extraHeaders') => ({
+    onAdd: () => addKv(activeConnectionId, field),
+    onUpdate: (kvId: string, updates: Parameters<typeof updateKv>[3]) =>
+      updateKv(activeConnectionId, field, kvId, updates),
+    onDelete: (kvId: string) => removeKv(activeConnectionId, field, kvId),
+  });
 
   return (
     <div className="glass-1 flex h-full flex-1 flex-col gap-3 p-3">
@@ -491,14 +454,29 @@ function SocketIOClient() {
               <p className="mb-2 text-xs text-muted-foreground">
                 Sent in the Socket.IO handshake as the <code>auth</code> payload.
               </p>
-              {renderKvList('auth', connection.auth, true)}
+              <KeyValueEditor
+                items={connection.auth}
+                {...kvHandlers('auth')}
+                keyPlaceholder="key"
+                valuePlaceholder="value"
+                addButtonText="Add auth param"
+                itemType="auth param"
+                enableSecrets
+              />
             </TabsContent>
 
             <TabsContent value="query" className="glass-2 rounded-md p-3">
               <p className="mb-2 text-xs text-muted-foreground">
                 Appended to the handshake URL as <code>?key=value</code>.
               </p>
-              {renderKvList('query', connection.query)}
+              <KeyValueEditor
+                items={connection.query}
+                {...kvHandlers('query')}
+                keyPlaceholder="key"
+                valuePlaceholder="value"
+                addButtonText="Add query param"
+                itemType="query param"
+              />
             </TabsContent>
 
             <TabsContent value="headers" className="glass-2 rounded-md p-3">
@@ -506,7 +484,14 @@ function SocketIOClient() {
                 Extra request headers for the handshake. Browser builds only honour these on the
                 <code> polling</code> transport.
               </p>
-              {renderKvList('extraHeaders', connection.extraHeaders)}
+              <KeyValueEditor
+                items={connection.extraHeaders}
+                {...kvHandlers('extraHeaders')}
+                keyPlaceholder="header"
+                valuePlaceholder="value"
+                addButtonText="Add header"
+                itemType="header"
+              />
             </TabsContent>
 
             <TabsContent value="options" className="glass-2 space-y-3 rounded-md p-3">

@@ -1,3 +1,15 @@
+/**
+ * Restura echo Worker — controlled upstream for cross-cutting integration tests.
+ *
+ * Hosts: HTTP, GraphQL, SSE, plain WebSocket, gRPC-Web/Connect.
+ *
+ * Does NOT host Socket.IO. Socket.IO has a stateful handshake / polling-to-
+ * WebSocket upgrade lifecycle that depends on Node `http.Server` and per-client
+ * server-side state — neither maps cleanly to Cloudflare Workers without
+ * effectively re-implementing the Engine.IO adapter inside a Durable Object.
+ * The Socket.IO e2e fixture lives in `e2e/mocks/socketioServer.ts` (Node) and
+ * is wired into `e2e/fixtures/servers.ts` alongside the other mock servers.
+ */
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { upgradeWebSocket } from 'hono/cloudflare-workers';

@@ -9,6 +9,7 @@ import {
   validateIpcInput,
   createValidatedHandler,
 } from './ipc-validators';
+import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 
 export const socketIoRateLimiter = createKeyedRateLimiter(20, 60_000);
 
@@ -98,39 +99,34 @@ export function registerSocketIoHandlerIPC(): void {
       };
 
       socket.on('connect', () => {
-        emitTo(webContentsId, `socketio:open:${connectionId}`, { socketId: socket.id });
+        emitTo(webContentsId, socketioChannels.open(connectionId), { socketId: socket.id });
       });
 
       socket.on('disconnect', (reason: string) => {
         if (!entry.explicitlyClosed) {
-          emitTo(webContentsId, `socketio:close:${connectionId}`, { reason });
+          emitTo(webContentsId, socketioChannels.close(connectionId), { reason });
         }
       });
 
       socket.on('connect_error', (err: Error) => {
-        emitTo(webContentsId, `socketio:error:${connectionId}`, { message: err.message });
+        emitTo(webContentsId, socketioChannels.error(connectionId), { message: err.message });
       });
 
       const manager = socket.io;
       manager.on('reconnect_attempt', (attempt: number) => {
-        emitTo(webContentsId, `socketio:reconnect_attempt:${connectionId}`, { attempt });
+        emitTo(webContentsId, socketioChannels.reconnectAttempt(connectionId), { attempt });
       });
       manager.on('reconnect', (attempt: number) => {
-        emitTo(webContentsId, `socketio:reconnect:${connectionId}`, { attempt });
+        emitTo(webContentsId, socketioChannels.reconnect(connectionId), { attempt });
       });
       manager.on('reconnect_failed', () => {
-        emitTo(webContentsId, `socketio:reconnect_failed:${connectionId}`);
+        emitTo(webContentsId, socketioChannels.reconnectFailed(connectionId));
       });
 
-      // Catch-all forwarder for application-level events. Filters out the
-      // reserved Socket.IO lifecycle events we already handle above.
-      const RESERVED = new Set([
-        'connect', 'disconnect', 'connect_error',
-        'reconnect', 'reconnect_attempt', 'reconnect_error', 'reconnect_failed',
-      ]);
+      // Forwards application events; lifecycle events above already cover SOCKETIO_RESERVED_EVENTS.
       socket.onAny((eventName: string, ...args: unknown[]) => {
-        if (RESERVED.has(eventName)) return;
-        emitTo(webContentsId, `socketio:event:${connectionId}`, { eventName, args });
+        if (SOCKETIO_RESERVED_EVENTS.has(eventName)) return;
+        emitTo(webContentsId, socketioChannels.event(connectionId), { eventName, args });
       });
 
       activeConnections.set(connectionId, entry);
@@ -162,7 +158,7 @@ export function registerSocketIoHandlerIPC(): void {
 
           const timeoutHandle = setTimeout(() => {
             entry.pendingAcks.delete(ackId);
-            emitTo(webContentsId, `socketio:ack:${entry.connectionId}`, {
+            emitTo(webContentsId, socketioChannels.ack(entry.connectionId), {
               ackId,
               error: 'timeout',
             });
@@ -174,7 +170,7 @@ export function registerSocketIoHandlerIPC(): void {
             if (handle === undefined) return; // already timed out
             clearTimeout(handle);
             entry.pendingAcks.delete(ackId);
-            emitTo(webContentsId, `socketio:ack:${entry.connectionId}`, {
+            emitTo(webContentsId, socketioChannels.ack(entry.connectionId), {
               ackId,
               args: ackArgs,
             });

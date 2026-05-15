@@ -1,7 +1,10 @@
 import { io as ioClient, type Socket } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import { useSocketIOStore, type SocketIOConnection, type SocketIOTransport } from '@/features/socketio/store/useSocketIOStore';
+import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { useSocketIOStore, type SocketIOTransport } from '@/features/socketio/store/useSocketIOStore';
+import { buildSocketIOConnectUrl, validateSocketIOUrl } from '@/features/socketio/lib/url-helpers';
+import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 
 interface ConnectConfig {
   url: string;
@@ -23,40 +26,6 @@ interface PendingAck {
   timer: ReturnType<typeof setTimeout>;
 }
 
-function buildConnectUrl(rawUrl: string, namespace: string): string {
-  if (!namespace || namespace === '/' || namespace === '') return rawUrl;
-  try {
-    const u = new URL(rawUrl);
-    const origin = `${u.protocol}//${u.host}`;
-    const ns = namespace.startsWith('/') ? namespace : `/${namespace}`;
-    return `${origin}${ns}`;
-  } catch {
-    return rawUrl;
-  }
-}
-
-function kvToRecord(kvs: SocketIOConnection['auth']): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const kv of kvs) {
-    if (!kv.enabled || !kv.key) continue;
-    out[kv.key] = kv.value;
-  }
-  return out;
-}
-
-function validateUrl(url: string): { valid: boolean; error?: string } {
-  if (!url || !url.trim()) return { valid: false, error: 'URL is required' };
-  try {
-    const parsed = new URL(url);
-    if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
-      return { valid: false, error: `Invalid protocol "${parsed.protocol}". Use http(s):// or ws(s)://` };
-    }
-    return { valid: true };
-  } catch {
-    return { valid: false, error: 'Invalid URL format' };
-  }
-}
-
 class SocketIOManager {
   private browserSockets = new Map<string, Socket>();
   private electronConnections = new Set<string>();
@@ -68,10 +37,9 @@ class SocketIOManager {
     const connection = store.connections[connectionId];
     if (!connection) return;
 
-    // Tear down any existing handle for this id
     this.disconnect(connectionId);
 
-    const v = validateUrl(connection.url);
+    const v = validateSocketIOUrl(connection.url);
     if (!v.valid) {
       store.addEvent(connectionId, {
         direction: 'system',
@@ -86,9 +54,9 @@ class SocketIOManager {
       url: connection.url,
       namespace: connection.namespace || '/',
       path: connection.path || '/socket.io',
-      auth: kvToRecord(connection.auth),
-      query: kvToRecord(connection.query),
-      extraHeaders: kvToRecord(connection.extraHeaders),
+      auth: keyValuePairsToRecord(connection.auth),
+      query: keyValuePairsToRecord(connection.query),
+      extraHeaders: keyValuePairsToRecord(connection.extraHeaders),
       transports: connection.transports.length > 0 ? connection.transports : ['websocket', 'polling'],
       reconnection: connection.autoReconnect,
       reconnectionAttempts: connection.reconnectionAttempts,
@@ -218,7 +186,7 @@ class SocketIOManager {
 
   private connectViaBrowser(connectionId: string, config: ConnectConfig): void {
     const store = useSocketIOStore.getState();
-    const url = buildConnectUrl(config.url, config.namespace);
+    const url = buildSocketIOConnectUrl(config.url, config.namespace);
 
     let socket: Socket;
     try {
@@ -296,12 +264,8 @@ class SocketIOManager {
       });
     });
 
-    const RESERVED = new Set([
-      'connect', 'disconnect', 'connect_error',
-      'reconnect', 'reconnect_attempt', 'reconnect_error', 'reconnect_failed',
-    ]);
     socket.onAny((eventName: string, ...args: unknown[]) => {
-      if (RESERVED.has(eventName)) return;
+      if (SOCKETIO_RESERVED_EVENTS.has(eventName)) return;
       useSocketIOStore.getState().addEvent(connectionId, {
         direction: 'received',
         eventName,
@@ -325,7 +289,7 @@ class SocketIOManager {
       return;
     }
 
-    api.socketio.on(`socketio:open:${connectionId}`, (payload: unknown) => {
+    api.socketio.on(socketioChannels.open(connectionId), (payload: unknown) => {
       const data = payload as { socketId?: string } | undefined;
       const s = useSocketIOStore.getState();
       s.updateConnectionStatus(connectionId, 'connected');
@@ -338,7 +302,7 @@ class SocketIOManager {
       });
     });
 
-    api.socketio.on(`socketio:close:${connectionId}`, (payload: unknown) => {
+    api.socketio.on(socketioChannels.close(connectionId), (payload: unknown) => {
       const data = payload as { reason?: string } | undefined;
       const s = useSocketIOStore.getState();
       s.updateConnectionStatus(connectionId, 'disconnected');
@@ -349,7 +313,7 @@ class SocketIOManager {
       });
     });
 
-    api.socketio.on(`socketio:error:${connectionId}`, (payload: unknown) => {
+    api.socketio.on(socketioChannels.error(connectionId), (payload: unknown) => {
       const data = payload as { message?: string } | undefined;
       useSocketIOStore.getState().addEvent(connectionId, {
         direction: 'system',
@@ -358,7 +322,7 @@ class SocketIOManager {
       });
     });
 
-    api.socketio.on(`socketio:reconnect_attempt:${connectionId}`, (payload: unknown) => {
+    api.socketio.on(socketioChannels.reconnectAttempt(connectionId), (payload: unknown) => {
       const data = payload as { attempt?: number } | undefined;
       const s = useSocketIOStore.getState();
       s.updateConnectionStatus(connectionId, 'reconnecting');
@@ -372,7 +336,7 @@ class SocketIOManager {
       });
     });
 
-    api.socketio.on(`socketio:reconnect:${connectionId}`, (payload: unknown) => {
+    api.socketio.on(socketioChannels.reconnect(connectionId), (payload: unknown) => {
       useSocketIOStore.getState().addEvent(connectionId, {
         direction: 'system',
         eventName: 'reconnect',
@@ -380,7 +344,7 @@ class SocketIOManager {
       });
     });
 
-    api.socketio.on(`socketio:reconnect_failed:${connectionId}`, () => {
+    api.socketio.on(socketioChannels.reconnectFailed(connectionId), () => {
       useSocketIOStore.getState().addEvent(connectionId, {
         direction: 'system',
         eventName: 'reconnect_failed',
@@ -388,7 +352,7 @@ class SocketIOManager {
       });
     });
 
-    api.socketio.on(`socketio:event:${connectionId}`, (payload: unknown) => {
+    api.socketio.on(socketioChannels.event(connectionId), (payload: unknown) => {
       const data = payload as { eventName?: string; args?: unknown[] } | undefined;
       if (!data?.eventName) return;
       useSocketIOStore.getState().addEvent(connectionId, {
@@ -398,7 +362,7 @@ class SocketIOManager {
       });
     });
 
-    api.socketio.on(`socketio:ack:${connectionId}`, (payload: unknown) => {
+    api.socketio.on(socketioChannels.ack(connectionId), (payload: unknown) => {
       const data = payload as { ackId?: string; args?: unknown[]; error?: string } | undefined;
       if (!data?.ackId) return;
       useSocketIOStore.getState().resolveAck(
@@ -451,19 +415,17 @@ class SocketIOManager {
     const api = getElectronAPI();
     if (!api?.socketio) return;
     const channels = [
-      `socketio:open:${connectionId}`,
-      `socketio:close:${connectionId}`,
-      `socketio:error:${connectionId}`,
-      `socketio:event:${connectionId}`,
-      `socketio:ack:${connectionId}`,
-      `socketio:reconnect_attempt:${connectionId}`,
-      `socketio:reconnect:${connectionId}`,
-      `socketio:reconnect_failed:${connectionId}`,
+      socketioChannels.open(connectionId),
+      socketioChannels.close(connectionId),
+      socketioChannels.error(connectionId),
+      socketioChannels.event(connectionId),
+      socketioChannels.ack(connectionId),
+      socketioChannels.reconnectAttempt(connectionId),
+      socketioChannels.reconnect(connectionId),
+      socketioChannels.reconnectFailed(connectionId),
     ];
     for (const ch of channels) api.socketio.removeAllListeners(ch);
   }
 }
 
 export const socketioManager = new SocketIOManager();
-
-export const __test__ = { buildConnectUrl, validateUrl, kvToRecord };
