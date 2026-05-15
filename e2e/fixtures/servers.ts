@@ -8,6 +8,7 @@ import { startMockProxyServer, type MockProxyServerHandle } from '../mocks/proxy
 import { startMockGrpcServer, type MockGrpcServerHandle } from '../mocks/grpcServer';
 import { startMockWsServer, type MockWsServerHandle } from '../mocks/wsServer';
 import { startMockMcpServer, type MockMcpServerHandle } from '../mocks/mcpServer';
+import { startMockSocketIOServer, type MockSocketIOServerHandle } from '../mocks/socketioServer';
 
 export interface MockServers {
   http: MockHttpServerHandle;
@@ -16,6 +17,7 @@ export interface MockServers {
   grpc: MockGrpcServerHandle;
   ws: MockWsServerHandle;
   mcp: MockMcpServerHandle;
+  socketio: MockSocketIOServerHandle;
 }
 
 interface ServerFixtures {
@@ -31,15 +33,16 @@ interface ServerFixtures {
 export const test = appTest.extend<ServerFixtures, { _servers: MockServers }>({
   _servers: [
     async ({}, use) => {
-      const [http, https, proxy, grpc, ws, mcp] = await Promise.all([
+      const [http, https, proxy, grpc, ws, mcp, socketio] = await Promise.all([
         startMockHttpServer(),
         startMockHttpsServer(),
         startMockProxyServer(),
         startMockGrpcServer(),
         startMockWsServer(),
         startMockMcpServer(),
+        startMockSocketIOServer(),
       ]);
-      await use({ http, https, proxy, grpc, ws, mcp });
+      await use({ http, https, proxy, grpc, ws, mcp, socketio });
       await Promise.all([
         http.close(),
         https.close(),
@@ -47,6 +50,7 @@ export const test = appTest.extend<ServerFixtures, { _servers: MockServers }>({
         grpc.close(),
         ws.close(),
         mcp.close(),
+        socketio.close(),
       ]);
     },
     { scope: 'worker' },
@@ -59,6 +63,7 @@ export const test = appTest.extend<ServerFixtures, { _servers: MockServers }>({
     _servers.grpc.reset();
     _servers.ws.reset();
     _servers.mcp.reset();
+    _servers.socketio.reset();
     await use(_servers);
   },
 });

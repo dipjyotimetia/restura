@@ -34,3 +34,13 @@ extensions:
       sse:
         url: "{{API_HOST}}/events"
         eventFilter: ["user.created", "user.updated"]
+  x-restura-socketio:
+    - info: { type: socketio, name: Chat Room, seq: 6 }
+      socketio:
+        url: "{{API_HOST}}"
+        namespace: "/chat"
+        transports: ["websocket", "polling"]
+        auth:
+          token: "demo-token"
+        query:
+          room: "lobby"

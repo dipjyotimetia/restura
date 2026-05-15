@@ -22,6 +22,7 @@ const MODE_LABELS: Record<RequestMode, string> = {
   graphql: 'GraphQL',
   grpc: 'gRPC',
   websocket: 'WS',
+  socketio: 'Socket.IO',
   sse: 'SSE',
   mcp: 'MCP',
   kafka: 'Kafka',
@@ -50,7 +51,7 @@ export default function TopBar({
       <div className="flex h-11 items-center justify-between border-b glass-border-default glass-2 px-3 shrink-0">
         {/* Left: Mode switcher */}
         <div role="group" aria-label="Request mode" className="flex items-center gap-0.5 bg-black/[0.06] dark:bg-white/[0.08] glass-border-default rounded-full p-0.5 border">
-          {(['http', 'graphql', 'grpc', 'websocket', 'sse', 'mcp', 'kafka'] as RequestMode[]).map((mode) => {
+          {(['http', 'graphql', 'grpc', 'websocket', 'socketio', 'sse', 'mcp', 'kafka'] as RequestMode[]).map((mode) => {
             const desktopOnly = DESKTOP_ONLY_MODES.includes(mode) && !isElectron();
             const button = (
               <button

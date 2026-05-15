@@ -4,6 +4,7 @@ import RequestBuilder from '@/features/http/components/RequestBuilder';
 import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
 import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
 import WebSocketClient from '@/features/websocket/components/WebSocketClient';
+import SocketIOClient from '@/features/socketio/components/SocketIOClient';
 import SseClient from '@/features/sse/components/SseClient';
 import McpRequestBuilder from '@/features/mcp/components/McpRequestBuilder';
 import KafkaClient from '@/features/kafka/components/KafkaClient';
@@ -61,7 +62,7 @@ export default function Home() {
 
   const handleRequestModeChange = useCallback(
     (mode: RequestMode) => {
-      if (mode === 'graphql' || mode === 'websocket' || mode === 'kafka') {
+      if (mode === 'graphql' || mode === 'websocket' || mode === 'kafka' || mode === 'socketio') {
         // No matching tab type — track the UI override and (for graphql) ensure an HTTP tab.
         setModeOverride(mode);
         if (mode === 'graphql' && activeTab?.request.type !== 'http') {
@@ -162,6 +163,8 @@ export default function Home() {
         );
       case 'websocket':
         return <WebSocketClient />;
+      case 'socketio':
+        return <SocketIOClient />;
       case 'sse':
         return <SseClient />;
       case 'mcp':
@@ -212,7 +215,7 @@ export default function Home() {
             <div className="flex flex-1 flex-col min-h-0">
               {renderRequestBuilder()}
             </div>
-            {requestMode !== 'websocket' && requestMode !== 'kafka' && (
+            {requestMode !== 'websocket' && requestMode !== 'kafka' && requestMode !== 'socketio' && (
               <NetworkConsole
                 scriptLogs={allLogs}
                 tests={allTests}

@@ -5,6 +5,7 @@ import { registerFileOperationsIPC } from './file-operations';
 import { registerHttpHandlerIPC } from './http-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
 import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './websocket-handler';
+import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './socketio-handler';
 import { registerSseHandlerIPC, stopSseCleanup } from './sse-handler';
 import { registerMcpHandlerIPC, stopMcpCleanup } from './mcp-handler';
 import { registerKafkaHandlerIPC, stopKafkaCleanup } from './kafka-handler';
@@ -65,6 +66,7 @@ function registerIPCHandlers(): void {
   registerGrpcHandlerIPC(logRequest);
   registerGrpcReflectionIPC();
   registerWebSocketHandlerIPC();
+  registerSocketIoHandlerIPC();
   registerSseHandlerIPC();
   registerMcpHandlerIPC();
   registerKafkaHandlerIPC();
@@ -159,6 +161,7 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   stopStreamCleanup(); // Stop gRPC stream cleanup interval
   stopWebSocketCleanup(); // Close active WebSocket connections
+  stopSocketIoCleanup(); // Close active Socket.IO connections
   stopSseCleanup(); // Close active SSE connections
   stopMcpCleanup(); // Close active MCP connections
   void stopKafkaCleanup(); // Close active Kafka producers/consumers

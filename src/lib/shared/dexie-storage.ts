@@ -62,7 +62,8 @@ type StorageTableName =
   | 'websocketConnections'
   | 'sseConnections'
   | 'mcpConnections'
-  | 'kafkaConnections';
+  | 'kafkaConnections'
+  | 'socketioConnections';
 
 /**
  * Storage adapter configuration
@@ -267,6 +268,9 @@ export const dexieStorageAdapters = {
 
   kafkaConnections: () =>
     createDexieStorage({ tableName: 'kafkaConnections', encrypt: true }),
+
+  socketioConnections: () =>
+    createDexieStorage({ tableName: 'socketioConnections', encrypt: true }),
 };
 
 /**

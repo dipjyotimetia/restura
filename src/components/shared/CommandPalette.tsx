@@ -30,7 +30,7 @@ interface CommandPaletteProps {
   onOpenSettings?: () => void;
   onOpenImport?: () => void;
   onSendRequest?: () => void;
-  onChangeMode?: (mode: 'http' | 'grpc' | 'websocket' | 'sse' | 'mcp') => void;
+  onChangeMode?: (mode: 'http' | 'grpc' | 'websocket' | 'socketio' | 'sse' | 'mcp') => void;
 }
 
 export default function CommandPalette({
@@ -165,6 +165,13 @@ export default function CommandPalette({
                   >
                     <Wifi className="mr-2 h-4 w-4" />
                     <span>Switch to WebSocket</span>
+                  </Command.Item>
+                  <Command.Item
+                    onSelect={() => runCommand(() => onChangeMode('socketio'))}
+                    className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-slate-blue-500/10 aria-selected:text-slate-blue-600 dark:aria-selected:text-slate-blue-400 transition-colors"
+                  >
+                    <Wifi className="mr-2 h-4 w-4" />
+                    <span>Switch to Socket.IO</span>
                   </Command.Item>
                   <Command.Item
                     onSelect={() => runCommand(() => onChangeMode('sse'))}
