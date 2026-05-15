@@ -111,6 +111,25 @@ describe('proxyAuthMiddleware', () => {
     );
     expect(res.status).toBe(503); // or 401 — bypass MUST NOT apply
   });
+
+  // Critical bypass-rejection: a preview deploy that inherited
+  // ENVIRONMENT=development (no Miniflare, no explicit DEV_BYPASS_AUTH binding)
+  // MUST still require the configured proxy token. If isLocalDevBypass were
+  // ever loosened to "ENVIRONMENT === 'development'" alone, this test fails.
+  it('still requires the proxy token in ENVIRONMENT=development without Miniflare or DEV_BYPASS_AUTH', async () => {
+    const env: Env = { ENVIRONMENT: 'development', WORKER_PROXY_TOKEN: 'secret-token' };
+    const res = await app.request(
+      '/api/proxy',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
+      },
+      env,
+    );
+    // No token header sent — auth middleware MUST reject (401), not bypass.
+    expect(res.status).toBe(401);
+  });
 });
 
 describe('Miniflare detection', () => {

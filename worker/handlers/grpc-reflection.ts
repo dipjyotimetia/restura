@@ -7,6 +7,7 @@ import {
   type GrpcReflectionRequestBody,
 } from '@shared/protocol/grpc-schema';
 import { parseJsonBody } from '../shared/validate-body';
+import { isLocalDevBypass } from '../shared/env';
 
 const REFLECTION_SERVICE_V1 = 'grpc.reflection.v1.ServerReflection';
 const REFLECTION_SERVICE_V1_ALPHA = 'grpc.reflection.v1alpha.ServerReflection';
@@ -62,7 +63,8 @@ export async function grpcReflection(c: Context<{ Bindings: Env }>) {
   }
   const { url, request, timeout = 30000 } = parsed.value;
 
-  const isDev = c.env.ENVIRONMENT === 'development';
+  // Same gate as worker/index.ts auth — see proxy.ts for rationale.
+  const isDev = isLocalDevBypass(c.env);
   const urlValidation = validateURL(url, { allowPrivateIPs: false, allowLocalhost: isDev });
   if (!urlValidation.valid) {
     return c.json({ error: `Invalid URL: ${urlValidation.error}` }, 400);

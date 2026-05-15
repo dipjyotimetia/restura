@@ -4,6 +4,7 @@ import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
 import type { Fetcher } from '@shared/protocol/types';
 import { GrpcProxyRequestBodySchema } from '@shared/protocol/grpc-schema';
 import { parseJsonBody } from '../shared/validate-body';
+import { isLocalDevBypass } from '../shared/env';
 
 const fetcher: Fetcher = async (req) => {
   const init: RequestInit = {
@@ -23,7 +24,8 @@ const fetcher: Fetcher = async (req) => {
 };
 
 export async function grpc(c: Context<{ Bindings: Env }>) {
-  const isDev = c.env.ENVIRONMENT === 'development';
+  // Same gate as worker/index.ts auth — see proxy.ts for rationale.
+  const isDev = isLocalDevBypass(c.env);
 
   const parsed = await parseJsonBody(c.req.raw, GrpcProxyRequestBodySchema);
   if (!parsed.ok) {

@@ -4,6 +4,7 @@ import { McpRequestBodySchema } from '@shared/protocol/mcp-schema';
 import { SseParser } from '@shared/protocol/sse-parser';
 import type { Env } from '../index';
 import { parseJsonBody } from '../shared/validate-body';
+import { isLocalDevBypass } from '../shared/env';
 
 /**
  * MCP proxy: forwards a single JSON-RPC call from the renderer to a target MCP server.
@@ -92,7 +93,8 @@ export async function mcp(c: Context<{ Bindings: Env }>) {
   // keep producing its precise enum-mismatch 400 message).
   const raw = parsed.value as McpSpec;
 
-  const isDev = c.env.ENVIRONMENT === 'development';
+  // Same gate as worker/index.ts auth — see proxy.ts for rationale.
+  const isDev = isLocalDevBypass(c.env);
   const validation = validateMcpSpec(raw, isDev);
   if (!validation.ok) {
     return c.json({ error: validation.error }, validation.status as 400);

@@ -5,12 +5,7 @@
 
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
 import { db } from './database';
-import {
-  encryptValue,
-  decryptValue,
-  generateLocalEncryptionKey,
-  isEncrypted,
-} from './encryption';
+import { encryptValue, decryptValue, isEncrypted } from './encryption';
 import { getKeyProvider, type KeyProvider } from './keyProvider';
 
 // Singleton encryption key cache
@@ -29,17 +24,14 @@ let cachedEncryptionKey: string | null = null;
 async function getEncryptionKey(): Promise<string> {
   if (cachedEncryptionKey) return cachedEncryptionKey;
   if (typeof window === 'undefined') return 'server-fallback-key';
-  try {
-    const key = await getKeyProvider().getKey();
-    cachedEncryptionKey = key;
-    return key;
-  } catch (error) {
-    console.error('Failed to fetch encryption key from provider:', error);
-    // Final fallback - generate ephemeral key so the app stays functional
-    const fallback = generateLocalEncryptionKey();
-    cachedEncryptionKey = fallback;
-    return fallback;
-  }
+  // No fallback to a generated ephemeral key. Phase 3.4 deleted "ephemeral
+  // encryption" precisely because a session-scoped key corrupts data on tab
+  // close. If the provider can't return a key, surface that as an error so
+  // the storage adapter returns null and the caller sees the failure —
+  // better than silently writing data the user can never read back.
+  const key = await getKeyProvider().getKey();
+  cachedEncryptionKey = key;
+  return key;
 }
 
 /**

@@ -6,6 +6,7 @@ import { grpcReflection } from './handlers/grpc-reflection';
 import { mcp } from './handlers/mcp';
 import { proxy } from './handlers/proxy';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
+import { isLocalDevBypass } from './shared/env';
 
 export type Env = {
   ENVIRONMENT?: string;
@@ -20,22 +21,6 @@ export type Env = {
 };
 
 const app = new Hono<{ Bindings: Env }>();
-
-function isDevelopment(env: Env): boolean {
-  return env.ENVIRONMENT === 'development';
-}
-
-function isLocalDevBypass(env: Env): boolean {
-  // Real Miniflare local dev sets globalThis.MINIFLARE. In any other context
-  // (preview deploy, staging, prod) require an explicit DEV_BYPASS_AUTH=true
-  // binding *and* ENVIRONMENT=='development'. A production deploy that
-  // accidentally inherits either single value still triggers the normal auth
-  // path.
-  if (!isDevelopment(env)) return false;
-  const inMiniflare =
-    typeof (globalThis as { MINIFLARE?: unknown }).MINIFLARE !== 'undefined';
-  return inMiniflare || env.DEV_BYPASS_AUTH === 'true';
-}
 
 function originAllowedByPattern(origin: string, pattern: string): boolean {
   if (!pattern.includes('*')) return origin === pattern;

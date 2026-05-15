@@ -11,6 +11,7 @@ import {
   type UpstreamProxyConfig,
 } from '@shared/protocol/proxy-schema';
 import { httpsViaConnectProxy, httpViaProxy } from '../shared/tcp-proxy';
+import { isLocalDevBypass } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
 
 const STREAMING_MEDIA_TYPES = new Set([
@@ -101,7 +102,10 @@ function buildFetcher(
 }
 
 export async function proxy(c: Context<{ Bindings: Env }>) {
-  const isDev = c.env.ENVIRONMENT === 'development';
+  // Use the same gate as auth (worker/index.ts). ENVIRONMENT='development'
+  // alone MUST NOT relax allowLocalhost — a preview deploy that inherits
+  // the env var would otherwise become an open SSRF to internal hosts.
+  const isDev = isLocalDevBypass(c.env);
 
   const parsed = await parseJsonBody(c.req.raw, ProxyRequestBodySchema);
   if (!parsed.ok) {
