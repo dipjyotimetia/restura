@@ -228,6 +228,78 @@ const electronAPI = {
     },
   },
 
+  // Kafka producer/consumer operations
+  kafka: {
+    connect: (config: {
+      connectionId: string;
+      clientId: string;
+      bootstrapBrokers: string[];
+      auth:
+        | { securityProtocol: 'PLAINTEXT' }
+        | {
+            securityProtocol: 'SASL_PLAINTEXT';
+            sasl: { mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512'; username: string; password: string };
+          }
+        | {
+            securityProtocol: 'SASL_SSL';
+            sasl: { mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512'; username: string; password: string };
+            tls?: { ca?: string; cert?: string; key?: string; passphrase?: string; rejectUnauthorized?: boolean };
+          }
+        | {
+            securityProtocol: 'SSL';
+            tls: { ca?: string; cert?: string; key?: string; passphrase?: string; rejectUnauthorized?: boolean };
+          };
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('kafka:connect', config),
+
+    produce: (config: {
+      connectionId: string;
+      topic: string;
+      key?: string;
+      value: string;
+      headers?: Record<string, string>;
+      partition?: number;
+      acks: 0 | 1 | -1;
+      compression?: 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd';
+    }): Promise<{
+      success: boolean;
+      ack?: { topic: string; partition: number; offset: string; timestamp: number };
+      error?: string;
+    }> => ipcRenderer.invoke('kafka:produce', config),
+
+    subscribe: (config: {
+      connectionId: string;
+      groupId: string;
+      topics: string[];
+      fromBeginning: boolean;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('kafka:subscribe', config),
+
+    unsubscribe: (config: { connectionId: string }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('kafka:unsubscribe', config),
+
+    disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('kafka:disconnect', config),
+
+    on: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('kafka:')) {
+        ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+      }
+    },
+
+    removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('kafka:')) {
+        ipcRenderer.removeListener(channel, callback);
+      }
+    },
+
+    removeAllListeners: (channel: string) => {
+      if (channel.startsWith('kafka:')) {
+        ipcRenderer.removeAllListeners(channel);
+      }
+    },
+  },
+
   // Native notifications
   notification: {
     isSupported: (): Promise<boolean> => ipcRenderer.invoke('notification:isSupported'),

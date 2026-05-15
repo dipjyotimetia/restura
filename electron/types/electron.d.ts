@@ -220,6 +220,66 @@ interface ElectronMcpAPI {
   removeAllListeners: (channel: string) => void;
 }
 
+type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
+
+interface KafkaTlsIpc {
+  ca?: string;
+  cert?: string;
+  key?: string;
+  passphrase?: string;
+  rejectUnauthorized?: boolean;
+}
+
+type KafkaAuthIpc =
+  | { securityProtocol: 'PLAINTEXT' }
+  | {
+      securityProtocol: 'SASL_PLAINTEXT';
+      sasl: { mechanism: KafkaSaslMechanism; username: string; password: string };
+    }
+  | {
+      securityProtocol: 'SASL_SSL';
+      sasl: { mechanism: KafkaSaslMechanism; username: string; password: string };
+      tls?: KafkaTlsIpc;
+    }
+  | { securityProtocol: 'SSL'; tls: KafkaTlsIpc };
+
+interface KafkaAck {
+  topic: string;
+  partition: number;
+  offset: string;
+  timestamp: number;
+}
+
+interface ElectronKafkaAPI {
+  connect: (config: {
+    connectionId: string;
+    clientId: string;
+    bootstrapBrokers: string[];
+    auth: KafkaAuthIpc;
+  }) => Promise<{ success: boolean; error?: string }>;
+  produce: (config: {
+    connectionId: string;
+    topic: string;
+    key?: string;
+    value: string;
+    headers?: Record<string, string>;
+    partition?: number;
+    acks: 0 | 1 | -1;
+    compression?: 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd';
+  }) => Promise<{ success: boolean; ack?: KafkaAck; error?: string }>;
+  subscribe: (config: {
+    connectionId: string;
+    groupId: string;
+    topics: string[];
+    fromBeginning: boolean;
+  }) => Promise<{ success: boolean; error?: string }>;
+  unsubscribe: (config: { connectionId: string }) => Promise<{ success: boolean; error?: string }>;
+  disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
+  on: (channel: string, callback: (...args: unknown[]) => void) => void;
+  removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
+  removeAllListeners: (channel: string) => void;
+}
+
 interface ElectronStoreAPI {
   get: (key: string) => Promise<string | undefined>;
   set: (key: string, value: string) => Promise<void>;
@@ -274,6 +334,7 @@ interface ElectronAPI {
   websocket: ElectronWebSocketAPI;
   sse: ElectronSseAPI;
   mcp: ElectronMcpAPI;
+  kafka: ElectronKafkaAPI;
   store: ElectronStoreAPI;
   log: ElectronLogAPI;
   collections: ElectronCollectionsAPI;
@@ -289,4 +350,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, GrpcIpcResult, FileChangedEvent, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };

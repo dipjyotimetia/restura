@@ -7,6 +7,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/shared/utils';
 import { motion } from '@/components/ui/motion';
+import { isElectron } from '@/lib/shared/platform';
 import type { RequestMode } from '@/types';
 
 interface TopBarProps {
@@ -23,7 +24,13 @@ const MODE_LABELS: Record<RequestMode, string> = {
   websocket: 'WS',
   sse: 'SSE',
   mcp: 'MCP',
+  kafka: 'Kafka',
 };
+
+// Modes that can't run in the web build (no Node TCP from Cloudflare Workers).
+// The picker still surfaces them so users discover the feature, but the
+// button is disabled with a tooltip when not in Electron.
+const DESKTOP_ONLY_MODES: ReadonlyArray<RequestMode> = ['kafka'];
 
 export default function TopBar({
   requestMode,
@@ -43,27 +50,43 @@ export default function TopBar({
       <div className="flex h-11 items-center justify-between border-b glass-border-default glass-2 px-3 shrink-0">
         {/* Left: Mode switcher */}
         <div role="group" aria-label="Request mode" className="flex items-center gap-0.5 bg-black/[0.06] dark:bg-white/[0.08] glass-border-default rounded-full p-0.5 border">
-          {(['http', 'graphql', 'grpc', 'websocket', 'sse', 'mcp'] as RequestMode[]).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => handleModeChange(mode)}
-              className={cn(
-                'relative px-2.5 py-1 text-[10px] font-medium rounded tracking-wide transition-colors duration-150',
-                requestMode === mode ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-              aria-label={`Switch to ${MODE_LABELS[mode]} mode`}
-              aria-pressed={requestMode === mode}
-            >
-              {requestMode === mode && (
-                <motion.span
-                  layoutId="mode-pill"
-                  className="absolute inset-0 bg-black/[0.06] dark:bg-white/[0.12] shadow-sm rounded-full"
-                  transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                />
-              )}
-              <span className="relative z-10">{MODE_LABELS[mode]}</span>
-            </button>
-          ))}
+          {(['http', 'graphql', 'grpc', 'websocket', 'sse', 'mcp', 'kafka'] as RequestMode[]).map((mode) => {
+            const desktopOnly = DESKTOP_ONLY_MODES.includes(mode) && !isElectron();
+            const button = (
+              <button
+                key={mode}
+                onClick={() => !desktopOnly && handleModeChange(mode)}
+                disabled={desktopOnly}
+                className={cn(
+                  'relative px-2.5 py-1 text-[10px] font-medium rounded tracking-wide transition-colors duration-150',
+                  desktopOnly && 'opacity-40 cursor-not-allowed',
+                  requestMode === mode ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                )}
+                aria-label={`Switch to ${MODE_LABELS[mode]} mode`}
+                aria-pressed={requestMode === mode}
+              >
+                {requestMode === mode && (
+                  <motion.span
+                    layoutId="mode-pill"
+                    className="absolute inset-0 bg-black/[0.06] dark:bg-white/[0.12] shadow-sm rounded-full"
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                  />
+                )}
+                <span className="relative z-10">{MODE_LABELS[mode]}</span>
+              </button>
+            );
+            if (desktopOnly) {
+              return (
+                <Tooltip key={mode}>
+                  <TooltipTrigger asChild>
+                    <span tabIndex={0}>{button}</span>
+                  </TooltipTrigger>
+                  <TooltipContent>Desktop only — install the Restura app</TooltipContent>
+                </Tooltip>
+              );
+            }
+            return button;
+          })}
         </div>
 
         {/* Right: Env selector + actions */}

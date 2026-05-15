@@ -1,5 +1,6 @@
-import { ipcMain, webContents } from 'electron';
+import { ipcMain } from 'electron';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
+import { emitTo } from './ipc-utils';
 import {
   SseConnectSchema,
   SseDisconnectSchema,
@@ -25,13 +26,6 @@ interface ActiveSse {
 }
 
 const activeConnections = new Map<string, ActiveSse>();
-
-function emitTo(webContentsId: number, channel: string, ...args: unknown[]): void {
-  const wc = webContents.fromId(webContentsId);
-  if (wc && !wc.isDestroyed()) {
-    wc.send(channel, ...args);
-  }
-}
 
 async function readStream(
   entry: ActiveSse,

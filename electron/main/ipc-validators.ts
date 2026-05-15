@@ -318,6 +318,117 @@ export type McpRequestConfig = z.infer<typeof McpRequestSchema>;
 export type McpDisconnectConfig = z.infer<typeof McpDisconnectSchema>;
 
 // ===========================
+// Kafka Schemas
+// ===========================
+
+export const KafkaConnectionIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+
+// host:port — loose syntactic check; real reachability is enforced by the
+// Kafka client when it dials the broker. We cap length and forbid junk so the
+// schema rejects obviously bad input early.
+const KafkaBrokerSchema = z
+  .string()
+  .min(3)
+  .max(253)
+  .regex(
+    /^[a-zA-Z0-9.-]+:\d{1,5}$/,
+    'Broker must be host:port (alphanumeric host, numeric port 1-65535)'
+  );
+
+const KafkaSaslMechanismSchema = z.enum(['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512']);
+
+const KafkaSaslSchema = z.object({
+  mechanism: KafkaSaslMechanismSchema,
+  username: z.string().min(1).max(256),
+  password: z.string().min(1).max(1024),
+});
+
+const KafkaTlsSchema = z.object({
+  ca: z.string().max(64 * 1024).optional(),
+  cert: z.string().max(64 * 1024).optional(),
+  key: z.string().max(64 * 1024).optional(),
+  passphrase: z.string().max(1024).optional(),
+  rejectUnauthorized: z.boolean().optional(),
+});
+
+const KafkaAuthSchema = z.discriminatedUnion('securityProtocol', [
+  z.object({ securityProtocol: z.literal('PLAINTEXT') }),
+  z.object({
+    securityProtocol: z.literal('SASL_PLAINTEXT'),
+    sasl: KafkaSaslSchema,
+  }),
+  z.object({
+    securityProtocol: z.literal('SASL_SSL'),
+    sasl: KafkaSaslSchema,
+    tls: KafkaTlsSchema.optional(),
+  }),
+  z.object({
+    securityProtocol: z.literal('SSL'),
+    tls: KafkaTlsSchema,
+  }),
+]);
+
+export const KafkaCompressionSchema = z.enum(['none', 'gzip', 'snappy', 'lz4', 'zstd']);
+export const KafkaAcksSchema = z.union([z.literal(0), z.literal(1), z.literal(-1)]);
+
+export const KafkaConnectSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+  clientId: z.string().min(1).max(256),
+  bootstrapBrokers: z.array(KafkaBrokerSchema).min(1).max(32),
+  auth: KafkaAuthSchema,
+});
+
+// Topic naming rules per Kafka: max 249 chars, [a-zA-Z0-9._-]; we also forbid
+// leading dot/dash for sanity.
+const KafkaTopicSchema = z
+  .string()
+  .min(1)
+  .max(249)
+  .regex(/^[a-zA-Z0-9_][a-zA-Z0-9._-]*$/, 'Topic must start with [a-zA-Z0-9_] and contain only [a-zA-Z0-9._-]');
+
+// 10MB per-message ceiling — well above the typical Kafka 1MB default, but
+// callers can lower it via broker config. Stops a malformed renderer from
+// queueing a 1GB string over IPC.
+const KAFKA_MAX_VALUE_BYTES = 10 * 1024 * 1024;
+const KAFKA_MAX_KEY_BYTES = 1 * 1024 * 1024;
+
+export const KafkaProduceSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+  topic: KafkaTopicSchema,
+  key: z.string().max(KAFKA_MAX_KEY_BYTES).optional(),
+  value: z.string().max(KAFKA_MAX_VALUE_BYTES),
+  headers: z.record(z.string().min(1).max(256), z.string().max(64 * 1024)).optional(),
+  partition: z.number().int().nonnegative().max(2_147_483_647).optional(),
+  acks: KafkaAcksSchema,
+  compression: KafkaCompressionSchema.optional(),
+});
+
+export const KafkaSubscribeSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+  groupId: z.string().min(1).max(256),
+  topics: z.array(KafkaTopicSchema).min(1).max(50),
+  fromBeginning: z.boolean(),
+});
+
+export const KafkaUnsubscribeSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+});
+
+export const KafkaDisconnectSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+});
+
+export type KafkaConnectConfig = z.infer<typeof KafkaConnectSchema>;
+export type KafkaProduceConfig = z.infer<typeof KafkaProduceSchema>;
+export type KafkaSubscribeConfig = z.infer<typeof KafkaSubscribeSchema>;
+export type KafkaUnsubscribeConfig = z.infer<typeof KafkaUnsubscribeSchema>;
+export type KafkaDisconnectConfig = z.infer<typeof KafkaDisconnectSchema>;
+
+// ===========================
 // Store Schemas
 // ===========================
 

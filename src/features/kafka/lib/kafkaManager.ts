@@ -1,0 +1,318 @@
+import { useKafkaStore, KAFKA_SECRET_SENTINEL } from '@/features/kafka/store/useKafkaStore';
+import type {
+  KafkaAuth,
+  KafkaCompression,
+  KafkaConnection,
+  KafkaMessageDirection,
+} from '@/features/kafka/store/useKafkaStore';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { secureStorage } from '@/lib/shared/secure-storage';
+import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
+import type { KafkaAuthIpc } from '../../../../electron/types/electron.d';
+
+export function kafkaSecretKey(
+  connectionId: string,
+  field: 'sasl-password' | 'tls-passphrase'
+): string {
+  // Hits the sensitive-key regex (`password`/`auth`) in secureStorage so it
+  // routes to electron-store + safeStorage in the desktop build.
+  return `kafka:${connectionId}:${field}`;
+}
+
+function readSecret(connectionId: string, field: 'sasl-password' | 'tls-passphrase'): string | null {
+  return secureStorage.get(kafkaSecretKey(connectionId, field));
+}
+
+/**
+ * Resolve the persisted KafkaAuth (which holds sentinels for secrets and
+ * file paths for TLS material) into the wire-format expected by the Electron
+ * IPC handler (which expects plaintext + file contents).
+ */
+async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<KafkaAuthIpc | null> {
+  if (auth.securityProtocol === 'PLAINTEXT') {
+    return { securityProtocol: 'PLAINTEXT' };
+  }
+
+  // Resolve TLS material once — used by SASL_SSL and SSL.
+  let tlsIpc: { ca?: string; cert?: string; key?: string; passphrase?: string; rejectUnauthorized?: boolean } | undefined;
+  if (auth.tls) {
+    tlsIpc = {};
+    if (auth.tls.rejectUnauthorized !== undefined) {
+      tlsIpc.rejectUnauthorized = auth.tls.rejectUnauthorized;
+    }
+    const api = getElectronAPI();
+    if (api) {
+      const readPath = (p?: string): Promise<{ success: boolean; content?: string } | null> =>
+        p ? api.fs.readFile(p) : Promise.resolve(null);
+      const [caResult, certResult, keyResult] = await Promise.all([
+        readPath(auth.tls.caPath),
+        readPath(auth.tls.certPath),
+        readPath(auth.tls.keyPath),
+      ]);
+      if (auth.tls.caPath) {
+        if (!caResult?.success || !caResult.content) return null;
+        tlsIpc.ca = caResult.content;
+      }
+      if (auth.tls.certPath) {
+        if (!certResult?.success || !certResult.content) return null;
+        tlsIpc.cert = certResult.content;
+      }
+      if (auth.tls.keyPath) {
+        if (!keyResult?.success || !keyResult.content) return null;
+        tlsIpc.key = keyResult.content;
+      }
+    }
+    if (auth.tls.passphrase === KAFKA_SECRET_SENTINEL) {
+      const real = readSecret(connectionId, 'tls-passphrase');
+      if (real) tlsIpc.passphrase = real;
+    } else if (auth.tls.passphrase) {
+      tlsIpc.passphrase = auth.tls.passphrase;
+    }
+  }
+
+  if (auth.securityProtocol === 'SSL') {
+    return { securityProtocol: 'SSL', tls: tlsIpc ?? {} };
+  }
+
+  if (!auth.sasl) return null;
+  const saslPassword =
+    auth.sasl.password === KAFKA_SECRET_SENTINEL
+      ? readSecret(connectionId, 'sasl-password')
+      : auth.sasl.password;
+  if (!saslPassword) return null;
+
+  const sasl = {
+    mechanism: auth.sasl.mechanism,
+    username: auth.sasl.username,
+    password: saslPassword,
+  };
+
+  if (auth.securityProtocol === 'SASL_PLAINTEXT') {
+    return { securityProtocol: 'SASL_PLAINTEXT', sasl };
+  }
+  return { securityProtocol: 'SASL_SSL', sasl, ...(tlsIpc ? { tls: tlsIpc } : {}) };
+}
+
+class KafkaManager {
+  private subscribed: Set<string> = new Set();
+
+  async connect(connection: KafkaConnection): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!isElectron()) {
+      return { ok: false, error: 'Kafka is only available in the Restura desktop app.' };
+    }
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+
+    const store = useKafkaStore.getState();
+    store.updateStatus(connection.id, 'connecting');
+
+    const ipcAuth = await resolveAuth(connection.id, connection.auth);
+    if (!ipcAuth) {
+      store.updateStatus(connection.id, 'disconnected');
+      const msg = 'Missing SASL password or TLS material — re-enter credentials.';
+      store.addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
+      return { ok: false, error: msg };
+    }
+
+    this.bindLifecycleListeners(connection.id);
+
+    const result = await api.kafka.connect({
+      connectionId: connection.id,
+      clientId: connection.clientId,
+      bootstrapBrokers: connection.bootstrapBrokers,
+      auth: ipcAuth,
+    });
+
+    if (!result.success) {
+      store.updateStatus(connection.id, 'disconnected');
+      const msg = result.error ?? 'Kafka connect failed';
+      store.addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
+      this.unbindLifecycleListeners(connection.id);
+      return { ok: false, error: msg };
+    }
+
+    store.updateStatus(connection.id, 'connected');
+    store.addMessage(connection.id, {
+      direction: 'system',
+      topic: '',
+      value: `Connected to ${connection.bootstrapBrokers.join(', ')}`,
+    });
+    return { ok: true };
+  }
+
+  async produce(params: {
+    connectionId: string;
+    topic: string;
+    key?: string;
+    value: string;
+    headers?: Record<string, string>;
+    partition?: number;
+    acks: 0 | 1 | -1;
+    compression?: KafkaCompression;
+  }): Promise<{ ok: true; ack: { topic: string; partition: number; offset: string; timestamp: number } } | { ok: false; error: string }> {
+    if (!isElectron()) return { ok: false, error: 'Kafka is desktop-only.' };
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+
+    const store = useKafkaStore.getState();
+    const result = await api.kafka.produce({
+      connectionId: params.connectionId,
+      topic: params.topic,
+      ...(params.key !== undefined ? { key: params.key } : {}),
+      value: params.value,
+      ...(params.headers ? { headers: params.headers } : {}),
+      ...(params.partition !== undefined ? { partition: params.partition } : {}),
+      acks: params.acks,
+      ...(params.compression && params.compression !== 'none' ? { compression: params.compression } : {}),
+    });
+
+    if (!result.success || !result.ack) {
+      const msg = result.error ?? 'Produce failed';
+      store.addMessage(params.connectionId, {
+        direction: 'system',
+        topic: params.topic,
+        value: msg,
+        error: msg,
+      });
+      return { ok: false, error: msg };
+    }
+
+    store.addMessage(params.connectionId, {
+      direction: 'sent',
+      topic: result.ack.topic,
+      partition: result.ack.partition,
+      offset: result.ack.offset,
+      ...(params.key !== undefined ? { key: params.key } : {}),
+      value: params.value,
+      ...(params.headers ? { headers: params.headers } : {}),
+    });
+    return { ok: true, ack: result.ack };
+  }
+
+  async subscribe(params: {
+    connectionId: string;
+    groupId: string;
+    topics: string[];
+    fromBeginning: boolean;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!isElectron()) return { ok: false, error: 'Kafka is desktop-only.' };
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+
+    const store = useKafkaStore.getState();
+    store.updateConsumer(params.connectionId, { status: 'subscribing', ...params });
+    this.bindMessageListener(params.connectionId);
+
+    const result = await api.kafka.subscribe(params);
+    if (!result.success) {
+      store.updateConsumer(params.connectionId, { status: 'error' });
+      const msg = result.error ?? 'Subscribe failed';
+      store.addMessage(params.connectionId, { direction: 'system', topic: '', value: msg, error: msg });
+      this.unbindMessageListener(params.connectionId);
+      return { ok: false, error: msg };
+    }
+
+    this.subscribed.add(params.connectionId);
+    store.updateConsumer(params.connectionId, { status: 'subscribed' });
+    store.addMessage(params.connectionId, {
+      direction: 'system',
+      topic: params.topics.join(','),
+      value: `Subscribed to ${params.topics.join(', ')} (groupId=${params.groupId})`,
+    });
+    return { ok: true };
+  }
+
+  async unsubscribe(connectionId: string): Promise<void> {
+    const api = getElectronAPI();
+    if (!api) return;
+    await api.kafka.unsubscribe({ connectionId });
+    this.subscribed.delete(connectionId);
+    this.unbindMessageListener(connectionId);
+    const store = useKafkaStore.getState();
+    store.updateConsumer(connectionId, { status: 'idle' });
+    store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Unsubscribed' });
+  }
+
+  async disconnect(connectionId: string): Promise<void> {
+    const api = getElectronAPI();
+    if (!api) return;
+    await api.kafka.disconnect({ connectionId });
+    this.subscribed.delete(connectionId);
+    this.unbindMessageListener(connectionId);
+    this.unbindLifecycleListeners(connectionId);
+    const store = useKafkaStore.getState();
+    store.updateStatus(connectionId, 'disconnected');
+    store.updateConsumer(connectionId, { status: 'idle' });
+  }
+
+  private bindLifecycleListeners(connectionId: string): void {
+    const api = getElectronAPI();
+    if (!api?.kafka) return;
+
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CLOSE, connectionId), () => {
+      const store = useKafkaStore.getState();
+      store.updateStatus(connectionId, 'disconnected');
+      store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Connection closed' });
+    });
+
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId), (payload: unknown) => {
+      const err = payload as { scope?: string; message?: string };
+      const msg = err.message ?? 'Kafka error';
+      useKafkaStore.getState().addMessage(connectionId, {
+        direction: 'system',
+        topic: '',
+        value: `[${err.scope ?? 'error'}] ${msg}`,
+        error: msg,
+      });
+    });
+
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, connectionId), () => {
+      const store = useKafkaStore.getState();
+      store.updateConsumer(connectionId, { status: 'idle' });
+      store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Consumer closed' });
+    });
+  }
+
+  private unbindLifecycleListeners(connectionId: string): void {
+    const api = getElectronAPI();
+    if (!api?.kafka) return;
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CLOSE, connectionId));
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId));
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, connectionId));
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId));
+  }
+
+  private bindMessageListener(connectionId: string): void {
+    const api = getElectronAPI();
+    if (!api?.kafka) return;
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId), (payload: unknown) => {
+      const msg = payload as {
+        topic: string;
+        partition: number;
+        offset: string;
+        key?: string;
+        value: string;
+        headers?: Record<string, string>;
+        timestamp: number;
+      };
+      useKafkaStore.getState().addMessage(connectionId, {
+        direction: 'received' as KafkaMessageDirection,
+        topic: msg.topic,
+        partition: msg.partition,
+        offset: msg.offset,
+        ...(msg.key !== undefined ? { key: msg.key } : {}),
+        value: msg.value,
+        ...(msg.headers ? { headers: msg.headers } : {}),
+        timestamp: msg.timestamp,
+      });
+    });
+  }
+
+  private unbindMessageListener(connectionId: string): void {
+    const api = getElectronAPI();
+    if (!api?.kafka) return;
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId));
+  }
+}
+
+export const kafkaManager = new KafkaManager();

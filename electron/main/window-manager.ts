@@ -10,6 +10,7 @@ import { grpcRateLimiter } from './grpc-handler';
 import { wsRateLimiter } from './websocket-handler';
 import { sseRateLimiter } from './sse-handler';
 import { mcpRateLimiter } from './mcp-handler';
+import { kafkaRateLimiter } from './kafka-handler';
 import { notificationRateLimiter } from './notifications';
 
 export interface WindowState {
@@ -178,6 +179,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       wsRateLimiter,
       sseRateLimiter,
       mcpRateLimiter,
+      kafkaRateLimiter,
       notificationRateLimiter,
     ],
     mainWindow.webContents

@@ -28,6 +28,7 @@ vi.mock('@/lib/shared/dexie-storage', () => {
       websocketConnections: f,
       sseConnections: f,
       mcpConnections: f,
+      kafkaConnections: f,
     },
     checkDexieStorageHealth: async () => ({ available: false, healthy: false }),
     clearDexieStorage: async () => undefined,
