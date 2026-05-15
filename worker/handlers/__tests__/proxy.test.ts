@@ -88,18 +88,34 @@ describe('proxy handler', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('localhost allowed in development environment', async () => {
+  it('localhost allowed in development with DEV_BYPASS_AUTH binding', async () => {
     const mockFetch = vi.fn().mockResolvedValue(
       new Response('{}', { status: 200, statusText: 'OK' }),
     );
+    vi.stubGlobal('fetch', mockFetch);
+
+    // Per Task 2.6 unification: ENVIRONMENT=development alone no longer
+    // relaxes allowLocalhost. Requires DEV_BYPASS_AUTH=true (or Miniflare).
+    const res = await makeRequest(
+      { method: 'GET', url: 'http://localhost:3000/' },
+      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' },
+    );
+    expect(mockFetch).toHaveBeenCalled();
+    expect(res.status).toBe(200);
+  });
+
+  it('localhost blocked in ENVIRONMENT=development WITHOUT DEV_BYPASS_AUTH', async () => {
+    // Critical regression guard: a preview deploy that inherits
+    // ENVIRONMENT=development MUST NOT relax SSRF guards.
+    const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
 
     const res = await makeRequest(
       { method: 'GET', url: 'http://localhost:3000/' },
       { ENVIRONMENT: 'development' },
     );
-    expect(mockFetch).toHaveBeenCalled();
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('localhost blocked in production environment returns 400', async () => {

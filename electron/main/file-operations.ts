@@ -25,18 +25,28 @@ const HOME_BLOCKED_SUBDIRS = [
   '.kube',
   '.docker',
   '.npmrc',
-  '.config/gh',
-  '.config/op',
-  '.config/google-chrome',
-  '.config/Microsoft',
-  '.mozilla',
+  '.netrc',
   '.password-store',
+  // macOS
   'Library/Application Support',
   'Library/Keychains',
   'Library/Cookies',
+  // Windows
   'AppData/Roaming/Microsoft',
   'AppData/Local/Google',
   'AppData/Local/Microsoft',
+  'AppData/Local/BraveSoftware',
+  // Linux / freedesktop
+  '.config/gh',
+  '.config/op',
+  '.config/google-chrome',
+  '.config/chromium',
+  '.config/BraveSoftware',
+  '.config/microsoft-edge',
+  '.config/Microsoft',
+  '.local/share/keyrings',
+  '.mozilla',
+  'snap/firefox/common/.mozilla',
 ];
 
 // Block access to sensitive system directories at the OS level (cheap

@@ -13,6 +13,7 @@ import type { LogEntry } from './request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { Fetcher, FetcherRequest, FetcherResponse, ProtocolAuthConfig } from '@shared/protocol/types';
+import { flattenHeaders } from '@shared/protocol/header-utils';
 
 // =============================================================================
 // Migration map (Plan 4 / Task 9): node:http/https → undici
@@ -502,15 +503,6 @@ function buildElectronFetcher(
 
     // undici accepts plain-object headers; the redirect-follower hands us
     // a Headers instance on follow-up hops, so flatten when needed.
-    const undiciHeaders: Record<string, string> = (() => {
-      if (req.headers instanceof Headers) {
-        const out: Record<string, string> = {};
-        req.headers.forEach((v, k) => { out[k] = v; });
-        return out;
-      }
-      return req.headers;
-    })();
-
     let response: Awaited<ReturnType<typeof undiciRequest>>;
     try {
       response = await undiciRequest(req.url, {
@@ -519,7 +511,7 @@ function buildElectronFetcher(
             ? M
             : never
           : never,
-        headers: undiciHeaders,
+        headers: flattenHeaders(req.headers),
         body: undiciBody,
         signal: req.signal,
         dispatcher,

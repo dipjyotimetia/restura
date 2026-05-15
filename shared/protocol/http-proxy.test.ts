@@ -1,21 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeHttpProxy, executeHttpProxyStreaming, MAX_RESPONSE_SIZE } from './http-proxy';
-import type { Fetcher, FetcherRequest } from './types';
-
-/**
- * `FetcherRequest.headers` is `Record<string, string> | Headers` (Headers is
- * used by the redirect follower on subsequent hops). The first-hop tests below
- * construct plain-object headers, so this helper narrows the union for the
- * existing property-access assertions.
- */
-function asRecord(headers: FetcherRequest['headers']): Record<string, string> {
-  if (headers instanceof Headers) {
-    const out: Record<string, string> = {};
-    headers.forEach((v, k) => { out[k] = v; });
-    return out;
-  }
-  return headers;
-}
+import { flattenHeaders as asRecord } from './header-utils';
+import type { Fetcher } from './types';
 
 function makeFetcher(
   text: string,

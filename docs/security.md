@@ -16,10 +16,10 @@ warned at startup.
 **Persisted state is NOT encrypted at rest by default.** localStorage and
 IndexedDB on the web platform are protected only by the browser's same-
 origin policy. Users who require encryption at rest should either use the
-desktop app or opt in via:
+desktop app or — *once the UI lands* — opt in via:
 
 ```
-Settings → Security → "Set workspace passphrase"
+Settings → Security → "Set workspace passphrase"   (PLANNED, not yet exposed in UI)
 ```
 
 When enabled, all subsequently-saved state is encrypted with a key derived
