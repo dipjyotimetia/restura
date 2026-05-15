@@ -156,6 +156,56 @@ const electronAPI = {
     },
   },
 
+  // Socket.IO (v4) operations
+  socketio: {
+    connect: (config: {
+      connectionId: string;
+      url: string;
+      namespace?: string;
+      path?: string;
+      auth?: Record<string, string | number | boolean>;
+      query?: Record<string, string>;
+      extraHeaders?: Record<string, string>;
+      transports?: Array<'websocket' | 'polling'>;
+      reconnection?: boolean;
+      reconnectionAttempts?: number;
+      reconnectionDelay?: number;
+      timeout?: number;
+      forceNew?: boolean;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('socketio:connect', config),
+
+    emit: (config: {
+      connectionId: string;
+      eventName: string;
+      args: unknown[];
+      ackId?: string;
+      ackTimeoutMs?: number;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('socketio:emit', config),
+
+    disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('socketio:disconnect', config),
+
+    on: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('socketio:')) {
+        ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+      }
+    },
+
+    removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
+      if (channel.startsWith('socketio:')) {
+        ipcRenderer.removeListener(channel, callback);
+      }
+    },
+
+    removeAllListeners: (channel: string) => {
+      if (channel.startsWith('socketio:')) {
+        ipcRenderer.removeAllListeners(channel);
+      }
+    },
+  },
+
   // SSE (Server-Sent Events) operations
   sse: {
     connect: (config: {

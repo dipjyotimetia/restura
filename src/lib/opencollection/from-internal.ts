@@ -27,7 +27,9 @@ import type { OpenCollection } from './schemas';
  *      `info` extras, `config` extras, `docs`, request defaults, and any
  *      non-restura extensions survive) and only the `items` array plus
  *      Restura-managed extensions (`x-restura-sse` / `x-restura-mcp`) get
- *      replaced with fresh values.
+ *      replaced with fresh values. Unknown extensions like
+ *      `x-restura-socketio` survive unchanged because the merge keeps every
+ *      non-restura-managed key from the cached extensions bag.
  *   3. **Synthesise from scratch.** No `_oc` on the collection — likely
  *      authored in-app rather than imported. Build a minimal OC document
  *      from the internal model alone.

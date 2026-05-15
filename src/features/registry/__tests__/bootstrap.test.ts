@@ -14,7 +14,7 @@ describe('protocol bootstrap', () => {
     await import('../bootstrap');
     const { protocolRegistry } = await import('../registry');
     const ids = protocolRegistry.list().map((p) => p.id).sort();
-    expect(ids).toEqual(['graphql', 'grpc', 'http', 'kafka', 'mcp', 'sse', 'websocket']);
+    expect(ids).toEqual(['graphql', 'grpc', 'http', 'kafka', 'mcp', 'socketio', 'sse', 'websocket']);
   });
 
   it('every registered protocol has the required fields', async () => {

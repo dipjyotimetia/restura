@@ -22,13 +22,18 @@ describe('OpenCollection roundtrip', () => {
     expect(oc2).toEqual(oc1);
   });
 
-  it('multi-protocol.yaml: file -> save -> reload preserves x-restura-sse', async () => {
+  it('multi-protocol.yaml: file -> save -> reload preserves x-restura-sse and x-restura-socketio', async () => {
     const oc1 = await loadCollectionFromFile('tests/fixtures/opencollection/multi-protocol.yaml');
     const dest = join(tmp, 'mp.yaml');
     await saveCollectionToFile(oc1, dest);
     const oc2 = await loadCollectionFromFile(dest);
     expect(oc2).toEqual(oc1);
     expect(oc2.extensions?.['x-restura-sse']).toBeDefined();
+    // Socket.IO connections survive as opaque pass-through extensions —
+    // no Request shape, no item construction, just byte-stable round-trip.
+    expect(oc2.extensions?.['x-restura-socketio']).toBeDefined();
+    const socketio = oc2.extensions?.['x-restura-socketio'] as Array<{ socketio?: { namespace?: string } }>;
+    expect(socketio[0]?.socketio?.namespace).toBe('/chat');
   });
 
   it('dir-layout: dir -> save dir -> reload', async () => {

@@ -101,6 +101,7 @@ export type WebSocketConnectionsRecord = NamedEncryptedRecord;
 export type SseConnectionsRecord = NamedEncryptedRecord;
 export type McpConnectionsRecord = NamedEncryptedRecord;
 export type KafkaConnectionsRecord = NamedEncryptedRecord;
+export type SocketIoConnectionsRecord = NamedEncryptedRecord;
 
 // Metadata table for app state
 export interface MetadataRecord {
@@ -127,6 +128,7 @@ export class ResturaDB extends Dexie {
   sseConnections!: Table<SseConnectionsRecord, string>;
   mcpConnections!: Table<McpConnectionsRecord, string>;
   kafkaConnections!: Table<KafkaConnectionsRecord, string>;
+  socketioConnections!: Table<SocketIoConnectionsRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
   constructor() {
@@ -176,6 +178,10 @@ export class ResturaDB extends Dexie {
     this.version(4).stores({
       kafkaConnections: 'id, name, updatedAt',
     });
+
+    this.version(5).stores({
+      socketioConnections: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -196,6 +202,7 @@ export class ResturaDB extends Dexie {
       this.sseConnections,
       this.mcpConnections,
       this.kafkaConnections,
+      this.socketioConnections,
       this.metadata,
     ], () =>
       Promise.all([
@@ -212,6 +219,7 @@ export class ResturaDB extends Dexie {
         this.sseConnections.clear(),
         this.mcpConnections.clear(),
         this.kafkaConnections.clear(),
+        this.socketioConnections.clear(),
         this.metadata.clear(),
       ])
     );
@@ -239,6 +247,7 @@ export class ResturaDB extends Dexie {
       sseConnections: await this.sseConnections.count(),
       mcpConnections: await this.mcpConnections.count(),
       kafkaConnections: await this.kafkaConnections.count(),
+      socketioConnections: await this.socketioConnections.count(),
     };
 
     const totalRecords = Object.values(tables).reduce((a, b) => a + b, 0);
@@ -273,10 +282,11 @@ export class ResturaDB extends Dexie {
       sseConnections?: SseConnectionsRecord[];
       mcpConnections?: McpConnectionsRecord[];
       kafkaConnections?: KafkaConnectionsRecord[];
+      socketioConnections?: SocketIoConnectionsRecord[];
     };
   }> {
     return {
-      version: 4,
+      version: 5,
       exportedAt: Date.now(),
       data: {
         collections: await this.collections.toArray(),
@@ -292,6 +302,7 @@ export class ResturaDB extends Dexie {
         sseConnections: await this.sseConnections.toArray(),
         mcpConnections: await this.mcpConnections.toArray(),
         kafkaConnections: await this.kafkaConnections.toArray(),
+        socketioConnections: await this.socketioConnections.toArray(),
       },
     };
   }
@@ -315,6 +326,7 @@ export class ResturaDB extends Dexie {
       sseConnections?: SseConnectionsRecord[];
       mcpConnections?: McpConnectionsRecord[];
       kafkaConnections?: KafkaConnectionsRecord[];
+      socketioConnections?: SocketIoConnectionsRecord[];
     };
   }): Promise<void> {
     await this.transaction('rw', [
@@ -331,6 +343,7 @@ export class ResturaDB extends Dexie {
       this.sseConnections,
       this.mcpConnections,
       this.kafkaConnections,
+      this.socketioConnections,
     ], async () => {
       if (backup.data.collections) await this.collections.bulkPut(backup.data.collections);
       if (backup.data.environments) await this.environments.bulkPut(backup.data.environments);
@@ -345,6 +358,7 @@ export class ResturaDB extends Dexie {
       if (backup.data.sseConnections) await this.sseConnections.bulkPut(backup.data.sseConnections);
       if (backup.data.mcpConnections) await this.mcpConnections.bulkPut(backup.data.mcpConnections);
       if (backup.data.kafkaConnections) await this.kafkaConnections.bulkPut(backup.data.kafkaConnections);
+      if (backup.data.socketioConnections) await this.socketioConnections.bulkPut(backup.data.socketioConnections);
     });
   }
 }
