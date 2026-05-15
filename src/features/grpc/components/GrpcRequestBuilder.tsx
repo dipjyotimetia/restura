@@ -49,6 +49,7 @@ import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { GrpcMessageEditor } from './GrpcMessageEditor';
+import { GrpcMethodSelector } from './GrpcMethodSelector';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 
 function GrpcRequestBuilder() {
@@ -470,86 +471,19 @@ function GrpcRequestBuilder() {
 
         {/* Service / Method row */}
         <div className="flex gap-2 px-3 py-2">
-          <div className="flex-1 relative">
-            {reflection.result?.success && reflection.result.services.length > 0 ? (
-              <Select
-                value={reflection.selectedService?.fullName || ''}
-                onValueChange={(value) => {
-                  const service = reflection.result?.services.find((s) => s.fullName === value);
-                  if (service) reflection.selectService(service);
-                }}
-              >
-                <SelectTrigger className={`font-mono text-xs bg-background border-border ${!validation.service.valid ? 'border-destructive' : ''}`}>
-                  <SelectValue placeholder="Select service" />
-                </SelectTrigger>
-                <SelectContent>
-                  {reflection.result.services.filter((s) => s.fullName).map((service) => (
-                    <SelectItem key={service.fullName} value={service.fullName} className="font-mono text-xs">
-                      {service.fullName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input
-                value={grpcRequest.service}
-                onChange={(e) => handleServiceChange(e.target.value)}
-                placeholder="Service (e.g., greet.v1.GreetService)"
-                className={`font-mono text-xs bg-background border-border ${!validation.service.valid ? 'border-destructive' : ''}`}
-              />
-            )}
-            {!validation.service.valid && validation.service.error && (
-              <div className="text-xs text-destructive mt-1 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" />
-                {validation.service.error}
-              </div>
-            )}
-          </div>
-
-          <div className="flex-1 relative">
-            {reflection.selectedService && reflection.selectedService.methods.length > 0 ? (
-              <Select
-                value={reflection.selectedMethod?.name || ''}
-                onValueChange={(value) => {
-                  const method = reflection.selectedService?.methods.find((m) => m.name === value);
-                  if (method) reflection.selectMethod(method);
-                }}
-              >
-                <SelectTrigger className={`font-mono text-xs bg-background border-border ${!validation.method.valid ? 'border-destructive' : ''}`}>
-                  <SelectValue placeholder="Select method" />
-                </SelectTrigger>
-                <SelectContent>
-                  {reflection.selectedService.methods.filter((m) => m.name).map((method) => (
-                    <SelectItem key={method.name} value={method.name} className="font-mono text-xs">
-                      {method.name}
-                      {(method.clientStreaming || method.serverStreaming) && (
-                        <span className="ml-2 text-[10px] text-muted-foreground">
-                          {method.clientStreaming && method.serverStreaming
-                            ? '(bidi)'
-                            : method.serverStreaming
-                              ? '(server stream)'
-                              : '(client stream)'}
-                        </span>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input
-                value={grpcRequest.method}
-                onChange={(e) => handleMethodChange(e.target.value)}
-                placeholder="Method (e.g., Greet)"
-                className={`font-mono text-xs bg-background border-border ${!validation.method.valid ? 'border-destructive' : ''}`}
-              />
-            )}
-            {!validation.method.valid && validation.method.error && (
-              <div className="text-xs text-destructive mt-1 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" />
-                {validation.method.error}
-              </div>
-            )}
-          </div>
+          <GrpcMethodSelector
+            services={reflection.result?.success ? reflection.result.services : undefined}
+            selectedService={reflection.selectedService}
+            selectedMethod={reflection.selectedMethod}
+            serviceValue={grpcRequest.service}
+            methodValue={grpcRequest.method}
+            serviceValidation={validation.service}
+            methodValidation={validation.method}
+            onSelectService={reflection.selectService}
+            onSelectMethod={reflection.selectMethod}
+            onServiceTextChange={handleServiceChange}
+            onMethodTextChange={handleMethodChange}
+          />
 
           <Button
             variant="outline"
