@@ -19,14 +19,21 @@ async function executeViaCorsProxy(
   config: AxiosRequestConfig,
   startTime: number,
   requestId: string,
+  bodyType: HttpRequest['body']['type'],
   upstreamProxy?: { host: string; port: number; auth?: { username: string; password: string } },
   auth?: HttpRequest['auth']
 ): Promise<ApiResponse> {
+  // bodyType MUST be forwarded so the Worker's buildRequestBody can
+  // construct the upstream body with the correct Content-Type. Without it
+  // the Worker drops the body entirely (returns body: undefined for
+  // bodyType === undefined or 'none'), so a JSON POST silently posts an
+  // empty body and the upstream returns 400 "invalid JSON".
   const proxyBody: Record<string, unknown> = {
     method: config.method,
     url: config.url,
     headers: config.headers,
     params: config.params,
+    bodyType,
     data: config.data,
     timeout: config.timeout,
   };
@@ -213,7 +220,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             }
           : undefined;
 
-      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy, effectiveAuth);
+      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, request.body.type, upstreamProxy, effectiveAuth);
     } catch (error: unknown) {
       const endTime = Date.now();
       const isAxiosError = axios.isAxiosError(error);

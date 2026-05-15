@@ -6,7 +6,12 @@ const REPO_ROOT = resolve(__dirname, '..');
 const DEV_VARS_PATH = join(REPO_ROOT, '.dev.vars');
 const REQUIRED_DEV_VARS: Record<string, string> = {
   // Bypasses Worker auth + lets the proxy reach localhost upstream targets.
+  // Both vars are required as of plan Task 1.4: ENVIRONMENT alone no longer
+  // bypasses auth or relaxes allowLocalhost — DEV_BYPASS_AUTH must be set
+  // explicitly (or Miniflare auto-detected, which it would be under
+  // `npm run dev` but writing it explicitly makes the contract obvious).
   ENVIRONMENT: 'development',
+  DEV_BYPASS_AUTH: 'true',
 };
 
 /**
