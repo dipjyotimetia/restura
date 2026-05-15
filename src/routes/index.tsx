@@ -6,6 +6,7 @@ import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestB
 import WebSocketClient from '@/features/websocket/components/WebSocketClient';
 import SseClient from '@/features/sse/components/SseClient';
 import McpRequestBuilder from '@/features/mcp/components/McpRequestBuilder';
+import KafkaClient from '@/features/kafka/components/KafkaClient';
 import ResponseViewer from '@/components/shared/ResponseViewer';
 import NetworkConsole from '@/features/http/components/NetworkConsole';
 import ResizableLayout from '@/components/shared/ResizableLayout';
@@ -60,7 +61,7 @@ export default function Home() {
 
   const handleRequestModeChange = useCallback(
     (mode: RequestMode) => {
-      if (mode === 'graphql' || mode === 'websocket') {
+      if (mode === 'graphql' || mode === 'websocket' || mode === 'kafka') {
         // No matching tab type — track the UI override and (for graphql) ensure an HTTP tab.
         setModeOverride(mode);
         if (mode === 'graphql' && activeTab?.request.type !== 'http') {
@@ -165,6 +166,8 @@ export default function Home() {
         return <SseClient />;
       case 'mcp':
         return <McpRequestBuilder />;
+      case 'kafka':
+        return <KafkaClient />;
       default:
         return null;
     }
@@ -209,7 +212,7 @@ export default function Home() {
             <div className="flex flex-1 flex-col min-h-0">
               {renderRequestBuilder()}
             </div>
-            {requestMode !== 'websocket' && (
+            {requestMode !== 'websocket' && requestMode !== 'kafka' && (
               <NetworkConsole
                 scriptLogs={allLogs}
                 tests={allTests}

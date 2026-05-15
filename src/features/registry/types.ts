@@ -3,12 +3,12 @@ import type { Request, Response, RequestType, ScriptResult } from '@/types';
 
 /**
  * Protocols the registry knows about. Superset of `RequestType` because
- * GraphQL re-uses the `HttpRequest` shape and WebSocket is connection-based
- * (no per-request `Request` discriminator). The runtime registry only uses
- * this for diagnostics / metadata, so widening it here doesn't pollute the
- * narrower `Request` union used by stores and selectors.
+ * GraphQL re-uses the `HttpRequest` shape and WebSocket/Kafka are
+ * connection-based (no per-request `Request` discriminator). The runtime
+ * registry only uses this for diagnostics / metadata, so widening it here
+ * doesn't pollute the narrower `Request` union used by stores and selectors.
  */
-export type ProtocolTabType = RequestType | 'graphql' | 'websocket';
+export type ProtocolTabType = RequestType | 'graphql' | 'websocket' | 'kafka';
 
 export interface ProtocolScriptResult {
   preRequest?: ScriptResult;

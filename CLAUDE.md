@@ -4,135 +4,170 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Restura is a multi-protocol API testing client supporting HTTP/REST, GraphQL, gRPC, and WebSockets. It runs as both a web application (Cloudflare Pages + Workers) and an Electron desktop app.
+Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, SSE, and MCP** (Model Context Protocol). It ships as both a web app (Cloudflare Pages + Workers) and an Electron desktop app from a single React renderer. Node.js 22+ required.
 
 ## Development Commands
 
 ```bash
 # Web development (Vite + Cloudflare Worker via Miniflare)
-npm run dev                    # Start Vite dev server (port 5173) — runs the Worker locally too
-npm run build                  # Production build (static SPA + Worker bundle)
+npm run dev                    # Start Vite dev server (port 5173) — boots the Worker locally too
+npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
-npm run type-check             # TypeScript type checking (strict mode)
-npm run lint                   # TypeScript validation
-npm run format                 # Prettier formatting
+npm run type-check             # TypeScript strict mode (all tsconfigs)
+npm run lint                   # ESLint over src/ electron/main worker/ echo/
+npm run lint:fix               # ESLint --fix
+npm run format                 # Prettier write
+npm run format:check           # Prettier check
 
-# Worker (Cloudflare Pages Functions)
-npx tsc --noEmit -p worker/tsconfig.json    # Type-check the Worker
+# Cloudflare Worker (web-only API)
+npx tsc --noEmit -p worker/tsconfig.json    # Type-check Worker independently
 
 # Testing
-npm run test                   # Vitest interactive mode
-npm run test:run               # Single test run
-npm run test:watch             # Watch mode
+npm run test                   # Vitest interactive
+npm run test:run               # Vitest single run
+npm run test:watch             # Vitest watch
 npm run test:coverage          # Coverage report
+npm run test:e2e               # Playwright (boots dev server via webServer; needs .dev.vars)
+npm run test:e2e:ui            # Playwright UI mode
+npm run test:e2e:headed        # Playwright headed
+vitest run path/to/file.test.ts                  # Run a single Vitest file
+vitest run -t "test name pattern"                # Filter by test name
+npx playwright test e2e/real-http.spec.ts        # Run a single e2e spec
 
-# Full validation
-npm run validate               # type-check + lint + test:run
+# Full validation (matches CI)
+npm run validate               # type-check + lint + verify:opencollection-types + test:run
+
+# Generated code
+npm run proto:gen                       # buf generate (regenerates protobuf TS)
+npm run gen:opencollection-types        # Regenerate OpenCollection JSON Schema → TS
+npm run verify:opencollection-types     # Generate + fail if diff (CI gate)
 
 # Electron desktop app
-npm run electron:dev           # Dev mode (Vite + Electron)
-npm run electron:compile       # Compile TypeScript for main process
-npm run electron:build:web     # Build the renderer for Electron
-npm run electron:dist:mac      # Build macOS app
-npm run electron:dist:win      # Build Windows app
-npm run electron:dist:linux    # Build Linux app
+npm run electron:dev           # Dev mode (Vite + Electron with wait-on)
+npm run electron:compile       # Compile main process TS → dist/electron/
+npm run electron:build:web     # Build renderer for Electron (VITE_IS_ELECTRON_BUILD=true)
+npm run electron:dist:{mac,win,linux}    # Package distributables
+npm run electron:pack          # Unpacked dir build (for local smoke testing)
 
-# Cloudflare Pages deploy
-npm run deploy                 # Deploy production
-npm run deploy:preview         # Deploy preview branch
+# Deploy
+npm run deploy                 # Production: Worker (api.restura.dev) + Pages
+npm run deploy:preview         # Preview version + Pages preview
+npm run deploy:echo            # Deploy the echo test server (echo/wrangler.jsonc)
 ```
 
 ## Architecture
 
-### Dual-Platform Design
-- **Web Client**: Vite + React + React Router SPA, deployed to Cloudflare Pages.
-- **Worker (web only)**: Hono app at `worker/index.ts` deployed as Pages Functions, serving `/api/proxy`, `/api/grpc`, `/api/grpc/reflection`. Same-origin as the SPA — no CORS friction.
-- **Desktop Client**: Electron main process at `electron/main/`. Renderer is the same Vite-built SPA loaded via `file://`. The Worker is **never** bundled into the desktop app — Electron uses native IPC (`electron/main/http-handler.ts`).
-- **Routing**: `createHashRouter` so the same renderer works under `https://` (Pages) and `file://` (Electron).
+### Dual-Platform: One Renderer, Two Transports
 
-### Feature-Based Organization
+The same Vite-built React SPA serves both targets. The transport layer is the only thing that differs — chosen at runtime by `isElectron()` in `src/lib/shared/platform.ts`.
+
+- **Web** — SPA on Cloudflare Pages → fetch `/api/*` → Cloudflare Worker (Hono) at `worker/index.ts` → upstream. Same-origin, no CORS friction.
+- **Desktop** — SPA loaded via `file://` → IPC over `window.electronAPI` (preload bridge) → Electron main process handlers in `electron/main/*-handler.ts` → upstream. The Worker is **never** bundled into the desktop app (`electron-builder.json` files glob excludes `_worker.js`).
+- **Routing** — `createHashRouter` so the renderer works under both `https://` (Pages) and `file://` (Electron). There is no server-side routing.
+
+### Shared protocol core (`shared/protocol/`) — read this first
+
+This is the most important architectural piece in the repo. Each protocol (HTTP, gRPC, MCP, SSE) is implemented **once** as a backend-agnostic orchestrator. The Worker and the Electron main process each supply only a thin `Fetcher` adapter; everything else — SSRF validation, header sanitisation, body construction, response shape, gRPC status mapping, SSE/NDJSON parsing — lives in `shared/protocol/` and runs identically on both backends.
+
 ```
-src/features/
-├── http/           # RequestBuilder, requestExecutor, useHttpRequest, useCookieStore
-├── grpc/           # GrpcRequestBuilder, grpcClient, grpcReflection
-├── websocket/      # WebSocketClient
-├── graphql/        # GraphQLRequestBuilder, GraphQLBodyEditor, SchemaExplorer
-├── collections/    # Sidebar, CollectionRunner, importers, exporters
-├── environments/   # EnvironmentManager
-├── auth/           # AuthConfig (shared by HTTP & gRPC)
-├── scripts/        # ScriptsEditor, scriptExecutor (QuickJS sandbox)
-└── workflows/      # Workflow chaining + variable extraction
-
-src/components/
-├── ui/             # Radix UI primitives (shadcn/ui patterns)
-├── shared/         # Header, ResponseViewer, KeyValueEditor, CodeEditor, etc.
-└── providers/      # PlatformProvider, ThemeProvider
-
-src/routes/         # React Router route components (index, not-found)
-src/lib/shared/     # utils, encryption, storage, platform, validations, lazyComponent
-
-worker/             # Cloudflare Worker (Hono) — web-only API
-├── index.ts        # Hono app, route mounting, CORS
-├── handlers/       # proxy, grpc, grpc-reflection
-└── shared/         # url-validation (SSRF guards), grpc-status enum
+                    shared/protocol/{http,grpc,mcp,sse}-proxy.ts
+                    (validation, body, headers, response shape)
+                                       │
+                                Fetcher interface
+                          ┌────────────┴────────────┐
+                          ▼                         ▼
+              worker/handlers/*.ts        electron/main/*-handler.ts
+              (globalThis.fetch)          (Node http/https/net)
 ```
 
-### State Management (Zustand)
-Persisted stores manage application state:
-- `useRequestStore` - Current request/response state
-- `useCollectionStore` - Saved request collections
-- `useEnvironmentStore` - Environment variables
-- `useHistoryStore` - Request history
-- `useSettingsStore` - App preferences
+Key modules:
+- `shared/protocol/url-validation.ts` — SSRF guard: RFC 1918, RFC 6598 (CGNAT), link-local 169.254/16, loopback, cloud-metadata endpoints, IPv6 unique-local, IPv4-mapped IPv6. Single source of truth (before this refactor, the guard had drifted between backends).
+- `shared/protocol/header-policy.ts` — Hop-by-hop deny lists, header sanitisers.
+- `shared/protocol/body-builder.ts` — JSON / text / form-urlencoded / form-data / binary.
+- `shared/protocol/types.ts` — `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union.
+- `shared/protocol/http-proxy.ts`, `grpc-proxy.ts`, `mcp-proxy.ts`, `sse-parser.ts`, `ndjson-parser.ts`.
+- `shared/protocol/auth-signer.ts`, `oauth1-signer.ts`, `wsse-header.ts` — auth signing **at the wire** (Worker/Electron, not the renderer) so signatures match exact upstream bytes.
 
-All stores use `zustand/middleware/persist` for localStorage persistence. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`.
+**When adding a new protocol**: add `shared/protocol/<name>-proxy.ts` exposing `execute<Name>Proxy(spec, fetcher, options)`, then ~30 lines of Fetcher adapter each in `worker/handlers/` and `electron/main/`. SSRF, headers, body, timeouts come for free.
 
-### Electron IPC Architecture
-Main process modules in `electron/main/`:
-- `main.ts` - Application entry, orchestrates other modules
-- `window-manager.ts` - Window creation; loads `http://localhost:5173` in dev, `dist/web/index.html` in prod
-- `file-operations.ts` - Native file system access
-- `http-handler.ts` - Native HTTP requests (CORS-free, replaces the Worker on desktop)
-- `auto-updater.ts` - App updates via electron-updater
-- `preload.ts` - Secure bridge between main/renderer
+### Feature-based renderer layout (`src/features/`)
 
-The renderer's `requestExecutor` and `grpcClient` branch on `isElectron()` to use IPC instead of HTTP — so the Worker is web-only and the Electron renderer keeps working with zero behavioral change.
+Each feature module owns its components, hooks, lib (executors/clients), and store. Protocol features (`http/`, `grpc/`, `graphql/`, `websocket/`, `sse/`, `mcp/`) follow the same shape and export a `protocol.ts` describing their schema. The renderer's executor in each feature branches on `isElectron()` to pick IPC vs. HTTP transport — no behavioural difference.
 
-### Key Technical Patterns
+```
+src/features/{http,grpc,graphql,websocket,sse,mcp}   # protocol features
+src/features/{collections,environments,workflows,scripts,auth,registry}
+src/components/{ui,shared,providers}
+src/routes/                                          # React Router route components
+src/lib/shared/                                      # platform, encryption, storage, validators, etc.
+src/lib/opencollection/                              # OpenCollection spec import/export (generated types)
+```
 
-**Path Alias**: `@/` → `./src/` (configured in `tsconfig.json` and `vitest.config.ts`)
+### State + Persistence (Zustand)
 
-**Build tool**: Vite 7 with `@vitejs/plugin-react` and `@cloudflare/vite-plugin`. The Cloudflare plugin runs the Worker locally via Miniflare during `vite dev` — single command boots both SPA and Worker. Config is `vite.config.mts` (ESM-only, due to `@cloudflare/vite-plugin`).
+All global state lives in Zustand stores with the `persist` middleware. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`.
 
-**Tailwind**: v4 via `@tailwindcss/vite` plugin (no separate PostCSS config).
+- **Web** — `src/lib/shared/dexie-storage.ts` (IndexedDB via Dexie).
+- **Desktop** — `src/lib/shared/secure-storage.ts` (encrypted electron-store via IPC; key wrapped by Electron `safeStorage` → OS keychain).
+- **The legacy localStorage adapter has been removed.** Don't add new persistence through `window.localStorage`.
 
-**Lazy components**: `next/dynamic` was replaced by `src/lib/shared/lazyComponent.tsx` — wraps `React.lazy` + `Suspense`, mirrors `next/dynamic` ergonomics.
+Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`.
 
-**Type Safety**: Strict TypeScript with `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`, `noUncheckedIndexedAccess`. `exactOptionalPropertyTypes` disabled for flexibility.
+### Electron main process (`electron/main/`)
 
-**UI Components**: Radix UI primitives with custom Tailwind styling. Components in `src/components/ui/` follow shadcn/ui patterns.
+One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`. Plus:
 
-**Script Execution**: Pre-request and test scripts run in QuickJS sandbox (`src/features/scripts/lib/scriptExecutor.ts`).
+- `main.ts` — entry / orchestrator
+- `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod
+- `preload.ts` — context-isolated IPC bridge (`window.electronAPI`)
+- `ipc-validators.ts` + `ipc-rate-limiter.ts` — input validation and rate limits at the IPC boundary
+- `store-handler.ts`, `collection-manager.ts` — persistent storage bridge
+- `interceptor-registry.ts`, `request-logger.ts`, `deep-link-handler.ts`, `auto-updater.ts`, `menu.ts`, `system-tray.ts`, `notifications.ts`, `window-controls.ts`
 
-**Import/Export**: Postman and Insomnia collection formats via `src/features/collections/lib/{importers,exporters}.ts`.
+Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, DNS-rebind guard at lookup time, manual redirect handling) live inside the Electron fetcher closure — **not** in `shared/protocol/`. Keep `shared/` backend-agnostic.
 
-## Worker
+### Worker (`worker/`)
 
-The Worker is a Hono app deployed as Cloudflare Pages Functions. Key facts:
+Hono app deployed as Cloudflare Pages Functions. Routes: `/api/proxy`, `/api/grpc`, `/api/grpc/reflection`, `/api/mcp`. Notable bits:
+
 - Bundled into `dist/web/_worker.js` by `@cloudflare/vite-plugin` during `vite build`.
-- The Electron build excludes `_worker.js` (see `electron-builder.json` files glob).
-- Compatibility flag `nodejs_compat` is enabled for `Buffer` etc. (see `wrangler.jsonc`).
-- The `ENVIRONMENT` var (in `wrangler.jsonc`) gates `allowLocalhost` in URL validation. Set to `development` in `.dev.vars` for local iteration if you need to proxy localhost.
+- `nodejs_compat` flag enabled (for `Buffer` etc.) — see `wrangler.jsonc`.
+- Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
+- Rate limiting in `worker/middleware/rateLimiter.ts`.
+- **Auth gate**: production requires `WORKER_PROXY_TOKEN` or `REQUIRE_CF_ACCESS=true` (secrets). Local dev bypasses auth only when (a) Miniflare is running (auto-detected via `globalThis.MINIFLARE`), or (b) `DEV_BYPASS_AUTH=true` in `.dev.vars`. **Never** put `DEV_BYPASS_AUTH` in `wrangler.jsonc` (the deployed config).
+- `ENVIRONMENT` var gates `allowLocalhost` in URL validation. Set to `development` in `.dev.vars` to proxy localhost during local iteration. e2e tests rely on `.dev.vars` existing **before** the dev server boots — `playwright.config.ts` bootstraps this synchronously at config-load time.
+
+### Echo test server (`echo/`)
+
+A separate Cloudflare Worker (`echo/wrangler.jsonc`) used by e2e tests as a controlled upstream. Handlers for HTTP, GraphQL, SSE, WebSocket, and Connect/gRPC. Deploy with `npm run deploy:echo`. Not part of the production app.
+
+### CLI subproject (`cli/`)
+
+Standalone npm package `@restura/cli` (separate `package.json`, built with `tsup`). Runs collections in CI with JUnit/HTML/JSON reporters. Self-contained — has its own deps and tests.
+
+## Key Technical Patterns
+
+- **Path alias** `@/` → `./src/` (configured in `tsconfig.json` and `vitest.config.ts`).
+- **Build tool**: Vite 8 + `@vitejs/plugin-react` + `@cloudflare/vite-plugin`. The Cloudflare plugin boots Miniflare during `vite dev` so one command runs both SPA and Worker. Config is `vite.config.mts` (must be ESM — the Cloudflare plugin is ESM-only).
+- **Tailwind v4** via `@tailwindcss/vite` (no separate PostCSS config).
+- **Lazy components**: `src/lib/shared/lazyComponent.tsx` wraps `React.lazy` + `Suspense` (mirrors `next/dynamic` ergonomics — `next/dynamic` was removed).
+- **Strict TS**: `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`, `noUncheckedIndexedAccess`. `exactOptionalPropertyTypes` is **off** intentionally.
+- **UI** — Radix UI primitives + Tailwind, shadcn/ui patterns in `src/components/ui/`.
+- **Script sandbox** — pre-request and test scripts run in QuickJS WASM (`src/features/scripts/lib/scriptExecutor.ts`). No DOM, no filesystem, no network escape; memory + execution-time capped.
+- **Collection import/export** — Postman v2.1, Insomnia, and OpenCollection (`src/lib/opencollection/`, with codegen — `spec-types.ts` is generated, validated by `verify:opencollection-types`).
+- **Multiple tsconfigs** — `tsconfig.json` (renderer), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI). `tsconfig.base.json` holds shared compiler options. `npm run type-check` and `npm run lint` cover all of them.
 
 ## Testing
 
-Tests are colocated with source files using `*.test.ts` pattern. Vitest runs in jsdom environment with React Testing Library. Test setup in `tests/setup.ts`.
+- **Unit/integration**: Vitest in jsdom, colocated `*.test.ts(x)` files. Setup in `tests/setup.ts`. React Testing Library for components.
+- **e2e**: Playwright in `e2e/`. Tests prefixed `real-*` hit live upstreams (or the local echo server); `playwright.config.ts` boots the dev server via its `webServer` config. `workers: 1` and `fullyParallel: false` are deliberate — multiple suites share dev server state. `e2e/global-setup.ts` and `bootstrapPrereqs()` ensure `.dev.vars` exists before Miniflare reads it (load-bearing).
+- **Security tests**: `tests/security/` for SSRF, header policy, redirect handling regressions.
 
 ## Electron Build
 
 `electron-builder.json` defines the build. Process:
 1. `electron:build:web` — `vite build` with `VITE_IS_ELECTRON_BUILD=true` → `dist/web/`
-2. `electron:compile` — Compiles TypeScript in `electron/main/` → `dist/electron/`
-3. `electron-builder` — Packages app for target platform from `dist/`
+2. `electron:compile` — Compiles `electron/main/` TypeScript → `dist/electron/`
+3. `electron-builder` — Packages from `dist/` per target (`electron:dist:{mac,win,linux}`)
 
-Electron main process has its own `tsconfig.json` at `electron/tsconfig.json`. Renderer is loaded from `dist/web/index.html` (file:// in production, hash routing).
+The renderer entry is `dist/web/index.html` loaded via `file://` with hash routing. `_worker.js` is excluded from the Electron bundle.

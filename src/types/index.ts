@@ -50,7 +50,9 @@ export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
 export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';
 
 // Request Mode (used for UI mode switching)
-export type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql' | 'sse' | 'mcp';
+// Kafka is connection-based (no Request shape) and Electron-only — the picker
+// still surfaces it in the web build but the page renders a "Desktop only" panel.
+export type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql' | 'sse' | 'mcp' | 'kafka';
 
 // Body Types
 export type BodyType = 'none' | 'json' | 'xml' | 'form-data' | 'x-www-form-urlencoded' | 'binary' | 'protobuf' | 'graphql' | 'text' | 'multipart-mixed';
