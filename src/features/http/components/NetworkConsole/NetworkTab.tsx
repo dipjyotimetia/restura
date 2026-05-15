@@ -2,76 +2,54 @@
 
 import { useState, useMemo } from 'react';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { useConsoleStore } from '@/store/useConsoleStore';
+import {
+  entryToCurl,
+  entryToHttpRequest,
+  useConsoleStore,
+  type ConsoleProtocol,
+  type ConsoleStatusFilter,
+} from '@/store/useConsoleStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useActiveTab } from '@/store/selectors';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Network, FileText, Clock, Database, Copy, Check, Search, X } from 'lucide-react';
+import {
+  Network,
+  FileText,
+  Clock,
+  Database,
+  Copy,
+  Check,
+  Search,
+  X,
+  RotateCw,
+  ExternalLink,
+  GitCompare,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import RequestEntryItem from './RequestEntryItem';
+import EntryCompareDialog from './EntryCompareDialog';
 import { cn } from '@/lib/shared/utils';
+import {
+  detectLanguage,
+  formatBytes,
+  formatClockTime,
+  getStatusBadgeColor,
+} from '@/lib/shared/console-format';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
   <div className="h-[150px] bg-muted/50 rounded-lg animate-pulse" />
 );
 
-const formatTime = (timestamp: number) => {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  });
-};
-
-const getStatusColor = (status: number) => {
-  if (status >= 200 && status < 300) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
-  if (status >= 300 && status < 400) return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30';
-  if (status >= 400 && status < 500) return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
-  if (status >= 500) return 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30';
-  return 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30';
-};
-
-// Format bytes to human readable
-const formatBytes = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-};
-
-// Detect language from content
-const detectLanguage = (body: string, headers?: Record<string, string | string[]>) => {
-  // Check content-type header
-  if (headers) {
-    const contentType = headers['content-type'] || headers['Content-Type'] || '';
-    const ct = Array.isArray(contentType) ? contentType[0] : contentType;
-    if (ct?.includes('json')) return 'json';
-    if (ct?.includes('xml')) return 'xml';
-    if (ct?.includes('html')) return 'html';
-    if (ct?.includes('javascript')) return 'javascript';
-  }
-
-  // Try to detect from content
-  const trimmed = body.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return 'json';
-  if (trimmed.startsWith('<')) return 'xml';
-
-  return 'text';
-};
-
-// Format headers as string for copying
-const formatHeadersForCopy = (headers: Record<string, string | string[]>) => {
-  return Object.entries(headers)
+const formatHeadersForCopy = (headers: Record<string, string | string[]>) =>
+  Object.entries(headers)
     .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
     .join('\n');
-};
 
-// Copy button component
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -98,14 +76,79 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-export default function NetworkTab() {
-  const { entries, selectedEntryId, selectEntry, searchFilter, setSearchFilter } = useConsoleStore();
+const STATUS_FILTERS: Array<{ value: ConsoleStatusFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: '2xx', label: '2xx' },
+  { value: '3xx', label: '3xx' },
+  { value: '4xx', label: '4xx' },
+  { value: '5xx', label: '5xx' },
+  { value: 'errored', label: 'Errored' },
+];
 
-  // Filter entries based on search
+// Only protocols that *can* appear in the network entry list today. Frame-only
+// protocols (websocket/kafka/socketio) land in the Frames tab (Phase B-1).
+const PROTOCOL_FILTERS: Array<{ value: ConsoleProtocol | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'http', label: 'HTTP' },
+  { value: 'grpc', label: 'gRPC' },
+  { value: 'graphql', label: 'GraphQL' },
+  { value: 'mcp', label: 'MCP' },
+  { value: 'sse', label: 'SSE' },
+];
+
+function statusMatches(status: number, filter: ConsoleStatusFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'errored') return status === 0 || status >= 500;
+  if (filter === '2xx') return status >= 200 && status < 300;
+  if (filter === '3xx') return status >= 300 && status < 400;
+  if (filter === '4xx') return status >= 400 && status < 500;
+  if (filter === '5xx') return status >= 500 && status < 600;
+  return true;
+}
+
+export default function NetworkTab() {
+  const {
+    entries,
+    selectedEntryId,
+    selectEntry,
+    searchFilter,
+    setSearchFilter,
+    statusFilter,
+    setStatusFilter,
+    protocolFilter,
+    setProtocolFilter,
+  } = useConsoleStore();
+  const openTab = useRequestStore((s) => s.openTab);
+  const updateRequest = useRequestStore((s) => s.updateRequest);
+  const activeTab = useActiveTab();
+
+  // Compare-set is local-only — transient UI state, no need to persist.
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [compareDialogOpen, setCompareDialogOpen] = useState(false);
+
+  const toggleCompare = (id: string) => {
+    setCompareIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      // Cap at 2 — selecting a third bumps the oldest.
+      if (prev.length >= 2) return [prev[1]!, id];
+      return [...prev, id];
+    });
+  };
+
+  const compareEntries = useMemo(
+    () =>
+      compareIds
+        .map((id) => entries.find((e) => e.id === id))
+        .filter((e): e is NonNullable<typeof e> => Boolean(e)),
+    [compareIds, entries]
+  );
+
   const filteredEntries = useMemo(() => {
-    if (!searchFilter.trim()) return entries;
-    const search = searchFilter.toLowerCase();
+    const search = searchFilter.trim().toLowerCase();
     return entries.filter((entry) => {
+      if (!statusMatches(entry.response.status, statusFilter)) return false;
+      if (protocolFilter !== 'all' && (entry.protocol ?? 'http') !== protocolFilter) return false;
+      if (!search) return true;
       return (
         entry.request.url.toLowerCase().includes(search) ||
         entry.request.method.toLowerCase().includes(search) ||
@@ -113,9 +156,46 @@ export default function NetworkTab() {
         entry.response.statusText.toLowerCase().includes(search)
       );
     });
-  }, [entries, searchFilter]);
+  }, [entries, searchFilter, statusFilter, protocolFilter]);
 
   const selectedEntry = entries.find((e) => e.id === selectedEntryId);
+
+  const handleReplay = () => {
+    if (!selectedEntry) return;
+    if (activeTab?.request.type !== 'http') {
+      const req = entryToHttpRequest(selectedEntry);
+      openTab(req, { switchTo: true });
+      toast.success('Opened in a new tab');
+      return;
+    }
+    const req = entryToHttpRequest(selectedEntry);
+    updateRequest({
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      params: req.params,
+      body: req.body,
+      auth: req.auth,
+    });
+    toast.success('Replayed in active tab');
+  };
+
+  const handleOpenInNewTab = () => {
+    if (!selectedEntry) return;
+    const req = entryToHttpRequest(selectedEntry);
+    openTab(req, { switchTo: true });
+    toast.success('Opened in a new tab');
+  };
+
+  const handleCopyCurl = async () => {
+    if (!selectedEntry) return;
+    try {
+      await navigator.clipboard.writeText(entryToCurl(selectedEntry));
+      toast.success('Copied as cURL');
+    } catch {
+      toast.error('Failed to copy');
+    }
+  };
 
   if (entries.length === 0) {
     return (
@@ -127,12 +207,15 @@ export default function NetworkTab() {
     );
   }
 
+  const filtersActive =
+    statusFilter !== 'all' || protocolFilter !== 'all' || searchFilter.trim().length > 0;
+
   return (
     <div className="flex h-full">
       {/* Entry list */}
       <div className="w-[280px] border-r border-border flex-shrink-0 flex flex-col">
         {/* Search input */}
-        <div className="p-2 border-b border-border">
+        <div className="p-2 border-b border-border space-y-2">
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
             <Input
@@ -152,12 +235,65 @@ export default function NetworkTab() {
               </Button>
             )}
           </div>
+          {/* Status filters */}
+          <div className="flex flex-wrap gap-1">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => setStatusFilter(f.value)}
+                className={cn(
+                  'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                  statusFilter === f.value
+                    ? 'bg-primary/15 border-primary/40 text-primary'
+                    : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
+                )}
+                aria-pressed={statusFilter === f.value}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {/* Protocol filters */}
+          <div className="flex flex-wrap gap-1">
+            {PROTOCOL_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => setProtocolFilter(f.value)}
+                className={cn(
+                  'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                  protocolFilter === f.value
+                    ? 'bg-primary/15 border-primary/40 text-primary'
+                    : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
+                )}
+                aria-pressed={protocolFilter === f.value}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
         <ScrollArea className="flex-1">
-          {filteredEntries.length === 0 && searchFilter ? (
-            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+          {filteredEntries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground px-4 text-center">
               <Search className="h-6 w-6 mb-2 opacity-30" />
-              <p className="text-xs">No matching requests</p>
+              <p className="text-xs">
+                {filtersActive ? 'No matching requests' : 'No requests yet'}
+              </p>
+              {filtersActive && (
+                <button
+                  type="button"
+                  className="text-[10px] underline mt-2 text-primary"
+                  onClick={() => {
+                    setSearchFilter('');
+                    setStatusFilter('all');
+                    setProtocolFilter('all');
+                  }}
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
           ) : (
             filteredEntries.map((entry) => (
@@ -166,6 +302,9 @@ export default function NetworkTab() {
                 entry={entry}
                 isSelected={entry.id === selectedEntryId}
                 onClick={() => selectEntry(entry.id)}
+                isCompareChecked={compareIds.includes(entry.id)}
+                onToggleCompare={() => toggleCompare(entry.id)}
+                onPinForCompare={() => toggleCompare(entry.id)}
               />
             ))
           )}
@@ -176,7 +315,7 @@ export default function NetworkTab() {
       <div className="flex-1 min-w-0">
         {selectedEntry ? (
           <Tabs defaultValue="request" className="h-full flex flex-col">
-            <div className="px-4 pt-2 border-b border-border">
+            <div className="px-4 pt-2 border-b border-border flex items-center justify-between gap-2">
               <TabsList className="h-8">
                 <TabsTrigger value="request" className="text-xs h-7">
                   <FileText className="h-3 w-3 mr-1.5" />
@@ -187,6 +326,50 @@ export default function NetworkTab() {
                   Response
                 </TabsTrigger>
               </TabsList>
+              <div className="flex items-center gap-1">
+                {compareEntries.length === 2 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => setCompareDialogOpen(true)}
+                    title="Compare the two selected entries"
+                  >
+                    <GitCompare className="h-3 w-3 mr-1" />
+                    Compare ({compareEntries.length})
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={handleReplay}
+                  title="Replay in the active tab (or open a new HTTP tab if not HTTP)"
+                >
+                  <RotateCw className="h-3 w-3 mr-1" />
+                  Replay
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={handleOpenInNewTab}
+                  title="Open in a new tab"
+                >
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  New tab
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={handleCopyCurl}
+                  title="Copy as cURL"
+                >
+                  <Copy className="h-3 w-3 mr-1" />
+                  cURL
+                </Button>
+              </div>
             </div>
 
             <TabsContent value="request" className="flex-1 m-0 overflow-hidden">
@@ -209,7 +392,7 @@ export default function NetworkTab() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Timestamp</span>
-                        <span>{formatTime(selectedEntry.timestamp)}</span>
+                        <span>{formatClockTime(selectedEntry.timestamp)}</span>
                       </div>
                     </div>
                   </div>
@@ -273,7 +456,7 @@ export default function NetworkTab() {
                     <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs">
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Status</span>
-                        <Badge variant="outline" className={cn('text-xs', getStatusColor(selectedEntry.response.status))}>
+                        <Badge variant="outline" className={cn('text-xs', getStatusBadgeColor(selectedEntry.response.status))}>
                           {selectedEntry.response.status} {selectedEntry.response.statusText}
                         </Badge>
                       </div>
@@ -391,6 +574,13 @@ export default function NetworkTab() {
           </div>
         )}
       </div>
+
+      <EntryCompareDialog
+        open={compareDialogOpen}
+        onOpenChange={setCompareDialogOpen}
+        left={compareEntries[0] ?? null}
+        right={compareEntries[1] ?? null}
+      />
     </div>
   );
 }

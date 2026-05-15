@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import { z } from 'zod';
 import {
   httpRequestSchema,
   grpcRequestSchema,
@@ -8,6 +8,61 @@ import {
   collectionSchema,
 } from './validations';
 import type { Request, Environment, Collection } from '@/types';
+
+/**
+ * Schema for a single persisted console entry. Validated on rehydrate so a
+ * single corrupt record (e.g. from a partial write or older app version)
+ * doesn't poison the whole console.
+ */
+const ConsoleLogSchema = z.object({
+  type: z.enum(['log', 'error', 'warn', 'info']),
+  message: z.string(),
+  timestamp: z.number(),
+});
+
+const ConsoleTestSchema = z.object({
+  name: z.string(),
+  passed: z.boolean(),
+  error: z.string().optional(),
+});
+
+export const ConsoleFrameSchema = z.object({
+  id: z.string(),
+  timestamp: z.number(),
+  protocol: z.enum(['websocket', 'socketio', 'kafka']),
+  direction: z.enum(['in', 'out', 'system']),
+  connectionId: z.string().optional(),
+  label: z.string().optional(),
+  payload: z.string(),
+  bytes: z.number().optional(),
+});
+
+export const ConsoleEntrySchema = z.object({
+  id: z.string(),
+  timestamp: z.number(),
+  protocol: z
+    .enum(['http', 'grpc', 'graphql', 'mcp', 'sse', 'websocket', 'kafka', 'socketio'])
+    .optional(),
+  request: z.object({
+    method: z.string(),
+    url: z.string(),
+    headers: z.record(z.string(), z.string()),
+    body: z.string().optional(),
+  }),
+  response: z.object({
+    id: z.string(),
+    requestId: z.string(),
+    status: z.number(),
+    statusText: z.string(),
+    headers: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+    body: z.string(),
+    size: z.number(),
+    time: z.number(),
+    timestamp: z.number(),
+  }),
+  scriptLogs: z.array(ConsoleLogSchema).optional(),
+  tests: z.array(ConsoleTestSchema).optional(),
+});
 
 /**
  * Validates a request object and returns validated data or throws

@@ -215,13 +215,15 @@ export default function Home() {
             <div className="flex flex-1 flex-col min-h-0">
               {renderRequestBuilder()}
             </div>
-            {requestMode !== 'websocket' && requestMode !== 'kafka' && requestMode !== 'socketio' && (
-              <NetworkConsole
-                scriptLogs={allLogs}
-                tests={allTests}
-                onClearScripts={handleClearConsole}
-              />
-            )}
+            <NetworkConsole
+              scriptLogs={allLogs}
+              tests={allTests}
+              onClearScripts={handleClearConsole}
+            />
+            {/*
+              The console renders for every protocol — Frames tab carries
+              WebSocket / Socket.IO / Kafka, Network tab carries the rest.
+            */}
           </main>
         </div>
       </div>
