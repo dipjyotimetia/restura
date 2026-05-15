@@ -35,14 +35,14 @@ import {
 import { isElectron } from '@/lib/shared/platform';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import {
-  GrpcReflectionClient,
   generateRequestTemplate,
   formatMessageSchemaForDisplay,
   generateProtoFromReflection,
   validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
+import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import { toast } from 'sonner';
-import type { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult } from '@/types';
+import type { ReflectionServiceInfo, ReflectionMethodInfo } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
@@ -79,11 +79,6 @@ function GrpcRequestBuilder() {
   const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
   const [retryDelayMs, setRetryDelayMs] = useState(0);
   const [useCompression, setUseCompression] = useState(false);
-  const [isDiscovering, setIsDiscovering] = useState(false);
-  const [reflectionResult, setReflectionResult] = useState<ReflectionResult | null>(null);
-  const [selectedReflectionService, setSelectedReflectionService] = useState<ReflectionServiceInfo | null>(null);
-  const [selectedReflectionMethod, setSelectedReflectionMethod] = useState<ReflectionMethodInfo | null>(null);
-  const [showSchemaInfo, setShowSchemaInfo] = useState(false);
 
   // Stable URL reference for use in callbacks and effects — must compute before early return
   const grpcUrl = currentRequest?.url;
@@ -122,141 +117,53 @@ function GrpcRequestBuilder() {
     return result.valid;
   }, []);
 
-  const handleSelectReflectionService = useCallback((service: ReflectionServiceInfo) => {
-    setSelectedReflectionService(service);
-    updateRequest({ service: service.fullName });
-    validateService(service.fullName);
-    setSelectedReflectionMethod(null);
-  }, [updateRequest, validateService]);
+  // Apply parent-side effects when the reflection hook surfaces a service
+  // selection — push to the request store and re-run validators.
+  const handleReflectionServiceSelected = useCallback(
+    (service: ReflectionServiceInfo) => {
+      updateRequest({ service: service.fullName });
+      validateService(service.fullName);
+    },
+    [updateRequest, validateService]
+  );
 
-  const handleSelectReflectionMethod = useCallback((method: ReflectionMethodInfo) => {
-    setSelectedReflectionMethod(method);
-    updateRequest({ method: method.name });
-    validateMethod(method.name);
-    let methodType: GrpcMethodType = 'unary';
-    if (method.clientStreaming && method.serverStreaming) {
-      methodType = 'bidirectional-streaming';
-    } else if (method.serverStreaming) {
-      methodType = 'server-streaming';
-    } else if (method.clientStreaming) {
-      methodType = 'client-streaming';
-    }
-    updateRequest({ methodType });
-    if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
-      const template = generateRequestTemplate(method.inputMessageSchema);
-      updateRequest({ message: template });
-      validateMessage(template);
-      toast.info('Request template generated', {
-        description: `Generated template for ${method.inputMessageSchema.name}`,
-      });
-    }
-  }, [updateRequest, validateMethod, validateMessage]);
-
-  const handleDiscoverServices = useCallback(async (silent = false) => {
-    const url = grpcUrl ?? '';
-    if (!url) {
-      if (!silent) {
-        toast.error('URL required', {
-          description: 'Please enter a gRPC server URL before discovering services',
+  // Apply parent-side effects when the reflection hook surfaces a method
+  // selection — push name/methodType to the store, generate a request
+  // template if the schema is known, and re-run validators. Template
+  // generation lives here (not in the hook) because we own validateMessage
+  // and the request store.
+  const handleReflectionMethodSelected = useCallback(
+    (method: ReflectionMethodInfo) => {
+      updateRequest({ method: method.name });
+      validateMethod(method.name);
+      let methodType: GrpcMethodType = 'unary';
+      if (method.clientStreaming && method.serverStreaming) {
+        methodType = 'bidirectional-streaming';
+      } else if (method.serverStreaming) {
+        methodType = 'server-streaming';
+      } else if (method.clientStreaming) {
+        methodType = 'client-streaming';
+      }
+      updateRequest({ methodType });
+      if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
+        const template = generateRequestTemplate(method.inputMessageSchema);
+        updateRequest({ message: template });
+        validateMessage(template);
+        toast.info('Request template generated', {
+          description: `Generated template for ${method.inputMessageSchema.name}`,
         });
       }
-      return;
-    }
+    },
+    [updateRequest, validateMethod, validateMessage]
+  );
 
-    const urlValidation = validateGrpcUrl(url);
-    if (!urlValidation.valid) {
-      if (!silent) {
-        toast.error('Invalid URL', { description: urlValidation.error });
-      }
-      return;
-    }
-
-    setIsDiscovering(true);
-    if (!silent) {
-      setReflectionResult(null);
-      setSelectedReflectionService(null);
-      setSelectedReflectionMethod(null);
-    }
-
-    try {
-      const resolvedUrl = resolveVariables(url);
-      const client = new GrpcReflectionClient(resolvedUrl);
-      const result = await client.discoverServices();
-
-      if (result.success) {
-        setReflectionResult(result);
-        if (result.services.length === 0) {
-          if (!silent) {
-            toast.warning('No services found', {
-              description: 'The server has reflection enabled but no services were discovered',
-            });
-          }
-        } else {
-          if (!silent) {
-            toast.success('Services discovered', {
-              description: `Found ${result.services.length} service(s) with ${result.services.reduce((sum, s) => sum + s.methods.length, 0)} method(s)`,
-            });
-          }
-          const firstService = result.services[0];
-          if (firstService) {
-            setSelectedReflectionService(firstService);
-            handleSelectReflectionService(firstService);
-            if (firstService.methods.length > 0) {
-              const firstMethod = firstService.methods[0];
-              if (firstMethod) {
-                setSelectedReflectionMethod(firstMethod);
-                handleSelectReflectionMethod(firstMethod);
-              }
-            }
-          }
-        }
-      } else {
-        if (!silent) {
-          toast.error('Discovery failed', {
-            description: result.error || 'Failed to discover services via reflection',
-          });
-          setReflectionResult({
-            success: false,
-            services: [],
-            error: result.error,
-            serverUrl: url,
-            timestamp: Date.now(),
-          });
-        }
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      if (!silent) {
-        toast.error('Discovery failed', { description: errorMessage });
-        setReflectionResult({
-          success: false,
-          services: [],
-          error: errorMessage,
-          serverUrl: url,
-          timestamp: Date.now(),
-        });
-      }
-    } finally {
-      setIsDiscovering(false);
-    }
-  }, [grpcUrl, resolveVariables, handleSelectReflectionService, handleSelectReflectionMethod]);
-
-  // Auto-discover services when URL changes
-  useEffect(() => {
-    if (!currentRequest) return;
-    const url = grpcUrl ?? '';
-    if (!url) return;
-    const { valid } = validateGrpcUrl(url);
-    if (!valid) return;
-
-    const timer = setTimeout(() => {
-      if (reflectionResult?.serverUrl !== url) {
-        handleDiscoverServices(true);
-      }
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, [grpcUrl, handleDiscoverServices, reflectionResult?.serverUrl, currentRequest]);
+  const reflection = useGrpcReflection({
+    url: grpcUrl,
+    resolveVariables,
+    autoDiscover: !!currentRequest,
+    onServiceSelected: handleReflectionServiceSelected,
+    onMethodSelected: handleReflectionMethodSelected,
+  });
 
   // Keep a ref so unmount cleanup always sees the current stream without re-running the effect
   const streamControlRef = useRef(streamControl);
@@ -317,10 +224,10 @@ function GrpcRequestBuilder() {
     }
 
     // Schema validation against reflection schema (if available)
-    if (selectedReflectionMethod?.inputMessageSchema && grpcRequest.message) {
+    if (reflection.selectedMethod?.inputMessageSchema && grpcRequest.message) {
       try {
         const parsed = JSON.parse(grpcRequest.message);
-        const schemaValidation = validateRequestAgainstSchema(parsed, selectedReflectionMethod.inputMessageSchema);
+        const schemaValidation = validateRequestAgainstSchema(parsed, reflection.selectedMethod.inputMessageSchema);
         if (!schemaValidation.valid) {
           toast.warning('Schema validation warnings', {
             description: schemaValidation.errors.slice(0, 3).join('; '),
@@ -343,8 +250,8 @@ function GrpcRequestBuilder() {
       if (protoFile) {
         protoContent = await protoFile.text();
         protoFileName = protoFile.name;
-      } else if (reflectionResult?.success && selectedReflectionService) {
-        protoContent = generateProtoFromReflection(grpcRequest.service, selectedReflectionService);
+      } else if (reflection.result?.success && reflection.selectedService) {
+        protoContent = generateProtoFromReflection(grpcRequest.service, reflection.selectedService);
         protoFileName = 'generated.proto';
       } else {
         toast.error('Proto file or reflection required', {
@@ -566,19 +473,19 @@ function GrpcRequestBuilder() {
         {/* Service / Method row */}
         <div className="flex gap-2 px-3 py-2">
           <div className="flex-1 relative">
-            {reflectionResult?.success && reflectionResult.services.length > 0 ? (
+            {reflection.result?.success && reflection.result.services.length > 0 ? (
               <Select
-                value={selectedReflectionService?.fullName || ''}
+                value={reflection.selectedService?.fullName || ''}
                 onValueChange={(value) => {
-                  const service = reflectionResult.services.find((s) => s.fullName === value);
-                  if (service) handleSelectReflectionService(service);
+                  const service = reflection.result?.services.find((s) => s.fullName === value);
+                  if (service) reflection.selectService(service);
                 }}
               >
                 <SelectTrigger className={`font-mono text-xs bg-background border-border ${!validation.service.valid ? 'border-destructive' : ''}`}>
                   <SelectValue placeholder="Select service" />
                 </SelectTrigger>
                 <SelectContent>
-                  {reflectionResult.services.filter((s) => s.fullName).map((service) => (
+                  {reflection.result.services.filter((s) => s.fullName).map((service) => (
                     <SelectItem key={service.fullName} value={service.fullName} className="font-mono text-xs">
                       {service.fullName}
                     </SelectItem>
@@ -602,19 +509,19 @@ function GrpcRequestBuilder() {
           </div>
 
           <div className="flex-1 relative">
-            {selectedReflectionService && selectedReflectionService.methods.length > 0 ? (
+            {reflection.selectedService && reflection.selectedService.methods.length > 0 ? (
               <Select
-                value={selectedReflectionMethod?.name || ''}
+                value={reflection.selectedMethod?.name || ''}
                 onValueChange={(value) => {
-                  const method = selectedReflectionService.methods.find((m) => m.name === value);
-                  if (method) handleSelectReflectionMethod(method);
+                  const method = reflection.selectedService?.methods.find((m) => m.name === value);
+                  if (method) reflection.selectMethod(method);
                 }}
               >
                 <SelectTrigger className={`font-mono text-xs bg-background border-border ${!validation.method.valid ? 'border-destructive' : ''}`}>
                   <SelectValue placeholder="Select method" />
                 </SelectTrigger>
                 <SelectContent>
-                  {selectedReflectionService.methods.filter((m) => m.name).map((method) => (
+                  {reflection.selectedService.methods.filter((m) => m.name).map((method) => (
                     <SelectItem key={method.name} value={method.name} className="font-mono text-xs">
                       {method.name}
                       {(method.clientStreaming || method.serverStreaming) && (
@@ -649,17 +556,17 @@ function GrpcRequestBuilder() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handleDiscoverServices(false)}
-            disabled={isDiscovering || !grpcRequest.url}
+            onClick={() => reflection.discover(false)}
+            disabled={reflection.loading || !grpcRequest.url}
             title="Discover services via gRPC reflection"
             className="shrink-0"
           >
-            {isDiscovering ? (
+            {reflection.loading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Radio className="mr-2 h-4 w-4" />
             )}
-            {isDiscovering ? 'Discovering...' : 'Discover'}
+            {reflection.loading ? 'Discovering...' : 'Discover'}
           </Button>
 
           <GrpcProtoUploader
@@ -707,48 +614,48 @@ function GrpcRequestBuilder() {
         )}
 
         {/* Reflection result info */}
-        {reflectionResult && (
-          <div className={`mx-3 mb-2 p-2 rounded text-xs space-y-1 ${reflectionResult.success ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+        {reflection.result && (
+          <div className={`mx-3 mb-2 p-2 rounded text-xs space-y-1 ${reflection.result.success ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
             <div className="flex items-center gap-1 font-mono font-medium">
               <Radio className="h-3 w-3" />
               gRPC Reflection
-              {reflectionResult.success ? (
+              {reflection.result.success ? (
                 <CheckCircle className="h-3 w-3 text-emerald-400" />
               ) : (
                 <AlertCircle className="h-3 w-3 text-destructive" />
               )}
             </div>
-            {reflectionResult.success ? (
+            {reflection.result.success ? (
               <>
                 <div className="font-mono text-muted-foreground">
-                  Services: {reflectionResult.services.length} · Methods:{' '}
-                  {reflectionResult.services.reduce((sum, s) => sum + s.methods.length, 0)}
+                  Services: {reflection.result.services.length} · Methods:{' '}
+                  {reflection.result.services.reduce((sum, s) => sum + s.methods.length, 0)}
                 </div>
-                {selectedReflectionMethod && (
+                {reflection.selectedMethod && (
                   <div className="mt-1">
                     <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">Selected Method</div>
                     <div className="font-mono text-xs">
-                      In: {selectedReflectionMethod.inputType.split('.').pop()} · Out:{' '}
-                      {selectedReflectionMethod.outputType.split('.').pop()}
+                      In: {reflection.selectedMethod.inputType.split('.').pop()} · Out:{' '}
+                      {reflection.selectedMethod.outputType.split('.').pop()}
                     </div>
                     <Button
                       variant="link"
                       size="sm"
                       className="p-0 h-auto text-xs font-mono"
-                      onClick={() => setShowSchemaInfo(!showSchemaInfo)}
+                      onClick={() => reflection.setShowSchema(!reflection.showSchema)}
                     >
-                      {showSchemaInfo ? 'Hide Schema' : 'Show Schema'}
+                      {reflection.showSchema ? 'Hide Schema' : 'Show Schema'}
                     </Button>
-                    {showSchemaInfo && selectedReflectionMethod.inputMessageSchema && (
+                    {reflection.showSchema && reflection.selectedMethod.inputMessageSchema && (
                       <pre className="mt-1 p-2 bg-surface-3 rounded text-xs overflow-x-auto font-mono">
-                        {formatMessageSchemaForDisplay(selectedReflectionMethod.inputMessageSchema)}
+                        {formatMessageSchemaForDisplay(reflection.selectedMethod.inputMessageSchema)}
                       </pre>
                     )}
                   </div>
                 )}
               </>
             ) : (
-              <div className="font-mono text-destructive">{reflectionResult.error}</div>
+              <div className="font-mono text-destructive">{reflection.result.error}</div>
             )}
           </div>
         )}
