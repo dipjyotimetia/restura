@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
@@ -14,7 +13,7 @@ import type {
   GrpcResponse,
   ProtoFileInfo,
 } from '@/types';
-import { Send, AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
+import { AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import {
   getMethodTypeDescription,
@@ -35,7 +34,6 @@ import { isElectron } from '@/lib/shared/platform';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import {
   generateRequestTemplate,
-  formatMessageSchemaForDisplay,
   generateProtoFromReflection,
   validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
@@ -46,10 +44,13 @@ import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
-import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
+import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { GrpcMessageEditor } from './GrpcMessageEditor';
 import { GrpcMethodSelector } from './GrpcMethodSelector';
+import { GrpcReflectionStatus } from './GrpcReflectionStatus';
+import { GrpcSettingsPanel } from './GrpcSettingsPanel';
+import { GrpcUrlBar } from './GrpcUrlBar';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 
 function GrpcRequestBuilder() {
@@ -409,65 +410,23 @@ function GrpcRequestBuilder() {
     <div className="flex-1 flex flex-col border-b border-border">
       {/* Request Zone */}
       <div className="border-b border-border">
-        {/* URL Zone */}
-        <div className="flex items-center gap-1 px-3 h-12 border-b border-border bg-surface-2">
-          <Select
-            value={grpcRequest.methodType}
-            onValueChange={(value) => handleMethodTypeChange(value as GrpcMethodType)}
-          >
-            <SelectTrigger className="w-44 h-7 font-mono text-[11px] font-bold bg-surface-3 border-border shrink-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="unary" className="font-mono text-xs">Unary</SelectItem>
-              <SelectItem value="server-streaming" className="font-mono text-xs">Server Streaming</SelectItem>
-              <SelectItem value="client-streaming" className="font-mono text-xs">Client Streaming</SelectItem>
-              <SelectItem value="bidirectional-streaming" className="font-mono text-xs">Bidirectional</SelectItem>
-            </SelectContent>
-          </Select>
-          <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
-          <Input
-            value={grpcRequest.url}
-            onChange={(e) => handleUrlChange(e.target.value)}
-            placeholder="https://echo.restura.dev"
-            className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:ring-0 focus-visible:ring-offset-0"
-            aria-label="gRPC server URL"
-          />
-          <Button
-            variant="glow"
-            size="sm"
-            onClick={handleSendRequest}
-            disabled={(isLoading && !streamControl) || !isFormValid()}
-            aria-label={isLoading ? 'Invoking gRPC method' : 'Invoke gRPC method'}
-            className="h-7 min-w-[72px] shrink-0"
-          >
-            <Send className="mr-1.5 h-3.5 w-3.5" />
-            {isLoading ? 'Invoking...' : 'Invoke'}
-          </Button>
-        </div>
-
-        {/* Streaming controls row */}
-        {streamControl && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface-2">
-            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest shrink-0">Stream</span>
-            <GrpcStreamingControls
-              streamControl={streamControl}
-              methodType={grpcRequest.methodType}
-              onCancel={() => {
-                streamControl?.cancelStream();
-                setStreamControl(null);
-                setLoading(false);
-              }}
-            />
-          </div>
-        )}
-
-        {!validation.url.valid && validation.url.error && (
-          <div className="text-xs text-destructive mx-3 mt-1 flex items-center gap-1">
-            <AlertCircle className="h-3 w-3" />
-            {validation.url.error}
-          </div>
-        )}
+        <GrpcUrlBar
+          methodType={grpcRequest.methodType}
+          url={grpcRequest.url}
+          isLoading={isLoading}
+          isFormValid={!!isFormValid()}
+          streamControl={streamControl}
+          urlError={validation.url.error}
+          isUrlValid={validation.url.valid}
+          onMethodTypeChange={handleMethodTypeChange}
+          onUrlChange={handleUrlChange}
+          onSend={handleSendRequest}
+          onCancelStream={() => {
+            streamControl?.cancelStream();
+            setStreamControl(null);
+            setLoading(false);
+          }}
+        />
 
         {/* Service / Method row */}
         <div className="flex gap-2 px-3 py-2">
@@ -547,49 +506,12 @@ function GrpcRequestBuilder() {
 
         {/* Reflection result info */}
         {reflection.result && (
-          <div className={`mx-3 mb-2 p-2 rounded text-xs space-y-1 ${reflection.result.success ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
-            <div className="flex items-center gap-1 font-mono font-medium">
-              <Radio className="h-3 w-3" />
-              gRPC Reflection
-              {reflection.result.success ? (
-                <CheckCircle className="h-3 w-3 text-emerald-400" />
-              ) : (
-                <AlertCircle className="h-3 w-3 text-destructive" />
-              )}
-            </div>
-            {reflection.result.success ? (
-              <>
-                <div className="font-mono text-muted-foreground">
-                  Services: {reflection.result.services.length} · Methods:{' '}
-                  {reflection.result.services.reduce((sum, s) => sum + s.methods.length, 0)}
-                </div>
-                {reflection.selectedMethod && (
-                  <div className="mt-1">
-                    <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">Selected Method</div>
-                    <div className="font-mono text-xs">
-                      In: {reflection.selectedMethod.inputType.split('.').pop()} · Out:{' '}
-                      {reflection.selectedMethod.outputType.split('.').pop()}
-                    </div>
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="p-0 h-auto text-xs font-mono"
-                      onClick={() => reflection.setShowSchema(!reflection.showSchema)}
-                    >
-                      {reflection.showSchema ? 'Hide Schema' : 'Show Schema'}
-                    </Button>
-                    {reflection.showSchema && reflection.selectedMethod.inputMessageSchema && (
-                      <pre className="mt-1 p-2 bg-surface-3 rounded text-xs overflow-x-auto font-mono">
-                        {formatMessageSchemaForDisplay(reflection.selectedMethod.inputMessageSchema)}
-                      </pre>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="font-mono text-destructive">{reflection.result.error}</div>
-            )}
-          </div>
+          <GrpcReflectionStatus
+            result={reflection.result}
+            selectedMethod={reflection.selectedMethod}
+            showSchema={reflection.showSchema}
+            onToggleSchema={() => reflection.setShowSchema(!reflection.showSchema)}
+          />
         )}
 
         <GrpcProtoInfo protoInfo={protoInfo} />
@@ -712,60 +634,14 @@ function GrpcRequestBuilder() {
         </TabsContent>
 
         <TabsContent value="settings" className="flex-1 overflow-auto p-4 m-0">
-          <div className="space-y-6 max-w-sm">
-            <div className="space-y-3">
-              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Retry Policy</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground font-mono mb-1 block">Max Attempts</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={retryMaxAttempts}
-                    onChange={(e) => setRetryMaxAttempts(Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)))}
-                    className="h-7 text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground font-mono mb-1 block">Retry Delay (ms)</label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={500}
-                    value={retryDelayMs}
-                    onChange={(e) => setRetryDelayMs(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                    className="h-7 text-xs font-mono"
-                  />
-                </div>
-              </div>
-              {retryMaxAttempts > 1 && (
-                <p className="text-[11px] text-muted-foreground font-mono">
-                  Will retry up to {retryMaxAttempts - 1} time{retryMaxAttempts > 2 ? 's' : ''} on failure, waiting {retryDelayMs}ms between attempts.
-                </p>
-              )}
-            </div>
-            <div className="space-y-3">
-              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Compression</p>
-              <div className="flex items-center gap-3">
-                <input
-                  id="use-compression"
-                  type="checkbox"
-                  checked={useCompression}
-                  onChange={(e) => setUseCompression(e.target.checked)}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <label htmlFor="use-compression" className="text-xs font-mono cursor-pointer">
-                  Send gzip-compressed requests
-                </label>
-              </div>
-              {useCompression && !isElectron() && (
-                <p className="text-[11px] text-amber-400 font-mono">
-                  Compression is only supported in the Electron desktop app.
-                </p>
-              )}
-            </div>
-          </div>
+          <GrpcSettingsPanel
+            retryMaxAttempts={retryMaxAttempts}
+            retryDelayMs={retryDelayMs}
+            useCompression={useCompression}
+            onRetryMaxAttemptsChange={setRetryMaxAttempts}
+            onRetryDelayMsChange={setRetryDelayMs}
+            onUseCompressionChange={setUseCompression}
+          />
         </TabsContent>
 
         {streamingMessages.length > 0 && (
