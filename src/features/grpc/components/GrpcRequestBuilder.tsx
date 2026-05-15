@@ -16,7 +16,6 @@ import type {
 } from '@/types';
 import { Send, AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
 import {
   getMethodTypeDescription,
   GrpcClientError,
@@ -49,9 +48,8 @@ import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import GrpcStreamingControls, { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
+import { GrpcMessageEditor } from './GrpcMessageEditor';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
-
-const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
 
 function GrpcRequestBuilder() {
   const currentRequest = useActiveRequest('grpc');
@@ -728,24 +726,13 @@ function GrpcRequestBuilder() {
         </TabsList>
 
         <TabsContent value="message" className="flex-1 overflow-auto p-4 m-0">
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground font-mono mb-2">
-              Request message as JSON. Use {'{{variable}}'} for environment variables.
-            </p>
-            {!validation.message.valid && validation.message.error && (
-              <div className="text-xs text-destructive flex items-center gap-1 mb-2">
-                <AlertCircle className="h-3 w-3" />
-                {validation.message.error}
-              </div>
-            )}
-            <CodeEditor
-              value={grpcRequest.message || '{}'}
-              onChange={handleMessageChange}
-              language="json"
-              height="400px"
-              path={activeTabId ? `tab-${activeTabId}-grpc-message` : undefined}
-            />
-          </div>
+          <GrpcMessageEditor
+            value={grpcRequest.message}
+            onChange={handleMessageChange}
+            error={validation.message.error}
+            isValid={validation.message.valid}
+            editorPath={activeTabId ? `tab-${activeTabId}-grpc-message` : undefined}
+          />
         </TabsContent>
 
         <TabsContent value="metadata" className="flex-1 overflow-auto p-4 m-0">

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import type { ReflectionMethodInfo, ReflectionResult, ReflectionServiceInfo } from '@/types';
 
 vi.mock('sonner', () => ({
@@ -21,12 +21,13 @@ import { toast } from 'sonner';
 
 const buildMethod = (overrides: Partial<ReflectionMethodInfo> = {}): ReflectionMethodInfo => ({
   name: 'Greet',
+  fullName: 'greet.v1.GreetService.Greet',
   inputType: '.greet.v1.GreetRequest',
   outputType: '.greet.v1.GreetResponse',
   clientStreaming: false,
   serverStreaming: false,
   ...overrides,
-});
+} as ReflectionMethodInfo);
 
 const buildService = (overrides: Partial<ReflectionServiceInfo> = {}): ReflectionServiceInfo => ({
   name: 'GreetService',
