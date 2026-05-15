@@ -2,6 +2,9 @@ import type { Context } from 'hono';
 import type { Env } from '../index';
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
 import type { Fetcher } from '@shared/protocol/types';
+import { GrpcProxyRequestBodySchema } from '@shared/protocol/grpc-schema';
+import { parseJsonBody } from '../shared/validate-body';
+import { isLocalDevBypass } from '../shared/env';
 
 const fetcher: Fetcher = async (req) => {
   const init: RequestInit = {
@@ -20,35 +23,15 @@ const fetcher: Fetcher = async (req) => {
   };
 };
 
-interface GrpcProxyRequestBody {
-  url: string;
-  service: string;
-  method: string;
-  metadata?: Record<string, string>;
-  message?: unknown;
-  timeout?: number;
-}
-
 export async function grpc(c: Context<{ Bindings: Env }>) {
-  const isDev = c.env.ENVIRONMENT === 'development';
+  // Same gate as worker/index.ts auth — see proxy.ts for rationale.
+  const isDev = isLocalDevBypass(c.env);
 
-  let body: GrpcProxyRequestBody;
-  try {
-    body = await c.req.json<GrpcProxyRequestBody>();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return c.json(
-      {
-        grpcStatus: 13, // INTERNAL
-        grpcStatusText: 'INTERNAL',
-        headers: {},
-        trailers: {},
-        data: { error: `Proxy error: ${message}` },
-        size: 0,
-      },
-      500
-    );
+  const parsed = await parseJsonBody(c.req.raw, GrpcProxyRequestBodySchema);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error }, parsed.status);
   }
+  const body = parsed.value;
 
   const result = await executeGrpcProxy(body, fetcher, { allowLocalhost: isDev });
 

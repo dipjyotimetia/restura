@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Collection, CollectionItem } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
 interface CollectionState {
   collections: Collection[];
@@ -129,10 +130,19 @@ export const useCollectionStore = create<CollectionState>()(
       name: 'collection-storage',
       version: 2, // Bumped for Dexie migration
       storage: dexieStorageAdapters.collections(),
-      migrate: (persistedState, version) => {
-        if (version === 0 || version === 1) {
-          // Migration from localStorage (v1) to Dexie (v2)
-          return persistedState as CollectionState;
+      migrate: (persistedState, _version) => {
+        // If Dexie returned no/empty data, attempt a one-shot backfill
+        // from the legacy zustand/persist localStorage key. The helper
+        // also removes the legacy key so we never migrate twice.
+        const looksEmpty =
+          !persistedState ||
+          (typeof persistedState === 'object' &&
+            Object.keys(persistedState as object).length === 0);
+        if (looksEmpty) {
+          const legacy = migrateLegacyLocalStorage<Partial<CollectionState>>(
+            'collection-storage'
+          );
+          if (legacy) return legacy as CollectionState;
         }
         return persistedState as CollectionState;
       },

@@ -37,24 +37,127 @@ export interface URLValidationOptions {
   maxUrlLength?: number;
 }
 
+function stripBrackets(addr: string): string {
+  return addr.replace(/^\[|\]$/g, '');
+}
+
 function stripV4MappedPrefix(addr: string): string {
   return addr.startsWith('::ffff:') ? addr.slice(7) : addr;
 }
 
-export function isPrivateAddress(hostname: string): boolean {
-  const normalized = stripV4MappedPrefix(hostname);
-
-  if (normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1') {
-    return true;
-  }
-
+function isPrivateIPv4(addr: string): boolean {
   for (const re of PRIVATE_IPV4_RANGES) {
-    if (re.test(normalized)) return true;
+    if (re.test(addr)) return true;
+  }
+  return false;
+}
+
+/**
+ * Expand a (possibly compressed) IPv6 string into 8 hextet groups.
+ * Returns null if the input is not a valid IPv6 address. Handles embedded
+ * IPv4 forms (e.g. `::ffff:127.0.0.1`) by folding the dotted-quad into the
+ * final two hextets.
+ */
+function expandIPv6(addr: string): number[] | null {
+  if (!/^[0-9a-fA-F:.]+$/.test(addr)) return null;
+
+  let s = addr;
+  // Handle embedded IPv4 (e.g. ::ffff:127.0.0.1 → ::ffff:7f00:1)
+  const dotted = s.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const prefix = dotted[1]!;
+    const ipv4 = dotted[2]!;
+    const parts = ipv4.split('.').map((p) => Number(p));
+    if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) {
+      return null;
+    }
+    const hi = (((parts[0]! << 8) | parts[1]!) >>> 0).toString(16);
+    const lo = (((parts[2]! << 8) | parts[3]!) >>> 0).toString(16);
+    s = `${prefix}${hi}:${lo}`;
   }
 
-  const lower = normalized.toLowerCase();
-  if (lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80:')) {
+  const sides = s.split('::');
+  if (sides.length > 2) return null;
+
+  const leftStr = sides[0] ?? '';
+  const rightStr = sides[1];
+  const left = leftStr === '' ? [] : leftStr.split(':');
+  const right = rightStr === undefined || rightStr === '' ? [] : rightStr.split(':');
+
+  // No "::" abbreviation: must already be 8 groups.
+  if (sides.length === 1) {
+    if (left.length !== 8) return null;
+  } else {
+    if (left.length + right.length > 7) return null;
+  }
+
+  const fillCount = sides.length === 2 ? 8 - left.length - right.length : 0;
+  const groups = [...left, ...Array(fillCount).fill('0'), ...right];
+  if (groups.length !== 8) return null;
+
+  const nums: number[] = [];
+  for (const g of groups) {
+    if (g.length === 0 || g.length > 4 || !/^[0-9a-fA-F]+$/.test(g)) return null;
+    const n = parseInt(g, 16);
+    if (!Number.isFinite(n) || n < 0 || n > 0xffff) return null;
+    nums.push(n);
+  }
+  return nums;
+}
+
+function isPrivateIPv6Groups(groups: number[]): boolean {
+  // :: (unspecified)
+  if (groups.every((g) => g === 0)) return true;
+  // ::1 (loopback)
+  if (groups.slice(0, 7).every((g) => g === 0) && groups[7] === 1) return true;
+
+  const g0 = groups[0]!;
+  const g1 = groups[1]!;
+  const g2 = groups[2]!;
+  const g3 = groups[3]!;
+  const g4 = groups[4]!;
+  const g5 = groups[5]!;
+  const g6 = groups[6]!;
+  const g7 = groups[7]!;
+
+  // IPv4-mapped ::ffff:x.x.x.x — extract the embedded v4 and re-check.
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
+    const v4 = `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
+    return isPrivateIPv4(v4);
+  }
+  // 6to4 2002::/16 wraps a v4 in the top 32 bits after the 2002 prefix.
+  if (g0 === 0x2002) {
+    const v4 = `${(g1 >> 8) & 0xff}.${g1 & 0xff}.${(g2 >> 8) & 0xff}.${g2 & 0xff}`;
+    return isPrivateIPv4(v4);
+  }
+  // NAT64 well-known prefix 64:ff9b::/96 wraps v4 in the last 32 bits.
+  if (g0 === 0x0064 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
+    const v4 = `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
+    return isPrivateIPv4(v4);
+  }
+  // ULA fc00::/7
+  if ((g0 & 0xfe00) === 0xfc00) return true;
+  // Link-local fe80::/10
+  if ((g0 & 0xffc0) === 0xfe80) return true;
+  // Deprecated site-local fec0::/10
+  if ((g0 & 0xffc0) === 0xfec0) return true;
+
+  return false;
+}
+
+export function isPrivateAddress(hostname: string): boolean {
+  const stripped = stripBrackets(hostname);
+  const v4Normalized = stripV4MappedPrefix(stripped);
+
+  if (v4Normalized === 'localhost' || v4Normalized === '127.0.0.1') {
     return true;
+  }
+
+  if (isPrivateIPv4(v4Normalized)) return true;
+
+  if (stripped.includes(':')) {
+    const groups = expandIPv6(stripped);
+    if (groups) return isPrivateIPv6Groups(groups);
   }
 
   return false;

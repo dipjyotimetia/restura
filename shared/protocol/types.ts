@@ -97,7 +97,15 @@ export interface NormalizedResponse {
 export interface FetcherRequest {
   url: string;
   method: string;
-  headers: Record<string, string>;
+  /**
+   * Headers for the outgoing request. The shared protocol's first hop passes a
+   * `Record<string, string>` (post-`sanitizeRequestHeaders`). The redirect
+   * follower passes a `Headers` instance on subsequent hops because rebuilding
+   * a stripped-credentials map is cleaner against the standard API. Fetchers
+   * forward this to native `RequestInit.headers` / undici `headers` — both
+   * accept `HeadersInit` so either shape is wire-equivalent.
+   */
+  headers: Record<string, string> | Headers;
   body: BodyInit | undefined;
   signal: AbortSignal;
   /**

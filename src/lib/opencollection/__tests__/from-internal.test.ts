@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow these test fixture casts (Internal/Collection shapes) */
 import { describe, it, expect } from 'vitest';
 import { loadCollectionFromFile } from '../fs-reader';
 import { ocToInternal } from '../to-internal';

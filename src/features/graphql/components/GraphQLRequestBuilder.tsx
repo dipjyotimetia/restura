@@ -4,14 +4,12 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveRequest } from '@/store/selectors';
-import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Send, Plug, PlugZap, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import type { HttpRequest, Response } from '@/types';
+import type { HttpRequest } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { extractOperationType } from '@/features/graphql/lib/queryParser';
@@ -19,7 +17,7 @@ import { GraphQLSubscriptionClient, type SubscriptionMessage } from '@/features/
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import type { AuthConfig as AuthConfigType } from '@/types';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { useRequestRunner } from '@/features/registry/useRequestRunner';
 
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 
@@ -31,8 +29,8 @@ function GraphQLRequestBuilder() {
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const isLoading = useRequestStore((s) => s.isLoading);
-  const { addHistoryItem } = useHistoryStore();
-  const { resolveVariables, getActiveEnvironment, updateVariable } = useEnvironmentStore();
+  const { resolveVariables } = useEnvironmentStore();
+  const { run: runViaRegistry } = useRequestRunner();
   const [activeTab, setActiveTab] = useState('query');
   const [graphqlVariables, setGraphqlVariables] = useState('{}');
   const [subscriptionMessages, setSubscriptionMessages] = useState<SubscriptionMessage[]>([]);
@@ -140,172 +138,60 @@ function GraphQLRequestBuilder() {
       return;
     }
 
+    let parsedVariables: Record<string, unknown>;
+    try {
+      parsedVariables = JSON.parse(graphqlVariables || '{}');
+    } catch {
+      toast.error('Invalid JSON in variables');
+      return;
+    }
+
     setLoading(true);
     setScriptResult(null);
-    const startTime = Date.now();
 
-    // Build env vars snapshot
-    const activeEnv = getActiveEnvironment();
-    const envVars: Record<string, string> = {};
-    if (activeEnv) {
-      activeEnv.variables.filter((v) => v.enabled).forEach((v) => { envVars[v.key] = v.value; });
-    }
-
-    // Pre-request script
-    let preRequestResult;
-    if (httpRequest.preRequestScript?.trim()) {
-      const executor = new ScriptExecutor(envVars, {});
-      preRequestResult = await executor.executeScript(httpRequest.preRequestScript, {
-        request: { url: httpRequest.url, method: 'POST', headers: {}, body: httpRequest.body.raw },
+    // Build the wire-shaped request: GraphQL POSTs `{ query, variables }`
+    // as JSON, with auth headers folded into the request's header list so
+    // the runner's HTTP executor handles them uniformly. We don't mutate
+    // the stored request — the user's editor still shows the bare query.
+    const wireBody = JSON.stringify({
+      query: httpRequest.body.raw || '',
+      variables: parsedVariables,
+    });
+    const wireHeaders = httpRequest.headers.slice();
+    const hasContentType = wireHeaders.some(
+      (h) => h.enabled && h.key.toLowerCase() === 'content-type'
+    );
+    if (!hasContentType) {
+      wireHeaders.push({
+        id: 'graphql-content-type',
+        key: 'Content-Type',
+        value: 'application/json',
+        enabled: true,
       });
-      if (preRequestResult.variables) {
-        Object.assign(envVars, preRequestResult.variables);
-        if (activeEnv) {
-          Object.entries(preRequestResult.variables).forEach(([key, value]) => {
-            const variable = activeEnv.variables.find((v) => v.key === key);
-            if (variable) updateVariable(activeEnv.id, variable.id, { value });
-          });
-        }
-      }
     }
+    const wireRequest: HttpRequest = {
+      ...httpRequest,
+      method: 'POST',
+      headers: wireHeaders,
+      body: { ...httpRequest.body, type: 'json', raw: wireBody },
+    };
 
     try {
-      const resolvedUrl = resolveVariables(httpRequest.url);
-      const headers = buildHeaders();
+      const { response } = await runViaRegistry(wireRequest, 'graphql');
+      setCurrentResponse(response);
 
-      let variables = {};
-      try {
-        variables = JSON.parse(graphqlVariables || '{}');
-      } catch {
-        toast.error('Invalid JSON in variables');
-        setLoading(false);
-        return;
-      }
-
-      const body = JSON.stringify({
-        query: httpRequest.body.raw || '',
-        variables,
-      });
-
-      const buildResponseData = (
-        status: number,
-        statusText: string,
-        responseHeaders: Record<string, string>,
-        responseBody: string,
-        size: number,
-        endTime: number
-      ): Response => ({
-        id: `response-${Date.now()}`,
-        requestId: httpRequest.id,
-        status,
-        statusText,
-        headers: responseHeaders,
-        body: responseBody,
-        size,
-        time: endTime - startTime,
-        timestamp: Date.now(),
-      });
-
-      let responseData: Response;
-      if (isElectron()) {
-        const response = await fetch(resolvedUrl, {
-          method: 'POST',
-          headers,
-          body,
-        });
-        const responseBody = await response.text();
-        const endTime = Date.now();
-        responseData = buildResponseData(
-          response.status,
-          response.statusText,
-          Object.fromEntries(response.headers.entries()),
-          responseBody,
-          new Blob([responseBody]).size,
-          endTime
-        );
-      } else {
-        const proxyRes = await fetch(`${workerBaseUrl()}/api/proxy`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
-          body: JSON.stringify({
-            method: 'POST',
-            url: resolvedUrl,
-            headers,
-            bodyType: 'json',
-            data: body,
-            timeout: 30000,
-          }),
-        });
-        if (!proxyRes.ok) {
-          const errorBody = await proxyRes.text();
-          throw new Error(`Proxy error ${proxyRes.status}: ${errorBody}`);
-        }
-        const proxyResult = await proxyRes.json() as {
-          status: number;
-          statusText: string;
-          headers: Record<string, string>;
-          data: string;
-          size: number;
-        };
-        const endTime = Date.now();
-        responseData = buildResponseData(
-          proxyResult.status,
-          proxyResult.statusText,
-          proxyResult.headers,
-          proxyResult.data,
-          proxyResult.size,
-          endTime
-        );
-      }
-
-      setCurrentResponse(responseData);
-      addHistoryItem(httpRequest, responseData);
-
-      // Test script
-      let testResult;
-      if (httpRequest.testScript?.trim()) {
-        const executor = new ScriptExecutor(envVars, {});
-        testResult = await executor.executeScript(httpRequest.testScript, {
-          request: { url: httpRequest.url, method: 'POST', headers, body: httpRequest.body.raw },
-          response: {
-            status: responseData.status,
-            statusText: responseData.statusText,
-            headers: responseData.headers as Record<string, string>,
-            body: responseData.body,
-            time: responseData.time,
-            size: responseData.size,
-          },
-        });
-      }
-
-      setScriptResult({ preRequest: preRequestResult, test: testResult });
-
-      if (responseData.status >= 200 && responseData.status < 300) {
+      if (response.status >= 200 && response.status < 300) {
         toast.success('Request completed', {
-          description: `${responseData.status} ${responseData.statusText}`,
+          description: `${response.status} ${response.statusText}`,
         });
       } else {
-        toast.error(`Request failed: ${responseData.status}`, {
-          description: responseData.statusText,
+        toast.error(`Request failed: ${response.status}`, {
+          description: response.statusText,
         });
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
       toast.error('Request failed', { description: errorMessage });
-
-      const errorResponse: Response = {
-        id: `response-${Date.now()}`,
-        requestId: httpRequest.id,
-        status: 0,
-        statusText: 'Error',
-        headers: {},
-        body: errorMessage,
-        size: 0,
-        time: Date.now() - startTime,
-        timestamp: Date.now(),
-      };
-
-      setCurrentResponse(errorResponse);
     } finally {
       setLoading(false);
     }

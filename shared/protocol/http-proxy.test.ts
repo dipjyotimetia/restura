@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeHttpProxy, executeHttpProxyStreaming, MAX_RESPONSE_SIZE } from './http-proxy';
+import { flattenHeaders as asRecord } from './header-utils';
 import type { Fetcher } from './types';
 
 function makeFetcher(
@@ -54,8 +55,9 @@ describe('executeHttpProxy', () => {
       { allowLocalhost: false }
     );
     const arg = fetcher.mock.calls[0]?.[0];
-    expect(arg?.headers.Host).toBeUndefined();
-    expect(arg?.headers['X-OK']).toBe('yes');
+    const headers = asRecord(arg!.headers);
+    expect(headers.Host).toBeUndefined();
+    expect(headers['X-OK']).toBe('yes');
   });
 
   it('returns the body and sanitized response headers', async () => {
@@ -160,7 +162,7 @@ describe('executeHttpProxy', () => {
     );
     const arg = fetcher.mock.calls[0]?.[0];
     expect(arg?.body).toBe('{"a":1}');
-    expect(arg?.headers['Content-Type']).toBe('application/json');
+    expect(asRecord(arg!.headers)['Content-Type']).toBe('application/json');
   });
 
   it('respects existing Content-Type header (case-insensitive)', async () => {
@@ -178,8 +180,9 @@ describe('executeHttpProxy', () => {
       { allowLocalhost: false }
     );
     const arg = fetcher.mock.calls[0]?.[0];
-    expect(arg?.headers['content-type']).toBe('application/vnd.api+json');
-    expect(arg?.headers['Content-Type']).toBeUndefined();
+    const headers = asRecord(arg!.headers);
+    expect(headers['content-type']).toBe('application/vnd.api+json');
+    expect(headers['Content-Type']).toBeUndefined();
   });
 
   it('returns 502 on fetcher error', async () => {
@@ -247,11 +250,12 @@ describe('executeHttpProxy with SigV4 auth', () => {
       { allowLocalhost: false }
     );
     const arg = fetcher.mock.calls[0]?.[0];
-    expect(arg?.headers.Authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE\//);
-    expect(arg?.headers.Authorization).toMatch(/SignedHeaders=/);
-    expect(arg?.headers.Authorization).toMatch(/Signature=[a-f0-9]{64}$/);
-    expect(arg?.headers['X-Amz-Date']).toMatch(/^\d{8}T\d{6}Z$/);
-    expect(arg?.headers['X-Amz-Content-Sha256']).toMatch(/^[a-f0-9]{64}$/);
+    const headers = asRecord(arg!.headers);
+    expect(headers.Authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE\//);
+    expect(headers.Authorization).toMatch(/SignedHeaders=/);
+    expect(headers.Authorization).toMatch(/Signature=[a-f0-9]{64}$/);
+    expect(headers['X-Amz-Date']).toMatch(/^\d{8}T\d{6}Z$/);
+    expect(headers['X-Amz-Content-Sha256']).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('returns 500 if auth signing throws (e.g., missing credentials)', async () => {
@@ -291,8 +295,9 @@ describe('executeHttpProxy with SigV4 auth', () => {
       { allowLocalhost: false }
     );
     const arg = fetcher.mock.calls[0]?.[0];
-    expect(arg?.headers.Authorization).toBeUndefined();
-    expect(arg?.headers['X-Amz-Date']).toBeUndefined();
+    const headers = asRecord(arg!.headers);
+    expect(headers.Authorization).toBeUndefined();
+    expect(headers['X-Amz-Date']).toBeUndefined();
   });
 
   it('does not add SigV4 headers when auth is omitted', async () => {
@@ -303,7 +308,7 @@ describe('executeHttpProxy with SigV4 auth', () => {
       { allowLocalhost: false }
     );
     const arg = fetcher.mock.calls[0]?.[0];
-    expect(arg?.headers.Authorization).toBeUndefined();
+    expect(asRecord(arg!.headers).Authorization).toBeUndefined();
   });
 });
 
@@ -438,8 +443,9 @@ describe('executeHttpProxyStreaming', () => {
       { allowLocalhost: false }
     );
     const arg = fetcher.mock.calls[0]?.[0];
-    expect(arg?.headers.Host).toBeUndefined();
-    expect(arg?.headers['X-OK']).toBe('yes');
+    const headers = asRecord(arg!.headers);
+    expect(headers.Host).toBeUndefined();
+    expect(headers['X-OK']).toBe('yes');
   });
 
   it('aborts on timeout', async () => {

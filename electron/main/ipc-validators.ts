@@ -73,7 +73,11 @@ export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
 // ===========================
 
 export const GrpcRequestConfigSchema = z.object({
-  id: z.string().optional(),
+  id: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/, 'id must be alphanumeric with dashes/underscores')
+    .max(64, 'id too long')
+    .optional(),
   url: z.string().url('Invalid gRPC URL'),
   service: z.string().min(1, 'Service name is required'),
   method: z.string().min(1, 'Method name is required'),
@@ -339,6 +343,52 @@ export const LogHistoryLimitSchema = z.number().int().positive().max(1000).optio
 // ===========================
 
 /**
+ * Returns true iff `url` is one of the renderer entry points the main
+ * process trusts:
+ *   - file:// → the packaged Electron app's dist/web/index.html
+ *   - http://localhost:5173 or http://127.0.0.1:5173 → the Vite dev server
+ *     used during `npm run electron:dev` (see window-manager.ts)
+ *
+ * Any other origin (including arbitrary localhost ports, https://, or
+ * https://attacker.example) is rejected. Hash router segments live in the
+ * URL fragment and don't affect this check.
+ */
+function isTrustedFrameUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'file:') return true;
+    if (
+      u.protocol === 'http:' &&
+      (u.hostname === 'localhost' || u.hostname === '127.0.0.1') &&
+      u.port === '5173'
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Defense-in-depth guard: rejects IPC traffic whose senderFrame is not the
+ * legitimate renderer entry point. Protects against a compromised child
+ * frame, redirected webContents, or a popup window calling into the main
+ * process.
+ */
+function assertTrustedSender(
+  channel: string,
+  event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent
+): void {
+  const url = event.senderFrame?.url;
+  if (!isTrustedFrameUrl(url)) {
+    console.error(`[IPC Frame Reject] channel=${channel} senderFrame=${url ?? '(undefined)'}`);
+    throw new Error(`IPC ${channel} rejected: untrusted frame`);
+  }
+}
+
+/**
  * Validates IPC input using a Zod schema
  * Throws a descriptive error if validation fails
  */
@@ -367,8 +417,9 @@ export function createValidatedHandler<TInput, TOutput>(
   channel: string,
   schema: z.ZodSchema<TInput>,
   handler: (input: TInput) => Promise<TOutput> | TOutput
-): (_event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
-  return async (_event, ...args) => {
+): (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
+  return async (event, ...args) => {
+    assertTrustedSender(channel, event);
     // For handlers with single argument, validate it directly
     // For handlers with multiple arguments, validate the first one
     const input = args.length === 1 ? args[0] : args;
@@ -387,6 +438,7 @@ export function createValidatedListener<TInput>(
 ): (event: Electron.IpcMainEvent, ...args: unknown[]) => void {
   return (event, ...args) => {
     try {
+      assertTrustedSender(channel, event);
       const input = args.length === 1 ? args[0] : args;
       const validated = validateIpcInput(schema, input, channel);
       handler(event, validated as TInput);

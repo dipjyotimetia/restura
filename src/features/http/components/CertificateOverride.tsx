@@ -27,7 +27,11 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
     if (!file) return;
     const base64 = await readFileAsBase64(file);
     setPfxFileName(file.name);
-    onCertChange({ format: 'pfx', pfx: base64, passphrase: clientCert?.passphrase });
+    onCertChange({
+      format: 'pfx',
+      pfx: base64,
+      ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
+    });
     e.target.value = '';
   };
 
@@ -36,7 +40,12 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
     if (!file) return;
     const text = await readFileAsText(file);
     setPemCertFileName(file.name);
-    onCertChange({ format: 'pem', cert: text, key: clientCert?.key, passphrase: clientCert?.passphrase });
+    onCertChange({
+      format: 'pem',
+      cert: text,
+      ...(clientCert?.key !== undefined && { key: clientCert.key }),
+      ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
+    });
     e.target.value = '';
   };
 
@@ -45,13 +54,25 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
     if (!file) return;
     const text = await readFileAsText(file);
     setPemKeyFileName(file.name);
-    onCertChange({ format: 'pem', cert: clientCert?.cert, key: text, passphrase: clientCert?.passphrase });
+    onCertChange({
+      format: 'pem',
+      key: text,
+      ...(clientCert?.cert !== undefined && { cert: clientCert.cert }),
+      ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
+    });
     e.target.value = '';
   };
 
   const handlePassphraseChange = (passphrase: string) => {
     const current = clientCert ?? { format: certFormat };
-    onCertChange(passphrase ? { ...current, passphrase } : { ...current, passphrase: undefined });
+    if (passphrase) {
+      onCertChange({ ...current, passphrase });
+    } else {
+      // Clear passphrase by omitting the key (EOPT-friendly)
+      const { passphrase: _omit, ...rest } = current;
+      void _omit;
+      onCertChange(rest);
+    }
   };
 
   const handleClearCert = () => {

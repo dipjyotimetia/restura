@@ -12,7 +12,7 @@ import axios, { isAxiosError } from 'axios';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { toast } from 'sonner';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
-import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
+import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
 
 export function useHttpRequestPage() {
   const httpRequest = useActiveRequest('http');
@@ -158,7 +158,10 @@ export function useHttpRequestPage() {
             size: responseData.size,
           },
         });
-        setScriptResult({ preRequest: preRequestResult, test: testResult });
+        setScriptResult({
+          ...(preRequestResult !== undefined && { preRequest: preRequestResult }),
+          ...(testResult !== undefined && { test: testResult }),
+        });
       }
 
       setCurrentResponse(responseData);
@@ -203,7 +206,11 @@ export function useHttpRequestPage() {
     if (enabled) {
       changeSettings({});
     } else {
-      updateRequest({ settings: undefined });
+      // EOPT(maintainability): updateRequest treats `undefined` as a clear
+      // signal — Partial<T> can't model that under EOPT, so cast through to
+      // preserve the existing contract. TODO: replace with an explicit reset
+      // action on the store.
+      updateRequest({ settings: undefined } as Parameters<typeof updateRequest>[0]);
     }
   }, [changeSettings, updateRequest]);
 
@@ -213,8 +220,11 @@ export function useHttpRequestPage() {
     } else {
       const current = httpRequest?.settings;
       if (current) {
-        const { proxy: _, ...rest } = current;
-        updateRequest({ settings: { ...rest, proxy: undefined } });
+        const { proxy: _omit, ...rest } = current;
+        void _omit;
+        // EOPT(maintainability): omit the `proxy` key entirely instead of
+        // setting it to undefined.
+        updateRequest({ settings: rest });
       }
     }
   }, [changeSettings, globalSettings.proxy, httpRequest?.settings, updateRequest]);

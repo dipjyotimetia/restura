@@ -7,12 +7,13 @@ import * as diagnosticsChannel from 'node:diagnostics_channel';
 import { Readable } from 'node:stream';
 import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
 import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
-import { createRateLimiter } from './ipc-rate-limiter';
+import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from './request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { Fetcher, FetcherRequest, FetcherResponse, ProtocolAuthConfig } from '@shared/protocol/types';
+import { flattenHeaders } from '@shared/protocol/header-utils';
 
 // =============================================================================
 // Migration map (Plan 4 / Task 9): node:http/https → undici
@@ -38,7 +39,7 @@ import type { Fetcher, FetcherRequest, FetcherResponse, ProtocolAuthConfig } fro
 //                                              indication in the response viewer.
 // =============================================================================
 
-const httpRateLimiter = createRateLimiter(60, 60_000);
+export const httpRateLimiter = createKeyedRateLimiter(60, 60_000);
 
 export interface ProxyConfig {
   enabled: boolean;
@@ -500,6 +501,8 @@ function buildElectronFetcher(
       throw new Error('Unsupported body type for Electron fetcher');
     }
 
+    // undici accepts plain-object headers; the redirect-follower hands us
+    // a Headers instance on follow-up hops, so flatten when needed.
     let response: Awaited<ReturnType<typeof undiciRequest>>;
     try {
       response = await undiciRequest(req.url, {
@@ -508,7 +511,7 @@ function buildElectronFetcher(
             ? M
             : never
           : never,
-        headers: req.headers,
+        headers: flattenHeaders(req.headers),
         body: undiciBody,
         signal: req.signal,
         dispatcher,
@@ -712,31 +715,31 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   ipcMain.handle(
     'http:request',
-    createValidatedHandler('http:request', HttpRequestConfigSchema, async (config: HttpRequestConfig) => {
-      if (!httpRateLimiter()) {
-        return { error: 'Rate limit exceeded' };
-      }
-      const startTime = Date.now();
-      let result: HttpResponse | undefined;
-      let thrownError: string | undefined;
-      try {
-        result = await makeHttpRequest(config);
-      } catch (err) {
-        thrownError = err instanceof Error ? err.message : String(err);
-      }
-      if (onComplete) {
-        onComplete({
-          ts: startTime,
-          method: config.method,
-          url: config.url,
-          status: result?.status ?? 0,
-          durationMs: Date.now() - startTime,
-          protocol: 'http',
-          error: thrownError,
-        });
-      }
-      if (thrownError !== undefined) throw new Error(thrownError);
-      return result as HttpResponse;
-    })
+    rateLimited(
+      httpRateLimiter,
+      createValidatedHandler('http:request', HttpRequestConfigSchema, async (config: HttpRequestConfig) => {
+        const startTime = Date.now();
+        let result: HttpResponse | undefined;
+        let thrownError: string | undefined;
+        try {
+          result = await makeHttpRequest(config);
+        } catch (err) {
+          thrownError = err instanceof Error ? err.message : String(err);
+        }
+        if (onComplete) {
+          onComplete({
+            ts: startTime,
+            method: config.method,
+            url: config.url,
+            status: result?.status ?? 0,
+            durationMs: Date.now() - startTime,
+            protocol: 'http',
+            error: thrownError,
+          });
+        }
+        if (thrownError !== undefined) throw new Error(thrownError);
+        return result as HttpResponse;
+      })
+    )
   );
 }

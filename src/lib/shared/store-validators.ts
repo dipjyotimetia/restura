@@ -65,7 +65,16 @@ export function validateRequestUpdate(
 export function validateEnvironment(env: unknown): Environment {
   const result = environmentSchema.safeParse(env);
   if (result.success) {
-    return result.data;
+    // EOPT(maintainability): Zod's `.optional()` widens to `T | undefined`,
+    // which the EOPT-strict Environment.variables[].description rejects.
+    // Strip undefined-valued keys before returning.
+    return {
+      ...result.data,
+      variables: result.data.variables.map((v) => {
+        const { description, ...rest } = v;
+        return description !== undefined ? { ...rest, description } : rest;
+      }),
+    };
   }
 
   console.error('Environment validation failed:', result.error?.issues);

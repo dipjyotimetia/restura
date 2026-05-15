@@ -6,19 +6,21 @@ import { grpcReflection } from './handlers/grpc-reflection';
 import { mcp } from './handlers/mcp';
 import { proxy } from './handlers/proxy';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
+import { isLocalDevBypass } from './shared/env';
 
 export type Env = {
   ENVIRONMENT?: string;
   ALLOWED_ORIGIN?: string;
   WORKER_PROXY_TOKEN?: string;
   REQUIRE_CF_ACCESS?: string;
+  /**
+   * Explicit dev-bypass switch. MUST also have ENVIRONMENT=='development'.
+   * Set only in .dev.vars; never in a deployed wrangler.jsonc.
+   */
+  DEV_BYPASS_AUTH?: string;
 };
 
 const app = new Hono<{ Bindings: Env }>();
-
-function isDevelopment(env: Env): boolean {
-  return env.ENVIRONMENT === 'development';
-}
 
 function originAllowedByPattern(origin: string, pattern: string): boolean {
   if (!pattern.includes('*')) return origin === pattern;
@@ -38,7 +40,7 @@ function resolveCorsOrigin(origin: string | undefined, env: Env): string {
   const allowedOrigins =
     configuredOrigins.length > 0
       ? configuredOrigins
-      : isDevelopment(env)
+      : isLocalDevBypass(env)
         ? ['http://localhost:5173', 'http://127.0.0.1:5173']
         : ['https://restura.dev'];
 
@@ -63,7 +65,7 @@ async function proxyAuthMiddleware(
   c: Context<{ Bindings: Env }>,
   next: Next
 ): Promise<Response | void> {
-  if (c.req.method === 'OPTIONS' || isDevelopment(c.env)) {
+  if (c.req.method === 'OPTIONS' || isLocalDevBypass(c.env)) {
     return next();
   }
 

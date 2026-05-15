@@ -84,7 +84,7 @@ export default function RequestBodyEditor({
             onChange={onBodyContentChange}
             language={body.type === 'json' ? 'json' : body.type === 'xml' ? 'xml' : 'plaintext'}
             height="300px"
-            path={activeTabId ? `tab-${activeTabId}-body` : undefined}
+            {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
           />
         </div>
       )}

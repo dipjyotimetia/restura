@@ -164,16 +164,17 @@ function getFieldSuggestions(
   return fields.map((field: GraphQLField) => {
     const hasArgs = field.args && field.args.length > 0;
     const typeStr = formatTypeRef(field.type);
+    const documentation = field.description || undefined;
 
     return {
       label: field.name,
       kind: monaco.languages.CompletionItemKind.Field,
       insertText: hasArgs ? `${field.name}($0)` : field.name,
-      insertTextRules: hasArgs
-        ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
-        : undefined,
+      ...(hasArgs && {
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+      }),
       detail: typeStr,
-      documentation: field.description || undefined,
+      ...(documentation !== undefined && { documentation }),
       range,
     };
   });
@@ -195,6 +196,7 @@ function getArgumentSuggestions(
 
   return field.args.map((arg) => {
     const typeStr = formatTypeRef(arg.type);
+    const documentation = arg.description || undefined;
 
     return {
       label: arg.name,
@@ -202,7 +204,7 @@ function getArgumentSuggestions(
       insertText: `${arg.name}: $0`,
       insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
       detail: typeStr,
-      documentation: arg.description || undefined,
+      ...(documentation !== undefined && { documentation }),
       range,
     };
   });
@@ -213,19 +215,21 @@ function getDirectiveSuggestions(
   schema: GraphQLSchema,
   range: Monaco.IRange
 ): Monaco.languages.CompletionItem[] {
-  return schema.directives.map((directive) => ({
-    label: `@${directive.name}`,
-    kind: monaco.languages.CompletionItemKind.Function,
-    insertText: directive.args.length > 0
-      ? `@${directive.name}($0)`
-      : `@${directive.name}`,
-    insertTextRules: directive.args.length > 0
-      ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
-      : undefined,
-    detail: `Directive`,
-    documentation: directive.description || undefined,
-    range,
-  }));
+  return schema.directives.map((directive) => {
+    const hasArgs = directive.args.length > 0;
+    const documentation = directive.description || undefined;
+    return {
+      label: `@${directive.name}`,
+      kind: monaco.languages.CompletionItemKind.Function,
+      insertText: hasArgs ? `@${directive.name}($0)` : `@${directive.name}`,
+      ...(hasArgs && {
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+      }),
+      detail: `Directive`,
+      ...(documentation !== undefined && { documentation }),
+      range,
+    };
+  });
 }
 
 function getTypeSuggestions(
@@ -235,12 +239,15 @@ function getTypeSuggestions(
 ): Monaco.languages.CompletionItem[] {
   return schema.types
     .filter((type) => type.name && !type.name.startsWith('__'))
-    .map((type) => ({
-      label: type.name!,
-      kind: monaco.languages.CompletionItemKind.Class,
-      insertText: type.name!,
-      detail: type.kind,
-      documentation: type.description || undefined,
-      range,
-    }));
+    .map((type) => {
+      const documentation = type.description || undefined;
+      return {
+        label: type.name!,
+        kind: monaco.languages.CompletionItemKind.Class,
+        insertText: type.name!,
+        detail: type.kind,
+        ...(documentation !== undefined && { documentation }),
+        range,
+      };
+    });
 }

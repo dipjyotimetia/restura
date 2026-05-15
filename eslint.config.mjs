@@ -11,8 +11,8 @@ const sharedTsRules = {
     'error',
     { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
   ],
-  // Phase 2 will eliminate these — warn so CI passes while work is in progress
-  '@typescript-eslint/no-explicit-any': 'warn',
+  // Strict: every new any requires an inline disable with a TODO
+  '@typescript-eslint/no-explicit-any': 'error',
   // Empty interfaces are a common pattern in shadcn/ui component extensions
   '@typescript-eslint/no-empty-object-type': 'warn',
 };

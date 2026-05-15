@@ -2,6 +2,7 @@ import { validateURL } from './url-validation';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { buildRequestBody } from './body-builder';
 import { applyAuth } from './auth-signer';
+import { followRedirects, RedirectPolicyError } from './redirect-follower';
 import type { Fetcher, RequestSpec, ExecuteResult } from './types';
 
 export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
@@ -80,13 +81,17 @@ export async function executeHttpProxy(
       }
     }
 
-    const response = await fetcher({
-      url: targetUrl.toString(),
-      method,
-      headers,
-      body: finalBody,
-      signal: controller.signal,
-    });
+    const response = await followRedirects(
+      {
+        url: targetUrl.toString(),
+        method,
+        headers,
+        body: finalBody,
+        signal: controller.signal,
+      },
+      fetcher,
+      { allowLocalhost: options.allowLocalhost }
+    );
 
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
       return {
@@ -120,6 +125,9 @@ export async function executeHttpProxy(
     }
     return normalized;
   } catch (err) {
+    if (err instanceof RedirectPolicyError) {
+      return { ok: false, status: 400, payload: { error: err.message } };
+    }
     const isAbort =
       controller.signal.aborted ||
       (err instanceof Error && err.name === 'AbortError');
@@ -237,13 +245,17 @@ export async function executeHttpProxyStreaming(
       }
     }
 
-    const response = await fetcher({
-      url: targetUrl.toString(),
-      method,
-      headers,
-      body: finalBody,
-      signal: controller.signal,
-    });
+    const response = await followRedirects(
+      {
+        url: targetUrl.toString(),
+        method,
+        headers,
+        body: finalBody,
+        signal: controller.signal,
+      },
+      fetcher,
+      { allowLocalhost: options.allowLocalhost }
+    );
 
     if (!response.body) {
       return {
@@ -265,6 +277,9 @@ export async function executeHttpProxyStreaming(
 
     return { ok: true, response: handle };
   } catch (err) {
+    if (err instanceof RedirectPolicyError) {
+      return { ok: false, status: 400, payload: { error: err.message } };
+    }
     const isAbort =
       controller.signal.aborted ||
       (err instanceof Error && err.name === 'AbortError');

@@ -14,6 +14,7 @@ import {
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { getElectronAPI, isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {
@@ -36,52 +37,37 @@ export class GrpcClientError extends Error {
 }
 
 // Auth to Metadata Converter
+//
+// Common credential shaping (Basic / Bearer / API-Key / OAuth2) is delegated
+// to the cross-protocol helper at `features/auth/lib/buildAuthCredential` so
+// the gRPC and HTTP code paths can't drift on header construction. The gRPC
+// flavour uses lowercase keys (canonical for HTTP/2 metadata) and requires
+// BOTH username AND password for Basic auth — both behaviours preserved.
+//
+// The protocol-specific bits live here: warnings for unsupported types
+// (digest, aws-signature). API-key in `query` mode is dropped on the floor
+// for gRPC (no URL query string in the metadata frame) — matched by
+// returning only `headers`.
 export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
-  const metadata: Record<string, string> = {};
-
   switch (auth.type) {
-    case 'bearer':
-      if (auth.bearer?.token) {
-        metadata['authorization'] = `Bearer ${auth.bearer.token}`;
-      }
-      break;
-
-    case 'basic':
-      if (auth.basic?.username && auth.basic?.password) {
-        const credentials = btoa(`${auth.basic.username}:${auth.basic.password}`);
-        metadata['authorization'] = `Basic ${credentials}`;
-      }
-      break;
-
-    case 'api-key':
-      if (auth.apiKey?.key && auth.apiKey?.value && auth.apiKey.in === 'header') {
-        metadata[auth.apiKey.key.toLowerCase()] = auth.apiKey.value;
-      }
-      break;
-
-    case 'oauth2':
-      if (auth.oauth2?.accessToken) {
-        const tokenType = auth.oauth2.tokenType || 'Bearer';
-        metadata['authorization'] = `${tokenType} ${auth.oauth2.accessToken}`;
-      }
-      break;
-
     case 'digest':
       // Digest auth requires challenge-response, not directly applicable to gRPC metadata
       // This auth type is not supported for gRPC - use Basic or Bearer auth instead
       console.warn('Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.');
-      break;
+      return {};
 
     case 'aws-signature':
       console.warn('AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.');
-      break;
+      return {};
 
-    case 'none':
-    default:
-      break;
+    default: {
+      const credential = buildAuthCredential(auth, {
+        headerCase: 'lower',
+        basicRequiresPassword: true,
+      });
+      return { ...credential.headers };
+    }
   }
-
-  return metadata;
 }
 
 // Create gRPC Interceptor for metadata injection

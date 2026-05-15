@@ -1,0 +1,11 @@
+# Local-development environment for the Worker. Wrangler reads .dev.vars
+# automatically (NOT committed). Copy this file to .dev.vars and edit as needed.
+#
+# SECURITY: ENVIRONMENT=development alone does NOT bypass auth. Either:
+#   - Miniflare is running (auto-detected via globalThis.MINIFLARE), OR
+#   - DEV_BYPASS_AUTH=true is explicitly set here.
+#
+# Never set DEV_BYPASS_AUTH in deployed wrangler.jsonc.
+
+ENVIRONMENT=development
+DEV_BYPASS_AUTH=true

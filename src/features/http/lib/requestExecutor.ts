@@ -9,7 +9,7 @@ import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from '@/
 import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/features/http/lib/proxyHelper';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
-import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/http/lib/applyAuthHeaders';
+import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
 import { applyAuth } from '@shared/protocol/auth-signer';
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { readStreamingResponse, type StreamEvent } from '@/features/http/lib/streamingResponseReader';
@@ -19,14 +19,21 @@ async function executeViaCorsProxy(
   config: AxiosRequestConfig,
   startTime: number,
   requestId: string,
+  bodyType: HttpRequest['body']['type'],
   upstreamProxy?: { host: string; port: number; auth?: { username: string; password: string } },
   auth?: HttpRequest['auth']
 ): Promise<ApiResponse> {
+  // bodyType MUST be forwarded so the Worker's buildRequestBody can
+  // construct the upstream body with the correct Content-Type. Without it
+  // the Worker drops the body entirely (returns body: undefined for
+  // bodyType === undefined or 'none'), so a JSON POST silently posts an
+  // empty body and the upstream returns 400 "invalid JSON".
   const proxyBody: Record<string, unknown> = {
     method: config.method,
     url: config.url,
     headers: config.headers,
     params: config.params,
+    bodyType,
     data: config.data,
     timeout: config.timeout,
   };
@@ -208,14 +215,12 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
           ? {
               host: proxyConfig.host,
               port: proxyConfig.port,
-              auth:
-                proxyConfig.auth?.username
-                  ? proxyConfig.auth
-                  : undefined,
+              // EOPT: only include `auth` when present
+              ...(proxyConfig.auth?.username ? { auth: proxyConfig.auth } : {}),
             }
           : undefined;
 
-      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, upstreamProxy, effectiveAuth);
+      responseData = await executeViaCorsProxy(axiosConfig, startTime, request.id, request.body.type, upstreamProxy, effectiveAuth);
     } catch (error: unknown) {
       const endTime = Date.now();
       const isAxiosError = axios.isAxiosError(error);
@@ -287,13 +292,17 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
             cookiesToSet.forEach((cookieStr) => {
               const parsedCookie = Cookie.parse(cookieStr);
               if (parsedCookie) {
+                const expires =
+                  parsedCookie.expires === 'Infinity' || !parsedCookie.expires
+                    ? undefined
+                    : parsedCookie.expires.toString();
                 useCookieStore.getState().addCookie({
                   id: uuidv4(),
                   key: parsedCookie.key,
                   value: parsedCookie.value,
                   domain: parsedCookie.domain || new URL(resolvedUrl).hostname,
                   path: parsedCookie.path || '/',
-                  expires: parsedCookie.expires === 'Infinity' || !parsedCookie.expires ? undefined : parsedCookie.expires.toString(),
+                  ...(expires !== undefined && { expires }),
                   secure: parsedCookie.secure,
                   httpOnly: parsedCookie.httpOnly,
                   lastAccessed: new Date().toISOString(),
@@ -439,8 +448,8 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
   const result: RequestExecutionResult = {
     response: responseData,
     scriptResult: {
-      preRequest: preRequestResult,
-      test: testResult,
+      ...(preRequestResult !== undefined && { preRequest: preRequestResult }),
+      ...(testResult !== undefined && { test: testResult }),
     },
     envVars,
     sentHeaders: headers,

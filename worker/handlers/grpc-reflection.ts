@@ -2,23 +2,20 @@ import type { Context } from 'hono';
 import type { Env } from '../index';
 import { validateURL } from '@shared/protocol/url-validation';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import {
+  GrpcReflectionRequestBodySchema,
+  type GrpcReflectionRequestBody,
+} from '@shared/protocol/grpc-schema';
+import { parseJsonBody } from '../shared/validate-body';
+import { isLocalDevBypass } from '../shared/env';
 
 const REFLECTION_SERVICE_V1 = 'grpc.reflection.v1.ServerReflection';
 const REFLECTION_SERVICE_V1_ALPHA = 'grpc.reflection.v1alpha.ServerReflection';
 
-interface ReflectionRequest {
-  url: string;
-  request: {
-    listServices?: string;
-    fileContainingSymbol?: string;
-  };
-  timeout?: number;
-}
-
 async function sendReflectionRequest(
   baseUrl: string,
   reflectionServiceName: string,
-  request: ReflectionRequest['request'],
+  request: GrpcReflectionRequestBody['request'],
   timeout: number
 ): Promise<unknown> {
   const path = `/${reflectionServiceName}/ServerReflectionInfo`;
@@ -60,41 +57,40 @@ async function sendReflectionRequest(
 }
 
 export async function grpcReflection(c: Context<{ Bindings: Env }>) {
-  try {
-    const body = await c.req.json<ReflectionRequest>();
-    const { url, request, timeout = 30000 } = body;
-
-    const isDev = c.env.ENVIRONMENT === 'development';
-    const urlValidation = validateURL(url, { allowPrivateIPs: false, allowLocalhost: isDev });
-    if (!urlValidation.valid) {
-      return c.json({ error: `Invalid URL: ${urlValidation.error}` }, 400);
-    }
-
-    let response: unknown;
-    let reflectionVersion = 'v1';
-    let v1Error: unknown;
-
-    try {
-      response = await sendReflectionRequest(url, REFLECTION_SERVICE_V1, request, timeout);
-    } catch (err) {
-      v1Error = err;
-      reflectionVersion = 'v1alpha';
-      try {
-        response = await sendReflectionRequest(url, REFLECTION_SERVICE_V1_ALPHA, request, timeout);
-      } catch (alphaErr) {
-        const v1Msg = v1Error instanceof Error ? v1Error.message : String(v1Error);
-        const alphaMsg = alphaErr instanceof Error ? alphaErr.message : String(alphaErr);
-        return c.json({ error: `Reflection failed on v1 (${v1Msg}) and v1alpha (${alphaMsg})` }, 500);
-      }
-    }
-
-    const responseData = typeof response === 'object' && response !== null
-      ? { ...(response as Record<string, unknown>), reflectionVersion }
-      : { data: response, reflectionVersion };
-
-    return c.json(responseData);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Reflection request failed';
-    return c.json({ error: errorMessage }, 500);
+  const parsed = await parseJsonBody(c.req.raw, GrpcReflectionRequestBodySchema);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error }, parsed.status);
   }
+  const { url, request, timeout = 30000 } = parsed.value;
+
+  // Same gate as worker/index.ts auth — see proxy.ts for rationale.
+  const isDev = isLocalDevBypass(c.env);
+  const urlValidation = validateURL(url, { allowPrivateIPs: false, allowLocalhost: isDev });
+  if (!urlValidation.valid) {
+    return c.json({ error: `Invalid URL: ${urlValidation.error}` }, 400);
+  }
+
+  let response: unknown;
+  let reflectionVersion = 'v1';
+  let v1Error: unknown;
+
+  try {
+    response = await sendReflectionRequest(url, REFLECTION_SERVICE_V1, request, timeout);
+  } catch (err) {
+    v1Error = err;
+    reflectionVersion = 'v1alpha';
+    try {
+      response = await sendReflectionRequest(url, REFLECTION_SERVICE_V1_ALPHA, request, timeout);
+    } catch (alphaErr) {
+      const v1Msg = v1Error instanceof Error ? v1Error.message : String(v1Error);
+      const alphaMsg = alphaErr instanceof Error ? alphaErr.message : String(alphaErr);
+      return c.json({ error: `Reflection failed on v1 (${v1Msg}) and v1alpha (${alphaMsg})` }, 500);
+    }
+  }
+
+  const responseData = typeof response === 'object' && response !== null
+    ? { ...(response as Record<string, unknown>), reflectionVersion }
+    : { data: response, reflectionVersion };
+
+  return c.json(responseData);
 }

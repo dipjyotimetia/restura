@@ -136,3 +136,46 @@ describe('isPrivateAddress', () => {
     expect(isPrivateAddress('0.1.2.3')).toBe(true);
   });
 });
+
+describe('isPrivateAddress IPv6 coverage', () => {
+  const cases: Array<[string, string]> = [
+    ['[::]', 'unspecified'],
+    ['[::ffff:7f00:1]', 'IPv4-mapped loopback hex'],
+    ['[::ffff:127.0.0.1]', 'IPv4-mapped loopback dotted'],
+    ['[::ffff:a00:1]', 'IPv4-mapped 10/8 hex'],
+    ['[::ffff:c0a8:101]', 'IPv4-mapped 192.168.1.1 hex'],
+    ['[64:ff9b::a00:1]', 'NAT64 wrapping 10.0.0.1'],
+    ['[2002:a00::]', '6to4 wrapping 10/8'],
+    ['[2002:7f00::]', '6to4 wrapping 127/8'],
+    ['[fec0::1]', 'deprecated site-local'],
+    ['[0:0:0:0:0:ffff:c0a8:101]', 'fully expanded mapped 192.168.1.1'],
+  ];
+
+  for (const [input, label] of cases) {
+    it(`rejects ${label}: ${input}`, () => {
+      const url = `http://${input}/`;
+      const result = validateURL(url, { allowPrivateIPs: false });
+      expect(result.valid).toBe(false);
+    });
+  }
+
+  it('still allows public IPv6 (Cloudflare DNS 2606:4700:4700::1111)', () => {
+    const result = validateURL('http://[2606:4700:4700::1111]/', { allowPrivateIPs: false });
+    expect(result.valid).toBe(true);
+  });
+
+  it('isPrivateAddress handles bracketed and unbracketed IPv6 forms', () => {
+    expect(isPrivateAddress('[::1]')).toBe(true);
+    expect(isPrivateAddress('::1')).toBe(true);
+    expect(isPrivateAddress('[fe80::1]')).toBe(true);
+    expect(isPrivateAddress('fe80::1')).toBe(true);
+  });
+
+  it('isPrivateAddress returns false for malformed IPv6 rather than crashing', () => {
+    expect(() => isPrivateAddress('[zz::]')).not.toThrow();
+    expect(() => isPrivateAddress('[::g]')).not.toThrow();
+    expect(() => isPrivateAddress('[1:2:3:4:5:6:7:8:9]')).not.toThrow();
+    expect(isPrivateAddress('[zz::]')).toBe(false);
+    expect(isPrivateAddress('[::g]')).toBe(false);
+  });
+});

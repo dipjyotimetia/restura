@@ -33,6 +33,9 @@ jobs:
           npm run type-check
           npx tsc --noEmit -p electron/tsconfig.json
 
+      - name: Type-check (HTTP feature, exactOptionalPropertyTypes pilot)
+        run: npx tsc --noEmit -p src/features/http/tsconfig.json
+
       - name: Type-check (worker)
         run: npx tsc --noEmit -p worker/tsconfig.json
 
@@ -41,6 +44,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Verify generated opencollection types are up-to-date
+        run: npm run verify:opencollection-types
 
       - name: Security audit
         run: npm audit --audit-level=critical

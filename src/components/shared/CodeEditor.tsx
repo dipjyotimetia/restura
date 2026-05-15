@@ -137,7 +137,7 @@ export default function CodeEditor({
         theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
         onChange={handleChange}
         onMount={handleEditorDidMount}
-        path={path}
+        {...(path !== undefined && { path })}
         options={{
           readOnly,
           minimap: { enabled: minimap },

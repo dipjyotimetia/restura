@@ -1,7 +1,10 @@
 import type { Context } from 'hono';
 import { validateMcpSpec, type McpSpec } from '@shared/protocol/mcp-proxy';
+import { McpRequestBodySchema } from '@shared/protocol/mcp-schema';
 import { SseParser } from '@shared/protocol/sse-parser';
 import type { Env } from '../index';
+import { parseJsonBody } from '../shared/validate-body';
+import { isLocalDevBypass } from '../shared/env';
 
 /**
  * MCP proxy: forwards a single JSON-RPC call from the renderer to a target MCP server.
@@ -80,18 +83,18 @@ async function readSseForReply(
 }
 
 export async function mcp(c: Context<{ Bindings: Env }>) {
-  let raw: McpSpec;
-  try {
-    raw = await c.req.json<McpSpec>();
-  } catch {
-    return c.json({ error: 'Invalid JSON request body' }, 400);
+  const parsed = await parseJsonBody(c.req.raw, McpRequestBodySchema);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error }, parsed.status);
   }
+  // The Zod schema validates everything `validateMcpSpec` previously asserted
+  // ad-hoc; cast to McpSpec is safe because the schema is a structural subset
+  // of `McpSpec` (transport is widened to `string` so `validateMcpSpec` can
+  // keep producing its precise enum-mismatch 400 message).
+  const raw = parsed.value as McpSpec;
 
-  if (!raw.url || typeof raw.url !== 'string') {
-    return c.json({ error: 'Missing or invalid `url`' }, 400);
-  }
-
-  const isDev = c.env.ENVIRONMENT === 'development';
+  // Same gate as worker/index.ts auth — see proxy.ts for rationale.
+  const isDev = isLocalDevBypass(c.env);
   const validation = validateMcpSpec(raw, isDev);
   if (!validation.ok) {
     return c.json({ error: validation.error }, validation.status as 400);

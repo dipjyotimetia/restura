@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeGrpcProxy } from './grpc-proxy';
 import { GrpcStatusCode } from './grpc-status';
+import { flattenHeaders as asRecord } from './header-utils';
 import type { Fetcher } from './types';
 
 function makeFetcher(
@@ -114,7 +115,7 @@ describe('executeGrpcProxy', () => {
       fetcher,
       { allowLocalhost: false }
     );
-    const headers = fetcher.mock.calls[0]?.[0]?.headers ?? {};
+    const headers = asRecord(fetcher.mock.calls[0]?.[0]?.headers);
     expect(headers['Content-Type']).toBe('application/json');
     expect(headers['Connect-Protocol-Version']).toBe('1');
   });
@@ -132,7 +133,7 @@ describe('executeGrpcProxy', () => {
       fetcher,
       { allowLocalhost: false }
     );
-    const headers = fetcher.mock.calls[0]?.[0]?.headers ?? {};
+    const headers = asRecord(fetcher.mock.calls[0]?.[0]?.headers);
     expect(headers['X-User']).toBe('alice');
     expect(headers.Host).toBeUndefined();
   });

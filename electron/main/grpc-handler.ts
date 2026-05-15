@@ -15,10 +15,10 @@ import {
   createValidatedHandler,
   createValidatedListener
 } from './ipc-validators';
-import { createRateLimiter } from './ipc-rate-limiter';
+import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
-const grpcRateLimiter = createRateLimiter(30, 60_000);
+export const grpcRateLimiter = createKeyedRateLimiter(30, 60_000);
 
 // Use app's userData directory for proto temp files (more secure than os.tmpdir())
 // This will be something like ~/Library/Application Support/restura/grpc-temp on macOS
@@ -34,6 +34,11 @@ const getGrpcTempDir = () => {
 };
 
 const GRPC_TEMP_BASE = getGrpcTempDir();
+
+// Belt-and-braces guard: even though GrpcRequestConfigSchema constrains `id`,
+// re-validate at the path.join site to prevent proto-write path traversal in
+// case schema constraints are loosened in the future.
+const SAFE_GRPC_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 interface GrpcResponse {
   status: number;
@@ -66,6 +71,61 @@ function estimateSize(obj: unknown): number {
     return Buffer.byteLength(JSON.stringify(obj), 'utf8');
   } catch {
     return 0;
+  }
+}
+
+/**
+ * Minimal shape for streaming gRPC call objects. Used to narrow the
+ * `unknown` returned by {@link invokeGrpcMethod} before binding event
+ * listeners.
+ */
+type GrpcCall = {
+  on: (event: string, listener: (...args: unknown[]) => void) => GrpcCall;
+  cancel?: () => void;
+  end?: () => void;
+  write?: (message: unknown) => void;
+};
+
+/**
+ * Dynamically invoke a gRPC client method by name.
+ *
+ * gRPC client method names come from reflection or proto definitions, so
+ * they are not statically typed. Previously each call site cast the client
+ * to `Record<string, (...args: unknown[]) => unknown>` and indexed into
+ * it — which silently invokes `undefined` if the method does not exist,
+ * causing the renderer to hang on a never-resolving IPC promise.
+ *
+ * This helper centralises the dynamic lookup and throws clearly when the
+ * method is missing or not callable. The return type is `unknown` because
+ * different gRPC method types return different concrete shapes (unary call,
+ * readable stream, writable stream, duplex stream); callers narrow with a
+ * type guard before binding event listeners.
+ */
+export function invokeGrpcMethod(
+  client: grpc.Client,
+  method: string,
+  args: unknown[]
+): unknown {
+  const fn = (client as unknown as Record<string, unknown>)[method];
+  if (typeof fn !== 'function') {
+    throw new Error(`gRPC client has no method "${method}"`);
+  }
+  return (fn as (...a: unknown[]) => unknown).apply(client, args);
+}
+
+/**
+ * Type guard for the streaming-call shape returned by
+ * {@link invokeGrpcMethod} for streaming method types. Throws if the
+ * value does not look like a streaming call so callers do not silently
+ * swallow programming errors.
+ */
+function assertGrpcCall(call: unknown, method: string): asserts call is GrpcCall {
+  if (
+    typeof call !== 'object' ||
+    call === null ||
+    typeof (call as { on?: unknown }).on !== 'function'
+  ) {
+    throw new Error(`gRPC method "${method}" did not return a streaming call object`);
   }
 }
 
@@ -272,7 +332,7 @@ function buildMetadata(map: Record<string, string> = {}): grpc.Metadata {
 }
 
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
-  const requestId = config.id || uuidv4();
+  const requestId = config.id && SAFE_GRPC_ID_RE.test(config.id) ? config.id : uuidv4();
   const tempDir = path.join(GRPC_TEMP_BASE, requestId);
   fs.mkdirSync(tempDir, { recursive: true });
 
@@ -288,11 +348,11 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     if (config.methodType === 'unary') {
       try {
         const response = await new Promise<unknown>((resolve, reject) => {
-          const call = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+          const call = invokeGrpcMethod(grpcClient, method, [
             config.message,
             metadata,
-            (err: grpc.ServiceError | null, res: unknown) => { if (err) reject(err); else resolve(res); }
-          ) as grpc.ClientUnaryCall;
+            (err: grpc.ServiceError | null, res: unknown) => { if (err) reject(err); else resolve(res); },
+          ]) as grpc.ClientUnaryCall;
           call.on('metadata', (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap()));
           call.on('status', (st: grpc.StatusObject) => Object.assign(capturedTrailers, st.metadata.getMap()));
         });
@@ -315,10 +375,9 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       let accumulatedSize = 0;
       try {
         await new Promise<void>((resolve, reject) => {
-          const call = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
-            config.message,
-            metadata
-          ) as grpc.ClientReadableStream<unknown>;
+          const callRaw = invokeGrpcMethod(grpcClient, method, [config.message, metadata]);
+          assertGrpcCall(callRaw, method);
+          const call = callRaw as grpc.ClientReadableStream<unknown>;
           call.on('metadata', (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap()));
           call.on('data', (msg: unknown) => {
             accumulatedSize += estimateSize(msg);
@@ -376,34 +435,34 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.handle(
     'grpc:request',
-    createValidatedHandler('grpc:request', GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
-      if (!grpcRateLimiter()) {
-        return { error: 'Rate limit exceeded' };
-      }
-      const startTime = Date.now();
-      const result = await makeGrpcRequest(config);
-      if (onComplete) {
-        onComplete({
-          ts: startTime,
-          method: `${config.service}/${config.method}`,
-          url: config.url,
-          status: result.status,
-          durationMs: Date.now() - startTime,
-          protocol: 'grpc',
-          error: result.error,
-        });
-      }
-      return result;
-    })
+    rateLimited(
+      grpcRateLimiter,
+      createValidatedHandler('grpc:request', GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
+        const startTime = Date.now();
+        const result = await makeGrpcRequest(config);
+        if (onComplete) {
+          onComplete({
+            ts: startTime,
+            method: `${config.service}/${config.method}`,
+            url: config.url,
+            status: result.status,
+            durationMs: Date.now() - startTime,
+            protocol: 'grpc',
+            error: result.error,
+          });
+        }
+        return result;
+      })
+    )
   );
 
   ipcMain.on(
     'grpc:start-stream',
     createValidatedListener('grpc:start-stream', GrpcRequestConfigSchema, (event, config: GrpcRequestConfig) => {
       const requestId = config.id;
-      if (!requestId) return;
+      if (!requestId || !SAFE_GRPC_ID_RE.test(requestId)) return;
 
-      if (!grpcRateLimiter()) {
+      if (!grpcRateLimiter.check(event.sender.id)) {
         event.sender.send(`grpc:error:${requestId}`, {
           status: 14,
           details: 'Rate limit exceeded'
@@ -486,9 +545,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       };
 
       if (config.methodType === 'server-streaming') {
-        const ssCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
-          config.message, metadata
-        ) as grpc.ClientReadableStream<unknown>;
+        const ssCallRaw = invokeGrpcMethod(grpcClient, method, [config.message, metadata]);
+        assertGrpcCall(ssCallRaw, method);
+        const ssCall = ssCallRaw as grpc.ClientReadableStream<unknown>;
         ssCall.on('data', handleData);
         ssCall.on('error', handleError);
         ssCall.on('end', handleEnd);
@@ -509,7 +568,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
 
       } else if (config.methodType === 'client-streaming') {
-        const csCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
+        const csCall = invokeGrpcMethod(grpcClient, method, [
           metadata,
           (err: grpc.ServiceError | null, res: unknown) => {
             if (err) {
@@ -518,8 +577,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               handleData(res);
               handleEnd();
             }
-          }
-        ) as grpc.ClientWritableStream<unknown>;
+          },
+        ]) as grpc.ClientWritableStream<unknown>;
 
         const csAdded = addActiveCall(requestId, {
           cancel: () => csCall.cancel(),
@@ -542,9 +601,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
 
       } else if (config.methodType === 'bidirectional-streaming') {
-        const bidiCall = (grpcClient as unknown as Record<string, (...args: unknown[]) => unknown>)[method](
-          metadata
-        ) as grpc.ClientDuplexStream<unknown, unknown>;
+        const bidiCallRaw = invokeGrpcMethod(grpcClient, method, [metadata]);
+        assertGrpcCall(bidiCallRaw, method);
+        const bidiCall = bidiCallRaw as grpc.ClientDuplexStream<unknown, unknown>;
         bidiCall.on('data', handleData);
         bidiCall.on('error', handleError);
         bidiCall.on('end', handleEnd);

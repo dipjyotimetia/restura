@@ -243,7 +243,7 @@ export default function GraphQLBodyEditor({
             language="graphql"
             height="250px"
             onEditorMount={handleQueryEditorMount}
-            path={activeTabId ? `tab-${activeTabId}-graphql-query` : undefined}
+            {...(activeTabId ? { path: `tab-${activeTabId}-graphql-query` } : {})}
           />
         </div>
 
@@ -285,7 +285,7 @@ export default function GraphQLBodyEditor({
                 onChange={onVariablesChange}
                 language="json"
                 height="150px"
-                path={activeTabId ? `tab-${activeTabId}-graphql-variables` : undefined}
+                {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables` } : {})}
               />
             </div>
           )}

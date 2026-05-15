@@ -7,6 +7,11 @@
   "routes": [
     { "pattern": "api.restura.dev", "custom_domain": true }
   ],
+  // SECURITY: ENVIRONMENT='development' alone does NOT bypass auth.
+  // Local dev bypasses auth only when EITHER:
+  //   (a) Miniflare is running (auto-detected via globalThis.MINIFLARE), OR
+  //   (b) DEV_BYPASS_AUTH=true is set in .dev.vars (never in deployed wrangler.jsonc).
+  // Preview/prod deploys MUST set WORKER_PROXY_TOKEN or REQUIRE_CF_ACCESS=true via secrets.
   "vars": {
     "ENVIRONMENT": "production",
     "ALLOWED_ORIGIN": "https://restura.dev,https://restura.pages.dev,https://*.restura.pages.dev",

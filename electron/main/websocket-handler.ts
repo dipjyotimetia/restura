@@ -1,6 +1,6 @@
 import { ipcMain, webContents } from 'electron';
 import WebSocket from 'ws';
-import { createRateLimiter } from './ipc-rate-limiter';
+import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import {
   WsConnectSchema,
   WsSendSchema,
@@ -9,7 +9,7 @@ import {
   createValidatedHandler,
 } from './ipc-validators';
 
-const wsRateLimiter = createRateLimiter(20, 60_000);
+export const wsRateLimiter = createKeyedRateLimiter(20, 60_000);
 
 const MAX_CONCURRENT_WS_CONNECTIONS = 50;
 
@@ -43,7 +43,7 @@ export function registerWebSocketHandlerIPC(): void {
     const connectionId = config.connectionId;
     const webContentsId = event.sender.id;
 
-    if (!wsRateLimiter()) {
+    if (!wsRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 

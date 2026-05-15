@@ -15,10 +15,10 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type {
-  WebSocketMessageType} from '@/store/useWebSocketStore';
+  WebSocketMessageType} from '@/features/websocket/store/useWebSocketStore';
 import {
   useWebSocketStore
-} from '@/store/useWebSocketStore';
+} from '@/features/websocket/store/useWebSocketStore';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import {
   Send,

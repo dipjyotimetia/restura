@@ -248,4 +248,38 @@ describe('useCollectionStore', () => {
       expect(found).toBeUndefined();
     });
   });
+
+  describe('legacy localStorage migration', () => {
+    it('rehydrates from legacy localStorage when Dexie is empty', () => {
+      localStorage.setItem(
+        'collection-storage',
+        JSON.stringify({
+          state: { collections: [{ id: 'c1', name: 'Legacy', items: [] }] },
+          version: 1,
+        })
+      );
+      const opts = useCollectionStore.persist.getOptions();
+      const result = (opts.migrate as (s: unknown, v: number) => unknown)({}, 1);
+      expect((result as { collections: Array<{ id: string }> }).collections[0]!.id).toBe('c1');
+      expect(localStorage.getItem('collection-storage')).toBeNull();
+    });
+
+    it('does not consume legacy when Dexie returned real data', () => {
+      localStorage.setItem(
+        'collection-storage',
+        JSON.stringify({
+          state: { collections: [{ id: 'legacy', name: 'L', items: [] }] },
+          version: 1,
+        })
+      );
+      const opts = useCollectionStore.persist.getOptions();
+      const result = (opts.migrate as (s: unknown, v: number) => unknown)(
+        { collections: [{ id: 'fresh', name: 'F', items: [] }] },
+        1
+      );
+      expect((result as { collections: Array<{ id: string }> }).collections[0]!.id).toBe('fresh');
+      // Legacy key NOT consumed when Dexie had real data
+      expect(localStorage.getItem('collection-storage')).toBeTruthy();
+    });
+  });
 });

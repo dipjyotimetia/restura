@@ -4,53 +4,50 @@ import type { StatusCode } from 'hono/utils/http-status';
 import type { Env } from '../index';
 import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { validateURL } from '@shared/protocol/url-validation';
-import type { Fetcher, ProtocolAuthConfig } from '@shared/protocol/types';
-import type { FormField, BodyType } from '@shared/protocol/body-builder';
+import type { Fetcher } from '@shared/protocol/types';
+import {
+  ProxyRequestBodySchema,
+  type ProxyRequestBody,
+  type UpstreamProxyConfig,
+} from '@shared/protocol/proxy-schema';
 import { httpsViaConnectProxy, httpViaProxy } from '../shared/tcp-proxy';
+import { isLocalDevBypass } from '../shared/env';
+import { parseJsonBody } from '../shared/validate-body';
 
-interface UpstreamProxyConfig {
-  host: string;
-  port: number;
-  auth?: { username: string; password: string };
-}
-
-interface ProxyRequestBody {
-  method: string;
-  url: string;
-  headers?: Record<string, string>;
-  params?: Record<string, string>;
-  bodyType?: BodyType;
-  data?: string;
-  formData?: FormField[];
-  timeout?: number;
-  upstreamProxy?: UpstreamProxyConfig;
-  /**
-   * Sign-at-wire auth (currently AWS SigV4). Forwarded to executeHttpProxy so
-   * the signature covers the exact bytes this worker sends to the upstream.
-   * Renderer-side `applyAuthHeaders` no longer signs SigV4 — it passes the
-   * auth config through to us instead.
-   */
-  auth?: ProtocolAuthConfig;
-  /**
-   * Forces the streaming pass-through path even when the Accept header doesn't
-   * advertise a known streaming content type. Useful for raw byte streams.
-   */
-  streamingMode?: boolean;
-}
-
-const STREAMING_ACCEPT_TYPES = [
+const STREAMING_MEDIA_TYPES = new Set([
   'text/event-stream',
   'application/x-ndjson',
   'application/jsonl',
   'application/grpc-web',
-];
+]);
 
+/**
+ * Token-parse the Accept header per RFC 7231 (media-type [;params][, ...])
+ * and exact-match against the streaming allowlist. The previous
+ * `accept.includes('text/event-stream')` check was vulnerable to
+ * `Accept: text/event-stream-evil` smuggling — that matched the substring
+ * and routed the request through the streaming pass-through, bypassing the
+ * buffered-response size cap.
+ */
+function parseAcceptMediaTypes(accept: string): string[] {
+  return accept
+    .split(',')
+    .map((entry) => entry.split(';')[0]!.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Decide whether to route through the streaming pass-through.
+ *
+ * `streamingMode: true` is an unconditional bypass for callers that need raw
+ * byte streams (e.g. binary downloads). It is validated as a boolean by the
+ * `ProxyRequestBodySchema` (Task 1.2), so a renderer cannot smuggle a
+ * non-boolean value through this branch.
+ */
 function isStreamingRequest(body: ProxyRequestBody): boolean {
   if (body.streamingMode === true) return true;
-  const accept =
-    body.headers?.['Accept'] ?? body.headers?.['accept'] ?? '';
-  const lower = accept.toLowerCase();
-  return STREAMING_ACCEPT_TYPES.some((t) => lower.includes(t));
+  const accept = body.headers?.['Accept'] ?? body.headers?.['accept'] ?? '';
+  return parseAcceptMediaTypes(accept).some((mt) => STREAMING_MEDIA_TYPES.has(mt));
 }
 
 function buildFetcher(
@@ -76,7 +73,7 @@ function buildFetcher(
         method: req.method,
         headers: req.headers,
         signal: req.signal,
-        redirect: 'follow',
+        redirect: 'manual',
       };
       if (req.body !== undefined) init.body = req.body;
       response =
@@ -88,7 +85,7 @@ function buildFetcher(
         method: req.method,
         headers: req.headers,
         signal: req.signal,
-        redirect: 'follow',
+        redirect: 'manual',
       };
       if (req.body !== undefined) init.body = req.body;
       response = await fetch(req.url, init);
@@ -105,15 +102,16 @@ function buildFetcher(
 }
 
 export async function proxy(c: Context<{ Bindings: Env }>) {
-  const isDev = c.env.ENVIRONMENT === 'development';
+  // Use the same gate as auth (worker/index.ts). ENVIRONMENT='development'
+  // alone MUST NOT relax allowLocalhost — a preview deploy that inherits
+  // the env var would otherwise become an open SSRF to internal hosts.
+  const isDev = isLocalDevBypass(c.env);
 
-  let body: ProxyRequestBody;
-  try {
-    body = await c.req.json<ProxyRequestBody>();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return c.json({ error: `Proxy error: ${message}` }, 500);
+  const parsed = await parseJsonBody(c.req.raw, ProxyRequestBodySchema);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error }, parsed.status);
   }
+  const body: ProxyRequestBody = parsed.value;
 
   if (isStreamingRequest(body)) {
     const streamingResult = await executeHttpProxyStreaming(

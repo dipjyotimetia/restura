@@ -1,12 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   EphemeralKeyProvider,
+  PlaintextKeyProvider,
   WebSessionPassphraseProvider,
   ElectronSafeStorageKeyProvider,
   getKeyProvider,
   setKeyProvider,
   __resetKeyProviderForTests,
 } from './keyProvider';
+
+describe('PlaintextKeyProvider', () => {
+  it('returns a stable sentinel string from getKey()', async () => {
+    const p = new PlaintextKeyProvider();
+    const a = await p.getKey();
+    const b = await p.getKey();
+    expect(a).toBe(b);
+    expect(typeof a).toBe('string');
+    expect(a.length).toBeGreaterThan(0);
+  });
+
+  it('isEncrypted() returns false (signals dexie-storage to skip crypto)', () => {
+    expect(new PlaintextKeyProvider().isEncrypted()).toBe(false);
+  });
+
+  it('isHardwareBacked is false', () => {
+    expect(new PlaintextKeyProvider().isHardwareBacked).toBe(false);
+  });
+
+  it('label mentions plaintext / no encryption', () => {
+    expect(new PlaintextKeyProvider().label).toMatch(/plaintext|no encryption/i);
+  });
+});
 
 describe('EphemeralKeyProvider', () => {
   it('returns the same generated key across calls within a session', async () => {
@@ -19,6 +43,10 @@ describe('EphemeralKeyProvider', () => {
 
   it('isHardwareBacked returns false', () => {
     expect(new EphemeralKeyProvider().isHardwareBacked).toBe(false);
+  });
+
+  it('isEncrypted() returns true (still goes through encrypt path)', () => {
+    expect(new EphemeralKeyProvider().isEncrypted()).toBe(true);
   });
 
   it('label is descriptive', () => {
@@ -73,6 +101,10 @@ describe('WebSessionPassphraseProvider', () => {
 
   it('isHardwareBacked returns false', () => {
     expect(new WebSessionPassphraseProvider().isHardwareBacked).toBe(false);
+  });
+
+  it('isEncrypted() returns true (passphrase mode encrypts at rest)', () => {
+    expect(new WebSessionPassphraseProvider().isEncrypted()).toBe(true);
   });
 
   it('reset clears the singleton key', async () => {
@@ -149,9 +181,36 @@ describe('getKeyProvider / setKeyProvider', () => {
     __resetKeyProviderForTests();
   });
 
-  it('returns Ephemeral by default in test env (no Electron API)', () => {
+  it('returns Plaintext (web default) in test env (no Electron API)', () => {
     const provider = getKeyProvider();
-    expect(provider).toBeInstanceOf(EphemeralKeyProvider);
+    expect(provider).toBeInstanceOf(PlaintextKeyProvider);
+  });
+
+  it('default provider on web reports isEncrypted() === false', () => {
+    const provider = getKeyProvider();
+    expect(provider.isEncrypted()).toBe(false);
+  });
+
+  it('Electron with safeStorage IPC resolves to ElectronSafeStorageKeyProvider (isEncrypted true)', async () => {
+    const platform = await import('./platform');
+    const isElectronSpy = vi.spyOn(platform, 'isElectron').mockReturnValue(true);
+    const getApiSpy = vi.spyOn(platform, 'getElectronAPI').mockReturnValue({
+      store: {
+        get: vi.fn().mockResolvedValue('persisted'),
+        set: vi.fn(),
+        has: vi.fn().mockResolvedValue(true),
+        delete: vi.fn(),
+        clear: vi.fn(),
+      },
+    } as unknown as ReturnType<typeof platform.getElectronAPI>);
+    try {
+      const provider = getKeyProvider();
+      expect(provider).toBeInstanceOf(ElectronSafeStorageKeyProvider);
+      expect(provider.isEncrypted()).toBe(true);
+    } finally {
+      isElectronSpy.mockRestore();
+      getApiSpy.mockRestore();
+    }
   });
 
   it('caches the resolved provider across calls', () => {
@@ -160,12 +219,14 @@ describe('getKeyProvider / setKeyProvider', () => {
     expect(a).toBe(b);
   });
 
-  it('setKeyProvider overrides the cached selection', () => {
+  it('setKeyProvider overrides the cached selection (Plaintext -> WebSessionPassphrase flips isEncrypted to true)', () => {
     const original = getKeyProvider();
+    expect(original.isEncrypted()).toBe(false);
     const replacement = new WebSessionPassphraseProvider();
     setKeyProvider(replacement);
     const after = getKeyProvider();
     expect(after).toBe(replacement);
     expect(after).not.toBe(original);
+    expect(after.isEncrypted()).toBe(true);
   });
 });

@@ -39,7 +39,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   handleReset = (): void => {
-    this.setState({ hasError: false, error: undefined, errorInfo: undefined });
+    // EOPT: omit `error`/`errorInfo` keys to clear them rather than setting
+    // them to undefined.
+    this.setState({ hasError: false } as State);
   };
 
   override render(): ReactNode {

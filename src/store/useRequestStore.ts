@@ -310,10 +310,15 @@ export const useRequestStore = create<RequestState>()(
       version: 3,
       storage: dexieStorageAdapters.requestTabs(),
       partialize: (state) => ({
-        // Strip `streamingEvents` from each tab — AsyncIterables aren't JSON-
-        // serializable and streams are transient by nature. A page reload
-        // intentionally aborts any in-flight stream.
-        tabs: state.tabs.map(({ streamingEvents: _drop, ...rest }) => rest),
+        // streamingEvents: AsyncIterables can't serialize, and active streams
+        // are intentionally aborted on page reload.
+        // response: bodies can be tens of MB and already live in useHistoryStore;
+        // rehydrate with response: null so the tab is restorable but doesn't
+        // carry stale data on the hot path of every tab switch / write.
+        tabs: state.tabs.map(({ streamingEvents: _streamingEvents, response: _response, ...rest }) => ({
+          ...rest,
+          response: null,
+        })),
         activeTabId: state.activeTabId,
       }),
       migrate: (persistedState: unknown, version) => {
