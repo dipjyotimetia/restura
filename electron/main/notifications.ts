@@ -52,8 +52,10 @@ export function showNativeNotification(
   });
 
   notification.on('click', () => {
-    // Show and focus the main window when notification is clicked
-    if (mainWindow) {
+    // Show and focus the main window when notification is clicked.
+    // Guard against the window being destroyed between show() and click —
+    // calling show()/focus() on a destroyed BrowserWindow throws.
+    if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.show();
       mainWindow.focus();
     }

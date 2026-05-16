@@ -8,6 +8,7 @@ import { bindLimiterToWebContents } from './rate-limiter-cleanup';
 import { httpRateLimiter } from './http-handler';
 import { grpcRateLimiter } from './grpc-handler';
 import { wsRateLimiter } from './websocket-handler';
+import { socketIoRateLimiter } from './socketio-handler';
 import { sseRateLimiter } from './sse-handler';
 import { mcpRateLimiter } from './mcp-handler';
 import { kafkaRateLimiter } from './kafka-handler';
@@ -19,6 +20,25 @@ export interface WindowState {
   x?: number;
   y?: number;
   isMaximized: boolean;
+}
+
+// Remembered separately from BrowserWindow.getFocusedWindow() because the
+// latter returns null when the app is backgrounded — exactly the case
+// auto-updater dialogs and tray clicks hit. lastFocusedWindow is set on
+// each window's 'focus' event and survives a backgrounded app.
+let lastFocusedWindow: BrowserWindow | null = null;
+
+/**
+ * Returns the renderer window UI surfaces should target: the focused window,
+ * else the last-focused, else any live window. Replaces the legacy
+ * single-window `getMainWindow` ref so multi-window scenarios (window:new
+ * IPC, macOS dock activate) don't leave callers holding a destroyed handle.
+ */
+export function getActiveWindow(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused.isDestroyed()) return focused;
+  if (lastFocusedWindow && !lastFocusedWindow.isDestroyed()) return lastFocusedWindow;
+  return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null;
 }
 
 /**
@@ -138,6 +158,10 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
     mainWindow.maximize();
   }
 
+  mainWindow.on('focus', () => {
+    lastFocusedWindow = mainWindow;
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
   });
@@ -177,6 +201,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       httpRateLimiter,
       grpcRateLimiter,
       wsRateLimiter,
+      socketIoRateLimiter,
       sseRateLimiter,
       mcpRateLimiter,
       kafkaRateLimiter,

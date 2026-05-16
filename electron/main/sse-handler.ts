@@ -1,6 +1,8 @@
 import { ipcMain } from 'electron';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
+import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+import { assertUrlHostnameSafe } from './dns-guard';
 import {
   SseConnectSchema,
   SseDisconnectSchema,
@@ -92,6 +94,12 @@ export function registerSseHandlerIPC(): void {
       activeConnections.delete(connectionId);
     }
 
+    try {
+      await assertUrlHostnameSafe(config.url, { allowLocalhost: true });
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'URL rejected by SSRF policy' };
+    }
+
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), CONNECTION_TIMEOUT_MS);
 
@@ -104,6 +112,13 @@ export function registerSseHandlerIPC(): void {
       explicitlyClosed: false,
     };
     activeConnections.set(connectionId, entry);
+
+    bindRendererCleanup(activeConnections, event.sender, (deadId) => {
+      disposeByOwner(activeConnections, deadId, (e) => {
+        e.explicitlyClosed = true;
+        try { e.abortController.abort(); } catch { /* ignore */ }
+      });
+    });
 
     // Adapter: wraps native fetch with `redirect: 'manual'` so followRedirects
     // can validate every hop (matches the Worker proxy's policy — Location

@@ -72,10 +72,3 @@ export function rateLimited<TArgs extends unknown[], TResult>(
   };
 }
 
-// Back-compat shim for any caller still on the legacy single-bucket API.
-// New code should call createKeyedRateLimiter and pass event.sender.id.
-/** @deprecated use createKeyedRateLimiter and key by event.sender.id */
-export function createRateLimiter(maxRequests: number, windowMs: number): () => boolean {
-  const limiter = createKeyedRateLimiter(maxRequests, windowMs);
-  return () => limiter.check('__legacy_global__');
-}

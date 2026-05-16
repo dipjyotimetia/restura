@@ -36,7 +36,7 @@
     "electron:compile": "tsc -p electron/tsconfig.json",
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:build:web": "cross-env VITE_IS_ELECTRON_BUILD=true vite build",
-    "electron:build:all": "npm run electron:build:web && npm run electron:compile",
+    "electron:build:all": "npm run electron:icons && npm run electron:build:web && npm run electron:compile",
     "electron:dist": "npm run electron:build:all && electron-builder",
     "electron:dist:mac": "npm run electron:build:all && electron-builder --mac",
     "electron:dist:win": "npm run electron:build:all && electron-builder --win",

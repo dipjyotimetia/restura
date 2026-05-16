@@ -1,6 +1,8 @@
 import { ipcMain } from 'electron';
 import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
+import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+import { assertUrlHostnameSafe } from './dns-guard';
 import {
   McpConnectSchema,
   McpRequestSchema,
@@ -59,9 +61,7 @@ type Session = StreamableHttpSession | HttpSseSession;
 
 const sessions = new Map<string, Session>();
 
-function teardownSession(connectionId: string): void {
-  const s = sessions.get(connectionId);
-  if (!s) return;
+function disposeSession(s: Session): void {
   if (s.transport === 'http-sse') {
     s.abortController.abort();
     for (const p of s.pending.values()) {
@@ -70,6 +70,12 @@ function teardownSession(connectionId: string): void {
     }
     s.pending.clear();
   }
+}
+
+function teardownSession(connectionId: string): void {
+  const s = sessions.get(connectionId);
+  if (!s) return;
+  disposeSession(s);
   sessions.delete(connectionId);
 }
 
@@ -206,6 +212,16 @@ export function registerMcpHandlerIPC(): void {
     }
 
     teardownSession(config.connectionId);
+
+    try {
+      await assertUrlHostnameSafe(config.url, { allowLocalhost: true });
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'URL rejected by SSRF policy' };
+    }
+
+    bindRendererCleanup(sessions, event.sender, (deadId) => {
+      disposeByOwner(sessions, deadId, disposeSession);
+    });
 
     if (config.transport === 'streamable-http') {
       const session: StreamableHttpSession = {

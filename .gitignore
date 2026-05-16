@@ -71,3 +71,4 @@ Thumbs.db
 
 # configs (legacy)
 ./configs/**/**
+cache/**/*
