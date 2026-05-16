@@ -67,7 +67,7 @@ export default function KeyValueEditor({
         {items.map((item) => (
           <StaggerItem
             key={item.id}
-            className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-surface-2 transition-colors"
+            className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-foreground/5 transition-colors"
           >
             <Tooltip>
               <TooltipTrigger asChild>

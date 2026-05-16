@@ -104,6 +104,7 @@ test.describe('HTTP request flow', () => {
   });
 
   test('disables Send when URL is empty', async ({ app: page }) => {
+    await setUrl(page, '');
     await expect(sendButton(page)).toBeDisabled();
     await setUrl(page, 'https://api.example.com/x');
     await expect(sendButton(page)).toBeEnabled();

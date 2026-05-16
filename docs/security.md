@@ -48,3 +48,54 @@ was already experiencing on every page refresh.
 The Worker does not store user data. Requests are proxied and forgotten.
 Cloudflare's network-level encryption applies; no application-layer
 encryption is performed.
+
+## Pre-flight SSRF / DNS guard (Electron)
+
+`electron/main/dns-guard.ts` is the SSRF guard for the Electron transports
+that don't accept a connector-level `lookup` hook — WebSocket (`ws`),
+Socket.IO (`socket.io-client`), SSE, and MCP. The HTTP and gRPC paths
+already enforce a connect-time check via undici's `Agent.connect.lookup`
+(`createSecureLookup`) and don't go through this module.
+
+API:
+
+- `assertUrlHostnameSafe(url, { allowLocalhost, allowedSchemes? })` —
+  applies the URL-string policy (`validateURL`: scheme allow-list, length,
+  blocked names, literal-IP rules) and then runs the DNS resolution check
+  on the URL's hostname.
+- `assertHostnameSafe(hostname, options)` — DNS-only variant. Used by
+  callers that have already validated the URL string separately.
+
+Both call `assertResolvedAddressAllowed` from
+`shared/protocol/url-validation.ts` against every record returned by
+`dns.lookup(hostname, { all: true })`. If `hostname` is an IP literal, the
+resolve step is skipped and the literal is checked directly. Any
+violation throws synchronously — handlers catch and surface the message
+to the renderer.
+
+> **Pre-flight only.** This module does not protect against true DNS-
+> rebind attacks (a TTL=0 swap between this lookup and the actual
+> connect). Full mitigation requires a transport-level dispatcher with a
+> `lookup` hook per transport. The pre-flight check raises the bar
+> against unsophisticated attackers and is materially better than the
+> previous state (no DNS check on these transports). Tracked as future
+> work in `docs/adr/0006-electron-connection-and-dns-hardening.md`.
+
+## Long-lived connection cleanup (Electron)
+
+`electron/main/connection-cleanup.ts` is the shared bookkeeping for
+streaming handlers that hold open connections per renderer (gRPC, MCP,
+SSE, WebSocket, Socket.IO). It exposes:
+
+- `bindRendererCleanup(handlerKey, webContents, teardown)` — idempotent
+  per-`(handlerKey, webContents.id)` registration of a single `destroyed`
+  listener. Without it, every reconnect from the same renderer stacks a
+  fresh listener (Node warns at ten; the worse cost is N teardowns per
+  close).
+- `disposeByOwner(map, deadId, dispose)` — walks a connection map and
+  invokes `dispose(entry)` on every entry whose `webContentsId ===
+  deadId`, then deletes the entry. Errors are swallowed (best-effort
+  cleanup).
+
+See `docs/adr/0006-electron-connection-and-dns-hardening.md` for the
+design decision and the considered alternatives.

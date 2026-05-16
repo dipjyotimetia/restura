@@ -29,6 +29,7 @@ import { useActiveTab } from '@/store/selectors';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { SaveToCollectionDialog } from '@/components/shared/SaveToCollectionDialog';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import type { RequestMode, ActivePanel } from '@/types';
 
 export default function Home() {
@@ -62,19 +63,24 @@ export default function Home() {
 
   const handleRequestModeChange = useCallback(
     (mode: RequestMode) => {
-      if (mode === 'graphql' || mode === 'websocket' || mode === 'kafka' || mode === 'socketio') {
-        // No matching tab type — track the UI override and (for graphql) ensure an HTTP tab.
-        setModeOverride(mode);
-        if (mode === 'graphql' && activeTab?.request.type !== 'http') {
-          createNewRequest('http');
-        }
+      const needsHttpTab = mode === 'graphql' || mode === 'websocket' || mode === 'kafka' || mode === 'socketio';
+      if (!needsHttpTab) {
+        setModeOverride(null);
+        if (activeTab?.request.type !== mode) createNewRequest(mode);
         return;
       }
-      // Clear any override and open a new tab of the requested type.
-      setModeOverride(null);
-      if (activeTab?.request.type !== mode) {
-        createNewRequest(mode);
-      }
+      setModeOverride(mode);
+      if (mode !== 'graphql') return;
+      if (activeTab?.request.type !== 'http') createNewRequest('http');
+      // Don't clobber a URL the user typed — only swap when the field is still
+      // at its pristine default (empty or the HTTP echo URL).
+      const state = useRequestStore.getState();
+      const current = state.getActiveTab();
+      if (current?.request.type !== 'http') return;
+      const { url } = current.request;
+      if (url === ECHO_URLS.graphql) return;
+      if (url !== '' && url !== ECHO_URLS.http) return;
+      state.updateRequest({ url: ECHO_URLS.graphql });
     },
     [activeTab?.request.type, createNewRequest]
   );

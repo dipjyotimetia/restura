@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import type { KeyValue } from '@/types';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
 
 const formatDuration = (ms: number): string => {
@@ -211,7 +212,7 @@ function WebSocketClient() {
       case 'sent':
         return 'bg-primary/5 border-l-2 border-primary/30';
       case 'received':
-        return 'bg-surface-2';
+        return 'glass-2 glass-border-subtle border-l-2';
       case 'system':
         return 'bg-amber-500/5 border-l-2 border-amber-500/30';
     }
@@ -263,9 +264,9 @@ function WebSocketClient() {
   return (
     <div className="flex-1 flex flex-col">
       {/* Connection Zone */}
-      <div className="border-b border-border bg-surface-2">
+      <div className="border-b glass-border-subtle glass-3">
         {/* Status + URL row */}
-        <div className="flex items-center gap-2 px-3 h-8 border-b border-border/50">
+        <div className="flex items-center gap-2 px-3 h-8 border-b glass-border-subtle">
           <div className={cn('h-2 w-2 rounded-full shrink-0', getStatusDotClass())} aria-hidden="true" />
           <span className="text-xs font-mono text-muted-foreground">{getStatusText()}</span>
           {connection.status === 'reconnecting' && (
@@ -273,12 +274,25 @@ function WebSocketClient() {
           )}
         </div>
         <div className="flex items-center gap-1 px-3 h-12">
+          <div
+            className={cn(
+              'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded border shrink-0',
+              isConnected
+                ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
+                : isConnecting
+                  ? 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
+                  : 'bg-blue-500/[0.12] border-blue-500/25 text-blue-400'
+            )}
+            aria-hidden="true"
+          >
+            WS
+          </div>
           <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
           <Input
             value={connection.url}
             onChange={(e) => updateConnectionUrl(activeConnectionId, e.target.value)}
-            placeholder="wss://echo.restura.dev/ws"
-            className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:ring-0 focus-visible:ring-offset-0"
+            placeholder={ECHO_URLS.websocket}
+            className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground/40"
             disabled={isConnected || isConnecting}
             aria-label="WebSocket URL"
           />
@@ -288,7 +302,7 @@ function WebSocketClient() {
               size="sm"
               onClick={handleConnect}
               disabled={!connection.url}
-              className="h-7 min-w-[80px] shrink-0"
+              className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
             >
               Connect
             </Button>
@@ -297,7 +311,7 @@ function WebSocketClient() {
               variant="destructive"
               size="sm"
               onClick={handleDisconnect}
-              className="h-7 min-w-[80px] shrink-0"
+              className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
             >
               Disconnect
             </Button>
@@ -535,7 +549,7 @@ function WebSocketClient() {
           </div>
           <div className={cn('space-y-2', (isConnected || isConnecting) && 'opacity-50 pointer-events-none')}>
             {connection.headers.map((header) => (
-              <div key={header.id} className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-surface-2 transition-colors">
+              <div key={header.id} className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-foreground/5 transition-colors">
                 <Input
                   value={header.key}
                   onChange={(e) => handleUpdateHeader(header.id, { key: e.target.value })}

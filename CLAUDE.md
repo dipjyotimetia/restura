@@ -115,16 +115,19 @@ Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollec
 
 ### Electron main process (`electron/main/`)
 
-One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`. Plus:
+One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`. Plus:
 
 - `main.ts` — entry / orchestrator
 - `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod
 - `preload.ts` — context-isolated IPC bridge (`window.electronAPI`)
-- `ipc-validators.ts` + `ipc-rate-limiter.ts` — input validation and rate limits at the IPC boundary
-- `store-handler.ts`, `collection-manager.ts` — persistent storage bridge
+- `ipc-validators.ts` + `ipc-rate-limiter.ts` — input validation and rate limits at the IPC boundary (legacy rate-limiter API deprecated; see ADR-0006)
+- `connection-cleanup.ts` — idempotent renderer-`destroyed` listener dedupe (`bindRendererCleanup`) + walk-and-dispose helper (`disposeByOwner`). Shared by every long-lived streaming handler.
+- `dns-guard.ts` — pre-flight SSRF guard. `assertHostnameSafe` / `assertUrlHostnameSafe` resolve the hostname and call `assertResolvedAddressAllowed` from `shared/protocol/url-validation` against every record. Pre-flight only — does NOT mitigate true DNS-rebind (TTL=0 swap during connect).
+- `store-handler.ts`, `collection-manager.ts` — persistent storage bridge (encryption key fetched from OS keychain via `safeStorage`; warns at startup if unavailable)
 - `interceptor-registry.ts`, `request-logger.ts`, `deep-link-handler.ts`, `auto-updater.ts`, `menu.ts`, `system-tray.ts`, `notifications.ts`, `window-controls.ts`
+- `file-operations.ts` — async fs helpers (no behavioral change; was sync)
 
-Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, DNS-rebind guard at lookup time, manual redirect handling) live inside the Electron fetcher closure — **not** in `shared/protocol/`. Keep `shared/` backend-agnostic.
+Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-flight DNS guard via `dns-guard.ts`, manual redirect handling) live inside the Electron fetcher closure — **not** in `shared/protocol/`. Keep `shared/` backend-agnostic. See `docs/adr/0006-electron-connection-and-dns-hardening.md` for the cleanup/DNS-guard design.
 
 ### Worker (`worker/`)
 

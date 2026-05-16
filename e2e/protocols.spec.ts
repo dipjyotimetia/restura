@@ -33,11 +33,13 @@ test.describe('GraphQL flow', () => {
     await expect(page.getByRole('tab', { name: 'Auth' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Scripts' })).toBeVisible();
 
-    // Send is disabled until URL is filled.
+    // Send is disabled until URL is filled — clear the default echo URL first.
+    const urlField = page.getByRole('textbox', { name: 'GraphQL endpoint URL' });
+    await urlField.fill('');
     const send = page.getByRole('button', { name: /Send GraphQL query/i });
     await expect(send).toBeDisabled();
 
-    await page.getByRole('textbox', { name: 'GraphQL endpoint URL' }).fill('https://api.example.com/graphql');
+    await urlField.fill('https://api.example.com/graphql');
     await expect(send).toBeEnabled();
   });
 
@@ -91,6 +93,8 @@ test.describe('WebSocket flow', () => {
 
     const wsUrl = page.getByRole('textbox', { name: 'WebSocket URL' });
     await expect(wsUrl).toBeVisible();
+    // Clear the default echo URL so the disabled-state assertion is meaningful.
+    await wsUrl.fill('');
 
     const connect = page.getByRole('button', { name: 'Connect', exact: true });
     await expect(connect).toBeDisabled();

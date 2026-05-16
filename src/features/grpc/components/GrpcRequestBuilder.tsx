@@ -606,7 +606,7 @@ function GrpcRequestBuilder() {
             itemType="metadata"
           />
           {grpcRequest.auth.type !== 'none' && (
-            <div className="mt-4 p-3 bg-surface-2 rounded border border-border">
+            <div className="mt-4 p-3 glass-2 glass-border-subtle rounded border">
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
                 Auth Metadata (auto-injected)
               </div>

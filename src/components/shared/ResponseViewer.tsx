@@ -80,7 +80,7 @@ const getStatusDotColor = (status: number) => {
 function ResponseSkeleton() {
   return (
     <Scale className="h-full flex flex-col bg-background relative z-20">
-      <div className="flex items-center gap-4 px-4 py-2.5 border-b border-border bg-surface-2/50">
+      <div className="flex items-center gap-4 px-4 py-2.5 border-b glass-border-subtle glass-2">
         <Skeleton className="h-7 w-28 rounded-md" />
         <div className="h-5 w-px bg-border" />
         <Skeleton className="h-5 w-20 rounded" />
@@ -182,7 +182,7 @@ function ResponseViewer() {
     return (
       <TooltipProvider delayDuration={300}>
         <div className="h-full flex flex-col bg-background relative z-20 border-l border-border">
-          <div className="h-11 flex items-center px-3 border-b border-border bg-surface-2/50">
+          <div className="h-11 flex items-center px-3 border-b glass-border-subtle glass-2">
             <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
               Streaming response
             </span>
@@ -242,7 +242,7 @@ function ResponseViewer() {
           className="h-full flex flex-col bg-background relative z-20 border-l border-border"
         >
         {/* Status zone */}
-        <div className="h-11 flex items-center px-3 border-b border-border bg-surface-2/50">
+        <div className="h-11 flex items-center px-3 border-b glass-border-subtle glass-2">
           {/* Left side: status code + dot + text + metadata */}
           <div className="flex flex-col justify-center">
             <div className="flex items-center gap-2">
@@ -412,7 +412,7 @@ function ResponseViewer() {
               {Object.entries(currentResponse.headers).map(([key, value]) => (
                 <div
                   key={key}
-                  className="group flex gap-3 p-2 rounded hover:bg-surface-2 transition-colors text-xs"
+                  className="group flex gap-3 p-2 rounded hover:bg-foreground/5 transition-colors text-xs"
                 >
                   <span className="font-mono font-medium text-primary/80 min-w-[140px] truncate">{key}:</span>
                   <span className="font-mono text-muted-foreground break-all flex-1 text-[11px]">

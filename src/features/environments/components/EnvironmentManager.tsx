@@ -123,7 +123,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                     'flex items-center justify-between px-2 py-1.5 rounded cursor-pointer group transition-colors',
                     selectedEnvId === env.id
                       ? 'bg-primary/10 text-primary'
-                      : 'hover:bg-surface-2 text-muted-foreground hover:text-foreground'
+                      : 'hover:bg-foreground/5 text-muted-foreground hover:text-foreground'
                   )}
                   onClick={() => setSelectedEnvId(env.id)}
                 >
@@ -221,17 +221,17 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                     enableSecrets
                   />
 
-                  <div className="mt-4 p-3 bg-surface-2 rounded border border-border">
+                  <div className="mt-4 p-3 glass-2 glass-border-subtle rounded border">
                     <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Usage</p>
                     <p className="text-xs text-muted-foreground font-mono">
                       Use variables with{' '}
-                      <code className="bg-surface-3 px-1 py-0.5 rounded text-primary">{'{{variableName}}'}</code>
+                      <code className="glass-3 glass-border-subtle border px-1 py-0.5 rounded text-primary">{'{{variableName}}'}</code>
                     </p>
                     <p className="text-xs text-muted-foreground font-mono mt-1">
                       Dynamic:{' '}
-                      <code className="bg-surface-3 px-1 py-0.5 rounded text-muted-foreground">{'{{$timestamp}}'}</code>
-                      {' '}<code className="bg-surface-3 px-1 py-0.5 rounded text-muted-foreground">{'{{$guid}}'}</code>
-                      {' '}<code className="bg-surface-3 px-1 py-0.5 rounded text-muted-foreground">{'{{$randomInt}}'}</code>
+                      <code className="glass-3 glass-border-subtle border px-1 py-0.5 rounded text-muted-foreground">{'{{$timestamp}}'}</code>
+                      {' '}<code className="glass-3 glass-border-subtle border px-1 py-0.5 rounded text-muted-foreground">{'{{$guid}}'}</code>
+                      {' '}<code className="glass-3 glass-border-subtle border px-1 py-0.5 rounded text-muted-foreground">{'{{$randomInt}}'}</code>
                     </p>
                     <p className="text-xs text-muted-foreground font-mono mt-1">
                       Click <span className="text-amber-500">🔒</span> on a variable to mask its value as secret.

@@ -80,3 +80,12 @@ When you add a new protocol, also extend `src/features/collections/lib/importers
 
 ## Logging hooks are opt-in
 The Network Console only sees protocols whose IPC handlers call `request-logger.ts`. New handlers must explicitly hook into this — the Network Console won't auto-discover them.
+
+## `dns-guard.ts` is pre-flight only
+`electron/main/dns-guard.ts` resolves the hostname once *before* the transport connects. It does **not** mitigate true DNS rebind — an attacker who controls the resolver can return a public IP on the pre-flight lookup and a private IP on the actual connect (TTL=0). Full protection requires a custom transport-level dispatcher with a `lookup` hook that re-applies `assertResolvedAddressAllowed` at connect time. The HTTP/gRPC paths already do this via undici's `Agent.connect.lookup`; everything else (WebSocket, Socket.IO, SSE, MCP) is pre-flight only. When you wire a new transport, prefer a connector-level `lookup` hook over (or in addition to) the pre-flight check. See ADR-0006.
+
+## `bindRendererCleanup` is per-handler, not global
+The dedupe table in `connection-cleanup.ts` keys on `(handlerKey, webContents.id)`. The handler's own `activeConnections` Map is the conventional key — its object identity is stable for the handler's lifetime. Don't share one handlerKey across two handlers, and don't pass a fresh object each call (that defeats the dedupe). Also: when the destroyed listener fires, the dedupe entry is removed automatically — you don't have to clean it up yourself.
+
+## Echo URLs come from a single constants module
+`src/lib/shared/echo-defaults.ts` exports `ECHO_URLS` (http/grpc/graphql/websocket/sse) derived from `ECHO_BASE`. Both the store defaults AND the RequestBuilder placeholder strings import from it. If you change the hostname, update only `echo-defaults.ts` and `echo/wrangler.jsonc`. `e2e/real-sse.spec.ts` selects fields via `getByPlaceholder('https://echo.restura.dev/sse')` — a drift would break that test, which is exactly the regression the shared module prevents.

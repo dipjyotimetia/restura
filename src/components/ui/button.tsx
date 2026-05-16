@@ -21,7 +21,7 @@ export const buttonVariants = cva(
           'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 border border-border/50',
         ghost: 'hover:bg-accent hover:text-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
-        glow: 'bg-primary text-primary-foreground hover:shadow-glow-blue hover:brightness-110 border border-transparent',
+        glow: 'bg-primary/[0.2] text-primary border border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)]',
       },
       size: {
         default: 'h-9 px-4 py-2 text-sm rounded-md [&_svg]:size-4',

@@ -64,7 +64,7 @@ export default function SettingsDialog({ open, onOpenChange }: SettingsDialogPro
                   'flex items-center gap-2.5 px-3 py-2 rounded text-xs font-mono text-left transition-colors w-full',
                   activeSection === id
                     ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-surface-2'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
                 )}
               >
                 <Icon className="h-3.5 w-3.5 shrink-0" />

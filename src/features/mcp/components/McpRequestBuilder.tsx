@@ -17,7 +17,6 @@ import type {
 } from '@/types';
 import { Play, Square, RefreshCw } from 'lucide-react';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
-import { CONNECTION_STATUS_COLORS } from '@/lib/shared/constants';
 
 export default function McpRequestBuilder() {
   const {
@@ -130,47 +129,75 @@ export default function McpRequestBuilder() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-2 p-3 border-b border-border bg-background/60 flex-wrap">
-        <Badge className={cn('uppercase', CONNECTION_STATUS_COLORS[active.status])}>{active.status}</Badge>
+      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3 flex-wrap">
+        <div
+          className={cn(
+            'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded border shrink-0',
+            isConnected
+              ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
+              : isBusy
+                ? 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
+                : active.status === 'error'
+                  ? 'bg-rose-500/[0.12] border-rose-500/25 text-rose-400'
+                  : 'bg-violet-500/[0.12] border-violet-500/25 text-violet-400'
+          )}
+          aria-label={`MCP status: ${active.status}`}
+        >
+          MCP
+        </div>
+        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
         <Input
           placeholder="https://mcp.example.com/v1/server"
           value={active.url}
           onChange={(e) => setUrl(active.id, e.target.value)}
           disabled={isConnected || isBusy}
-          className="flex-1 min-w-[280px] font-mono"
+          className="flex-1 min-w-[280px] h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground/40"
+          aria-label="MCP server URL"
         />
         <select
           value={active.transport}
           onChange={(e) => setTransport(active.id, e.target.value as 'streamable-http' | 'http-sse')}
           disabled={isConnected || isBusy}
-          className="h-9 px-2 rounded-md bg-background border border-border text-sm"
+          className="h-7 px-2 rounded glass-2 glass-border-subtle border text-xs font-mono shrink-0"
         >
           <option value="streamable-http">Streamable HTTP</option>
           <option value="http-sse">HTTP + SSE (legacy)</option>
         </select>
         {isConnected ? (
           <>
-            <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={isBusy}>
-              <RefreshCw /> Refresh
+            <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={isBusy} className="h-7 text-xs">
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
             </Button>
-            <Button variant="destructive" onClick={handleDisconnect}>
-              <Square /> Disconnect
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDisconnect}
+              className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
+            >
+              <Square className="mr-1.5 h-3.5 w-3.5" /> Disconnect
             </Button>
           </>
         ) : (
-          <Button onClick={handleConnect} loading={isBusy} disabled={!active.url.trim()}>
-            <Play /> Connect
+          <Button
+            variant="glow"
+            size="sm"
+            onClick={handleConnect}
+            loading={isBusy}
+            disabled={!active.url.trim()}
+            className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
+          >
+            <Play className="mr-1.5 h-3.5 w-3.5" /> Connect
           </Button>
         )}
       </div>
 
       {active.lastError && active.status === 'error' && (
-        <div className="px-3 py-2 text-sm bg-red-500/10 text-red-600 dark:text-red-400 border-b border-red-500/20">
+        <div className="px-3 py-2 text-sm bg-rose-500/10 text-rose-600 dark:text-rose-400 border-b border-rose-500/20" role="alert">
           {active.lastError}
         </div>
       )}
 
-      <div className="border-b border-border p-3 bg-muted/10">
+      <div className="border-b glass-border-subtle p-3 glass-2">
         <Label className="text-xs text-muted-foreground mb-2 block">HEADERS</Label>
         <KeyValueEditor
           items={active.headers}
@@ -506,7 +533,7 @@ function LogPanel({
                 <span className="text-xs text-muted-foreground">{entry.durationMs.toFixed(0)} ms</span>
               </div>
               {entry.params !== undefined && (
-                <pre className="text-xs bg-muted/40 p-2 rounded overflow-x-auto">{JSON.stringify(entry.params, null, 2)}</pre>
+                <pre className="text-xs glass-2 glass-border-subtle border p-2 rounded overflow-x-auto">{JSON.stringify(entry.params, null, 2)}</pre>
               )}
               {entry.error ? (
                 <div className="text-xs text-red-600 dark:text-red-400">
