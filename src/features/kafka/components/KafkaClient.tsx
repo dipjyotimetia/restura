@@ -253,7 +253,7 @@ function KafkaClient() {
               ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
               : 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
           )}
-          aria-hidden="true"
+          aria-label={`Kafka status: ${connection?.status ?? 'no connection'}`}
         >
           KAFKA
         </div>
@@ -293,7 +293,7 @@ function KafkaClient() {
               variant="glow"
               size="sm"
               onClick={handleConnect}
-              className="h-7 min-w-[80px] text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
+              className="h-7 min-w-[80px] text-xs font-medium"
             >
               <Plug className="h-3.5 w-3.5 mr-1.5" /> Connect
             </Button>

@@ -116,7 +116,7 @@ export default function RequestLine({
           size="sm"
           onClick={onSend}
           disabled={isLoading || !url || !!urlError}
-          className="h-7 min-w-[72px] text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
+          className="h-7 min-w-[72px] text-xs font-medium"
           aria-label={isLoading ? 'Sending request' : 'Send request'}
         >
           {isLoading ? (

@@ -302,7 +302,7 @@ function WebSocketClient() {
               size="sm"
               onClick={handleConnect}
               disabled={!connection.url}
-              className="h-7 min-w-[80px] shrink-0 text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
+              className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
             >
               Connect
             </Button>
@@ -549,7 +549,7 @@ function WebSocketClient() {
           </div>
           <div className={cn('space-y-2', (isConnected || isConnecting) && 'opacity-50 pointer-events-none')}>
             {connection.headers.map((header) => (
-              <div key={header.id} className="flex items-center gap-2 group py-1.5 px-2 rounded hover:glass-2 transition-colors">
+              <div key={header.id} className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-foreground/5 transition-colors">
                 <Input
                   value={header.key}
                   onChange={(e) => handleUpdateHeader(header.id, { key: e.target.value })}

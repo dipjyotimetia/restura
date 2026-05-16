@@ -412,7 +412,7 @@ function ResponseViewer() {
               {Object.entries(currentResponse.headers).map(([key, value]) => (
                 <div
                   key={key}
-                  className="group flex gap-3 p-2 rounded hover:glass-2 transition-colors text-xs"
+                  className="group flex gap-3 p-2 rounded hover:bg-foreground/5 transition-colors text-xs"
                 >
                   <span className="font-mono font-medium text-primary/80 min-w-[140px] truncate">{key}:</span>
                   <span className="font-mono text-muted-foreground break-all flex-1 text-[11px]">

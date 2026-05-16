@@ -114,7 +114,7 @@ function DropZone({ type, onFileUpload, onDrop }: DropZoneProps) {
     <div
       onDrop={(e) => onDrop(e, type)}
       onDragOver={(e) => e.preventDefault()}
-      className="border border-dashed border-border rounded-lg p-10 text-center hover:border-primary/50 hover:glass-2 transition-colors cursor-pointer"
+      className="border border-dashed border-border rounded-lg p-10 text-center hover:border-primary/50 hover:bg-foreground/5 transition-colors cursor-pointer"
     >
       <input
         type="file"

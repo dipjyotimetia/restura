@@ -123,7 +123,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                     'flex items-center justify-between px-2 py-1.5 rounded cursor-pointer group transition-colors',
                     selectedEnvId === env.id
                       ? 'bg-primary/10 text-primary'
-                      : 'hover:glass-2 text-muted-foreground hover:text-foreground'
+                      : 'hover:bg-foreground/5 text-muted-foreground hover:text-foreground'
                   )}
                   onClick={() => setSelectedEnvId(env.id)}
                 >

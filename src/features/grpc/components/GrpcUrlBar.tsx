@@ -106,7 +106,7 @@ export function GrpcUrlBar({
           onClick={onSend}
           disabled={(isLoading && !streamControl) || !isFormValid}
           aria-label={isLoading ? 'Invoking gRPC method' : 'Invoke gRPC method'}
-          className="h-7 min-w-[72px] text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200 shrink-0"
+          className="h-7 min-w-[72px] text-xs font-medium shrink-0"
         >
           <Send className="mr-1.5 h-3.5 w-3.5" />
           {isLoading ? 'Invoking...' : 'Invoke'}

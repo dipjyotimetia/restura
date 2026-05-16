@@ -184,7 +184,7 @@ export default function McpRequestBuilder() {
             onClick={handleConnect}
             loading={isBusy}
             disabled={!active.url.trim()}
-            className="h-7 min-w-[80px] shrink-0 text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
+            className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
           >
             <Play className="mr-1.5 h-3.5 w-3.5" /> Connect
           </Button>
