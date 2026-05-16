@@ -1,5 +1,5 @@
 import type { BrowserWindow, MenuItemConstructorOptions} from 'electron';
-import { app, Menu, shell } from 'electron';
+import { app, dialog, Menu, shell } from 'electron';
 
 export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
   const isMac = process.platform === 'darwin';
@@ -129,7 +129,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
             const chromeVersion = process.versions.chrome;
             const nodeVersion = process.versions.node;
 
-            const { dialog } = require('electron');
+            if (mainWindow.isDestroyed()) return;
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: 'About Restura',

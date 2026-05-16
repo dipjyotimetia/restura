@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.dipjyotimetia.restura",
   "productName": "Restura",
-  "copyright": "Copyright © 2025 Restura",
+  "copyright": "Copyright © 2026 Restura",
   "directories": {
     "output": "dist/installers",
     "buildResources": "electron/resources"
@@ -34,9 +34,7 @@
     "gatekeeperAssess": false,
     "entitlements": "electron/resources/entitlements.mac.plist",
     "entitlementsInherit": "electron/resources/entitlements.mac.plist",
-    "notarize": {
-      "teamId": "${env.APPLE_TEAM_ID}"
-    }
+    "notarize": true
   },
   "dmg": {
     "contents": [
@@ -68,9 +66,11 @@
         "arch": ["x64"]
       }
     ],
-    "publisherName": "Restura",
     "verifyUpdateCodeSignature": true,
-    "signAndEditExecutable": true
+    "signAndEditExecutable": true,
+    "signtoolOptions": {
+      "publisherName": "Restura"
+    }
   },
   "nsis": {
     "oneClick": false,

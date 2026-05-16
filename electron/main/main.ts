@@ -1,6 +1,6 @@
 import { app, BrowserWindow, session, crashReporter } from 'electron';
 import { setupAutoUpdater, registerAutoUpdaterIPC } from './auto-updater';
-import { createMainWindow, registerNewWindowIPC } from './window-manager';
+import { createMainWindow, getActiveWindow, registerNewWindowIPC } from './window-manager';
 import { registerFileOperationsIPC } from './file-operations';
 import { registerHttpHandlerIPC } from './http-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
@@ -33,16 +33,27 @@ crashReporter.start({
   },
 });
 
+// crashReporter only captures native crashes; log JS-level failures so
+// async paths (chokidar, dispatchers, stream errors) don't fail silently.
+process.on('uncaughtException', (err, origin) => {
+  console.error(`[main] uncaughtException (origin=${origin}):`, err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandledRejection:', reason);
+});
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
-let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV === 'development';
 
-// Helper to get main window reference
-const getMainWindow = (): BrowserWindow | null => mainWindow;
+// Helper to get the renderer window UI surfaces should target. Delegates to
+// the window-manager registry so multi-window scenarios (window:new IPC,
+// macOS dock activate) all return the currently-focused window instead of a
+// stale reference to the first one we created.
+const getMainWindow = (): BrowserWindow | null => getActiveWindow();
 
 // Single instance lock — must be before app.whenReady()
 const gotTheLock = app.requestSingleInstanceLock();
@@ -127,16 +138,16 @@ app.whenReady().then(() => {
   setupContentSecurityPolicy();
   registerIPCHandlers();
 
-  mainWindow = createMainWindow(isDev);
+  const initialWindow = createMainWindow(isDev);
 
-  // Handle window closed
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-    cleanupCollectionWatchers(); // prevent watcher accumulation on macOS window re-create
+  // Prevent watcher accumulation on macOS window re-create.
+  initialWindow.on('closed', () => {
+    cleanupCollectionWatchers();
   });
 
-  // Setup auto-updater after window is created
-  setupAutoUpdater(mainWindow, isDev);
+  // Auto-updater resolves the target window lazily via getMainWindow so
+  // dialogs land on the currently focused window — never a destroyed ref.
+  setupAutoUpdater(getMainWindow, isDev);
 
   // Create system tray
   createSystemTray(getMainWindow, isDev);
@@ -145,7 +156,7 @@ app.whenReady().then(() => {
   // dock icon is clicked and there are no other windows open.
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createMainWindow(isDev);
+      createMainWindow(isDev);
     }
   });
 });

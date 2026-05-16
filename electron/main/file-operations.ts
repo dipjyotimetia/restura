@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron';
 import { app, ipcMain, dialog, shell } from 'electron';
-import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import {
   DialogOptionsSchema,
@@ -19,6 +19,7 @@ const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 // we still allow $HOME for the rare legitimate user-picked path. Each entry
 // is matched as a leading path component sequence.
 const HOME_BLOCKED_SUBDIRS = [
+  // SSH / cloud / VCS / package credentials
   '.ssh',
   '.aws',
   '.gnupg',
@@ -27,6 +28,36 @@ const HOME_BLOCKED_SUBDIRS = [
   '.npmrc',
   '.netrc',
   '.password-store',
+  '.config/gh',
+  '.config/op',
+  '.config/gcloud',
+  '.config/git',
+  '.gitconfig',
+  '.git-credentials',
+  '.yarnrc',
+  '.yarnrc.yml',
+  '.pypirc',
+  '.cargo/credentials',
+  '.cargo/credentials.toml',
+  '.terraformrc',
+  '.terraform.d/credentials.tfrc.json',
+  '.vault-token',
+  '.azure',
+  '.databricks',
+  // Shell history files (commonly leak pasted tokens/passwords)
+  '.bash_history',
+  '.zsh_history',
+  '.psql_history',
+  '.mysql_history',
+  '.node_repl_history',
+  '.python_history',
+  '.lesshst',
+  // Shell init files (often contain export X=token)
+  '.bashrc',
+  '.bash_profile',
+  '.zshrc',
+  '.zshenv',
+  '.profile',
   // macOS
   'Library/Application Support',
   'Library/Keychains',
@@ -37,8 +68,6 @@ const HOME_BLOCKED_SUBDIRS = [
   'AppData/Local/Microsoft',
   'AppData/Local/BraveSoftware',
   // Linux / freedesktop
-  '.config/gh',
-  '.config/op',
   '.config/google-chrome',
   '.config/chromium',
   '.config/BraveSoftware',
@@ -144,7 +173,8 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
     })
   );
 
-  // File system handlers
+  // File system handlers (async fs so the main thread stays responsive when
+  // import/export touches a 50 MB collection).
   ipcMain.handle(
     'fs:readFile',
     createValidatedHandler('fs:readFile', FilePathSchema, async (filePath: string) => {
@@ -153,12 +183,12 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
           return { success: false, error: 'Access denied: Path is outside allowed directories' };
         }
 
-        const stats = fs.statSync(filePath);
+        const stats = await fsp.stat(filePath);
         if (stats.size > MAX_FILE_SIZE_BYTES) {
           return { success: false, error: `File too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB` };
         }
 
-        const content = fs.readFileSync(filePath, 'utf-8');
+        const content = await fsp.readFile(filePath, 'utf-8');
         return { success: true, content };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -178,7 +208,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
           return { success: false, error: `Content too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB` };
         }
 
-        fs.writeFileSync(filePath, content, 'utf-8');
+        await fsp.writeFile(filePath, content, 'utf-8');
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };

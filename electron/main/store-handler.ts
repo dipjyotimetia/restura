@@ -18,25 +18,69 @@ import {
 const Store = require('electron-store').default;
 
 /**
- * Get or generate encryption key for electron-store
- * Uses safeStorage (OS keychain) if available, otherwise generates a key
+ * Loud, single-source warning printed when we have to fall back to the
+ * plaintext key file. Common on Linux systems without libsecret / a session
+ * keyring. The store contents (secrets, auth tokens, env vars) are only as
+ * private as filesystem ACLs in this state.
+ */
+function emitSafeStorageFallbackWarning(reason: 'no-keyring' | 'decrypt-failed'): void {
+  const banner = '='.repeat(72);
+  const detail =
+    reason === 'no-keyring'
+      ? 'Electron safeStorage reports no OS keychain backend (libsecret on Linux, Keychain on macOS, DPAPI on Windows).'
+      : 'Existing safeStorage-encrypted key failed to decrypt; rotating to a plaintext fallback.';
+  console.warn(`\n${banner}`);
+  console.warn('[restura] SECURITY WARNING — encrypted store key is unprotected');
+  console.warn(`[restura] ${detail}`);
+  console.warn('[restura] The encryption key for the credential store is stored *plaintext*');
+  console.warn('[restura] in the userData directory; anyone with read access can decrypt the store.');
+  console.warn('[restura] On Linux, install gnome-keyring / KWallet / libsecret to restore protection.');
+  console.warn(`${banner}\n`);
+}
+
+/**
+ * Best-effort: tighten existing key file mode to 0o600 if a previous
+ * version wrote it world-readable. fchmod fails silently on Windows (POSIX
+ * semantics don't apply) — that's fine.
+ */
+function tightenKeyFileMode(keyFile: string): void {
+  try {
+    if (process.platform === 'win32') return;
+    fs.chmodSync(keyFile, 0o600);
+  } catch {
+    // No file yet or permission error — best-effort only.
+  }
+}
+
+/**
+ * Get or generate encryption key for electron-store. Uses safeStorage (OS
+ * keychain) when available; otherwise generates a key and writes it with
+ * 0o600 permissions, accompanied by a prominent console warning.
  */
 function getEncryptionKey(): string {
   const keyFile = path.join(app.getPath('userData'), '.encryption-key');
 
   // Try to read existing key
   if (fs.existsSync(keyFile)) {
+    tightenKeyFileMode(keyFile);
     try {
       const encryptedKey = fs.readFileSync(keyFile);
 
       // Decrypt with safeStorage if available
       if (safeStorage.isEncryptionAvailable()) {
-        return safeStorage.decryptString(encryptedKey);
+        try {
+          return safeStorage.decryptString(encryptedKey);
+        } catch {
+          // Existing file was written before safeStorage worked, or its key
+          // material no longer matches (keychain reset). Surface a warning
+          // and rotate to a fresh key below.
+          emitSafeStorageFallbackWarning('decrypt-failed');
+        }
+      } else {
+        // Treat as plaintext key (this app's prior runs wrote it this way).
+        emitSafeStorageFallbackWarning('no-keyring');
+        return encryptedKey.toString('utf8');
       }
-
-      // Fall back to stored key (less secure but functional)
-      console.warn('Electron safeStorage is unavailable; using plaintext store encryption key fallback.');
-      return encryptedKey.toString('utf8');
     } catch {
       // Key file corrupted, generate new one
     }
@@ -46,15 +90,14 @@ function getEncryptionKey(): string {
   const newKey = crypto.randomBytes(32).toString('hex');
 
   try {
-    // Encrypt and store with safeStorage if available
     if (safeStorage.isEncryptionAvailable()) {
       const encrypted = safeStorage.encryptString(newKey);
       fs.writeFileSync(keyFile, encrypted);
     } else {
-      // Store directly (less secure but functional)
-      console.warn('Electron safeStorage is unavailable; writing plaintext store encryption key fallback.');
+      emitSafeStorageFallbackWarning('no-keyring');
       fs.writeFileSync(keyFile, newKey, { mode: 0o600 });
     }
+    tightenKeyFileMode(keyFile);
   } catch (error) {
     console.error('Failed to save encryption key:', error);
   }

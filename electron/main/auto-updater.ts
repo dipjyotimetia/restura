@@ -10,7 +10,16 @@ interface UpdateCheckResponse {
   error?: string;
 }
 
-export function setupAutoUpdater(mainWindow: BrowserWindow | null, isDev: boolean): void {
+// Resolves the active BrowserWindow lazily on every event firing. The
+// auto-updater outlives the initial window (window-all-closed on macOS,
+// window:new IPC), so capturing a reference once would target a destroyed
+// handle after a window close.
+function withWindow(getWindow: () => BrowserWindow | null, fn: (w: BrowserWindow) => void): void {
+  const w = getWindow();
+  if (w && !w.isDestroyed()) fn(w);
+}
+
+export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: boolean): void {
   if (isDev) {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
@@ -27,14 +36,14 @@ export function setupAutoUpdater(mainWindow: BrowserWindow | null, isDev: boolea
 
   autoUpdater.on('update-available', (info) => {
     console.log('Update available:', info.version);
-    if (mainWindow) {
-      dialog.showMessageBox(mainWindow, {
+    withWindow(getWindow, (w) => {
+      dialog.showMessageBox(w, {
         type: 'info',
         title: 'Update Available',
         message: `A new version (${info.version}) is available. It will be downloaded in the background.`,
         buttons: ['OK'],
       });
-    }
+    });
   });
 
   autoUpdater.on('update-not-available', () => {
@@ -43,17 +52,15 @@ export function setupAutoUpdater(mainWindow: BrowserWindow | null, isDev: boolea
 
   autoUpdater.on('download-progress', (progress) => {
     console.log(`Download progress: ${progress.percent.toFixed(2)}%`);
-    if (mainWindow) {
-      mainWindow.setProgressBar(progress.percent / 100);
-    }
+    withWindow(getWindow, (w) => w.setProgressBar(progress.percent / 100));
   });
 
   autoUpdater.on('update-downloaded', (info) => {
     console.log('Update downloaded:', info.version);
-    if (mainWindow) {
-      mainWindow.setProgressBar(-1);
+    withWindow(getWindow, (w) => {
+      w.setProgressBar(-1);
       dialog
-        .showMessageBox(mainWindow, {
+        .showMessageBox(w, {
           type: 'info',
           title: 'Update Ready',
           message: `Version ${info.version} has been downloaded. Restart the app to apply the update.`,
@@ -65,7 +72,7 @@ export function setupAutoUpdater(mainWindow: BrowserWindow | null, isDev: boolea
             autoUpdater.quitAndInstall(false, true);
           }
         });
-    }
+    });
   });
 
   autoUpdater.on('error', (err) => {

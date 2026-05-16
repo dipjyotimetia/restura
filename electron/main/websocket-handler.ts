@@ -2,6 +2,8 @@ import { ipcMain } from 'electron';
 import WebSocket from 'ws';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
+import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+import { assertUrlHostnameSafe } from './dns-guard';
 import {
   WsConnectSchema,
   WsSendSchema,
@@ -50,6 +52,15 @@ export function registerWebSocketHandlerIPC(): void {
     if (existing) {
       existing.ws.terminate();
       activeConnections.delete(connectionId);
+    }
+
+    try {
+      await assertUrlHostnameSafe(config.url, {
+        allowLocalhost: true,
+        allowedSchemes: ['ws:', 'wss:'],
+      });
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'URL rejected by SSRF policy' };
     }
 
     try {
@@ -102,6 +113,14 @@ export function registerWebSocketHandlerIPC(): void {
 
       entry.setExplicitlyClosed = () => { explicitlyClosed = true; };
       activeConnections.set(connectionId, entry);
+
+      bindRendererCleanup(activeConnections, event.sender, (deadId) => {
+        disposeByOwner(activeConnections, deadId, (e) => {
+          e.setExplicitlyClosed?.();
+          try { e.ws.terminate(); } catch { /* ignore */ }
+        });
+      });
+
       return { success: true };
     } catch (err) {
       return {

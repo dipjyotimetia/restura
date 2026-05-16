@@ -7,7 +7,7 @@
 
 import type { BrowserWindow } from 'electron';
 import { ipcMain, dialog, shell } from 'electron';
-import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import type { FSWatcher } from 'chokidar';
@@ -138,20 +138,30 @@ function sanitizeFilename(name: string): string {
 }
 
 // Load a single YAML file
-function loadYamlFile(filePath: string): unknown {
-  const content = fs.readFileSync(filePath, 'utf-8');
+async function loadYamlFile(filePath: string): Promise<unknown> {
+  const content = await fsp.readFile(filePath, 'utf-8');
   return yaml.load(content, { schema: yaml.CORE_SCHEMA });
 }
 
 // Save a YAML file
-function saveYamlFile(filePath: string, data: unknown): void {
+async function saveYamlFile(filePath: string, data: unknown): Promise<void> {
   const content = yaml.dump(data, {
     indent: 2,
     lineWidth: 120,
     noRefs: true,
     sortKeys: false,
   });
-  fs.writeFileSync(filePath, content, 'utf-8');
+  await fsp.writeFile(filePath, content, 'utf-8');
+}
+
+// stat that returns null on ENOENT/EACCES instead of throwing.
+async function statOrNull(p: string): Promise<{ mtimeMs: number; size: number; isDirectory: boolean } | null> {
+  try {
+    const s = await fsp.stat(p);
+    return { mtimeMs: s.mtimeMs, size: s.size, isDirectory: s.isDirectory() };
+  } catch {
+    return null;
+  }
 }
 
 // Load collection from directory
@@ -165,21 +175,23 @@ async function loadCollectionFromDirectory(directoryPath: string): Promise<{
       return { success: false, error: 'Access denied: Path is outside allowed directories' };
     }
 
-    if (!fs.existsSync(directoryPath) || !fs.statSync(directoryPath).isDirectory()) {
+    const dirStat = await statOrNull(directoryPath);
+    if (!dirStat || !dirStat.isDirectory) {
       return { success: false, error: 'Directory does not exist' };
     }
 
     // Load collection metadata
     const metaPath = path.join(directoryPath, FILE_EXTENSIONS.COLLECTION_META);
-    if (!fs.existsSync(metaPath)) {
+    const metaStat = await statOrNull(metaPath);
+    if (!metaStat) {
       return { success: false, error: 'No _collection.yaml found in directory' };
     }
 
-    const metaData = loadYamlFile(metaPath);
+    const metaData = await loadYamlFile(metaPath);
     const meta = fileCollectionMetaSchema.parse(metaData);
 
     // Track file mod time
-    fileModTimes.set(metaPath, fs.statSync(metaPath).mtimeMs);
+    fileModTimes.set(metaPath, metaStat.mtimeMs);
 
     // Recursively load items
     const items = await loadDirectoryItems(directoryPath);
@@ -200,73 +212,78 @@ async function loadCollectionFromDirectory(directoryPath: string): Promise<{
   }
 }
 
-// Load items from a directory (recursive)
+// Load items from a directory (recursive). Children are loaded concurrently
+// so a large collection on a network share doesn't pay round-trip latency
+// per file/folder.
 async function loadDirectoryItems(directoryPath: string): Promise<unknown[]> {
-  const items: unknown[] = [];
-  const entries = fs.readdirSync(directoryPath, { withFileTypes: true });
+  const entries = await fsp.readdir(directoryPath, { withFileTypes: true });
 
-  for (const entry of entries) {
-    const entryPath = path.join(directoryPath, entry.name);
+  const loaded = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(directoryPath, entry.name);
 
-    if (entry.isDirectory()) {
-      // Load folder
-      const folderMetaPath = path.join(entryPath, FILE_EXTENSIONS.FOLDER_META);
-      let folderName = entry.name;
-      let folderDescription: string | undefined;
+      if (entry.isDirectory()) {
+        const folderMetaPath = path.join(entryPath, FILE_EXTENSIONS.FOLDER_META);
+        let folderName = entry.name;
+        let folderDescription: string | undefined;
 
-      if (fs.existsSync(folderMetaPath)) {
-        try {
-          const folderMeta = fileFolderMetaSchema.parse(loadYamlFile(folderMetaPath));
-          folderName = folderMeta.name;
-          folderDescription = folderMeta.description;
-          fileModTimes.set(folderMetaPath, fs.statSync(folderMetaPath).mtimeMs);
-        } catch {
-          // Use directory name if meta is invalid
+        const folderMetaStat = await statOrNull(folderMetaPath);
+        if (folderMetaStat) {
+          try {
+            const folderMeta = fileFolderMetaSchema.parse(await loadYamlFile(folderMetaPath));
+            folderName = folderMeta.name;
+            folderDescription = folderMeta.description;
+            fileModTimes.set(folderMetaPath, folderMetaStat.mtimeMs);
+          } catch {
+            // Use directory name if meta is invalid
+          }
         }
+
+        const folderItems = await loadDirectoryItems(entryPath);
+
+        return {
+          id: generateId(),
+          name: folderName,
+          type: 'folder',
+          items: folderItems,
+          description: folderDescription,
+          _filePath: entryPath,
+        };
       }
 
-      const folderItems = await loadDirectoryItems(entryPath);
-
-      items.push({
-        id: generateId(),
-        name: folderName,
-        type: 'folder',
-        items: folderItems,
-        description: folderDescription,
-        _filePath: entryPath,
-      });
-    } else if (entry.isFile()) {
+      if (!entry.isFile()) return null;
       const requestType = getRequestTypeFromFilename(entry.name);
-      if (requestType) {
-        try {
-          const requestData = loadYamlFile(entryPath) as Record<string, unknown>;
-          fileModTimes.set(entryPath, fs.statSync(entryPath).mtimeMs);
+      if (!requestType) return null;
 
-          // Build request object with IDs
-          const request = {
-            id: generateId(),
-            type: requestType,
-            ...requestData,
-            headers: addIdsToKeyValues(requestData.headers),
-            params: addIdsToKeyValues(requestData.params),
-            metadata: addIdsToKeyValues(requestData.metadata),
-          };
+      try {
+        const requestData = (await loadYamlFile(entryPath)) as Record<string, unknown>;
+        const fileStat = await statOrNull(entryPath);
+        if (fileStat) fileModTimes.set(entryPath, fileStat.mtimeMs);
 
-          items.push({
-            id: generateId(),
-            name: requestData.name || entry.name,
-            type: 'request',
-            request,
-            _filePath: entryPath,
-          });
-        } catch (error) {
-          console.error(`Failed to load request file ${entryPath}:`, error);
-        }
+        const request = {
+          id: generateId(),
+          type: requestType,
+          ...requestData,
+          headers: addIdsToKeyValues(requestData.headers),
+          params: addIdsToKeyValues(requestData.params),
+          metadata: addIdsToKeyValues(requestData.metadata),
+        };
+
+        return {
+          id: generateId(),
+          name: requestData.name || entry.name,
+          type: 'request',
+          request,
+          _filePath: entryPath,
+        };
+      } catch (error) {
+        console.error(`Failed to load request file ${entryPath}:`, error);
+        return null;
       }
-    }
-  }
+    })
+  );
 
-  return items;
+  return loaded.filter((item): item is NonNullable<typeof item> => item !== null);
 }
 
 // Save collection to directory
@@ -280,9 +297,7 @@ async function saveCollectionToDirectory(
     }
 
     // Create directory if it doesn't exist
-    if (!fs.existsSync(directoryPath)) {
-      fs.mkdirSync(directoryPath, { recursive: true });
-    }
+    await fsp.mkdir(directoryPath, { recursive: true });
 
     // Save collection metadata
     const meta = {
@@ -292,7 +307,7 @@ async function saveCollectionToDirectory(
       ...(collection.variables?.length ? { variables: stripIdsFromKeyValues(collection.variables) } : {}),
     };
 
-    saveYamlFile(path.join(directoryPath, FILE_EXTENSIONS.COLLECTION_META), meta);
+    await saveYamlFile(path.join(directoryPath, FILE_EXTENSIONS.COLLECTION_META), meta);
 
     // Save items recursively
     await saveDirectoryItems(collection.items, directoryPath);
@@ -303,50 +318,46 @@ async function saveCollectionToDirectory(
   }
 }
 
-// Save items to directory (recursive)
+// Save items to directory (recursive). Siblings at each level write
+// concurrently so large collection exports don't serialise per-file I/O.
 async function saveDirectoryItems(items: FileCollectionItem[], directoryPath: string): Promise<void> {
-  for (const item of items) {
+  await Promise.all(items.map(async (item) => {
     if (item.type === 'folder') {
       const folderPath = path.join(directoryPath, sanitizeFilename(item.name));
-      if (!fs.existsSync(folderPath)) {
-        fs.mkdirSync(folderPath, { recursive: true });
-      }
+      await fsp.mkdir(folderPath, { recursive: true });
 
-      // Save folder metadata
       const folderMeta = {
         name: item.name,
         ...(item.description ? { description: item.description } : {}),
       };
-      saveYamlFile(path.join(folderPath, FILE_EXTENSIONS.FOLDER_META), folderMeta);
+      await saveYamlFile(path.join(folderPath, FILE_EXTENSIONS.FOLDER_META), folderMeta);
 
-      // Save nested items
       if (item.items?.length) {
         await saveDirectoryItems(item.items, folderPath);
       }
-    } else if (item.type === 'request' && item.request) {
-      const req = item.request;
-      // Strip id and type before writing to disk; type is used here to pick the extension
-      const { id: _id, type, ...requestData } = req;
-      const extension = type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
-      const filename = `${sanitizeFilename(item.name)}${extension}`;
-      const filePath = path.join(directoryPath, filename);
-      const fileData: Record<string, unknown> = {
-        ...requestData,
-        headers: stripIdsFromKeyValues(requestData.headers),
-        params: stripIdsFromKeyValues(requestData.params),
-        metadata: stripIdsFromKeyValues(requestData.metadata),
-      };
-
-      // Clean undefined fields
-      Object.keys(fileData).forEach((key) => {
-        if (fileData[key] === undefined) {
-          delete fileData[key];
-        }
-      });
-
-      saveYamlFile(filePath, fileData);
+      return;
     }
-  }
+
+    if (item.type !== 'request' || !item.request) return;
+    const req = item.request;
+    // Strip id and type before writing to disk; type is used to pick the extension.
+    const { id: _id, type, ...requestData } = req;
+    const extension = type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
+    const filename = `${sanitizeFilename(item.name)}${extension}`;
+    const filePath = path.join(directoryPath, filename);
+    const fileData: Record<string, unknown> = {
+      ...requestData,
+      headers: stripIdsFromKeyValues(requestData.headers),
+      params: stripIdsFromKeyValues(requestData.params),
+      metadata: stripIdsFromKeyValues(requestData.metadata),
+    };
+
+    Object.keys(fileData).forEach((key) => {
+      if (fileData[key] === undefined) delete fileData[key];
+    });
+
+    await saveYamlFile(filePath, fileData);
+  }));
 }
 
 // Start watching a collection directory
@@ -376,23 +387,26 @@ function watchCollectionDirectory(
 
     watcher
       .on('change', (filePath) => {
-        const lastMod = fileModTimes.get(filePath);
-        const currentMod = fs.statSync(filePath).mtimeMs;
-
-        if (lastMod && currentMod > lastMod) {
-          // File was modified externally - potential conflict
-          sendFileChange(
-            {
-              type: 'modified',
-              filePath,
-              directoryPath,
-              lastModified: currentMod,
-            },
-            getMainWindow,
-          );
-        }
-
-        fileModTimes.set(filePath, currentMod);
+        // Async stat so a slow filesystem (network share, encrypted volume)
+        // can't block the main thread inside the watcher callback.
+        void (async () => {
+          const stat = await statOrNull(filePath);
+          if (!stat) return;
+          const lastMod = fileModTimes.get(filePath);
+          const currentMod = stat.mtimeMs;
+          if (lastMod && currentMod > lastMod) {
+            sendFileChange(
+              {
+                type: 'modified',
+                filePath,
+                directoryPath,
+                lastModified: currentMod,
+              },
+              getMainWindow,
+            );
+          }
+          fileModTimes.set(filePath, currentMod);
+        })();
       })
       .on('add', (filePath) => {
         sendFileChange({ type: 'added', filePath, directoryPath }, getMainWindow);
@@ -500,20 +514,14 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
   // Get file info for conflict detection
   ipcMain.handle(
     'collection:get-file-info',
-    createValidatedHandler('collection:get-file-info', FilePathSchema, (filePath: string) => {
-      try {
-        if (!fs.existsSync(filePath)) {
-          return { exists: false };
-        }
-        const stats = fs.statSync(filePath);
-        return {
-          exists: true,
-          lastModified: stats.mtimeMs,
-          size: stats.size,
-        };
-      } catch {
-        return { exists: false };
-      }
+    createValidatedHandler('collection:get-file-info', FilePathSchema, async (filePath: string) => {
+      const stat = await statOrNull(filePath);
+      if (!stat) return { exists: false };
+      return {
+        exists: true,
+        lastModified: stat.mtimeMs,
+        size: stat.size,
+      };
     })
   );
 }

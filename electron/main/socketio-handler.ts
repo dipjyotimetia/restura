@@ -2,6 +2,8 @@ import { ipcMain } from 'electron';
 import { io as ioClient, type Socket } from 'socket.io-client';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
+import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+import { assertUrlHostnameSafe } from './dns-guard';
 import {
   SocketIoConnectSchema,
   SocketIoEmitSchema,
@@ -72,6 +74,15 @@ export function registerSocketIoHandlerIPC(): void {
     }
 
     try {
+      await assertUrlHostnameSafe(config.url, {
+        allowLocalhost: true,
+        allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
+      });
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'URL rejected by SSRF policy' };
+    }
+
+    try {
       const connectUrl = buildConnectUrl(config.url, config.namespace);
 
       const socket = ioClient(connectUrl, {
@@ -130,6 +141,16 @@ export function registerSocketIoHandlerIPC(): void {
       });
 
       activeConnections.set(connectionId, entry);
+
+      bindRendererCleanup(activeConnections, event.sender, (deadId) => {
+        disposeByOwner(activeConnections, deadId, (e) => {
+          e.explicitlyClosed = true;
+          for (const t of e.pendingAcks.values()) clearTimeout(t);
+          e.pendingAcks.clear();
+          try { e.socket.disconnect(); } catch { /* ignore */ }
+        });
+      });
+
       return { success: true };
     } catch (err) {
       return {

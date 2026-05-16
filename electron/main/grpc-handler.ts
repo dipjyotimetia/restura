@@ -16,6 +16,7 @@ import {
   createValidatedListener
 } from './ipc-validators';
 import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
+import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
 export const grpcRateLimiter = createKeyedRateLimiter(30, 60_000);
@@ -57,6 +58,8 @@ interface ActiveCall {
   end: () => void;
   createdAt: number; // Timestamp for stale connection detection
   requestId: string; // Request ID for tracking
+  /** webContents.id of the renderer that started the stream — used for renderer-destroyed teardown. */
+  webContentsId: number;
 }
 
 // Store active calls for streaming with improved management
@@ -217,7 +220,10 @@ export function stopStreamCleanup(): void {
 }
 
 // Safe method to add a stream with collision detection
-const addActiveCall = (id: string, call: Omit<ActiveCall, 'createdAt' | 'requestId'>): boolean => {
+const addActiveCall = (
+  id: string,
+  call: Omit<ActiveCall, 'createdAt' | 'requestId'>
+): boolean => {
   if (activeCalls.has(id)) {
     console.warn(`Stream with ID ${id} already exists, rejecting duplicate`);
     return false;
@@ -470,6 +476,10 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         return;
       }
 
+      bindRendererCleanup(activeCalls, event.sender, (deadId) => {
+        disposeByOwner(activeCalls, deadId, (c) => c.cancel());
+      });
+
     const streamStartTime = Date.now();
     const tempDir = path.join(GRPC_TEMP_BASE, requestId);
     fs.mkdirSync(tempDir, { recursive: true });
@@ -555,7 +565,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         const added = addActiveCall(requestId, {
           cancel: () => ssCall.cancel(),
           write: () => {},
-          end: () => {}
+          end: () => {},
+          webContentsId: event.sender.id,
         });
 
         if (!added) {
@@ -588,7 +599,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             }
             csCall.write(msg);
           },
-          end: () => csCall.end()
+          end: () => csCall.end(),
+          webContentsId: event.sender.id,
         });
 
         if (!csAdded) {
@@ -611,7 +623,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         const bidiAdded = addActiveCall(requestId, {
           cancel: () => bidiCall.cancel(),
           write: (msg: unknown) => bidiCall.write(msg as object),
-          end: () => bidiCall.end()
+          end: () => bidiCall.end(),
+          webContentsId: event.sender.id,
         });
 
         if (!bidiAdded) {

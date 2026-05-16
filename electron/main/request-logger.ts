@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron';
-import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { z } from 'zod';
 import { LogHistoryLimitSchema, validateIpcInput } from './ipc-validators';
@@ -32,39 +32,42 @@ const LogEntrySchema = z.object({
 
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
 let logFilePath: string | null = null;
+// Serialise appends — concurrent logRequest() calls would otherwise
+// interleave bytes mid-line.
+let writeChain: Promise<void> = Promise.resolve();
 
-function getLogFilePath(): string {
+async function getLogFilePath(): Promise<string> {
   if (!logFilePath) {
     const logsDir = path.join(app.getPath('userData'), 'logs');
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
+    await fsp.mkdir(logsDir, { recursive: true });
     logFilePath = path.join(logsDir, 'requests.jsonl');
   }
   return logFilePath;
 }
 
 export function logRequest(entry: LogEntry): void {
-  try {
-    const filePath = getLogFilePath();
+  writeChain = writeChain.then(async () => {
     try {
-      const { size } = fs.statSync(filePath);
-      if (size >= MAX_LOG_SIZE) fs.writeFileSync(filePath, '');
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      const filePath = await getLogFilePath();
+      try {
+        const { size } = await fsp.stat(filePath);
+        if (size >= MAX_LOG_SIZE) await fsp.writeFile(filePath, '');
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      }
+      await fsp.appendFile(filePath, JSON.stringify(entry) + '\n', 'utf8');
+    } catch {
+      // Silently ignore logging errors — never crash the app
     }
-    fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf8');
-  } catch {
-    // Silently ignore logging errors — never crash the app
-  }
+  });
 }
 
 export function registerRequestLoggerIPC(): void {
-  ipcMain.handle('log:getHistory', (_event, rawLimit?: unknown) => {
+  ipcMain.handle('log:getHistory', async (_event, rawLimit?: unknown) => {
     const limit = validateIpcInput(LogHistoryLimitSchema, rawLimit, 'log:getHistory');
     try {
-      const filePath = getLogFilePath();
-      const content = fs.readFileSync(filePath, 'utf8');
+      const filePath = await getLogFilePath();
+      const content = await fsp.readFile(filePath, 'utf8');
       const lines = content.trim().split('\n').filter(Boolean);
       const n = limit ?? 100;
       const entries: LogEntry[] = [];
@@ -90,9 +93,9 @@ export function registerRequestLoggerIPC(): void {
     }
   });
 
-  ipcMain.handle('log:clear', () => {
+  ipcMain.handle('log:clear', async () => {
     try {
-      fs.writeFileSync(getLogFilePath(), '');
+      await fsp.writeFile(await getLogFilePath(), '');
     } catch {
       // ignore
     }
