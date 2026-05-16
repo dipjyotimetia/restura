@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useConsoleStore, createConsoleEntry } from '../useConsoleStore';
+import { useConsoleStore, createConsoleEntry, entryToCurl } from '../useConsoleStore';
 import type { HttpRequest, Response as ApiResponse } from '@/types';
 
 describe('useConsoleStore', () => {
@@ -7,10 +7,15 @@ describe('useConsoleStore', () => {
     // Reset store state before each test
     useConsoleStore.setState({
       entries: [],
+      frames: [],
       selectedEntryId: null,
       isExpanded: true,
       panelHeight: 250,
       activeTab: 'network',
+      searchFilter: '',
+      statusFilter: 'all',
+      protocolFilter: 'all',
+      preserveOnSend: true,
     });
   });
 
@@ -170,6 +175,107 @@ describe('useConsoleStore', () => {
       setActiveTab('network');
       expect(useConsoleStore.getState().activeTab).toBe('network');
     });
+  });
+
+  describe('preserveOnSend', () => {
+    it('clears prior entries on the next addEntry when preserveOnSend is off', () => {
+      const { addEntry, setPreserveOnSend } = useConsoleStore.getState();
+      addEntry({
+        timestamp: Date.now(),
+        request: { method: 'GET', url: 'https://a.example.com', headers: {} },
+        response: {
+          id: 'r1', requestId: 'req-1', status: 200, statusText: 'OK',
+          headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+        },
+      });
+      expect(useConsoleStore.getState().entries).toHaveLength(1);
+
+      setPreserveOnSend(false);
+      addEntry({
+        timestamp: Date.now(),
+        request: { method: 'GET', url: 'https://b.example.com', headers: {} },
+        response: {
+          id: 'r2', requestId: 'req-2', status: 200, statusText: 'OK',
+          headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+        },
+      });
+      const state = useConsoleStore.getState();
+      expect(state.entries).toHaveLength(1);
+      expect(state.entries[0]?.request.url).toBe('https://b.example.com');
+    });
+  });
+
+  describe('removeEntry', () => {
+    it('removes a single entry and clears selection if it pointed at it', () => {
+      const { addEntry, removeEntry, selectEntry } = useConsoleStore.getState();
+      addEntry({
+        timestamp: Date.now(),
+        request: { method: 'GET', url: 'https://a.example.com', headers: {} },
+        response: {
+          id: 'r1', requestId: 'req-1', status: 200, statusText: 'OK',
+          headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+        },
+      });
+      const id = useConsoleStore.getState().entries[0]?.id ?? '';
+      selectEntry(id);
+      removeEntry(id);
+      const state = useConsoleStore.getState();
+      expect(state.entries).toHaveLength(0);
+      expect(state.selectedEntryId).toBeNull();
+    });
+  });
+
+  describe('filters', () => {
+    it('setStatusFilter and setProtocolFilter update store state', () => {
+      const { setStatusFilter, setProtocolFilter } = useConsoleStore.getState();
+      setStatusFilter('4xx');
+      setProtocolFilter('grpc');
+      const state = useConsoleStore.getState();
+      expect(state.statusFilter).toBe('4xx');
+      expect(state.protocolFilter).toBe('grpc');
+    });
+  });
+});
+
+describe('entryToCurl', () => {
+  it('produces a valid curl command with method, URL, headers, body', () => {
+    const curl = entryToCurl({
+      id: 'e1',
+      timestamp: Date.now(),
+      protocol: 'http',
+      request: {
+        method: 'POST',
+        url: 'https://api.example.com/users',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"name":"John"}',
+      },
+      response: {
+        id: 'r', requestId: 'q', status: 201, statusText: 'Created',
+        headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+      },
+    });
+
+    expect(curl).toContain(`curl -X POST 'https://api.example.com/users'`);
+    expect(curl).toContain(`-H 'Content-Type: application/json'`);
+    expect(curl).toContain(`-d '{"name":"John"}'`);
+  });
+
+  it('escapes single quotes in values', () => {
+    const curl = entryToCurl({
+      id: 'e1',
+      timestamp: Date.now(),
+      request: {
+        method: 'GET',
+        url: "https://example.com/?q=it's",
+        headers: {},
+      },
+      response: {
+        id: 'r', requestId: 'q', status: 200, statusText: 'OK',
+        headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+      },
+    });
+    // Single quote replaced by '\''
+    expect(curl).toContain(`'https://example.com/?q=it'\\''s'`);
   });
 });
 

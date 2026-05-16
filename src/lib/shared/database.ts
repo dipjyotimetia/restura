@@ -102,6 +102,7 @@ export type SseConnectionsRecord = NamedEncryptedRecord;
 export type McpConnectionsRecord = NamedEncryptedRecord;
 export type KafkaConnectionsRecord = NamedEncryptedRecord;
 export type SocketIoConnectionsRecord = NamedEncryptedRecord;
+export type ConsoleRecord = NamedEncryptedRecord;
 
 // Metadata table for app state
 export interface MetadataRecord {
@@ -129,6 +130,7 @@ export class ResturaDB extends Dexie {
   mcpConnections!: Table<McpConnectionsRecord, string>;
   kafkaConnections!: Table<KafkaConnectionsRecord, string>;
   socketioConnections!: Table<SocketIoConnectionsRecord, string>;
+  console!: Table<ConsoleRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
   constructor() {
@@ -182,6 +184,13 @@ export class ResturaDB extends Dexie {
     this.version(5).stores({
       socketioConnections: 'id, name, updatedAt',
     });
+
+    this.version(6).stores({
+      // Console store (UI prefs + a window of network entries) lives here so
+      // we don't piggyback on settings/metadata, and the encryption pipeline
+      // mirrors every other persisted store.
+      console: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -203,6 +212,7 @@ export class ResturaDB extends Dexie {
       this.mcpConnections,
       this.kafkaConnections,
       this.socketioConnections,
+      this.console,
       this.metadata,
     ], () =>
       Promise.all([
@@ -220,6 +230,7 @@ export class ResturaDB extends Dexie {
         this.mcpConnections.clear(),
         this.kafkaConnections.clear(),
         this.socketioConnections.clear(),
+        this.console.clear(),
         this.metadata.clear(),
       ])
     );
@@ -248,6 +259,7 @@ export class ResturaDB extends Dexie {
       mcpConnections: await this.mcpConnections.count(),
       kafkaConnections: await this.kafkaConnections.count(),
       socketioConnections: await this.socketioConnections.count(),
+      console: await this.console.count(),
     };
 
     const totalRecords = Object.values(tables).reduce((a, b) => a + b, 0);

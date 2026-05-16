@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import type { KeyValue } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { useConsoleStore, type FrameDirection } from '@/store/useConsoleStore';
 
 export type SocketIOStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 export type SocketIOEventDirection = 'sent' | 'received' | 'system' | 'ack';
@@ -215,6 +216,22 @@ export const useSocketIOStore = create<SocketIOState>()(
           if (events.length > MAX_EVENTS_PER_CONNECTION) {
             events = events.slice(-MAX_EVENTS_PER_CONNECTION);
           }
+
+          const frameDirection: FrameDirection =
+            newEvent.direction === 'sent'
+              ? 'out'
+              : newEvent.direction === 'received' || newEvent.direction === 'ack'
+                ? 'in'
+                : 'system';
+          useConsoleStore.getState().addFrame({
+            timestamp: newEvent.timestamp,
+            protocol: 'socketio',
+            direction: frameDirection,
+            connectionId,
+            label: newEvent.eventName,
+            payload: JSON.stringify(newEvent.args),
+          });
+
           return {
             connections: { ...state.connections, [connectionId]: { ...c, events } },
           };

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { useConsoleStore } from '@/store/useConsoleStore';
 
 export type WebSocketMessageType = 'sent' | 'received' | 'system';
 export type WebSocketDataType = 'text' | 'binary';
@@ -211,6 +212,18 @@ export const useWebSocketStore = create<WebSocketState>()(
           if (messages.length > MAX_MESSAGES_PER_CONNECTION) {
             messages = messages.slice(-MAX_MESSAGES_PER_CONNECTION);
           }
+
+          // Mirror to the unified console so WS frames show up alongside
+          // HTTP entries in the same UI.
+          useConsoleStore.getState().addFrame({
+            timestamp: newMessage.timestamp,
+            protocol: 'websocket',
+            direction: type === 'sent' ? 'out' : type === 'received' ? 'in' : 'system',
+            connectionId,
+            ...(dataType === 'binary' ? { label: 'binary' } : {}),
+            payload: content,
+            ...(binaryData ? { bytes: binaryData.byteLength } : {}),
+          });
 
           return {
             connections: {

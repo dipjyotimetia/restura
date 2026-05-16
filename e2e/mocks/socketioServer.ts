@@ -1,6 +1,6 @@
 import { createServer, type Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
-import { bindLocalhost, closeServer } from '../utils/serverHelpers';
+import { bindLocalhost } from '../utils/serverHelpers';
 
 export interface SocketIOReceivedEvent {
   /** Socket.IO namespace path the event arrived on (e.g. '/', '/chat'). */
@@ -130,8 +130,12 @@ export async function startMockSocketIOServer(): Promise<MockSocketIOServerHandl
       lastAuthSnapshot = null;
     },
     close: async () => {
+      // `io.close()` shuts down both Socket.IO and the underlying http
+      // server it was attached to. Calling closeServer(httpServer) afterwards
+      // double-closes and rejects with "Server is not running." — which
+      // bubbles up as a worker-teardown fatal error and fails CI even when
+      // every test passes. One close is sufficient.
       await new Promise<void>((resolve) => io.close(() => resolve()));
-      await closeServer(httpServer);
     },
   };
 }

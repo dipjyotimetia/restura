@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages } from '@/lib/shared/message-cap';
+import { useConsoleStore } from '@/store/useConsoleStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
 export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
@@ -223,6 +224,17 @@ export const useKafkaStore = create<KafkaState>()(
             id: uuidv4(),
             timestamp: message.timestamp ?? Date.now(),
           };
+
+          useConsoleStore.getState().addFrame({
+            timestamp: next.timestamp,
+            protocol: 'kafka',
+            direction:
+              next.direction === 'sent' ? 'out' : next.direction === 'received' ? 'in' : 'system',
+            connectionId,
+            label: next.topic,
+            payload: next.value ?? '',
+          });
+
           return {
             connections: {
               ...state.connections,
