@@ -7,6 +7,7 @@ describe('useConsoleStore', () => {
     // Reset store state before each test
     useConsoleStore.setState({
       entries: [],
+      frames: [],
       selectedEntryId: null,
       isExpanded: true,
       panelHeight: 250,
