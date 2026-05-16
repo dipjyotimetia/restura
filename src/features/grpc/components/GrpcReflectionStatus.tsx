@@ -58,7 +58,7 @@ export function GrpcReflectionStatus({
                 {showSchema ? 'Hide Schema' : 'Show Schema'}
               </Button>
               {showSchema && selectedMethod.inputMessageSchema && (
-                <pre className="mt-1 p-2 bg-surface-3 rounded text-xs overflow-x-auto font-mono">
+                <pre className="mt-1 p-2 glass-3 glass-border-subtle border rounded text-xs overflow-x-auto font-mono">
                   {formatMessageSchemaForDisplay(selectedMethod.inputMessageSchema)}
                 </pre>
               )}

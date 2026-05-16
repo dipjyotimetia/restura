@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { useConsoleStore } from '@/store/useConsoleStore';
 
 export type WebSocketMessageType = 'sent' | 'received' | 'system';
@@ -90,7 +91,7 @@ export const useWebSocketStore = create<WebSocketState>()(
       messageFilter: 'all',
       searchQuery: '',
 
-      createConnection: (url = '') => {
+      createConnection: (url = ECHO_URLS.websocket) => {
         const id = uuidv4();
         const connection: WebSocketConnection = {
           id,

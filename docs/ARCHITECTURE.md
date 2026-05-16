@@ -102,7 +102,7 @@ Each backend supplies a `Fetcher` — `(req: FetcherRequest) => Promise<FetcherR
 ```
 
 - **Cloudflare Worker** — `worker/handlers/{proxy,grpc,mcp}.ts` wrap `globalThis.fetch`. Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
-- **Electron main process** — `electron/main/http-handler.ts` wraps Node's `http`/`https`. Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, DNS-rebind guard at lookup time) live inside the Electron fetcher closure — **not** in shared. The shared core stays backend-agnostic.
+- **Electron main process** — `electron/main/http-handler.ts` wraps Node's `http`/`https` (via undici). Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, DNS-rebind guard via `Agent.connect.lookup` for HTTP, pre-flight DNS guard via `electron/main/dns-guard.ts` for transports without a `lookup` hook) live inside the Electron fetcher closures — **not** in shared. The shared core stays backend-agnostic. Long-lived streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`) share renderer-cleanup bookkeeping via `electron/main/connection-cleanup.ts` (`bindRendererCleanup`, `disposeByOwner`) — see ADR-0006.
 
 ### Adding a new protocol
 
@@ -469,7 +469,7 @@ User test scripts run in a QuickJS WASM sandbox (`src/features/scripts/lib/scrip
 
 ### Network — SSRF prevention
 
-SSRF guards on both Worker (`shared/protocol/url-validation.ts`) and Electron paths block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. Electron additionally enforces a DNS-rebind guard at lookup time (`createSecureLookup`).
+SSRF guards on both Worker (`shared/protocol/url-validation.ts`) and Electron paths block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. The HTTP/gRPC paths additionally enforce a connect-time DNS-rebind guard via undici's `Agent.connect.lookup` (`createSecureLookup`). Other Electron transports (WebSocket, Socket.IO, SSE, MCP) — which don't accept a lookup hook — use the **pre-flight** guard in `electron/main/dns-guard.ts`: `assertUrlHostnameSafe(url, ...)` resolves the hostname and applies `assertResolvedAddressAllowed` to every record before the connect. Pre-flight only — true DNS-rebind (TTL=0 swap between resolve and connect) requires per-transport custom dispatchers, tracked as future work in ADR-0006.
 
 The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for local development on the Worker; the Electron path receives the same `allowLocalhost` flag through the fetcher options.
 
@@ -484,10 +484,14 @@ All stores are validated with Zod schemas on hydration from persisted storage �
 - Hardened runtime enabled (macOS notarization)
 - Context isolation prevents renderer from accessing Node.js
 - IPC payloads validated with Zod before any processing (including the recursive `AuthConfigSchema` introduced in Plan 3 for sign-at-wire)
-- Rate limiting on all IPC handlers
+- Rate limiting on all IPC handlers (legacy `ipc-rate-limiter` API surface deprecated; per-handler limits remain)
 - `webSecurity` is not disabled
+- Removed unnecessary `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` (the app is a client only)
+- Encryption key for persisted store fetched from OS keychain via `safeStorage`; if unavailable, a startup warning is surfaced and the user is told plaintext fallback is active
+- Renderer-cleanup deduplication via `electron/main/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers
+- Pre-flight DNS guard via `electron/main/dns-guard.ts` extends SSRF coverage to transports without a connector-level `lookup` hook (WebSocket, Socket.IO, SSE, MCP)
 
-See `docs/adr/0004-security-hardening.md` for design rationale.
+See `docs/adr/0004-security-hardening.md` and `docs/adr/0006-electron-connection-and-dns-hardening.md` for design rationale.
 
 ---
 

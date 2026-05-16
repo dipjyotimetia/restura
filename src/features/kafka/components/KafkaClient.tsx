@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Send, Plus, Trash2, Plug, PlugZap, RefreshCw, Search } from 'lucide-react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import {
   useKafkaStore,
@@ -244,12 +245,24 @@ function KafkaClient() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Header: connection picker + status */}
-      <div className="flex items-center gap-2 border-b px-3 py-2 shrink-0">
+      <div className="flex items-center gap-1 border-y glass-border-subtle glass-3 px-3 h-12 shrink-0">
+        <div
+          className={cn(
+            'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded border shrink-0',
+            connection?.status === 'connected'
+              ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
+              : 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
+          )}
+          aria-hidden="true"
+        >
+          KAFKA
+        </div>
+        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
         <Select
           value={connection?.id ?? ''}
           onValueChange={(v) => setActiveConnection(v || null)}
         >
-          <SelectTrigger className="w-64 h-8 text-xs">
+          <SelectTrigger className="w-64 h-7 text-xs glass-2 glass-border-subtle border">
             <SelectValue placeholder="Select a Kafka connection" />
           </SelectTrigger>
           <SelectContent>
@@ -260,7 +273,7 @@ function KafkaClient() {
             ))}
           </SelectContent>
         </Select>
-        <Button size="sm" variant="ghost" onClick={handleCreate} title="New connection">
+        <Button size="sm" variant="ghost" onClick={handleCreate} title="New connection" className="h-7">
           <Plus className="h-3.5 w-3.5" />
         </Button>
         {connection && (
@@ -269,23 +282,29 @@ function KafkaClient() {
             variant="ghost"
             onClick={() => removeConnection(connection.id)}
             title="Delete connection"
+            className="h-7"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {connection && (
-            <Badge variant={connection.status === 'connected' ? 'default' : 'secondary'}>
-              {connection.status}
-            </Badge>
-          )}
           {connection && connection.status !== 'connected' && (
-            <Button size="sm" onClick={handleConnect}>
+            <Button
+              variant="glow"
+              size="sm"
+              onClick={handleConnect}
+              className="h-7 min-w-[80px] text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
+            >
               <Plug className="h-3.5 w-3.5 mr-1.5" /> Connect
             </Button>
           )}
           {connection && connection.status === 'connected' && (
-            <Button size="sm" variant="secondary" onClick={handleDisconnect}>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDisconnect}
+              className="h-7 min-w-[80px] text-xs font-medium"
+            >
               <PlugZap className="h-3.5 w-3.5 mr-1.5" /> Disconnect
             </Button>
           )}

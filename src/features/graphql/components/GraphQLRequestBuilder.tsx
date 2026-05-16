@@ -18,6 +18,7 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import type { AuthConfig as AuthConfigType } from '@/types';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 
@@ -211,7 +212,7 @@ function GraphQLRequestBuilder() {
             variant="destructive"
             size="sm"
             onClick={handleUnsubscribe}
-            className="h-7 min-w-[100px] shrink-0"
+            className="h-7 min-w-[100px] shrink-0 text-xs font-medium"
           >
             <PlugZap className="mr-1.5 h-3.5 w-3.5" />
             Unsubscribe
@@ -224,7 +225,7 @@ function GraphQLRequestBuilder() {
           size="sm"
           onClick={handleSubscribe}
           disabled={!httpRequest.url}
-          className="h-7 min-w-[100px] shrink-0"
+          className="h-7 min-w-[100px] shrink-0 text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
         >
           <Plug className="mr-1.5 h-3.5 w-3.5" />
           Subscribe
@@ -238,7 +239,7 @@ function GraphQLRequestBuilder() {
         onClick={handleSendRequest}
         disabled={isLoading || !httpRequest.url}
         aria-label={isLoading ? 'Sending GraphQL query' : 'Send GraphQL query'}
-        className="h-7 min-w-[72px] shrink-0"
+        className="h-7 min-w-[72px] shrink-0 text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
       >
         <Send className="mr-1.5 h-3.5 w-3.5" />
         {isLoading ? 'Sending...' : 'Send'}
@@ -247,18 +248,24 @@ function GraphQLRequestBuilder() {
   };
 
   return (
-    <div className="flex-1 flex flex-col border-b border-border">
+    <div className="flex-1 flex flex-col">
       {/* URL Zone */}
-      <div className="flex items-center gap-1 px-3 h-12 border-y border-border bg-surface-2 shrink-0">
-        <div className="flex items-center px-2 h-7 bg-primary/10 text-primary font-mono text-[10px] font-bold tracking-wider rounded shrink-0">
+      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3 shrink-0">
+        <div
+          className={
+            isSubscription
+              ? 'flex items-center justify-center px-2 h-7 w-20 bg-violet-500/[0.12] border border-violet-500/25 text-violet-400 font-mono text-[11px] font-bold tracking-wider rounded shrink-0'
+              : 'flex items-center justify-center px-2 h-7 w-20 bg-amber-500/[0.12] border border-amber-500/25 text-amber-400 font-mono text-[11px] font-bold tracking-wider rounded shrink-0'
+          }
+        >
           {isSubscription ? 'SUB' : 'POST'}
         </div>
         <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
         <Input
           value={httpRequest.url}
           onChange={(e) => updateRequest({ url: e.target.value })}
-          placeholder="https://echo.restura.dev/graphql"
-          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:ring-0 focus-visible:ring-offset-0"
+          placeholder={ECHO_URLS.graphql}
+          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground/40"
           aria-label="GraphQL endpoint URL"
         />
         {renderSendButton()}
@@ -381,7 +388,7 @@ function GraphQLRequestBuilder() {
                           ? 'bg-destructive/5 border-destructive/20'
                           : msg.type === 'connected'
                             ? 'bg-blue-500/5 border-blue-500/20'
-                            : 'bg-surface-2 border-border'
+                            : 'glass-2 glass-border-subtle'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1 text-[10px] text-muted-foreground uppercase tracking-widest">

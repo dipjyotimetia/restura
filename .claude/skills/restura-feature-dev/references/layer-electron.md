@@ -130,6 +130,47 @@ For protocols that push events to the renderer (WebSocket, gRPC streaming, SSE):
 
 See `electron/main/websocket-handler.ts` for the canonical streaming example.
 
+## Long-lived connections — required pattern
+
+Any handler that holds connections per renderer (gRPC streaming, MCP, SSE, WebSocket, Socket.IO) MUST use `electron/main/connection-cleanup.ts`. The pattern:
+
+```ts
+import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+
+interface ActiveConn { webContentsId: number; close: () => void; /* ... */ }
+const active = new Map<string, ActiveConn>();
+
+ipcMain.handle('myproto:open', createValidatedHandler('myproto:open', Schema, async (cfg, event) => {
+  const wc = event.sender;
+  const conn = openTransport(cfg);
+  active.set(conn.id, { webContentsId: wc.id, close: () => conn.terminate() });
+
+  // ↓ Idempotent: dedupes per-(handlerKey, webContents.id). Use the map as handlerKey.
+  bindRendererCleanup(active, wc, (deadId) => {
+    disposeByOwner(active, deadId, (entry) => entry.close());
+  });
+
+  return { id: conn.id };
+}));
+```
+
+Why: without `bindRendererCleanup`, every reconnect from the same renderer stacks a fresh `destroyed` listener (Node warns at 10; the real cost is N teardowns per close). The `WeakMap`-backed dedupe table inside `connection-cleanup.ts` makes the binding idempotent per `(handler, webContents)` pair.
+
+## Pre-flight DNS guard — required for non-HTTP transports
+
+The HTTP / gRPC paths get DNS-resolved SSRF protection from undici's `Agent.connect.lookup` (`createSecureLookup`). Other transports (`ws`, `socket.io-client`, native `fetch` for MCP SSE) don't accept a `lookup` hook. For those, call the pre-flight guard before opening the transport:
+
+```ts
+import { assertUrlHostnameSafe } from './dns-guard';
+
+await assertUrlHostnameSafe(url, {
+  allowLocalhost: env === 'development',
+  allowedSchemes: ['ws', 'wss'], // override for non-http schemes
+});
+```
+
+This applies the URL-string policy (`validateURL`) and resolves the hostname, calling `assertResolvedAddressAllowed` against every record. Throws synchronously on any violation. **Pre-flight only** — does not protect against TTL=0 DNS rebind during connect; see `references/gotchas.md` and ADR-0006 for the limit.
+
 ## Local dev
 
 `npm run electron:dev` runs Vite + Electron together. The Electron main process loads `http://localhost:5173`. Main-process source changes require a restart; renderer changes hot-reload via Vite.

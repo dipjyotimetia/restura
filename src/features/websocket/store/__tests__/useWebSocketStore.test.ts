@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useWebSocketStore } from '../useWebSocketStore';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 
 describe('useWebSocketStore', () => {
   beforeEach(() => {
@@ -24,7 +25,7 @@ describe('useWebSocketStore', () => {
       const id = useWebSocketStore.getState().createConnection();
       const connection = useWebSocketStore.getState().connections[id];
 
-      expect(connection!.url).toBe('');
+      expect(connection!.url).toBe(ECHO_URLS.websocket);
       expect(connection!.status).toBe('disconnected');
       expect(connection!.messages).toEqual([]);
       expect(connection!.headers).toEqual([]);

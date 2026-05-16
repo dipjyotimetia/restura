@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Electron renderer-cleanup and pre-flight DNS guard** (see [ADR-0006](./adr/0006-electron-connection-and-dns-hardening.md))
+  - `electron/main/connection-cleanup.ts` — idempotent `destroyed` listener dedupe (`bindRendererCleanup`) and walk-and-dispose helper (`disposeByOwner`) shared by every long-lived streaming handler (gRPC, MCP, SSE, WebSocket, Socket.IO)
+  - `electron/main/dns-guard.ts` — `assertHostnameSafe` / `assertUrlHostnameSafe` close the SSRF gap for transports without a connector-level `lookup` hook by running `assertResolvedAddressAllowed` against every record from `dns.lookup`. Pre-flight only — true DNS-rebind (TTL=0 swap during connect) is intentionally out of scope and tracked for follow-up
+- **App icons** — Multi-resolution app icons added at `electron/resources/icons/` (16/32/48/64/128/256/512/1024 PNG) and `icon.icns` / `icon.png`. `package.json` `build` step now generates icons.
+- **Pre-filled echo URLs for new request tabs** — New HTTP, gRPC, GraphQL, and WebSocket tabs open with `https://echo.restura.dev/...` already in the URL field instead of a placeholder hint. Existing persisted tabs are unaffected; this only applies to newly created tabs/connections.
 - **OpenCollection v1.0.0 native support** — Restura now reads and writes the same YAML format as Bruno 3.1+ (see [docs/opencollection.md](./opencollection.md))
   - `src/lib/opencollection/` module: vendored JSON Schema, generated TS types, hand-written Zod runtime validators, YAML serializer, filesystem reader/writer (bundled and directory layouts), bidirectional bridges to Restura's internal Collection model
   - Importer: new "OpenCollection" tab in the Import dialog accepts bundled YAML files; SSE/MCP requests are surfaced via the spec's `extensions` field (`x-restura-sse`, `x-restura-mcp`); unrecognized HTTP body shapes are reported via `getAndResetUnrecognizedBodyCount()` and a `console.warn` so the user can detect data not surfaced in the editor (the original is preserved via `_oc` for export round-trip)
@@ -33,6 +38,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full TypeScript support with Zod validation
   - Comprehensive test coverage (43 tests)
 
+### Changed
+
+- `electron/main/file-operations.ts` migrated to async `fs` (no behavioral change; main process no longer blocks on disk IO)
+- `electron/main/store-handler.ts` encryption key fetched from OS keychain via `safeStorage`; explicit startup warning if `safeStorage.isEncryptionAvailable() === false` so users know plaintext fallback is active
+- `electron/main/main.ts` now logs uncaught exceptions for diagnosability
+
+### Security
+
+- Removed `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` — the desktop app is a client only
+- All streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`) refactored to use `assertUrlHostnameSafe` before connect
+
+### Deprecated
+
+- Legacy `ipc-rate-limiter` API surface in `electron/main/ipc-rate-limiter.ts`. Per-handler rate limits remain; the legacy facade will be removed in a future minor.
+
 ### Technical Details
 
 - New store: `useWorkflowStore` with localStorage persistence
@@ -40,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New components: `WorkflowManager`, `WorkflowBuilder`, `WorkflowExecutor`, `WorkflowStep`, `VariableExtractorConfig`
 - New library functions: `executeWorkflow`, `extractVariables`, `testExtraction`
 - Types: `Workflow`, `WorkflowRequest`, `VariableExtraction`, `WorkflowExecution`, `WorkflowExecutionStep`
+- New module: `src/lib/shared/echo-defaults.ts` — single source of truth for the hosted echo URLs (`ECHO_URLS`)
 
 ## [0.1.0] - 2025-11-17
 

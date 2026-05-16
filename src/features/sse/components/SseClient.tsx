@@ -12,7 +12,7 @@ import { sseManager } from '@/features/sse/lib/sseManager';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Play, Square, Trash2, Search } from 'lucide-react';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
-import { CONNECTION_STATUS_COLORS } from '@/lib/shared/constants';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 
 export default function SseClient() {
   const {
@@ -87,31 +87,61 @@ export default function SseClient() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-2 p-3 border-b border-border bg-background/60">
-        <Badge className={cn('uppercase', CONNECTION_STATUS_COLORS[active.status])}>{active.status}</Badge>
+      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3">
+        <div
+          className={cn(
+            'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded border shrink-0',
+            isConnected
+              ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
+              : isConnecting
+                ? 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
+                : 'bg-blue-500/[0.12] border-blue-500/25 text-blue-400'
+          )}
+          aria-label={`SSE status: ${active.status}`}
+        >
+          SSE
+        </div>
+        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
         <Input
-          placeholder="https://echo.restura.dev/sse"
+          placeholder={ECHO_URLS.sse}
           value={active.url}
           onChange={(e) => updateConnectionUrl(active.id, e.target.value)}
           disabled={isConnected || isConnecting}
-          className="flex-1 font-mono"
+          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground/40"
+          aria-label="SSE endpoint URL"
         />
         {isConnected || isConnecting ? (
-          <Button variant="destructive" onClick={handleDisconnect}>
-            <Square /> Disconnect
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDisconnect}
+            className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
+          >
+            <Square className="mr-1.5 h-3.5 w-3.5" /> Disconnect
           </Button>
         ) : (
-          <Button onClick={handleConnect} disabled={!active.url.trim()}>
-            <Play /> Connect
+          <Button
+            variant="glow"
+            size="sm"
+            onClick={handleConnect}
+            disabled={!active.url.trim()}
+            className="h-7 min-w-[80px] shrink-0 text-xs font-medium bg-primary/[0.2] border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)] transition-colors duration-200"
+          >
+            <Play className="mr-1.5 h-3.5 w-3.5" /> Connect
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={() => setHeadersOpen((s) => !s)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setHeadersOpen((s) => !s)}
+          className="h-7 text-xs text-muted-foreground"
+        >
           Headers ({active.headers.length})
         </Button>
       </div>
 
       {headersOpen && (
-        <div className="border-b border-border p-3 bg-muted/20">
+        <div className="border-b glass-border-subtle p-3 glass-2">
           <KeyValueEditor
             items={active.headers}
             onAdd={() => addHeader(active.id)}
@@ -124,7 +154,7 @@ export default function SseClient() {
         </div>
       )}
 
-      <div className="flex items-center gap-2 p-2 border-b border-border bg-background/40">
+      <div className="flex items-center gap-2 p-2 border-b glass-border-subtle glass-2">
         <div className="flex items-center gap-2 flex-1">
           <Search className="size-4 text-muted-foreground" />
           <Input

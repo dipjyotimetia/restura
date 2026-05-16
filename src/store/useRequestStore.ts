@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
 
 interface ScriptResults {
@@ -67,7 +68,7 @@ const createDefaultHttpRequest = (): HttpRequest => ({
   name: 'New Request',
   type: 'http',
   method: 'GET',
-  url: '',
+  url: ECHO_URLS.http,
   headers: [],
   params: [],
   body: { type: 'none' },
@@ -79,7 +80,7 @@ const createDefaultGrpcRequest = (): GrpcRequest => ({
   name: 'New gRPC Request',
   type: 'grpc',
   methodType: 'unary',
-  url: '',
+  url: ECHO_URLS.grpc,
   service: '',
   method: '',
   metadata: [],
