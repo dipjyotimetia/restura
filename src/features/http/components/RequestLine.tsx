@@ -123,7 +123,7 @@ export default function RequestLine({
           size="sm"
           onClick={onSend}
           disabled={isLoading || !url || !!urlError}
-          className="h-7 min-w-[88px] text-xs font-semibold"
+          className="h-7 min-w-22 text-xs font-semibold"
           aria-label={isLoading ? 'Sending request' : 'Send request'}
         >
           {isLoading ? (
