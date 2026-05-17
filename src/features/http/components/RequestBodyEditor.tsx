@@ -1,11 +1,20 @@
 'use client';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { RequestBody } from '@/types';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
 
-const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
+const CodeEditor = lazyComponent(
+  () => import('@/components/shared/CodeEditor'),
+  <div className="h-[300px] border border-border rounded-lg p-4 space-y-2 bg-background">
+    <Skeleton className="h-3.5 w-3/4 rounded" />
+    <Skeleton className="h-3.5 w-1/2 rounded" />
+    <Skeleton className="h-3.5 w-2/3 rounded" />
+    <Skeleton className="h-3.5 w-4/5 rounded" />
+  </div>
+);
 const GraphQLBodyEditor = lazyComponent(() => import('@/features/graphql/components/GraphQLBodyEditor'));
 
 interface RequestBodyEditorProps {
