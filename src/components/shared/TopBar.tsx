@@ -59,7 +59,7 @@ export default function TopBar({
                 onClick={() => !desktopOnly && handleModeChange(mode)}
                 disabled={desktopOnly}
                 className={cn(
-                  'relative px-2.5 py-1 text-[10px] font-medium rounded tracking-wide transition-colors duration-150',
+                  'relative px-3 py-1 text-xs font-medium rounded-full tracking-wide transition-colors duration-150',
                   desktopOnly && 'opacity-40 cursor-not-allowed',
                   requestMode === mode ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                 )}
@@ -97,7 +97,7 @@ export default function TopBar({
             value={activeEnvironmentId ?? 'none'}
             onValueChange={(value) => setActiveEnvironment(value === 'none' ? null : value)}
           >
-            <SelectTrigger className="h-7 w-35 bg-white/[0.45] dark:bg-white/[0.025] glass-border-subtle border hover:bg-white/[0.6] dark:hover:bg-white/[0.06] focus:ring-0 text-[10px]">
+            <SelectTrigger className="h-7 w-40 text-xs">
               <div className="flex items-center gap-1.5 overflow-hidden">
                 <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
                 <span className="truncate">
@@ -107,7 +107,7 @@ export default function TopBar({
                 </span>
               </div>
             </SelectTrigger>
-            <SelectContent align="end" className="w-45">
+            <SelectContent align="end" className="w-56">
               <SelectItem value="none">No Environment</SelectItem>
               {environments.map((env) => (
                 <SelectItem key={env.id} value={env.id}>

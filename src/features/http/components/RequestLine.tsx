@@ -1,13 +1,35 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Kbd } from '@/components/ui/kbd';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { badgeVariants } from '@/components/ui/badge';
 import type { HttpMethod } from '@/types';
 import { Send, Code2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'] as const;
+
+type MethodBadge = 'get' | 'post' | 'put' | 'delete' | 'patch' | 'options' | 'head';
+const METHOD_BADGE: Record<HttpMethod, MethodBadge> = {
+  GET: 'get',
+  POST: 'post',
+  PUT: 'put',
+  DELETE: 'delete',
+  PATCH: 'patch',
+  OPTIONS: 'options',
+  HEAD: 'head',
+};
+const METHOD_TEXT_COLOR: Record<HttpMethod, string> = {
+  GET: 'text-emerald-400',
+  POST: 'text-amber-400',
+  PUT: 'text-blue-400',
+  DELETE: 'text-rose-400',
+  PATCH: 'text-violet-400',
+  OPTIONS: 'text-muted-foreground',
+  HEAD: 'text-muted-foreground',
+};
 
 interface RequestLineProps {
   method: HttpMethod;
@@ -62,33 +84,18 @@ export default function RequestLine({
         <Select value={method} onValueChange={(value) => onMethodChange(value as HttpMethod)}>
           <SelectTrigger
             className={cn(
-              'w-20 h-7 font-mono font-bold text-[11px] border',
-              method === 'GET' && 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400',
-              method === 'POST' && 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400',
-              method === 'PUT' && 'bg-blue-500/[0.12] border-blue-500/25 text-blue-400',
-              method === 'DELETE' && 'bg-rose-500/[0.12] border-rose-500/25 text-rose-400',
-              method === 'PATCH' && 'bg-violet-500/[0.12] border-violet-500/25 text-violet-400',
-              (method === 'OPTIONS' || method === 'HEAD') && 'bg-muted/[0.12] border-border text-muted-foreground'
+              'w-20 h-7 font-mono text-[11px] tracking-wider justify-between',
+              badgeVariants({ variant: METHOD_BADGE[method] }),
+              'rounded-md px-2'
             )}
             aria-label="HTTP Method"
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="bg-popover border-border">
+          <SelectContent>
             {HTTP_METHODS.map((m) => (
               <SelectItem key={m} value={m} className="font-mono font-semibold">
-                <span
-                  className={cn(
-                    m === 'GET' && 'text-emerald-400',
-                    m === 'POST' && 'text-amber-400',
-                    m === 'PUT' && 'text-blue-400',
-                    m === 'DELETE' && 'text-red-400',
-                    m === 'PATCH' && 'text-violet-400',
-                    (m === 'OPTIONS' || m === 'HEAD') && 'text-muted-foreground'
-                  )}
-                >
-                  {m}
-                </span>
+                <span className={METHOD_TEXT_COLOR[m]}>{m}</span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -116,7 +123,7 @@ export default function RequestLine({
           size="sm"
           onClick={onSend}
           disabled={isLoading || !url || !!urlError}
-          className="h-7 min-w-[72px] text-xs font-medium"
+          className="h-7 min-w-[88px] text-xs font-semibold"
           aria-label={isLoading ? 'Sending request' : 'Send request'}
         >
           {isLoading ? (
@@ -124,7 +131,8 @@ export default function RequestLine({
           ) : (
             <>
               <Send className="h-3 w-3 mr-1.5" />
-              Send
+              <span>Send</span>
+              <Kbd className="ml-1.5 h-4 text-[9px] bg-primary/15 text-primary/90 border-primary/30">⌘↵</Kbd>
             </>
           )}
         </Button>

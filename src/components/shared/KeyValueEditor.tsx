@@ -67,7 +67,7 @@ export default function KeyValueEditor({
         {items.map((item) => (
           <StaggerItem
             key={item.id}
-            className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-foreground/5 transition-colors"
+            className="flex items-center gap-2 group py-1.5 px-2 rounded border border-transparent hover:bg-foreground/5 hover:glass-border-subtle transition-colors"
           >
             <Tooltip>
               <TooltipTrigger asChild>
@@ -88,7 +88,7 @@ export default function KeyValueEditor({
               value={item.key}
               onChange={(e) => onUpdate(item.id, { key: e.target.value })}
               placeholder={keyPlaceholder}
-              className="flex-1 bg-background border-border font-mono text-xs transition-colors"
+              className="flex-1 font-mono text-xs"
               aria-label={`${itemType} key`}
             />
             <div className="flex-1 flex items-center gap-1">
@@ -97,7 +97,7 @@ export default function KeyValueEditor({
                 onChange={(e) => onUpdate(item.id, { value: e.target.value })}
                 placeholder={valuePlaceholder}
                 type={enableSecrets && item.secret && !revealedIds.has(item.id) ? 'password' : 'text'}
-                className="flex-1 bg-background border-border font-mono text-xs transition-colors"
+                className="flex-1 font-mono text-xs"
                 aria-label={`${itemType} value`}
               />
               {enableSecrets && (
@@ -191,7 +191,6 @@ export default function KeyValueEditor({
               onClick={onAdd}
               variant="outline"
               size="sm"
-              className="border-border hover:bg-accent hover:text-foreground transition-colors"
             >
               <Plus className="mr-2 h-4 w-4" />
               {addButtonText}
