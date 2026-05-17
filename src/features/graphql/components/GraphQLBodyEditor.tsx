@@ -22,10 +22,14 @@ import {
   PanelRight,
   Download,
 } from 'lucide-react';
+import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
 
-const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
+const CodeEditor = lazyComponent(
+  () => import('@/components/shared/CodeEditor'),
+  <CodeEditorSkeleton className="h-[250px]" />
+);
 const SchemaExplorer = lazyComponent(() => import('./SchemaExplorer'));
 
 let completionProviderRegistered = false;

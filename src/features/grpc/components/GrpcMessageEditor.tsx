@@ -1,7 +1,11 @@
 import { AlertCircle } from 'lucide-react';
+import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 
-const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
+const CodeEditor = lazyComponent(
+  () => import('@/components/shared/CodeEditor'),
+  <CodeEditorSkeleton className="h-[400px]" />
+);
 
 interface GrpcMessageEditorProps {
   value: string;

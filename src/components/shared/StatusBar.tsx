@@ -5,6 +5,7 @@ import { selectActiveEnvironment, useActiveResponse } from '@/store/selectors';
 import { Wifi, WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Kbd } from '@/components/ui/kbd';
 import { cn } from '@/lib/shared/utils';
 
 const getStatusTextColor = (status: number) => {
@@ -24,17 +25,35 @@ export default function StatusBar() {
     return state.history.filter((h) => new Date(h.timestamp).toDateString() === todayStr).length;
   });
   const [isOnline, setIsOnline] = useState(true);
+  const [showPaletteHint, setShowPaletteHint] = useState(() => window.innerWidth > 720);
 
   useEffect(() => {
     const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+    const updateHint = () =>
+      setShowPaletteHint((prev) => {
+        const next = window.innerWidth > 720;
+        return prev === next ? prev : next;
+      });
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
+    window.addEventListener('resize', updateHint);
     updateOnlineStatus();
     return () => {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
+      window.removeEventListener('resize', updateHint);
     };
   }, []);
+
+  const triggerCommandPalette = () => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'k',
+      metaKey: true,
+      ctrlKey: true,
+      bubbles: true,
+    });
+    document.dispatchEvent(event);
+  };
 
   const lastActivityTime = currentResponse?.timestamp
     ? new Date(currentResponse.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -43,7 +62,7 @@ export default function StatusBar() {
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="h-6 glass-1 glass-border-default border-t flex items-center justify-between px-4 text-[10px] font-mono text-muted-foreground select-none shrink-0"
+        className="h-7 glass-1 glass-border-default border-t flex items-center justify-between px-4 text-xs font-mono text-muted-foreground select-none shrink-0"
         role="status"
         aria-live="polite"
         aria-label="Application status bar"
@@ -133,6 +152,28 @@ export default function StatusBar() {
               <p>{isOnline ? 'Online' : 'Offline'}</p>
             </TooltipContent>
           </Tooltip>
+
+          {showPaletteHint && (
+            <>
+              <span className="text-muted-foreground/30" aria-hidden="true">·</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={triggerCommandPalette}
+                    className="flex items-center gap-1.5 hover:text-foreground transition-colors focus:outline-none focus-visible:text-foreground"
+                    aria-label="Open command palette"
+                  >
+                    <Kbd className="h-4 text-[10px]">⌘K</Kbd>
+                    <span>Palette</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>Open command palette (⌘K)</p>
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       </div>
     </TooltipProvider>

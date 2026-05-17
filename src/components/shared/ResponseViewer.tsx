@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
@@ -118,6 +119,7 @@ function ResponseViewer() {
   const [activeTab, setActiveTab] = useState('body');
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [copiedBody, setCopiedBody] = useState(false);
+  const [headerFilter, setHeaderFilter] = useState('');
   const copyHeaderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyBodyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const responseEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -148,6 +150,17 @@ function ResponseViewer() {
     }
     return currentResponse.body;
   }, [currentResponse, language]);
+
+  const headerEntries = useMemo(
+    () => Object.entries(currentResponse?.headers ?? {}),
+    [currentResponse?.headers]
+  );
+
+  const filteredHeaderEntries = useMemo(() => {
+    if (!headerFilter) return headerEntries;
+    const needle = headerFilter.toLowerCase();
+    return headerEntries.filter(([key]) => key.toLowerCase().includes(needle));
+  }, [headerEntries, headerFilter]);
 
   const handleCopyHeader = async (key: string, value: string | string[]) => {
     const displayValue = Array.isArray(value) ? value.join(', ') : value;
@@ -329,7 +342,7 @@ function ResponseViewer() {
             <TabsTrigger value="headers">
               Headers
               <Badge variant="secondary" className="ml-2 h-4 min-w-4 px-1 text-[10px] tabular-nums">
-                {Object.keys(currentResponse.headers).length}
+                {headerEntries.length}
               </Badge>
             </TabsTrigger>
           </TabsList>
@@ -408,8 +421,19 @@ function ResponseViewer() {
           </TabsContent>
 
           <TabsContent value="headers" className="flex-1 overflow-auto p-0 m-0 min-h-0">
+            {headerEntries.length > 8 && (
+              <div className="sticky top-0 z-10 px-4 pt-3 pb-2 glass-2 border-b glass-border-subtle">
+                <Input
+                  value={headerFilter}
+                  onChange={(e) => setHeaderFilter(e.target.value)}
+                  placeholder={`Filter ${headerEntries.length} headers…`}
+                  className="h-7 text-xs font-mono"
+                  aria-label="Filter response headers"
+                />
+              </div>
+            )}
             <div className="p-4 space-y-1">
-              {Object.entries(currentResponse.headers).map(([key, value]) => (
+              {filteredHeaderEntries.map(([key, value]) => (
                 <div
                   key={key}
                   className="group flex gap-3 p-2 rounded hover:bg-foreground/5 transition-colors text-xs"

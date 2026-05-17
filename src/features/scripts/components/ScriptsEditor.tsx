@@ -4,9 +4,13 @@ import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Play, RotateCcw } from 'lucide-react';
+import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 
-const CodeEditor = lazyComponent(() => import('@/components/shared/CodeEditor'));
+const CodeEditor = lazyComponent(
+  () => import('@/components/shared/CodeEditor'),
+  <CodeEditorSkeleton className="h-[350px]" />
+);
 
 interface ScriptsEditorProps {
   preRequestScript: string;

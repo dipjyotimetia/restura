@@ -1,5 +1,6 @@
 'use client';
 
+import '@/lib/shared/monaco-setup';
 import { useRef, useState, useEffect } from 'react';
 import type { OnMount } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';

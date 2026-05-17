@@ -16,12 +16,14 @@ export const buttonVariants = cva(
         destructive:
           'bg-destructive text-destructive-foreground shadow-md hover:shadow-lg hover:bg-destructive/90 hover:brightness-110 border border-transparent',
         outline:
-          'border border-border bg-transparent hover:bg-accent hover:text-foreground',
+          'border glass-border-default bg-white/[0.45] dark:bg-white/[0.04] backdrop-blur-md text-foreground hover:bg-white/[0.6] dark:hover:bg-white/[0.08] hover:border-white/15 dark:hover:border-white/15',
         secondary:
-          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 border border-border/50',
-        ghost: 'hover:bg-accent hover:text-foreground',
+          'glass-2 border glass-border-default text-secondary-foreground shadow-sm hover:bg-white/[0.7] dark:hover:bg-white/[0.07]',
+        ghost: 'hover:bg-white/[0.5] dark:hover:bg-white/[0.06] hover:backdrop-blur-sm hover:text-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
-        glow: 'bg-primary/[0.2] text-primary border border-primary/40 hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)]',
+        glow: 'bg-primary/[0.2] text-primary border border-primary/40 backdrop-blur-sm hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)]',
+        glass:
+          'glass-2 border glass-border-default text-foreground hover:bg-white/[0.7] dark:hover:bg-white/[0.08] hover:shadow-md',
       },
       size: {
         default: 'h-9 px-4 py-2 text-sm rounded-md [&_svg]:size-4',
