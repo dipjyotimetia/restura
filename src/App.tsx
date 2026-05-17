@@ -51,11 +51,12 @@ export default function App() {
           position="bottom-right"
           richColors
           closeButton
-          theme="system"
+          theme="dark"
           toastOptions={{
+            className: 'glass-1 glass-border-default',
             style: {
-              background: 'hsl(var(--background))',
-              border: '1px solid hsl(var(--border))',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
               color: 'hsl(var(--foreground))',
             },
           }}
