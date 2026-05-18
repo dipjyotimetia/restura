@@ -1,8 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule } from '@/features/registry/types';
-import type { HttpRequest, Response as ApiResponse } from '@/types';
+import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
 import { executeRequest } from './lib/requestExecutor';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { injectString } from '@/features/workflows/lib/variableHelpers';
 
 function createDefaultHttpRequest(): HttpRequest {
   return {
@@ -42,11 +43,39 @@ function defaultResolveVariables(
   return result;
 }
 
+function injectHttpVariables(
+  request: Request,
+  variables: Record<string, string>
+): Request {
+  if (request.type !== 'http') return request;
+  const http = request as HttpRequest;
+  const inject = (text: string) => injectString(text, variables);
+  return {
+    ...http,
+    url: inject(http.url),
+    headers: http.headers.map((h) => ({
+      ...h,
+      key: inject(h.key),
+      value: inject(h.value),
+    })),
+    params: http.params.map((p) => ({
+      ...p,
+      key: inject(p.key),
+      value: inject(p.value),
+    })),
+    body: {
+      ...http.body,
+      ...(http.body.raw !== undefined ? { raw: inject(http.body.raw) } : {}),
+    },
+  };
+}
+
 export const httpProtocol: ProtocolModule = {
   id: 'http',
   label: 'HTTP',
   tabType: 'http',
   defaultRequest: createDefaultHttpRequest,
+  injectVariables: injectHttpVariables,
   // Builder is intentionally undefined — Tasks 4.4/4.5 wire RequestBuilder.
   runRequest: async (request, ctx): Promise<ApiResponse> => {
     if (request.type !== 'http') {

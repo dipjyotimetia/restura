@@ -26,6 +26,7 @@ import type { ProtocolModule } from '@/features/registry/types';
 import type {
   GrpcRequest,
   GrpcResponse,
+  Request,
   Response as ApiResponse,
 } from '@/types';
 import {
@@ -35,6 +36,7 @@ import {
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { isElectron } from '@/lib/shared/platform';
+import { injectString } from '@/features/workflows/lib/variableHelpers';
 
 function createDefaultGrpcRequest(): GrpcRequest {
   return {
@@ -85,11 +87,37 @@ function readProtocolOptions(
   return out;
 }
 
+function injectGrpcVariables(
+  request: Request,
+  variables: Record<string, string>
+): Request {
+  if (request.type !== 'grpc') return request;
+  const grpc = request as GrpcRequest;
+  const inject = (text: string) => injectString(text, variables);
+  return {
+    ...grpc,
+    url: inject(grpc.url),
+    service: inject(grpc.service),
+    method: inject(grpc.method),
+    metadata: grpc.metadata.map((m) => ({
+      ...m,
+      key: inject(m.key),
+      value: inject(m.value),
+    })),
+    // `message` is a JSON string the user authored — substitute into it as
+    // a string. We don't try to parse / pretty-print / re-serialise it
+    // because that would round-trip-break things like trailing commas or
+    // comments the user may have typed (and which the gRPC client tolerates).
+    message: inject(grpc.message),
+  };
+}
+
 export const grpcProtocol: ProtocolModule = {
   id: 'grpc',
   label: 'gRPC',
   tabType: 'grpc',
   defaultRequest: createDefaultGrpcRequest,
+  injectVariables: injectGrpcVariables,
   // Builder is intentionally undefined — GrpcRequestBuilder remains
   // mounted by the route. It calls `useRequestRunner` for unary and
   // talks to startElectronGrpcStream directly for streaming methods.

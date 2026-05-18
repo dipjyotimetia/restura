@@ -886,15 +886,297 @@ export interface Workflow {
   name: string;
   description?: string;
   collectionId: string;
+  /**
+   * Linear list of workflow steps. When `graph` is also present, this is
+   * a BAG (insertion order is meaningless) — the graph's edges are the
+   * authoritative execution order. The legacy linear executor refuses to
+   * run a workflow with a non-null `graph`; only the DAG executor does.
+   */
   requests: WorkflowRequest[];
   variables?: KeyValue[]; // Workflow-level variables
+  /**
+   * Optional DAG authored via the React Flow canvas. When present, the
+   * workflow runs through the DAG executor and the form view becomes
+   * read-only (with a "Discard graph" button). Absent for workflows
+   * created in linear form view only.
+   */
+  graph?: WorkflowGraph;
   createdAt: number;
   updatedAt: number;
 }
 
+// React Flow DAG types
+// ---------------------
+
+export interface FlowNodePosition {
+  x: number;
+  y: number;
+}
+
+export type ParallelWaitMode = 'all' | 'any' | 'race';
+export type ParallelMergeStrategy =
+  | 'fail-on-conflict'
+  | 'pick-first'
+  | 'pick-last'
+  | 'merge-list';
+
+/** What counts as failure for a request node. Drives surrounding try/catch. */
+export type RequestFailureMode = 'thrown-only' | 'http-status' | 'never';
+
+/**
+ * When does a streaming-node terminate?
+ *
+ * `eventCount` — after N events received.
+ * `timeoutMs` — after a wall-clock duration regardless of activity.
+ * `eventMatch` — when a QuickJS predicate on the latest event returns truthy.
+ * `connectionClose` — when the server closes the stream (or `close()` fires).
+ */
+export type CompletionPolicy =
+  | { kind: 'eventCount'; n: number }
+  | { kind: 'timeoutMs'; ms: number }
+  | { kind: 'eventMatch'; expression: string }
+  | { kind: 'connectionClose' };
+
+export type FlowNodeKind =
+  | 'start'
+  | 'end'
+  | 'request'
+  | 'condition'
+  | 'setVariable'
+  | 'delay'
+  | 'transform'
+  | 'parallel'
+  | 'forEach'
+  | 'tryCatch'
+  | 'subWorkflow'
+  | 'sseSubscribe'
+  | 'wsExchange'
+  | 'mcpCall';
+
+interface FlowNodeBase {
+  id: string;
+  kind: FlowNodeKind;
+  position: FlowNodePosition;
+}
+
+export interface StartFlowNode extends FlowNodeBase {
+  kind: 'start';
+}
+
+export interface EndFlowNode extends FlowNodeBase {
+  kind: 'end';
+}
+
+export interface RequestFlowNode extends FlowNodeBase {
+  kind: 'request';
+  data: {
+    /** Points at a WorkflowRequest in Workflow.requests[]. */
+    workflowRequestId: string;
+    /** Default 'thrown-only' — non-2xx responses do NOT auto-fail. */
+    failureMode?: RequestFailureMode;
+  };
+}
+
+export interface ConditionFlowNode extends FlowNodeBase {
+  kind: 'condition';
+  data: {
+    /** QuickJS expression — must `return` a value coerced to boolean. */
+    expression: string;
+    description?: string;
+  };
+}
+
+export interface SetVariableAssignment {
+  key: string;
+  /** QuickJS expression evaluated to a string. */
+  valueExpression: string;
+}
+
+export interface SetVariableFlowNode extends FlowNodeBase {
+  kind: 'setVariable';
+  data: {
+    assignments: SetVariableAssignment[];
+  };
+}
+
+export interface DelayFlowNode extends FlowNodeBase {
+  kind: 'delay';
+  data: {
+    ms: number;
+  };
+}
+
+export interface TransformFlowNode extends FlowNodeBase {
+  kind: 'transform';
+  data: {
+    /** QuickJS script. Variables set via `pm.variables.set` propagate. */
+    script: string;
+  };
+}
+
+export interface ParallelFlowNode extends FlowNodeBase {
+  kind: 'parallel';
+  data: {
+    waitMode: ParallelWaitMode;
+    mergeStrategy?: ParallelMergeStrategy;
+  };
+}
+
+export interface ForEachFlowNode extends FlowNodeBase {
+  kind: 'forEach';
+  data: {
+    /** QuickJS expression that must return a JSON-serialisable array. */
+    collectionExpression: string;
+    /** Variable name receiving each item (JSON-encoded) per iteration. */
+    iteratorVar: string;
+    /** Subgraph executed once per item. Max concurrency 8 in v1. */
+    subgraph: WorkflowGraph;
+    /** Optional override for the v1 default concurrency cap of 8. */
+    concurrency?: number;
+  };
+}
+
+export interface TryCatchFlowNode extends FlowNodeBase {
+  kind: 'tryCatch';
+  data: {
+    trySubgraph: WorkflowGraph;
+    catchSubgraph: WorkflowGraph;
+  };
+}
+
+export interface SubWorkflowFlowNode extends FlowNodeBase {
+  kind: 'subWorkflow';
+  data: {
+    workflowId: string;
+    /** parent var name → child var name. Child sees only mapped vars. */
+    inputVarMap?: Record<string, string>;
+    /** child var name → parent var name. Defaults to no projection. */
+    outputVarMap?: Record<string, string>;
+  };
+}
+
+/** Subscribe to a saved SseRequest, accumulate events, terminate per completion policy. */
+export interface SseSubscribeFlowNode extends FlowNodeBase {
+  kind: 'sseSubscribe';
+  data: {
+    /** Points at a WorkflowRequest in Workflow.requests[] whose
+     *  underlying collection request is an SseRequest. */
+    workflowRequestId: string;
+    completion: CompletionPolicy;
+    /** When false, only events matching the `eventMatch` predicate are
+     *  accumulated (no-op for other completion kinds — all events kept). */
+    accumulateAll?: boolean;
+    /** Variable to receive the JSON-stringified events array.
+     *  Defaults to `<nodeId>.events`. */
+    resultVar?: string;
+    failureMode?: RequestFailureMode;
+  };
+}
+
+/** Send one frame to a WebSocket endpoint and wait for a matching reply. */
+export interface WsExchangeFlowNode extends FlowNodeBase {
+  kind: 'wsExchange';
+  data: {
+    /** WebSocket URL. Inline because there's no WebSocketRequest type
+     *  in the collection model today. */
+    url: string;
+    /** Optional headers (Electron only — browsers ignore custom WS headers). */
+    headers?: Array<{ key: string; value: string }>;
+    /** Optional subprotocols. */
+    subprotocols?: string[];
+    /** QuickJS expression evaluated to the frame to send on open. */
+    sendExpression: string;
+    /** QuickJS predicate against `event` — first truthy match wins. */
+    matchExpression: string;
+    completion: CompletionPolicy;
+    /** Variable to receive the matched reply (JSON-stringified).
+     *  Defaults to `<nodeId>.reply`. */
+    resultVar?: string;
+    failureMode?: RequestFailureMode;
+  };
+}
+
+/** Call one JSON-RPC method on an MCP server. */
+export interface McpCallFlowNode extends FlowNodeBase {
+  kind: 'mcpCall';
+  data: {
+    workflowRequestId: string;
+    /** Method to invoke — e.g. "tools/call", "resources/read". */
+    method: string;
+    /** QuickJS expression evaluating to the JSON params object. Optional. */
+    paramsExpression?: string;
+    /** Variable to receive the JSON-stringified result.
+     *  Defaults to `<nodeId>.result`. */
+    resultVar?: string;
+    failureMode?: RequestFailureMode;
+  };
+}
+
+export type FlowNode =
+  | StartFlowNode
+  | EndFlowNode
+  | RequestFlowNode
+  | ConditionFlowNode
+  | SetVariableFlowNode
+  | DelayFlowNode
+  | TransformFlowNode
+  | ParallelFlowNode
+  | ForEachFlowNode
+  | TryCatchFlowNode
+  | SubWorkflowFlowNode
+  | SseSubscribeFlowNode
+  | WsExchangeFlowNode
+  | McpCallFlowNode;
+
+export interface FlowEdge {
+  id: string;
+  source: string;
+  target: string;
+  /**
+   * For condition nodes: 'true' | 'false'. For tryCatch internal edges:
+   * 'try' | 'catch'. Undefined for ordinary edges. Matches the React Flow
+   * v12 `<Handle id="…" />` convention.
+   */
+  sourceHandle?: string;
+  label?: string;
+}
+
+/**
+ * Path into a workflow's nested subgraphs. Empty array = top-level.
+ * Each segment names the parent node and which of its nested graph
+ * slots to descend into.
+ *
+ *   []                                                    -> workflow.graph
+ *   [{parentNodeId: 'fe', key: 'subgraph'}]               -> forEach's body
+ *   [{parentNodeId: 'tc', key: 'trySubgraph'}, ...]       -> tryCatch's try-branch, then drill deeper
+ */
+export type SubgraphPath = ReadonlyArray<{
+  parentNodeId: string;
+  key: 'subgraph' | 'trySubgraph' | 'catchSubgraph';
+}>;
+
+export interface WorkflowGraph {
+  /** Bumped when the graph schema changes; v1 in this release. */
+  version: 1;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+  /** Persisted React Flow viewport so the user's pan/zoom survives reload. */
+  viewport?: { x: number; y: number; zoom: number };
+}
+
+// Execution history
+// -----------------
+
 export interface WorkflowExecutionStep {
-  workflowRequestId: string;
-  requestId: string;
+  /**
+   * Legacy linear step pointed at a `WorkflowRequest` (workflowRequestId)
+   * which pointed at a collection request (requestId). Graph executions
+   * have many more node kinds, so these become optional and the new
+   * `nodeId` / `nodeKind` fields take over. The history viewer branches
+   * on `nodeKind` — when absent, it falls back to the legacy rendering.
+   */
+  workflowRequestId?: string;
+  requestId?: string;
   requestName: string;
   status: 'pending' | 'running' | 'success' | 'failed' | 'skipped';
   response?: Response;
@@ -902,6 +1184,9 @@ export interface WorkflowExecutionStep {
   error?: string;
   duration?: number;
   timestamp: number;
+  /** Present for graph executions; absent for legacy linear executions. */
+  nodeId?: string;
+  nodeKind?: FlowNodeKind;
 }
 
 export interface WorkflowExecution {
