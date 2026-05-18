@@ -42,6 +42,8 @@ import {
   evalScriptBoolean,
   evalScriptValue,
   evalScriptForVariables,
+  createPooledScriptEvaluator,
+  type PooledEvaluator,
 } from './scriptHelpers';
 import {
   findStartNode,
@@ -849,6 +851,85 @@ function finishStep(args: RunGraphArgs, step: WorkflowExecutionStep): void {
 // `sleepWithAbort` + `isAbortError` live in retryHelpers.ts and are
 // re-imported above. `injectString` is re-exported by callers as needed.
 
+// ---------- Streaming-step helpers ----------
+
+/**
+ * Construct a failed step inline, push it via finishStep, and return an
+ * Error the caller throws. Used by streaming-node executors for setup
+ * failures (missing WorkflowRequest, missing protocol, bad URL). Setup
+ * errors always surface as failed regardless of `failureMode` — that
+ * knob is for runtime errors only.
+ */
+function fatalStep(
+  args: RunGraphArgs,
+  init: {
+    nodeId: string;
+    nodeKind: NonNullable<WorkflowExecutionStep['nodeKind']>;
+    requestName: string;
+    timestamp?: number;
+  },
+  message: string
+): Error {
+  const step: WorkflowExecutionStep = {
+    nodeId: init.nodeId,
+    nodeKind: init.nodeKind,
+    requestName: init.requestName,
+    status: 'failed',
+    timestamp: init.timestamp ?? Date.now(),
+    error: message,
+    duration: 0,
+  };
+  finishStep(args, step);
+  return new Error(message);
+}
+
+/**
+ * Run the runtime portion of a streaming-node executor inside the
+ * `failureMode` envelope. Setup failures should NOT go through here —
+ * they use `fatalStep`.
+ *
+ * Aborts are propagated regardless of `failureMode` — a Stop click
+ * must always stop, never silently succeed.
+ */
+async function withStreamingStep<T>(
+  args: RunGraphArgs,
+  init: {
+    nodeId: string;
+    nodeKind: NonNullable<WorkflowExecutionStep['nodeKind']>;
+    requestName: string;
+  },
+  failureMode: RequestFailureMode,
+  body: (step: WorkflowExecutionStep) => Promise<T>
+): Promise<T | undefined> {
+  const step: WorkflowExecutionStep = {
+    nodeId: init.nodeId,
+    nodeKind: init.nodeKind,
+    requestName: init.requestName,
+    status: 'running',
+    timestamp: Date.now(),
+  };
+  args.onStepStart?.(step);
+  try {
+    const result = await body(step);
+    step.duration = Date.now() - step.timestamp;
+    if (step.status === 'running') step.status = 'success';
+    finishStep(args, step);
+    return result;
+  } catch (err) {
+    step.error = err instanceof Error ? err.message : String(err);
+    step.duration = Date.now() - step.timestamp;
+    // Aborts always stop the run — never swallow.
+    if (failureMode === 'never' && !isAbortError(err)) {
+      step.status = 'success';
+      finishStep(args, step);
+      return undefined;
+    }
+    step.status = 'failed';
+    finishStep(args, step);
+    throw err;
+  }
+}
+
 // ---------- Streaming protocol node executors ----------
 
 /**
@@ -875,6 +956,16 @@ async function consumeWithPolicy(
     }, policy.ms);
   }
 
+  // For `eventMatch`, pre-warm a single QuickJS session and reuse it
+  // across all events. Without this, each event would spin up a fresh
+  // runtime (~30 ms) and saturate a high-frequency stream.
+  let predicateEvaluator: PooledEvaluator | null = null;
+  if (policy.kind === 'eventMatch') {
+    predicateEvaluator = await createPooledScriptEvaluator(policy.expression, {
+      variables: {},
+    });
+  }
+
   try {
     for await (const event of handle.events) {
       if (signal.aborted) break;
@@ -882,13 +973,12 @@ async function consumeWithPolicy(
       count++;
 
       let matched = false;
-      if (policy.kind === 'eventMatch') {
-        const result = await evalScriptValue(policy.expression, {
-          variables: { event: JSON.stringify(event) },
+      if (policy.kind === 'eventMatch' && predicateEvaluator) {
+        const result = await predicateEvaluator.evaluate({
+          event: JSON.stringify(event),
         });
-        // The script's `event` is exposed via pm.variables.get — but
-        // for ergonomics we also surface it as a JS object. The
-        // standard way is to JSON-parse inside the predicate.
+        // The predicate reads `event` via pm.variables.get (string-typed).
+        // Predicates that want the parsed object call `JSON.parse(pm.variables.get('event'))`.
         matched = result.ok && Boolean(result.value);
       }
 
@@ -899,6 +989,7 @@ async function consumeWithPolicy(
     }
   } finally {
     if (timeoutId !== null) clearTimeout(timeoutId);
+    predicateEvaluator?.dispose();
     await handle.close().catch(() => undefined);
   }
 }
@@ -907,38 +998,34 @@ async function runSseSubscribe(
   node: SseSubscribeFlowNode,
   args: RunGraphArgs
 ): Promise<void> {
-  const step: WorkflowExecutionStep = {
+  const stepInit = {
     nodeId: node.id,
-    nodeKind: 'sseSubscribe',
+    nodeKind: 'sseSubscribe' as const,
     requestName: 'sseSubscribe',
-    status: 'running',
-    timestamp: Date.now(),
   };
-  args.onStepStart?.(step);
 
+  // ---- Setup (fail-fast, not failureMode-aware) ----
   const workflowRequest = args.workflow.requests.find(
     (r) => r.id === node.data.workflowRequestId
   );
   if (!workflowRequest) {
-    step.status = 'failed';
-    step.error = `sseSubscribe: WorkflowRequest "${node.data.workflowRequestId}" not found`;
-    finishStep(args, step);
-    throw new Error(step.error);
+    throw fatalStep(
+      args,
+      stepInit,
+      `sseSubscribe: WorkflowRequest "${node.data.workflowRequestId}" not found`
+    );
   }
   const rawRequest = args.options.getRequestById(workflowRequest.requestId);
   if (!rawRequest || rawRequest.type !== 'sse') {
-    step.status = 'failed';
-    step.error = `sseSubscribe: linked request must be SSE-typed`;
-    finishStep(args, step);
-    throw new Error(step.error);
+    throw fatalStep(args, stepInit, 'sseSubscribe: linked request must be SSE-typed');
   }
-
   const protocol = protocolRegistry.get('sse');
   if (!protocol?.startStream) {
-    step.status = 'failed';
-    step.error = 'sseSubscribe: SSE protocol has no startStream implementation';
-    finishStep(args, step);
-    throw new Error(step.error);
+    throw fatalStep(
+      args,
+      stepInit,
+      'sseSubscribe: SSE protocol has no startStream implementation'
+    );
   }
 
   const injected = protocol.injectVariables
@@ -950,13 +1037,15 @@ async function runSseSubscribe(
     variables: { ...args.variables },
   };
 
-  const collected: unknown[] = [];
+  const failureMode: RequestFailureMode = node.data.failureMode ?? 'thrown-only';
   const accumulateAll = node.data.accumulateAll ?? true;
   const maxEvents = node.data.maxEvents ?? 10_000;
-  let cappedEarly = false;
 
-  try {
-    const handle = await protocol.startStream(injected, ctx);
+  // ---- Runtime (failureMode-aware via withStreamingStep) ----
+  await withStreamingStep(args, stepInit, failureMode, async (step) => {
+    const collected: unknown[] = [];
+    let cappedEarly = false;
+    const handle = await protocol.startStream!(injected, ctx);
     await consumeWithPolicy(handle, node.data.completion, ctx.signal, (event, matched) => {
       if (accumulateAll || (node.data.completion.kind === 'eventMatch' && matched)) {
         if (collected.length < maxEvents) {
@@ -967,82 +1056,52 @@ async function runSseSubscribe(
             `sseSubscribe "${node.id}" hit maxEvents=${maxEvents}; closing stream early`,
             'warn'
           );
-          // Force-close so the rest of the stream doesn't waste CPU/memory.
           handle.close().catch(() => undefined);
         }
       }
       args.variables[`${node.id}.eventCount`] = String(collected.length);
     });
-
     const varName = node.data.resultVar || `${node.id}.events`;
     args.variables[varName] = JSON.stringify(collected);
     step.extractedVariables = { [varName]: `[${collected.length} event(s)]` };
-    step.status = 'success';
-    step.duration = Date.now() - step.timestamp;
-    finishStep(args, step);
-  } catch (err) {
-    const failureMode: RequestFailureMode = node.data.failureMode ?? 'thrown-only';
-    if (failureMode === 'never') {
-      step.status = 'success';
-      step.error = err instanceof Error ? err.message : String(err);
-      step.duration = Date.now() - step.timestamp;
-      finishStep(args, step);
-      return;
-    }
-    step.status = 'failed';
-    step.error = err instanceof Error ? err.message : String(err);
-    step.duration = Date.now() - step.timestamp;
-    finishStep(args, step);
-    throw err;
-  }
+  });
 }
 
 async function runWsExchange(
   node: WsExchangeFlowNode,
   args: RunGraphArgs
 ): Promise<void> {
-  const step: WorkflowExecutionStep = {
+  const stepInit = {
     nodeId: node.id,
-    nodeKind: 'wsExchange',
+    nodeKind: 'wsExchange' as const,
     requestName: 'wsExchange',
-    status: 'running',
-    timestamp: Date.now(),
   };
-  args.onStepStart?.(step);
 
+  // ---- Setup ----
   const protocol = protocolRegistry.get('websocket');
   if (!protocol?.startStream) {
-    step.status = 'failed';
-    step.error = 'wsExchange: WebSocket protocol has no startStream implementation';
-    finishStep(args, step);
-    throw new Error(step.error);
+    throw fatalStep(
+      args,
+      stepInit,
+      'wsExchange: WebSocket protocol has no startStream implementation'
+    );
   }
-
-  // wsExchange holds inline URL config — there's no WebSocketRequest type
-  // in the collection model, so the request shape is synthesised here.
   const url = injectString(node.data.url, args.variables);
   const urlCheck = validateURL(url, { allowedSchemes: ['ws:', 'wss:'] });
   if (!urlCheck.valid) {
-    step.status = 'failed';
-    step.error = `wsExchange: ${urlCheck.error}`;
-    finishStep(args, step);
-    throw new Error(step.error);
+    throw fatalStep(args, stepInit, `wsExchange: ${urlCheck.error}`);
   }
-  const synthRequest = {
-    type: 'websocket',
-    url,
-  } as unknown as Request;
-
+  const synthRequest = { type: 'websocket', url };
   const ctx: RunContext = {
     signal: args.abortSignal ?? new AbortController().signal,
     variables: { ...args.variables },
   };
+  const failureMode: RequestFailureMode = node.data.failureMode ?? 'thrown-only';
 
-  try {
-    const handle = await protocol.startStream(synthRequest, ctx);
+  // ---- Runtime ----
+  await withStreamingStep(args, stepInit, failureMode, async (step) => {
+    const handle = await protocol.startStream!(synthRequest, ctx);
 
-    // Send the user-authored frame. The send expression is plain
-    // JavaScript that returns a string OR an object (auto-stringified).
     const sendResult = await evalScriptValue(node.data.sendExpression, {
       variables: args.variables,
     });
@@ -1053,8 +1112,8 @@ async function runWsExchange(
       typeof sendResult.value === 'string'
         ? sendResult.value
         : JSON.stringify(sendResult.value);
-    // Cast — the WebSocket protocol exposes `.send` on its handle via
-    // a structural extension. See websocketProtocol implementation.
+    // The WebSocket protocol exposes `.send` as a structural extension
+    // on the handle — see websocketProtocol's start-stream impl.
     const sendable = handle as ProtocolStreamHandle & {
       send?: (frame: string) => void;
     };
@@ -1066,68 +1125,43 @@ async function runWsExchange(
       node.data.completion,
       ctx.signal,
       (event, isMatch) => {
-        // The match predicate from the inspector runs as part of
-        // `consumeWithPolicy` for the `eventMatch` completion policy.
-        // Independently we run `matchExpression` on each event to
-        // decide what to store. For non-eventMatch completion modes,
-        // the `matchExpression` fallback still applies.
         if (isMatch) matched = event;
       }
     );
 
     const varName = node.data.resultVar || `${node.id}.reply`;
     args.variables[varName] = matched === null ? '' : JSON.stringify(matched);
-    step.extractedVariables = { [varName]: matched === null ? '<no match>' : '<reply>' };
-    step.status = 'success';
-    step.duration = Date.now() - step.timestamp;
-    finishStep(args, step);
-  } catch (err) {
-    const failureMode: RequestFailureMode = node.data.failureMode ?? 'thrown-only';
-    if (failureMode === 'never') {
-      step.status = 'success';
-      step.error = err instanceof Error ? err.message : String(err);
-      step.duration = Date.now() - step.timestamp;
-      finishStep(args, step);
-      return;
-    }
-    step.status = 'failed';
-    step.error = err instanceof Error ? err.message : String(err);
-    step.duration = Date.now() - step.timestamp;
-    finishStep(args, step);
-    throw err;
-  }
+    step.extractedVariables = {
+      [varName]: matched === null ? '<no match>' : '<reply>',
+    };
+  });
 }
 
 async function runMcpCall(
   node: McpCallFlowNode,
   args: RunGraphArgs
 ): Promise<void> {
-  const step: WorkflowExecutionStep = {
+  const stepInit = {
     nodeId: node.id,
-    nodeKind: 'mcpCall',
+    nodeKind: 'mcpCall' as const,
     requestName: 'mcpCall',
-    status: 'running',
-    timestamp: Date.now(),
   };
-  args.onStepStart?.(step);
 
+  // ---- Setup ----
   const workflowRequest = args.workflow.requests.find(
     (r) => r.id === node.data.workflowRequestId
   );
   if (!workflowRequest) {
-    step.status = 'failed';
-    step.error = `mcpCall: WorkflowRequest "${node.data.workflowRequestId}" not found`;
-    finishStep(args, step);
-    throw new Error(step.error);
+    throw fatalStep(
+      args,
+      stepInit,
+      `mcpCall: WorkflowRequest "${node.data.workflowRequestId}" not found`
+    );
   }
   const rawRequest = args.options.getRequestById(workflowRequest.requestId);
   if (!rawRequest || rawRequest.type !== 'mcp') {
-    step.status = 'failed';
-    step.error = `mcpCall: linked request must be MCP-typed`;
-    finishStep(args, step);
-    throw new Error(step.error);
+    throw fatalStep(args, stepInit, 'mcpCall: linked request must be MCP-typed');
   }
-
   const protocol = protocolRegistry.get('mcp') as
     | (ReturnType<typeof protocolRegistry.get> & {
         runJsonRpc?: (
@@ -1143,10 +1177,11 @@ async function runMcpCall(
       })
     | undefined;
   if (!protocol?.runJsonRpc) {
-    step.status = 'failed';
-    step.error = 'mcpCall: MCP protocol has no runJsonRpc implementation';
-    finishStep(args, step);
-    throw new Error(step.error);
+    throw fatalStep(
+      args,
+      stepInit,
+      'mcpCall: MCP protocol has no runJsonRpc implementation'
+    );
   }
 
   const injected = protocol.injectVariables
@@ -1159,10 +1194,11 @@ async function runMcpCall(
       variables: args.variables,
     });
     if (!evald.ok) {
-      step.status = 'failed';
-      step.error = `mcpCall: paramsExpression failed: ${evald.error}`;
-      finishStep(args, step);
-      throw new Error(step.error);
+      throw fatalStep(
+        args,
+        stepInit,
+        `mcpCall: paramsExpression failed: ${evald.error}`
+      );
     }
     params = evald.value;
   }
@@ -1171,8 +1207,10 @@ async function runMcpCall(
     signal: args.abortSignal ?? new AbortController().signal,
     variables: { ...args.variables },
   };
+  const failureMode: RequestFailureMode = node.data.failureMode ?? 'thrown-only';
 
-  try {
+  // ---- Runtime ----
+  await withStreamingStep(args, stepInit, failureMode, async (step) => {
     // Share the executor-scoped client pool — N mcpCall nodes against
     // the same MCP server reuse one initialized session.
     const pool: McpClientPool = {
@@ -1187,40 +1225,15 @@ async function runMcpCall(
       cacheKey: workflowRequest.id,
     };
     if (params !== undefined) callArgs.params = params;
-    const result = await protocol.runJsonRpc(injected, ctx, callArgs);
-    const failureMode: RequestFailureMode = node.data.failureMode ?? 'thrown-only';
-
+    const result = await protocol.runJsonRpc!(injected, ctx, callArgs);
     if (!result.ok) {
-      if (failureMode === 'never') {
-        step.status = 'success';
-        step.error = result.error;
-        step.duration = Date.now() - step.timestamp;
-        finishStep(args, step);
-        return;
-      }
-      step.status = 'failed';
-      step.error = result.error || 'mcpCall: JSON-RPC error';
-      step.duration = Date.now() - step.timestamp;
-      finishStep(args, step);
-      throw new Error(step.error);
+      throw new Error(result.error || 'mcpCall: JSON-RPC error');
     }
-
     const varName = node.data.resultVar || `${node.id}.result`;
     args.variables[varName] =
       typeof result.result === 'string'
         ? result.result
         : JSON.stringify(result.result ?? null);
     step.extractedVariables = { [varName]: '<mcp result>' };
-    step.status = 'success';
-    step.duration = Date.now() - step.timestamp;
-    finishStep(args, step);
-  } catch (err) {
-    if (err instanceof Error && step.status !== 'failed') {
-      step.status = 'failed';
-      step.error = err.message;
-      step.duration = Date.now() - step.timestamp;
-      finishStep(args, step);
-    }
-    throw err;
-  }
+  });
 }

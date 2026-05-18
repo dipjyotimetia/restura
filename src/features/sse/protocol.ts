@@ -22,7 +22,7 @@ import type {
   ProtocolModule,
   ProtocolStreamHandle,
 } from '@/features/registry/types';
-import type { Request, SseRequest } from '@/types';
+import type { SseRequest } from '@/types';
 import { SseParser, type ParsedSseEvent } from './lib/sseParser';
 
 function createDefaultSseRequest(): SseRequest {
@@ -69,11 +69,16 @@ function buildUrlWithParams(req: SseRequest): string {
  * typed as `AsyncIterable<unknown>` (protocols differ in event shape).
  */
 async function sseStartStream(
-  request: Request,
+  request: unknown,
   ctx: { signal: AbortSignal }
 ): Promise<ProtocolStreamHandle> {
-  if (request.type !== 'sse') {
-    throw new Error(`SSE startStream cannot run ${request.type} request`);
+  if (
+    request === null ||
+    typeof request !== 'object' ||
+    (request as { type?: unknown }).type !== 'sse'
+  ) {
+    const t = (request as { type?: unknown })?.type;
+    throw new Error(`SSE startStream cannot run ${typeof t === 'string' ? t : 'unknown'} request`);
   }
   const sseReq = request as SseRequest;
   if (!sseReq.url.trim()) {

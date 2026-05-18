@@ -71,15 +71,21 @@ export interface ProtocolModule {
   /**
    * Open a long-lived streaming connection. Only defined on protocols
    * whose `runRequest` doesn't apply — SSE (server-push), WebSocket
-   * (full-duplex). The DAG executor's streaming-node executors (`sseSubscribe`,
-   * `wsExchange`) call this; legacy paths never do.
+   * (full-duplex). The DAG executor's streaming-node executors
+   * (`sseSubscribe`, `wsExchange`) call this; legacy paths never do.
+   *
+   * `request` is `unknown` because not every streaming protocol's
+   * input shape fits the `Request` discriminated union — WebSocket
+   * has no `Request` variant and is invoked with an inline `{ type:
+   * 'websocket', url }` shape. Each implementer narrows internally
+   * (`if (req.type !== 'sse') throw ...`). Mirrors the precedent set
+   * by `RunContext.protocolOptions: Record<string, unknown>`.
    *
    * MCP is session-based JSON-RPC; it uses `runJsonRpc` (defined on
-   * the MCP module specifically) rather than `startStream` because its
-   * shape is request/reply, not stream-of-events.
+   * the MCP module specifically) rather than `startStream`.
    */
   startStream?: (
-    request: Request,
+    request: unknown,
     ctx: RunContext
   ) => Promise<ProtocolStreamHandle>;
 }

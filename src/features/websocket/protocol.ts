@@ -190,8 +190,5 @@ export const websocketProtocol: ProtocolModule = {
       'WebSocket is full-duplex and stateful; use WebSocketClient + websocketManager, not the registry runner.'
     );
   },
-  // Cast through unknown — `startStream` is declared with `Request` in
-  // the ProtocolModule contract but wsExchange synthesises an inline
-  // WS request shape that isn't part of the `Request` union.
-  startStream: websocketStartStream as unknown as ProtocolModule['startStream'],
+  startStream: websocketStartStream,
 };

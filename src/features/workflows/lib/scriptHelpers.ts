@@ -143,6 +143,103 @@ export async function evalScriptBoolean(
 }
 
 /**
+ * Pooled evaluator — holds a live `ScriptExecutor` session so the
+ * QuickJS runtime + pm.* setup are paid once instead of per call. Used
+ * by the DAG executor's `consumeWithPolicy` for `eventMatch` predicates
+ * on high-frequency streams.
+ */
+export interface PooledEvaluator {
+  /** Evaluate against an optional per-call variable set. */
+  evaluate(perCallVars?: Record<string, string>): Promise<EvalResult>;
+  /** Dispose the underlying QuickJS runtime. Idempotent. */
+  dispose(): void;
+}
+
+const noopEvaluator: PooledEvaluator = {
+  evaluate: async () => ({ ok: false, error: 'Script is empty' }),
+  dispose: () => undefined,
+};
+
+export async function createPooledScriptEvaluator(
+  script: string,
+  baseCtx: ScriptEvalContext
+): Promise<PooledEvaluator> {
+  const trimmed = script?.trim?.();
+  if (!trimmed) return noopEvaluator;
+
+  const executor = new ScriptExecutor({ ...baseCtx.variables }, {});
+  await executor.initialize();
+
+  // The sentinel-wrapped script is composed once and reused across calls
+  // — the QuickJS runtime + pm.* bring-up happens during `initialize()`
+  // and is not repeated per `evaluate()`.
+  const wrapped = `
+    (function() {
+      try {
+        var __restura_value = (function() {
+          ${script}
+        })();
+        var __serialised = __restura_value === undefined ? null : __restura_value;
+        pm.variables.set(${JSON.stringify(RESULT_KEY)}, JSON.stringify(__serialised));
+      } catch (e) {
+        var __msg = (e && e.message) ? e.message : String(e);
+        pm.variables.set(${JSON.stringify(RESULT_KEY)}, JSON.stringify({ ${JSON.stringify(ERROR_MARKER)}: __msg }));
+      }
+    })();
+  `;
+
+  let disposed = false;
+  return {
+    async evaluate(perCallVars) {
+      if (disposed) return { ok: false, error: 'Evaluator disposed' };
+      // Clear stale sentinels left by the previous call.
+      executor.setVariable(RESULT_KEY, '');
+      executor.setVariable(COMPLETED_KEY, '');
+      if (perCallVars) {
+        for (const [k, v] of Object.entries(perCallVars)) {
+          executor.setVariable(k, v);
+        }
+      }
+      const scriptCtx: Parameters<typeof executor.eval>[1] = {};
+      if (baseCtx.request) scriptCtx.request = baseCtx.request;
+      if (baseCtx.response) scriptCtx.response = baseCtx.response;
+      const result = await executor.eval(wrapped, scriptCtx);
+      const raw = result.variables[RESULT_KEY];
+      if (typeof raw === 'string' && raw !== '') {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            ERROR_MARKER in (parsed as Record<string, unknown>)
+          ) {
+            return {
+              ok: false,
+              error: String((parsed as Record<string, unknown>)[ERROR_MARKER]),
+            };
+          }
+          return { ok: true, value: parsed };
+        } catch {
+          return { ok: false, error: 'Script result was not valid JSON' };
+        }
+      }
+      if (!result.success && !hasOnlySetupNoise(result.errors)) {
+        return {
+          ok: false,
+          error: result.errors.join('; ') || 'Script failed',
+        };
+      }
+      return { ok: false, error: 'Script did not produce a return value' };
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      executor.dispose();
+    },
+  };
+}
+
+/**
  * Run a script for its side effects on variables, returning the merged
  * map. Used by `setVariable` and `transform` nodes which want
  * `pm.variables.set(...)` calls to propagate. The result sentinel is

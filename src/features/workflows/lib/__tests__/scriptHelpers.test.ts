@@ -3,6 +3,7 @@ import {
   evalScriptValue,
   evalScriptBoolean,
   evalScriptForVariables,
+  createPooledScriptEvaluator,
 } from '../scriptHelpers';
 
 describe('evalScriptBoolean (precondition bug fix)', () => {
@@ -121,3 +122,66 @@ describe('evalScriptForVariables', () => {
     expect(result.ok).toBe(false);
   });
 }, 30000);
+
+describe('createPooledScriptEvaluator', () => {
+  it('evaluates against many distinct per-call variable sets', async () => {
+    const evaluator = await createPooledScriptEvaluator(
+      'return Number(pm.variables.get("event"));',
+      { variables: {} }
+    );
+    try {
+      // Run 20 sequential evaluations — they all share one QuickJS runtime.
+      // If the runtime were being recreated per call, the loop would still
+      // succeed, but this asserts correctness across many calls.
+      for (let i = 0; i < 20; i++) {
+        const r = await evaluator.evaluate({ event: String(i) });
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.value).toBe(i);
+      }
+    } finally {
+      evaluator.dispose();
+    }
+  });
+
+  it('uses noticeably less wall time than per-call evalScriptValue', async () => {
+    // 30 sequential evaluations. The pooled path skips the ~30 ms QuickJS
+    // bring-up per call. We assert the pool is at least 2× faster than the
+    // one-shot path — wide enough margin to avoid flakes.
+    const script = 'return Number(pm.variables.get("event")) > 5;';
+
+    const oneShotStart = Date.now();
+    for (let i = 0; i < 30; i++) {
+      await evalScriptValue(script, { variables: { event: String(i) } });
+    }
+    const oneShotMs = Date.now() - oneShotStart;
+
+    const evaluator = await createPooledScriptEvaluator(script, { variables: {} });
+    const pooledStart = Date.now();
+    try {
+      for (let i = 0; i < 30; i++) {
+        await evaluator.evaluate({ event: String(i) });
+      }
+    } finally {
+      evaluator.dispose();
+    }
+    const pooledMs = Date.now() - pooledStart;
+
+    expect(pooledMs).toBeLessThan(oneShotMs / 2);
+  });
+
+  it('dispose makes subsequent evaluate calls return a clear error', async () => {
+    const evaluator = await createPooledScriptEvaluator('return 1;', {
+      variables: {},
+    });
+    evaluator.dispose();
+    const r = await evaluator.evaluate();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/disposed/i);
+  });
+
+  it('returns a no-op evaluator for empty scripts', async () => {
+    const evaluator = await createPooledScriptEvaluator('   ', { variables: {} });
+    const r = await evaluator.evaluate();
+    expect(r.ok).toBe(false);
+  });
+}, 60000);

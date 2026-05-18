@@ -10,9 +10,12 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
+import { toast } from 'sonner';
 import type { Workflow, WorkflowGraph, SubgraphPath } from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { selectAtPath } from '../../lib/flowTypes';
+
+const SUBGRAPH_TOUR_KEY = 'restura.tour.subgraphDrillDown.v1';
 import { deriveGraphFromLinear, layoutGraph } from './layout/autoLayout';
 import { FlowToolbar } from './FlowToolbar';
 import { FlowSidebar } from './FlowSidebar';
@@ -91,13 +94,25 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
   }, []);
 
   /** Push one segment onto the current path (from inspector buttons). */
-  const pushPath = useCallback(
-    (segment: SubgraphPath[number]) => {
-      setSubgraphPath((curr) => [...curr, segment]);
-      setSelectedNodeId(null);
-    },
-    []
-  );
+  const pushPath = useCallback((segment: SubgraphPath[number]) => {
+    setSubgraphPath((curr) => [...curr, segment]);
+    setSelectedNodeId(null);
+    // One-time toast — many users miss that drilling into a forEach /
+    // tryCatch swaps the canvas for a separate editable slice.
+    if (typeof window !== 'undefined') {
+      try {
+        if (!window.localStorage.getItem(SUBGRAPH_TOUR_KEY)) {
+          toast.info(
+            'Now editing inside a sub-graph. Click "root" in the breadcrumb to go back.',
+            { duration: 8000 }
+          );
+          window.localStorage.setItem(SUBGRAPH_TOUR_KEY, '1');
+        }
+      } catch {
+        // localStorage may be unavailable (private mode, etc.); swallow.
+      }
+    }
+  }, []);
 
   // If the path becomes stale (parent node deleted in another tab), bail
   // back to root. Cheap reactive guard.
