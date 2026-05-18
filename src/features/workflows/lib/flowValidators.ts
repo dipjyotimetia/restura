@@ -166,6 +166,7 @@ const sseSubscribeNodeSchema = z.object({
     workflowRequestId: z.string().min(1),
     completion: completionPolicySchema,
     accumulateAll: z.boolean().optional(),
+    maxEvents: z.number().int().min(1).max(1_000_000).optional(),
     resultVar: z.string().optional(),
     failureMode: failureModeSchema,
   }),
@@ -176,10 +177,6 @@ const wsExchangeNodeSchema = z.object({
   kind: z.literal('wsExchange'),
   data: z.object({
     url: z.string().min(1),
-    headers: z
-      .array(z.object({ key: z.string(), value: z.string() }))
-      .optional(),
-    subprotocols: z.array(z.string()).optional(),
     sendExpression: z.string().min(1),
     matchExpression: z.string().min(1),
     completion: completionPolicySchema,

@@ -52,11 +52,20 @@ interface WorkflowBuilderProps {
 type BuilderTab = 'form' | 'graph';
 
 export function WorkflowBuilder({
-  workflow,
+  workflow: initialWorkflow,
   open,
   onOpenChange,
   onRun,
 }: WorkflowBuilderProps) {
+  // The caller (Sidebar) holds `selectedWorkflow` in local useState, so the
+  // `workflow` prop is a snapshot from click time — it never updates when
+  // we mutate the store. Subscribe to the live workflow by id and fall
+  // back to the snapshot if the store entry has been removed mid-edit.
+  const liveWorkflow = useWorkflowStore((s) =>
+    s.workflows.find((w) => w.id === initialWorkflow.id)
+  );
+  const workflow = liveWorkflow ?? initialWorkflow;
+
   const collections = useCollectionStore((s) => s.collections);
   const collection = collections.find((c) => c.id === workflow.collectionId);
 

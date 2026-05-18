@@ -1,24 +1,17 @@
 /**
  * WebSocket protocol module.
  *
- * Two surfaces:
+ * - `runRequest` still throws — the interactive WebSocketClient owns
+ *   connection lifecycle via useWebSocketStore + websocketManager.
+ * - `startStream` opens a native WebSocket from an inline `{ type:
+ *   'websocket', url }` request and returns a handle whose events
+ *   iterable yields incoming frames. The handle also carries a
+ *   structural `.send(frame)` extension so the DAG executor's
+ *   `wsExchange` node can push a frame after open.
  *
- *  1. `runRequest` — still throws. WebSocket is full-duplex and stateful;
- *     the interactive WebSocketClient owns connection lifecycle via
- *     useWebSocketStore + websocketManager.
- *
- *  2. `startStream` — opens a native WebSocket (with optional headers
- *     and subprotocols) and returns a `ProtocolStreamHandle` whose
- *     events iterable yields incoming frame payloads. The handle also
- *     carries a structural `.send(frame)` extension so callers can push
- *     frames out. The DAG executor's `wsExchange` node uses both.
- *
- * Note on browsers: the WebSocket constructor takes only `url` and
- * `protocols`. Custom HTTP headers on the upgrade request are NOT
- * supported in web mode — we ignore the headers list and rely on
- * cookies/auth-in-URL workarounds. Electron's main process can supply
- * headers but the renderer-side WebSocket constructor in this v1 stays
- * browser-shaped. Document the limitation rather than silently failing.
+ * Browser WebSocket can't set custom HTTP upgrade headers and the
+ * subprotocols field is unused in v1 — both are omitted from the
+ * inline shape rather than silently dropped.
  */
 import type {
   ProtocolModule,
@@ -28,8 +21,6 @@ import type {
 interface InlineWsRequestShape {
   type: 'websocket';
   url: string;
-  headers?: Array<{ key: string; value: string }>;
-  subprotocols?: string[];
 }
 
 function isInlineWs(req: unknown): req is InlineWsRequestShape {
@@ -50,11 +41,7 @@ async function websocketStartStream(
   }
   if (!request.url.trim()) throw new Error('WebSocket request has no URL');
 
-  const subprotocols = request.subprotocols ?? [];
-  const socket = new WebSocket(
-    request.url,
-    subprotocols.length > 0 ? subprotocols : undefined
-  );
+  const socket = new WebSocket(request.url);
 
   // Event queue + waiter, mirroring sseProtocol's pattern.
   const queue: unknown[] = [];

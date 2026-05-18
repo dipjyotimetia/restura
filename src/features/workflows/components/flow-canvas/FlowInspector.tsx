@@ -915,6 +915,28 @@ function SseSubscribeInspector({
         </Label>
       </div>
       <div>
+        <Label className="text-xs">Max events to collect</Label>
+        <Input
+          type="number"
+          min={1}
+          max={1_000_000}
+          className="mt-1 h-7 text-xs"
+          placeholder="10000"
+          value={node.data.maxEvents ?? ''}
+          onChange={(e) => {
+            const v = parseInt(e.target.value);
+            update((d) =>
+              Number.isFinite(v) && v > 0
+                ? { ...d, maxEvents: v }
+                : { ...d, maxEvents: undefined }
+            );
+          }}
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Caps the events array so a runaway stream can&apos;t exhaust memory.
+        </p>
+      </div>
+      <div>
         <Label className="text-xs">Result variable</Label>
         <Input
           className="mt-1 h-7 text-xs font-mono"

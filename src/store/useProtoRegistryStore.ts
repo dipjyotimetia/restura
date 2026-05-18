@@ -36,7 +36,7 @@ export const useProtoRegistryStore = create<ProtoRegistryState>()(
       protos: {},
 
       addProto: (name, content, packageName, services) => {
-        const id = `proto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const id = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
         const entry: ProtoFileEntry = {
           id,
           name,

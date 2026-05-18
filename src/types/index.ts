@@ -1066,6 +1066,11 @@ export interface SseSubscribeFlowNode extends FlowNodeBase {
     /** When false, only events matching the `eventMatch` predicate are
      *  accumulated (no-op for other completion kinds — all events kept). */
     accumulateAll?: boolean;
+    /** Maximum number of events to collect into `resultVar`. Defaults to
+     *  10_000 — prevents a runaway stream from filling memory with a
+     *  massive variable. When the cap is hit, the stream closes early
+     *  and the node settles as `success` with a warning logged. */
+    maxEvents?: number;
     /** Variable to receive the JSON-stringified events array.
      *  Defaults to `<nodeId>.events`. */
     resultVar?: string;
@@ -1077,13 +1082,9 @@ export interface SseSubscribeFlowNode extends FlowNodeBase {
 export interface WsExchangeFlowNode extends FlowNodeBase {
   kind: 'wsExchange';
   data: {
-    /** WebSocket URL. Inline because there's no WebSocketRequest type
-     *  in the collection model today. */
+    /** WebSocket URL (`ws:` or `wss:`). Inline because there's no
+     *  WebSocketRequest type in the collection model today. */
     url: string;
-    /** Optional headers (Electron only — browsers ignore custom WS headers). */
-    headers?: Array<{ key: string; value: string }>;
-    /** Optional subprotocols. */
-    subprotocols?: string[];
     /** QuickJS expression evaluated to the frame to send on open. */
     sendExpression: string;
     /** QuickJS predicate against `event` — first truthy match wins. */

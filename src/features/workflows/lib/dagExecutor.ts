@@ -29,9 +29,15 @@ import type {
   RunContext,
   ProtocolStreamHandle,
 } from '@/features/registry/types';
+import type { McpClient } from '@/features/mcp/lib/mcpClient';
+import type {
+  McpClientPool,
+  McpRunJsonRpcOptions,
+} from '@/features/mcp/protocol';
 import { extractVariables } from './variableExtractor';
 import { injectString } from './variableHelpers';
 import { executeWithRetry, sleepWithAbort, isAbortError } from './retryHelpers';
+import { validateURL } from '@shared/protocol/url-validation';
 import {
   evalScriptBoolean,
   evalScriptValue,
@@ -123,6 +129,8 @@ export async function executeDag(
     return execution;
   }
 
+  const mcpClientPool: Map<string, McpClient> = new Map();
+
   try {
     await runGraph({
       graph: validation.graph,
@@ -133,6 +141,7 @@ export async function executeDag(
       log,
       abortSignal,
       callStack: [...callStack, workflow.id],
+      mcpClientPool,
       onStepStart,
       onStepComplete,
     });
@@ -148,6 +157,14 @@ export async function executeDag(
       log(`Workflow failed: ${msg}`, 'error');
     }
   } finally {
+    // Tear down pooled MCP clients in parallel — we don't await
+    // sequentially since a slow disconnect shouldn't block the others.
+    await Promise.all(
+      Array.from(mcpClientPool.values()).map((c) =>
+        c.disconnect().catch(() => undefined)
+      )
+    );
+    mcpClientPool.clear();
     execution.completedAt = Date.now();
   }
 
@@ -169,6 +186,11 @@ interface RunGraphArgs {
   log: Logger;
   abortSignal?: AbortSignal;
   callStack: ReadonlyArray<string>;
+  /** Per-run MCP client pool keyed by WorkflowRequest id. Initialised
+   *  in `executeDag` and disposed in its finally block. Lets multiple
+   *  mcpCall nodes hitting the same MCP server share one initialized
+   *  session instead of paying the initialize round-trip N times. */
+  mcpClientPool: Map<string, McpClient>;
   onStepStart?: (step: WorkflowExecutionStep) => void;
   onStepComplete?: (step: WorkflowExecutionStep) => void;
 }
@@ -930,15 +952,25 @@ async function runSseSubscribe(
 
   const collected: unknown[] = [];
   const accumulateAll = node.data.accumulateAll ?? true;
+  const maxEvents = node.data.maxEvents ?? 10_000;
+  let cappedEarly = false;
 
   try {
     const handle = await protocol.startStream(injected, ctx);
     await consumeWithPolicy(handle, node.data.completion, ctx.signal, (event, matched) => {
       if (accumulateAll || (node.data.completion.kind === 'eventMatch' && matched)) {
-        collected.push(event);
+        if (collected.length < maxEvents) {
+          collected.push(event);
+        } else if (!cappedEarly) {
+          cappedEarly = true;
+          args.log(
+            `sseSubscribe "${node.id}" hit maxEvents=${maxEvents}; closing stream early`,
+            'warn'
+          );
+          // Force-close so the rest of the stream doesn't waste CPU/memory.
+          handle.close().catch(() => undefined);
+        }
       }
-      // Live progress for the canvas — increments the merged variables
-      // map so the node renderer can show event count.
       args.variables[`${node.id}.eventCount`] = String(collected.length);
     });
 
@@ -986,22 +1018,19 @@ async function runWsExchange(
     throw new Error(step.error);
   }
 
-  // wsExchange uses inline config (no WebSocketRequest type exists).
-  // We synthesise a minimal `Request` shape that satisfies the protocol's
-  // type-narrowing — passed as `type: 'http'` is wrong; instead we pass
-  // a bespoke object the websocketProtocol.startStream knows how to read.
-  // Cast through unknown because the registry's `Request` type doesn't
-  // cover this shape.
+  // wsExchange holds inline URL config — there's no WebSocketRequest type
+  // in the collection model, so the request shape is synthesised here.
   const url = injectString(node.data.url, args.variables);
-  const headersList = (node.data.headers ?? []).map((h) => ({
-    key: injectString(h.key, args.variables),
-    value: injectString(h.value, args.variables),
-  }));
+  const urlCheck = validateURL(url, { allowedSchemes: ['ws:', 'wss:'] });
+  if (!urlCheck.valid) {
+    step.status = 'failed';
+    step.error = `wsExchange: ${urlCheck.error}`;
+    finishStep(args, step);
+    throw new Error(step.error);
+  }
   const synthRequest = {
     type: 'websocket',
     url,
-    headers: headersList,
-    subprotocols: node.data.subprotocols ?? [],
   } as unknown as Request;
 
   const ctx: RunContext = {
@@ -1104,7 +1133,7 @@ async function runMcpCall(
         runJsonRpc?: (
           request: Request,
           ctx: RunContext,
-          opts: { method: string; params?: unknown }
+          opts: McpRunJsonRpcOptions
         ) => Promise<{
           ok: boolean;
           result?: unknown;
@@ -1144,7 +1173,19 @@ async function runMcpCall(
   };
 
   try {
-    const callArgs: { method: string; params?: unknown } = { method: node.data.method };
+    // Share the executor-scoped client pool — N mcpCall nodes against
+    // the same MCP server reuse one initialized session.
+    const pool: McpClientPool = {
+      get: (k) => args.mcpClientPool.get(k),
+      set: (k, c) => {
+        args.mcpClientPool.set(k, c);
+      },
+    };
+    const callArgs: McpRunJsonRpcOptions = {
+      method: node.data.method,
+      clientPool: pool,
+      cacheKey: workflowRequest.id,
+    };
     if (params !== undefined) callArgs.params = params;
     const result = await protocol.runJsonRpc(injected, ctx, callArgs);
     const failureMode: RequestFailureMode = node.data.failureMode ?? 'thrown-only';
