@@ -39,30 +39,7 @@ const BRUNO_SYNTAX_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\{\{\$randomInt\(\d+,\s*\d+\)\}\}/g, label: 'randomInt with range' },
 ];
 
-interface BrunoLangModule {
-  bruToJsonV2: (raw: string) => unknown;
-  bruToEnvJsonV2: (raw: string) => unknown;
-  collectionBruToJson: (raw: string) => unknown;
-}
-
-async function loadBrunoLang(): Promise<BrunoLangModule> {
-  // Lazy-load — keeps the ~400KB grammar out of the main bundle until a
-  // user actually triggers a Bruno import.
-  const mod = (await import('@usebruno/lang')) as unknown as {
-    default?: BrunoLangModule;
-  } & BrunoLangModule;
-  const lang: BrunoLangModule = mod.default ?? mod;
-  if (
-    typeof lang.bruToJsonV2 !== 'function' ||
-    typeof lang.bruToEnvJsonV2 !== 'function' ||
-    typeof lang.collectionBruToJson !== 'function'
-  ) {
-    throw new Error(
-      '@usebruno/lang did not expose the expected V2 API (bruToJsonV2, bruToEnvJsonV2, collectionBruToJson).'
-    );
-  }
-  return lang;
-}
+import { loadBrunoLang } from '../bruno-lang';
 
 export async function importBrunoCollection(source: BrunoSource): Promise<ImportResult> {
   const lang = await loadBrunoLang();

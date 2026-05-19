@@ -3,7 +3,7 @@ import type { GrpcRequest } from '@/types';
 import { startGrpcStream, type GrpcStreamingHandle } from '../lib/grpcStreamingClient';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Button } from '@/components/ui/button';
-import { Square, Play, Send, StopCircle } from 'lucide-react';
+import { Square, Play, Send, StopCircle, ArrowDown, ArrowUp } from 'lucide-react';
 
 export interface GrpcStreamingPanelProps {
   request: GrpcRequest;
@@ -11,15 +11,24 @@ export interface GrpcStreamingPanelProps {
   protoFileName?: string;
 }
 
-type Status = 'idle' | 'streaming' | 'closed' | 'error';
+type Status = 'idle' | 'streaming' | 'awaiting-response' | 'closed' | 'error';
+
+interface FrameEntry {
+  direction: 'in' | 'out';
+  payload: unknown;
+  timestamp: number;
+}
 
 const MAX_MESSAGES = 500;
 
 const isInteractive = (methodType: GrpcRequest['methodType']) =>
   methodType === 'client-streaming' || methodType === 'bidirectional-streaming';
 
+const isClientStream = (methodType: GrpcRequest['methodType']) =>
+  methodType === 'client-streaming';
+
 export function GrpcStreamingPanel({ request, protoContent, protoFileName }: GrpcStreamingPanelProps) {
-  const [messages, setMessages] = useState<unknown[]>([]);
+  const [frames, setFrames] = useState<FrameEntry[]>([]);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [outboundDraft, setOutboundDraft] = useState('{}');
@@ -28,8 +37,18 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
   const handleRef = useRef<GrpcStreamingHandle | null>(null);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
+  const clientStream = isClientStream(request.methodType);
+  const interactive = isInteractive(request.methodType);
+
+  const pushFrame = (direction: FrameEntry['direction'], payload: unknown) => {
+    setFrames((prev) => {
+      const next = [...prev, { direction, payload, timestamp: Date.now() }];
+      return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
+    });
+  };
+
   const start = async () => {
-    setMessages([]);
+    setFrames([]);
     setError(null);
     setDraftError(null);
     setSendEnded(false);
@@ -41,10 +60,12 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
       void (async () => {
         try {
           for await (const msg of handle.messages) {
-            setMessages((prev) => {
-              const next = [...prev, msg];
-              return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
-            });
+            pushFrame('in', msg);
+            if (clientStream) {
+              // Client-streaming returns a single response after closeSend(); once we
+              // get it the call is effectively done.
+              setStatus('closed');
+            }
           }
           await handle.done;
           setStatus((cur) => (cur === 'error' ? cur : 'closed'));
@@ -69,11 +90,16 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
       return;
     }
     handleRef.current?.send(parsed);
+    pushFrame('out', parsed);
   };
 
   const end = () => {
     handleRef.current?.closeSend();
     setSendEnded(true);
+    if (clientStream) {
+      // Client-streaming: after EOF, the server has up to one reply remaining.
+      setStatus('awaiting-response');
+    }
   };
 
   const cancel = () => {
@@ -90,14 +116,21 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
   const statusLabel =
     status === 'streaming'
       ? 'Streaming'
-      : status === 'error'
-        ? 'Error'
-        : status === 'closed'
-          ? 'Closed'
-          : 'Idle';
+      : status === 'awaiting-response'
+        ? 'Awaiting response'
+        : status === 'error'
+          ? 'Error'
+          : status === 'closed'
+            ? 'Closed'
+            : 'Idle';
 
-  const interactive = isInteractive(request.methodType);
-  const streaming = status === 'streaming';
+  const streaming = status === 'streaming' || status === 'awaiting-response';
+  // `awaiting-response` only applies to client-streaming — after closeSend()
+  // outbound is finished, but the call is still alive waiting for the single
+  // server response. So we only accept new sends while the stream is active.
+  const sendAllowed = status === 'streaming' && !sendEnded;
+  const inboundCount = frames.filter((f) => f.direction === 'in').length;
+  const outboundCount = frames.filter((f) => f.direction === 'out').length;
 
   return (
     <div className="flex flex-col h-full" aria-label="gRPC streaming panel">
@@ -124,7 +157,22 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
           />
           {statusLabel}
         </span>
-        <span className="text-muted-foreground">{messages.length} messages</span>
+        <span
+          className="text-muted-foreground inline-flex items-center gap-1"
+          aria-label="received message count"
+        >
+          <ArrowDown className="size-3" />
+          {inboundCount}
+        </span>
+        {interactive && (
+          <span
+            className="text-muted-foreground inline-flex items-center gap-1"
+            aria-label="sent message count"
+          >
+            <ArrowUp className="size-3" />
+            {outboundCount}
+          </span>
+        )}
         <div className="flex-1" />
         {!streaming && (
           <Button size="sm" variant="default" onClick={start} aria-label="start stream">
@@ -149,13 +197,17 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
         <div className="border-b px-3 py-2 space-y-2">
           <label className="text-xs text-muted-foreground" htmlFor="streaming-message-input">
             Outbound message
+            {clientStream && sendEnded && (
+              <span className="ml-2 italic">— send closed, waiting for server reply</span>
+            )}
           </label>
           <textarea
             id="streaming-message-input"
             aria-label="Streaming message JSON"
-            className="w-full font-mono text-xs border rounded p-2 resize-none bg-background min-h-[60px] focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-full font-mono text-xs border rounded p-2 resize-none bg-background min-h-[60px] focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
             value={outboundDraft}
             onChange={(e) => setOutboundDraft(e.target.value)}
+            disabled={!sendAllowed}
             rows={3}
           />
           {draftError && (
@@ -168,7 +220,7 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
               size="sm"
               variant="outline"
               onClick={send}
-              disabled={sendEnded}
+              disabled={!sendAllowed}
               aria-label="send message"
             >
               <Send className="size-3 mr-1" />
@@ -178,23 +230,55 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
               size="sm"
               variant="ghost"
               onClick={end}
-              disabled={sendEnded}
+              disabled={!sendAllowed}
               aria-label="end outbound stream"
             >
               <StopCircle className="size-3 mr-1" />
-              End
+              {clientStream ? 'Done sending' : 'End'}
             </Button>
           </div>
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto p-3 font-mono text-xs space-y-2">
-        {messages.map((msg, i) => (
-          <div key={i} className="border-b border-border/30 pb-2 last:border-b-0">
-            <div className="text-muted-foreground text-[10px] mb-1">#{i + 1}</div>
-            <pre className="whitespace-pre-wrap break-all">{JSON.stringify(msg, null, 2)}</pre>
+        {frames.length === 0 && status !== 'error' && (
+          <div className="text-muted-foreground italic">
+            {interactive
+              ? 'No frames yet. Click Start, then send a message.'
+              : 'No messages yet. Click Start.'}
           </div>
-        ))}
+        )}
+        {frames.map((frame, i) => {
+          const outbound = frame.direction === 'out';
+          return (
+            <div
+              key={i}
+              className={[
+                'border-b border-border/30 pb-2 last:border-b-0',
+                outbound ? 'pl-2 border-l-2 border-l-blue-500/50' : '',
+              ].join(' ')}
+              data-direction={frame.direction}
+              data-testid={`grpc-frame-${frame.direction}`}
+            >
+              <div className="text-muted-foreground text-[10px] mb-1 flex items-center gap-1">
+                {outbound ? (
+                  <>
+                    <ArrowUp className="size-2.5" />
+                    <span>Sent #{i + 1}</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowDown className="size-2.5" />
+                    <span>Received #{i + 1}</span>
+                  </>
+                )}
+              </div>
+              <pre className="whitespace-pre-wrap break-all">
+                {JSON.stringify(frame.payload, null, 2)}
+              </pre>
+            </div>
+          );
+        })}
         {error && (
           <div role="alert" className="text-red-600 border-l-2 border-red-600 pl-2 py-1">
             {error}

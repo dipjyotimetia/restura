@@ -8,6 +8,14 @@ import type {
   QuickJSRuntime,
 } from 'quickjs-emscripten';
 import { getQuickJS } from 'quickjs-emscripten';
+import { PM_EXPECT_CODE } from './chaiSubset';
+
+export interface PmRequestInfo {
+  requestName?: string;
+  requestId?: string;
+  iteration?: number;
+  iterationCount?: number;
+}
 
 export interface ScriptContext {
   // Request/Response data
@@ -181,13 +189,17 @@ class ScriptExecutor {
   }
 
   /**
-   * Bind `request` and/or `response` globals from `context` onto the VM.
-   * Called by `eval()` per-invocation when context is provided — the
-   * previous handle is garbage-collected by QuickJS when overwritten.
+   * Bind `request`, `response`, and `pm.info` globals from `context` onto the
+   * VM. Called by `eval()` per-invocation — the previous handle is
+   * garbage-collected by QuickJS when overwritten.
    */
   private bindRequestResponse(
     vm: QuickJSContext,
-    context: { request?: ScriptContext['request']; response?: ScriptContext['response'] }
+    context: {
+      request?: ScriptContext['request'];
+      response?: ScriptContext['response'];
+      info?: PmRequestInfo;
+    }
   ): void {
     if (context.request) {
       const handle = this.makeJSValue(vm, context.request);
@@ -199,6 +211,57 @@ class ScriptExecutor {
       vm.setProp(vm.global, 'response', handle);
       handle.dispose();
     }
+    if (context.info) {
+      // Bind into pm.info — pm itself is already on the global, set via
+      // an eval so we can reach pm.info.requestName etc. with normal
+      // property-set semantics rather than another setProp chain.
+      const payload = JSON.stringify({
+        requestName: context.info.requestName ?? '',
+        requestId: context.info.requestId ?? '',
+        iteration: context.info.iteration ?? 0,
+        iterationCount: context.info.iterationCount ?? 1,
+      });
+      const r = vm.evalCode(`pm.info = ${payload};`);
+      if (r.error) r.error.dispose();
+      else r.value.dispose();
+    }
+  }
+
+  /**
+   * Build a QuickJS object exposing get/set/unset/has against a live
+   * Record<string,string>. Mutations go straight to the backing map; the
+   * caller is responsible for setProp-ing it under the right name and
+   * disposing the returned handle.
+   *
+   * Shared by `environment`, `globals`, and the four `pm.*` namespaces —
+   * keeping the binding logic in one place means new behaviour (e.g.
+   * change-notification) only needs to land here.
+   */
+  private buildKvNamespace(vm: QuickJSContext, store: Record<string, string>): QuickJSHandle {
+    const ns = vm.newObject();
+    const get = vm.newFunction('get', (keyHandle) => {
+      const key = vm.getString(keyHandle);
+      const value = store[key];
+      return value !== undefined ? vm.newString(value) : vm.undefined;
+    });
+    const set = vm.newFunction('set', (keyHandle, valueHandle) => {
+      store[vm.getString(keyHandle)] = vm.getString(valueHandle);
+    });
+    const unset = vm.newFunction('unset', (keyHandle) => {
+      delete store[vm.getString(keyHandle)];
+    });
+    const has = vm.newFunction('has', (keyHandle) => {
+      return store[vm.getString(keyHandle)] !== undefined ? vm.true : vm.false;
+    });
+    vm.setProp(ns, 'get', get);
+    vm.setProp(ns, 'set', set);
+    vm.setProp(ns, 'unset', unset);
+    vm.setProp(ns, 'has', has);
+    get.dispose();
+    set.dispose();
+    unset.dispose();
+    has.dispose();
+    return ns;
   }
 
   /** Native → QuickJS handle. Extracted from setupQuickJSContext so the
@@ -243,6 +306,7 @@ class ScriptExecutor {
     context: {
       request?: ScriptContext['request'];
       response?: ScriptContext['response'];
+      info?: PmRequestInfo;
     } = {}
   ): Promise<ScriptResult> {
     const vm = this.vm;
@@ -368,42 +432,14 @@ class ScriptExecutor {
     infoFn.dispose();
     consoleObj.dispose();
 
-    // Setup environment object
-    const envObj = vm.newObject();
-    const envGetFn = vm.newFunction('get', (keyHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = this.envVars[key];
-      return value !== undefined ? vm.newString(value) : vm.undefined;
-    });
-    const envSetFn = vm.newFunction('set', (keyHandle, valueHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = vm.getString(valueHandle);
-      this.envVars[key] = value;
-    });
-    vm.setProp(envObj, 'get', envGetFn);
-    vm.setProp(envObj, 'set', envSetFn);
+    // Top-level `environment` and `globals` namespaces. Both expose the
+    // same get/set/unset/has surface as their `pm.*` aliases below.
+    const envObj = this.buildKvNamespace(vm, this.envVars);
     vm.setProp(vm.global, 'environment', envObj);
-    envGetFn.dispose();
-    envSetFn.dispose();
     envObj.dispose();
 
-    // Setup globals object
-    const globalsObj = vm.newObject();
-    const globalsGetFn = vm.newFunction('get', (keyHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = this.globalVars[key];
-      return value !== undefined ? vm.newString(value) : vm.undefined;
-    });
-    const globalsSetFn = vm.newFunction('set', (keyHandle, valueHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = vm.getString(valueHandle);
-      this.globalVars[key] = value;
-    });
-    vm.setProp(globalsObj, 'get', globalsGetFn);
-    vm.setProp(globalsObj, 'set', globalsSetFn);
+    const globalsObj = this.buildKvNamespace(vm, this.globalVars);
     vm.setProp(vm.global, 'globals', globalsObj);
-    globalsGetFn.dispose();
-    globalsSetFn.dispose();
     globalsObj.dispose();
 
     // Setup pm (Postman-compatible) API
@@ -415,8 +451,17 @@ class ScriptExecutor {
       try {
         const result = vm.callFunction(fnHandle, vm.undefined);
         if (result.error) {
-          const errorMsg = vm.dump(result.error);
-          this.addTest(name, false, String(errorMsg));
+          const dumped = vm.dump(result.error) as unknown;
+          // QuickJS dumps an Error as { name, message, stack }. Extract
+          // the message so a failing assertion shows the user the actual
+          // assertion text rather than `[object Object]`.
+          const msg =
+            typeof dumped === 'string'
+              ? dumped
+              : dumped && typeof dumped === 'object' && 'message' in dumped
+                ? String((dumped as { message: unknown }).message)
+                : String(dumped);
+          this.addTest(name, false, msg);
           result.error.dispose();
         } else {
           this.addTest(name, true);
@@ -429,43 +474,34 @@ class ScriptExecutor {
     vm.setProp(pmObj, 'test', testFn);
     testFn.dispose();
 
-    // pm.variables
-    const variablesObj = vm.newObject();
-    const varGetFn = vm.newFunction('get', (keyHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = this.envVars[key];
-      return value !== undefined ? vm.newString(value) : vm.undefined;
-    });
-    const varSetFn = vm.newFunction('set', (keyHandle, valueHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = vm.getString(valueHandle);
-      this.envVars[key] = value;
-    });
-    vm.setProp(variablesObj, 'get', varGetFn);
-    vm.setProp(variablesObj, 'set', varSetFn);
-    vm.setProp(pmObj, 'variables', variablesObj);
-    varGetFn.dispose();
-    varSetFn.dispose();
-    variablesObj.dispose();
+    // pm.variables / pm.globals / pm.environment / pm.collectionVariables —
+    // four Postman namespaces, all wrapping a Record<string,string> with the
+    // same get/set/unset/has shape. `collectionVariables` shares the envVars
+    // store in v1 (matches Postman's resolution chain); a later change can
+    // split workspace vs. collection-scoped storage.
+    for (const [name, map] of [
+      ['variables', this.envVars],
+      ['globals', this.globalVars],
+      ['environment', this.envVars],
+      ['collectionVariables', this.envVars],
+    ] as const) {
+      const ns = this.buildKvNamespace(vm, map);
+      vm.setProp(pmObj, name, ns);
+      ns.dispose();
+    }
 
-    // pm.globals
-    const pmGlobalsObj = vm.newObject();
-    const pmGlobalsGetFn = vm.newFunction('get', (keyHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = this.globalVars[key];
-      return value !== undefined ? vm.newString(value) : vm.undefined;
-    });
-    const pmGlobalsSetFn = vm.newFunction('set', (keyHandle, valueHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = vm.getString(valueHandle);
-      this.globalVars[key] = value;
-    });
-    vm.setProp(pmGlobalsObj, 'get', pmGlobalsGetFn);
-    vm.setProp(pmGlobalsObj, 'set', pmGlobalsSetFn);
-    vm.setProp(pmObj, 'globals', pmGlobalsObj);
-    pmGlobalsGetFn.dispose();
-    pmGlobalsSetFn.dispose();
-    pmGlobalsObj.dispose();
+    // pm.iterationData — empty stub for v1 (the runner doesn't yet drive
+    // data-file iteration). Scripts that call .get() get undefined back,
+    // which matches Postman's behaviour for an unbound variable.
+    const pmIterData = vm.newObject();
+    const pmIterGet = vm.newFunction('get', () => vm.undefined);
+    const pmIterToObject = vm.newFunction('toObject', () => vm.newObject());
+    vm.setProp(pmIterData, 'get', pmIterGet);
+    vm.setProp(pmIterData, 'toObject', pmIterToObject);
+    vm.setProp(pmObj, 'iterationData', pmIterData);
+    pmIterGet.dispose();
+    pmIterToObject.dispose();
+    pmIterData.dispose();
 
     // Setup pm.expect and pm.response as helper functions
     // Inject utility helpers — date, random, encoding
@@ -560,129 +596,20 @@ class ScriptExecutor {
       utilsResult.value.dispose();
     }
 
-    const expectCode = `
-      pm.expect = function(actual) {
-        return {
-          to: {
-            equal: function(expected) {
-              if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-                throw new Error('Expected ' + JSON.stringify(expected) + ' but got ' + JSON.stringify(actual));
-              }
-            },
-            be: {
-              a: function(type) {
-                var actualType = Array.isArray(actual) ? 'array' : typeof actual;
-                if (actualType !== type.toLowerCase()) {
-                  throw new Error('Expected type ' + type + ' but got ' + actualType);
-                }
-              },
-              true: function() {
-                if (actual !== true) {
-                  throw new Error('Expected true but got ' + JSON.stringify(actual));
-                }
-              },
-              false: function() {
-                if (actual !== false) {
-                  throw new Error('Expected false but got ' + JSON.stringify(actual));
-                }
-              }
-            },
-            have: {
-              property: function(prop) {
-                if (typeof actual !== 'object' || actual === null || !(prop in actual)) {
-                  throw new Error('Expected object to have property "' + prop + '"');
-                }
-              },
-              length: function(len) {
-                if (typeof actual !== 'object' || actual === null || !('length' in actual)) {
-                  throw new Error('Expected value to have length property');
-                }
-                if (actual.length !== len) {
-                  throw new Error('Expected length ' + len + ' but got ' + actual.length);
-                }
-              }
-            }
-          }
-        };
-      };
+    // Put pm on the global BEFORE we eval any code that references it
+    // (the pm.info default and PM_EXPECT_CODE both expect `pm` to exist).
+    vm.setProp(vm.global, 'pm', pmObj);
 
-      pm.response = {
-        to: {
-          have: {
-            status: function(code) {
-              if (typeof response === 'undefined' || response.status !== code) {
-                throw new Error('Expected status ' + code + ' but got ' + (response ? response.status : 'undefined'));
-              }
-            },
-            header: function(key, value) {
-              if (typeof response === 'undefined') throw new Error('No response available');
-              var headerValue = response.headers[key] || response.headers[key.toLowerCase()];
-              if (!headerValue) {
-                throw new Error('Expected header "' + key + '" to exist');
-              }
-              if (value !== undefined && headerValue !== value) {
-                throw new Error('Expected header "' + key + '" to be "' + value + '" but got "' + headerValue + '"');
-              }
-            },
-            body: function(value) {
-              if (typeof response === 'undefined' || !response.body) {
-                throw new Error('Expected response to have body');
-              }
-              if (value !== undefined && JSON.stringify(response.body) !== JSON.stringify(value)) {
-                throw new Error('Expected body to be ' + JSON.stringify(value) + ' but got ' + JSON.stringify(response.body));
-              }
-            },
-            jsonBody: function(path, value) {
-              if (typeof response === 'undefined' || !response.body) {
-                throw new Error('Expected response to have JSON body');
-              }
-              if (path) {
-                var parts = path.split('.');
-                var current = response.body;
-                for (var i = 0; i < parts.length; i++) {
-                  if (current === null || typeof current !== 'object') {
-                    throw new Error('Cannot access path ' + path);
-                  }
-                  current = current[parts[i]];
-                }
-                if (value !== undefined && JSON.stringify(current) !== JSON.stringify(value)) {
-                  throw new Error('Expected ' + path + ' to be ' + JSON.stringify(value) + ' but got ' + JSON.stringify(current));
-                }
-              }
-            }
-          },
-          be: {
-            ok: function() {
-              if (typeof response === 'undefined' || response.status < 200 || response.status >= 300) {
-                throw new Error('Expected successful status but got ' + (response ? response.status : 'undefined'));
-              }
-            },
-            json: function() {
-              if (typeof response === 'undefined' || typeof response.body !== 'object') {
-                throw new Error('Expected response to be JSON');
-              }
-            },
-            html: function() {
-              if (typeof response === 'undefined') throw new Error('No response available');
-              var contentType = response.headers['content-type'] || response.headers['Content-Type'];
-              if (!contentType || contentType.indexOf('text/html') === -1) {
-                throw new Error('Expected response to be HTML');
-              }
-            }
-          }
-        },
-        time: {
-          below: function(ms) {
-            if (typeof response === 'undefined' || response.time >= ms) {
-              throw new Error('Expected response time below ' + ms + 'ms but got ' + (response ? response.time : 'undefined') + 'ms');
-            }
-          }
-        }
-      };
-    `;
+    // pm.info — default empty; per-eval bindRequestResponse() overwrites with
+    // the active request's name/id when available.
+    const pmInfo = vm.evalCode(
+      "pm.info = { requestName: '', requestId: '', iteration: 0, iterationCount: 1 };"
+    );
+    if (pmInfo.error) pmInfo.error.dispose();
+    else pmInfo.value.dispose();
 
-    // Evaluate the expect/response setup code
-    const setupResult = vm.evalCode(expectCode);
+    // Evaluate the expect / response setup code (imported from chaiSubset.ts).
+    const setupResult = vm.evalCode(PM_EXPECT_CODE);
     if (setupResult.error) {
       const errorMsg = vm.dump(setupResult.error);
       this.addLog('error', `Failed to setup pm API: ${errorMsg}`);
@@ -723,6 +650,7 @@ class ScriptExecutor {
     context: {
       request?: ScriptContext['request'];
       response?: ScriptContext['response'];
+      info?: PmRequestInfo;
     }
   ): Promise<ScriptResult> {
     try {

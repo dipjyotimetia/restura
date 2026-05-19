@@ -213,7 +213,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   }, [collections, createNewCollection, addCollection]);
 
   const handleExportCollection = useCallback(
-    (collectionId: string, format: 'postman' | 'insomnia' | 'opencollection') => {
+    async (collectionId: string, format: 'postman' | 'insomnia' | 'opencollection' | 'bruno') => {
       const collection = collections.find((c) => c.id === collectionId);
       if (!collection) return;
 
@@ -223,6 +223,18 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       } else if (format === 'insomnia') {
         const insomniaData = exportToInsomnia(collection);
         downloadJSON(insomniaData, `${collection.name}.insomnia.json`);
+      } else if (format === 'bruno') {
+        // Lazy import — keeps @usebruno/lang out of the main bundle.
+        const { exportBrunoCollection } = await import('../lib/bruno-exporter');
+        const exported = await exportBrunoCollection(collection);
+        if (exported.kind !== 'directory') return;
+        // Package the directory as a single archive JSON so a web user can
+        // download it; an Electron-aware "save to folder" UX lands with the
+        // git-native collections milestone.
+        downloadJSON(
+          { format: 'bruno-archive/v1', files: exported.entries },
+          `${collection.name}.bruno-archive.json`
+        );
       } else {
         const yamlText = exportToOpenCollection(collection);
         downloadText(yamlText, `${collection.name}.opencollection.yaml`, 'application/x-yaml');
@@ -636,6 +648,12 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                                   className="text-xs"
                                 >
                                   OpenCollection (YAML)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleExportCollection(collection.id, 'bruno')}
+                                  className="text-xs"
+                                >
+                                  Bruno (.bru archive)
                                 </DropdownMenuItem>
                               </DropdownMenuSubContent>
                             </DropdownMenuSub>

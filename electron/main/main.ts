@@ -14,8 +14,14 @@ import { logRequest, registerRequestLoggerIPC } from './request-logger';
 import { registerWindowControlsIPC } from './window-controls';
 import { createSystemTray, destroyTray } from './system-tray';
 import { registerNotificationIPC } from './notifications';
-import { registerCollectionManagerIPC, cleanupCollectionWatchers } from './collection-manager';
+import {
+  registerCollectionManagerIPC,
+  cleanupCollectionWatchers,
+  isRegisteredCollectionDirectory,
+} from './collection-manager';
 import { registerStoreHandlerIPC } from './store-handler';
+import { registerSecretHandleIPC } from './secret-handle-store';
+import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerDeepLinkHandler } from './deep-link-handler';
 
 // Initialize crash reporter early (before app.whenReady)
@@ -87,6 +93,12 @@ function registerIPCHandlers(): void {
   registerNotificationIPC(getMainWindow, isDev);
   registerCollectionManagerIPC(getMainWindow);
   registerStoreHandlerIPC();
+  registerSecretHandleIPC();
+  // Git operations are restricted to directories that are registered as
+  // file-backed collections — `isRegisteredCollectionDirectory` consults the
+  // active chokidar watchers in collection-manager.
+  setGitDirectoryAllowlist(isRegisteredCollectionDirectory);
+  registerGitHandlerIPC();
 }
 
 // Setup Content Security Policy for production

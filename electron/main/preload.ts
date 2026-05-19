@@ -392,6 +392,65 @@ const electronAPI = {
       ipcRenderer.invoke('store:has', key),
   },
 
+  // Git operations for file-backed collections. Read-only in v1 — write
+  // operations (commit, branch switch, push/pull) land with the auth model.
+  // All operations are gated by collection-manager's directory allowlist
+  // so an attacker cannot point these at arbitrary directories.
+  git: {
+    status: (
+      directoryPath: string
+    ): Promise<
+      | { ok: true; status: { files: Array<{ path: string; staged: string; unstaged: string }>; branch: string | null; ahead: number; behind: number; clean: boolean } }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('git:status', { directoryPath }),
+
+    log: (
+      directoryPath: string,
+      limit?: number
+    ): Promise<
+      | { ok: true; commits: Array<{ sha: string; abbreviatedSha: string; author: string; email: string; timestamp: number; subject: string }> }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('git:log', { directoryPath, ...(limit !== undefined ? { limit } : {}) }),
+
+    diff: (
+      directoryPath: string,
+      filePath: string
+    ): Promise<{ ok: true; diff: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('git:diff', { directoryPath, filePath }),
+
+    branchList: (
+      directoryPath: string
+    ): Promise<
+      | { ok: true; branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }> }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('git:branch:list', { directoryPath }),
+  },
+
+  // Secret handle store — keychain-backed secret references.
+  //
+  // SECURITY: there is intentionally NO `resolve` method here. Resolution is
+  // a main-process-only operation invoked just before auth signing by IPC
+  // handlers. Exposing resolution to the renderer would defeat the purpose
+  // of the pattern (plaintext available to anyone with renderer access).
+  secrets: {
+    store: (args: {
+      value: string;
+      label?: string;
+      scope?: string;
+      id?: string;
+    }): Promise<{ ok: true; id: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('secret:store', args),
+
+    delete: (id: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('secret:delete', { id }),
+
+    describe: (id?: string): Promise<
+      | { ok: true; handle: { label?: string; scope?: string; createdAt: number } | null }
+      | { ok: true; handles: Array<{ id: string; label?: string; scope?: string; createdAt: number }> }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('secret:describe', id !== undefined ? { id } : {}),
+  },
+
   // Request log operations
   log: {
     getHistory: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('log:getHistory', limit),
