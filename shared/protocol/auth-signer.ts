@@ -313,16 +313,17 @@ export async function applyAuth(
         bodyParams = {};
       }
     }
+    const o1 = auth.oauth1;
     const resolvedOauth1 = {
-      consumerKey: auth.oauth1.consumerKey,
-      consumerSecret: resolve(auth.oauth1.consumerSecret),
-      accessToken: auth.oauth1.accessToken !== undefined ? resolve(auth.oauth1.accessToken) : undefined,
-      accessTokenSecret: auth.oauth1.accessTokenSecret !== undefined ? resolve(auth.oauth1.accessTokenSecret) : undefined,
-      signatureMethod: auth.oauth1.signatureMethod,
-      realm: auth.oauth1.realm,
-      nonce: auth.oauth1.nonce,
-      timestamp: auth.oauth1.timestamp,
-      addParamsToBody: auth.oauth1.addParamsToBody,
+      consumerKey: o1.consumerKey,
+      consumerSecret: resolve(o1.consumerSecret),
+      ...(o1.accessToken !== undefined ? { accessToken: resolve(o1.accessToken) } : {}),
+      ...(o1.accessTokenSecret !== undefined ? { accessTokenSecret: resolve(o1.accessTokenSecret) } : {}),
+      ...(o1.signatureMethod !== undefined ? { signatureMethod: o1.signatureMethod } : {}),
+      ...(o1.realm !== undefined ? { realm: o1.realm } : {}),
+      ...(o1.nonce !== undefined ? { nonce: o1.nonce } : {}),
+      ...(o1.timestamp !== undefined ? { timestamp: o1.timestamp } : {}),
+      ...(o1.addParamsToBody !== undefined ? { addParamsToBody: o1.addParamsToBody } : {}),
     };
     const authHeader = buildOAuth1Header(args.method, args.url, resolvedOauth1, bodyParams);
     return { headers: { Authorization: authHeader } };
@@ -336,7 +337,7 @@ export async function applyAuth(
     const wsseValue = await buildWsseHeader({
       username: auth.wsse.username,
       password: resolve(auth.wsse.password),
-      passwordType: auth.wsse.passwordType,
+      ...(auth.wsse.passwordType !== undefined ? { passwordType: auth.wsse.passwordType } : {}),
     });
     return { headers: { 'X-WSSE': wsseValue } };
   }

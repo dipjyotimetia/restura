@@ -14,7 +14,8 @@
     "types": ["node", "vitest/globals"],
     "baseUrl": "..",
     "paths": {
-      "@shared/*": ["shared/*"]
+      "@shared/*": ["shared/*"],
+      "@/*": ["src/*"]
     }
   },
   "include": ["**/*.ts", "../shared/**/*.ts"],
