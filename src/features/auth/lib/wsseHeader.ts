@@ -5,6 +5,7 @@
 // `authConfig` against the renderer's `AuthConfig`.
 
 import type { AuthConfig } from '@/types';
+import { unwrapSecret } from '@/lib/shared/secretRef';
 import {
   buildWsseHeader as buildShared,
   buildWsseDigest as buildSharedDigest,
@@ -16,12 +17,12 @@ export type { WsseDeterministicInputs };
 export function buildWsseHeader(
   authConfig: NonNullable<AuthConfig['wsse']>,
 ): Promise<string> {
-  return buildShared(authConfig);
+  return buildShared({ ...authConfig, password: unwrapSecret(authConfig.password) });
 }
 
 export function buildWsseDigest(
   authConfig: NonNullable<AuthConfig['wsse']>,
   fixed: WsseDeterministicInputs,
 ): Promise<string> {
-  return buildSharedDigest(authConfig, fixed);
+  return buildSharedDigest({ ...authConfig, password: unwrapSecret(authConfig.password) }, fixed);
 }

@@ -7,6 +7,7 @@ import { validateURL } from '@shared/protocol/url-validation';
 import type { Fetcher } from '@shared/protocol/types';
 import {
   ProxyRequestBodySchema,
+  containsAuthHandle,
   type ProxyRequestBody,
   type UpstreamProxyConfig,
 } from '@shared/protocol/proxy-schema';
@@ -112,6 +113,13 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
     return c.json({ error: parsed.error }, parsed.status);
   }
   const body: ProxyRequestBody = parsed.value;
+
+  if (containsAuthHandle(body.auth)) {
+    return c.json(
+      { error: 'Secret handles are desktop-only — open this request in the Restura desktop app.' },
+      400
+    );
+  }
 
   if (isStreamingRequest(body)) {
     const streamingResult = await executeHttpProxyStreaming(

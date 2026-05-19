@@ -1,3 +1,6 @@
+import type { ZodType } from 'zod';
+import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
+
 /**
  * SecretRef — discriminated union representing a secret value that may be
  * stored inline (plaintext) or referenced indirectly via a handle that the
@@ -47,13 +50,13 @@ export type SecretRef =
 export type SecretValue = string | SecretRef;
 
 /** Type guard: is this a handle reference (vs. inline / plain string)? */
-export function isSecretHandle(value: SecretValue): value is { kind: 'handle'; id: string; label?: string } {
-  return typeof value === 'object' && value !== null && (value as SecretRef).kind === 'handle';
+export function isSecretHandle(value: SecretValue | undefined): value is { kind: 'handle'; id: string; label?: string } {
+  return value !== undefined && typeof value === 'object' && value !== null && (value as SecretRef).kind === 'handle';
 }
 
 /** Type guard: is this an inline SecretRef wrapper? */
-export function isInlineSecretRef(value: SecretValue): value is { kind: 'inline'; value: string } {
-  return typeof value === 'object' && value !== null && (value as SecretRef).kind === 'inline';
+export function isInlineSecretRef(value: SecretValue | undefined): value is { kind: 'inline'; value: string } {
+  return value !== undefined && typeof value === 'object' && value !== null && (value as SecretRef).kind === 'inline';
 }
 
 /**
@@ -120,6 +123,23 @@ export function handleSecret(id: string, label?: string): SecretRef {
 }
 
 /**
+ * Coerce an arbitrary persisted value into a canonical `SecretValue`:
+ *  - string → `{kind:'inline', value}`
+ *  - existing SecretRef → unchanged
+ *  - anything else (undefined, number, malformed) → `{kind:'inline', value:''}`
+ *
+ * Used by Zustand store migrations to widen legacy plaintext fields without
+ * data loss. Idempotent — safe to apply twice.
+ */
+export function coerceToInlineSecret(value: unknown): SecretValue {
+  if (typeof value === 'string') return { kind: 'inline', value };
+  if (isInlineSecretRef(value as SecretValue) || isSecretHandle(value as SecretValue)) {
+    return value as SecretValue;
+  }
+  return { kind: 'inline', value: '' };
+}
+
+/**
  * Zod-style runtime guard for the SecretRef shape — used by IPC validators
  * and store-validators to gate persisted state. Returns the value unchanged
  * if valid; throws otherwise.
@@ -133,3 +153,10 @@ export function assertSecretValue(value: unknown, fieldName: string): asserts va
   }
   throw new TypeError(`${fieldName}: expected string or SecretRef, got ${JSON.stringify(value)}`);
 }
+
+/**
+ * Zod schema for SecretValue — re-exported from `shared/protocol/` so the
+ * renderer, the Worker, and Electron's IPC validators all parse against the
+ * same single source of truth.
+ */
+export const secretValueSchema = protocolSecretValueSchema as unknown as ZodType<SecretValue>;

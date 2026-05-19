@@ -22,7 +22,19 @@ import type {
   KeyValue,
   RequestBody,
 } from '@/types';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import { loadBrunoLang } from './bruno-lang';
+
+/**
+ * Bruno's `.bru` format is text-only — render handles as `{{handle:<label>}}`
+ * placeholders so the export carries a reference without leaking plaintext.
+ */
+function brunoSecretValue(value: SecretValue | undefined): string {
+  if (value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (value.kind === 'inline') return value.value;
+  return `{{handle:${value.label ?? value.id}}}`;
+}
 
 /** A Restura collection serialised as Bruno workspace files. */
 export type BrunoExport =
@@ -267,13 +279,13 @@ function authToBruno(
     case 'basic':
       return {
         blocks: {
-          basic: { username: auth.basic?.username ?? '', password: auth.basic?.password ?? '' },
+          basic: { username: auth.basic?.username ?? '', password: brunoSecretValue(auth.basic?.password) },
         },
         discriminator: 'basic',
       };
     case 'bearer':
       return {
-        blocks: { bearer: { token: auth.bearer?.token ?? '' } },
+        blocks: { bearer: { token: brunoSecretValue(auth.bearer?.token) } },
         discriminator: 'bearer',
       };
     case 'api-key':
@@ -281,7 +293,7 @@ function authToBruno(
         blocks: {
           apikey: {
             key: auth.apiKey?.key ?? '',
-            value: auth.apiKey?.value ?? '',
+            value: brunoSecretValue(auth.apiKey?.value),
             placement: auth.apiKey?.in === 'query' ? 'queryparams' : 'header',
           },
         },
@@ -292,7 +304,7 @@ function authToBruno(
         blocks: {
           awsv4: {
             accessKeyId: auth.awsSignature?.accessKey ?? '',
-            secretAccessKey: auth.awsSignature?.secretKey ?? '',
+            secretAccessKey: brunoSecretValue(auth.awsSignature?.secretKey),
             region: auth.awsSignature?.region ?? '',
             service: auth.awsSignature?.service ?? '',
           },
@@ -302,19 +314,21 @@ function authToBruno(
     case 'digest':
       return {
         blocks: {
-          digest: { username: auth.digest?.username ?? '', password: auth.digest?.password ?? '' },
+          digest: { username: auth.digest?.username ?? '', password: brunoSecretValue(auth.digest?.password) },
         },
         discriminator: 'digest',
       };
     case 'oauth2': {
       const o = auth.oauth2;
+      const accessToken = brunoSecretValue(o?.accessToken);
+      const clientSecret = brunoSecretValue(o?.clientSecret);
       return {
         blocks: {
           oauth2: {
             ...(o?.grantType ? { grantType: o.grantType } : {}),
-            ...(o?.accessToken ? { accessToken: o.accessToken } : {}),
+            ...(accessToken ? { accessToken } : {}),
             ...(o?.clientId ? { clientId: o.clientId } : {}),
-            ...(o?.clientSecret ? { clientSecret: o.clientSecret } : {}),
+            ...(clientSecret ? { clientSecret } : {}),
             ...(o?.redirectUri ? { callbackUrl: o.redirectUri } : {}),
             ...(o?.authorizationUrl ? { authorizationUrl: o.authorizationUrl } : {}),
             ...(o?.tokenUrl ? { accessTokenUrl: o.tokenUrl } : {}),
@@ -326,13 +340,15 @@ function authToBruno(
     }
     case 'oauth1': {
       const o = auth.oauth1 ?? { consumerKey: '', consumerSecret: '' };
+      const accessToken = brunoSecretValue(o.accessToken);
+      const accessTokenSecret = brunoSecretValue(o.accessTokenSecret);
       return {
         blocks: {
           oauth1: {
             consumerKey: o.consumerKey ?? '',
-            consumerSecret: o.consumerSecret ?? '',
-            ...(o.accessToken ? { accessToken: o.accessToken } : {}),
-            ...(o.accessTokenSecret ? { accessTokenSecret: o.accessTokenSecret } : {}),
+            consumerSecret: brunoSecretValue(o.consumerSecret),
+            ...(accessToken ? { accessToken } : {}),
+            ...(accessTokenSecret ? { accessTokenSecret } : {}),
             ...(o.signatureMethod ? { signatureMethod: o.signatureMethod } : {}),
             ...(o.realm ? { realm: o.realm } : {}),
           },
@@ -345,7 +361,7 @@ function authToBruno(
         blocks: {
           ntlm: {
             username: auth.ntlm?.username ?? '',
-            password: auth.ntlm?.password ?? '',
+            password: brunoSecretValue(auth.ntlm?.password),
             ...(auth.ntlm?.domain ? { domain: auth.ntlm.domain } : {}),
             ...(auth.ntlm?.workstation ? { workstation: auth.ntlm.workstation } : {}),
           },
@@ -355,7 +371,7 @@ function authToBruno(
     case 'wsse':
       return {
         blocks: {
-          wsse: { username: auth.wsse?.username ?? '', password: auth.wsse?.password ?? '' },
+          wsse: { username: auth.wsse?.username ?? '', password: brunoSecretValue(auth.wsse?.password) },
         },
         discriminator: 'wsse',
       };

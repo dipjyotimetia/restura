@@ -1,4 +1,5 @@
 import type { AuthConfig } from '@/types';
+import { isSecretHandle, unwrapSecret } from '@/lib/shared/secretRef';
 
 export interface AuthCredential {
   /**
@@ -8,6 +9,14 @@ export interface AuthCredential {
   headers: Record<string, string>;
   /** Query params (only populated for `api-key` with `in: 'query'`). */
   params: Record<string, string>;
+  /**
+   * True when the auth descriptor carries a SecretRef handle that the
+   * renderer cannot resolve to plaintext (handles are main-process-only per
+   * ADR-0007). The executor uses this marker to skip the renderer-side
+   * Authorization header and let the Electron HTTP handler resolve+apply
+   * main-side. On web, the executor fails fast with a user-visible error.
+   */
+  requiresMainSideApply?: boolean;
 }
 
 export interface BuildAuthCredentialOptions {
@@ -35,6 +44,11 @@ export interface BuildAuthCredentialOptions {
  * `aws-signature`, `ntlm`, `wsse`) — the caller is responsible for those
  * because they require body bytes, challenge/response, or canonicalised URLs
  * the renderer doesn't have at this stage.
+ *
+ * SecretRef-aware (ADR-0007): if any sensitive field is a handle, the
+ * credential is left empty and `requiresMainSideApply: true` is returned so
+ * the executor knows to defer to Electron's HTTP handler. Inline + plain
+ * string values are unwrapped synchronously.
  */
 export function buildAuthCredential(
   auth: AuthConfig | undefined,
@@ -48,14 +62,20 @@ export function buildAuthCredential(
 
   switch (auth.type) {
     case 'bearer': {
-      const token = auth.bearer?.token ?? '';
+      if (isSecretHandle(auth.bearer?.token)) {
+        return { ...empty, requiresMainSideApply: true };
+      }
+      const token = unwrapSecret(auth.bearer?.token);
       if (!token) return empty;
       return { headers: { [authzKey]: `Bearer ${token}` }, params: {} };
     }
 
     case 'basic': {
+      if (isSecretHandle(auth.basic?.password)) {
+        return { ...empty, requiresMainSideApply: true };
+      }
       const username = auth.basic?.username ?? '';
-      const password = auth.basic?.password ?? '';
+      const password = unwrapSecret(auth.basic?.password);
       if (options.basicRequiresPassword) {
         if (!username || !password) return empty;
       } else if (!username) {
@@ -66,8 +86,11 @@ export function buildAuthCredential(
     }
 
     case 'api-key': {
+      if (isSecretHandle(auth.apiKey?.value)) {
+        return { ...empty, requiresMainSideApply: true };
+      }
       const key = auth.apiKey?.key ?? '';
-      const value = auth.apiKey?.value ?? '';
+      const value = unwrapSecret(auth.apiKey?.value);
       const where = auth.apiKey?.in ?? 'header';
       if (!key || !value) return empty;
       if (where === 'query') {
@@ -78,7 +101,10 @@ export function buildAuthCredential(
     }
 
     case 'oauth2': {
-      const token = auth.oauth2?.accessToken ?? '';
+      if (isSecretHandle(auth.oauth2?.accessToken)) {
+        return { ...empty, requiresMainSideApply: true };
+      }
+      const token = unwrapSecret(auth.oauth2?.accessToken);
       if (!token) return empty;
       const tokenType = auth.oauth2?.tokenType || 'Bearer';
       return { headers: { [authzKey]: `${tokenType} ${token}` }, params: {} };

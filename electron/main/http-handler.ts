@@ -14,6 +14,8 @@ import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { Fetcher, FetcherRequest, FetcherResponse, ProtocolAuthConfig } from '@shared/protocol/types';
 import { flattenHeaders } from '@shared/protocol/header-utils';
+import { unwrapSecretValueMain } from './secret-handle-store';
+import { applyNonSignAtWireAuth } from './auth-applier';
 
 // =============================================================================
 // Migration map (Plan 4 / Task 9): node:http/https → undici
@@ -640,20 +642,35 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
   let rawResult: HttpResponse;
   try {
+    // Apply non-sign-at-wire auth main-side for handle-protected creds.
+    // (Renderer skipped this step because it can't resolve handles.)
+    const mainApplied = applyNonSignAtWireAuth(interceptedConfig.auth);
+    const mergedHeaders: Record<string, string> = {
+      ...(interceptedConfig.headers ?? {}),
+      ...mainApplied.headers,
+    };
+    const mergedParams: Record<string, string> = {
+      ...(interceptedConfig.params ?? {}),
+      ...mainApplied.params,
+    };
+
     const fetcher = buildElectronFetcher(interceptedConfig, socksSocket);
     const result = await executeHttpProxy(
       {
         method: interceptedConfig.method ?? 'GET',
         url: interceptedConfig.url,
-        ...(interceptedConfig.headers ? { headers: interceptedConfig.headers } : {}),
-        ...(interceptedConfig.params ? { params: interceptedConfig.params } : {}),
+        headers: mergedHeaders,
+        params: mergedParams,
         bodyType: interceptedConfig.data ? 'raw' : 'none',
         ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
         ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
         ...(interceptedConfig.auth ? { auth: interceptedConfig.auth } : {}),
       },
       fetcher,
-      { allowLocalhost: true }
+      {
+        allowLocalhost: true,
+        resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
+      }
     );
 
     if (!result.ok) {

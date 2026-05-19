@@ -65,6 +65,15 @@ export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
         headerCase: 'lower',
         basicRequiresPassword: true,
       });
+      if (credential.requiresMainSideApply) {
+        // gRPC IPC handler does not yet thread auth descriptors through for
+        // main-side handle resolution. Until that lands, log so the
+        // 401-from-upstream root cause is visible in the console.
+        console.warn(
+          'gRPC auth uses a SecretRef handle, but gRPC main-side handle resolution is not yet implemented. ' +
+            'Switch this credential to inline storage or use an HTTP request to consume the handle.'
+        );
+      }
       return { ...credential.headers };
     }
   }

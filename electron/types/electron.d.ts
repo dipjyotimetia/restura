@@ -354,6 +354,37 @@ interface ElectronCollectionsAPI {
   removeFileChangedListener: () => void;
 }
 
+interface ElectronSecretHandleDescriptor {
+  label?: string;
+  scope?: string;
+  createdAt: number;
+}
+
+interface ElectronSecretHandleSummary extends ElectronSecretHandleDescriptor {
+  id: string;
+}
+
+/**
+ * Renderer-callable IPC for the SecretRef pattern (ADR-0007). `resolve` is
+ * deliberately absent — handles are resolved main-side only.
+ */
+interface ElectronSecretsAPI {
+  store: (args: {
+    value: string;
+    label?: string;
+    scope?: string;
+    id?: string;
+  }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  describe: (
+    id?: string
+  ) => Promise<
+    | { ok: true; handle: ElectronSecretHandleDescriptor | null }
+    | { ok: true; handles: ElectronSecretHandleSummary[] }
+    | { ok: false; error: string }
+  >;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -370,6 +401,7 @@ interface ElectronAPI {
   mcp: ElectronMcpAPI;
   kafka: ElectronKafkaAPI;
   store: ElectronStoreAPI;
+  secrets: ElectronSecretsAPI;
   log: ElectronLogAPI;
   collections: ElectronCollectionsAPI;
   // Valid channels: 'menu:import' | 'menu:export' | 'menu:new-request' | 'app:focus' | 'deep-link'
@@ -384,4 +416,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, ElectronSecretsAPI, ElectronSecretHandleDescriptor, ElectronSecretHandleSummary, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };

@@ -176,7 +176,19 @@ export function hmacSha256Base64(baseString: string, key: string): string {
 // Public OAuth 1.0a signer
 // ---------------------------------------------------------------------------
 
-type OAuth1Config = NonNullable<ProtocolAuthConfig['oauth1']>;
+/**
+ * Resolved OAuth1 credentials — caller (auth-signer's `applyAuth`) has already
+ * unwrapped any SecretValue fields to plaintext via the supplied resolver, so
+ * this signer stays string-typed and oblivious to handles.
+ */
+type OAuth1Config = Omit<
+  NonNullable<ProtocolAuthConfig['oauth1']>,
+  'consumerSecret' | 'accessToken' | 'accessTokenSecret'
+> & {
+  consumerSecret: string;
+  accessToken?: string | undefined;
+  accessTokenSecret?: string | undefined;
+};
 
 /**
  * Compute the OAuth 1.0a Authorization header for a request.

@@ -1,3 +1,5 @@
+import type { SecretValue } from '@/lib/shared/secretRef';
+
 // HTTP Methods
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
 
@@ -104,30 +106,33 @@ export interface FormDataItem extends KeyValue {
 }
 
 // Authentication Configuration
+// Sensitive credential fields use `SecretValue` (string | SecretRef) per ADR-0007.
+// Inline shapes mirror legacy plaintext; handle shapes are desktop-only and
+// resolved main-process-side at the wire boundary.
 export interface AuthConfig {
   type: AuthType;
   basic?: {
     username: string;
-    password: string;
+    password: SecretValue;
   };
   bearer?: {
-    token: string;
+    token: SecretValue;
   };
   apiKey?: {
     key: string;
-    value: string;
+    value: SecretValue;
     in: 'header' | 'query';
   };
   oauth2?: {
-    accessToken: string;
+    accessToken: SecretValue;
     tokenType?: string;
-    refreshToken?: string;
+    refreshToken?: SecretValue;
     expiresAt?: number;
     scopes?: string[];
     // Flow configuration
     grantType?: 'authorization_code' | 'client_credentials' | 'password' | 'device_code';
     clientId?: string;
-    clientSecret?: string;
+    clientSecret?: SecretValue;
     authorizationUrl?: string;
     tokenUrl?: string;
     /** RFC 8628 device authorization endpoint — required for device_code grant */
@@ -136,23 +141,23 @@ export interface AuthConfig {
     redirectUri?: string;
     // Password grant only
     username?: string;
-    password?: string;
+    password?: SecretValue;
   };
   digest?: {
     username: string;
-    password: string;
+    password: SecretValue;
   };
   awsSignature?: {
     accessKey: string;
-    secretKey: string;
+    secretKey: SecretValue;
     region: string;
     service: string;
   };
   oauth1?: {
     consumerKey: string;
-    consumerSecret: string;
-    accessToken?: string;
-    accessTokenSecret?: string;
+    consumerSecret: SecretValue;
+    accessToken?: SecretValue;
+    accessTokenSecret?: SecretValue;
     /** Default HMAC-SHA1 if omitted. */
     signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT';
     realm?: string;
@@ -166,13 +171,13 @@ export interface AuthConfig {
   /** NTLM is desktop-only (Electron). The browser/Worker emit a warning at request time. */
   ntlm?: {
     username: string;
-    password: string;
+    password: SecretValue;
     domain?: string;
     workstation?: string;
   };
   wsse?: {
     username: string;
-    password: string;
+    password: SecretValue;
     /** PasswordDigest = sha1(nonce + created + password) base64. PasswordText sends the password verbatim (avoid). */
     passwordType?: 'PasswordDigest' | 'PasswordText';
   };

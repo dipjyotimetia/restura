@@ -19,7 +19,14 @@
 import type { ProtocolAuthConfig } from './types';
 import { bytesToBase64, concatBytes, randomBytes, sha1, utf8 } from './crypto-utils';
 
-type WsseConfig = NonNullable<ProtocolAuthConfig['wsse']>;
+/**
+ * Resolved WSSE credentials — the caller (auth-signer's `applyAuth`) has
+ * already unwrapped any SecretValue password via the supplied resolver.
+ * Keeps the digest builder simple and untouchable by handle shapes.
+ */
+type WsseConfig = Omit<NonNullable<ProtocolAuthConfig['wsse']>, 'password'> & {
+  password: string;
+};
 
 // Test-only knobs. Normal callers use the public API which generates a fresh
 // nonce + timestamp per call. The deterministic builder below is exposed for

@@ -8,32 +8,33 @@ describe('applyAuthHeaders', () => {
   it('adds Bearer Authorization for bearer auth', async () => {
     const auth: AuthConfig = { type: 'bearer', bearer: { token: 'my-token' } };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
-    expect(result['Authorization']).toBe('Bearer my-token');
-    expect(result['Content-Type']).toBe('application/json');
+    expect(result.headers['Authorization']).toBe('Bearer my-token');
+    expect(result.headers['Content-Type']).toBe('application/json');
+    expect(result.requiresMainSideApply).toBe(false);
   });
 
   it('does nothing for bearer auth with no token', async () => {
     const auth: AuthConfig = { type: 'bearer', bearer: { token: '' } };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
-    expect(result['Authorization']).toBeUndefined();
+    expect(result.headers['Authorization']).toBeUndefined();
   });
 
   it('adds Basic Authorization for basic auth', async () => {
     const auth: AuthConfig = { type: 'basic', basic: { username: 'user', password: 'pass' } };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
-    expect(result['Authorization']).toBe(`Basic ${btoa('user:pass')}`);
+    expect(result.headers['Authorization']).toBe(`Basic ${btoa('user:pass')}`);
   });
 
   it('adds api-key header when in=header', async () => {
     const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'X-API-Key', value: 'abc123', in: 'header' } };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
-    expect(result['X-API-Key']).toBe('abc123');
+    expect(result.headers['X-API-Key']).toBe('abc123');
   });
 
   it('does not add api-key header when in=query', async () => {
     const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'api_key', value: 'abc', in: 'query' } };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
-    expect(result['api_key']).toBeUndefined();
+    expect(result.headers['api_key']).toBeUndefined();
   });
 
   it('adds OAuth2 Authorization with custom tokenType', async () => {
@@ -42,20 +43,20 @@ describe('applyAuthHeaders', () => {
       oauth2: { accessToken: 'tok', tokenType: 'Token' },
     };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
-    expect(result['Authorization']).toBe('Token tok');
+    expect(result.headers['Authorization']).toBe('Token tok');
   });
 
   it('defaults to Bearer tokenType when not set', async () => {
     const auth: AuthConfig = { type: 'oauth2', oauth2: { accessToken: 'tok' } };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
-    expect(result['Authorization']).toBe('Bearer tok');
+    expect(result.headers['Authorization']).toBe('Bearer tok');
   });
 
   it('does nothing for none auth', async () => {
     const auth: AuthConfig = { type: 'none' };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
-    expect(result['Authorization']).toBeUndefined();
-    expect(result).toEqual(base);
+    expect(result.headers['Authorization']).toBeUndefined();
+    expect(result.headers).toEqual(base);
   });
 
   it('does not modify original headers object', async () => {
@@ -63,6 +64,26 @@ describe('applyAuthHeaders', () => {
     const auth: AuthConfig = { type: 'bearer', bearer: { token: 'tok' } };
     await applyAuthHeaders(auth, headers, 'https://example.com', 'GET');
     expect(headers['Authorization']).toBeUndefined();
+  });
+
+  it('emits requiresMainSideApply for handle-protected bearer token', async () => {
+    const auth: AuthConfig = {
+      type: 'bearer',
+      bearer: { token: { kind: 'handle', id: 'h1', label: 'prod' } },
+    };
+    const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
+    expect(result.requiresMainSideApply).toBe(true);
+    expect(result.headers['Authorization']).toBeUndefined();
+  });
+
+  it('accepts SecretRef inline values for bearer', async () => {
+    const auth: AuthConfig = {
+      type: 'bearer',
+      bearer: { token: { kind: 'inline', value: 'my-token' } },
+    };
+    const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
+    expect(result.headers['Authorization']).toBe('Bearer my-token');
+    expect(result.requiresMainSideApply).toBe(false);
   });
 });
 

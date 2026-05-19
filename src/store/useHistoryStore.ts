@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { HistoryItem, Request, Response } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
+import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import { useSettingsStore } from './useSettingsStore';
 
 interface HistoryState {
@@ -133,20 +134,35 @@ export const useHistoryStore = create<HistoryState>()(
     }),
     {
       name: 'history-storage',
-      version: 2, // Bumped for Dexie migration + encryption
+      version: 3, // v3: SecretValue widening (ADR-0007)
       storage: dexieStorageAdapters.history(),
-      migrate: (persistedState, _version) => {
+      migrate: (persistedState, version) => {
         const looksEmpty =
           !persistedState ||
           (typeof persistedState === 'object' &&
             Object.keys(persistedState as object).length === 0);
+        let state: HistoryState | null = null;
         if (looksEmpty) {
           const legacy = migrateLegacyLocalStorage<Partial<HistoryState>>(
             'history-storage'
           );
-          if (legacy) return legacy as HistoryState;
+          if (legacy) state = legacy as HistoryState;
+        } else {
+          state = persistedState as HistoryState;
         }
-        return persistedState as HistoryState;
+        if (state && version < 3 && Array.isArray(state.history)) {
+          state = {
+            ...state,
+            history: state.history.map((entry) => {
+              const request = (entry as { request?: { auth?: unknown } }).request;
+              if (!request || !('auth' in request)) return entry;
+              const auth = migrateAuthConfigToSecretRef(request.auth);
+              if (!auth) return entry;
+              return { ...entry, request: { ...request, auth } } as HistoryItem;
+            }),
+          };
+        }
+        return state as HistoryState;
       },
       onRehydrateStorage: () => (state, error) => {
         if (error) {

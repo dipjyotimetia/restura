@@ -1,6 +1,18 @@
 import type { BodyType, FormField } from './body-builder';
 
 /**
+ * Local mirror of `SecretValue` from `src/lib/shared/secretRef.ts`. Duplicated
+ * intentionally to keep `shared/protocol/` independent of the renderer source
+ * tree (per CLAUDE.md). When the renderer's type changes, this must move in
+ * lockstep — it's two declarations of the same wire shape.
+ */
+export type ProtocolSecretRef =
+  | { kind: 'inline'; value: string }
+  | { kind: 'handle'; id: string; label?: string };
+
+export type ProtocolSecretValue = string | ProtocolSecretRef;
+
+/**
  * Auth configuration consumed by the shared protocol core.
  *
  * This is a structural subset of `AuthConfig` from `src/types/index.ts`. It
@@ -29,15 +41,15 @@ export interface ProtocolAuthConfig {
   type: ProtocolAuthType;
   awsSignature?: {
     accessKey: string;
-    secretKey: string;
+    secretKey: ProtocolSecretValue;
     region: string;
     service: string;
   };
   oauth1?: {
     consumerKey: string;
-    consumerSecret: string;
-    accessToken?: string;
-    accessTokenSecret?: string;
+    consumerSecret: ProtocolSecretValue;
+    accessToken?: ProtocolSecretValue;
+    accessTokenSecret?: ProtocolSecretValue;
     signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT';
     realm?: string;
     nonce?: string;
@@ -46,13 +58,13 @@ export interface ProtocolAuthConfig {
   };
   ntlm?: {
     username: string;
-    password: string;
+    password: ProtocolSecretValue;
     domain?: string;
     workstation?: string;
   };
   wsse?: {
     username: string;
-    password: string;
+    password: ProtocolSecretValue;
     passwordType?: 'PasswordDigest' | 'PasswordText';
   };
   // Other auth shapes (basic/bearer/apiKey/oauth2/digest) intentionally omitted —

@@ -5,7 +5,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { Settings2, Network, Clock, Shield, KeyRound, RotateCcw } from 'lucide-react';
+import { Settings2, Network, Clock, Shield, KeyRound, Lock, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { AppSettings } from '@/types';
@@ -14,6 +14,7 @@ import { GeneralSettings } from './GeneralSettings';
 import { RequestsSettings } from './RequestsSettings';
 import { SecuritySettings } from './SecuritySettings';
 import { CertificatesSettings } from './CertificatesSettings';
+import { SecretsSettings } from './SecretsSettings';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { id: 'requests', label: 'Requests', icon: Clock },
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'certificates', label: 'Certificates', icon: KeyRound },
+  { id: 'secrets', label: 'Secrets', icon: Lock },
 ] as const;
 
 type NavId = typeof NAV_ITEMS[number]['id'];
@@ -84,6 +86,7 @@ export default function SettingsDialog({ open, onOpenChange }: SettingsDialogPro
             {activeSection === 'requests' && <RequestsSettings settings={settings} onChange={handleChange} />}
             {activeSection === 'security' && <SecuritySettings settings={settings} onChange={handleChange} />}
             {activeSection === 'certificates' && <CertificatesSettings />}
+            {activeSection === 'secrets' && <SecretsSettings />}
           </div>
         </div>
 

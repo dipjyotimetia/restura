@@ -9,7 +9,7 @@ import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from '@/
 import { shouldBypassProxy, toAxiosProxyConfig, shouldUseCorsProxy } from '@/features/http/lib/proxyHelper';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
-import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
+import { applyAuthHeaders, applyApiKeyQueryParam, assertHandleSupported } from '@/features/auth/lib/applyAuthHeaders';
 import { applyAuth } from '@shared/protocol/auth-signer';
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { readStreamingResponse, type StreamEvent } from '@/features/http/lib/streamingResponseReader';
@@ -158,7 +158,6 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
   // Refresh OAuth2 token if near expiry before signing
   const effectiveAuth = await refreshOAuth2Auth(request.auth);
 
-  // Apply auth headers (includes AWS SigV4 signing)
   const headersWithAuth = await applyAuthHeaders(
     effectiveAuth,
     headers,
@@ -166,7 +165,8 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
     request.method,
     request.body.type !== 'none' ? request.body.raw : undefined
   );
-  Object.assign(headers, headersWithAuth);
+  assertHandleSupported(headersWithAuth);
+  Object.assign(headers, headersWithAuth.headers);
 
   // Apply API key query params
   Object.assign(params, applyApiKeyQueryParam(effectiveAuth, params));
@@ -544,8 +544,6 @@ export async function executeStreamingRequest(
       headers[h.key] = resolveLocal(h.value);
     });
 
-  // Apply auth headers (e.g. bearer, basic, AWS SigV4 — though SigV4 is
-  // unlikely to be paired with a streaming Accept in practice).
   const headersWithAuth = await applyAuthHeaders(
     request.auth,
     headers,
@@ -553,7 +551,8 @@ export async function executeStreamingRequest(
     request.method,
     request.body.type !== 'none' ? request.body.raw : undefined
   );
-  Object.assign(headers, headersWithAuth);
+  assertHandleSupported(headersWithAuth);
+  Object.assign(headers, headersWithAuth.headers);
 
   Object.assign(params, applyApiKeyQueryParam(request.auth, params));
 

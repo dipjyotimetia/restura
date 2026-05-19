@@ -8,6 +8,7 @@ import {
   isInlineSecretRef,
   isSecretHandle,
   redactSecret,
+  secretValueSchema,
   unwrapSecret,
 } from '../secretRef';
 
@@ -120,3 +121,28 @@ describe('secretRef — constructors', () => {
     expect(handleSecret('id-1')).toEqual({ kind: 'handle', id: 'id-1' });
   });
 });
+
+describe('secretRef — secretValueSchema (Zod)', () => {
+  it('accepts plain strings', () => {
+    expect(secretValueSchema.safeParse('plain').success).toBe(true);
+    expect(secretValueSchema.safeParse('').success).toBe(true);
+  });
+
+  it('accepts inline SecretRef', () => {
+    expect(secretValueSchema.safeParse({ kind: 'inline', value: 'x' }).success).toBe(true);
+  });
+
+  it('accepts handle SecretRef with and without label', () => {
+    expect(secretValueSchema.safeParse({ kind: 'handle', id: 'id-1' }).success).toBe(true);
+    expect(secretValueSchema.safeParse({ kind: 'handle', id: 'id-1', label: 'AWS' }).success).toBe(true);
+  });
+
+  it('rejects malformed shapes', () => {
+    expect(secretValueSchema.safeParse(42).success).toBe(false);
+    expect(secretValueSchema.safeParse(null).success).toBe(false);
+    expect(secretValueSchema.safeParse({ kind: 'inline' }).success).toBe(false);
+    expect(secretValueSchema.safeParse({ kind: 'handle' }).success).toBe(false);
+    expect(secretValueSchema.safeParse({ kind: 'rogue', id: 'x' }).success).toBe(false);
+  });
+});
+
