@@ -53,5 +53,32 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
     },
+  },
+  // Keep the eagerly-loaded workflow executor + helpers free of React Flow.
+  // The graph canvas (`flow-canvas/`) is lazy-loaded so users who never open
+  // the Graph tab don't pay the bundle cost. An accidental eager import from
+  // anywhere in `lib/**` would defeat the split — this rule catches it at
+  // CI time.
+  {
+    files: ['src/features/workflows/lib/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/flow-canvas/**', '**/components/flow-canvas/**'],
+              message:
+                'src/features/workflows/lib/** must not import from flow-canvas/** — the canvas is lazy-loaded, eager imports defeat the split.',
+            },
+            {
+              group: ['@xyflow/react', '@dagrejs/dagre', 'dagre'],
+              message:
+                'React Flow / dagre belong only to the lazy flow-canvas chunk. Move this code there.',
+            },
+          ],
+        },
+      ],
+    },
   }
 );

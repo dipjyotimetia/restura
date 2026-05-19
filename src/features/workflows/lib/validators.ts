@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { workflowGraphSchema } from './flowValidators';
 
 export const extractionMethodSchema = z.enum(['jsonpath', 'regex', 'header']);
 
@@ -41,19 +42,41 @@ export const workflowSchema = z.object({
   collectionId: z.string().min(1),
   requests: z.array(workflowRequestSchema),
   variables: z.array(keyValueSchema).optional(),
+  graph: workflowGraphSchema.optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
 
+export const flowNodeKindSchema = z.enum([
+  'start',
+  'end',
+  'request',
+  'condition',
+  'setVariable',
+  'delay',
+  'transform',
+  'parallel',
+  'forEach',
+  'tryCatch',
+  'subWorkflow',
+  'sseSubscribe',
+  'wsExchange',
+  'mcpCall',
+]);
+
 export const workflowExecutionStepSchema = z.object({
-  workflowRequestId: z.string(),
-  requestId: z.string(),
+  // Legacy linear executions populate these; graph executions leave them
+  // empty on non-request nodes.
+  workflowRequestId: z.string().optional(),
+  requestId: z.string().optional(),
   requestName: z.string(),
   status: z.enum(['pending', 'running', 'success', 'failed', 'skipped']),
   extractedVariables: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   duration: z.number().optional(),
   timestamp: z.number(),
+  nodeId: z.string().optional(),
+  nodeKind: flowNodeKindSchema.optional(),
 });
 
 export const executionLogEntrySchema = z.object({

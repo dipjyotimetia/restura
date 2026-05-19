@@ -1,10 +1,13 @@
 import { useState, useCallback, useRef } from 'react';
-import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request, CollectionItem } from '@/types';
+import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
 import { executeWorkflow } from '../lib/workflowExecutor';
+import { executeDag } from '../lib/dagExecutor';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useFlowRunStore } from '../store/useFlowRunStore';
+import { findRequestInItems } from '../lib/collectionHelpers';
 
 interface UseWorkflowExecutionOptions {
   onComplete?: (execution: WorkflowExecution) => void;
@@ -49,6 +52,7 @@ export function useWorkflowExecution(
   const globalSettings = useSettingsStore((s) => s.settings);
   const collections = useCollectionStore((s) => s.collections);
   const saveExecution = useWorkflowStore((s) => s.saveExecution);
+  const getWorkflowById = useWorkflowStore((s) => s.getWorkflowById);
 
   // Get request by ID from collections
   const getRequestById = useCallback(
@@ -70,42 +74,109 @@ export function useWorkflowExecution(
 
       abortControllerRef.current = new AbortController();
 
+      // Live-canvas mirroring for graph workflows. Linear runs don't
+      // populate the run store — they use the legacy WorkflowExecutor
+      // modal which reads from the hook's local state.
+      const isGraphRun = Boolean(workflow.graph);
+      const runStore = useFlowRunStore.getState();
+      if (isGraphRun) {
+        // We don't have the execution id yet (the executor mints it),
+        // so we pass a placeholder and overwrite once the result comes
+        // back. The id is read-only outside the store and only used for
+        // display, so the swap is harmless.
+        runStore.startRun(workflow.id, '');
+      }
+
       try {
-        const result = await executeWorkflow({
-          workflow,
-          getRequestById,
-          envVars: { ...getActiveEnvironmentVars },
-          globalSettings,
-          resolveVariables,
-          onStepStart: (step) => {
-            setCurrentStep(step);
-          },
-          onStepComplete: (step) => {
-            setCurrentStep(step);
-            setExecution((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    steps: prev.steps.map((s) =>
-                      s.workflowRequestId === step.workflowRequestId ? step : s
-                    ),
-                  }
-                : null
-            );
-          },
-          onLog: (message, level) => {
-            setLogs((prev) => [...prev, { timestamp: Date.now(), message, level }]);
-          },
-          abortSignal: abortControllerRef.current.signal,
-        });
+        const onStepStart = (step: WorkflowExecutionStep) => {
+          setCurrentStep(step);
+          if (isGraphRun && step.nodeId) {
+            useFlowRunStore.getState().markNodeStarted(step.nodeId);
+          }
+        };
+        const onStepComplete = (step: WorkflowExecutionStep) => {
+          setCurrentStep(step);
+          setExecution((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  steps: prev.steps.map((s) => {
+                    // graph executions match on nodeId; linear on workflowRequestId
+                    const matches = step.nodeId
+                      ? s.nodeId === step.nodeId
+                      : s.workflowRequestId === step.workflowRequestId;
+                    return matches ? step : s;
+                  }),
+                }
+              : null
+          );
+          if (isGraphRun && step.nodeId) {
+            const status = step.status;
+            // Only commit a terminal status — pending/running already
+            // shown by markNodeStarted.
+            if (status === 'success' || status === 'failed' || status === 'skipped') {
+              const meta: Parameters<
+                ReturnType<typeof useFlowRunStore.getState>['markNodeComplete']
+              >[2] = {};
+              if (step.error) meta.error = step.error;
+              if (step.duration !== undefined) meta.duration = step.duration;
+              if (step.extractedVariables)
+                meta.extractedVariables = step.extractedVariables;
+              useFlowRunStore.getState().markNodeComplete(step.nodeId, status, meta);
+              if (step.extractedVariables) {
+                useFlowRunStore.getState().mergeVariables(step.extractedVariables);
+              }
+            }
+          }
+        };
+        const onLog = (message: string, level: 'info' | 'warn' | 'error') => {
+          setLogs((prev) => [...prev, { timestamp: Date.now(), message, level }]);
+          if (isGraphRun) {
+            useFlowRunStore
+              .getState()
+              .appendLog({ timestamp: Date.now(), level, message });
+          }
+        };
+
+        const result = workflow.graph
+          ? await executeDag({
+              workflow,
+              getRequestById,
+              getWorkflowById,
+              envVars: { ...getActiveEnvironmentVars },
+              onStepStart,
+              onStepComplete,
+              onLog,
+              abortSignal: abortControllerRef.current.signal,
+            })
+          : await executeWorkflow({
+              workflow,
+              getRequestById,
+              envVars: { ...getActiveEnvironmentVars },
+              globalSettings,
+              resolveVariables,
+              onStepStart,
+              onStepComplete,
+              onLog,
+              abortSignal: abortControllerRef.current.signal,
+            });
 
         setExecution(result);
         saveExecution(result);
+        if (isGraphRun) {
+          useFlowRunStore.getState().setVariables(result.finalVariables);
+          useFlowRunStore.getState().finishRun(
+            result.status === 'running' ? 'success' : result.status
+          );
+        }
         onComplete?.(result);
 
         return result;
       } catch (error) {
         const err = error instanceof Error ? error : new Error('Unknown error');
+        if (isGraphRun) {
+          useFlowRunStore.getState().finishRun('failed');
+        }
         onError?.(err);
         throw err;
       } finally {
@@ -116,6 +187,7 @@ export function useWorkflowExecution(
     },
     [
       getRequestById,
+      getWorkflowById,
       getActiveEnvironmentVars,
       globalSettings,
       resolveVariables,
@@ -139,19 +211,3 @@ export function useWorkflowExecution(
   };
 }
 
-// Helper to find request in nested collection items
-function findRequestInItems(
-  items: CollectionItem[],
-  requestId: string
-): Request | undefined {
-  for (const item of items) {
-    if (item.type === 'request' && item.request?.id === requestId) {
-      return item.request;
-    }
-    if (item.items) {
-      const found = findRequestInItems(item.items, requestId);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}

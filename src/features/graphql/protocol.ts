@@ -16,9 +16,10 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule } from '@/features/registry/types';
-import type { HttpRequest, Response as ApiResponse } from '@/types';
+import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { injectString } from '@/features/workflows/lib/variableHelpers';
 
 function createDefaultGraphQLRequest(): HttpRequest {
   return {
@@ -45,11 +46,89 @@ function defaultResolveVariables(
   return result;
 }
 
+/**
+ * GraphQL requests ride on an HTTP envelope: `body.raw` is the JSON
+ * `{query, variables, operationName}` payload. Substitute into the
+ * envelope by JSON-parsing it, walking the `variables` map for
+ * `{{var}}` references, and re-serialising. If the envelope isn't
+ * parseable (the user is still typing), fall back to plain string
+ * substitution so partial input still resolves the obvious cases.
+ */
+function injectGraphQLVariables(
+  request: Request,
+  variables: Record<string, string>
+): Request {
+  if (request.type !== 'http') return request;
+  const http = request as HttpRequest;
+  const inject = (text: string) => injectString(text, variables);
+
+  let body = http.body;
+  if (body.raw !== undefined) {
+    let nextRaw = body.raw;
+    try {
+      const parsed: unknown = JSON.parse(body.raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const envelope = parsed as {
+          query?: unknown;
+          variables?: unknown;
+          operationName?: unknown;
+        };
+        const out: Record<string, unknown> = { ...envelope };
+        if (typeof envelope.query === 'string') {
+          out.query = inject(envelope.query);
+        }
+        if (envelope.variables && typeof envelope.variables === 'object') {
+          out.variables = injectInJson(envelope.variables, inject);
+        }
+        if (typeof envelope.operationName === 'string') {
+          out.operationName = inject(envelope.operationName);
+        }
+        nextRaw = JSON.stringify(out);
+      } else {
+        nextRaw = inject(body.raw);
+      }
+    } catch {
+      nextRaw = inject(body.raw);
+    }
+    body = { ...body, raw: nextRaw };
+  }
+
+  return {
+    ...http,
+    url: inject(http.url),
+    headers: http.headers.map((h) => ({
+      ...h,
+      key: inject(h.key),
+      value: inject(h.value),
+    })),
+    params: http.params.map((p) => ({
+      ...p,
+      key: inject(p.key),
+      value: inject(p.value),
+    })),
+    body,
+  };
+}
+
+function injectInJson(value: unknown, inject: (s: string) => string): unknown {
+  if (typeof value === 'string') return inject(value);
+  if (Array.isArray(value)) return value.map((v) => injectInJson(v, inject));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = injectInJson(v, inject);
+    }
+    return out;
+  }
+  return value;
+}
+
 export const graphqlProtocol: ProtocolModule = {
   id: 'graphql',
   label: 'GraphQL',
   tabType: 'graphql',
   defaultRequest: createDefaultGraphQLRequest,
+  injectVariables: injectGraphQLVariables,
   // Builder is intentionally undefined — Builder lives at
   // `src/features/graphql/components/GraphQLRequestBuilder.tsx` and drives
   // this protocol via `useRequestRunner` rather than being mounted by the

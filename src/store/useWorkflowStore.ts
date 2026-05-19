@@ -1,9 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Workflow, WorkflowRequest, WorkflowExecution, VariableExtraction } from '@/types';
+import { temporal } from 'zundo';
+import type {
+  Workflow,
+  WorkflowRequest,
+  WorkflowExecution,
+  VariableExtraction,
+  WorkflowGraph,
+  FlowNodePosition,
+  FlowNode,
+  RequestFlowNode,
+  SseSubscribeFlowNode,
+  McpCallFlowNode,
+  SubgraphPath,
+} from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
+import { selectAtPath, setAtPath } from '@/features/workflows/lib/flowTypes';
 
 interface WorkflowState {
   workflows: Workflow[];
@@ -17,11 +31,53 @@ interface WorkflowState {
   getWorkflowsByCollectionId: (collectionId: string) => Workflow[];
   createNewWorkflow: (name: string, collectionId: string) => Workflow;
 
-  // Workflow Request CRUD
+  // Workflow Request CRUD (legacy linear path)
+  // When workflow.graph is set, these throw — form view is read-only in that
+  // case and graph view uses addRequestNode/removeRequestNode for the dual
+  // WorkflowRequest+FlowNode mutation.
   addWorkflowRequest: (workflowId: string, request: WorkflowRequest) => void;
   updateWorkflowRequest: (workflowId: string, requestId: string, updates: Partial<WorkflowRequest>) => void;
   removeWorkflowRequest: (workflowId: string, requestId: string) => void;
   reorderWorkflowRequests: (workflowId: string, requests: WorkflowRequest[]) => void;
+
+  // Graph operations
+  // setWorkflowGraph is the single mutation point for top-level canvas
+  // writes. setWorkflowSubgraph handles writes inside nested
+  // forEach/tryCatch bodies. Both flow through zundo for undo/redo.
+  setWorkflowGraph: (workflowId: string, graph: WorkflowGraph) => void;
+  /** Replace the nested subgraph at `path` inside `workflow.graph`.
+   *  Empty path delegates to setWorkflowGraph. Invalid paths no-op. */
+  setWorkflowSubgraph: (
+    workflowId: string,
+    path: SubgraphPath,
+    graph: WorkflowGraph
+  ) => void;
+  /** Drop a collection request onto the canvas. Creates both a
+   *  WorkflowRequest (always in workflow.requests[] — flat bag, no
+   *  matter how deep the path) AND a FlowNode (in the graph at
+   *  `path`, default = top-level). The root graph must already exist
+   *  (open the Graph tab first to trigger the stub).
+   *
+   *  `nodeKind` lets a saved SSE/MCP request drop create the matching
+   *  streaming-node kind directly instead of a generic `request` node.
+   *  Defaults to `'request'` for back-compat. */
+  addRequestNode: (
+    workflowId: string,
+    collectionRequestId: string,
+    requestName: string,
+    position: FlowNodePosition,
+    path?: SubgraphPath,
+    nodeKind?: 'request' | 'sseSubscribe' | 'mcpCall'
+  ) => { nodeId: string; workflowRequestId: string };
+  /** Remove a node from the graph at `path`. For request nodes, also
+   *  deletes the underlying WorkflowRequest. Cascades edges touching
+   *  the node within the same subgraph. */
+  removeRequestNode: (
+    workflowId: string,
+    nodeId: string,
+    path?: SubgraphPath
+  ) => void;
+  clearWorkflowGraph: (workflowId: string) => void;
 
   // Variable Extraction
   addExtraction: (workflowId: string, requestId: string, extraction: VariableExtraction) => void;
@@ -39,8 +95,39 @@ interface WorkflowState {
   createNewExtraction: (variableName: string, path: string) => VariableExtraction;
 }
 
+/**
+ * Throttle a function so successive invocations within `delay` ms fire
+ * at most once (leading + trailing). Used to coalesce rapid graph
+ * mutations (e.g. dragging a node, which fires onNodesChange every
+ * frame) into a single undo entry per ~300 ms.
+ */
+function throttle<T extends (...args: never[]) => unknown>(
+  fn: T,
+  delay: number
+): T {
+  let lastFire = 0;
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: Parameters<T> | null = null;
+  return ((...args: Parameters<T>) => {
+    const now = Date.now();
+    lastArgs = args;
+    if (now - lastFire >= delay) {
+      lastFire = now;
+      fn(...args);
+    } else if (!pending) {
+      const wait = delay - (now - lastFire);
+      pending = setTimeout(() => {
+        pending = null;
+        lastFire = Date.now();
+        if (lastArgs) fn(...lastArgs);
+      }, wait);
+    }
+  }) as T;
+}
+
 export const useWorkflowStore = create<WorkflowState>()(
-  persist(
+  temporal(
+    persist(
     (set, get) => ({
       workflows: [],
       executions: [],
@@ -81,11 +168,15 @@ export const useWorkflowStore = create<WorkflowState>()(
       // Workflow Request CRUD
       addWorkflowRequest: (workflowId, request) =>
         set((state) => ({
-          workflows: state.workflows.map((wf) =>
-            wf.id === workflowId
-              ? { ...wf, requests: [...wf.requests, request], updatedAt: Date.now() }
-              : wf
-          ),
+          workflows: state.workflows.map((wf) => {
+            if (wf.id !== workflowId) return wf;
+            if (wf.graph) {
+              throw new Error(
+                'Cannot addWorkflowRequest on a graph-authored workflow. Use addRequestNode (graph view) or clear the graph first.'
+              );
+            }
+            return { ...wf, requests: [...wf.requests, request], updatedAt: Date.now() };
+          }),
         })),
 
       updateWorkflowRequest: (workflowId, requestId, updates) =>
@@ -105,24 +196,210 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       removeWorkflowRequest: (workflowId, requestId) =>
         set((state) => ({
-          workflows: state.workflows.map((wf) =>
-            wf.id === workflowId
-              ? {
-                  ...wf,
-                  requests: wf.requests.filter((req) => req.id !== requestId),
-                  updatedAt: Date.now(),
-                }
-              : wf
-          ),
+          workflows: state.workflows.map((wf) => {
+            if (wf.id !== workflowId) return wf;
+            if (wf.graph) {
+              throw new Error(
+                'Cannot removeWorkflowRequest on a graph-authored workflow. Use removeRequestNode (graph view) or clear the graph first.'
+              );
+            }
+            return {
+              ...wf,
+              requests: wf.requests.filter((req) => req.id !== requestId),
+              updatedAt: Date.now(),
+            };
+          }),
         })),
 
       reorderWorkflowRequests: (workflowId, requests) =>
         set((state) => ({
+          workflows: state.workflows.map((wf) => {
+            if (wf.id !== workflowId) return wf;
+            if (wf.graph) {
+              throw new Error(
+                'Cannot reorderWorkflowRequests on a graph-authored workflow. Edges in the graph are the source of order.'
+              );
+            }
+            return { ...wf, requests, updatedAt: Date.now() };
+          }),
+        })),
+
+      setWorkflowGraph: (workflowId, graph) =>
+        set((state) => ({
           workflows: state.workflows.map((wf) =>
             wf.id === workflowId
-              ? { ...wf, requests, updatedAt: Date.now() }
+              ? { ...wf, graph, updatedAt: Date.now() }
               : wf
           ),
+        })),
+
+      setWorkflowSubgraph: (workflowId, path, graph) =>
+        set((state) => ({
+          workflows: state.workflows.map((wf) => {
+            if (wf.id !== workflowId) return wf;
+            if (!wf.graph) {
+              throw new Error(
+                'setWorkflowSubgraph requires workflow.graph to exist.'
+              );
+            }
+            if (path.length === 0) {
+              return { ...wf, graph, updatedAt: Date.now() };
+            }
+            return {
+              ...wf,
+              graph: setAtPath(wf.graph, path, graph),
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
+      addRequestNode: (workflowId, collectionRequestId, requestName, position, path, nodeKind) => {
+        const newWorkflowRequest: WorkflowRequest = {
+          id: uuidv4(),
+          requestId: collectionRequestId,
+          name: requestName,
+        };
+        const newNodeId = `node-${uuidv4()}`;
+        let newNode: FlowNode;
+        if (nodeKind === 'sseSubscribe') {
+          const data: SseSubscribeFlowNode['data'] = {
+            workflowRequestId: newWorkflowRequest.id,
+            completion: { kind: 'eventCount', n: 1 },
+            accumulateAll: true,
+          };
+          newNode = {
+            id: newNodeId,
+            kind: 'sseSubscribe',
+            position,
+            data,
+          };
+        } else if (nodeKind === 'mcpCall') {
+          const data: McpCallFlowNode['data'] = {
+            workflowRequestId: newWorkflowRequest.id,
+            method: 'tools/call',
+            paramsExpression: 'return {};',
+          };
+          newNode = {
+            id: newNodeId,
+            kind: 'mcpCall',
+            position,
+            data,
+          };
+        } else {
+          const data: RequestFlowNode['data'] = {
+            workflowRequestId: newWorkflowRequest.id,
+          };
+          newNode = {
+            id: newNodeId,
+            kind: 'request',
+            position,
+            data,
+          };
+        }
+        set((state) => ({
+          workflows: state.workflows.map((wf) => {
+            if (wf.id !== workflowId) return wf;
+            if (!wf.graph) {
+              throw new Error(
+                'addRequestNode requires workflow.graph to exist. Open the Graph tab first.'
+              );
+            }
+            // WorkflowRequest is always flat — it's a bag indexed by id
+            // regardless of where in the graph the node lives.
+            const nextRequests = [...wf.requests, newWorkflowRequest];
+            if (!path || path.length === 0) {
+              return {
+                ...wf,
+                requests: nextRequests,
+                graph: {
+                  ...wf.graph,
+                  nodes: [...wf.graph.nodes, newNode],
+                },
+                updatedAt: Date.now(),
+              };
+            }
+            const targetSlice = selectAtPath(wf.graph, path);
+            if (!targetSlice) {
+              // Path was invalid — drop the request anyway? No: the
+              // caller assumes the FlowNode lands somewhere. Throw to
+              // surface the bug.
+              throw new Error(
+                `addRequestNode: subgraph path ${JSON.stringify(path)} did not resolve.`
+              );
+            }
+            const nextSlice: WorkflowGraph = {
+              ...targetSlice,
+              nodes: [...targetSlice.nodes, newNode],
+            };
+            return {
+              ...wf,
+              requests: nextRequests,
+              graph: setAtPath(wf.graph, path, nextSlice),
+              updatedAt: Date.now(),
+            };
+          }),
+        }));
+        return {
+          nodeId: newNodeId,
+          workflowRequestId: newWorkflowRequest.id,
+        };
+      },
+
+      removeRequestNode: (workflowId, nodeId, path) =>
+        set((state) => ({
+          workflows: state.workflows.map((wf) => {
+            if (wf.id !== workflowId) return wf;
+            if (!wf.graph) return wf;
+            const slice =
+              !path || path.length === 0
+                ? wf.graph
+                : selectAtPath(wf.graph, path);
+            if (!slice) return wf;
+            const node = slice.nodes.find((n) => n.id === nodeId);
+            const nextSlice: WorkflowGraph = {
+              ...slice,
+              nodes: slice.nodes.filter((n) => n.id !== nodeId),
+              edges: slice.edges.filter(
+                (e) => e.source !== nodeId && e.target !== nodeId
+              ),
+            };
+            const nextGraph =
+              !path || path.length === 0
+                ? nextSlice
+                : setAtPath(wf.graph, path, nextSlice);
+            // Cascade WorkflowRequest deletion for any node kind that
+            // holds a `workflowRequestId` in its `data`. Three kinds
+            // qualify today: request, sseSubscribe, mcpCall. (wsExchange
+            // uses inline URL config and has no linked WorkflowRequest.)
+            const linkedWorkflowRequestId =
+              node && 'data' in node && node.data &&
+              (node.kind === 'request' ||
+                node.kind === 'sseSubscribe' ||
+                node.kind === 'mcpCall')
+                ? (node.data as { workflowRequestId?: string }).workflowRequestId
+                : undefined;
+            const nextRequests = linkedWorkflowRequestId
+              ? wf.requests.filter((r) => r.id !== linkedWorkflowRequestId)
+              : wf.requests;
+            return {
+              ...wf,
+              requests: nextRequests,
+              graph: nextGraph,
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
+      clearWorkflowGraph: (workflowId) =>
+        set((state) => ({
+          workflows: state.workflows.map((wf) => {
+            if (wf.id !== workflowId) return wf;
+            // Strip `graph` from the workflow. The rest (requests[],
+            // variables, etc.) is preserved verbatim so users return to
+            // the linear form view with everything still in place.
+            const { graph: _graph, ...rest } = wf;
+            return { ...rest, updatedAt: Date.now() };
+          }),
         })),
 
       // Variable Extraction
@@ -229,7 +506,10 @@ export const useWorkflowStore = create<WorkflowState>()(
     }),
     {
       name: 'workflow-storage',
-      version: 2, // Bumped for Dexie migration + encryption
+      // v2 → Dexie migration + encryption
+      // v3 → optional Workflow.graph (WorkflowGraph). No-op migration —
+      //      existing rows just have `graph` absent, which is valid.
+      version: 3,
       storage: dexieStorageAdapters.workflows(),
       migrate: (persistedState, _version) => {
         const looksEmpty =
@@ -252,6 +532,23 @@ export const useWorkflowStore = create<WorkflowState>()(
           console.debug('Workflow store rehydrated from Dexie successfully');
         }
       },
+    }
+    ),
+    {
+      // Track only the workflows array — executions are ephemeral run
+      // history (not user intent to undo) and the action functions
+      // themselves are stable. Reading the persisted slice keeps the
+      // undo stack focused on graph/workflow edits.
+      partialize: (state) => ({ workflows: state.workflows }),
+      // Cap history at 10 to avoid unbounded memory growth during a long
+      // editing session. zundo defaults to unlimited.
+      limit: 10,
+      // Throttle entry creation. Dragging a node fires onNodesChange
+      // many times per second; we coalesce into one undo step per ~300 ms.
+      handleSet: (handleSet) => throttle(handleSet, 300),
+      // Don't track the temporal stack itself across reloads — it'd be
+      // misleading after a refresh since the user has no visual cue for
+      // why "Undo" still works from a previous session.
     }
   )
 );

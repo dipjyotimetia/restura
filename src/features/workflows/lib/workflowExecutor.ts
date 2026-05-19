@@ -5,15 +5,16 @@ import type {
   WorkflowExecutionStep,
   Request,
   Response,
-  HttpRequest,
   AppSettings,
   AuthConfig,
 } from '@/types';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { v4 as uuidv4 } from 'uuid';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { protocolRegistry } from '@/features/registry/registry';
 import { extractVariables } from './variableExtractor';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { executeWithRetry } from './retryHelpers';
+import { evalScriptBoolean } from './scriptHelpers';
 
 export interface WorkflowExecutorOptions {
   workflow: Workflow;
@@ -29,7 +30,13 @@ export interface WorkflowExecutorOptions {
 }
 
 /**
- * Execute a workflow sequentially, passing variables between requests
+ * Execute a linear workflow.
+ *
+ * **This executor only handles linear workflows** (no `workflow.graph`).
+ * Graph-authored workflows run through `dagExecutor.executeDag`. The
+ * legacy executor refuses to run a graph workflow because the linear
+ * `requests[]` array is treated as a bag (insertion order is
+ * meaningless) once a graph is authored.
  */
 export async function executeWorkflow(
   options: WorkflowExecutorOptions
@@ -46,6 +53,12 @@ export async function executeWorkflow(
     onLog,
     abortSignal,
   } = options;
+
+  if (workflow.graph) {
+    throw new Error(
+      'executeWorkflow received a graph-authored workflow. Use executeDag from dagExecutor.ts.'
+    );
+  }
 
   const execution: WorkflowExecution = {
     id: uuidv4(),
@@ -106,10 +119,9 @@ export async function executeWorkflow(
 
       // Check precondition
       if (workflowRequest.precondition) {
-        const conditionMet = await evaluatePrecondition(
-          workflowRequest.precondition,
-          execution.finalVariables
-        );
+        const conditionMet = await evalScriptBoolean(workflowRequest.precondition, {
+          variables: execution.finalVariables,
+        });
         if (!conditionMet) {
           step.status = 'skipped';
           log(`Skipping "${workflowRequest.name}" - precondition not met`, 'info');
@@ -121,13 +133,14 @@ export async function executeWorkflow(
       log(`Executing: ${workflowRequest.name}`);
 
       // Execute with retry policy
-      const response = await executeWithRetry(
+      const response = await runHttpStep(
         request,
         workflowRequest,
         execution.finalVariables,
         globalSettings,
         resolveVariables,
-        log
+        log,
+        abortSignal
       );
 
       step.response = response;
@@ -193,121 +206,56 @@ export async function executeWorkflow(
 }
 
 /**
- * Execute a request with retry policy
+ * Execute a single HTTP step with retry + the protocol-registry's
+ * injectVariables for {{var}} substitution. We still call
+ * `executeRequest` directly (not protocol.runRequest) because the legacy
+ * executor needs `result.envVars` from inline scripts merged back — a
+ * surface that the registry currently doesn't expose. Once useRequestRunner
+ * grows that capability, this can collapse to a registry call.
  */
-async function executeWithRetry(
+async function runHttpStep(
   request: Request,
   workflowRequest: WorkflowRequest,
   envVars: Record<string, string>,
   globalSettings: AppSettings,
   resolveVariables: (text: string) => string,
-  log: (message: string, level: 'info' | 'warn' | 'error') => void
+  log: (message: string, level: 'info' | 'warn' | 'error') => void,
+  abortSignal?: AbortSignal
 ): Promise<Response> {
-  // Only HTTP requests supported for now
   if (request.type !== 'http') {
-    throw new Error('Only HTTP requests are supported in workflows');
+    throw new Error('Only HTTP requests are supported in linear workflows');
   }
 
-  const retryPolicy = workflowRequest.retryPolicy || { maxAttempts: 1, delayMs: 0 };
-  let lastError: Error | undefined;
+  const httpModule = protocolRegistry.get('http');
+  const injected = httpModule?.injectVariables
+    ? httpModule.injectVariables(request, envVars)
+    : request;
+  if (injected.type !== 'http') {
+    throw new Error('HTTP injectVariables produced non-HTTP request');
+  }
 
-  for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt++) {
-    try {
-      // Clone request to apply variable substitution
-      const clonedRequest = injectVariables(request, envVars);
-
+  return executeWithRetry(
+    async () => {
       const result = await executeRequest({
-        request: clonedRequest,
+        request: injected,
         envVars,
         globalSettings,
         resolveVariables,
       });
-
-      // Update envVars with any changes from scripts
       if (result.envVars) {
         Object.assign(envVars, result.envVars);
       }
-
       return result.response;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error('Unknown error');
-
-      if (attempt < retryPolicy.maxAttempts) {
-        const delay = retryPolicy.delayMs * Math.pow(retryPolicy.backoffMultiplier || 1, attempt - 1);
-        log(`Retry ${attempt}/${retryPolicy.maxAttempts} for "${workflowRequest.name}" in ${delay}ms`, 'warn');
-        await sleep(delay);
-      }
-    }
-  }
-
-  throw lastError || new Error('Request failed');
-}
-
-/**
- * Inject variables into request URL, headers, and body
- */
-function injectVariables(request: HttpRequest, variables: Record<string, string>): HttpRequest {
-  const inject = (text: string): string => {
-    let result = text;
-    Object.entries(variables).forEach(([key, value]) => {
-      result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
-    });
-    return result;
-  };
-
-  return {
-    ...request,
-    url: inject(request.url),
-    headers: request.headers.map((h) => ({
-      ...h,
-      key: inject(h.key),
-      value: inject(h.value),
-    })),
-    params: request.params.map((p) => ({
-      ...p,
-      key: inject(p.key),
-      value: inject(p.value),
-    })),
-    body: {
-      ...request.body,
-      raw: request.body.raw ? inject(request.body.raw) : undefined,
     },
-  };
-}
-
-/**
- * Evaluate precondition script
- */
-async function evaluatePrecondition(
-  script: string,
-  variables: Record<string, string>
-): Promise<boolean> {
-  try {
-    const executor = new ScriptExecutor(variables, {});
-    const result = await executor.executeScript(
-      `
-      const __result = (function() {
-        ${script}
-      })();
-      if (typeof __result !== 'boolean') {
-        throw new Error('Precondition must return a boolean');
-      }
-      return __result;
-      `,
-      {}
-    );
-
-    // If script executed without errors, check if it returned true
-    if (result.success) {
-      // The script should set a variable or we check for no errors
-      return true;
+    {
+      policy: workflowRequest.retryPolicy ?? { maxAttempts: 1, delayMs: 0 },
+      ...(abortSignal ? { signal: abortSignal } : {}),
+      onRetry: (attempt, delay) => {
+        log(
+          `Retry ${attempt}/${workflowRequest.retryPolicy?.maxAttempts ?? 1} for "${workflowRequest.name}" in ${delay}ms`,
+          'warn'
+        );
+      },
     }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  );
 }

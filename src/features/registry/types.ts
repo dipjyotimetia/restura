@@ -51,6 +51,62 @@ export interface ProtocolModule {
   runRequest: (request: Request, ctx: RunContext) => Promise<Response>;
   /** Optional: code-generator entries this protocol contributes */
   codeGenerators?: Record<string, (request: Request) => string>;
+  /**
+   * Substitute `{{var}}` references in the request shape. Per-protocol
+   * because each protocol's request has different stringy fields (HTTP:
+   * url, headers, params, body.raw; gRPC: url, metadata, message;
+   * GraphQL: HTTP-shaped but `body.raw` is a structured JSON envelope).
+   *
+   * Pure — does not mutate the input. The DAG executor and the legacy
+   * linear workflow executor call this BEFORE `runRequest` so the wire
+   * bytes reflect the resolved variables and auth signing (which runs at
+   * the wire) sees the final form.
+   *
+   * Optional: protocols that don't need pre-call substitution (e.g.
+   * session-based MCP/SSE, which aren't invoked through the executor)
+   * may omit it. The executor falls back to the identity function in
+   * that case and logs a one-time warning to surface the gap.
+   */
+  injectVariables?: (request: Request, variables: Record<string, string>) => Request;
+  /**
+   * Open a long-lived streaming connection. Only defined on protocols
+   * whose `runRequest` doesn't apply — SSE (server-push), WebSocket
+   * (full-duplex). The DAG executor's streaming-node executors
+   * (`sseSubscribe`, `wsExchange`) call this; legacy paths never do.
+   *
+   * `request` is `unknown` because not every streaming protocol's
+   * input shape fits the `Request` discriminated union — WebSocket
+   * has no `Request` variant and is invoked with an inline `{ type:
+   * 'websocket', url }` shape. Each implementer narrows internally
+   * (`if (req.type !== 'sse') throw ...`). Mirrors the precedent set
+   * by `RunContext.protocolOptions: Record<string, unknown>`.
+   *
+   * MCP is session-based JSON-RPC; it uses `runJsonRpc` (defined on
+   * the MCP module specifically) rather than `startStream`.
+   */
+  startStream?: (
+    request: unknown,
+    ctx: RunContext
+  ) => Promise<ProtocolStreamHandle>;
+}
+
+/**
+ * Handle to a streaming protocol connection. Returned by
+ * `ProtocolModule.startStream`. The executor iterates `events` until
+ * a completion policy fires, then calls `close()`. `ctx.signal` aborts
+ * both halves; the protocol implementation must honour it.
+ */
+export interface ProtocolStreamHandle {
+  /**
+   * Async iterable of typed events. The protocol module owns the event
+   * shape (SSE: `ParsedSseEvent`; WebSocket: raw frame data). The
+   * iterable ends when the server closes the stream, `close()` is
+   * called, or `ctx.signal` aborts.
+   */
+  events: AsyncIterable<unknown>;
+  /** Force the stream to close. Idempotent. Best-effort — server-side
+   *  closes may already be in flight when this is called. */
+  close: () => Promise<void>;
 }
 
 export interface ProtocolRegistry {

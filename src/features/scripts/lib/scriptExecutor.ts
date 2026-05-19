@@ -2,7 +2,11 @@
 // Provides a SECURE sandboxed environment using QuickJS for executing user scripts
 // Security features: Memory limits, execution timeout, no filesystem/network access
 
-import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
+import type {
+  QuickJSContext,
+  QuickJSHandle,
+  QuickJSRuntime,
+} from 'quickjs-emscripten';
 import { getQuickJS } from 'quickjs-emscripten';
 
 export interface ScriptContext {
@@ -103,9 +107,190 @@ class ScriptExecutor {
   private errors: string[] = [];
   private tests: Array<{ name: string; passed: boolean; error?: string }> = [];
 
+  // QuickJS lifecycle. `initialize()` populates these once; `eval()` reuses
+  // them across many calls; `dispose()` tears down. The one-shot
+  // `executeScript()` path brackets initialize + eval + dispose in a single
+  // call, preserving its existing semantics.
+  private runtime: QuickJSRuntime | null = null;
+  private vm: QuickJSContext | null = null;
+  private evalStartTime = 0;
+  private evalInterrupted = false;
+
   constructor(envVars: Record<string, string> = {}, globalVars: Record<string, string> = {}) {
     this.envVars = { ...envVars };
     this.globalVars = { ...globalVars };
+  }
+
+  /**
+   * Create the QuickJS runtime + context and run the static setup once.
+   * Idempotent — subsequent calls return immediately. Required before
+   * `eval()`, `setVariable()`, or `bindRequestResponse()` can be used.
+   */
+  async initialize(): Promise<void> {
+    if (this.vm) return;
+    const QuickJS = await getQuickJS();
+    const runtime = QuickJS.newRuntime();
+    runtime.setMemoryLimit(MAX_MEMORY_BYTES);
+    // The interrupt handler reads instance fields so each `eval()` call can
+    // reset the start time without re-registering the handler.
+    runtime.setInterruptHandler(() => {
+      if (Date.now() - this.evalStartTime > MAX_EXECUTION_TIME_MS) {
+        this.evalInterrupted = true;
+        return true;
+      }
+      return false;
+    });
+    const vm = runtime.newContext();
+    this.runtime = runtime;
+    this.vm = vm;
+    // Bind console / environment / globals / pm.* and evaluate the
+    // utils + expect helpers. Request/response are bound per-eval below.
+    this.setupQuickJSContext(vm, {});
+  }
+
+  /**
+   * Update a workflow variable without re-running setup. Variables flow
+   * into the QuickJS context via `pm.variables.get(...)` callbacks that
+   * close over `this.envVars` — mutating the map here is enough for the
+   * next `eval()` to see the new value.
+   */
+  setVariable(key: string, value: string): void {
+    this.envVars[key] = value;
+  }
+
+  /**
+   * Snapshot the current variables map (`pm.variables.set` and
+   * `environment.set` calls mutate the internal copy during eval).
+   */
+  getVariables(): Record<string, string> {
+    return { ...this.envVars };
+  }
+
+  /**
+   * Dispose the QuickJS runtime + context. Idempotent.
+   */
+  dispose(): void {
+    if (this.vm) {
+      this.vm.dispose();
+      this.vm = null;
+    }
+    if (this.runtime) {
+      this.runtime.dispose();
+      this.runtime = null;
+    }
+  }
+
+  /**
+   * Bind `request` and/or `response` globals from `context` onto the VM.
+   * Called by `eval()` per-invocation when context is provided — the
+   * previous handle is garbage-collected by QuickJS when overwritten.
+   */
+  private bindRequestResponse(
+    vm: QuickJSContext,
+    context: { request?: ScriptContext['request']; response?: ScriptContext['response'] }
+  ): void {
+    if (context.request) {
+      const handle = this.makeJSValue(vm, context.request);
+      vm.setProp(vm.global, 'request', handle);
+      handle.dispose();
+    }
+    if (context.response) {
+      const handle = this.makeJSValue(vm, context.response);
+      vm.setProp(vm.global, 'response', handle);
+      handle.dispose();
+    }
+  }
+
+  /** Native → QuickJS handle. Extracted from setupQuickJSContext so the
+   *  per-eval request/response rebind can reuse it. */
+  private makeJSValue(vm: QuickJSContext, value: unknown): QuickJSHandle {
+    if (value === undefined) return vm.undefined;
+    if (value === null) return vm.null;
+    if (typeof value === 'boolean') return value ? vm.true : vm.false;
+    if (typeof value === 'number') return vm.newNumber(value);
+    if (typeof value === 'string') return vm.newString(value);
+    if (Array.isArray(value)) {
+      const arr = vm.newArray();
+      value.forEach((item, i) => {
+        const itemHandle = this.makeJSValue(vm, item);
+        vm.setProp(arr, i, itemHandle);
+        itemHandle.dispose();
+      });
+      return arr;
+    }
+    if (typeof value === 'object') {
+      const obj = vm.newObject();
+      for (const [key, val] of Object.entries(value)) {
+        const valHandle = this.makeJSValue(vm, val);
+        vm.setProp(obj, key, valHandle);
+        valHandle.dispose();
+      }
+      return obj;
+    }
+    return vm.undefined;
+  }
+
+  /**
+   * Evaluate a script inside the initialized session. Resets per-call
+   * state (logs/errors/tests/timeout), optionally rebinds request/response,
+   * runs the script, and returns the result shape.
+   *
+   * Throws if the session is not initialized. Callers that don't need a
+   * long-lived session should use `executeScript()` instead.
+   */
+  async eval(
+    script: string,
+    context: {
+      request?: ScriptContext['request'];
+      response?: ScriptContext['response'];
+    } = {}
+  ): Promise<ScriptResult> {
+    const vm = this.vm;
+    if (!vm) {
+      throw new Error('ScriptExecutor.eval called before initialize()');
+    }
+
+    this.logs = [];
+    this.errors = [];
+    this.tests = [];
+
+    const trimmedScript = typeof script === 'string' ? script.trim() : '';
+    if (!trimmedScript) {
+      return {
+        success: true,
+        logs: this.logs,
+        errors: this.errors,
+        variables: { ...this.envVars },
+      };
+    }
+
+    this.bindRequestResponse(vm, context);
+    this.evalStartTime = Date.now();
+    this.evalInterrupted = false;
+
+    const result = vm.evalCode(trimmedScript, 'user-script.js', {
+      strict: true,
+    });
+    if (result.error) {
+      const errorValue = vm.dump(result.error);
+      const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
+      this.addLog('error', `Script execution error: ${errorMsg}`);
+      result.error.dispose();
+    } else {
+      result.value.dispose();
+    }
+    if (this.evalInterrupted) {
+      this.addLog('error', `Script execution timed out after ${MAX_EXECUTION_TIME_MS}ms`);
+      this.errors.push(`Script execution timed out after ${MAX_EXECUTION_TIME_MS}ms`);
+    }
+
+    return {
+      success: this.errors.length === 0,
+      logs: this.logs,
+      errors: this.errors,
+      variables: { ...this.envVars },
+      ...(this.tests.length > 0 && { tests: this.tests }),
+    };
   }
 
   private stringify(value: unknown): string {
@@ -139,43 +324,18 @@ class ScriptExecutor {
     }
   }
 
-  // Setup QuickJS context with sandboxed APIs
+  // One-time setup of console / environment / globals / pm.* helpers
+  // and the utils + expect eval-time code. Request / response globals
+  // are bound per-eval by `bindRequestResponse` so a session can serve
+  // many calls against different request/response shapes.
   private setupQuickJSContext(
     vm: QuickJSContext,
-    context: {
+    _context: {
       request?: ScriptContext['request'];
       response?: ScriptContext['response'];
     }
   ): void {
-    // Helper to create JS value from native
-    const toJSValue = (value: unknown): QuickJSHandle => {
-      if (value === undefined) return vm.undefined;
-      if (value === null) return vm.null;
-      if (typeof value === 'boolean') return value ? vm.true : vm.false;
-      if (typeof value === 'number') return vm.newNumber(value);
-      if (typeof value === 'string') return vm.newString(value);
-      if (Array.isArray(value)) {
-        const arr = vm.newArray();
-        value.forEach((item, i) => {
-          const itemHandle = toJSValue(item);
-          vm.setProp(arr, i, itemHandle);
-          itemHandle.dispose();
-        });
-        return arr;
-      }
-      if (typeof value === 'object') {
-        const obj = vm.newObject();
-        for (const [key, val] of Object.entries(value)) {
-          const valHandle = toJSValue(val);
-          vm.setProp(obj, key, valHandle);
-          valHandle.dispose();
-        }
-        return obj;
-      }
-      return vm.undefined;
-    };
-
-    // Helper to convert QuickJS value to native
+    void _context; // retained for signature compatibility; per-eval globals live in eval()
     const fromJSValue = (handle: QuickJSHandle): unknown => {
       return vm.dump(handle);
     };
@@ -207,20 +367,6 @@ class ScriptExecutor {
     warnFn.dispose();
     infoFn.dispose();
     consoleObj.dispose();
-
-    // Setup request object (read-only)
-    if (context.request) {
-      const requestHandle = toJSValue(context.request);
-      vm.setProp(vm.global, 'request', requestHandle);
-      requestHandle.dispose();
-    }
-
-    // Setup response object (read-only)
-    if (context.response) {
-      const responseHandle = toJSValue(context.response);
-      vm.setProp(vm.global, 'response', responseHandle);
-      responseHandle.dispose();
-    }
 
     // Setup environment object
     const envObj = vm.newObject();
@@ -561,6 +707,17 @@ class ScriptExecutor {
     }
   }
 
+  /**
+   * One-shot execution: initialize → eval → dispose. Each call gets a
+   * fresh QuickJS runtime. Callers that need to run many scripts against
+   * the same session (e.g. high-frequency predicate evaluation) should
+   * call `initialize()` / `eval()` / `dispose()` directly so the runtime
+   * is reused.
+   *
+   * The QuickJS WASM runtime is the security boundary — it's isolated
+   * with no host bridge, so eval / Function() / __proto__ / constructor[]
+   * inside the user script cannot reach any native API. See ADR-0004.
+   */
   async executeScript(
     script: string,
     context: {
@@ -568,96 +725,9 @@ class ScriptExecutor {
       response?: ScriptContext['response'];
     }
   ): Promise<ScriptResult> {
-    // Reset state
-    this.logs = [];
-    this.errors = [];
-    this.tests = [];
-
-    // Validate script input
-    if (!script || typeof script !== 'string') {
-      return {
-        success: true,
-        logs: this.logs,
-        errors: this.errors,
-        variables: { ...this.envVars },
-      };
-    }
-
-    // Trim and check for empty script
-    const trimmedScript = script.trim();
-    if (!trimmedScript) {
-      return {
-        success: true,
-        logs: this.logs,
-        errors: this.errors,
-        variables: { ...this.envVars },
-      };
-    }
-
-    // Note: no source-level pattern filter. The QuickJS runtime is the security
-    // boundary — it's WASM-isolated with no host bridge, so eval / Function() /
-    // __proto__ / constructor[] / Object.prototype inside the user script cannot
-    // reach any native API. A regex blocklist would only break legitimate code
-    // (Function.prototype.bind, obj.constructor.name, JSON revivers, etc.) without
-    // adding security. See ADR-0004.
-
     try {
-      // Initialize QuickJS runtime with security constraints
-      const QuickJS = await getQuickJS();
-      const runtime = QuickJS.newRuntime();
-
-      // Set memory limit (10MB)
-      runtime.setMemoryLimit(MAX_MEMORY_BYTES);
-
-      // Set execution timeout
-      const startTime = Date.now();
-      let interrupted = false;
-
-      runtime.setInterruptHandler(() => {
-        const elapsed = Date.now() - startTime;
-        if (elapsed > MAX_EXECUTION_TIME_MS) {
-          interrupted = true;
-          return true; // Interrupt execution
-        }
-        return false; // Continue execution
-      });
-
-      const vm = runtime.newContext();
-
-      try {
-        // Setup the sandboxed environment
-        this.setupQuickJSContext(vm, context);
-
-        // Execute the user script in strict mode
-        const result = vm.evalCode(trimmedScript, 'user-script.js', {
-          strict: true,
-        });
-
-        if (result.error) {
-          const errorValue = vm.dump(result.error);
-          const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
-          this.addLog('error', `Script execution error: ${errorMsg}`);
-          result.error.dispose();
-        } else {
-          result.value.dispose();
-        }
-
-        if (interrupted) {
-          this.addLog('error', `Script execution timed out after ${MAX_EXECUTION_TIME_MS}ms`);
-          this.errors.push(`Script execution timed out after ${MAX_EXECUTION_TIME_MS}ms`);
-        }
-      } finally {
-        vm.dispose();
-        runtime.dispose();
-      }
-
-      return {
-        success: this.errors.length === 0,
-        logs: this.logs,
-        errors: this.errors,
-        variables: { ...this.envVars },
-        ...(this.tests.length > 0 && { tests: this.tests }),
-      };
+      await this.initialize();
+      return await this.eval(script, context);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.errors.push(errorMsg);
@@ -666,7 +736,6 @@ class ScriptExecutor {
         message: `Sandbox initialization failed: ${errorMsg}`,
         timestamp: Date.now(),
       });
-
       return {
         success: false,
         logs: this.logs,
@@ -674,6 +743,8 @@ class ScriptExecutor {
         variables: { ...this.envVars },
         ...(this.tests.length > 0 && { tests: this.tests }),
       };
+    } finally {
+      this.dispose();
     }
   }
 }

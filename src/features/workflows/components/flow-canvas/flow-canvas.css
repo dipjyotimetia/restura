@@ -1,0 +1,110 @@
+/*
+ * React Flow style overrides scoped under .restura-flow-canvas so they
+ * don't bleed into the rest of the app.
+ *
+ * The base library CSS is imported in FlowCanvas.tsx; this file applies
+ * Restura's glass design on top.
+ */
+
+.restura-flow-canvas {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      hsl(var(--surface-1)) 0%,
+      hsl(var(--surface-0)) 100%
+    );
+}
+
+.restura-flow-canvas .react-flow__background {
+  /* Subtle dot grid that respects the theme tokens. */
+  background-color: transparent;
+}
+
+.restura-flow-canvas .react-flow__background .react-flow__background-pattern {
+  fill: hsl(var(--foreground) / 0.06);
+}
+
+/* Edges */
+.restura-flow-canvas .react-flow__edge-path {
+  stroke: hsl(var(--foreground) / var(--border-strong));
+  stroke-width: 1.5;
+}
+
+.restura-flow-canvas .react-flow__edge.selected .react-flow__edge-path,
+.restura-flow-canvas .react-flow__edge:focus .react-flow__edge-path {
+  stroke: hsl(var(--primary));
+  stroke-width: 2;
+}
+
+.restura-flow-canvas .react-flow__arrowhead polyline,
+.restura-flow-canvas .react-flow__arrowhead polygon {
+  fill: hsl(var(--foreground) / var(--border-strong));
+  stroke: hsl(var(--foreground) / var(--border-strong));
+}
+
+/* Handles (connection points) */
+.restura-flow-canvas .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: hsl(var(--background));
+  border: 1.5px solid hsl(var(--foreground) / var(--border-strong));
+  transition: all 0.15s ease;
+}
+
+.restura-flow-canvas .react-flow__handle:hover {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+}
+
+/* Controls panel (zoom in/out, fit-view) */
+.restura-flow-canvas .react-flow__controls {
+  box-shadow: none;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: hsl(var(--surface-2));
+  border: 1px solid hsl(var(--foreground) / var(--border-default));
+}
+
+.restura-flow-canvas .react-flow__controls-button {
+  background: transparent;
+  color: hsl(var(--foreground));
+  border-bottom: 1px solid hsl(var(--foreground) / var(--border-subtle));
+  width: 28px;
+  height: 28px;
+}
+
+.restura-flow-canvas .react-flow__controls-button:hover {
+  background: hsl(var(--foreground) / 0.05);
+}
+
+.restura-flow-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.restura-flow-canvas .react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+/* MiniMap */
+.restura-flow-canvas .react-flow__minimap {
+  background: hsl(var(--surface-2));
+  border: 1px solid hsl(var(--foreground) / var(--border-default));
+  border-radius: 0.5rem;
+}
+
+.restura-flow-canvas .react-flow__minimap-mask {
+  fill: hsl(var(--background) / 0.6);
+}
+
+/* Selection box */
+.restura-flow-canvas .react-flow__selection {
+  background: hsl(var(--primary) / 0.1);
+  border: 1px dashed hsl(var(--primary));
+}
+
+/* Attribution — hidden because the user isn't a React Flow customer here */
+.restura-flow-canvas .react-flow__attribution {
+  display: none;
+}

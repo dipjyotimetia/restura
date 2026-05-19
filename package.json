@@ -58,6 +58,7 @@
     "@connectrpc/connect": "^2.1.1",
     "@connectrpc/connect-node": "^2.1.1",
     "@connectrpc/connect-web": "^2.1.1",
+    "@dagrejs/dagre": "^3.0.0",
     "@faker-js/faker": "^10.4.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource/fira-code": "^5.2.7",
@@ -89,6 +90,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@types/tough-cookie": "^4.0.5",
     "@usebruno/lang": "^0.36.0",
+    "@xyflow/react": "^12.10.2",
     "axios": "^1.16.1",
     "chokidar": "^5.0.0",
     "class-variance-authority": "^0.7.1",
@@ -122,6 +124,7 @@
     "uuid": "^14.0.0",
     "yaml": "^2.9.0",
     "zod": "^4.4.3",
+    "zundo": "^2.3.0",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
