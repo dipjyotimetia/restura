@@ -63,20 +63,26 @@ export async function startStdioMcpServer(getContext: ContextProvider): Promise<
   });
 
   for (const tool of Object.values(TOOLS)) {
+    // The SDK's registerTool has multiple overloads keyed on `inputSchema`'s
+    // type: raw Zod shape vs. full schema vs. undefined. Iterating over a
+    // heterogeneous TOOLS map produces a union of schema types that the
+    // overload resolver can't narrow inside the loop body. We validate the
+    // raw input ourselves in `dispatchTool` (each tool calls `parse()` first
+    // thing), so the callback's argument typing isn't load-bearing — cast
+    // through `unknown` to a permissive signature.
+    const handler = (async (rawInput: unknown) => {
+      const ctx = await getContext();
+      const result = postProcessResult(dispatchTool(tool.name, rawInput, ctx));
+      return toolResultToContent(result);
+    }) as unknown as Parameters<typeof server.registerTool>[2];
+
     server.registerTool(
       tool.name,
       {
         description: tool.description,
-        // The SDK accepts a Zod shape (`ZodRawShapeCompat`) or a full Zod
-        // schema (`AnySchema`). Our schemas are full ZodObjects, which the
-        // SDK accepts via the AnySchema branch.
-        inputSchema: tool.inputSchema as never,
+        inputSchema: tool.inputSchema,
       },
-      async (rawInput: unknown) => {
-        const ctx = await getContext();
-        const result = postProcessResult(dispatchTool(tool.name, rawInput, ctx));
-        return toolResultToContent(result);
-      }
+      handler
     );
   }
 
