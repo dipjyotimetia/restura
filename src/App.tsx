@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { createHashRouter, RouterProvider } from 'react-router-dom';
 import { toast, Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
+import { AccentProvider } from '@/components/providers/AccentProvider';
 import { PlatformProvider } from '@/components/providers/PlatformProvider';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeychainStatusBanner } from '@/components/shared/KeychainStatusBanner';
@@ -42,12 +43,14 @@ export default function App() {
         disableTransitionOnChange
       >
         <ErrorBoundary>
-          <AriaLiveAnnouncerProvider>
-            <PlatformProvider>
-              <KeychainStatusBanner />
-              <RouterProvider router={router} />
-            </PlatformProvider>
-          </AriaLiveAnnouncerProvider>
+          <AccentProvider>
+            <AriaLiveAnnouncerProvider>
+              <PlatformProvider>
+                <KeychainStatusBanner />
+                <RouterProvider router={router} />
+              </PlatformProvider>
+            </AriaLiveAnnouncerProvider>
+          </AccentProvider>
         </ErrorBoundary>
         <Toaster
           position="bottom-right"

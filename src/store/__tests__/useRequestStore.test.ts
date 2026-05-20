@@ -430,4 +430,50 @@ describe('useRequestStore — tabs', () => {
       expect(persisted.tabs[0]!.request.url).toBe('https://example.com');
     });
   });
+
+  describe('openTabWithMode (pseudo-mode tabs)', () => {
+    it('creates an HTTP placeholder tab tagged with the chosen mode', () => {
+      const id = useRequestStore.getState().openTabWithMode('websocket');
+      const state = useRequestStore.getState();
+      const tab = state.tabs.find((t) => t.id === id);
+      expect(tab).toBeDefined();
+      expect(tab!.modeOverride).toBe('websocket');
+      expect(tab!.request.type).toBe('http');
+      expect(state.activeTabId).toBe(id);
+    });
+
+    it('produces independent tabs for repeated invocations', () => {
+      const a = useRequestStore.getState().openTabWithMode('socketio');
+      const b = useRequestStore.getState().openTabWithMode('socketio');
+      expect(a).not.toBe(b);
+      expect(useRequestStore.getState().tabs).toHaveLength(2);
+    });
+
+    it('supports each pseudo-mode', () => {
+      const modes = ['websocket', 'socketio', 'kafka', 'graphql'] as const;
+      const ids = modes.map((m) => useRequestStore.getState().openTabWithMode(m));
+      const tabs = useRequestStore.getState().tabs;
+      for (let i = 0; i < modes.length; i++) {
+        const tab = tabs.find((t) => t.id === ids[i]);
+        expect(tab?.modeOverride).toBe(modes[i]);
+      }
+    });
+
+    it('duplicateTab preserves modeOverride', () => {
+      const id = useRequestStore.getState().openTabWithMode('kafka');
+      const dupId = useRequestStore.getState().duplicateTab(id);
+      expect(dupId).not.toBe(id);
+      const dup = useRequestStore.getState().tabs.find((t) => t.id === dupId);
+      expect(dup?.modeOverride).toBe('kafka');
+    });
+
+    it('closeTab on a pseudo-mode tab leaves the store consistent', () => {
+      const a = useRequestStore.getState().openTabWithMode('websocket');
+      const b = useRequestStore.getState().openTabWithMode('graphql');
+      useRequestStore.getState().closeTab(a);
+      const state = useRequestStore.getState();
+      expect(state.tabs.map((t) => t.id)).toEqual([b]);
+      expect(state.activeTabId).toBe(b);
+    });
+  });
 });

@@ -84,6 +84,7 @@ export function detectLanguage(body: string, headers?: Record<string, string | s
     if (value?.includes('xml')) return 'xml';
     if (value?.includes('html')) return 'html';
     if (value?.includes('javascript')) return 'javascript';
+    if (value?.includes('css')) return 'css';
   }
   const trimmed = body.trim();
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) return 'json';

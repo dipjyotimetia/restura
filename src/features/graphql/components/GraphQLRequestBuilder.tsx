@@ -1,52 +1,95 @@
-import { useState, useRef } from 'react';
+'use client';
+
+import { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveRequest } from '@/store/selectors';
+import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { Send, Plug, PlugZap, CheckCircle } from 'lucide-react';
+import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
+import {
+  CheckCircle,
+  Download,
+  Plug,
+  PlugZap,
+  Send,
+  Wand2,
+} from 'lucide-react';
 import { toast } from 'sonner';
-import type { HttpRequest } from '@/types';
+import type { HttpRequest, AuthConfig as AuthConfigType } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { extractOperationType } from '@/features/graphql/lib/queryParser';
-import { GraphQLSubscriptionClient, type SubscriptionMessage } from '@/features/graphql/lib/subscriptionClient';
+import {
+  GraphQLSubscriptionClient,
+  type SubscriptionMessage,
+} from '@/features/graphql/lib/subscriptionClient';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import type { AuthConfig as AuthConfigType } from '@/types';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { Floater, SubTabBar, type SubTab } from '@/components/ui/spatial';
+import { cn } from '@/lib/shared/utils';
+import { formatQuery } from '@/features/graphql/lib/formatter';
+import {
+  buildSchemaFromIntrospection,
+  exportSchemaToSDL,
+} from '@/features/graphql/lib/introspection';
+import SchemaExplorer from './SchemaExplorer';
 
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
+const CodeEditor = lazyComponent(
+  () => import('@/components/shared/CodeEditor'),
+  <CodeEditorSkeleton className="h-[260px]" />
+);
+
+type TabValue =
+  | 'query'
+  | 'variables'
+  | 'headers'
+  | 'auth'
+  | 'scripts'
+  | 'subscription';
 
 function GraphQLRequestBuilder() {
   // GraphQL is HTTP under the hood — narrow the active tab to an HttpRequest.
   const currentRequest = useActiveRequest('http');
+  const activeTabId = useActiveTab()?.id;
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const setLoading = useRequestStore((s) => s.setLoading);
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const isLoading = useRequestStore((s) => s.isLoading);
   const { resolveVariables } = useEnvironmentStore();
+  const { fetchSchema, getSchema, isLoading: isSchemaLoading } =
+    useGraphQLSchemaStore();
   const { run: runViaRegistry } = useRequestRunner();
-  const [activeTab, setActiveTab] = useState('query');
+  const [activeTab, setActiveTab] = useState<TabValue>('query');
   const [graphqlVariables, setGraphqlVariables] = useState('{}');
-  const [subscriptionMessages, setSubscriptionMessages] = useState<SubscriptionMessage[]>([]);
+  const [subscriptionMessages, setSubscriptionMessages] = useState<
+    SubscriptionMessage[]
+  >([]);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const subscriptionClientRef = useRef<GraphQLSubscriptionClient | null>(null);
 
-  // Must be called before any early return — Rules of Hooks
   const {
     handleAdd: handleAddHeader,
     handleUpdate: handleUpdateHeader,
     handleDelete: handleDeleteHeader,
-  } = useKeyValueCollection(
-    currentRequest?.headers ?? [],
-    (headers) => updateRequest({ headers })
+  } = useKeyValueCollection(currentRequest?.headers ?? [], (headers) =>
+    updateRequest({ headers })
+  );
+
+  const url = currentRequest?.url ?? '';
+  const schemaResult = url ? getSchema(url) : null;
+  const schemaLoading = url ? isSchemaLoading(url) : false;
+  const executableSchema = useMemo(
+    () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
+    [schemaResult]
   );
 
   if (!currentRequest) {
@@ -58,6 +101,21 @@ function GraphQLRequestBuilder() {
   const operationType = extractOperationType(query);
   const isSubscription = operationType === 'subscription';
 
+  const activeHeaderCount = httpRequest.headers.filter(
+    (h) => h.enabled && h.key
+  ).length;
+  const detectedVarCount = (() => {
+    try {
+      const parsed = JSON.parse(graphqlVariables || '{}');
+      return parsed && typeof parsed === 'object'
+        ? Object.keys(parsed).length
+        : 0;
+    } catch {
+      return 0;
+    }
+  })();
+  const queryBytes = new Blob([query]).size;
+
   const buildHeaders = (): Record<string, string> => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -67,11 +125,7 @@ function GraphQLRequestBuilder() {
         headers[resolveVariables(header.key)] = resolveVariables(header.value);
       }
     }
-    // Inject auth header. SecretRef-aware: handles cannot be resolved in the
-    // renderer (ADR-0007) so they fall through unset — the WS subscription
-    // will fail upstream with 401, which surfaces in the response viewer.
-    const auth = httpRequest.auth;
-    const credential = buildAuthCredential(auth);
+    const credential = buildAuthCredential(httpRequest.auth);
     Object.assign(headers, credential.headers);
     return headers;
   };
@@ -144,10 +198,6 @@ function GraphQLRequestBuilder() {
     setLoading(true);
     setScriptResult(null);
 
-    // Build the wire-shaped request: GraphQL POSTs `{ query, variables }`
-    // as JSON, with auth headers folded into the request's header list so
-    // the runner's HTTP executor handles them uniformly. We don't mutate
-    // the stored request — the user's editor still shows the bare query.
     const wireBody = JSON.stringify({
       query: httpRequest.body.raw || '',
       variables: parsedVariables,
@@ -185,7 +235,8 @@ function GraphQLRequestBuilder() {
         });
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Request failed';
       toast.error('Request failed', { description: errorMessage });
     } finally {
       setLoading(false);
@@ -196,7 +247,40 @@ function GraphQLRequestBuilder() {
     updateRequest({ auth });
   };
 
-  const activeHeaderCount = httpRequest.headers.filter((h) => h.enabled && h.key).length;
+  const handlePrettify = () => {
+    if (!query.trim()) return;
+    const formatted = formatQuery(query);
+    updateRequest({ body: { ...httpRequest.body, raw: formatted } });
+  };
+
+  const handleDownloadSDL = () => {
+    if (!executableSchema) {
+      toast.error('No schema loaded');
+      return;
+    }
+    const sdl = exportSchemaToSDL(executableSchema);
+    const blob = new Blob([sdl], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'schema.graphql';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleFieldSelect = (field: string) => {
+    updateRequest({
+      body: { ...httpRequest.body, raw: `${query}\n  ${field}` },
+    });
+    setActiveTab('query');
+  };
+
+  const handleRefreshSchema = () => {
+    if (!url) {
+      toast.error('Set a URL first');
+      return;
+    }
+    void fetchSchema(url);
+  };
 
   const renderSendButton = () => {
     if (isSubscription) {
@@ -241,168 +325,236 @@ function GraphQLRequestBuilder() {
     );
   };
 
+  const tabs: SubTab<TabValue>[] = [
+    { value: 'query', label: 'Query', ...(operationType ? { badge: operationType } : {}) },
+    { value: 'variables', label: 'Variables', count: detectedVarCount },
+    { value: 'headers', label: 'Headers', count: activeHeaderCount },
+    { value: 'auth', label: 'Auth' },
+    { value: 'scripts', label: 'Scripts' },
+    ...(isSubscription
+      ? ([
+          {
+            value: 'subscription',
+            label: 'Messages',
+            count: subscriptionMessages.filter((m) => m.type === 'data').length,
+          },
+        ] as SubTab<TabValue>[])
+      : []),
+  ];
+
   return (
-    <div className="flex-1 flex flex-col">
-      {/* URL Zone */}
-      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3 shrink-0">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      {/* URL zone */}
+      <div className="flex items-center gap-1 px-3 h-12 border-y border-sp-line bg-sp-surface-lo backdrop-blur-md shrink-0">
         <div
-          className={
+          className={cn(
+            'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded shrink-0 border',
             isSubscription
-              ? 'flex items-center justify-center px-2 h-7 w-20 bg-violet-500/[0.12] border border-violet-500/25 text-violet-400 font-mono text-[11px] font-bold tracking-wider rounded shrink-0'
-              : 'flex items-center justify-center px-2 h-7 w-20 bg-amber-500/[0.12] border border-amber-500/25 text-amber-400 font-mono text-[11px] font-bold tracking-wider rounded shrink-0'
+              ? 'bg-violet-500/[0.12] border-violet-500/25 text-violet-400'
+              : 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
+          )}
+          aria-label={
+            isSubscription ? 'GraphQL subscription' : 'GraphQL query (POST)'
           }
-          aria-label={isSubscription ? 'GraphQL subscription' : 'GraphQL query (POST)'}
         >
           {isSubscription ? 'SUB' : 'POST'}
         </div>
-        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
+        <span className="text-sp-dim font-mono text-sm select-none shrink-0">
+          ›
+        </span>
         <Input
           value={httpRequest.url}
           onChange={(e) => updateRequest({ url: e.target.value })}
           placeholder={ECHO_URLS.graphql}
-          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground/40"
+          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim"
           aria-label="GraphQL endpoint URL"
         />
         {renderSendButton()}
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="w-full justify-start border-b border-border rounded-none h-9 bg-transparent p-0 shrink-0">
-          <TabsTrigger
-            value="query"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Query
-            {operationType && (
-              <span className="ml-1 text-[10px] text-muted-foreground">({operationType})</span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="headers"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Headers
-            {activeHeaderCount > 0 && (
-              <span className="ml-1 text-[10px] text-muted-foreground">({activeHeaderCount})</span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="auth"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Auth
-            {httpRequest.auth.type !== 'none' && (
-              <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="scripts"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Scripts
-            {(httpRequest.preRequestScript?.trim() || httpRequest.testScript?.trim()) && (
-              <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
-            )}
-          </TabsTrigger>
-          {isSubscription && (
-            <TabsTrigger
-              value="subscription"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              Messages
-              {subscriptionMessages.filter((m) => m.type === 'data').length > 0 && (
-                <span className="ml-1 text-[10px] text-muted-foreground">
-                  ({subscriptionMessages.filter((m) => m.type === 'data').length})
-                </span>
-              )}
-              {isSubscribed && (
-                <span className="ml-1 h-2 w-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-              )}
-            </TabsTrigger>
-          )}
-        </TabsList>
+      {/* Two-column body: schema + editor */}
+      <div className="flex-1 flex gap-3 p-3 min-h-0 overflow-hidden">
+        <SchemaExplorer
+          schema={schemaResult?.schema ?? null}
+          onFieldSelect={handleFieldSelect}
+          onRefresh={handleRefreshSchema}
+          loading={schemaLoading}
+          loaded={Boolean(schemaResult?.success)}
+        />
 
-        <TabsContent value="query" className="flex-1 overflow-auto p-4 m-0">
-          <GraphQLBodyEditor
-            query={query}
-            variables={graphqlVariables}
-            url={httpRequest.url}
-            onQueryChange={(q) => updateRequest({ body: { ...httpRequest.body, raw: q } })}
-            onVariablesChange={setGraphqlVariables}
-          />
-        </TabsContent>
-
-        <TabsContent value="headers" className="flex-1 overflow-auto p-4 m-0">
-          <p className="text-xs text-muted-foreground font-mono mb-3">
-            Content-Type: application/json is automatically set. Auth header is injected from the Auth tab.
-          </p>
-          <KeyValueEditor
-            items={httpRequest.headers}
-            onAdd={handleAddHeader}
-            onUpdate={handleUpdateHeader}
-            onDelete={handleDeleteHeader}
-            keyPlaceholder="Header name"
-            valuePlaceholder="Value"
-            addButtonText="Add Header"
-            itemType="header"
-          />
-        </TabsContent>
-
-        <TabsContent value="auth" className="flex-1 overflow-auto p-4 m-0">
-          <p className="text-xs text-muted-foreground font-mono mb-4">
-            For subscriptions, credentials are sent as WebSocket connection params.
-          </p>
-          <AuthConfiguration auth={httpRequest.auth} onChange={handleAuthChange} />
-        </TabsContent>
-
-        <TabsContent value="scripts" className="flex-1 overflow-auto m-0">
-          <ScriptsEditor
-            preRequestScript={httpRequest.preRequestScript || ''}
-            testScript={httpRequest.testScript || ''}
-            onPreRequestScriptChange={(script) => updateRequest({ preRequestScript: script })}
-            onTestScriptChange={(script) => updateRequest({ testScript: script })}
-          />
-        </TabsContent>
-
-        {isSubscription && (
-          <TabsContent value="subscription" className="flex-1 overflow-auto p-4 m-0">
-            {subscriptionMessages.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground font-mono text-sm">
-                {isSubscribed ? 'Waiting for messages...' : 'Click Subscribe to start receiving events.'}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {subscriptionMessages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`p-2 rounded border text-xs font-mono ${
-                      msg.type === 'data'
-                        ? 'bg-emerald-500/5 border-emerald-500/20'
-                        : msg.type === 'error'
-                          ? 'bg-destructive/5 border-destructive/20'
-                          : msg.type === 'connected'
-                            ? 'bg-blue-500/5 border-blue-500/20'
-                            : 'glass-2 glass-border-subtle'
-                    }`}
+        {/* Editor pane */}
+        <Floater
+          radius="panel"
+          elevation="float"
+          className="flex-1 flex flex-col min-w-0 overflow-hidden"
+          style={{ background: 'var(--sp-code)' }}
+        >
+          <SubTabBar<TabValue>
+            tabs={tabs}
+            value={activeTab}
+            onChange={setActiveTab}
+            right={
+              activeTab === 'query' ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrettify}
+                    disabled={!query.trim()}
+                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    <div className="flex items-center gap-2 mb-1 text-[10px] text-muted-foreground uppercase tracking-widest">
-                      <span>{msg.type}</span>
-                      <span>{new Date(msg.timestamp).toLocaleTimeString()}</span>
-                    </div>
-                    {msg.payload !== undefined && (
-                      <pre className="whitespace-pre-wrap break-all">
-                        {JSON.stringify(msg.payload, null, 2)}
-                      </pre>
-                    )}
-                    {msg.error && <span className="text-destructive">{msg.error}</span>}
-                  </div>
-                ))}
+                    <Wand2 className="h-3 w-3" />
+                    Prettify
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadSDL}
+                    disabled={!executableSchema}
+                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Download className="h-3 w-3" />
+                    SDL
+                  </button>
+                  <span className="font-mono text-sp-10 text-sp-dim tabular-nums">
+                    {queryBytes} B
+                  </span>
+                </div>
+              ) : activeTab === 'auth' && httpRequest.auth.type !== 'none' ? (
+                <CheckCircle className="h-3 w-3 text-emerald-400" />
+              ) : activeTab === 'scripts' &&
+                (httpRequest.preRequestScript?.trim() ||
+                  httpRequest.testScript?.trim()) ? (
+                <CheckCircle className="h-3 w-3 text-emerald-400" />
+              ) : null
+            }
+          />
+
+          {/* Tab content */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {activeTab === 'query' && (
+              <GraphQLBodyEditor
+                query={query}
+                variables={graphqlVariables}
+                url={httpRequest.url}
+                onQueryChange={(q) =>
+                  updateRequest({ body: { ...httpRequest.body, raw: q } })
+                }
+                onVariablesChange={setGraphqlVariables}
+              />
+            )}
+
+            {activeTab === 'variables' && (
+              <div className="p-3 h-full">
+                <div
+                  className="rounded-sp-panel border border-sp-line overflow-hidden h-full"
+                  style={{ background: 'var(--sp-code)' }}
+                >
+                  <CodeEditor
+                    value={graphqlVariables || '{}'}
+                    onChange={setGraphqlVariables}
+                    language="json"
+                    height="100%"
+                    {...(activeTabId
+                      ? { path: `tab-${activeTabId}-graphql-variables-full` }
+                      : {})}
+                  />
+                </div>
               </div>
             )}
-          </TabsContent>
-        )}
-      </Tabs>
+
+            {activeTab === 'headers' && (
+              <div className="p-3 overflow-auto h-full">
+                <p className="text-sp-11 text-sp-muted font-mono mb-3">
+                  Content-Type: application/json is automatically set. Auth
+                  header is injected from the Auth tab.
+                </p>
+                <KeyValueEditor
+                  items={httpRequest.headers}
+                  onAdd={handleAddHeader}
+                  onUpdate={handleUpdateHeader}
+                  onDelete={handleDeleteHeader}
+                  keyPlaceholder="Header name"
+                  valuePlaceholder="Value"
+                  addButtonText="Add Header"
+                  itemType="header"
+                />
+              </div>
+            )}
+
+            {activeTab === 'auth' && (
+              <div className="p-3 overflow-auto h-full">
+                <p className="text-sp-11 text-sp-muted font-mono mb-4">
+                  For subscriptions, credentials are sent as WebSocket
+                  connection params.
+                </p>
+                <AuthConfiguration
+                  auth={httpRequest.auth}
+                  onChange={handleAuthChange}
+                />
+              </div>
+            )}
+
+            {activeTab === 'scripts' && (
+              <div className="overflow-auto h-full">
+                <ScriptsEditor
+                  preRequestScript={httpRequest.preRequestScript || ''}
+                  testScript={httpRequest.testScript || ''}
+                  onPreRequestScriptChange={(script) =>
+                    updateRequest({ preRequestScript: script })
+                  }
+                  onTestScriptChange={(script) =>
+                    updateRequest({ testScript: script })
+                  }
+                />
+              </div>
+            )}
+
+            {activeTab === 'subscription' && isSubscription && (
+              <div className="p-3 overflow-auto h-full">
+                {subscriptionMessages.length === 0 ? (
+                  <div className="text-center py-8 text-sp-muted font-mono text-sp-12">
+                    {isSubscribed
+                      ? 'Waiting for messages...'
+                      : 'Click Subscribe to start receiving events.'}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {subscriptionMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={cn(
+                          'p-2 rounded-sp-btn border text-sp-11 font-mono',
+                          msg.type === 'data'
+                            ? 'bg-emerald-500/5 border-emerald-500/20'
+                            : msg.type === 'error'
+                              ? 'bg-destructive/5 border-destructive/20'
+                              : msg.type === 'connected'
+                                ? 'bg-blue-500/5 border-blue-500/20'
+                                : 'bg-sp-surface-lo border-sp-line'
+                        )}
+                      >
+                        <div className="flex items-center gap-2 mb-1 sp-label">
+                          <span>{msg.type}</span>
+                          <span>
+                            {new Date(msg.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        {msg.payload !== undefined && (
+                          <pre className="whitespace-pre-wrap break-all">
+                            {JSON.stringify(msg.payload, null, 2)}
+                          </pre>
+                        )}
+                        {msg.error && (
+                          <span className="text-destructive">{msg.error}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </Floater>
+      </div>
     </div>
   );
 }

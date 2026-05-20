@@ -365,6 +365,16 @@ export type StreamEventLike =
   | { type: 'error'; error: string; bytesRead: number };
 
 // Multi-tab request tab
+/**
+ * Workspace modes that don't have a dedicated RequestType. They layer on top of
+ * an HTTP placeholder tab via `RequestTab.modeOverride`; the actual connection
+ * state lives in the per-protocol stores (`useWebSocketStore`, etc.).
+ *
+ * Derived from the existing unions so adding a future mode to `RequestMode`
+ * without a corresponding `RequestType` propagates automatically.
+ */
+export type TabModeOverride = Exclude<RequestMode, RequestType>;
+
 export interface RequestTab {
   id: string;
   request: Request;
@@ -376,6 +386,12 @@ export interface RequestTab {
   isDirty: boolean;
   /** If this tab was opened from a saved request in a collection, the saved request's id. */
   savedRequestId?: string;
+  /**
+   * Pseudo-mode marker. Present when the tab represents a WebSocket / Socket.IO
+   * / Kafka / GraphQL session (none of which have their own RequestType). The
+   * underlying `request` is an HTTP scaffold acting as a placeholder.
+   */
+  modeOverride?: TabModeOverride;
   /**
    * In-flight or recently completed streaming response. NOT persisted —
    * AsyncIterables aren't JSON-serializable and streams are inherently
@@ -669,7 +685,26 @@ export interface AppSettings {
   telemetry?: {
     errorsEnabled: boolean;
   };
+  // Spatial Depth accent preset; drives --sp-accent CSS variable
+  accent?: SpatialAccent;
 }
+
+export type SpatialAccent =
+  | '#4d9fff'
+  | '#7c5cff'
+  | '#22c55e'
+  | '#f59e0b'
+  | '#ef4444'
+  | '#06b6d4';
+
+export const SPATIAL_ACCENT_PRESETS: ReadonlyArray<SpatialAccent> = [
+  '#4d9fff',
+  '#7c5cff',
+  '#22c55e',
+  '#f59e0b',
+  '#ef4444',
+  '#06b6d4',
+];
 
 // Alias for backwards compatibility and clarity
 export type GlobalSettings = AppSettings;

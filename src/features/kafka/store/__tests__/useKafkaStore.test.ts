@@ -137,4 +137,44 @@ describe('useKafkaStore', () => {
     useKafkaStore.getState().clearMessages(id);
     expect(useKafkaStore.getState().connections[id]!.messages).toEqual([]);
   });
+
+  describe('ensureConnectionForTab / cleanupConnectionForTab', () => {
+    beforeEach(() => {
+      const store = useKafkaStore.getState();
+      Object.keys(store.connections).forEach((id) => store.removeConnection(id));
+    });
+
+    it('binds a tabId to a fresh connection', () => {
+      const id = useKafkaStore.getState().ensureConnectionForTab('tab-A');
+      const state = useKafkaStore.getState();
+      expect(state.connectionByTabId['tab-A']).toBe(id);
+      expect(state.activeConnectionId).toBe(id);
+    });
+
+    it('is idempotent', () => {
+      const a = useKafkaStore.getState().ensureConnectionForTab('tab-A');
+      const b = useKafkaStore.getState().ensureConnectionForTab('tab-A');
+      expect(a).toBe(b);
+    });
+
+    it('two tabs get independent connections', () => {
+      const a = useKafkaStore.getState().ensureConnectionForTab('tab-A');
+      const b = useKafkaStore.getState().ensureConnectionForTab('tab-B');
+      expect(a).not.toBe(b);
+    });
+
+    it('cleanupConnectionForTab removes both the connection and the mapping', () => {
+      const id = useKafkaStore.getState().ensureConnectionForTab('tab-A');
+      useKafkaStore.getState().cleanupConnectionForTab('tab-A');
+      const state = useKafkaStore.getState();
+      expect(state.connections[id]).toBeUndefined();
+      expect(state.connectionByTabId['tab-A']).toBeUndefined();
+    });
+
+    it('removeConnection prunes the tab mapping pointing at the deleted id', () => {
+      const id = useKafkaStore.getState().ensureConnectionForTab('tab-A');
+      useKafkaStore.getState().removeConnection(id);
+      expect(useKafkaStore.getState().connectionByTabId['tab-A']).toBeUndefined();
+    });
+  });
 });

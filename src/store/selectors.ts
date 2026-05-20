@@ -147,6 +147,14 @@ export function useActiveTab(): RequestTab | null {
   );
 }
 
+/**
+ * Just the active tab's id. Subscribes to a single primitive so the consumer
+ * doesn't re-render on every tab field change.
+ */
+export function useActiveTabId(): string | null {
+  return useRequestStore((s) => s.activeTabId);
+}
+
 /** The active tab's request, narrowed to the given type, or null if no tab or wrong type. */
 export function useActiveRequest(type: 'http'): HttpRequest | null;
 export function useActiveRequest(type: 'grpc'): GrpcRequest | null;
