@@ -65,12 +65,15 @@ export function installGlobalErrorHandlers(): void {
   installed = true;
   window.addEventListener('error', (event) => {
     const err = event.error instanceof Error ? event.error : new Error(event.message);
-    reportError({ message: err.message, stack: err.stack, source: 'window-error' });
+    const payload: ErrorPayload = { message: err.message, source: 'window-error' };
+    if (err.stack !== undefined) payload.stack = err.stack;
+    reportError(payload);
   });
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason;
     const message = reason instanceof Error ? reason.message : String(reason);
-    const stack = reason instanceof Error ? reason.stack : undefined;
-    reportError({ message, stack, source: 'unhandled-rejection' });
+    const payload: ErrorPayload = { message, source: 'unhandled-rejection' };
+    if (reason instanceof Error && reason.stack !== undefined) payload.stack = reason.stack;
+    reportError(payload);
   });
 }
