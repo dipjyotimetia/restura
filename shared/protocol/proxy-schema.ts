@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { protocolSecretValueSchema, isProtocolSecretHandle } from './secret-value-schema';
 
 /**
  * Zod schema for the JSON body POSTed to `/api/proxy` (HTTP proxy).
@@ -57,7 +58,7 @@ export const ProtocolAuthConfigSchema = z.object({
   awsSignature: z
     .object({
       accessKey: z.string(),
-      secretKey: z.string(),
+      secretKey: protocolSecretValueSchema,
       region: z.string(),
       service: z.string(),
     })
@@ -65,9 +66,9 @@ export const ProtocolAuthConfigSchema = z.object({
   oauth1: z
     .object({
       consumerKey: z.string(),
-      consumerSecret: z.string(),
-      accessToken: z.string().optional(),
-      accessTokenSecret: z.string().optional(),
+      consumerSecret: protocolSecretValueSchema,
+      accessToken: protocolSecretValueSchema.optional(),
+      accessTokenSecret: protocolSecretValueSchema.optional(),
       signatureMethod: z.enum(['HMAC-SHA1', 'HMAC-SHA256', 'PLAINTEXT']).optional(),
       realm: z.string().optional(),
       nonce: z.string().optional(),
@@ -78,7 +79,7 @@ export const ProtocolAuthConfigSchema = z.object({
   ntlm: z
     .object({
       username: z.string(),
-      password: z.string(),
+      password: protocolSecretValueSchema,
       domain: z.string().optional(),
       workstation: z.string().optional(),
     })
@@ -86,11 +87,35 @@ export const ProtocolAuthConfigSchema = z.object({
   wsse: z
     .object({
       username: z.string(),
-      password: z.string(),
+      password: protocolSecretValueSchema,
       passwordType: z.enum(['PasswordDigest', 'PasswordText']).optional(),
     })
     .optional(),
 });
+
+/**
+ * Returns true iff the auth descriptor carries a `{ kind: 'handle' }`
+ * SecretValue anywhere. The Worker uses this to fail fast with a 400 — there's
+ * no OS keychain available in a Worker runtime to resolve the handle against,
+ * so the request would silently send empty credentials otherwise.
+ */
+export function containsAuthHandle(auth: z.infer<typeof ProtocolAuthConfigSchema> | undefined): boolean {
+  if (!auth) return false;
+  const aws = auth.awsSignature;
+  if (aws && isProtocolSecretHandle(aws.secretKey)) return true;
+  const o1 = auth.oauth1;
+  if (
+    o1 &&
+    (isProtocolSecretHandle(o1.consumerSecret) ||
+      isProtocolSecretHandle(o1.accessToken) ||
+      isProtocolSecretHandle(o1.accessTokenSecret))
+  ) {
+    return true;
+  }
+  if (auth.ntlm && isProtocolSecretHandle(auth.ntlm.password)) return true;
+  if (auth.wsse && isProtocolSecretHandle(auth.wsse.password)) return true;
+  return false;
+}
 
 /**
  * Mirrors the Worker's local `UpstreamProxyConfig` interface. The host

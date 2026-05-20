@@ -25,13 +25,13 @@ export interface DnsGuardOptions {
 export async function assertHostnameSafe(
   hostname: string,
   options: DnsGuardOptions
-): Promise<void> {
+): Promise<LookupAddress[]> {
   if (net.isIP(hostname) !== 0) {
     assertResolvedAddressAllowed(hostname, hostname, {
       allowLocalhost: options.allowLocalhost,
       allowPrivateLiteralHost: isPrivateAddress(hostname),
     });
-    return;
+    return [{ address: hostname, family: net.isIP(hostname) === 6 ? 6 : 4 }];
   }
 
   let records: LookupAddress[];
@@ -49,6 +49,7 @@ export async function assertHostnameSafe(
       allowPrivateLiteralHost: false,
     });
   }
+  return records;
 }
 
 /**
@@ -69,4 +70,23 @@ export async function assertUrlHostnameSafe(
     throw new Error(v.error ?? `URL rejected by policy: ${url}`);
   }
   await assertHostnameSafe(new URL(url).hostname, options);
+}
+
+/**
+ * Resolve + validate in one call, returning the records so callers can pin
+ * an IP without a second `dns.lookup`. Used by `safe-connect.ts`.
+ */
+export async function resolveUrlHostnameSafe(
+  url: string,
+  options: DnsGuardOptions
+): Promise<LookupAddress[]> {
+  const v = validateURL(url, {
+    allowLocalhost: options.allowLocalhost,
+    allowPrivateIPs: false,
+    ...(options.allowedSchemes ? { allowedSchemes: options.allowedSchemes } : {}),
+  });
+  if (!v.valid) {
+    throw new Error(v.error ?? `URL rejected by policy: ${url}`);
+  }
+  return assertHostnameSafe(new URL(url).hostname, options);
 }

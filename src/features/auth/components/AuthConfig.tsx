@@ -9,6 +9,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import type { AuthConfig, AuthType } from '@/types';
 import { Lock, Loader2, AlertTriangle } from 'lucide-react';
 import { isElectron } from '@/lib/shared/platform';
+import { unwrapSecret } from '@/lib/shared/secretRef';
+import SecretInput from './SecretInput';
 import {
   fetchClientCredentialsToken,
   fetchPasswordToken,
@@ -48,17 +50,21 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
     try {
       // EOPT: build the config without undefined-valued keys so it matches the
       // OAuth2FlowConfig contract under exactOptionalPropertyTypes.
+      // SecretRef-aware: clientSecret/password are SecretValue and are
+      // unwrapped via `unwrapSecret` (returns the masked placeholder for
+      // handle refs — token fetch from a handle-protected creds is best-effort
+      // on the renderer; the upstream will reject with a clear error).
       const config = {
         grantType: o.grantType,
         clientId: o.clientId,
         tokenUrl: o.tokenUrl,
-        ...(o.clientSecret !== undefined && { clientSecret: o.clientSecret }),
+        ...(o.clientSecret !== undefined && { clientSecret: unwrapSecret(o.clientSecret) }),
         ...(o.authorizationUrl !== undefined && { authorizationUrl: o.authorizationUrl }),
         ...(o.deviceAuthorizationUrl !== undefined && { deviceAuthorizationUrl: o.deviceAuthorizationUrl }),
         ...(o.redirectUri !== undefined && { redirectUri: o.redirectUri }),
         ...(o.scope !== undefined && { scope: o.scope }),
         ...(o.username !== undefined && { username: o.username }),
-        ...(o.password !== undefined && { password: o.password }),
+        ...(o.password !== undefined && { password: unwrapSecret(o.password) }),
       };
 
       let token: string;
@@ -98,7 +104,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         ...auth,
         oauth2: {
           ...auth.oauth2!,
-          accessToken: token,
+          accessToken: { kind: 'inline', value: token },
           ...(tokenType !== undefined && { tokenType }),
         },
       });
@@ -130,17 +136,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Password</label>
-              <Input
-                type="password"
-                value={auth.basic?.password || ''}
-                onChange={(e) =>
+              <SecretInput
+                value={auth.basic?.password}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    basic: { ...auth.basic!, password: e.target.value },
+                    basic: { ...auth.basic!, password: next },
                   })
                 }
                 placeholder="Enter password"
-                className="bg-background border-border"
+                storageLabel="basic.password"
               />
             </div>
           </div>
@@ -151,16 +156,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium mb-2 block">Token</label>
-              <Input
-                value={auth.bearer?.token || ''}
-                onChange={(e) =>
+              <SecretInput
+                value={auth.bearer?.token}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    bearer: { token: e.target.value },
+                    bearer: { token: next },
                   })
                 }
                 placeholder="Enter bearer token"
-                className="font-mono bg-background border-border"
+                storageLabel="bearer.token"
               />
             </div>
           </div>
@@ -184,16 +189,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Value</label>
-              <Input
-                value={auth.apiKey?.value || ''}
-                onChange={(e) =>
+              <SecretInput
+                value={auth.apiKey?.value}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    apiKey: { ...auth.apiKey!, value: e.target.value },
+                    apiKey: { ...auth.apiKey!, value: next },
                   })
                 }
                 placeholder="Enter API key value"
-                className="font-mono"
+                storageLabel="apiKey.value"
               />
             </div>
             <div>
@@ -245,7 +250,12 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Client Secret</label>
-              <Input type="password" value={o?.clientSecret ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, clientSecret: e.target.value } })} placeholder="Enter client secret (optional for PKCE)" />
+              <SecretInput
+                value={o?.clientSecret}
+                onChange={(next) => onChange({ ...auth, oauth2: { ...o!, clientSecret: next } })}
+                placeholder="Enter client secret (optional for PKCE)"
+                storageLabel="oauth2.clientSecret"
+              />
             </div>
             {grantType === 'authorization_code' && (
               <div>
@@ -281,7 +291,12 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-2 block">Password</label>
-                  <Input type="password" value={o?.password ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, password: e.target.value } })} placeholder="Password" />
+                  <SecretInput
+                    value={o?.password}
+                    onChange={(next) => onChange({ ...auth, oauth2: { ...o!, password: next } })}
+                    placeholder="Password"
+                    storageLabel="oauth2.password"
+                  />
                 </div>
               </>
             )}
@@ -300,11 +315,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             {tokenError && <p role="alert" className="text-xs text-red-500">{tokenError}</p>}
             <div className="border-t border-border pt-4">
               <label className="text-sm font-medium mb-2 block">Access Token</label>
-              <Input
-                value={o?.accessToken ?? ''}
-                onChange={(e) => onChange({ ...auth, oauth2: { ...o!, accessToken: e.target.value } })}
+              <SecretInput
+                value={o?.accessToken}
+                onChange={(next) => onChange({ ...auth, oauth2: { ...o!, accessToken: next } })}
                 placeholder="Token will appear here after authorization"
-                className="font-mono"
+                storageLabel="oauth2.accessToken"
               />
             </div>
             <div>
@@ -337,16 +352,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Password</label>
-              <Input
-                type="password"
-                value={auth.digest?.password || ''}
-                onChange={(e) =>
+              <SecretInput
+                value={auth.digest?.password}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    digest: { ...auth.digest!, password: e.target.value },
+                    digest: { ...auth.digest!, password: next },
                   })
                 }
                 placeholder="Enter password"
+                storageLabel="digest.password"
               />
             </div>
           </div>
@@ -370,16 +385,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Secret Key</label>
-              <Input
-                type="password"
-                value={auth.awsSignature?.secretKey || ''}
-                onChange={(e) =>
+              <SecretInput
+                value={auth.awsSignature?.secretKey}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    awsSignature: { ...auth.awsSignature!, secretKey: e.target.value },
+                    awsSignature: { ...auth.awsSignature!, secretKey: next },
                   })
                 }
                 placeholder="Enter AWS secret key"
+                storageLabel="awsSignature.secretKey"
               />
             </div>
             <div>
@@ -432,46 +447,44 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Consumer Secret</label>
-              <Input
-                type="password"
-                value={o?.consumerSecret ?? ''}
-                onChange={(e) =>
+              <SecretInput
+                value={o?.consumerSecret}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), consumerSecret: e.target.value },
+                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), consumerSecret: next },
                   })
                 }
                 placeholder="Enter consumer secret"
-                className="font-mono bg-background border-border"
+                storageLabel="oauth1.consumerSecret"
               />
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Access Token (optional)</label>
-              <Input
-                value={o?.accessToken ?? ''}
-                onChange={(e) =>
+              <SecretInput
+                value={o?.accessToken}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), accessToken: e.target.value },
+                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), accessToken: next },
                   })
                 }
                 placeholder="Enter access token"
-                className="font-mono bg-background border-border"
+                storageLabel="oauth1.accessToken"
               />
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Access Token Secret (optional)</label>
-              <Input
-                type="password"
-                value={o?.accessTokenSecret ?? ''}
-                onChange={(e) =>
+              <SecretInput
+                value={o?.accessTokenSecret}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), accessTokenSecret: e.target.value },
+                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), accessTokenSecret: next },
                   })
                 }
                 placeholder="Enter access token secret"
-                className="font-mono bg-background border-border"
+                storageLabel="oauth1.accessTokenSecret"
               />
             </div>
             <div>
@@ -566,17 +579,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Password</label>
-              <Input
-                type="password"
-                value={n?.password ?? ''}
-                onChange={(e) =>
+              <SecretInput
+                value={n?.password}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    ntlm: { ...(n ?? { username: '', password: '' }), password: e.target.value },
+                    ntlm: { ...(n ?? { username: '', password: '' }), password: next },
                   })
                 }
                 placeholder="Enter password"
-                className="bg-background border-border"
+                storageLabel="ntlm.password"
               />
             </div>
             <div>
@@ -632,17 +644,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Password</label>
-              <Input
-                type="password"
-                value={w?.password ?? ''}
-                onChange={(e) =>
+              <SecretInput
+                value={w?.password}
+                onChange={(next) =>
                   onChange({
                     ...auth,
-                    wsse: { ...(w ?? { username: '', password: '' }), password: e.target.value },
+                    wsse: { ...(w ?? { username: '', password: '' }), password: next },
                   })
                 }
                 placeholder="Enter password"
-                className="bg-background border-border"
+                storageLabel="wsse.password"
               />
             </div>
             <div>

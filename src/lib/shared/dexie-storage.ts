@@ -64,7 +64,9 @@ type StorageTableName =
   | 'mcpConnections'
   | 'kafkaConnections'
   | 'socketioConnections'
-  | 'console';
+  | 'console'
+  | 'graphqlSchemas'
+  | 'protoFiles';
 
 /**
  * Storage adapter configuration
@@ -275,6 +277,12 @@ export const dexieStorageAdapters = {
 
   console: () =>
     createDexieStorage({ tableName: 'console', encrypt: true }),
+
+  graphqlSchemas: () =>
+    createDexieStorage({ tableName: 'graphqlSchemas', encrypt: true }),
+
+  protoFiles: () =>
+    createDexieStorage({ tableName: 'protoFiles', encrypt: true }),
 };
 
 /**

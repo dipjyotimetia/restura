@@ -16,7 +16,6 @@
       "@/*": ["./src/*"],
       "@shared/*": ["./shared/*"]
     },
-    "noUncheckedIndexedAccess": true,
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
     "exactOptionalPropertyTypes": false

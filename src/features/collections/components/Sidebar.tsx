@@ -55,6 +55,7 @@ import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder
 import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
 import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { FileStatusBadge } from './FileStatusBadge';
 import { ConflictDialog } from './ConflictDialog';
@@ -213,7 +214,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   }, [collections, createNewCollection, addCollection]);
 
   const handleExportCollection = useCallback(
-    (collectionId: string, format: 'postman' | 'insomnia' | 'opencollection') => {
+    async (collectionId: string, format: 'postman' | 'insomnia' | 'opencollection' | 'bruno') => {
       const collection = collections.find((c) => c.id === collectionId);
       if (!collection) return;
 
@@ -223,6 +224,25 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       } else if (format === 'insomnia') {
         const insomniaData = exportToInsomnia(collection);
         downloadJSON(insomniaData, `${collection.name}.insomnia.json`);
+      } else if (format === 'bruno') {
+        // Lazy import — keeps @usebruno/lang out of the main bundle.
+        const { exportBrunoCollection } = await import('../lib/bruno-exporter');
+        const exported = await exportBrunoCollection(collection);
+        if (exported.kind !== 'directory') return;
+        // Package the directory as a single archive JSON so a web user can
+        // download it; an Electron-aware "save to folder" UX lands with the
+        // git-native collections milestone.
+        downloadJSON(
+          { format: 'bruno-archive/v1', files: exported.entries },
+          `${collection.name}.bruno-archive.json`
+        );
+        // Surface lossy-export warnings so users discover non-HTTP downgrades
+        // at export time rather than later when Bruno fails to run the request.
+        if (exported.warnings.length > 0) {
+          const first = exported.warnings[0]!;
+          const extra = exported.warnings.length > 1 ? ` (+${exported.warnings.length - 1} more)` : '';
+          toast.warning(`Bruno export: ${first.message}${extra}`);
+        }
       } else {
         const yamlText = exportToOpenCollection(collection);
         downloadText(yamlText, `${collection.name}.opencollection.yaml`, 'application/x-yaml');
@@ -636,6 +656,12 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                                   className="text-xs"
                                 >
                                   OpenCollection (YAML)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleExportCollection(collection.id, 'bruno')}
+                                  className="text-xs"
+                                >
+                                  Bruno (.bru archive)
                                 </DropdownMenuItem>
                               </DropdownMenuSubContent>
                             </DropdownMenuSub>

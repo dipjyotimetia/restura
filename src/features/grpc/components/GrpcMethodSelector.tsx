@@ -1,4 +1,4 @@
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Laptop } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -8,6 +8,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { ReflectionMethodInfo, ReflectionServiceInfo } from '@/types';
+import { isElectron } from '@/lib/shared/platform';
 
 interface FieldValidation {
   valid: boolean;
@@ -36,6 +37,17 @@ const streamingLabel = (method: ReflectionMethodInfo): string | null => {
   if (method.clientStreaming) return '(client stream)';
   return null;
 };
+
+/**
+ * Client-streaming and bidi rely on a duplex channel that the Cloudflare
+ * Worker's HTTP/1 transport can't expose. Surface a clear hint in the picker
+ * so users know the method is only callable from the desktop app.
+ *
+ * Server-streaming alone works fine through the Worker (server-sent frames
+ * map onto a single chunked HTTP response), so it stays available on web.
+ */
+const requiresDesktop = (method: ReflectionMethodInfo): boolean =>
+  method.clientStreaming === true && !isElectron();
 
 /**
  * Service + method dropdowns for the gRPC request builder.
@@ -124,6 +136,7 @@ export function GrpcMethodSelector({
             <SelectContent>
               {reflectionMethods.map((method) => {
                 const label = streamingLabel(method);
+                const desktopOnly = requiresDesktop(method);
                 return (
                   <SelectItem
                     key={method.name}
@@ -134,6 +147,15 @@ export function GrpcMethodSelector({
                     {label && (
                       <span className="ml-2 text-[10px] text-muted-foreground">
                         {label}
+                      </span>
+                    )}
+                    {desktopOnly && (
+                      <span
+                        className="ml-2 inline-flex items-center gap-1 rounded-sm bg-amber-500/15 px-1 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-400"
+                        title="Client-streaming and bidirectional methods require the Restura desktop app"
+                      >
+                        <Laptop className="size-2.5" />
+                        Desktop only
                       </span>
                     )}
                   </SelectItem>

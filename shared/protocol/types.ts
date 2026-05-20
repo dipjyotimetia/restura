@@ -1,6 +1,18 @@
 import type { BodyType, FormField } from './body-builder';
 
 /**
+ * Local mirror of `SecretValue` from `src/lib/shared/secretRef.ts`. Duplicated
+ * intentionally to keep `shared/protocol/` independent of the renderer source
+ * tree (per CLAUDE.md). When the renderer's type changes, this must move in
+ * lockstep — it's two declarations of the same wire shape.
+ */
+export type ProtocolSecretRef =
+  | { kind: 'inline'; value: string }
+  | { kind: 'handle'; id: string; label?: string };
+
+export type ProtocolSecretValue = string | ProtocolSecretRef;
+
+/**
  * Auth configuration consumed by the shared protocol core.
  *
  * This is a structural subset of `AuthConfig` from `src/types/index.ts`. It
@@ -29,15 +41,15 @@ export interface ProtocolAuthConfig {
   type: ProtocolAuthType;
   awsSignature?: {
     accessKey: string;
-    secretKey: string;
+    secretKey: ProtocolSecretValue;
     region: string;
     service: string;
   };
   oauth1?: {
     consumerKey: string;
-    consumerSecret: string;
-    accessToken?: string;
-    accessTokenSecret?: string;
+    consumerSecret: ProtocolSecretValue;
+    accessToken?: ProtocolSecretValue;
+    accessTokenSecret?: ProtocolSecretValue;
     signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT';
     realm?: string;
     nonce?: string;
@@ -46,13 +58,13 @@ export interface ProtocolAuthConfig {
   };
   ntlm?: {
     username: string;
-    password: string;
+    password: ProtocolSecretValue;
     domain?: string;
     workstation?: string;
   };
   wsse?: {
     username: string;
-    password: string;
+    password: ProtocolSecretValue;
     passwordType?: 'PasswordDigest' | 'PasswordText';
   };
   // Other auth shapes (basic/bearer/apiKey/oauth2/digest) intentionally omitted —
@@ -78,6 +90,32 @@ export interface RequestSpec {
    * the request reaches the proxy; they don't depend on wire-byte fidelity.
    */
   auth?: ProtocolAuthConfig;
+  /**
+   * Correlation id threaded renderer → Fetcher → upstream. Surfaces in:
+   *   - the outbound `x-restura-request-id` header (sent upstream),
+   *   - the Worker `c.var.requestId` (logged via tail),
+   *   - the Electron `request-logger` JSONL,
+   *   - the renderer's DiskTab UI.
+   *
+   * If absent at execute time, executors mint one with `crypto.randomUUID()`
+   * so every span has a key. Stable per request; do not re-mint on retry.
+   */
+  requestId?: string;
+}
+
+/** Standard header name for the correlation id. Lowercase per HTTP/2 norms. */
+export const REQUEST_ID_HEADER = 'x-restura-request-id';
+
+/**
+ * Mint a request id if the spec doesn't already carry one. Returns the
+ * existing id when present so retries/redirects keep the same correlation
+ * across hops.
+ */
+export function ensureRequestId(spec: Pick<RequestSpec, 'requestId'>): string {
+  if (spec.requestId) return spec.requestId;
+  // crypto.randomUUID() is available in Worker, Electron main (Node ≥ 19),
+  // and the renderer (secure context). No polyfill needed.
+  return crypto.randomUUID();
 }
 
 export interface NormalizedResponse {

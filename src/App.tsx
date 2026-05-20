@@ -4,6 +4,7 @@ import { toast, Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { PlatformProvider } from '@/components/providers/PlatformProvider';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { KeychainStatusBanner } from '@/components/shared/KeychainStatusBanner';
 import AriaLiveAnnouncerProvider from '@/components/shared/AriaLiveAnnouncer';
 import Home from '@/routes/index';
 import NotFound from '@/routes/not-found';
@@ -43,6 +44,7 @@ export default function App() {
         <ErrorBoundary>
           <AriaLiveAnnouncerProvider>
             <PlatformProvider>
+              <KeychainStatusBanner />
               <RouterProvider router={router} />
             </PlatformProvider>
           </AriaLiveAnnouncerProvider>

@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Collection, CollectionItem, HttpRequest, AuthConfig, PostmanCollection, PostmanItem, PostmanAuth, InsomniaResource } from '@/types';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
 
 // Export to Postman Format
@@ -107,6 +108,19 @@ function convertBodyToPostman(body: HttpRequest['body']): { mode: string; raw?: 
   };
 }
 
+/**
+ * Render a SecretValue for text-only export formats (Postman, Insomnia, Bruno).
+ * Inline values become plaintext (mirrors pre-SecretRef behaviour). Handles
+ * become a `{{handle:<label>}}` placeholder so the export round-trips a
+ * reference without leaking the keychain plaintext.
+ */
+function exportSecretValue(value: SecretValue | undefined): string {
+  if (value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (value.kind === 'inline') return value.value;
+  return `{{handle:${value.label ?? value.id}}}`;
+}
+
 function convertAuthToPostman(auth: AuthConfig): PostmanAuth | undefined {
   switch (auth.type) {
     case 'basic':
@@ -114,34 +128,34 @@ function convertAuthToPostman(auth: AuthConfig): PostmanAuth | undefined {
         type: 'basic',
         basic: [
           { key: 'username', value: auth.basic?.username || '', type: 'string' },
-          { key: 'password', value: auth.basic?.password || '', type: 'string' },
+          { key: 'password', value: exportSecretValue(auth.basic?.password), type: 'string' },
         ],
       };
     case 'bearer':
       return {
         type: 'bearer',
-        bearer: [{ key: 'token', value: auth.bearer?.token || '', type: 'string' }],
+        bearer: [{ key: 'token', value: exportSecretValue(auth.bearer?.token), type: 'string' }],
       };
     case 'api-key':
       return {
         type: 'apikey',
         apikey: [
           { key: 'key', value: auth.apiKey?.key || '', type: 'string' },
-          { key: 'value', value: auth.apiKey?.value || '', type: 'string' },
+          { key: 'value', value: exportSecretValue(auth.apiKey?.value), type: 'string' },
           { key: 'in', value: auth.apiKey?.in || 'header', type: 'string' },
         ],
       };
     case 'oauth2':
       return {
         type: 'oauth2',
-        oauth2: [{ key: 'accessToken', value: auth.oauth2?.accessToken || '', type: 'string' }],
+        oauth2: [{ key: 'accessToken', value: exportSecretValue(auth.oauth2?.accessToken), type: 'string' }],
       };
     case 'aws-signature':
       return {
         type: 'awsv4',
         awsv4: [
           { key: 'accessKey', value: auth.awsSignature?.accessKey || '', type: 'string' },
-          { key: 'secretKey', value: auth.awsSignature?.secretKey || '', type: 'string' },
+          { key: 'secretKey', value: exportSecretValue(auth.awsSignature?.secretKey), type: 'string' },
           { key: 'region', value: auth.awsSignature?.region || '', type: 'string' },
           { key: 'service', value: auth.awsSignature?.service || '', type: 'string' },
         ],
@@ -259,24 +273,24 @@ function convertAuthToInsomnia(auth: AuthConfig): {
       return {
         type: 'basic',
         username: auth.basic?.username || '',
-        password: auth.basic?.password || '',
+        password: exportSecretValue(auth.basic?.password),
       };
     case 'bearer':
       return {
         type: 'bearer',
-        token: auth.bearer?.token || '',
+        token: exportSecretValue(auth.bearer?.token),
       };
     case 'api-key':
       return {
         type: 'apikey',
         key: auth.apiKey?.key || '',
-        value: auth.apiKey?.value || '',
+        value: exportSecretValue(auth.apiKey?.value),
         addTo: auth.apiKey?.in === 'query' ? 'queryParams' : 'header',
       };
     case 'oauth2':
       return {
         type: 'oauth2',
-        accessToken: auth.oauth2?.accessToken || '',
+        accessToken: exportSecretValue(auth.oauth2?.accessToken),
       };
     default:
       return { type: 'none' };

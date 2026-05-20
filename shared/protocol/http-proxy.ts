@@ -1,7 +1,7 @@
 import { validateURL } from './url-validation';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { buildRequestBody } from './body-builder';
-import { applyAuth } from './auth-signer';
+import { applyAuth, type SecretResolver } from './auth-signer';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
 import type { Fetcher, RequestSpec, ExecuteResult } from './types';
 
@@ -15,6 +15,8 @@ function byteLength(s: string): number {
 
 export interface ExecuteHttpProxyOptions {
   allowLocalhost: boolean;
+  /** Resolves SecretValue fields in `spec.auth`. Electron passes a keychain-backed resolver; Worker defaults to inline-only (throws on handles). */
+  resolveSecret?: SecretResolver;
 }
 
 export async function executeHttpProxy(
@@ -69,6 +71,7 @@ export async function executeHttpProxy(
           url: targetUrl.toString(),
           headers,
           body: finalBody,
+          ...(options.resolveSecret ? { resolveSecret: options.resolveSecret } : {}),
         });
         Object.assign(headers, applied.headers);
       } catch (err) {
@@ -233,6 +236,7 @@ export async function executeHttpProxyStreaming(
           url: targetUrl.toString(),
           headers,
           body: finalBody,
+          ...(options.resolveSecret ? { resolveSecret: options.resolveSecret } : {}),
         });
         Object.assign(headers, applied.headers);
       } catch (err) {

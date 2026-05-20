@@ -336,6 +336,18 @@ interface ElectronLogAPI {
   clear: () => Promise<void>;
 }
 
+interface KeychainStatus {
+  mode: 'safeStorage' | 'plaintext';
+  reason?: 'no-keyring' | 'decrypt-failed';
+  plaintextStores: string[];
+  lastChecked: string;
+}
+
+interface ElectronKeychainAPI {
+  status: () => Promise<KeychainStatus>;
+  rotate: () => Promise<{ rotated: boolean; status: KeychainStatus }>;
+}
+
 interface FileChangedEvent {
   type: 'modified' | 'added' | 'deleted';
   filePath: string;
@@ -354,6 +366,44 @@ interface ElectronCollectionsAPI {
   removeFileChangedListener: () => void;
 }
 
+interface ElectronSecretHandleDescriptor {
+  label?: string;
+  scope?: string;
+  createdAt: number;
+}
+
+interface ElectronSecretHandleSummary extends ElectronSecretHandleDescriptor {
+  id: string;
+}
+
+/**
+ * Renderer-callable IPC for the SecretRef pattern (ADR-0007). `resolve` is
+ * deliberately absent — handles are resolved main-side only.
+ *
+ * `describe` (single) and `list` (many) are split channels so the renderer
+ * always knows which return shape it's getting without inspecting key
+ * presence on a union.
+ */
+interface ElectronSecretsAPI {
+  store: (args: {
+    value: string;
+    label?: string;
+    scope?: string;
+    id?: string;
+  }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  describe: (
+    id: string
+  ) => Promise<
+    | { ok: true; handle: ElectronSecretHandleDescriptor | null }
+    | { ok: false; error: string }
+  >;
+  list: () => Promise<
+    | { ok: true; handles: ElectronSecretHandleSummary[] }
+    | { ok: false; error: string }
+  >;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -370,7 +420,9 @@ interface ElectronAPI {
   mcp: ElectronMcpAPI;
   kafka: ElectronKafkaAPI;
   store: ElectronStoreAPI;
+  secrets: ElectronSecretsAPI;
   log: ElectronLogAPI;
+  keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
   // Valid channels: 'menu:import' | 'menu:export' | 'menu:new-request' | 'app:focus' | 'deep-link'
   // 'deep-link' callback receives: { host: string; params: Record<string, string> }
@@ -384,4 +436,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronKeychainAPI, KeychainStatus, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, ElectronSecretsAPI, ElectronSecretHandleDescriptor, ElectronSecretHandleSummary, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };

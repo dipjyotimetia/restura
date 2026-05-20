@@ -1,23 +1,16 @@
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import { SseParser, type ParsedSseEvent } from './sseParser';
 
-/**
- * Singleton manager for SSE connections.
- *
- * Three dispatch paths:
- *   1. Electron + IPC — when running in desktop, always (uniform behavior, allows custom headers).
- *   2. fetch + ReadableStream — in web mode when custom headers are set (EventSource doesn't support them).
- *   3. Native EventSource — in web mode without custom headers (cheapest path; native auto-reconnect).
- *
- * Mirrors websocketManager's structure so feature work stays cross-protocol-consistent.
- */
+// Singleton SSE manager. Desktop → `sse:connect` IPC. Web → proxied
+// stream via `/api/proxy`. Native EventSource and direct fetch are
+// intentionally absent — they bypassed the Worker's SSRF / header / auth
+// guards.
 class SseManager {
-  /** Native EventSource connections (web, simple-headers path) */
-  private esConnections = new Map<string, EventSource>();
-  /** AbortControllers for fetch+stream connections (web, custom-headers path) */
-  private abortControllers = new Map<string, AbortController>();
-  /** Electron-managed connections — no local socket; teardown via IPC */
+  /** AbortControllers for proxied web connections — abort closes the fetch stream. */
+  private webConnections = new Map<string, AbortController>();
+  /** Electron-managed connections — no local socket; teardown via IPC. */
   private electronConnections = new Set<string>();
 
   private static DEFAULT_CONNECTION_TIMEOUT = 30000;
@@ -55,19 +48,13 @@ class SseManager {
     if (reconnectOnResume && lastEventId !== undefined) {
       headersWithResume['Last-Event-ID'] = lastEventId;
     }
-    const hasCustomHeaders = Object.keys(headersWithResume).length > 0;
 
     if (isElectron()) {
       this.connectViaElectron(connectionId, url, headersWithResume);
       return;
     }
 
-    if (hasCustomHeaders) {
-      this.connectViaFetch(connectionId, url, headersWithResume);
-      return;
-    }
-
-    this.connectViaEventSource(connectionId, url);
+    void this.connectViaProxy(connectionId, url, headersWithResume);
   }
 
   disconnect(connectionId: string): void {
@@ -82,19 +69,10 @@ class SseManager {
       return;
     }
 
-    const es = this.esConnections.get(connectionId);
-    if (es) {
-      es.close();
-      this.esConnections.delete(connectionId);
-    }
-
-    const ac = this.abortControllers.get(connectionId);
+    const ac = this.webConnections.get(connectionId);
     if (ac) {
       ac.abort();
-      this.abortControllers.delete(connectionId);
-    }
-
-    if (es || ac) {
+      this.webConnections.delete(connectionId);
       const s = useSseStore.getState();
       s.updateConnectionStatus(connectionId, 'disconnected');
       s.setReconnectAttempts(connectionId, 0);
@@ -105,15 +83,12 @@ class SseManager {
     if (this.electronConnections.has(connectionId)) {
       return useSseStore.getState().connections[connectionId]?.status === 'connected';
     }
-    const es = this.esConnections.get(connectionId);
-    if (es) return es.readyState === EventSource.OPEN;
-    return this.abortControllers.has(connectionId);
+    return this.webConnections.has(connectionId);
   }
 
   cleanup(): void {
     const ids = new Set([
-      ...this.esConnections.keys(),
-      ...this.abortControllers.keys(),
+      ...this.webConnections.keys(),
       ...this.electronConnections,
     ]);
     for (const id of ids) this.disconnect(id);
@@ -121,72 +96,46 @@ class SseManager {
 
   // ---------------------------------------------------------------- private
 
-  private connectViaEventSource(connectionId: string, url: string): void {
-    const store = useSseStore.getState();
-    try {
-      const es = new EventSource(url);
-      this.esConnections.set(connectionId, es);
-
-      es.onopen = () => {
-        const s = useSseStore.getState();
-        s.updateConnectionStatus(connectionId, 'connected');
-        s.setLastConnectedAt(connectionId, Date.now());
-        s.appendSystem(connectionId, `Connected to ${url}`);
-      };
-
-      es.onmessage = (e) => {
-        const s = useSseStore.getState();
-        s.appendEvent(connectionId, {
-          event: 'message',
-          data: e.data,
-          ...(e.lastEventId ? { lastEventId: e.lastEventId } : {}),
-        });
-      };
-
-      es.onerror = () => {
-        const s = useSseStore.getState();
-        s.appendSystem(connectionId, 'Stream error');
-        // EventSource auto-reconnects; reflect that in status
-        if (es.readyState === EventSource.CONNECTING) {
-          s.updateConnectionStatus(connectionId, 'reconnecting');
-        } else if (es.readyState === EventSource.CLOSED) {
-          s.updateConnectionStatus(connectionId, 'disconnected');
-          this.esConnections.delete(connectionId);
-        }
-      };
-    } catch (error) {
-      store.updateConnectionStatus(connectionId, 'disconnected');
-      store.appendSystem(connectionId, `Failed to connect: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private async connectViaFetch(connectionId: string, url: string, headers: Record<string, string>): Promise<void> {
+  private async connectViaProxy(
+    connectionId: string,
+    url: string,
+    headers: Record<string, string>
+  ): Promise<void> {
     const store = useSseStore.getState();
     const controller = new AbortController();
-    this.abortControllers.set(connectionId, controller);
+    this.webConnections.set(connectionId, controller);
 
     const timeoutId = setTimeout(() => {
       controller.abort();
     }, SseManager.DEFAULT_CONNECTION_TIMEOUT);
 
     try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { Accept: 'text/event-stream', ...headers },
-        signal: controller.signal,
-      });
+      // signal goes through to fetch so abort during the request/connect
+      // phase actually closes the socket — not just the body afterward.
+      const response = await executeProxiedStreamingRequest(
+        {
+          method: 'GET',
+          url,
+          headers: { Accept: 'text/event-stream', ...headers },
+          streamingMode: true,
+          // Orchestrator-side timeout disabled; the renderer controls
+          // lifetime via the AbortController above.
+          timeout: 0,
+        },
+        { signal: controller.signal }
+      );
       clearTimeout(timeoutId);
 
       if (!response.ok) {
         store.appendSystem(connectionId, `HTTP ${response.status} ${response.statusText}`);
         store.updateConnectionStatus(connectionId, 'disconnected');
-        this.abortControllers.delete(connectionId);
+        this.webConnections.delete(connectionId);
         return;
       }
       if (!response.body) {
         store.appendSystem(connectionId, 'No response body');
         store.updateConnectionStatus(connectionId, 'disconnected');
-        this.abortControllers.delete(connectionId);
+        this.webConnections.delete(connectionId);
         return;
       }
 
@@ -217,10 +166,10 @@ class SseManager {
       const s = useSseStore.getState();
       s.appendSystem(connectionId, 'Stream closed');
       s.updateConnectionStatus(connectionId, 'disconnected');
-      this.abortControllers.delete(connectionId);
+      this.webConnections.delete(connectionId);
     } catch (error) {
       clearTimeout(timeoutId);
-      this.abortControllers.delete(connectionId);
+      this.webConnections.delete(connectionId);
       const s = useSseStore.getState();
       if (controller.signal.aborted) {
         s.appendSystem(connectionId, 'Stream aborted');

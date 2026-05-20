@@ -54,6 +54,9 @@ const defaultSettings: AppSettings = {
   allowPrivateIPs: false,
   // CORS proxy settings for web mode
   corsProxy: defaultCorsProxyConfig,
+  // Telemetry opt-in defaults to OFF — explicit user consent required before
+  // any error is sent to /api/telemetry/error (Gap #2c).
+  telemetry: { errorsEnabled: false },
   // clientCert and caCert intentionally omitted (optional under EOPT)
 };
 

@@ -18,8 +18,11 @@ import {
   type ImportResult,
   type ImportWarning,
 } from '@/features/collections/lib/importers';
-import { FileJson, Upload, CheckCircle, AlertCircle } from 'lucide-react';
+import { FileJson, Upload, CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import YAML from 'yaml';
+import { Checkbox } from '@/components/ui/checkbox';
+import { isElectron } from '@/lib/shared/platform';
+import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 
 type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection' | 'hoppscotch' | 'bruno';
 
@@ -179,6 +182,9 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   // Surfaces a tailored success label so the user knows nothing went wrong
   // even though no collection appeared.
   const [environmentOnlyName, setEnvironmentOnlyName] = useState<string | null>(null);
+  // Desktop-only: convert imported plaintext secrets into OS-keychain handles
+  // before persisting. Hidden on web (no keychain).
+  const [storeSecretsAsHandles, setStoreSecretsAsHandles] = useState(false);
 
   const parseFileContent = (text: string, fileName: string): unknown => {
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
@@ -221,7 +227,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     return IMPORTERS[type](data);
   };
 
-  const handleImportSuccess = (outcome: ProcessOutcome) => {
+  const handleImportSuccess = async (outcome: ProcessOutcome) => {
     if ('kind' in outcome) {
       setImportStatus('success');
       // Skip the [] -> [] re-render if warnings was already empty.
@@ -234,7 +240,10 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
       }, 1500);
       return;
     }
-    addCollection(outcome.collection);
+    const collection = storeSecretsAsHandles && isElectron()
+      ? await convertCollectionSecretsToHandles(outcome.collection)
+      : outcome.collection;
+    addCollection(collection);
     for (const env of outcome.environments ?? []) {
       addEnvironment(env);
     }
@@ -264,7 +273,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
 
     try {
       const outcome = await processImportFile(file, type);
-      handleImportSuccess(outcome);
+      await handleImportSuccess(outcome);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -279,7 +288,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
 
     try {
       const outcome = await processImportFile(file, type);
-      handleImportSuccess(outcome);
+      await handleImportSuccess(outcome);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -348,6 +357,20 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
               <p className="mt-1 opacity-80">{errorMessage}</p>
             </div>
           </div>
+        )}
+
+        {isElectron() && (
+          <label className="flex items-start gap-2 px-1 py-1 text-xs font-mono cursor-pointer">
+            <Checkbox
+              checked={storeSecretsAsHandles}
+              onCheckedChange={(checked) => setStoreSecretsAsHandles(checked === true)}
+              className="mt-0.5"
+            />
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <Lock className="h-3 w-3" aria-hidden />
+              Store imported secrets in the OS keychain (recommended)
+            </span>
+          </label>
         )}
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ImportType)} className="w-full">

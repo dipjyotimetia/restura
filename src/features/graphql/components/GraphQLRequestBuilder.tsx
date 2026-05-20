@@ -16,6 +16,7 @@ import { extractOperationType } from '@/features/graphql/lib/queryParser';
 import { GraphQLSubscriptionClient, type SubscriptionMessage } from '@/features/graphql/lib/subscriptionClient';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import type { AuthConfig as AuthConfigType } from '@/types';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
@@ -66,19 +67,12 @@ function GraphQLRequestBuilder() {
         headers[resolveVariables(header.key)] = resolveVariables(header.value);
       }
     }
-    // Inject auth header
+    // Inject auth header. SecretRef-aware: handles cannot be resolved in the
+    // renderer (ADR-0007) so they fall through unset — the WS subscription
+    // will fail upstream with 401, which surfaces in the response viewer.
     const auth = httpRequest.auth;
-    if (auth.type === 'bearer' && auth.bearer?.token) {
-      headers['Authorization'] = `Bearer ${auth.bearer.token}`;
-    } else if (auth.type === 'basic' && auth.basic?.username) {
-      headers['Authorization'] = `Basic ${btoa(`${auth.basic.username}:${auth.basic.password}`)}`;
-    } else if (auth.type === 'api-key' && auth.apiKey?.key && auth.apiKey?.value) {
-      if (auth.apiKey.in === 'header') {
-        headers[auth.apiKey.key] = auth.apiKey.value;
-      }
-    } else if (auth.type === 'oauth2' && auth.oauth2?.accessToken) {
-      headers['Authorization'] = `${auth.oauth2.tokenType || 'Bearer'} ${auth.oauth2.accessToken}`;
-    }
+    const credential = buildAuthCredential(auth);
+    Object.assign(headers, credential.headers);
     return headers;
   };
 

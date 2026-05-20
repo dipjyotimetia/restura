@@ -4,6 +4,31 @@ import type { Collection, CollectionItem } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
+import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
+
+/**
+ * Walk a collection tree and re-wrap every request's `auth` plus the
+ * collection-level `auth` (if any) through the SecretValue migration.
+ * Idempotent — safe on already-migrated trees.
+ */
+function migrateCollectionAuth(collection: Collection): Collection {
+  const migratedItems = collection.items?.map((item) => migrateItemAuth(item)) ?? [];
+  const auth = collection.auth ? migrateAuthConfigToSecretRef(collection.auth) : undefined;
+  return { ...collection, items: migratedItems, ...(auth ? { auth } : {}) };
+}
+
+function migrateItemAuth(item: CollectionItem): CollectionItem {
+  if (item.type === 'folder') {
+    return { ...item, items: item.items?.map((sub) => migrateItemAuth(sub)) ?? [] };
+  }
+  if (item.request && 'auth' in item.request) {
+    const auth = migrateAuthConfigToSecretRef(item.request.auth);
+    if (auth) {
+      return { ...item, request: { ...item.request, auth } as typeof item.request };
+    }
+  }
+  return item;
+}
 
 interface CollectionState {
   collections: Collection[];
@@ -128,23 +153,29 @@ export const useCollectionStore = create<CollectionState>()(
     }),
     {
       name: 'collection-storage',
-      version: 2, // Bumped for Dexie migration
+      version: 3, // v3: SecretValue widening (ADR-0007)
       storage: dexieStorageAdapters.collections(),
-      migrate: (persistedState, _version) => {
-        // If Dexie returned no/empty data, attempt a one-shot backfill
-        // from the legacy zustand/persist localStorage key. The helper
-        // also removes the legacy key so we never migrate twice.
+      migrate: (persistedState, version) => {
         const looksEmpty =
           !persistedState ||
           (typeof persistedState === 'object' &&
             Object.keys(persistedState as object).length === 0);
+        let state: CollectionState | null = null;
         if (looksEmpty) {
           const legacy = migrateLegacyLocalStorage<Partial<CollectionState>>(
             'collection-storage'
           );
-          if (legacy) return legacy as CollectionState;
+          if (legacy) state = legacy as CollectionState;
+        } else {
+          state = persistedState as CollectionState;
         }
-        return persistedState as CollectionState;
+        if (state && version < 3 && Array.isArray(state.collections)) {
+          state = {
+            ...state,
+            collections: state.collections.map((c) => migrateCollectionAuth(c)),
+          };
+        }
+        return state as CollectionState;
       },
       onRehydrateStorage: () => (state, error) => {
         if (error) {

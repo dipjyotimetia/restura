@@ -526,6 +526,16 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
   );
 }
 
+/**
+ * True iff `directoryPath` is registered as a file-backed collection root
+ * (i.e. has an active chokidar watcher). Other main-process modules (e.g.
+ * the git handler) consult this to refuse operations on arbitrary
+ * directories, keeping the trust boundary tight.
+ */
+export function isRegisteredCollectionDirectory(directoryPath: string): boolean {
+  return activeWatchers.has(directoryPath);
+}
+
 // Cleanup on app quit
 export function cleanupCollectionWatchers(): void {
   for (const watcher of activeWatchers.values()) {

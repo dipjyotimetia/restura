@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 
 // ===========================
 // Shared Size Constants
@@ -36,17 +37,103 @@ const CaCertSchema = z.object({
   pem: z.string().min(1),
 });
 
-// Sign-at-wire auth. Only `aws-signature` is acted on by the shared core;
-// other types pass through and are no-ops in the proxy (they were already
-// applied by the renderer's applyAuthHeaders before the IPC).
+// Auth carried across the IPC boundary. The shared core's `applyAuth` signs
+// the sign-at-wire types (aws-signature, oauth1, wsse) with a resolver; the
+// Electron handler also resolves+applies non-sign-at-wire types (basic, bearer,
+// api-key, oauth2) main-side when a handle is present (renderer cannot read
+// handle plaintext). Sensitive fields are SecretValue per ADR-0007.
 const AuthConfigSchema = z.object({
-  type: z.enum(['none', 'basic', 'bearer', 'api-key', 'oauth2', 'digest', 'aws-signature']),
+  type: z.enum([
+    'none',
+    'basic',
+    'bearer',
+    'api-key',
+    'oauth2',
+    'digest',
+    'aws-signature',
+    'oauth1',
+    'ntlm',
+    'wsse',
+  ]),
+  basic: z
+    .object({
+      username: z.string(),
+      password: protocolSecretValueSchema,
+    })
+    .optional(),
+  bearer: z
+    .object({
+      token: protocolSecretValueSchema,
+    })
+    .optional(),
+  apiKey: z
+    .object({
+      key: z.string(),
+      value: protocolSecretValueSchema,
+      in: z.enum(['header', 'query']),
+    })
+    .optional(),
+  oauth2: z
+    .object({
+      accessToken: protocolSecretValueSchema,
+      tokenType: z.string().optional(),
+      refreshToken: protocolSecretValueSchema.optional(),
+      expiresAt: z.number().optional(),
+      scopes: z.array(z.string()).optional(),
+      grantType: z
+        .enum(['authorization_code', 'client_credentials', 'password', 'device_code'])
+        .optional(),
+      clientId: z.string().optional(),
+      clientSecret: protocolSecretValueSchema.optional(),
+      authorizationUrl: z.string().optional(),
+      tokenUrl: z.string().optional(),
+      deviceAuthorizationUrl: z.string().optional(),
+      scope: z.string().optional(),
+      redirectUri: z.string().optional(),
+      username: z.string().optional(),
+      password: protocolSecretValueSchema.optional(),
+    })
+    .optional(),
+  digest: z
+    .object({
+      username: z.string(),
+      password: protocolSecretValueSchema,
+    })
+    .optional(),
   awsSignature: z
     .object({
       accessKey: z.string(),
-      secretKey: z.string(),
+      secretKey: protocolSecretValueSchema,
       region: z.string(),
       service: z.string(),
+    })
+    .optional(),
+  oauth1: z
+    .object({
+      consumerKey: z.string(),
+      consumerSecret: protocolSecretValueSchema,
+      accessToken: protocolSecretValueSchema.optional(),
+      accessTokenSecret: protocolSecretValueSchema.optional(),
+      signatureMethod: z.enum(['HMAC-SHA1', 'HMAC-SHA256', 'PLAINTEXT']).optional(),
+      realm: z.string().optional(),
+      nonce: z.string().optional(),
+      timestamp: z.string().optional(),
+      addParamsToBody: z.boolean().optional(),
+    })
+    .optional(),
+  ntlm: z
+    .object({
+      username: z.string(),
+      password: protocolSecretValueSchema,
+      domain: z.string().optional(),
+      workstation: z.string().optional(),
+    })
+    .optional(),
+  wsse: z
+    .object({
+      username: z.string(),
+      password: protocolSecretValueSchema,
+      passwordType: z.enum(['PasswordDigest', 'PasswordText']).optional(),
     })
     .optional(),
 });

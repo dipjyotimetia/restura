@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
 
 interface ScriptResults {
@@ -308,7 +309,7 @@ export const useRequestStore = create<RequestState>()(
     },
     {
       name: 'request-storage',
-      version: 3,
+      version: 4,
       storage: dexieStorageAdapters.requestTabs(),
       partialize: (state) => ({
         // streamingEvents: AsyncIterables can't serialize, and active streams
@@ -326,6 +327,8 @@ export const useRequestStore = create<RequestState>()(
         // v0/v1: pre-Dexie shape lived in localStorage
         // v2:    Dexie-backed but still per-protocol slots
         // v3:    tabs[] + activeTabId
+        // v4:    AuthConfig sensitive fields widened to SecretValue (ADR-0007)
+        let state: RequestState | null = null;
         if (version < 3 && persistedState && typeof persistedState === 'object') {
           const legacy = persistedState as {
             currentRequest?: Request | null;
@@ -335,17 +338,30 @@ export const useRequestStore = create<RequestState>()(
             mcpRequest?: Request | null;
             currentResponse?: Response | null;
           };
-          const migrated = migrateLegacyStateToTabs({
+          state = migrateLegacyStateToTabs({
             currentRequest: legacy.currentRequest ?? null,
             httpRequest: legacy.httpRequest ?? null,
             grpcRequest: legacy.grpcRequest ?? null,
             sseRequest: legacy.sseRequest ?? null,
             mcpRequest: legacy.mcpRequest ?? null,
             currentResponse: legacy.currentResponse ?? null,
-          });
-          return migrated as unknown as RequestState;
+          }) as unknown as RequestState;
+        } else {
+          state = persistedState as RequestState;
         }
-        return persistedState as RequestState;
+        if (version < 4 && state?.tabs) {
+          state = {
+            ...state,
+            tabs: state.tabs.map((tab) => {
+              const request = tab.request as { auth?: unknown } | undefined;
+              if (!request || !('auth' in request)) return tab;
+              const migrated = migrateAuthConfigToSecretRef(request.auth);
+              if (!migrated) return tab;
+              return { ...tab, request: { ...request, auth: migrated } as typeof tab.request };
+            }),
+          };
+        }
+        return state as RequestState;
       },
       onRehydrateStorage: () => (state) => {
         if (!state) return;

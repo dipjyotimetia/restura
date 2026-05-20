@@ -16,15 +16,44 @@
 // keeps the renderer ignorant of wire-byte details and centralises the auth
 // pipeline so Electron + Worker behave identically.
 
-import type { ProtocolAuthConfig } from './types';
+import type { ProtocolAuthConfig, ProtocolSecretValue } from './types';
+import { isProtocolSecretHandle } from './secret-value-schema';
 import { buildOAuth1Header } from './oauth1-signer';
 import { buildWsseHeader } from './wsse-header';
+
+/**
+ * Resolves a ProtocolSecretValue to plaintext. Default behaviour:
+ *  - plain string → returned as-is
+ *  - `{kind:'inline', value}` → value
+ *  - `{kind:'handle', id}` → throws (Worker has no keychain; Electron passes
+ *    `unwrapSecretValueMain` as the resolver to look up handles)
+ */
+export type SecretResolver = (value: ProtocolSecretValue | undefined) => string;
+
+/** Default resolver — inline-only. Throws on handle so the Worker fails loudly. */
+export const inlineOnlySecretResolver: SecretResolver = (value) => {
+  if (value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (isProtocolSecretHandle(value)) {
+    throw new Error(
+      'Secret handle encountered at sign-at-wire boundary but no resolver was supplied — ' +
+        'this typically means the Worker is processing a desktop-only handle. Use the desktop app.'
+    );
+  }
+  return value.value;
+};
 
 export interface ApplyAuthArgs {
   method: string;
   url: string;
   headers: Record<string, string>;
   body: BodyInit | undefined;
+  /**
+   * Resolves SecretValue fields to plaintext. Electron passes
+   * `unwrapSecretValueMain`; Worker omits this (or passes `inlineOnlySecretResolver`)
+   * so handles throw rather than silently signing with empty creds.
+   */
+  resolveSecret?: SecretResolver;
 }
 
 export interface AppliedAuth {
@@ -248,12 +277,18 @@ export async function applyAuth(
   if (!auth || auth.type === 'none') {
     return { headers: {} };
   }
+  const resolve = args.resolveSecret ?? inlineOnlySecretResolver;
 
   if (auth.type === 'aws-signature') {
     if (!auth.awsSignature) {
       throw new Error('AWS SigV4 auth selected but awsSignature config missing');
     }
-    const headers = await signSigV4(args, auth.awsSignature);
+    const headers = await signSigV4(args, {
+      accessKey: auth.awsSignature.accessKey,
+      secretKey: resolve(auth.awsSignature.secretKey),
+      region: auth.awsSignature.region,
+      service: auth.awsSignature.service,
+    });
     return { headers };
   }
 
@@ -278,7 +313,19 @@ export async function applyAuth(
         bodyParams = {};
       }
     }
-    const authHeader = buildOAuth1Header(args.method, args.url, auth.oauth1, bodyParams);
+    const o1 = auth.oauth1;
+    const resolvedOauth1 = {
+      consumerKey: o1.consumerKey,
+      consumerSecret: resolve(o1.consumerSecret),
+      ...(o1.accessToken !== undefined ? { accessToken: resolve(o1.accessToken) } : {}),
+      ...(o1.accessTokenSecret !== undefined ? { accessTokenSecret: resolve(o1.accessTokenSecret) } : {}),
+      ...(o1.signatureMethod !== undefined ? { signatureMethod: o1.signatureMethod } : {}),
+      ...(o1.realm !== undefined ? { realm: o1.realm } : {}),
+      ...(o1.nonce !== undefined ? { nonce: o1.nonce } : {}),
+      ...(o1.timestamp !== undefined ? { timestamp: o1.timestamp } : {}),
+      ...(o1.addParamsToBody !== undefined ? { addParamsToBody: o1.addParamsToBody } : {}),
+    };
+    const authHeader = buildOAuth1Header(args.method, args.url, resolvedOauth1, bodyParams);
     return { headers: { Authorization: authHeader } };
   }
 
@@ -287,7 +334,11 @@ export async function applyAuth(
       console.warn('WSSE auth selected but wsse config missing — skipping');
       return { headers: {} };
     }
-    const wsseValue = await buildWsseHeader(auth.wsse);
+    const wsseValue = await buildWsseHeader({
+      username: auth.wsse.username,
+      password: resolve(auth.wsse.password),
+      ...(auth.wsse.passwordType !== undefined ? { passwordType: auth.wsse.passwordType } : {}),
+    });
     return { headers: { 'X-WSSE': wsseValue } };
   }
 

@@ -7,15 +7,16 @@
  *     SseClient drives sseManager directly because the renderer wants
  *     events to land in the SSE store for the UI to consume.
  *
- *  2. `startStream` — opens a fetch + SseParser pipeline and returns an
- *     async-iterable handle. Used by the DAG executor's `sseSubscribe`
- *     node. Does NOT touch useSseStore — the executor owns event
- *     accumulation and the in-canvas Run Monitor renders the live
- *     state independently.
+ *  2. `startStream` — opens a proxied stream + SseParser pipeline and
+ *     returns an async-iterable handle. Used by the DAG executor's
+ *     `sseSubscribe` node. Does NOT touch useSseStore — the executor
+ *     owns event accumulation and the in-canvas Run Monitor renders
+ *     the live state independently.
  *
  * The two paths intentionally don't share infrastructure with
  * sseManager (which is heavily store-coupled). Both end up wrapping the
- * same shared parser, so behaviour stays consistent across the app.
+ * same shared parser, and both route through `executeProxiedStreamingRequest`
+ * so the Worker's SSRF/header/auth pipeline applies uniformly.
  */
 import { v4 as uuidv4 } from 'uuid';
 import type {
@@ -23,6 +24,7 @@ import type {
   ProtocolStreamHandle,
 } from '@/features/registry/types';
 import type { SseRequest } from '@/types';
+import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import { SseParser, type ParsedSseEvent } from './lib/sseParser';
 
 function createDefaultSseRequest(): SseRequest {
@@ -96,11 +98,16 @@ async function sseStartStream(
   const url = buildUrlWithParams(sseReq);
   const headers = flattenHeaders(sseReq);
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers,
-    signal: ourCtrl.signal,
-  });
+  const response = await executeProxiedStreamingRequest(
+    {
+      method: 'GET',
+      url,
+      headers,
+      streamingMode: true,
+      timeout: 0,
+    },
+    { signal: ourCtrl.signal }
+  );
 
   if (!response.ok) {
     ourCtrl.abort();

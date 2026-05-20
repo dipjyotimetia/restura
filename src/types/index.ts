@@ -1,3 +1,5 @@
+import type { SecretValue } from '@/lib/shared/secretRef';
+
 // HTTP Methods
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
 
@@ -104,30 +106,33 @@ export interface FormDataItem extends KeyValue {
 }
 
 // Authentication Configuration
+// Sensitive credential fields use `SecretValue` (string | SecretRef) per ADR-0007.
+// Inline shapes mirror legacy plaintext; handle shapes are desktop-only and
+// resolved main-process-side at the wire boundary.
 export interface AuthConfig {
   type: AuthType;
   basic?: {
     username: string;
-    password: string;
+    password: SecretValue;
   };
   bearer?: {
-    token: string;
+    token: SecretValue;
   };
   apiKey?: {
     key: string;
-    value: string;
+    value: SecretValue;
     in: 'header' | 'query';
   };
   oauth2?: {
-    accessToken: string;
+    accessToken: SecretValue;
     tokenType?: string;
-    refreshToken?: string;
+    refreshToken?: SecretValue;
     expiresAt?: number;
     scopes?: string[];
     // Flow configuration
     grantType?: 'authorization_code' | 'client_credentials' | 'password' | 'device_code';
     clientId?: string;
-    clientSecret?: string;
+    clientSecret?: SecretValue;
     authorizationUrl?: string;
     tokenUrl?: string;
     /** RFC 8628 device authorization endpoint — required for device_code grant */
@@ -136,23 +141,23 @@ export interface AuthConfig {
     redirectUri?: string;
     // Password grant only
     username?: string;
-    password?: string;
+    password?: SecretValue;
   };
   digest?: {
     username: string;
-    password: string;
+    password: SecretValue;
   };
   awsSignature?: {
     accessKey: string;
-    secretKey: string;
+    secretKey: SecretValue;
     region: string;
     service: string;
   };
   oauth1?: {
     consumerKey: string;
-    consumerSecret: string;
-    accessToken?: string;
-    accessTokenSecret?: string;
+    consumerSecret: SecretValue;
+    accessToken?: SecretValue;
+    accessTokenSecret?: SecretValue;
     /** Default HMAC-SHA1 if omitted. */
     signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT';
     realm?: string;
@@ -166,13 +171,13 @@ export interface AuthConfig {
   /** NTLM is desktop-only (Electron). The browser/Worker emit a warning at request time. */
   ntlm?: {
     username: string;
-    password: string;
+    password: SecretValue;
     domain?: string;
     workstation?: string;
   };
   wsse?: {
     username: string;
-    password: string;
+    password: SecretValue;
     /** PasswordDigest = sha1(nonce + created + password) base64. PasswordText sends the password verbatim (avoid). */
     passwordType?: 'PasswordDigest' | 'PasswordText';
   };
@@ -192,6 +197,15 @@ export interface HttpRequest {
   preRequestScript?: string;
   testScript?: string;
   settings?: RequestSettings;
+  /**
+   * Optional link from this request to an OpenAPI operation. Lets the
+   * contracts feature validate response shape at execution time. The
+   * `operationId` matches an `operationId` in the spec attached at
+   * collection/folder level via `Collection.contractSpec`.
+   */
+  contractRef?: {
+    operationId: string;
+  };
 }
 
 // gRPC Request
@@ -524,6 +538,30 @@ export interface CollectionItem {
   type: 'folder' | 'request';
   request?: Request;
   items?: CollectionItem[];
+  /**
+   * Optional contract spec attached at folder scope (only meaningful when
+   * type === 'folder'). Overrides the collection-level spec for any
+   * descendant requests.
+   */
+  contractSpec?: ContractSpecSource;
+}
+
+/**
+ * Source location for an OpenAPI / Swagger contract spec attached to a
+ * collection or folder. The spec text itself isn't persisted in the
+ * Zustand store (parsed specs can be large) — only the source pointer.
+ * The contracts feature loads + parses on demand and caches in memory.
+ */
+export interface ContractSpecSource {
+  /** OpenAPI 3.0/3.1 (default) or AsyncAPI 2.x/3.x (future). */
+  kind?: 'openapi' | 'asyncapi';
+  source: 'url' | 'inline' | 'file';
+  /** Present when source === 'url'. */
+  url?: string;
+  /** Present when source === 'inline'. YAML or JSON. */
+  inline?: string;
+  /** Present when source === 'file' (desktop only). Absolute path. */
+  filePath?: string;
 }
 
 // Collection
@@ -534,6 +572,12 @@ export interface Collection {
   items: CollectionItem[];
   auth?: AuthConfig;
   variables?: KeyValue[];
+  /**
+   * Optional OpenAPI spec attached at collection scope. Requests with a
+   * `contractRef` are validated against this spec at execution time.
+   * Folders can override via their own `contractSpec` on `CollectionItem`.
+   */
+  contractSpec?: ContractSpecSource;
 }
 
 // History Item
@@ -618,6 +662,13 @@ export interface AppSettings {
   // Certificate settings
   clientCert?: ClientCert;
   caCert?: CaCert;
+  // Telemetry opt-ins (Gap #2c). Both default false. Only renderer-side errors
+  // and main-process JS-level failures are sent — never request payloads,
+  // headers, or response bodies. Native crashes go to crashReporter.submitURL
+  // independently (a separate opt-in via CRASH_REPORT_URL env var).
+  telemetry?: {
+    errorsEnabled: boolean;
+  };
 }
 
 // Alias for backwards compatibility and clarity

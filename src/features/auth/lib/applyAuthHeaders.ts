@@ -1,4 +1,5 @@
 import type { AuthConfig } from '@/types';
+import { isElectron } from '@/lib/shared/platform';
 import { buildAuthCredential } from './buildAuthCredential';
 
 /**
@@ -18,6 +19,11 @@ import { buildAuthCredential } from './buildAuthCredential';
  *
  * Common credential building (Basic / Bearer / API-Key / OAuth2) is shared
  * with gRPC via `buildAuthCredential` — see `./buildAuthCredential.ts`.
+ *
+ * SecretRef-aware (ADR-0007): if any sensitive field is a handle, the
+ * returned headers are empty and `requiresMainSideApply: true` signals the
+ * executor to either let Electron's HTTP handler apply main-side (desktop)
+ * or surface a clear error (web — handles are desktop-only).
  */
 export async function applyAuthHeaders(
   auth: AuthConfig,
@@ -25,13 +31,29 @@ export async function applyAuthHeaders(
   _url: string,
   _method: string,
   _body?: string
-): Promise<Record<string, string>> {
+): Promise<{ headers: Record<string, string>; requiresMainSideApply: boolean }> {
   const credential = buildAuthCredential(auth);
-  return { ...headers, ...credential.headers };
+  return {
+    headers: { ...headers, ...credential.headers },
+    requiresMainSideApply: credential.requiresMainSideApply === true,
+  };
 }
 
 export function applyApiKeyQueryParam(auth: AuthConfig, params: Record<string, string>): Record<string, string> {
   const credential = buildAuthCredential(auth);
   if (Object.keys(credential.params).length === 0) return params;
   return { ...params, ...credential.params };
+}
+
+/**
+ * Throws a user-visible error when the renderer-side credential build saw a
+ * handle (desktop-only) but the current harness is web. Electron passes
+ * through — its HTTP handler resolves the handle main-side.
+ */
+export function assertHandleSupported(applied: { requiresMainSideApply: boolean }): void {
+  if (applied.requiresMainSideApply && !isElectron()) {
+    throw new Error(
+      'This request uses a stored secret handle, which requires the Restura desktop app.'
+    );
+  }
 }

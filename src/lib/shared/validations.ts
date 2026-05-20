@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { secretValueSchema } from './secretRef';
 
 // HTTP Method Schema
 export const httpMethodSchema = z.enum([
@@ -64,50 +65,52 @@ export const authConfigSchema = z.object({
   basic: z
     .object({
       username: z.string(),
-      password: z.string(),
+      password: secretValueSchema,
     })
     .optional(),
   bearer: z
     .object({
-      token: z.string(),
+      token: secretValueSchema,
     })
     .optional(),
   apiKey: z
     .object({
       key: z.string(),
-      value: z.string(),
+      value: secretValueSchema,
       in: z.enum(['header', 'query']),
     })
     .optional(),
   oauth2: z
     .object({
-      accessToken: z.string(),
+      accessToken: secretValueSchema,
       tokenType: z.string().optional(),
+      refreshToken: secretValueSchema.optional(),
+      expiresAt: z.number().optional(),
       scopes: z.array(z.string()).optional(),
       grantType: z
         .enum(['authorization_code', 'client_credentials', 'password', 'device_code'])
         .optional(),
       clientId: z.string().optional(),
-      clientSecret: z.string().optional(),
+      clientSecret: secretValueSchema.optional(),
       authorizationUrl: z.string().optional(),
       tokenUrl: z.string().optional(),
       deviceAuthorizationUrl: z.string().optional(),
       scope: z.string().optional(),
       redirectUri: z.string().optional(),
       username: z.string().optional(),
-      password: z.string().optional(),
+      password: secretValueSchema.optional(),
     })
     .optional(),
   digest: z
     .object({
       username: z.string(),
-      password: z.string(),
+      password: secretValueSchema,
     })
     .optional(),
   awsSignature: z
     .object({
       accessKey: z.string(),
-      secretKey: z.string(),
+      secretKey: secretValueSchema,
       region: z.string(),
       service: z.string(),
     })
@@ -115,9 +118,9 @@ export const authConfigSchema = z.object({
   oauth1: z
     .object({
       consumerKey: z.string(),
-      consumerSecret: z.string(),
-      accessToken: z.string().optional(),
-      accessTokenSecret: z.string().optional(),
+      consumerSecret: secretValueSchema,
+      accessToken: secretValueSchema.optional(),
+      accessTokenSecret: secretValueSchema.optional(),
       signatureMethod: z.enum(['HMAC-SHA1', 'HMAC-SHA256', 'PLAINTEXT']).optional(),
       realm: z.string().optional(),
       nonce: z.string().optional(),
@@ -128,7 +131,7 @@ export const authConfigSchema = z.object({
   ntlm: z
     .object({
       username: z.string(),
-      password: z.string(),
+      password: secretValueSchema,
       domain: z.string().optional(),
       workstation: z.string().optional(),
     })
@@ -136,7 +139,7 @@ export const authConfigSchema = z.object({
   wsse: z
     .object({
       username: z.string(),
-      password: z.string(),
+      password: secretValueSchema,
       passwordType: z.enum(['PasswordDigest', 'PasswordText']).optional(),
     })
     .optional(),

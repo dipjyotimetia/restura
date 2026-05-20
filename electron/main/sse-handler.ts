@@ -10,7 +10,8 @@ import {
   createValidatedHandler,
 } from './ipc-validators';
 import { SseParser, type ParsedSseEvent } from './lib/sse-parser';
-import { followRedirects, RedirectPolicyError } from '@shared/protocol/redirect-follower';
+import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
+import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 
 export const sseRateLimiter = createKeyedRateLimiter(20, 60_000);
@@ -142,13 +143,15 @@ export function registerSseHandlerIPC(): void {
     };
 
     try {
-      const response = await followRedirects(
+      // Same orchestrator as the HTTP handler so SSE inherits the SSRF /
+      // header / redirect / auth pipeline. assertUrlHostnameSafe above
+      // is the pre-flight DNS guard (covers rebind windows the URL
+      // parse can't).
+      const result = await executeHttpProxyStreaming(
         {
-          url: config.url,
           method: 'GET',
+          url: config.url,
           headers: { Accept: 'text/event-stream', ...(config.headers ?? {}) },
-          body: undefined,
-          signal: abortController.signal,
         },
         sseFetcher,
         // SSE handler is desktop-only; mirror http-handler's permissive localhost
@@ -157,6 +160,14 @@ export function registerSseHandlerIPC(): void {
       );
       clearTimeout(timeoutId);
 
+      if (!result.ok) {
+        emitTo(webContentsId, `sse:error:${connectionId}`, { message: result.payload.error });
+        emitTo(webContentsId, `sse:close:${connectionId}`, { reason: result.payload.error });
+        activeConnections.delete(connectionId);
+        return { success: false, error: result.payload.error };
+      }
+
+      const response = result.response;
       if (response.status < 200 || response.status >= 300) {
         emitTo(webContentsId, `sse:error:${connectionId}`, {
           message: `HTTP ${response.status} ${response.statusText}`,
