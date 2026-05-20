@@ -94,8 +94,15 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (path === '/echo/slow') {
-    const ms = parseInt(url.searchParams.get('ms') ?? '500', 10);
-    await new Promise((r) => setTimeout(r, ms));
+    const rawMs = url.searchParams.get('ms');
+    const parsedMs = rawMs === null ? 500 : Number.parseInt(rawMs, 10);
+    const MAX_DELAY_MS = 10_000;
+    if (!Number.isFinite(parsedMs) || parsedMs < 0 || parsedMs > MAX_DELAY_MS) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: 'Invalid ms parameter' }));
+      return;
+    }
+    await new Promise((r) => setTimeout(r, parsedMs));
     res.statusCode = 200;
     res.end('slow');
     return;
