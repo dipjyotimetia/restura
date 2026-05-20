@@ -103,6 +103,8 @@ export type McpConnectionsRecord = NamedEncryptedRecord;
 export type KafkaConnectionsRecord = NamedEncryptedRecord;
 export type SocketIoConnectionsRecord = NamedEncryptedRecord;
 export type ConsoleRecord = NamedEncryptedRecord;
+export type GraphqlSchemaRecord = NamedEncryptedRecord;
+export type ProtoFileRecord = NamedEncryptedRecord;
 
 // Metadata table for app state
 export interface MetadataRecord {
@@ -131,6 +133,8 @@ export class ResturaDB extends Dexie {
   kafkaConnections!: Table<KafkaConnectionsRecord, string>;
   socketioConnections!: Table<SocketIoConnectionsRecord, string>;
   console!: Table<ConsoleRecord, string>;
+  graphqlSchemas!: Table<GraphqlSchemaRecord, string>;
+  protoFiles!: Table<ProtoFileRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
   constructor() {
@@ -191,6 +195,14 @@ export class ResturaDB extends Dexie {
       // mirrors every other persisted store.
       console: 'id, name, updatedAt',
     });
+
+    this.version(7).stores({
+      // Gap #6 migration: hoist useGraphQLSchemaStore + useProtoRegistryStore
+      // off raw localStorage onto the encrypted Dexie pipeline. Same shape as
+      // every other NamedEncryptedRecord table.
+      graphqlSchemas: 'id, name, updatedAt',
+      protoFiles: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -213,6 +225,8 @@ export class ResturaDB extends Dexie {
       this.kafkaConnections,
       this.socketioConnections,
       this.console,
+      this.graphqlSchemas,
+      this.protoFiles,
       this.metadata,
     ], () =>
       Promise.all([
@@ -231,6 +245,8 @@ export class ResturaDB extends Dexie {
         this.kafkaConnections.clear(),
         this.socketioConnections.clear(),
         this.console.clear(),
+        this.graphqlSchemas.clear(),
+        this.protoFiles.clear(),
         this.metadata.clear(),
       ])
     );
@@ -260,6 +276,8 @@ export class ResturaDB extends Dexie {
       kafkaConnections: await this.kafkaConnections.count(),
       socketioConnections: await this.socketioConnections.count(),
       console: await this.console.count(),
+      graphqlSchemas: await this.graphqlSchemas.count(),
+      protoFiles: await this.protoFiles.count(),
     };
 
     const totalRecords = Object.values(tables).reduce((a, b) => a + b, 0);

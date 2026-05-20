@@ -336,6 +336,18 @@ interface ElectronLogAPI {
   clear: () => Promise<void>;
 }
 
+interface KeychainStatus {
+  mode: 'safeStorage' | 'plaintext';
+  reason?: 'no-keyring' | 'decrypt-failed';
+  plaintextStores: string[];
+  lastChecked: string;
+}
+
+interface ElectronKeychainAPI {
+  status: () => Promise<KeychainStatus>;
+  rotate: () => Promise<{ rotated: boolean; status: KeychainStatus }>;
+}
+
 interface FileChangedEvent {
   type: 'modified' | 'added' | 'deleted';
   filePath: string;
@@ -410,6 +422,7 @@ interface ElectronAPI {
   store: ElectronStoreAPI;
   secrets: ElectronSecretsAPI;
   log: ElectronLogAPI;
+  keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
   // Valid channels: 'menu:import' | 'menu:export' | 'menu:new-request' | 'app:focus' | 'deep-link'
   // 'deep-link' callback receives: { host: string; params: Record<string, string> }
@@ -423,4 +436,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, ElectronSecretsAPI, ElectronSecretHandleDescriptor, ElectronSecretHandleSummary, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronKeychainAPI, KeychainStatus, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, ElectronSecretsAPI, ElectronSecretHandleDescriptor, ElectronSecretHandleSummary, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };

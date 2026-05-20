@@ -20,6 +20,43 @@ export interface EncryptedKeyOptions {
   storeLabel: string;
 }
 
+export type KeyStoreMode = 'safeStorage' | 'plaintext';
+export type KeyStoreReason = 'no-keyring' | 'decrypt-failed';
+
+export interface KeyStoreStatus {
+  mode: KeyStoreMode;
+  reason?: KeyStoreReason;
+  /** Stores currently in plaintext mode (subset of all opened stores). */
+  plaintextStores: string[];
+  lastChecked: string;
+}
+
+const keyStoreState = new Map<string, { mode: KeyStoreMode; reason?: KeyStoreReason }>();
+
+function recordKeyStoreState(storeLabel: string, mode: KeyStoreMode, reason?: KeyStoreReason): void {
+  keyStoreState.set(storeLabel, reason !== undefined ? { mode, reason } : { mode });
+}
+
+/**
+ * Snapshot of the aggregated keychain status across every store opened in this
+ * session. The mode degrades to `plaintext` if any one store is unprotected —
+ * matches user intent ("are my secrets safe?"). Surfaced to the renderer via
+ * the `keychain:status` IPC channel.
+ */
+export function getKeyStoreStatus(): KeyStoreStatus {
+  const plaintextEntries = Array.from(keyStoreState.entries()).filter(([, s]) => s.mode === 'plaintext');
+  if (plaintextEntries.length === 0) {
+    return { mode: 'safeStorage', plaintextStores: [], lastChecked: new Date().toISOString() };
+  }
+  const firstReason = plaintextEntries[0]?.[1]?.reason;
+  return {
+    mode: 'plaintext',
+    ...(firstReason !== undefined ? { reason: firstReason } : {}),
+    plaintextStores: plaintextEntries.map(([label]) => label),
+    lastChecked: new Date().toISOString(),
+  };
+}
+
 function emitFallbackWarning(storeLabel: string, reason: 'no-keyring' | 'decrypt-failed'): void {
   const banner = '='.repeat(72);
   const detail =
@@ -70,12 +107,16 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
     tightenKeyFileMode(keyFile);
     if (safeStorage.isEncryptionAvailable()) {
       try {
-        return safeStorage.decryptString(encryptedKey);
+        const decrypted = safeStorage.decryptString(encryptedKey);
+        recordKeyStoreState(opts.storeLabel, 'safeStorage');
+        return decrypted;
       } catch {
         emitFallbackWarning(opts.storeLabel, 'decrypt-failed');
+        recordKeyStoreState(opts.storeLabel, 'plaintext', 'decrypt-failed');
       }
     } else {
       emitFallbackWarning(opts.storeLabel, 'no-keyring');
+      recordKeyStoreState(opts.storeLabel, 'plaintext', 'no-keyring');
       return encryptedKey.toString('utf8');
     }
   }
@@ -84,9 +125,11 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
   try {
     if (safeStorage.isEncryptionAvailable()) {
       fs.writeFileSync(keyFile, safeStorage.encryptString(newKey));
+      recordKeyStoreState(opts.storeLabel, 'safeStorage');
     } else {
       emitFallbackWarning(opts.storeLabel, 'no-keyring');
       fs.writeFileSync(keyFile, newKey, { mode: 0o600 });
+      recordKeyStoreState(opts.storeLabel, 'plaintext', 'no-keyring');
     }
     tightenKeyFileMode(keyFile);
   } catch (err) {

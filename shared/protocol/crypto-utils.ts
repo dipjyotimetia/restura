@@ -41,6 +41,34 @@ export function bytesToBase64(b: Uint8Array): string {
   return (globalThis as any).Buffer.from(b).toString('base64');
 }
 
+export function base64ToBytes(b64: string): Uint8Array {
+  if (typeof atob === 'function') {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const buf = (globalThis as any).Buffer.from(b64, 'base64') as Uint8Array;
+  return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+}
+
+export function bytesToHex(b: Uint8Array): string {
+  let hex = '';
+  for (let i = 0; i < b.length; i++) hex += b[i]!.toString(16).padStart(2, '0');
+  return hex;
+}
+
+/**
+ * SHA-256 → lowercase hex. Available in Worker, Electron main, and the
+ * renderer via `crypto.subtle.digest`. Used by the rate-limiter token
+ * fingerprint and any other "stable identifier from a secret" callsite.
+ */
+export async function sha256Hex(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', utf8(input).slice());
+  return bytesToHex(new Uint8Array(buf));
+}
+
 export function randomBytes(n: number): Uint8Array {
   const out = new Uint8Array(n);
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {

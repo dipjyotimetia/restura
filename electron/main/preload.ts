@@ -465,6 +465,26 @@ const electronAPI = {
     clear: (): Promise<void> => ipcRenderer.invoke('log:clear'),
   },
 
+  // Keychain (safeStorage) status — surfaces whether secrets are protected by
+  // the OS keychain or held in a plaintext fallback (Linux without libsecret).
+  keychain: {
+    status: (): Promise<{
+      mode: 'safeStorage' | 'plaintext';
+      reason?: 'no-keyring' | 'decrypt-failed';
+      plaintextStores: string[];
+      lastChecked: string;
+    }> => ipcRenderer.invoke('keychain:status'),
+    rotate: (): Promise<{
+      rotated: boolean;
+      status: {
+        mode: 'safeStorage' | 'plaintext';
+        reason?: 'no-keyring' | 'decrypt-failed';
+        plaintextStores: string[];
+        lastChecked: string;
+      };
+    }> => ipcRenderer.invoke('keychain:rotate'),
+  },
+
   // Collection file operations (Git-native collections)
   collections: {
     loadFromDirectory: (directoryPath: string): Promise<{

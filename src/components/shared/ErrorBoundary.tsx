@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { Component } from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { reportError } from '@/lib/shared/telemetry';
 
 interface Props {
   children: ReactNode;
@@ -34,8 +35,13 @@ export class ErrorBoundary extends Component<Props, State> {
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo);
 
-    // In production, you would send this to an error tracking service
-    // e.g., Sentry.captureException(error);
+    // Opt-in telemetry (off by default, gated on settings.telemetry.errorsEnabled).
+    reportError({
+      message: error.message,
+      ...(error.stack !== undefined ? { stack: error.stack } : {}),
+      source: 'error-boundary',
+      ...(errorInfo.componentStack ? { componentStack: errorInfo.componentStack } : {}),
+    });
   }
 
   handleReset = (): void => {

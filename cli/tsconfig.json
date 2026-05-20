@@ -10,7 +10,6 @@
     "rootDir": "..",
     "noEmit": false,
     "declaration": false,
-    "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
     "baseUrl": "..",
     "paths": {

@@ -5,7 +5,12 @@ import { grpc } from './handlers/grpc';
 import { grpcReflection } from './handlers/grpc-reflection';
 import { mcp } from './handlers/mcp';
 import { proxy } from './handlers/proxy';
+import { featureFlags } from './handlers/feature-flags';
+import { telemetryError } from './handlers/telemetry';
+import { websocketHandler } from './handlers/websocket';
+import { wsTicket } from './handlers/ws-ticket';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
+import { requestIdMiddleware } from './middleware/requestId';
 import { isLocalDevBypass } from './shared/env';
 
 export type Env = {
@@ -18,6 +23,15 @@ export type Env = {
    * Set only in .dev.vars; never in a deployed wrangler.jsonc.
    */
   DEV_BYPASS_AUTH?: string;
+  /**
+   * Rate-limiter implementation switch (Gap #3):
+   *   - 'binding'        — Cloudflare Rate Limiting binding (production).
+   *   - 'binding-shadow' — call binding, log decisions, but enforce via legacy
+   *                        isolate limiter (validation period during rollout).
+   *   - 'map' or unset   — legacy per-isolate Map (current behaviour).
+   */
+  RATE_LIMITER?: 'binding' | 'binding-shadow' | 'map';
+  RATE_LIMITER_BINDING?: { limit(input: { key: string }): Promise<{ success: boolean }> };
 };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -96,6 +110,7 @@ app.use(
     origin: (origin, c) => resolveCorsOrigin(origin, c.env),
   })
 );
+app.use('/api/*', requestIdMiddleware);
 app.use('/api/*', proxyAuthMiddleware);
 app.use('/api/*', rateLimitMiddleware);
 
@@ -103,5 +118,9 @@ app.post('/api/proxy', proxy);
 app.post('/api/grpc', grpc);
 app.post('/api/grpc/reflection', grpcReflection);
 app.post('/api/mcp', mcp);
+app.post('/api/telemetry/error', telemetryError);
+app.get('/api/feature-flags', featureFlags);
+app.post('/api/ws-ticket', wsTicket);
+app.get('/api/ws', websocketHandler);
 
 export default app;

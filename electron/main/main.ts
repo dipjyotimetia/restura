@@ -21,17 +21,22 @@ import {
 } from './collection-manager';
 import { registerStoreHandlerIPC } from './store-handler';
 import { registerSecretHandleIPC } from './secret-handle-store';
+import { registerKeychainStatusIPC } from './keychain-status-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerDeepLinkHandler } from './deep-link-handler';
 import { startStdioMcpServer } from './mcp-server-handler';
 import { loadMcpDispatchContext } from './mcp-context-loader';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('main');
 
 // Initialize crash reporter early (before app.whenReady)
+const crashReportUrl = process.env['CRASH_REPORT_URL'] ?? '';
 crashReporter.start({
   productName: 'Restura',
   companyName: 'Restura',
-  submitURL: process.env['CRASH_REPORT_URL'] ?? '', // Set CRASH_REPORT_URL env var to enable crash reporting
-  uploadToServer: !!process.env['CRASH_REPORT_URL'],
+  submitURL: crashReportUrl, // Set CRASH_REPORT_URL env var to enable crash reporting
+  uploadToServer: !!crashReportUrl,
   ignoreSystemCrashHandler: false,
   compress: true,
   extra: {
@@ -41,13 +46,23 @@ crashReporter.start({
   },
 });
 
+// Packaged builds without a crash submit URL silently lose native crashes.
+// Warn loudly so operators notice the misconfig before users start hitting
+// crashes that never reach the maintainers.
+if (app.isPackaged && !crashReportUrl) {
+  log.warn('crashReporter is enabled but CRASH_REPORT_URL is unset — native crashes will not be reported');
+}
+
 // crashReporter only captures native crashes; log JS-level failures so
 // async paths (chokidar, dispatchers, stream errors) don't fail silently.
 process.on('uncaughtException', (err, origin) => {
-  console.error(`[main] uncaughtException (origin=${origin}):`, err);
+  log.error('uncaughtException', { origin, message: err.message, stack: err.stack });
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('[main] unhandledRejection:', reason);
+  log.error('unhandledRejection', {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
 });
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -109,6 +124,7 @@ function registerIPCHandlers(): void {
   registerCollectionManagerIPC(getMainWindow);
   registerStoreHandlerIPC();
   registerSecretHandleIPC();
+  registerKeychainStatusIPC();
   // Git operations are restricted to directories that are registered as
   // file-backed collections — `isRegisteredCollectionDirectory` consults the
   // active chokidar watchers in collection-manager.

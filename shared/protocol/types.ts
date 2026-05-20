@@ -90,6 +90,32 @@ export interface RequestSpec {
    * the request reaches the proxy; they don't depend on wire-byte fidelity.
    */
   auth?: ProtocolAuthConfig;
+  /**
+   * Correlation id threaded renderer → Fetcher → upstream. Surfaces in:
+   *   - the outbound `x-restura-request-id` header (sent upstream),
+   *   - the Worker `c.var.requestId` (logged via tail),
+   *   - the Electron `request-logger` JSONL,
+   *   - the renderer's DiskTab UI.
+   *
+   * If absent at execute time, executors mint one with `crypto.randomUUID()`
+   * so every span has a key. Stable per request; do not re-mint on retry.
+   */
+  requestId?: string;
+}
+
+/** Standard header name for the correlation id. Lowercase per HTTP/2 norms. */
+export const REQUEST_ID_HEADER = 'x-restura-request-id';
+
+/**
+ * Mint a request id if the spec doesn't already carry one. Returns the
+ * existing id when present so retries/redirects keep the same correlation
+ * across hops.
+ */
+export function ensureRequestId(spec: Pick<RequestSpec, 'requestId'>): string {
+  if (spec.requestId) return spec.requestId;
+  // crypto.randomUUID() is available in Worker, Electron main (Node ≥ 19),
+  // and the renderer (secure context). No polyfill needed.
+  return crypto.randomUUID();
 }
 
 export interface NormalizedResponse {

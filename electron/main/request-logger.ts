@@ -11,6 +11,8 @@ export interface LogEntry {
   status: number;
   durationMs: number;
   protocol: 'http' | 'grpc';
+  /** Correlation id threaded from RequestSpec → handler → upstream. */
+  requestId?: string;
   error?: string;
 }
 
@@ -19,6 +21,9 @@ export interface LogEntry {
  * .jsonl file can be appended to by older app versions, partially flushed
  * after a crash, or hand-edited — a bad line should be skipped, not crash
  * the renderer's request-history view.
+ *
+ * `requestId` is optional so older entries (pre-Gap-#2 rollout) load without
+ * warnings.
  */
 const LogEntrySchema = z.object({
   ts: z.number(),
@@ -27,6 +32,7 @@ const LogEntrySchema = z.object({
   status: z.number(),
   durationMs: z.number(),
   protocol: z.enum(['http', 'grpc']),
+  requestId: z.string().optional(),
   error: z.string().optional(),
 });
 

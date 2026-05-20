@@ -662,6 +662,13 @@ export interface AppSettings {
   // Certificate settings
   clientCert?: ClientCert;
   caCert?: CaCert;
+  // Telemetry opt-ins (Gap #2c). Both default false. Only renderer-side errors
+  // and main-process JS-level failures are sent — never request payloads,
+  // headers, or response bodies. Native crashes go to crashReporter.submitURL
+  // independently (a separate opt-in via CRASH_REPORT_URL env var).
+  telemetry?: {
+    errorsEnabled: boolean;
+  };
 }
 
 // Alias for backwards compatibility and clarity
