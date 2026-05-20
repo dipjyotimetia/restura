@@ -42,6 +42,9 @@ const streamingLabel = (method: ReflectionMethodInfo): string | null => {
  * Client-streaming and bidi rely on a duplex channel that the Cloudflare
  * Worker's HTTP/1 transport can't expose. Surface a clear hint in the picker
  * so users know the method is only callable from the desktop app.
+ *
+ * Server-streaming alone works fine through the Worker (server-sent frames
+ * map onto a single chunked HTTP response), so it stays available on web.
  */
 const requiresDesktop = (method: ReflectionMethodInfo): boolean =>
   method.clientStreaming === true && !isElectron();

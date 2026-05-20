@@ -23,6 +23,8 @@ import { registerStoreHandlerIPC } from './store-handler';
 import { registerSecretHandleIPC } from './secret-handle-store';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerDeepLinkHandler } from './deep-link-handler';
+import { startStdioMcpServer } from './mcp-server-handler';
+import { loadMcpDispatchContext } from './mcp-context-loader';
 
 // Initialize crash reporter early (before app.whenReady)
 crashReporter.start({
@@ -54,6 +56,19 @@ if (require('electron-squirrel-startup')) {
 }
 
 const isDev = process.env.NODE_ENV === 'development';
+
+/**
+ * Headless MCP-server mode: when invoked as `restura --mcp-server`, we don't
+ * create a window. Instead we wire the MCP SDK to stdio and stream JSON-RPC
+ * tool calls into the pure dispatcher. The launcher (Claude Desktop, Cursor,
+ * Windsurf) parents the process and sends MCP-protocol messages over stdin.
+ *
+ * The user is in control of which surfaces are exposed via the per-collection /
+ * per-environment / history consent settings persisted in the electron-store
+ * `restura-encrypted-store`. `loadMcpDispatchContext()` reads those off disk
+ * each tool call so the headless server always sees the latest user choices.
+ */
+const isMcpServerMode = process.argv.includes('--mcp-server');
 
 // Helper to get the renderer window UI surfaces should target. Delegates to
 // the window-manager registry so multi-window scenarios (window:new IPC,
@@ -146,7 +161,25 @@ function setupSecurityMeasures(): void {
 }
 
 // Initialize the application
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (isMcpServerMode) {
+    // Headless: no window, no tray, no auto-updater. The MCP SDK owns stdio.
+    // Anything that would log to stdout (`console.log`, banners) corrupts the
+    // JSON-RPC stream — keep this branch minimal and route everything else to
+    // stderr (which Claude Desktop captures into its log file).
+    try {
+      const handle = await startStdioMcpServer(() => loadMcpDispatchContext());
+      // Tear the server down on quit so the parent process sees a clean EOF.
+      app.on('will-quit', () => {
+        void handle.stop();
+      });
+    } catch (err) {
+      console.error('[restura] MCP server failed to start:', err);
+      app.quit();
+    }
+    return;
+  }
+
   setupContentSecurityPolicy();
   registerIPCHandlers();
 

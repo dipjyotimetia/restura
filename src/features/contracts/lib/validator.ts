@@ -25,7 +25,6 @@
 
 import type { ErrorObject, ValidateFunction } from 'ajv';
 import type { OperationMatch } from './operationMatcher';
-import type { ParsedSpec } from './specLoader';
 
 export interface ValidationError {
   /** JSON Pointer to the offending field (or empty for top-level errors). */
@@ -49,7 +48,16 @@ export interface ValidationResult {
 
 export interface ValidateResponseArgs {
   match: OperationMatch;
-  spec: ParsedSpec;
+  /**
+   * Schema dialect for Ajv. OpenAPI 3.0 → 'draft-07'; 3.1 → '2020-12'.
+   * `specLoader.ts` derives this from the parsed spec version.
+   *
+   * Note: the parsed spec itself is intentionally not passed — `specLoader`
+   * dereferences `$ref`s in-place (with `external: false`), so every schema
+   * we read from `match.operation.responses[*].content[*].schema` is already
+   * a self-contained object Ajv can compile directly. If we add external-$ref
+   * support later, thread the spec back through here.
+   */
   schemaDialect: 'draft-07' | '2020-12';
   status: number;
   headers: Record<string, string>;
@@ -116,7 +124,6 @@ async function compileSchema(
 // ---------------------------------------------------------------------------
 
 export async function validateResponse(args: ValidateResponseArgs): Promise<ValidationResult> {
-  void args.spec; // unused for now — kept in the API for forward compatibility
   const errors: ValidationError[] = [];
   const responses = (args.match.operation.responses ?? {}) as Record<
     string,

@@ -174,13 +174,21 @@ export function parsePorcelainV2(raw: string): GitStatus {
  * Parse `git log --pretty=format:%H%x01%h%x01%an%x01%ae%x01%at%x01%s`.
  * The 0x01 SOH byte separator is highly unlikely to appear in real commit
  * subjects, making this resilient to commit-message punctuation.
+ *
+ * Malformed lines are skipped, but the count of skipped lines is emitted as
+ * a single `console.warn` so anyone debugging git-native collections can see
+ * whether the parser is silently dropping data.
  */
 export function parseCommitLog(raw: string): GitCommit[] {
   const out: GitCommit[] = [];
+  let skipped = 0;
   for (const line of raw.split('\n')) {
     if (!line) continue;
     const [sha, abbr, author, email, ts, subject] = line.split('\x01');
-    if (!sha || !abbr || !ts) continue;
+    if (!sha || !abbr || !ts) {
+      skipped += 1;
+      continue;
+    }
     out.push({
       sha,
       abbreviatedSha: abbr,
@@ -189,6 +197,11 @@ export function parseCommitLog(raw: string): GitCommit[] {
       timestamp: Number(ts) * 1000,
       subject: subject ?? '',
     });
+  }
+  if (skipped > 0) {
+    console.warn(
+      `[restura] parseCommitLog: skipped ${skipped} malformed line(s) — git log format may have changed.`
+    );
   }
   return out;
 }

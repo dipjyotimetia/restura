@@ -55,6 +55,7 @@ import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder
 import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
 import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { FileStatusBadge } from './FileStatusBadge';
 import { ConflictDialog } from './ConflictDialog';
@@ -235,6 +236,13 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
           { format: 'bruno-archive/v1', files: exported.entries },
           `${collection.name}.bruno-archive.json`
         );
+        // Surface lossy-export warnings so users discover non-HTTP downgrades
+        // at export time rather than later when Bruno fails to run the request.
+        if (exported.warnings.length > 0) {
+          const first = exported.warnings[0]!;
+          const extra = exported.warnings.length > 1 ? ` (+${exported.warnings.length - 1} more)` : '';
+          toast.warning(`Bruno export: ${first.message}${extra}`);
+        }
       } else {
         const yamlText = exportToOpenCollection(collection);
         downloadText(yamlText, `${collection.name}.opencollection.yaml`, 'application/x-yaml');

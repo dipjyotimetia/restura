@@ -99,7 +99,6 @@ describe('validateResponse — happy path', () => {
   it('passes a valid 200 response with required header', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 200,
       headers: { 'x-trace-id': 'abc-123' },
@@ -115,7 +114,6 @@ describe('validateResponse — happy path', () => {
   it('parses string bodies as JSON', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 200,
       headers: { 'x-trace-id': 'abc' },
@@ -128,7 +126,6 @@ describe('validateResponse — happy path', () => {
   it('matches alternative status (404 with its own schema)', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 404,
       headers: {},
@@ -144,7 +141,6 @@ describe('validateResponse — failures', () => {
   it('flags missing required property', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 200,
       headers: { 'x-trace-id': 'abc' },
@@ -158,7 +154,6 @@ describe('validateResponse — failures', () => {
   it('flags wrong type', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 200,
       headers: { 'x-trace-id': 'abc' },
@@ -173,7 +168,6 @@ describe('validateResponse — failures', () => {
   it('flags additional properties when additionalProperties: false', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 200,
       headers: { 'x-trace-id': 'abc' },
@@ -187,7 +181,6 @@ describe('validateResponse — failures', () => {
   it('flags missing required response header', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 200,
       headers: {}, // x-trace-id missing
@@ -201,7 +194,6 @@ describe('validateResponse — failures', () => {
   it('flags undeclared status codes', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 418, // not in the spec
       headers: { 'x-trace-id': 'abc' },
@@ -216,7 +208,6 @@ describe('validateResponse — failures', () => {
   it('flags undeclared content-type', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 200,
       headers: { 'x-trace-id': 'abc' },
@@ -230,7 +221,6 @@ describe('validateResponse — failures', () => {
   it('flags unparseable JSON when content-type says JSON', async () => {
     const r = await validateResponse({
       match: getUserMatch,
-      spec,
       schemaDialect: 'draft-07',
       status: 200,
       headers: { 'x-trace-id': 'abc' },
@@ -260,7 +250,6 @@ describe('validateResponse — edge cases', () => {
     };
     const r = await validateResponse({
       match,
-      spec: noBodySpec,
       schemaDialect: 'draft-07',
       status: 204,
       headers: {},
@@ -296,7 +285,6 @@ describe('validateResponse — edge cases', () => {
     };
     const r = await validateResponse({
       match,
-      spec: defaultSpec,
       schemaDialect: 'draft-07',
       status: 999,
       headers: {},
@@ -333,7 +321,6 @@ describe('validateResponse — edge cases', () => {
     };
     const r = await validateResponse({
       match,
-      spec: classSpec,
       schemaDialect: 'draft-07',
       status: 201,
       headers: {},

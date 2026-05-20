@@ -59,9 +59,9 @@ export default function SecretInput({
   const refreshHandles = async () => {
     if (!electron) return;
     const api = getElectronAPI();
-    if (!api?.secrets?.describe) return;
-    const result = await api.secrets.describe();
-    if (result.ok && 'handles' in result) {
+    if (!api?.secrets?.list) return;
+    const result = await api.secrets.list();
+    if (result.ok) {
       setHandles(result.handles);
     }
   };

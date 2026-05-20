@@ -47,26 +47,36 @@ function tightenKeyFileMode(keyFile: string): void {
  * Read an existing key from disk (decrypting via safeStorage when possible),
  * or generate a fresh 32-byte random key and persist it. Returns the hex
  * key string suitable for use as an electron-store `encryptionKey`.
+ *
+ * Uses readFileSync + ENOENT catch instead of existsSync→readFileSync to avoid
+ * a TOCTOU race window (academic for an app-private dir, but cheap to remove).
  */
 export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
   const keyFile = path.join(app.getPath('userData'), opts.fileName);
 
-  if (fs.existsSync(keyFile)) {
+  let encryptedKey: Buffer | null = null;
+  try {
+    encryptedKey = fs.readFileSync(keyFile);
+  } catch (err) {
+    // ENOENT: first run, fall through to fresh-key generation.
+    // Other errors (EACCES, EISDIR, etc.) also fall through — the write
+    // attempt below will surface a more actionable error.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn(`[restura] could not read ${opts.storeLabel} key file:`, err);
+    }
+  }
+
+  if (encryptedKey !== null) {
     tightenKeyFileMode(keyFile);
-    try {
-      const encryptedKey = fs.readFileSync(keyFile);
-      if (safeStorage.isEncryptionAvailable()) {
-        try {
-          return safeStorage.decryptString(encryptedKey);
-        } catch {
-          emitFallbackWarning(opts.storeLabel, 'decrypt-failed');
-        }
-      } else {
-        emitFallbackWarning(opts.storeLabel, 'no-keyring');
-        return encryptedKey.toString('utf8');
+    if (safeStorage.isEncryptionAvailable()) {
+      try {
+        return safeStorage.decryptString(encryptedKey);
+      } catch {
+        emitFallbackWarning(opts.storeLabel, 'decrypt-failed');
       }
-    } catch {
-      // Corrupted file — fall through to regeneration.
+    } else {
+      emitFallbackWarning(opts.storeLabel, 'no-keyring');
+      return encryptedKey.toString('utf8');
     }
   }
 

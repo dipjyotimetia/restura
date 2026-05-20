@@ -367,6 +367,10 @@ interface ElectronSecretHandleSummary extends ElectronSecretHandleDescriptor {
 /**
  * Renderer-callable IPC for the SecretRef pattern (ADR-0007). `resolve` is
  * deliberately absent — handles are resolved main-side only.
+ *
+ * `describe` (single) and `list` (many) are split channels so the renderer
+ * always knows which return shape it's getting without inspecting key
+ * presence on a union.
  */
 interface ElectronSecretsAPI {
   store: (args: {
@@ -377,9 +381,12 @@ interface ElectronSecretsAPI {
   }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   describe: (
-    id?: string
+    id: string
   ) => Promise<
     | { ok: true; handle: ElectronSecretHandleDescriptor | null }
+    | { ok: false; error: string }
+  >;
+  list: () => Promise<
     | { ok: true; handles: ElectronSecretHandleSummary[] }
     | { ok: false; error: string }
   >;

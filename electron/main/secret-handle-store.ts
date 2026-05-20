@@ -152,12 +152,15 @@ const HandleIdSchema = z.object({
   id: z.string().uuid(),
 });
 
-const DescribeInputSchema = z.union([HandleIdSchema, z.object({})]);
-
 /**
  * Register IPC handlers. NOTE: `secret:resolve` is deliberately absent here —
  * resolution is a main-process-only operation. The renderer can never read
  * plaintext back out of the store.
+ *
+ * The describe surface is split across two channels (one + many) rather than
+ * a single channel whose return shape varies by input — the latter discriminates
+ * by key presence (`handle` vs `handles`), which is awkward to type-narrow on
+ * the renderer side.
  */
 export function registerSecretHandleIPC(): void {
   ipcMain.handle('secret:store', (_event, payload: unknown) => {
@@ -185,14 +188,15 @@ export function registerSecretHandleIPC(): void {
   });
 
   ipcMain.handle('secret:describe', (_event, payload: unknown) => {
-    const parsed = DescribeInputSchema.safeParse(payload);
+    const parsed = HandleIdSchema.safeParse(payload);
     if (!parsed.success) {
       return { ok: false, error: parsed.error.message };
     }
-    if ('id' in parsed.data) {
-      const desc = describeSecretHandle(parsed.data.id);
-      return { ok: true, handle: desc ?? null };
-    }
+    const desc = describeSecretHandle(parsed.data.id);
+    return { ok: true, handle: desc ?? null };
+  });
+
+  ipcMain.handle('secret:list', () => {
     return { ok: true, handles: listSecretHandles() };
   });
 }
@@ -202,6 +206,7 @@ export function unregisterSecretHandleIPC(): void {
   ipcMain.removeHandler('secret:store');
   ipcMain.removeHandler('secret:delete');
   ipcMain.removeHandler('secret:describe');
+  ipcMain.removeHandler('secret:list');
 }
 
 // ---------------------------------------------------------------------------

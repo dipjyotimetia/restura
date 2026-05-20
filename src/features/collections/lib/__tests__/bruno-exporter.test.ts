@@ -366,10 +366,87 @@ describe('Bruno exporter — filename sanitisation', () => {
     const exported = await exportBrunoCollection(source);
     if (exported.kind !== 'directory') throw new Error('expected directory output');
     const files = exported.entries.map((e) => e.relativePath);
-    // None of the forbidden chars should leak into the path.
+    // None of the forbidden chars (sans `/`, which is a path separator and
+    // legitimately appears between segments) should leak into the path.
+    const FORBIDDEN = /[\\:*?"<>|]/;
     for (const f of files) {
-      expect(f).not.toMatch(/[/\\:*?"<>|]/g.source.replace('/', ''));
+      expect(FORBIDDEN.test(f)).toBe(false);
     }
     expect(files.some((f) => f.endsWith('.bru') && f.includes('a_b_name'))).toBe(true);
+  });
+});
+
+describe('Bruno exporter — lossy-export warnings', () => {
+  it('emits a non-http-request warning for gRPC/WS/SSE/MCP requests', async () => {
+    const source = makeCollection([
+      {
+        id: 'i-grpc',
+        name: 'list-users-grpc',
+        type: 'request',
+        request: {
+          id: 'r-grpc',
+          name: 'list-users-grpc',
+          type: 'grpc',
+          // Minimal shape — exporter only reads url+name for non-HTTP stubs.
+          url: 'grpc://api.example.com',
+          method: 'ListUsers',
+          methodType: 'unary',
+          service: 'users.UserService',
+          requestBody: '{}',
+          metadata: [],
+          auth: { type: 'none' },
+        } as unknown as CollectionItem['request'],
+      },
+    ]);
+
+    const exported = await exportBrunoCollection(source);
+    if (exported.kind !== 'directory') throw new Error('expected directory output');
+    expect(exported.warnings).toHaveLength(1);
+    expect(exported.warnings[0]?.kind).toBe('non-http-request');
+    expect(exported.warnings[0]?.path).toMatch(/list-users-grpc\.bru$/);
+    expect(exported.warnings[0]?.message).toMatch(/Bruno only supports HTTP/);
+  });
+
+  it('reports zero warnings for an HTTP-only collection', async () => {
+    const source = makeCollection([
+      {
+        id: 'i-1',
+        name: 'ok',
+        type: 'request',
+        request: {
+          id: 'r-1',
+          name: 'ok',
+          type: 'http',
+          method: 'GET',
+          url: 'https://example.com/ok',
+          headers: [],
+          params: [],
+          body: { type: 'none' },
+          auth: { type: 'none' },
+        },
+      },
+    ]);
+    const exported = await exportBrunoCollection(source);
+    if (exported.kind !== 'directory') throw new Error('expected directory output');
+    expect(exported.warnings).toEqual([]);
+  });
+
+  it('throws in strict mode when a non-HTTP request is encountered', async () => {
+    const source = makeCollection([
+      {
+        id: 'i-ws',
+        name: 'subscribe',
+        type: 'request',
+        request: {
+          id: 'r-ws',
+          name: 'subscribe',
+          type: 'websocket',
+          url: 'wss://example.com/socket',
+        } as unknown as CollectionItem['request'],
+      },
+    ]);
+    await expect(exportBrunoCollection(source, { strict: true })).rejects.toThrow(
+      /Bruno only supports HTTP/
+    );
   });
 });

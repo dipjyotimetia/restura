@@ -444,11 +444,19 @@ const electronAPI = {
     delete: (id: string): Promise<{ ok: true } | { ok: false; error: string }> =>
       ipcRenderer.invoke('secret:delete', { id }),
 
-    describe: (id?: string): Promise<
+    // describe: lookup-by-id; returns `handle: null` if the id is unknown.
+    describe: (
+      id: string
+    ): Promise<
       | { ok: true; handle: { label?: string; scope?: string; createdAt: number } | null }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('secret:describe', { id }),
+
+    // list: enumerate every stored handle's metadata.
+    list: (): Promise<
       | { ok: true; handles: Array<{ id: string; label?: string; scope?: string; createdAt: number }> }
       | { ok: false; error: string }
-    > => ipcRenderer.invoke('secret:describe', id !== undefined ? { id } : {}),
+    > => ipcRenderer.invoke('secret:list'),
   },
 
   // Request log operations

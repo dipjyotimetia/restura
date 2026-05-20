@@ -25,13 +25,13 @@ export function SecretsSettings() {
   const refresh = useCallback(async () => {
     if (!electron) return;
     const api = getElectronAPI();
-    if (!api?.secrets?.describe) return;
+    if (!api?.secrets?.list) return;
     setLoading(true);
     try {
-      const result = await api.secrets.describe();
-      if (result.ok && 'handles' in result) {
+      const result = await api.secrets.list();
+      if (result.ok) {
         setHandles(result.handles);
-      } else if (!result.ok) {
+      } else {
         toast.error(`Failed to load handles: ${result.error}`);
       }
     } finally {

@@ -33,6 +33,8 @@ import type {
 import {
   canExecute,
   canRead,
+  canReadEnvironment,
+  canReadHistory,
   type McpServerConsent,
 } from './consent';
 import { redactEnvironmentVariables, redactSecretsDeep } from './redaction';
@@ -99,20 +101,21 @@ export const TOOLS = {
   get_history: {
     name: 'get_history',
     description:
-      'Read recent request history. Most-recent first, capped at `limit` (default 50, max 500). `filter` matches against the URL or request name (substring, case-insensitive).',
+      'Read recent request history. Requires the user to have opted-in to history access. Most-recent first, capped at `limit` (default 50, max 500). `filter` matches against the URL or request name (substring, case-insensitive).',
     inputSchema: GetHistoryInputSchema,
   } satisfies McpToolDefinition<z.infer<typeof GetHistoryInputSchema>>,
 
   get_environment: {
     name: 'get_environment',
     description:
-      'Read an environment by id. Variables flagged as `secret: true` are returned with the value "(secret)" — the agent can ask the user to set them but never reads plaintext.',
+      'Read an environment by id. The environment must be opted-in for MCP access. Variables flagged as `secret: true` are returned with the value "(secret)" — the agent can ask the user to set them but never reads plaintext.',
     inputSchema: GetEnvironmentInputSchema,
   } satisfies McpToolDefinition<z.infer<typeof GetEnvironmentInputSchema>>,
 
   list_environments: {
     name: 'list_environments',
-    description: 'List all environments. Returns id, name, and variable count.',
+    description:
+      'List environments the user has opted-in for MCP access. Returns id, name, and variable count. Hidden environments are filtered out.',
     inputSchema: ListEnvironmentsInputSchema,
   } satisfies McpToolDefinition<z.infer<typeof ListEnvironmentsInputSchema>>,
 } as const;
@@ -254,6 +257,17 @@ function getHistory(
   const parsed = parse(schema, rawInput);
   if (!parsed.ok) return parsed;
 
+  // History contains URLs, status codes, and timing for every past
+  // request — including production traffic. Gate the entire surface
+  // behind an explicit user opt-in.
+  if (!canReadHistory(ctx.consent)) {
+    return {
+      ok: false,
+      error:
+        'Request history is hidden from MCP agents. Enable it in Settings > MCP Server > History.',
+    };
+  }
+
   const limit = parsed.data.limit ?? 50;
   const filter = parsed.data.filter?.toLowerCase();
   const entries = ctx.history
@@ -296,6 +310,16 @@ function getEnvironment(
   if (!env) {
     return { ok: false, error: `Environment not found: ${parsed.data.id}` };
   }
+  // Environments may hold prod base URLs, region/service identifiers,
+  // and secret-flagged variables. Refuse to read anything — including
+  // the environment's name — unless the user has opted this one in.
+  if (!canReadEnvironment(ctx.consent, env.id)) {
+    return {
+      ok: false,
+      error:
+        'This environment is hidden from MCP agents. Enable it in Settings > MCP Server > Per-environment consent.',
+    };
+  }
   return {
     ok: true,
     data: {
@@ -313,10 +337,15 @@ function listEnvironments(
 ): ToolResult {
   const parsed = parse(schema, rawInput);
   if (!parsed.ok) return parsed;
+  // Only surface environments the user has opted in. Hidden environments
+  // are filtered out entirely — the agent can't discover their existence.
+  const visible = ctx.environments.filter((e) =>
+    canReadEnvironment(ctx.consent, e.id)
+  );
   return {
     ok: true,
     data: {
-      environments: ctx.environments.map((e) => ({
+      environments: visible.map((e) => ({
         id: e.id,
         name: e.name,
         variableCount: (e.variables ?? []).filter((v) => v.enabled !== false).length,

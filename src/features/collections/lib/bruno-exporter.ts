@@ -36,10 +36,34 @@ function brunoSecretValue(value: SecretValue | undefined): string {
   return `{{handle:${value.label ?? value.id}}}`;
 }
 
+/**
+ * Warnings surfaced by the exporter when an item couldn't be represented
+ * cleanly in Bruno's `.bru` format. Callers (the Sidebar export UI in
+ * particular) should display these so the user knows what survived the
+ * round-trip and what didn't.
+ *
+ * Today the dominant case is non-HTTP protocols: Bruno's `.bru` schema is
+ * HTTP-only at v2, so gRPC/WebSocket/SSE/MCP requests are exported as
+ * URL-only stubs and won't be runnable from Bruno. The auth case fires
+ * when `strict: false` (default) silently dropped an auth descriptor
+ * Bruno doesn't recognise.
+ */
+export interface BrunoExportWarning {
+  kind: 'non-http-request' | 'unsupported-auth';
+  /** Bruno-relative path to the affected file (or '' for collection-level). */
+  path: string;
+  /** Short human-readable explanation. */
+  message: string;
+}
+
 /** A Restura collection serialised as Bruno workspace files. */
 export type BrunoExport =
-  | { kind: 'directory'; entries: Array<{ relativePath: string; content: string }> }
-  | { kind: 'single'; content: string };
+  | {
+      kind: 'directory';
+      entries: Array<{ relativePath: string; content: string }>;
+      warnings: BrunoExportWarning[];
+    }
+  | { kind: 'single'; content: string; warnings: BrunoExportWarning[] };
 
 export interface ExportBrunoOptions {
   /** Optional environments to include under `environments/<name>.bru`. */
@@ -57,6 +81,15 @@ export async function exportBrunoRequest(request: HttpRequest): Promise<string> 
   return lang.jsonToBruV2(json);
 }
 
+/** Bruno's `.bru` schema is HTTP-only as of v2 — flag non-HTTP requests. */
+function nonHttpWarning(name: string, type: string, path: string): BrunoExportWarning {
+  return {
+    kind: 'non-http-request',
+    path,
+    message: `Request "${name}" is type "${type}". Bruno only supports HTTP — exported as a URL-only stub; protocol-specific data (proto, schema, subscription frames, MCP messages) was dropped.`,
+  };
+}
+
 /**
  * Full collection export — produces a directory layout matching Bruno's
  * filesystem layout. Returns a structure the caller can write to disk
@@ -68,6 +101,7 @@ export async function exportBrunoCollection(
 ): Promise<BrunoExport> {
   const lang = await loadBrunoLang();
   const entries: Array<{ relativePath: string; content: string }> = [];
+  const warnings: BrunoExportWarning[] = [];
 
   // bruno.json — minimal config
   entries.push({
@@ -130,27 +164,31 @@ export async function exportBrunoCollection(
         writeItems(item.items ?? [], nextPath);
       } else if (item.request) {
         const req = item.request;
+        const fileName = sanitiseFileName(item.name);
+        const relPath = folderPath ? `${folderPath}/${fileName}.bru` : `${fileName}.bru`;
         // Only HTTP requests round-trip cleanly through V2. gRPC/WebSocket/SSE/MCP
-        // each have their own block, but the importer downgrades them to HTTP so
-        // mirror that on export: emit HTTP for type 'http', and for other types
-        // emit a stub with the URL preserved + a `meta.type` marker.
+        // each have their own runtime model in Restura, but Bruno's `.bru` schema
+        // can only represent HTTP. Emit a URL-only stub AND surface a warning so
+        // the user knows the export is lossy. In strict mode the warning becomes
+        // a thrown error.
         if (req.type !== 'http') {
+          const message = nonHttpWarning(item.name, req.type, relPath);
+          if (opts.strict) {
+            throw new Error(message.message);
+          }
+          warnings.push(message);
           const stub = nonHttpRequestStub(item.name, req, seq++);
-          const fileName = sanitiseFileName(item.name);
-          const relPath = folderPath ? `${folderPath}/${fileName}.bru` : `${fileName}.bru`;
           entries.push({ relativePath: relPath, content: lang.jsonToBruV2(stub) });
           continue;
         }
         const json = httpRequestToBruJson(req as HttpRequest, item.name, seq++);
-        const fileName = sanitiseFileName(item.name);
-        const relPath = folderPath ? `${folderPath}/${fileName}.bru` : `${fileName}.bru`;
         entries.push({ relativePath: relPath, content: lang.jsonToBruV2(json) });
       }
     }
   };
 
   writeItems(collection.items, '');
-  return { kind: 'directory', entries };
+  return { kind: 'directory', entries, warnings };
 }
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,12 @@ import {
   postProcessResult,
   type McpDispatchContext,
 } from '../dispatch';
-import { DEFAULT_CONSENT, setCollectionConsent } from '../consent';
+import {
+  DEFAULT_CONSENT,
+  setCollectionConsent,
+  setEnvironmentConsent,
+  setHistoryConsent,
+} from '../consent';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -109,11 +114,23 @@ const sampleHistory: HistoryItem[] = [
 ];
 
 function buildContext(overrides: Partial<McpDispatchContext> = {}): McpDispatchContext {
+  // Default consent for the test suite: sample collection + sample
+  // environment + history are all opted-in read-only. Individual tests
+  // that need to verify the hidden-by-default behaviour pass an explicit
+  // `consent: DEFAULT_CONSENT` override.
+  const consent = setHistoryConsent(
+    setEnvironmentConsent(
+      setCollectionConsent(DEFAULT_CONSENT, sampleCollection.id, 'read-only'),
+      sampleEnvironment.id,
+      'read-only'
+    ),
+    'read-only'
+  );
   return {
     collections: [sampleCollection, hiddenCollection],
     environments: [sampleEnvironment],
     history: sampleHistory,
-    consent: setCollectionConsent(DEFAULT_CONSENT, sampleCollection.id, 'read-only'),
+    consent,
     ...overrides,
   };
 }
@@ -252,6 +269,21 @@ describe('dispatchTool — get_history', () => {
     expect(r1.ok).toBe(false);
     expect(r2.ok).toBe(false);
   });
+
+  it('refuses when history consent is hidden (default)', () => {
+    const r = dispatchTool('get_history', {}, buildContext({ consent: DEFAULT_CONSENT }));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatch(/history is hidden/i);
+  });
+
+  it('returns history when historyLevel is explicitly read-only', () => {
+    const ctx = buildContext({
+      consent: setHistoryConsent(DEFAULT_CONSENT, 'read-only'),
+    });
+    const r = dispatchTool('get_history', {}, ctx);
+    expect(r.ok).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -290,6 +322,32 @@ describe('dispatchTool — environment tools', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toMatch(/Environment not found/);
+  });
+
+  it('list_environments hides environments without explicit opt-in', () => {
+    const r = dispatchTool('list_environments', {}, buildContext({ consent: DEFAULT_CONSENT }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect((r.data as { environments: unknown[] }).environments).toEqual([]);
+  });
+
+  it('get_environment refuses to read a hidden environment', () => {
+    const r = dispatchTool(
+      'get_environment',
+      { id: sampleEnvironment.id },
+      buildContext({ consent: DEFAULT_CONSENT })
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatch(/hidden from MCP agents/);
+  });
+
+  it('get_environment exposes once the environment is opted-in', () => {
+    const ctx = buildContext({
+      consent: setEnvironmentConsent(DEFAULT_CONSENT, sampleEnvironment.id, 'read-only'),
+    });
+    const r = dispatchTool('get_environment', { id: sampleEnvironment.id }, ctx);
+    expect(r.ok).toBe(true);
   });
 });
 
