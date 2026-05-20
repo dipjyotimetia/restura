@@ -110,7 +110,7 @@
       radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.14), transparent 55%),
       #06080f;
     --sp-surface: rgba(20, 24, 34, 0.85);
-    --sp-surface-hi: rgba(28, 33, 45, 0.92);
+    --sp-surface-hi: rgba(28, 33, 45, 0.9);
     --sp-surface-lo: rgba(14, 17, 24, 0.7);
     --sp-text: #eef1f9;
     --sp-text-muted: rgba(238, 241, 249, 0.62);

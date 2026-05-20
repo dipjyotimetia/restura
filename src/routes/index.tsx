@@ -146,12 +146,9 @@ export default function Home() {
           </ResizableLayout>
         );
       case 'grpc':
-        return (
-          <ResizableLayout orientation={effectiveLayout}>
-            <GrpcRequestBuilder />
-            <ResponseViewer />
-          </ResizableLayout>
-        );
+        // gRPC builder owns its own response panel (GrpcResponsePanel) per the
+        // 3-column handoff layout in §7. No outer ResizableLayout/ResponseViewer.
+        return <GrpcRequestBuilder />;
       case 'graphql':
         return (
           <ResizableLayout orientation={effectiveLayout}>
