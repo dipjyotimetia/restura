@@ -4,7 +4,7 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
-  <CodeEditorSkeleton className="h-[400px]" />
+  <CodeEditorSkeleton className="h-[360px]" />
 );
 
 interface GrpcMessageEditorProps {
@@ -17,9 +17,10 @@ interface GrpcMessageEditorProps {
 }
 
 /**
- * Monaco-based JSON editor for the gRPC request message body.
- * Pure leaf component — owns no state; all formatting / validation
- * happens in the parent (GrpcRequestBuilder).
+ * Monaco-based JSON editor for the gRPC request message body. The Monaco
+ * editor brings its own gutter/syntax styling, so this component wraps it
+ * in a Spatial Depth frame (rounded border, code-surface background) rather
+ * than the atom `<CodeEditorFrame>` which would render a second gutter.
  */
 export function GrpcMessageEditor({
   value,
@@ -29,23 +30,37 @@ export function GrpcMessageEditor({
   editorPath,
 }: GrpcMessageEditorProps) {
   return (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground font-mono mb-2">
-        Request message as JSON. Use {'{{variable}}'} for environment variables.
+    <div className="flex flex-col gap-2">
+      <p className="text-sp-11 text-sp-muted font-mono">
+        Request message as JSON. Use{' '}
+        <span style={{ color: '#f59e0b' }}>{'{{variable}}'}</span> for environment
+        variables.
       </p>
       {!isValid && error && (
-        <div className="text-xs text-destructive flex items-center gap-1 mb-2">
+        <div
+          className="flex items-center gap-1.5 text-sp-11 font-mono"
+          role="alert"
+          style={{ color: '#ef4444' }}
+        >
           <AlertCircle className="h-3 w-3" />
           {error}
         </div>
       )}
-      <CodeEditor
-        value={value || '{}'}
-        onChange={onChange}
-        language="json"
-        height="400px"
-        path={editorPath}
-      />
+      <div
+        className="rounded-sp-panel overflow-hidden border"
+        style={{
+          background: 'var(--sp-code)',
+          borderColor: 'var(--sp-line)',
+        }}
+      >
+        <CodeEditor
+          value={value || '{}'}
+          onChange={onChange}
+          language="json"
+          height="360px"
+          {...(editorPath ? { path: editorPath } : {})}
+        />
+      </div>
     </div>
   );
 }

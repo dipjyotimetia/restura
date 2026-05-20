@@ -1,5 +1,4 @@
 import { AlertCircle, Laptop } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -7,8 +6,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TextField } from '@/components/ui/spatial';
 import type { ReflectionMethodInfo, ReflectionServiceInfo } from '@/types';
 import { isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
 
 interface FieldValidation {
   valid: boolean;
@@ -53,8 +54,8 @@ const requiresDesktop = (method: ReflectionMethodInfo): boolean =>
  * Service + method dropdowns for the gRPC request builder.
  *
  * When reflection has discovered services, shows two dependent <Select>s
- * (service → method). Otherwise, falls back to free-text <Input>s so the
- * user can type a service/method that isn't reflectable.
+ * (service → method). Otherwise, falls back to free-text Spatial TextFields
+ * so the user can type a service/method that isn't reflectable.
  */
 export function GrpcMethodSelector({
   services,
@@ -87,7 +88,10 @@ export function GrpcMethodSelector({
             }}
           >
             <SelectTrigger
-              className={`font-mono text-xs bg-background border-border ${!serviceValidation.valid ? 'border-destructive' : ''}`}
+              className={cn(
+                'h-8 font-mono text-sp-12 bg-sp-surface-lo border-sp-line text-sp-text',
+                !serviceValidation.valid && 'border-red-500'
+              )}
             >
               <SelectValue placeholder="Select service" />
             </SelectTrigger>
@@ -96,7 +100,7 @@ export function GrpcMethodSelector({
                 <SelectItem
                   key={service.fullName}
                   value={service.fullName}
-                  className="font-mono text-xs"
+                  className="font-mono text-sp-12"
                 >
                   {service.fullName}
                 </SelectItem>
@@ -104,15 +108,20 @@ export function GrpcMethodSelector({
             </SelectContent>
           </Select>
         ) : (
-          <Input
+          <TextField
+            mono
+            size="sm"
             value={serviceValue}
             onChange={(e) => onServiceTextChange(e.target.value)}
             placeholder="Service (e.g., greet.v1.GreetService)"
-            className={`font-mono text-xs bg-background border-border ${!serviceValidation.valid ? 'border-destructive' : ''}`}
+            className={cn('w-full', !serviceValidation.valid && 'border-red-500')}
           />
         )}
         {!serviceValidation.valid && serviceValidation.error && (
-          <div className="text-xs text-destructive mt-1 flex items-center gap-1">
+          <div
+            className="text-sp-11 mt-1 flex items-center gap-1 font-mono"
+            style={{ color: '#ef4444' }}
+          >
             <AlertCircle className="h-3 w-3" />
             {serviceValidation.error}
           </div>
@@ -129,7 +138,10 @@ export function GrpcMethodSelector({
             }}
           >
             <SelectTrigger
-              className={`font-mono text-xs bg-background border-border ${!methodValidation.valid ? 'border-destructive' : ''}`}
+              className={cn(
+                'h-8 font-mono text-sp-12 bg-sp-surface-lo border-sp-line text-sp-text',
+                !methodValidation.valid && 'border-red-500'
+              )}
             >
               <SelectValue placeholder="Select method" />
             </SelectTrigger>
@@ -141,13 +153,11 @@ export function GrpcMethodSelector({
                   <SelectItem
                     key={method.name}
                     value={method.name}
-                    className="font-mono text-xs"
+                    className="font-mono text-sp-12"
                   >
                     {method.name}
                     {label && (
-                      <span className="ml-2 text-[10px] text-muted-foreground">
-                        {label}
-                      </span>
+                      <span className="ml-2 text-sp-10 text-sp-muted">{label}</span>
                     )}
                     {desktopOnly && (
                       <span
@@ -164,15 +174,20 @@ export function GrpcMethodSelector({
             </SelectContent>
           </Select>
         ) : (
-          <Input
+          <TextField
+            mono
+            size="sm"
             value={methodValue}
             onChange={(e) => onMethodTextChange(e.target.value)}
             placeholder="Method (e.g., Greet)"
-            className={`font-mono text-xs bg-background border-border ${!methodValidation.valid ? 'border-destructive' : ''}`}
+            className={cn('w-full', !methodValidation.valid && 'border-red-500')}
           />
         )}
         {!methodValidation.valid && methodValidation.error && (
-          <div className="text-xs text-destructive mt-1 flex items-center gap-1">
+          <div
+            className="text-sp-11 mt-1 flex items-center gap-1 font-mono"
+            style={{ color: '#ef4444' }}
+          >
             <AlertCircle className="h-3 w-3" />
             {methodValidation.error}
           </div>

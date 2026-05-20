@@ -1,51 +1,69 @@
+import { useMemo } from 'react';
+import { Zap } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
-import { useRequestStore } from '@/store/useRequestStore';
-import { selectActiveEnvironment, useActiveResponse } from '@/store/selectors';
-import { Wifi, WifiOff } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Kbd } from '@/components/ui/kbd';
+import { Kbd } from '@/components/ui/spatial';
+import { envColorFor } from '@/components/shared/TopBar';
 import { cn } from '@/lib/shared/utils';
 
-const getStatusTextColor = (status: number) => {
-  if (status >= 200 && status < 300) return 'text-emerald-400';
-  if (status >= 300 && status < 400) return 'text-blue-400';
-  if (status >= 400 && status < 500) return 'text-amber-400';
-  if (status >= 500) return 'text-destructive';
-  return 'text-muted-foreground';
-};
+interface StatusBarProps {
+  // Optional — orchestrator wires this when migrating to the new chrome.
+  // Falls back to the legacy `⌘K` keyboard-event dispatch so the bar still
+  // works as a standalone surface during the migration window.
+  onOpenCommandPalette?: () => void;
+}
 
-export default function StatusBar() {
-  const activeEnv = useEnvironmentStore(selectActiveEnvironment);
-  const isLoading = useRequestStore((s) => s.isLoading);
-  const currentResponse = useActiveResponse();
-  const todayRequests = useHistoryStore((state) => {
-    const todayStr = new Date().toDateString();
-    return state.history.filter((h) => new Date(h.timestamp).toDateString() === todayStr).length;
+/**
+ * Hex with alpha helper. Returns `#rrggbbaa` for an 8-bit alpha value.
+ * Used to derive the env-dot halo from the env's solid colour without
+ * importing a colour library.
+ */
+function withAlpha(hex: string, alpha: number): string {
+  const clamped = Math.max(0, Math.min(255, Math.round(alpha)));
+  const a = clamped.toString(16).padStart(2, '0');
+  return `${hex}${a}`;
+}
+
+/**
+ * Bottom status bar — 28px, hairline border-top, all mono 11.
+ *
+ * Left cluster:  env dot + name · ⚡ + today's request count · "Auto-save"
+ * Right cluster: "HTTP/2 · TLS 1.3" · version · ⌘K Palette
+ *
+ * Heavy state (active env, history count) reads through Zustand selectors so
+ * the bar stays cheap to re-render — no per-second tickers, no resize listeners.
+ */
+export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {}) {
+  const { environments, activeEnvironmentId } = useEnvironmentStore(
+    useShallow((s) => ({
+      environments: s.environments,
+      activeEnvironmentId: s.activeEnvironmentId,
+    }))
+  );
+  const activeEnv = activeEnvironmentId
+    ? environments.find((e) => e.id === activeEnvironmentId) ?? null
+    : null;
+
+  // Today's request count, computed as a derived selector. We resolve the
+  // boundary once at component init — close enough for a status bar and
+  // avoids a tick every render.
+  const todayCount = useHistoryStore((state) => {
+    const today = new Date().toDateString();
+    return state.history.filter((h) => new Date(h.timestamp).toDateString() === today).length;
   });
-  const [isOnline, setIsOnline] = useState(true);
-  const [showPaletteHint, setShowPaletteHint] = useState(() => window.innerWidth > 720);
 
-  useEffect(() => {
-    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
-    const updateHint = () =>
-      setShowPaletteHint((prev) => {
-        const next = window.innerWidth > 720;
-        return prev === next ? prev : next;
-      });
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    window.addEventListener('resize', updateHint);
-    updateOnlineStatus();
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
-      window.removeEventListener('resize', updateHint);
-    };
+  const envColor = envColorFor(activeEnv);
+  const envName = activeEnv?.name ?? 'No environment';
+
+  const version = useMemo(() => {
+    const v = import.meta.env.VITE_APP_VERSION;
+    return v && typeof v === 'string' ? (v.startsWith('v') ? v : `v${v}`) : 'v1.0.0';
   }, []);
 
-  const triggerCommandPalette = () => {
+  const triggerPaletteFallback = () => {
+    // Legacy bridge — Home installs a global keydown listener for ⌘K, so
+    // dispatching a synthetic event is enough while the new prop migrates in.
     const event = new KeyboardEvent('keydown', {
       key: 'k',
       metaKey: true,
@@ -55,127 +73,66 @@ export default function StatusBar() {
     document.dispatchEvent(event);
   };
 
-  const lastActivityTime = currentResponse?.timestamp
-    ? new Date(currentResponse.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    : '';
+  const handlePalette = onOpenCommandPalette ?? triggerPaletteFallback;
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div
-        className="h-7 glass-1 glass-border-default border-t flex items-center justify-between px-4 text-xs font-mono text-muted-foreground select-none shrink-0"
-        role="status"
-        aria-live="polite"
-        aria-label="Application status bar"
-      >
-        {/* Left section */}
-        <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5 hover:text-foreground transition-colors cursor-default">
-                {activeEnv && (
-                  <div className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
-                )}
-                <span>{activeEnv?.name ?? 'No Environment'}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>Active environment{activeEnv ? ` · ${activeEnv.variables.filter((v) => v.enabled).length} vars` : ''}</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <span className="text-muted-foreground/30" aria-hidden="true">·</span>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="hover:text-foreground transition-colors cursor-default">
-                {todayRequests} requests
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>Requests made today</p>
-            </TooltipContent>
-          </Tooltip>
-
-          {lastActivityTime && (
-            <>
-              <span className="text-muted-foreground/30" aria-hidden="true">·</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="hover:text-foreground transition-colors cursor-default">
-                    {lastActivityTime}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>Last request time</p>
-                </TooltipContent>
-              </Tooltip>
-            </>
-          )}
+    <footer
+      role="status"
+      aria-live="polite"
+      aria-label="Application status bar"
+      className={cn(
+        'flex items-center justify-between shrink-0 select-none',
+        'h-7 border-t border-sp-line',
+        'bg-sp-surface text-sp-muted font-mono text-sp-11'
+      )}
+      style={{ padding: '0 16px' }}
+    >
+      {/* Left cluster */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            aria-hidden="true"
+            className="block size-1.5 rounded-full shrink-0"
+            style={{
+              background: envColor,
+              boxShadow: `0 0 0 3px ${withAlpha(envColor, 0x33)}`,
+            }}
+          />
+          <span className="truncate text-sp-text/80">{envName}</span>
         </div>
 
-        {/* Right section */}
-        <div className="flex items-center gap-2">
-          {isLoading && (
-            <>
-              <div className="flex items-center gap-1.5 text-amber-400">
-                <div className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" aria-hidden="true" />
-                <span>Sending...</span>
-              </div>
-              <span className="text-muted-foreground/30" aria-hidden="true">·</span>
-            </>
-          )}
+        <span className="text-sp-dim" aria-hidden="true">·</span>
 
-          {currentResponse && !isLoading && (
-            <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className={cn('flex items-center gap-1.5 cursor-default', getStatusTextColor(currentResponse.status))}>
-                    <div className={cn('h-1.5 w-1.5 rounded-full bg-current')} aria-hidden="true" />
-                    <span>{currentResponse.status} · {currentResponse.time}ms</span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>Last response: {currentResponse.statusText}</p>
-                </TooltipContent>
-              </Tooltip>
-              <span className="text-muted-foreground/30" aria-hidden="true">·</span>
-            </>
-          )}
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className={cn('flex items-center gap-1 cursor-default transition-colors', isOnline ? 'text-emerald-400' : 'text-destructive')}>
-                {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>{isOnline ? 'Online' : 'Offline'}</p>
-            </TooltipContent>
-          </Tooltip>
-
-          {showPaletteHint && (
-            <>
-              <span className="text-muted-foreground/30" aria-hidden="true">·</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={triggerCommandPalette}
-                    className="flex items-center gap-1.5 hover:text-foreground transition-colors focus:outline-none focus-visible:text-foreground"
-                    aria-label="Open command palette"
-                  >
-                    <Kbd className="h-4 text-[10px]">⌘K</Kbd>
-                    <span>Palette</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>Open command palette (⌘K)</p>
-                </TooltipContent>
-              </Tooltip>
-            </>
-          )}
+        <div className="flex items-center gap-1.5">
+          <Zap className="h-3 w-3" aria-hidden="true" />
+          <span>{todayCount} requests</span>
         </div>
+
+        <span className="text-sp-dim" aria-hidden="true">·</span>
+
+        <span>Auto-save</span>
       </div>
-    </TooltipProvider>
+
+      {/* Right cluster */}
+      <div className="flex items-center gap-3">
+        <span>HTTP/2 · TLS 1.3</span>
+        <span className="text-sp-dim" aria-hidden="true">·</span>
+        <span>{version}</span>
+        <span className="text-sp-dim" aria-hidden="true">·</span>
+        <button
+          type="button"
+          onClick={handlePalette}
+          aria-label="Open command palette"
+          className={cn(
+            'inline-flex items-center gap-1.5',
+            'text-sp-muted hover:text-sp-text transition-colors',
+            'focus:outline-none focus-visible:text-sp-text'
+          )}
+        >
+          <Kbd size="xs">⌘K</Kbd>
+          <span>Palette</span>
+        </button>
+      </div>
+    </footer>
   );
 }

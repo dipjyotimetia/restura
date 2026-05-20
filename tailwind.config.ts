@@ -16,8 +16,8 @@ const config: Config = {
     },
     extend: {
       fontFamily: {
-        sans: ['"Geist Variable"', 'Geist', 'system-ui', 'sans-serif'],
-        mono: ['"Fira Code"', 'ui-monospace', 'monospace'],
+        sans: ['"Geist Variable"', 'Geist', '-apple-system', 'BlinkMacSystemFont', '"Helvetica Neue"', 'sans-serif'],
+        mono: ['"JetBrains Mono"', '"SF Mono"', 'Menlo', 'ui-monospace', 'monospace'],
       },
       colors: {
         border: 'hsl(var(--border))',
@@ -53,12 +53,56 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // Semantic surface elevation colors
+        // Semantic surface elevation colors (legacy — Phase 11 cleanup)
         surface: {
           0: 'hsl(var(--surface-0))',
           1: 'hsl(var(--surface-1))',
           2: 'hsl(var(--surface-2))',
           3: 'hsl(var(--surface-3))',
+        },
+        // ─────────────────────────────────────────────────────────────
+        // Spatial Depth tokens. Use as: bg-sp-surface, text-sp-muted, etc.
+        // CSS vars defined in src/styles/globals.css (:root + .dark)
+        // ─────────────────────────────────────────────────────────────
+        sp: {
+          bg: 'var(--sp-bg)',
+          surface: 'var(--sp-surface)',
+          'surface-hi': 'var(--sp-surface-hi)',
+          'surface-lo': 'var(--sp-surface-lo)',
+          text: 'var(--sp-text)',
+          muted: 'var(--sp-text-muted)',
+          dim: 'var(--sp-text-dim)',
+          line: 'var(--sp-line)',
+          'line-strong': 'var(--sp-line-strong)',
+          accent: 'var(--sp-accent)',
+          code: 'var(--sp-code)',
+          hover: 'var(--sp-hover-bg)',
+          active: 'var(--sp-active-bg)',
+        },
+        // Method color table (per handoff §method colors)
+        method: {
+          get: '#22c55e',
+          post: '#f59e0b',
+          put: '#3b82f6',
+          patch: '#a855f7',
+          delete: '#ef4444',
+          head: '#06b6d4',
+          options: '#94a3b8',
+          ws: '#a78bfa',
+          sse: '#06b6d4',
+          mcp: '#f59e0b',
+          gql: '#e879a4',
+        },
+        // Protocol chip colors
+        proto: {
+          http: '#4d9fff',
+          grpc: '#22c55e',
+          ws: '#a78bfa',
+          gql: '#e879a4',
+          mcp: '#f59e0b',
+          sse: '#06b6d4',
+          kafka: '#f472b6',
+          socketio: '#a78bfa',
         },
         // Slate-blue color scale for sophistication - refined for sharp look
         'slate-blue': {
@@ -74,7 +118,6 @@ const config: Config = {
           900: '#24292F',
           950: '#0A0C10',
         },
-        // Violet scale for primary accents
         violet: {
           50: '#f5f3ff',
           100: '#ede9fe',
@@ -88,7 +131,6 @@ const config: Config = {
           900: '#4c1d95',
           950: '#2e1065',
         },
-        // Neutral slate for secondary elements
         slate: {
           50: '#f8fafc',
           100: '#f1f5f9',
@@ -116,7 +158,6 @@ const config: Config = {
           950: '#1e1b4b',
         },
       },
-      // Semantic border opacity scale
       borderOpacity: {
         subtle: '0.08',
         DEFAULT: '0.12',
@@ -124,24 +165,48 @@ const config: Config = {
         focus: '0.40',
       },
       borderRadius: {
+        // Legacy
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
         xl: 'calc(var(--radius) + 4px)',
         '2xl': 'calc(var(--radius) + 8px)',
+        // Spatial Depth radius scale
+        'sp-chip': '7px',
+        'sp-btn': '9px',
+        'sp-pill': '12px',
+        'sp-panel': '14px',
+        'sp-window': '16px',
       },
       backdropBlur: {
         xs: '2px',
+        sp: '24px',
       },
-      // Typography refinements
+      backdropSaturate: {
+        sp: '1.8',
+      },
       letterSpacing: {
         tighter: '-0.025em',
         tight: '-0.015em',
+        'sp-label': '0.06em',
       },
       fontWeight: {
         'medium-plus': '450',
       },
-      // Spacing scale with semantic names
+      fontSize: {
+        // Spatial Depth type scale (in px → rem at 16px base)
+        'sp-9': ['9px', { lineHeight: '1.1' }],
+        'sp-10': ['10px', { lineHeight: '1.1' }],
+        'sp-10-5': ['10.5px', { lineHeight: '1.2' }],
+        'sp-11': ['11px', { lineHeight: '1.3' }],
+        'sp-11-5': ['11.5px', { lineHeight: '1.3' }],
+        'sp-12': ['12px', { lineHeight: '1.4' }],
+        'sp-12-5': ['12.5px', { lineHeight: '1.4' }],
+        'sp-13': ['13px', { lineHeight: '1.4' }],
+        'sp-14': ['14px', { lineHeight: '1.4' }],
+        'sp-16': ['16px', { lineHeight: '1.3' }],
+        'sp-22': ['22px', { lineHeight: '1.2' }],
+      },
       spacing: {
         '4.5': '1.125rem',
         '5.5': '1.375rem',
@@ -213,6 +278,19 @@ const config: Config = {
           'from': { opacity: '0', transform: 'scale(0.8) translateY(-4px)' },
           'to': { opacity: '1', transform: 'scale(1) translateY(0)' },
         },
+        // Spatial Depth keyframes
+        'sp-blink': {
+          '0%, 50%': { opacity: '1' },
+          '51%, 100%': { opacity: '0' },
+        },
+        'sp-slide-in-right': {
+          from: { transform: 'translateX(40px)', opacity: '0' },
+          to: { transform: 'translateX(0)', opacity: '1' },
+        },
+        'sp-fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
@@ -230,17 +308,19 @@ const config: Config = {
         'scale-in': 'scale-in 0.2s ease-out',
         'glow-border': 'glow-border 2s ease-in-out infinite',
         'status-appear': 'status-appear 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        // Spatial Depth animations
+        'sp-blink': 'sp-blink 1s steps(2, start) infinite',
+        'sp-slide-in-right': 'sp-slide-in-right 0.25s cubic-bezier(0.2, 0.7, 0.3, 1)',
+        'sp-fade-in': 'sp-fade-in 0.18s ease-out',
       },
       boxShadow: {
-        // Elevation system
+        // Elevation system (legacy)
         'elevation-1': '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)',
         'elevation-2': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)',
         'elevation-3': '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)',
         'elevation-4': '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-        // Inner shadows for depth
         'inner-top': 'inset 0 1px 2px 0 rgba(0, 0, 0, 0.05)',
         'inner-bottom': 'inset 0 -1px 2px 0 rgba(0, 0, 0, 0.05)',
-        // Glow effects for focus states
         'glow-blue': '0 0 20px rgba(59, 130, 246, 0.3)',
         'glow-green': '0 0 20px rgba(34, 197, 94, 0.3)',
         'glow-red': '0 0 20px rgba(239, 68, 68, 0.3)',
@@ -249,6 +329,15 @@ const config: Config = {
         'glow-cyan': '0 0 20px rgba(6, 182, 212, 0.3)',
         'glow-success': '0 0 20px rgba(52, 211, 153, 0.3)',
         'glow-error': '0 0 20px rgba(248, 113, 113, 0.3)',
+        // ─────────────────────────────────────────────────────────────
+        // Spatial Depth shadows — defining the floating-panel language
+        // ─────────────────────────────────────────────────────────────
+        'sp-float': '0 1px 0 rgba(255,255,255,0.05) inset, 0 12px 36px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4)',
+        'sp-float-lg': '0 1px 0 rgba(255,255,255,0.06) inset, 0 24px 60px rgba(0,0,0,0.65), 0 6px 18px rgba(0,0,0,0.5)',
+        'sp-float-light': '0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 24px rgba(20,30,60,0.08), 0 1px 3px rgba(20,30,60,0.05)',
+        'sp-float-lg-light': '0 1px 0 rgba(255,255,255,0.6) inset, 0 20px 50px rgba(20,30,60,0.15), 0 4px 12px rgba(20,30,60,0.08)',
+        'sp-accent-glow': '0 0 8px var(--sp-accent-glow-88)',
+        'sp-accent-ring': '0 0 0 1px var(--sp-accent-glow-33), 0 0 16px var(--sp-accent-glow-26)',
       },
     },
   },

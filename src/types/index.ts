@@ -669,7 +669,26 @@ export interface AppSettings {
   telemetry?: {
     errorsEnabled: boolean;
   };
+  // Spatial Depth accent preset; drives --sp-accent CSS variable
+  accent?: SpatialAccent;
 }
+
+export type SpatialAccent =
+  | '#4d9fff'
+  | '#7c5cff'
+  | '#22c55e'
+  | '#f59e0b'
+  | '#ef4444'
+  | '#06b6d4';
+
+export const SPATIAL_ACCENT_PRESETS: ReadonlyArray<SpatialAccent> = [
+  '#4d9fff',
+  '#7c5cff',
+  '#22c55e',
+  '#f59e0b',
+  '#ef4444',
+  '#06b6d4',
+];
 
 // Alias for backwards compatibility and clarity
 export type GlobalSettings = AppSettings;

@@ -1,4 +1,4 @@
-import { Input } from '@/components/ui/input';
+import { TextField, ToggleField } from '@/components/ui/spatial';
 import { isElectron } from '@/lib/shared/platform';
 
 interface GrpcSettingsPanelProps {
@@ -12,7 +12,8 @@ interface GrpcSettingsPanelProps {
 
 /**
  * Settings tab body for the gRPC builder: retry policy + gzip compression
- * toggle. Pure leaf — owns no state.
+ * toggle. Pure leaf — owns no state. Uses Spatial Depth atoms for inputs
+ * and the toggle row.
  */
 export function GrpcSettingsPanel({
   retryMaxAttempts,
@@ -25,15 +26,13 @@ export function GrpcSettingsPanel({
   return (
     <div className="space-y-6 max-w-sm">
       <div className="space-y-3">
-        <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
-          Retry Policy
-        </p>
+        <p className="sp-label">Retry Policy</p>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-muted-foreground font-mono mb-1 block">
-              Max Attempts
-            </label>
-            <Input
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sp-11 text-sp-muted font-mono">Max Attempts</label>
+            <TextField
+              mono
+              size="sm"
               type="number"
               min={1}
               max={10}
@@ -43,14 +42,14 @@ export function GrpcSettingsPanel({
                   Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1))
                 )
               }
-              className="h-7 text-xs font-mono"
+              aria-label="Max retry attempts"
             />
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground font-mono mb-1 block">
-              Retry Delay (ms)
-            </label>
-            <Input
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sp-11 text-sp-muted font-mono">Retry Delay (ms)</label>
+            <TextField
+              mono
+              size="sm"
               type="number"
               min={0}
               step={500}
@@ -58,39 +57,37 @@ export function GrpcSettingsPanel({
               onChange={(e) =>
                 onRetryDelayMsChange(Math.max(0, parseInt(e.target.value, 10) || 0))
               }
-              className="h-7 text-xs font-mono"
+              aria-label="Retry delay in milliseconds"
             />
           </div>
         </div>
         {retryMaxAttempts > 1 && (
-          <p className="text-[11px] text-muted-foreground font-mono">
+          <p className="text-sp-11 text-sp-muted font-mono">
             Will retry up to {retryMaxAttempts - 1} time
-            {retryMaxAttempts > 2 ? 's' : ''} on failure, waiting {retryDelayMs}ms
-            between attempts.
+            {retryMaxAttempts > 2 ? 's' : ''} on failure, waiting {retryDelayMs}ms between
+            attempts.
           </p>
         )}
       </div>
       <div className="space-y-3">
-        <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
-          Compression
-        </p>
-        <div className="flex items-center gap-3">
-          <input
-            id="use-compression"
-            type="checkbox"
+        <p className="sp-label">Compression</p>
+        <div className="flex items-start gap-3">
+          <ToggleField
             checked={useCompression}
-            onChange={(e) => onUseCompressionChange(e.target.checked)}
-            className="h-4 w-4 rounded border-border"
+            onChange={onUseCompressionChange}
+            ariaLabel="Send gzip-compressed requests"
           />
-          <label
-            htmlFor="use-compression"
-            className="text-xs font-mono cursor-pointer"
-          >
-            Send gzip-compressed requests
-          </label>
+          <div className="flex-1">
+            <div className="text-sp-12-5 text-sp-text font-medium">
+              Send gzip-compressed requests
+            </div>
+            <div className="text-sp-11 text-sp-muted">
+              Wrap outbound frames with gzip to reduce payload size.
+            </div>
+          </div>
         </div>
         {useCompression && !isElectron() && (
-          <p className="text-[11px] text-amber-400 font-mono">
+          <p className="text-sp-11 font-mono" style={{ color: '#f59e0b' }}>
             Compression is only supported in the Electron desktop app.
           </p>
         )}

@@ -1,4 +1,9 @@
 @import '@fontsource-variable/geist/index.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+@import '@fontsource/jetbrains-mono/700.css';
+/* Fira Code kept temporarily for legacy components; removed in Phase 11 */
 @import '@fontsource/fira-code/400.css';
 @import '@fontsource/fira-code/500.css';
 
@@ -7,6 +12,7 @@
 
 @layer base {
   :root {
+    /* Legacy tokens (used by remaining shadcn-style components) */
     --background: 250 25% 97%;
     --foreground: 240 15% 8%;
     --card: 240 10% 97%;
@@ -30,20 +36,42 @@
     --success: 158 64% 40%;
     --warning: 43 96% 50%;
     --info: 199 89% 48%;
-    /* Surface elevation system */
     --surface-0: 0 0% 98.5%;
     --surface-1: 240 10% 96%;
     --surface-2: 244 12% 93%;
     --surface-3: 244 12% 89%;
-
-    /* Semantic border opacities */
     --border-subtle: 0.05;
     --border-default: 0.08;
     --border-strong: 0.15;
     --border-focus: 0.35;
+
+    /* ───── Spatial Depth — light theme ───── */
+    --sp-bg: #eef2fa;
+    --sp-bg-glow:
+      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.10), transparent 50%),
+      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.08), transparent 50%),
+      #eef2fa;
+    --sp-surface: #ffffff;
+    --sp-surface-hi: #fafbfd;
+    --sp-surface-lo: #f3f5f9;
+    --sp-text: #0e1320;
+    --sp-text-muted: rgba(14, 19, 32, 0.6);
+    --sp-text-dim: rgba(14, 19, 32, 0.38);
+    --sp-line: rgba(14, 19, 32, 0.07);
+    --sp-line-strong: rgba(14, 19, 32, 0.12);
+    --sp-accent: #4d9fff;
+    --sp-accent-glow-88: rgba(77, 159, 255, 0.53);
+    --sp-accent-glow-55: rgba(77, 159, 255, 0.33);
+    --sp-accent-glow-33: rgba(77, 159, 255, 0.20);
+    --sp-accent-glow-26: rgba(77, 159, 255, 0.15);
+    --sp-accent-glow-15: rgba(77, 159, 255, 0.08);
+    --sp-code: #f6f8fc;
+    --sp-hover-bg: rgba(14, 19, 32, 0.04);
+    --sp-active-bg: rgba(77, 159, 255, 0.10);
   }
 
   .dark {
+    /* Legacy dark tokens */
     --background: 240 20% 5%;
     --foreground: 248 25% 94%;
     --card: 240 15% 7%;
@@ -66,17 +94,32 @@
     --success: 158 64% 52%;
     --warning: 43 96% 56%;
     --info: 187 96% 45%;
-    /* Surface elevation system */
     --surface-0: 240 15% 4%;
     --surface-1: 240 15% 6%;
     --surface-2: 244 12% 11%;
     --surface-3: 244 12% 14%;
-
-    /* Semantic border opacities */
     --border-subtle: 0.05;
     --border-default: 0.08;
     --border-strong: 0.15;
     --border-focus: 0.35;
+
+    /* ───── Spatial Depth — dark theme (default) ───── */
+    --sp-bg: #06080f;
+    --sp-bg-glow:
+      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.18), transparent 55%),
+      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.14), transparent 55%),
+      #06080f;
+    --sp-surface: rgba(20, 24, 34, 0.85);
+    --sp-surface-hi: rgba(28, 33, 45, 0.92);
+    --sp-surface-lo: rgba(14, 17, 24, 0.7);
+    --sp-text: #eef1f9;
+    --sp-text-muted: rgba(238, 241, 249, 0.62);
+    --sp-text-dim: rgba(238, 241, 249, 0.36);
+    --sp-line: rgba(255, 255, 255, 0.06);
+    --sp-line-strong: rgba(255, 255, 255, 0.12);
+    --sp-code: #0a0d14;
+    --sp-hover-bg: rgba(255, 255, 255, 0.04);
+    --sp-active-bg: rgba(77, 159, 255, 0.15);
   }
 }
 
@@ -85,8 +128,8 @@
     border-color: hsl(var(--border));
   }
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background: var(--sp-bg-glow);
+    color: var(--sp-text);
     font-family: 'Geist Variable', 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -99,7 +142,6 @@
     text-wrap: balance;
   }
 
-  /* Typography refinements */
   .heading-tight {
     letter-spacing: -0.025em;
   }
@@ -113,7 +155,80 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Subtle noise texture for premium feel */
+  /* ───────────────────────────────────────────────
+   * Spatial Depth — Floater shadow utilities
+   * Use sp-floater for standard panels; sp-floater-lg for response/drawer
+   * ───────────────────────────────────────────────*/
+  .sp-floater {
+    background: var(--sp-surface);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.6) inset,
+      0 8px 24px rgba(20, 30, 60, 0.08),
+      0 1px 3px rgba(20, 30, 60, 0.05);
+    border: 1px solid var(--sp-line);
+  }
+  .dark .sp-floater {
+    background: var(--sp-surface);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.05) inset,
+      0 12px 36px rgba(0, 0, 0, 0.55),
+      0 2px 6px rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--sp-line);
+  }
+
+  .sp-floater-lg {
+    background: var(--sp-surface);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.6) inset,
+      0 20px 50px rgba(20, 30, 60, 0.15),
+      0 4px 12px rgba(20, 30, 60, 0.08);
+    border: 1px solid var(--sp-line);
+  }
+  .dark .sp-floater-lg {
+    background: var(--sp-surface);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 24px 60px rgba(0, 0, 0, 0.65),
+      0 6px 18px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--sp-line);
+  }
+
+  .sp-inset {
+    background: var(--sp-surface-lo);
+    border: 1px solid var(--sp-line);
+  }
+
+  .sp-accent-glow {
+    box-shadow: 0 0 8px var(--sp-accent-glow-88);
+  }
+  .sp-accent-ring {
+    box-shadow:
+      0 0 0 1px var(--sp-accent-glow-33),
+      0 0 16px var(--sp-accent-glow-26);
+  }
+
+  /* Variable highlight ({{varName}}) used across inputs/editors */
+  .sp-variable {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+
+  /* Section labels (e.g. HEADERS, TIMING, STREAMING) */
+  .sp-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sp-text-dim);
+  }
+
+  /* Noise texture for premium feel */
   .noise-texture {
     position: relative;
   }
@@ -131,54 +246,33 @@
     opacity: 0.03;
   }
 
-  /* Container with CSS containment for performance */
-  .contain-layout {
-    contain: layout;
-  }
+  .contain-layout { contain: layout; }
+  .contain-paint { contain: paint; }
+  .contain-strict { contain: strict; }
 
-  .contain-paint {
-    contain: paint;
-  }
-
-  .contain-strict {
-    contain: strict;
-  }
-
-  /* Strata Glass Tiers — light is default, .dark overrides */
+  /* Legacy Strata Glass aliases — aliased to Spatial Depth surfaces.
+   * Kept for one phase so legacy components still render. Removed in Phase 11.
+   */
   .glass-1 {
-    background: rgba(255, 255, 255, 0.65);
+    background: var(--sp-surface);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
   }
-  .dark .glass-1 {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
   .glass-2 {
-    background: rgba(255, 255, 255, 0.55);
+    background: var(--sp-surface-hi);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
   }
-  .dark .glass-2 {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
   .glass-3 {
-    background: rgba(255, 255, 255, 0.45);
+    background: var(--sp-surface-lo);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
   }
-  .dark .glass-3 {
-    background: rgba(255, 255, 255, 0.025);
-  }
+  .glass-border-subtle  { border-color: var(--sp-line); }
+  .glass-border-default { border-color: var(--sp-line); }
+  .dark .glass-border-subtle  { border-color: var(--sp-line); }
+  .dark .glass-border-default { border-color: var(--sp-line-strong); }
 
-  /* Glass border utilities */
-  .glass-border-subtle  { border-color: rgba(0, 0, 0, 0.05); }
-  .glass-border-default { border-color: rgba(0, 0, 0, 0.07); }
-  .dark .glass-border-subtle  { border-color: rgba(255, 255, 255, 0.06); }
-  .dark .glass-border-default { border-color: rgba(255, 255, 255, 0.09); }
-
-  /* Gradient border animation for loading states */
   .gradient-border-animated {
     position: relative;
     background: hsl(var(--background));
@@ -207,93 +301,63 @@
 
 /* Smooth animations */
 @keyframes slideIn {
-  from {
-    transform: translateX(-100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+  from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
-
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-
 @keyframes slideUp {
-  from {
-    transform: translateY(10px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
-
 @keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
-/* Custom scrollbar styles */
+/* SSE cursor blink (Spatial Depth) */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* Settings drawer slide-in (Spatial Depth) */
+@keyframes sp-drawer-in {
+  from { transform: translateX(40px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
 }
-
-::-webkit-scrollbar-track {
-  background-color: transparent;
-}
-
+::-webkit-scrollbar-track { background-color: transparent; }
 ::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--primary) / 0.25);
+  background-color: var(--sp-accent);
+  opacity: 0.25;
   border-radius: 10px;
 }
+::-webkit-scrollbar-thumb:hover { opacity: 0.5; }
 
-::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--primary) / 0.45);
-}
-
-/* Firefox scrollbar support */
 * {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--primary) / 0.25) transparent;
+  scrollbar-color: var(--sp-accent) transparent;
 }
 
-/* Smooth transitions for all interactive elements */
-button,
-a,
-input,
-select,
-textarea {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+button, a, input, select, textarea {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Status appear animation */
 @keyframes status-appear {
   from { opacity: 0; transform: scale(0.8) translateY(-4px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* Skeleton animation */
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 .animate-shimmer {
@@ -307,13 +371,8 @@ textarea {
   animation: shimmer 1.5s infinite;
 }
 
-
-/* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .animate-shimmer {
-    animation: none !important;
-  }
-
+  .animate-shimmer { animation: none !important; }
   * {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
@@ -321,24 +380,20 @@ textarea {
   }
 }
 
-/* Selection */
 ::selection {
-  background-color: hsl(var(--primary) / 0.25);
-  color: hsl(var(--foreground));
+  background-color: var(--sp-accent-glow-26);
+  color: var(--sp-text);
 }
 
-/* Focus ring */
 :focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid var(--sp-accent);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px hsl(var(--ring) / 0.2);
+  box-shadow: 0 0 0 4px var(--sp-accent-glow-26);
 }
 
-/* Button-specific utilities for premium feel */
 .button-noise {
   position: relative;
 }
-
 .button-noise::before {
   content: '';
   position: absolute;
@@ -348,26 +403,18 @@ textarea {
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
-
-.dark .button-noise::before {
-  opacity: 0.04;
-}
+.dark .button-noise::before { opacity: 0.04; }
 
 @keyframes button-glow {
   0%, 100% { box-shadow: 0 0 20px hsl(var(--primary) / 0.3); }
-  50%       { box-shadow: 0 0 30px hsl(var(--primary) / 0.5); }
+  50% { box-shadow: 0 0 30px hsl(var(--primary) / 0.5); }
 }
+.animate-button-glow { animation: button-glow 2s ease-in-out infinite; }
 
-.animate-button-glow {
-  animation: button-glow 2s ease-in-out infinite;
-}
-
-/* Smooth color transitions for status indicators */
 .status-dot {
   transition: background-color 200ms ease, box-shadow 200ms ease;
 }
 
-/* Screen reader only utility */
 .sr-only {
   position: absolute;
   width: 1px;

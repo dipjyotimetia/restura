@@ -1,22 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import {
+  CodeEditorFrame,
+  Floater,
+  ProtoChip,
+  Segmented,
+  Stat,
+  SubTabBar,
+  TextField,
+  VariableText,
+} from '@/components/ui/spatial';
 import { useMcpStore, type McpInvocationLog } from '@/features/mcp/store/useMcpStore';
 import { McpClient, generateMcpTemplate, type McpCall } from '@/features/mcp/lib/mcpClient';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type {
+  McpJsonSchema,
   McpPromptDescriptor,
   McpResourceDescriptor,
   McpToolDescriptor,
+  McpTransportType,
 } from '@/types';
-import { Play, Square, RefreshCw } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Play,
+  RefreshCw,
+  Sparkles,
+  Square,
+  Trash2,
+} from 'lucide-react';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
+
+type ListTab = 'tools' | 'resources' | 'prompts' | 'log';
 
 export default function McpRequestBuilder() {
   const {
@@ -53,10 +71,23 @@ export default function McpRequestBuilder() {
     };
   }, [activeIdForCleanup]);
 
+  const [tab, setTab] = useState<ListTab>('tools');
+  const [headersOpen, setHeadersOpen] = useState(false);
+
+  // Tool/Prompt selection lifted to parent so the right-hand columns can react.
+  const [selectedToolName, setSelectedToolName] = useState<string | null>(null);
+  const [selectedPromptName, setSelectedPromptName] = useState<string | null>(null);
+
   if (!active) return null;
 
   const isConnected = active.status === 'connected';
   const isBusy = active.status === 'connecting';
+  const isError = active.status === 'error';
+
+  const tools = active.capabilities?.tools ?? [];
+  const resources = active.capabilities?.resources ?? [];
+  const prompts = active.capabilities?.prompts ?? [];
+  const log = active.log;
 
   const resolveHeaders = (items: typeof active.headers): Record<string, string> => {
     const raw = keyValuePairsToRecord(items);
@@ -127,245 +158,364 @@ export default function McpRequestBuilder() {
     setStatus(active.id, 'connected');
   };
 
+  // ---- last log entry drives the Result panel ----
+  const lastEntry: McpInvocationLog | null = log.length > 0 ? (log[0] ?? null) : null;
+
+  const transportOptions = [
+    { value: 'streamable-http' as const, label: 'Streamable HTTP' },
+    { value: 'http-sse' as const, label: 'HTTP + SSE' },
+  ];
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3 flex-wrap">
-        <div
-          className={cn(
-            'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded border shrink-0',
-            isConnected
-              ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
-              : isBusy
-                ? 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
-                : active.status === 'error'
-                  ? 'bg-rose-500/[0.12] border-rose-500/25 text-rose-400'
-                  : 'bg-violet-500/[0.12] border-violet-500/25 text-violet-400'
+    <div className="flex flex-col h-full overflow-hidden bg-transparent">
+      {/* ───────────── Connection bar (Floater pill) ───────────── */}
+      <div className="px-3 pt-3 pb-2 shrink-0">
+        <Floater
+          radius="pill"
+          elevation="float"
+          className="flex items-center gap-2 px-2 h-11 bg-sp-surface border border-sp-line flex-wrap"
+        >
+          <ProtoChip protocol="MCP" />
+          <span className="text-sp-dim font-mono text-sp-13 select-none">›</span>
+
+          {/* URL with VariableText overlay when not editable; raw input otherwise. */}
+          {isConnected ? (
+            <div className="flex-1 min-w-[240px] px-1 font-mono text-sp-12 text-sp-text truncate">
+              <VariableText text={active.url} emptyLabel="No URL" />
+            </div>
+          ) : (
+            <Input
+              placeholder="https://mcp.example.com/v1/server"
+              value={active.url}
+              onChange={(e) => setUrl(active.id, e.target.value)}
+              disabled={isBusy}
+              className="flex-1 min-w-[240px] h-7 bg-transparent border-0 font-mono text-sp-12 text-sp-text px-1 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim"
+              aria-label="MCP server URL"
+            />
           )}
-          aria-label={`MCP status: ${active.status}`}
-        >
-          MCP
-        </div>
-        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
-        <Input
-          placeholder="https://mcp.example.com/v1/server"
-          value={active.url}
-          onChange={(e) => setUrl(active.id, e.target.value)}
-          disabled={isConnected || isBusy}
-          className="flex-1 min-w-[280px] h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground/40"
-          aria-label="MCP server URL"
-        />
-        <select
-          value={active.transport}
-          onChange={(e) => setTransport(active.id, e.target.value as 'streamable-http' | 'http-sse')}
-          disabled={isConnected || isBusy}
-          className="h-7 px-2 rounded glass-2 glass-border-subtle border text-xs font-mono shrink-0"
-        >
-          <option value="streamable-http">Streamable HTTP</option>
-          <option value="http-sse">HTTP + SSE (legacy)</option>
-        </select>
-        {isConnected ? (
-          <>
-            <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={isBusy} className="h-7 text-xs">
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleDisconnect}
-              className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
-            >
-              <Square className="mr-1.5 h-3.5 w-3.5" /> Disconnect
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="glow"
+
+          {/* Transport picker (Segmented inside the bar) */}
+          <Segmented<McpTransportType>
+            options={transportOptions}
+            value={active.transport}
+            onChange={(v) => setTransport(active.id, v)}
             size="sm"
-            onClick={handleConnect}
-            loading={isBusy}
-            disabled={!active.url.trim()}
-            className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
+            ariaLabel="MCP transport"
+            className={cn((isConnected || isBusy) && 'opacity-60 pointer-events-none')}
+          />
+
+          {/* CONNECTED / status pill (green when connected) */}
+          <ConnectionPill status={active.status} />
+
+          {/* Action buttons */}
+          {isConnected ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isBusy}
+                className="h-7 px-2.5 text-sp-12 rounded-sp-btn"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Reconnect
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDisconnect}
+                className="h-7 px-2.5 text-sp-12 rounded-sp-btn text-rose-400 hover:text-rose-300"
+              >
+                <Square className="h-3.5 w-3.5" />
+                Disconnect
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="glow"
+              size="sm"
+              onClick={handleConnect}
+              loading={isBusy}
+              disabled={!active.url.trim()}
+              className="h-7 px-3 text-sp-12 rounded-sp-btn"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Connect
+            </Button>
+          )}
+        </Floater>
+
+        {isError && active.lastError && (
+          <div
+            className="mt-2 px-3 py-2 text-sp-12 rounded-sp-btn border"
+            style={{
+              color: '#ef4444',
+              background: 'rgba(239,68,68,0.08)',
+              borderColor: 'rgba(239,68,68,0.25)',
+            }}
+            role="alert"
           >
-            <Play className="mr-1.5 h-3.5 w-3.5" /> Connect
-          </Button>
+            {active.lastError}
+          </div>
         )}
       </div>
 
-      {active.lastError && active.status === 'error' && (
-        <div className="px-3 py-2 text-sm bg-rose-500/10 text-rose-600 dark:text-rose-400 border-b border-rose-500/20" role="alert">
-          {active.lastError}
-        </div>
-      )}
-
-      <div className="border-b glass-border-subtle p-3 glass-2">
-        <Label className="text-xs text-muted-foreground mb-2 block">HEADERS</Label>
-        <KeyValueEditor
-          items={active.headers}
-          onAdd={() => addHeader(active.id)}
-          onUpdate={(headerId, updates) => updateHeader(active.id, headerId, updates)}
-          onDelete={(headerId) => removeHeader(active.id, headerId)}
-          keyPlaceholder="Header name"
-          valuePlaceholder="Header value"
-          addButtonText="Add header"
-        />
-      </div>
-
-      <Tabs defaultValue="tools" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="mx-3 mt-2 self-start">
-          <TabsTrigger value="tools">Tools ({active.capabilities?.tools.length ?? 0})</TabsTrigger>
-          <TabsTrigger value="resources">Resources ({active.capabilities?.resources.length ?? 0})</TabsTrigger>
-          <TabsTrigger value="prompts">Prompts ({active.capabilities?.prompts.length ?? 0})</TabsTrigger>
-          <TabsTrigger value="log">Log ({active.log.length})</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="tools" className="flex-1 overflow-hidden">
-          <ToolPanel
-            tools={active.capabilities?.tools ?? []}
-            onCall={async (tool, args) => {
-              if (!clientRef.current) return;
-              const res = await clientRef.current.callTool(tool.name, args);
-              logCall(`tools/call:${tool.name}`, args, res);
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="resources" className="flex-1 overflow-hidden">
-          <ResourcePanel
-            resources={active.capabilities?.resources ?? []}
-            onRead={async (uri) => {
-              if (!clientRef.current) return;
-              const res = await clientRef.current.readResource(uri);
-              logCall('resources/read', { uri }, res);
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="prompts" className="flex-1 overflow-hidden">
-          <PromptPanel
-            prompts={active.capabilities?.prompts ?? []}
-            onGet={async (prompt, args) => {
-              if (!clientRef.current) return;
-              const res = await clientRef.current.getPrompt(prompt.name, args);
-              logCall(`prompts/get:${prompt.name}`, args, res);
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="log" className="flex-1 overflow-hidden">
-          <LogPanel
-            log={active.log}
-            onClear={() => clearLog(active.id)}
-          />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
-function ToolPanel({
-  tools,
-  onCall,
-}: {
-  tools: McpToolDescriptor[];
-  onCall: (tool: McpToolDescriptor, args: unknown) => Promise<void>;
-}) {
-  const [selectedName, setSelectedName] = useState<string | null>(null);
-  const selected = useMemo(() => tools.find((t) => t.name === selectedName) ?? null, [tools, selectedName]);
-
-  // Pre-fill the args editor whenever the selected tool changes
-  const [argsText, setArgsText] = useState('{}');
-  useEffect(() => {
-    if (selected) {
-      const template = generateMcpTemplate(selected.inputSchema);
-      setArgsText(JSON.stringify(template, null, 2));
-    } else {
-      setArgsText('{}');
-    }
-  }, [selected]);
-
-  const [running, setRunning] = useState(false);
-
-  const handleCall = async () => {
-    if (!selected) return;
-    let args: unknown;
-    try {
-      args = JSON.parse(argsText);
-    } catch (err) {
-      alert(`Arguments must be valid JSON: ${err instanceof Error ? err.message : 'parse error'}`);
-      return;
-    }
-    setRunning(true);
-    try {
-      await onCall(selected, args);
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  return (
-    <div className="flex h-full">
-      {/* Tool list */}
-      <ScrollArea className="w-64 border-r border-border">
-        <div className="p-2 space-y-1">
-          {tools.length === 0 && (
-            <div className="text-muted-foreground italic text-sm p-3">
-              No tools. Connect to a server first.
+      {/* ───────────── Collapsible headers row ───────────── */}
+      <div className="px-3 pb-2 shrink-0">
+        <Floater
+          radius="panel"
+          elevation="float"
+          className="bg-sp-surface border border-sp-line overflow-hidden"
+        >
+          <button
+            type="button"
+            onClick={() => setHeadersOpen((o) => !o)}
+            className="w-full flex items-center justify-between px-3 h-9 hover:bg-sp-hover"
+            aria-expanded={headersOpen}
+          >
+            <span className="sp-label">
+              Headers
+              {active.headers.length > 0 && (
+                <span className="ml-1.5 font-mono normal-case text-sp-dim">
+                  ({active.headers.length})
+                </span>
+              )}
+            </span>
+            {headersOpen ? (
+              <ChevronDown className="h-3.5 w-3.5 text-sp-dim" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-sp-dim" />
+            )}
+          </button>
+          {headersOpen && (
+            <div className="px-3 py-2 border-t border-sp-line">
+              <KeyValueEditor
+                items={active.headers}
+                onAdd={() => addHeader(active.id)}
+                onUpdate={(headerId, updates) => updateHeader(active.id, headerId, updates)}
+                onDelete={(headerId) => removeHeader(active.id, headerId)}
+                keyPlaceholder="Header name"
+                valuePlaceholder="Header value"
+                addButtonText="Add header"
+              />
             </div>
           )}
-          {tools.map((t) => (
-            <button
-              key={t.name}
-              onClick={() => setSelectedName(t.name)}
-              className={cn(
-                'w-full text-left px-2 py-1.5 rounded text-sm hover:bg-accent',
-                selectedName === t.name && 'bg-accent'
-              )}
-            >
-              <div className="font-medium font-mono">{t.name}</div>
-              {t.description && (
-                <div className="text-xs text-muted-foreground truncate">{t.description}</div>
-              )}
-            </button>
-          ))}
-        </div>
-      </ScrollArea>
+        </Floater>
+      </div>
 
-      {/* Tool detail */}
-      {selected ? (
-        <div className="flex-1 flex flex-col p-3 gap-3 overflow-hidden">
-          <div>
-            <div className="font-mono font-semibold">{selected.name}</div>
-            {selected.description && (
-              <p className="text-sm text-muted-foreground mt-1">{selected.description}</p>
+      {/* ───────────── Three-column layout ───────────── */}
+      <div className="flex-1 grid grid-cols-[300px_minmax(0,1fr)_minmax(0,1fr)] gap-3 px-3 pb-3 overflow-hidden min-h-0">
+        {/* Column 1 — List Floater */}
+        <Floater
+          radius="panel"
+          elevation="float"
+          className="bg-sp-surface border border-sp-line flex flex-col overflow-hidden min-h-0"
+        >
+          <SubTabBar<ListTab>
+            tabs={[
+              { value: 'tools', label: 'Tools', count: tools.length },
+              { value: 'resources', label: 'Resources', count: resources.length },
+              { value: 'prompts', label: 'Prompts', count: prompts.length },
+              { value: 'log', label: 'Log', count: log.length },
+            ]}
+            value={tab}
+            onChange={setTab}
+            className="border-b-0"
+          />
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {tab === 'tools' && (
+              <ToolList
+                tools={tools}
+                selected={selectedToolName}
+                onSelect={setSelectedToolName}
+              />
+            )}
+            {tab === 'resources' && (
+              <ResourceList
+                resources={resources}
+                onRead={async (uri) => {
+                  if (!clientRef.current) return;
+                  const res = await clientRef.current.readResource(uri);
+                  logCall('resources/read', { uri }, res);
+                }}
+              />
+            )}
+            {tab === 'prompts' && (
+              <PromptList
+                prompts={prompts}
+                selected={selectedPromptName}
+                onSelect={setSelectedPromptName}
+              />
+            )}
+            {tab === 'log' && (
+              <LogList log={log} onClear={() => clearLog(active.id)} />
             )}
           </div>
-          <div className="flex-1 flex flex-col min-h-0">
-            <Label className="text-xs text-muted-foreground mb-1">ARGUMENTS (JSON)</Label>
-            <Textarea
-              value={argsText}
-              onChange={(e) => setArgsText(e.target.value)}
-              className="flex-1 font-mono text-xs"
-              spellCheck={false}
+        </Floater>
+
+        {/* Column 2 — Invoke form Floater */}
+        <Floater
+          radius="panel"
+          elevation="float"
+          className="bg-sp-surface border border-sp-line flex flex-col overflow-hidden min-h-0"
+        >
+          {tab === 'tools' ? (
+            <InvokeToolForm
+              tool={tools.find((t) => t.name === selectedToolName) ?? null}
+              onCall={async (tool, args) => {
+                if (!clientRef.current) return;
+                const res = await clientRef.current.callTool(tool.name, args);
+                logCall(`tools/call:${tool.name}`, args, res);
+              }}
             />
-          </div>
-          <div className="flex justify-end">
-            <Button onClick={handleCall} loading={running}>
-              <Play /> Call tool
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 grid place-items-center text-muted-foreground italic">
-          Select a tool from the list
-        </div>
-      )}
+          ) : tab === 'prompts' ? (
+            <InvokePromptForm
+              prompt={prompts.find((p) => p.name === selectedPromptName) ?? null}
+              onGet={async (prompt, args) => {
+                if (!clientRef.current) return;
+                const res = await clientRef.current.getPrompt(prompt.name, args);
+                logCall(`prompts/get:${prompt.name}`, args, res);
+              }}
+            />
+          ) : (
+            <EmptyForm tab={tab} />
+          )}
+        </Floater>
+
+        {/* Column 3 — Result Floater */}
+        <Floater
+          radius="panel"
+          elevation="float"
+          className="border border-sp-line flex flex-col overflow-hidden min-h-0"
+          style={{ background: 'var(--sp-code)' }}
+        >
+          <ResultPanel entry={lastEntry} />
+        </Floater>
+      </div>
     </div>
   );
 }
 
-// ----- Resource panel -------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Connection status pill
+// ─────────────────────────────────────────────────────────────────────────────
 
-function ResourcePanel({
+function ConnectionPill({ status }: { status: 'disconnected' | 'connecting' | 'connected' | 'error' }) {
+  const style: { color: string; bg: string; glow?: string; label: string } = (() => {
+    switch (status) {
+      case 'connected':
+        return {
+          color: '#22c55e',
+          bg: 'rgba(34,197,94,0.16)',
+          glow: '0 0 8px rgba(34,197,94,0.45)',
+          label: 'CONNECTED',
+        };
+      case 'connecting':
+        return { color: '#f59e0b', bg: 'rgba(245,158,11,0.18)', label: 'CONNECTING' };
+      case 'error':
+        return { color: '#ef4444', bg: 'rgba(239,68,68,0.18)', label: 'ERROR' };
+      default:
+        return { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)', label: 'OFFLINE' };
+    }
+  })();
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 h-6 px-2 rounded-sp-btn font-mono font-bold text-sp-10 tracking-wider"
+      style={{
+        color: style.color,
+        background: style.bg,
+        ...(style.glow ? { boxShadow: style.glow } : {}),
+      }}
+      aria-label={`MCP status: ${status}`}
+    >
+      <span aria-hidden="true">●</span>
+      {style.label}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool list (column 1, tab=tools)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function countArgs(schema: McpJsonSchema | undefined): number {
+  if (!schema || !schema.properties) return 0;
+  return Object.keys(schema.properties).length;
+}
+
+function ToolList({
+  tools,
+  selected,
+  onSelect,
+}: {
+  tools: McpToolDescriptor[];
+  selected: string | null;
+  onSelect: (name: string) => void;
+}) {
+  if (tools.length === 0) {
+    return (
+      <EmptyState
+        title="No tools"
+        hint="Connect to a server to discover tools."
+      />
+    );
+  }
+  return (
+    <ScrollArea className="h-full">
+      <div className="p-2 space-y-1">
+        {tools.map((t) => {
+          const isSelected = selected === t.name;
+          const argCount = countArgs(t.inputSchema);
+          return (
+            <button
+              key={t.name}
+              type="button"
+              onClick={() => onSelect(t.name)}
+              className={cn(
+                'w-full text-left rounded-sp-btn px-2.5 py-2 transition-colors group',
+                'border border-transparent',
+                isSelected
+                  ? 'bg-sp-active'
+                  : 'hover:bg-sp-hover'
+              )}
+              style={
+                isSelected
+                  ? { borderColor: 'var(--sp-accent-glow-55)' }
+                  : undefined
+              }
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Sparkles
+                    className="h-3.5 w-3.5 shrink-0"
+                    style={{ color: '#f59e0b' }}
+                  />
+                  <span className="font-mono font-bold text-sp-12 text-sp-text truncate">
+                    {t.name}
+                  </span>
+                </div>
+                <span className="sp-label shrink-0">
+                  {argCount} {argCount === 1 ? 'arg' : 'args'}
+                </span>
+              </div>
+              {t.description && (
+                <div className="mt-1 ml-5 text-sp-11-5 text-sp-muted line-clamp-2">
+                  {t.description}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </ScrollArea>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Resource list (column 1, tab=resources)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ResourceList({
   resources,
   onRead,
 }: {
@@ -381,33 +531,39 @@ function ResourcePanel({
       setReading(null);
     }
   };
+  if (resources.length === 0) {
+    return <EmptyState title="No resources" hint="The server exposes no resources." />;
+  }
   return (
     <ScrollArea className="h-full">
-      <div className="p-3 space-y-2">
-        {resources.length === 0 && (
-          <div className="text-muted-foreground italic text-sm">No resources.</div>
-        )}
+      <div className="p-2 space-y-1">
         {resources.map((r) => (
-          <div key={r.uri} className="border border-border rounded-md p-3 space-y-1">
+          <div
+            key={r.uri}
+            className="rounded-sp-btn border border-sp-line bg-sp-surface-lo p-2.5 space-y-1.5"
+          >
             <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="font-medium">{r.name}</div>
-                <div className="text-xs font-mono text-muted-foreground truncate">{r.uri}</div>
+              <div className="min-w-0 flex-1">
+                <div className="font-mono font-bold text-sp-12 text-sp-text truncate">
+                  {r.name}
+                </div>
+                <div className="text-sp-11 font-mono text-sp-dim truncate">{r.uri}</div>
               </div>
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => handleRead(r.uri)}
                 loading={reading === r.uri}
+                className="h-6 px-2 text-sp-11 rounded-sp-btn shrink-0"
               >
                 Read
               </Button>
             </div>
-            {r.description && <p className="text-sm text-muted-foreground">{r.description}</p>}
+            {r.description && (
+              <p className="text-sp-11-5 text-sp-muted line-clamp-2">{r.description}</p>
+            )}
             {r.mimeType && (
-              <Badge variant="outline" className="text-[10px]">
-                {r.mimeType}
-              </Badge>
+              <span className="sp-label inline-flex">{r.mimeType}</span>
             )}
           </div>
         ))}
@@ -416,141 +572,517 @@ function ResourcePanel({
   );
 }
 
-// ----- Prompt panel ---------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompt list (column 1, tab=prompts)
+// ─────────────────────────────────────────────────────────────────────────────
 
-function PromptPanel({
+function PromptList({
   prompts,
-  onGet,
+  selected,
+  onSelect,
 }: {
   prompts: McpPromptDescriptor[];
-  onGet: (prompt: McpPromptDescriptor, args: Record<string, string>) => Promise<void>;
+  selected: string | null;
+  onSelect: (name: string) => void;
 }) {
-  const [selectedName, setSelectedName] = useState<string | null>(null);
-  const selected = useMemo(() => prompts.find((p) => p.name === selectedName) ?? null, [prompts, selectedName]);
-  const [args, setArgs] = useState<Record<string, string>>({});
-  useEffect(() => setArgs({}), [selectedName]);
+  if (prompts.length === 0) {
+    return <EmptyState title="No prompts" hint="The server exposes no prompts." />;
+  }
+  return (
+    <ScrollArea className="h-full">
+      <div className="p-2 space-y-1">
+        {prompts.map((p) => {
+          const isSelected = selected === p.name;
+          const argCount = p.arguments?.length ?? 0;
+          return (
+            <button
+              key={p.name}
+              type="button"
+              onClick={() => onSelect(p.name)}
+              className={cn(
+                'w-full text-left rounded-sp-btn px-2.5 py-2 transition-colors',
+                'border border-transparent',
+                isSelected ? 'bg-sp-active' : 'hover:bg-sp-hover'
+              )}
+              style={
+                isSelected ? { borderColor: 'var(--sp-accent-glow-55)' } : undefined
+              }
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Sparkles
+                    className="h-3.5 w-3.5 shrink-0"
+                    style={{ color: '#f59e0b' }}
+                  />
+                  <span className="font-mono font-bold text-sp-12 text-sp-text truncate">
+                    {p.name}
+                  </span>
+                </div>
+                <span className="sp-label shrink-0">
+                  {argCount} {argCount === 1 ? 'arg' : 'args'}
+                </span>
+              </div>
+              {p.description && (
+                <div className="mt-1 ml-5 text-sp-11-5 text-sp-muted line-clamp-2">
+                  {p.description}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </ScrollArea>
+  );
+}
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Log list (column 1, tab=log)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => void }) {
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center justify-between px-3 h-9 border-b border-sp-line shrink-0">
+        <span className="sp-label">{log.length} CALLS</span>
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={log.length === 0}
+          className="inline-flex items-center gap-1 text-sp-11 text-sp-muted hover:text-sp-text disabled:opacity-40"
+        >
+          <Trash2 className="h-3 w-3" /> Clear
+        </button>
+      </div>
+      {log.length === 0 ? (
+        <EmptyState title="No calls yet" hint="Invoke a tool or resource to see calls." />
+      ) : (
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="p-2 space-y-1">
+            {log.map((entry) => {
+              const ok = entry.error === undefined;
+              return (
+                <div
+                  key={entry.id}
+                  className="rounded-sp-btn border border-sp-line bg-sp-surface-lo px-2.5 py-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="font-mono text-sp-11-5 text-sp-text truncate">
+                      {entry.method}
+                    </code>
+                    <span
+                      className="font-mono text-sp-10 font-bold tracking-wider shrink-0"
+                      style={{ color: ok ? '#22c55e' : '#ef4444' }}
+                    >
+                      {ok ? 'OK' : 'ERR'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <span className="text-sp-10 text-sp-dim font-mono tabular-nums">
+                      {new Date(entry.timestamp).toLocaleTimeString()}
+                    </span>
+                    <span className="text-sp-10 text-sp-dim font-mono tabular-nums">
+                      {entry.durationMs.toFixed(0)}ms
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty state
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EmptyState({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="h-full grid place-items-center px-4">
+      <div className="text-center">
+        <div className="font-mono text-sp-12 text-sp-muted">{title}</div>
+        {hint && <div className="mt-1 text-sp-11-5 text-sp-dim">{hint}</div>}
+      </div>
+    </div>
+  );
+}
+
+function EmptyForm({ tab }: { tab: ListTab }) {
+  const hint =
+    tab === 'resources'
+      ? 'Select a resource from the list and press Read.'
+      : tab === 'log'
+        ? 'The latest call appears in the Result panel.'
+        : 'Pick a tool or prompt.';
+  return (
+    <div className="flex-1 grid place-items-center">
+      <div className="text-center text-sp-muted text-sp-12">{hint}</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invoke tool form (column 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ArgField {
+  name: string;
+  type: string;
+  required: boolean;
+  description?: string;
+  isComplex: boolean;
+}
+
+function describeType(schema: McpJsonSchema | undefined): string {
+  if (!schema || !schema.type) return 'any';
+  const t = schema.type;
+  if (Array.isArray(t)) return t.join('|');
+  return t;
+}
+
+function flattenFields(schema: McpJsonSchema | undefined): ArgField[] {
+  if (!schema || !schema.properties) return [];
+  const required = new Set(schema.required ?? []);
+  return Object.entries(schema.properties).map(([name, sub]) => {
+    const type = describeType(sub);
+    const isComplex = type === 'object' || type === 'array';
+    const field: ArgField = {
+      name,
+      type,
+      required: required.has(name),
+      isComplex,
+    };
+    if (sub.description !== undefined) field.description = sub.description;
+    return field;
+  });
+}
+
+function valueToString(v: unknown): string {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return JSON.stringify(v, null, 2);
+}
+
+function stringToValue(s: string, type: string): unknown {
+  if (type === 'number' || type === 'integer') {
+    const n = Number(s);
+    return Number.isNaN(n) ? s : n;
+  }
+  if (type === 'boolean') return s === 'true';
+  if (type === 'object' || type === 'array') {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return s;
+    }
+  }
+  return s;
+}
+
+function InvokeToolForm({
+  tool,
+  onCall,
+}: {
+  tool: McpToolDescriptor | null;
+  onCall: (tool: McpToolDescriptor, args: unknown) => Promise<void>;
+}) {
+  const fields = useMemo(() => flattenFields(tool?.inputSchema), [tool]);
+  const [values, setValues] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
-  const handleGet = async () => {
-    if (!selected) return;
+
+  // Reset values when the selected tool changes — pre-fill with template defaults.
+  useEffect(() => {
+    if (!tool) {
+      setValues({});
+      return;
+    }
+    const tpl = generateMcpTemplate(tool.inputSchema) as Record<string, unknown> | unknown;
+    const next: Record<string, string> = {};
+    if (tpl && typeof tpl === 'object' && !Array.isArray(tpl)) {
+      for (const f of fields) {
+        const v = (tpl as Record<string, unknown>)[f.name];
+        next[f.name] = valueToString(v);
+      }
+    }
+    setValues(next);
+  }, [tool, fields]);
+
+  const handleCall = async () => {
+    if (!tool) return;
+    const args: Record<string, unknown> = {};
+    for (const f of fields) {
+      const raw = values[f.name];
+      if (raw === undefined || raw === '') {
+        if (f.required) continue; // leave undefined; server will validate
+        continue;
+      }
+      args[f.name] = stringToValue(raw, f.type);
+    }
     setRunning(true);
     try {
-      await onGet(selected, args);
+      await onCall(tool, args);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (!tool) {
+    return <EmptyForm tab="tools" />;
+  }
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-sp-line shrink-0">
+        <div className="min-w-0 flex items-center gap-2">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: '#f59e0b' }} />
+          <span
+            className="font-mono font-bold text-sp-13 truncate"
+            style={{ color: 'var(--sp-accent)' }}
+          >
+            {tool.name}
+          </span>
+        </div>
+        <Button
+          variant="glow"
+          size="sm"
+          onClick={handleCall}
+          loading={running}
+          className="h-7 px-3 text-sp-12 rounded-sp-btn"
+        >
+          <Play className="h-3.5 w-3.5" />
+          Invoke
+        </Button>
+      </div>
+
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="p-3 space-y-3">
+          {tool.description && (
+            <p className="text-sp-12 text-sp-muted">{tool.description}</p>
+          )}
+          {fields.length === 0 ? (
+            <div className="text-sp-12 text-sp-dim italic">This tool takes no arguments.</div>
+          ) : (
+            fields.map((f) => (
+              <ArgFieldRow
+                key={f.name}
+                field={f}
+                value={values[f.name] ?? ''}
+                onChange={(v) => setValues((cur) => ({ ...cur, [f.name]: v }))}
+              />
+            ))
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+function ArgFieldRow({
+  field,
+  value,
+  onChange,
+}: {
+  field: ArgField;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-mono font-bold text-sp-12 text-sp-text">{field.name}</span>
+        <span className="font-mono text-sp-11 text-sp-dim">{field.type}</span>
+        {field.required && (
+          <span
+            className="inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
+            style={{ color: '#ef4444', background: 'rgba(239,68,68,0.14)' }}
+          >
+            REQUIRED
+          </span>
+        )}
+      </div>
+      {field.description && (
+        <div className="text-sp-11-5 text-sp-muted">{field.description}</div>
+      )}
+      {field.isComplex ? (
+        <CodeEditorFrame
+          gutter={false}
+          className="min-h-[100px]"
+        >
+          <textarea
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            spellCheck={false}
+            className="w-full h-full min-h-[80px] bg-transparent outline-none resize-y font-mono text-sp-12 text-sp-text placeholder:text-sp-dim"
+            placeholder={field.type === 'array' ? '[]' : '{}'}
+          />
+        </CodeEditorFrame>
+      ) : (
+        <TextField
+          mono
+          size="md"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.type === 'boolean' ? 'true / false' : field.type}
+          className="w-full"
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invoke prompt form (column 2 alt)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function InvokePromptForm({
+  prompt,
+  onGet,
+}: {
+  prompt: McpPromptDescriptor | null;
+  onGet: (prompt: McpPromptDescriptor, args: Record<string, string>) => Promise<void>;
+}) {
+  const [args, setArgs] = useState<Record<string, string>>({});
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    setArgs({});
+  }, [prompt?.name]);
+
+  if (!prompt) return <EmptyForm tab="prompts" />;
+
+  const fields = prompt.arguments ?? [];
+
+  const handleGet = async () => {
+    setRunning(true);
+    try {
+      await onGet(prompt, args);
     } finally {
       setRunning(false);
     }
   };
 
   return (
-    <div className="flex h-full">
-      <ScrollArea className="w-64 border-r border-border">
-        <div className="p-2 space-y-1">
-          {prompts.length === 0 && (
-            <div className="text-muted-foreground italic text-sm p-3">No prompts.</div>
-          )}
-          {prompts.map((p) => (
-            <button
-              key={p.name}
-              onClick={() => setSelectedName(p.name)}
-              className={cn(
-                'w-full text-left px-2 py-1.5 rounded text-sm hover:bg-accent',
-                selectedName === p.name && 'bg-accent'
-              )}
-            >
-              <div className="font-medium font-mono">{p.name}</div>
-              {p.description && (
-                <div className="text-xs text-muted-foreground truncate">{p.description}</div>
-              )}
-            </button>
-          ))}
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-sp-line shrink-0">
+        <div className="min-w-0 flex items-center gap-2">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: '#f59e0b' }} />
+          <span
+            className="font-mono font-bold text-sp-13 truncate"
+            style={{ color: 'var(--sp-accent)' }}
+          >
+            {prompt.name}
+          </span>
         </div>
-      </ScrollArea>
+        <Button
+          variant="glow"
+          size="sm"
+          onClick={handleGet}
+          loading={running}
+          className="h-7 px-3 text-sp-12 rounded-sp-btn"
+        >
+          <Play className="h-3.5 w-3.5" />
+          Invoke
+        </Button>
+      </div>
 
-      {selected ? (
-        <div className="flex-1 flex flex-col p-3 gap-3 overflow-hidden">
-          <div>
-            <div className="font-mono font-semibold">{selected.name}</div>
-            {selected.description && (
-              <p className="text-sm text-muted-foreground mt-1">{selected.description}</p>
-            )}
-          </div>
-          <div className="space-y-2 overflow-auto">
-            {(selected.arguments ?? []).map((a) => (
-              <div key={a.name}>
-                <Label className="text-xs">
-                  {a.name}
-                  {a.required ? ' *' : ''}
-                </Label>
-                <Input
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="p-3 space-y-3">
+          {prompt.description && (
+            <p className="text-sp-12 text-sp-muted">{prompt.description}</p>
+          )}
+          {fields.length === 0 ? (
+            <div className="text-sp-12 text-sp-dim italic">This prompt takes no arguments.</div>
+          ) : (
+            fields.map((a) => (
+              <div key={a.name} className="space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono font-bold text-sp-12 text-sp-text">{a.name}</span>
+                  <span className="font-mono text-sp-11 text-sp-dim">string</span>
+                  {a.required && (
+                    <span
+                      className="inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
+                      style={{ color: '#ef4444', background: 'rgba(239,68,68,0.14)' }}
+                    >
+                      REQUIRED
+                    </span>
+                  )}
+                </div>
+                {a.description && (
+                  <div className="text-sp-11-5 text-sp-muted">{a.description}</div>
+                )}
+                <TextField
+                  mono
                   value={args[a.name] ?? ''}
-                  onChange={(e) => setArgs((cur) => ({ ...cur, [a.name]: e.target.value }))}
-                  placeholder={a.description ?? ''}
+                  onChange={(e) =>
+                    setArgs((cur) => ({ ...cur, [a.name]: e.target.value }))
+                  }
+                  placeholder=""
+                  className="w-full"
                 />
               </div>
-            ))}
-            {(selected.arguments ?? []).length === 0 && (
-              <p className="text-sm text-muted-foreground italic">This prompt takes no arguments.</p>
-            )}
-          </div>
-          <div className="flex justify-end">
-            <Button onClick={handleGet} loading={running}>
-              <Play /> Get prompt
-            </Button>
-          </div>
+            ))
+          )}
         </div>
-      ) : (
-        <div className="flex-1 grid place-items-center text-muted-foreground italic">
-          Select a prompt from the list
-        </div>
-      )}
+      </ScrollArea>
     </div>
   );
 }
 
-// ----- Log panel ------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Result panel (column 3)
+// ─────────────────────────────────────────────────────────────────────────────
 
-function LogPanel({
-  log,
-  onClear,
-}: {
-  log: McpInvocationLog[];
-  onClear: () => void;
-}) {
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex justify-between items-center p-2 border-b border-border">
-        <span className="text-xs text-muted-foreground">{log.length} call(s)</span>
-        <Button variant="ghost" size="sm" onClick={onClear}>
-          Clear
-        </Button>
-      </div>
-      <ScrollArea className="flex-1">
-        <div className="p-3 space-y-3">
-          {log.map((entry) => (
-            <div key={entry.id} className="border border-border rounded-md p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <code className="text-xs font-mono">{entry.method}</code>
-                <span className="text-xs text-muted-foreground">{entry.durationMs.toFixed(0)} ms</span>
-              </div>
-              {entry.params !== undefined && (
-                <pre className="text-xs glass-2 glass-border-subtle border p-2 rounded overflow-x-auto">{JSON.stringify(entry.params, null, 2)}</pre>
-              )}
-              {entry.error ? (
-                <div className="text-xs text-red-600 dark:text-red-400">
-                  Error: {entry.error}
-                  {entry.jsonRpcError && (
-                    <pre className="mt-1 bg-red-500/5 p-2 rounded">
-                      {JSON.stringify(entry.jsonRpcError, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              ) : (
-                <pre className="text-xs bg-emerald-500/5 p-2 rounded overflow-x-auto">{JSON.stringify(entry.result, null, 2)}</pre>
-              )}
-            </div>
-          ))}
+function ResultPanel({ entry }: { entry: McpInvocationLog | null }) {
+  if (!entry) {
+    return (
+      <div className="flex-1 grid place-items-center text-center px-4">
+        <div>
+          <div className="font-mono text-sp-12 text-sp-muted">No result yet</div>
+          <div className="mt-1 text-sp-11-5 text-sp-dim">Invoke a tool to see output here.</div>
         </div>
-      </ScrollArea>
+      </div>
+    );
+  }
+
+  const isError = entry.error !== undefined;
+  const payload: unknown = isError
+    ? { error: entry.error, ...(entry.jsonRpcError ? { jsonRpcError: entry.jsonRpcError } : {}) }
+    : entry.result;
+  const json = JSON.stringify(payload, null, 2);
+  const lines = json.split('\n').length;
+  const bytes = new TextEncoder().encode(json).length;
+  const sizeLabel = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center justify-between gap-3 px-3 h-10 border-b border-sp-line shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="sp-label">Result</span>
+          <span
+            className="inline-flex items-center gap-1 px-1.5 h-5 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
+            style={{
+              color: isError ? '#ef4444' : '#22c55e',
+              background: isError ? 'rgba(239,68,68,0.14)' : 'rgba(34,197,94,0.14)',
+            }}
+          >
+            isError: {isError ? 'true' : 'false'}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <Stat label="Time" value={`${entry.durationMs.toFixed(0)}ms`} align="right" />
+          <Stat label="Size" value={sizeLabel} align="right" />
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto p-3">
+        <CodeEditorFrame lineCount={lines} className="h-full">
+          <pre className="text-sp-12 font-mono text-sp-text whitespace-pre-wrap break-all">
+            {json}
+          </pre>
+        </CodeEditorFrame>
+      </div>
     </div>
   );
 }

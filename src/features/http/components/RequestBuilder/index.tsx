@@ -1,33 +1,52 @@
-import { useState, useEffect } from 'react';
+'use client';
+
+import { useEffect, useState } from 'react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import RequestLine from '@/features/http/components/RequestLine';
+import { Floater } from '@/components/ui/spatial';
+import UrlBar from '@/features/http/components/UrlBar';
 import CodeGeneratorDialog from '@/features/http/components/CodeGeneratorDialog';
 import { RequestBuilderTabs } from './RequestBuilderTabs';
 import { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
 
-const TAB_KEYS: Record<string, string> = {
-  '1': 'params', '2': 'headers', '3': 'body',
-  '4': 'auth', '5': 'scripts', '6': 'settings',
+type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings';
+
+const TAB_KEYS: Record<string, SubTabKey> = {
+  '1': 'params',
+  '2': 'headers',
+  '3': 'body',
+  '4': 'auth',
+  '5': 'scripts',
+  '6': 'settings',
 };
 
 function RequestBuilder() {
-  const { httpRequest, isLoading, globalSettings, handlers, counts } = useHttpRequestPage();
+  const { httpRequest, isLoading, globalSettings, handlers, counts } =
+    useHttpRequestPage();
   const { sendRequest } = handlers;
-  const [activeTab, setActiveTab] = useState('params');
+  const [activeTab, setActiveTab] = useState<SubTabKey>('params');
   const [codeGenOpen, setCodeGenOpen] = useState(false);
 
+  // Alt+1..6 sub-tab jump
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      )
+        return;
       if (e.altKey && !e.metaKey && !e.ctrlKey) {
         const tab = TAB_KEYS[e.key];
-        if (tab) { e.preventDefault(); setActiveTab(tab); }
+        if (tab) {
+          e.preventDefault();
+          setActiveTab(tab);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // Cmd/Ctrl + Enter send
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -42,8 +61,8 @@ function RequestBuilder() {
   if (!httpRequest) return null;
 
   return (
-    <div className="flex-1 flex flex-col border-b border-border bg-background relative z-30">
-      <RequestLine
+    <div className="flex-1 flex flex-col min-h-0 px-2 pt-2 pb-3 gap-2.5 relative z-30">
+      <UrlBar
         method={httpRequest.method}
         url={httpRequest.url}
         isLoading={isLoading}
@@ -52,15 +71,27 @@ function RequestBuilder() {
         onSend={handlers.sendRequest}
         onOpenCodeGen={() => setCodeGenOpen(true)}
       />
-      <CodeGeneratorDialog open={codeGenOpen} onOpenChange={setCodeGenOpen} request={httpRequest} />
-      <RequestBuilderTabs
+
+      <CodeGeneratorDialog
+        open={codeGenOpen}
+        onOpenChange={setCodeGenOpen}
         request={httpRequest}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        globalSettings={globalSettings}
-        counts={counts}
-        handlers={handlers}
       />
+
+      <Floater
+        radius="panel"
+        elevation="float"
+        className="flex-1 flex flex-col min-h-0 bg-sp-surface overflow-hidden"
+      >
+        <RequestBuilderTabs
+          request={httpRequest}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          globalSettings={globalSettings}
+          counts={counts}
+          handlers={handlers}
+        />
+      </Floater>
     </div>
   );
 }
