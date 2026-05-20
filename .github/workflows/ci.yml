@@ -148,7 +148,7 @@ jobs:
         run: rm -rf .wrangler/deploy
 
       - name: Deploy Worker (api.restura.dev)
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -156,7 +156,7 @@ jobs:
           command: deploy
 
       - name: Deploy Echo Worker (echo.restura.dev)
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -170,7 +170,7 @@ jobs:
         run: npx wrangler pages project create restura --production-branch=main || true
 
       - name: Deploy SPA to Cloudflare Pages (restura.pages.dev)
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -209,7 +209,7 @@ jobs:
         run: rm -rf .wrangler/deploy
 
       - name: Deploy Worker preview version
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -224,7 +224,7 @@ jobs:
 
       - name: Deploy SPA preview to Cloudflare Pages
         id: preview
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
