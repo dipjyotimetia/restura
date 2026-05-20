@@ -32,8 +32,6 @@ import type { RequestMode, ActivePanel } from '@/types';
 
 export default function Home() {
   const [activePanel, setActivePanel] = useState<ActivePanel | null>('collections');
-  // Optional override for modes that don't map 1:1 to a RequestType (graphql, websocket).
-  const [modeOverride, setModeOverride] = useState<RequestMode | null>(null);
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -47,34 +45,37 @@ export default function Home() {
   const scriptResult = activeTab?.scriptResult ?? null;
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
+  const openTabWithMode = useRequestStore((s) => s.openTabWithMode);
   const { settings } = useSettingsStore();
 
   // Ref keeps Cmd+S handler current without listener churn.
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
 
-  const requestMode: RequestMode = modeOverride ?? activeTab?.request.type ?? 'http';
+  // The workspace mode is now derived per-tab — the active tab's modeOverride
+  // (for WS/Socket.IO/Kafka/GraphQL pseudo-modes) takes precedence over its
+  // request type. Tab switches naturally restore the correct view.
+  const requestMode: RequestMode =
+    activeTab?.modeOverride ?? activeTab?.request.type ?? 'http';
 
   const handleRequestModeChange = useCallback(
     (mode: RequestMode) => {
-      const needsHttpTab = mode === 'graphql' || mode === 'websocket' || mode === 'kafka' || mode === 'socketio';
-      if (!needsHttpTab) {
-        setModeOverride(null);
-        if (activeTab?.request.type !== mode) createNewRequest(mode);
+      if (mode === 'graphql' || mode === 'websocket' || mode === 'socketio' || mode === 'kafka') {
+        const tabId = openTabWithMode(mode);
+        if (mode === 'graphql') {
+          // Seed the URL only when the placeholder still holds the default.
+          const state = useRequestStore.getState();
+          const current = state.tabs.find((t) => t.id === tabId);
+          if (current && (current.request.url === '' || current.request.url === ECHO_URLS.http)) {
+            state.updateRequest({ url: ECHO_URLS.graphql });
+          }
+        }
         return;
       }
-      setModeOverride(mode);
-      if (mode !== 'graphql') return;
-      if (activeTab?.request.type !== 'http') createNewRequest('http');
-      const state = useRequestStore.getState();
-      const current = state.getActiveTab();
-      if (current?.request.type !== 'http') return;
-      const { url } = current.request;
-      if (url === ECHO_URLS.graphql) return;
-      if (url !== '' && url !== ECHO_URLS.http) return;
-      state.updateRequest({ url: ECHO_URLS.graphql });
+      // Real RequestType — open a fresh tab of that type.
+      createNewRequest(mode);
     },
-    [activeTab?.request.type, createNewRequest]
+    [createNewRequest, openTabWithMode]
   );
 
   const effectiveLayout = windowWidth < 1280 ? 'vertical' : settings.layoutOrientation;
@@ -201,6 +202,7 @@ export default function Home() {
                   activePanel={activePanel}
                   onClose={() => setActivePanel(null)}
                   onOpenEnvironmentManager={() => setEnvManagerOpen(true)}
+                  onOpenImport={() => setImportDialogOpen(true)}
                 />
               </motion.div>
             )}
@@ -209,7 +211,10 @@ export default function Home() {
 
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden gap-2.5">
           <main aria-label="Request workspace" className="flex flex-1 flex-col min-h-0 overflow-hidden gap-2.5">
-            <TabBar onSaveToCollection={setSaveDialogTabId} />
+            <TabBar
+              onSaveToCollection={setSaveDialogTabId}
+              onChangeMode={handleRequestModeChange}
+            />
             <div className="flex flex-1 flex-col min-h-0">
               {renderRequestBuilder()}
             </div>

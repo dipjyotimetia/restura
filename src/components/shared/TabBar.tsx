@@ -17,10 +17,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
+import { isElectron } from '@/lib/shared/platform';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
+
+type NewRequestMode =
+  | 'http' | 'grpc' | 'sse' | 'mcp'
+  | 'graphql' | 'websocket' | 'socketio' | 'kafka';
 
 interface TabStripProps {
   onSaveToCollection?: (tabId: string) => void;
+  /**
+   * Switches the workspace to a mode that doesn't have its own RequestType
+   * (graphql, websocket, socketio, kafka). The orchestrator owns the mode
+   * override; the TabStrip just announces intent.
+   */
+  onChangeMode?: (mode: 'graphql' | 'websocket' | 'socketio' | 'kafka') => void;
 }
 
 /**
@@ -39,7 +50,7 @@ interface TabStripProps {
  *   - Per-tab: ProtoChip + name (max ~130px) + dirty dot + × close
  *   - Active tab: `bg-sp-active` + inset 1px ring of accent glow
  */
-export function TabStrip({ onSaveToCollection }: TabStripProps) {
+export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const tabs = useRequestStore((s) => s.tabs);
   const activeTabId = useRequestStore((s) => s.activeTabId);
   const switchTab = useRequestStore((s) => s.switchTab);
@@ -51,6 +62,14 @@ export function TabStrip({ onSaveToCollection }: TabStripProps) {
   const reorderTabs = useRequestStore((s) => s.reorderTabs);
   const renameTab = useRequestStore((s) => s.renameTab);
   const clearTabDirty = useRequestStore((s) => s.clearTabDirty);
+
+  const handleNewTab = (mode: NewRequestMode) => {
+    if (mode === 'graphql' || mode === 'websocket' || mode === 'socketio' || mode === 'kafka') {
+      onChangeMode?.(mode);
+      return;
+    }
+    createNewRequest(mode);
+  };
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
@@ -174,7 +193,7 @@ export function TabStrip({ onSaveToCollection }: TabStripProps) {
                         : undefined
                     }
                   >
-                    <ProtoChip protocol={tab.request.type} />
+                    <ProtoChip protocol={tab.modeOverride ?? tab.request.type} />
 
                     {isRenaming ? (
                       <input
@@ -321,18 +340,32 @@ export function TabStrip({ onSaveToCollection }: TabStripProps) {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => createNewRequest('http')}>
+              <DropdownMenuItem onClick={() => handleNewTab('http')}>
                 HTTP request
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => createNewRequest('grpc')}>
+              <DropdownMenuItem onClick={() => handleNewTab('graphql')}>
+                GraphQL request
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewTab('grpc')}>
                 gRPC request
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => createNewRequest('sse')}>
-                SSE request
+              <DropdownMenuItem onClick={() => handleNewTab('websocket')}>
+                WS
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => createNewRequest('mcp')}>
+              <DropdownMenuItem onClick={() => handleNewTab('socketio')}>
+                Socket.IO
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewTab('sse')}>
+                SSE stream
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewTab('mcp')}>
                 MCP request
               </DropdownMenuItem>
+              {isElectron() && (
+                <DropdownMenuItem onClick={() => handleNewTab('kafka')}>
+                  Kafka consumer
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </Floater>

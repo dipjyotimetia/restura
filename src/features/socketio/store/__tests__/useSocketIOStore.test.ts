@@ -90,4 +90,44 @@ describe('useSocketIOStore', () => {
     s.addSubscribedEvent(id, 'bar');
     expect(useSocketIOStore.getState().connections[id]!.subscribedEvents).toEqual(['foo', 'bar']);
   });
+
+  describe('ensureConnectionForTab / cleanupConnectionForTab', () => {
+    beforeEach(() => {
+      const store = useSocketIOStore.getState();
+      Object.keys(store.connections).forEach((id) => store.removeConnection(id));
+    });
+
+    it('binds a tabId to a fresh connection', () => {
+      const id = useSocketIOStore.getState().ensureConnectionForTab('tab-A');
+      const state = useSocketIOStore.getState();
+      expect(state.connectionByTabId['tab-A']).toBe(id);
+      expect(state.activeConnectionId).toBe(id);
+    });
+
+    it('is idempotent', () => {
+      const a = useSocketIOStore.getState().ensureConnectionForTab('tab-A');
+      const b = useSocketIOStore.getState().ensureConnectionForTab('tab-A');
+      expect(a).toBe(b);
+    });
+
+    it('two tabs get independent connections', () => {
+      const a = useSocketIOStore.getState().ensureConnectionForTab('tab-A');
+      const b = useSocketIOStore.getState().ensureConnectionForTab('tab-B');
+      expect(a).not.toBe(b);
+    });
+
+    it('cleanupConnectionForTab removes both the connection and the mapping', () => {
+      const id = useSocketIOStore.getState().ensureConnectionForTab('tab-A');
+      useSocketIOStore.getState().cleanupConnectionForTab('tab-A');
+      const state = useSocketIOStore.getState();
+      expect(state.connections[id]).toBeUndefined();
+      expect(state.connectionByTabId['tab-A']).toBeUndefined();
+    });
+
+    it('removeConnection prunes the tab mapping pointing at the deleted id', () => {
+      const id = useSocketIOStore.getState().ensureConnectionForTab('tab-A');
+      useSocketIOStore.getState().removeConnection(id);
+      expect(useSocketIOStore.getState().connectionByTabId['tab-A']).toBeUndefined();
+    });
+  });
 });

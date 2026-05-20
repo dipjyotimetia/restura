@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Send, Code2, Loader2, Link2 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 import {
@@ -58,25 +59,6 @@ export function UrlBar({
   onOpenCodeGen,
 }: UrlBarProps) {
   const [urlError, setUrlError] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
-
-  // Close picker on outside click / Escape
-  useEffect(() => {
-    if (!pickerOpen) return;
-    const onPointer = (e: MouseEvent) => {
-      if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPickerOpen(false);
-    };
-    document.addEventListener('mousedown', onPointer);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onPointer);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [pickerOpen]);
 
   const validateUrl = (newUrl: string) => {
     if (!newUrl) {
@@ -110,48 +92,47 @@ export function UrlBar({
           elevation="float"
           className="flex-1 flex items-center gap-2 px-2 h-10 bg-sp-surface min-w-0"
         >
-          {/* Method chip + picker */}
-          <div className="relative shrink-0" ref={pickerRef}>
-            <button
-              type="button"
-              onClick={() => setPickerOpen((v) => !v)}
-              aria-haspopup="listbox"
-              aria-expanded={pickerOpen}
-              aria-label={`HTTP method: ${method}`}
-              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sp-accent-glow-33)] rounded-sp-btn"
-            >
-              <MethodChip method={methodLabel(method)} hasPicker />
-            </button>
-            {pickerOpen && (
-              <Floater
-                radius="panel"
-                elevation="float-lg"
-                className="absolute top-full left-0 mt-2 z-50 w-32 bg-sp-surface-hi border border-sp-line-strong overflow-hidden"
-                role="listbox"
+          {/* Method chip + picker — Radix DropdownMenu portals the panel
+              so it escapes the parent Floater's backdrop-filter stacking
+              context (which otherwise traps a locally-positioned dropdown
+              underneath the sibling SubTabBar). */}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                type="button"
+                aria-label={`HTTP method: ${method}`}
+                className="focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sp-accent-glow-33)] rounded-sp-btn shrink-0"
+              >
+                <MethodChip method={methodLabel(method)} hasPicker />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="start"
+                sideOffset={8}
+                className={cn(
+                  'z-50 w-32 rounded-sp-panel sp-floater-lg overflow-hidden p-0.5',
+                  'data-[state=open]:animate-sp-fade-in'
+                )}
               >
                 {HTTP_METHODS.map((m) => (
-                  <button
+                  <DropdownMenu.Item
                     key={m}
-                    type="button"
-                    role="option"
-                    aria-selected={m === method}
-                    onClick={() => {
-                      onMethodChange(m);
-                      setPickerOpen(false);
-                    }}
+                    onSelect={() => onMethodChange(m)}
                     className={cn(
-                      'w-full text-left px-3 py-1.5 font-mono font-semibold text-sp-12 tabular-nums',
-                      'hover:bg-sp-hover transition-colors',
+                      'w-full px-2.5 py-1.5 rounded-sp-btn outline-none cursor-default',
+                      'font-mono font-semibold text-sp-12 tabular-nums',
+                      'data-[highlighted]:bg-sp-hover transition-colors',
                       m === method && 'bg-sp-active'
                     )}
                     style={{ color: METHOD_TEXT[m] }}
                   >
                     {m === 'DELETE' ? 'DEL' : m}
-                  </button>
+                  </DropdownMenu.Item>
                 ))}
-              </Floater>
-            )}
-          </div>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
 
           {/* URL field with variable highlight overlay */}
           <div className="relative flex-1 min-w-0 h-7 flex items-center">

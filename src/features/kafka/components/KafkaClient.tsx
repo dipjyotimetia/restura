@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -16,7 +17,6 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   Send,
-  Plus,
   Trash2,
   Plug,
   PlugZap,
@@ -28,6 +28,7 @@ import {
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { useActiveTabId } from '@/store/selectors';
 import {
   Floater,
   ProtoChip,
@@ -163,14 +164,18 @@ function DesktopOnlyPanel() {
 
 function KafkaClient() {
   const isDesktop = isElectron();
+  const activeTabId = useActiveTabId();
+
+  const connectionByTabId = useKafkaStore((s) => s.connectionByTabId);
+  const messageFilter = useKafkaStore((s) => s.messageFilter);
+  const searchQuery = useKafkaStore((s) => s.searchQuery);
+  const activeConnectionId = activeTabId ? connectionByTabId[activeTabId] ?? null : null;
+  const connection = useKafkaStore((s) =>
+    activeConnectionId ? s.connections[activeConnectionId] ?? null : null
+  );
   const {
-    connections,
-    activeConnectionId,
-    messageFilter,
-    searchQuery,
-    createConnection,
+    ensureConnectionForTab,
     removeConnection,
-    setActiveConnection,
     updateConnection,
     updateAuth,
     updateConsumer,
@@ -178,9 +183,23 @@ function KafkaClient() {
     setMessageFilter,
     setSearchQuery,
     getFilteredMessages,
-  } = useKafkaStore();
+  } = useKafkaStore(
+    useShallow((s) => ({
+      ensureConnectionForTab: s.ensureConnectionForTab,
+      removeConnection: s.removeConnection,
+      updateConnection: s.updateConnection,
+      updateAuth: s.updateAuth,
+      updateConsumer: s.updateConsumer,
+      clearMessages: s.clearMessages,
+      setMessageFilter: s.setMessageFilter,
+      setSearchQuery: s.setSearchQuery,
+      getFilteredMessages: s.getFilteredMessages,
+    }))
+  );
 
-  const connection = activeConnectionId ? connections[activeConnectionId] ?? null : null;
+  useEffect(() => {
+    if (activeTabId && isDesktop) ensureConnectionForTab(activeTabId);
+  }, [activeTabId, ensureConnectionForTab, isDesktop]);
 
   const [saslPasswordDraft, setSaslPasswordDraft] = useState('');
   const [tlsPassphraseDraft, setTlsPassphraseDraft] = useState('');
@@ -263,10 +282,6 @@ function KafkaClient() {
   if (!isDesktop) {
     return <DesktopOnlyPanel />;
   }
-
-  const handleCreate = (): void => {
-    createConnection({});
-  };
 
   const handleConnect = async (): Promise<void> => {
     if (!connection) return;
@@ -400,8 +415,6 @@ function KafkaClient() {
     updateAuth(connection.id, next);
   };
 
-  const connList = Object.values(connections).sort((a, b) => b.createdAt - a.createdAt);
-
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-3 p-3 bg-sp-bg">
       {/* Connection bar — pill Floater */}
@@ -412,24 +425,8 @@ function KafkaClient() {
         <ProtoChip protocol="KAFKA" />
         <span className="text-sp-dim font-mono text-sp-12 select-none">›</span>
 
-        <Select
-          value={connection?.id ?? ''}
-          onValueChange={(v) => setActiveConnection(v || null)}
-        >
-          <SelectTrigger className="w-56 h-7 text-xs bg-sp-surface-lo border border-sp-line font-mono">
-            <SelectValue placeholder="Select a Kafka connection" />
-          </SelectTrigger>
-          <SelectContent>
-            {connList.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name} · {c.bootstrapBrokers[0] ?? 'no broker'}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         {connection && (
-          <span className="font-mono text-sp-12 text-sp-muted truncate max-w-[200px]">
+          <span className="font-mono text-sp-13 text-sp-text truncate max-w-[200px]">
             <VariableText text={connection.bootstrapBrokers[0] ?? 'no broker'} />
           </span>
         )}
@@ -485,9 +482,6 @@ function KafkaClient() {
             )}
           </Button>
 
-          <Button size="sm" variant="ghost" onClick={handleCreate} title="New connection" className="h-7 w-7 p-0 rounded-sp-btn">
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
           {connection && (
             <Button
               size="sm"

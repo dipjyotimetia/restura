@@ -11,6 +11,7 @@ import type {
   ScriptResult,
   RequestType,
   StreamEventLike,
+  TabModeOverride,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
@@ -19,6 +20,9 @@ import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
+import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
+import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
+import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 
 interface ScriptResults {
   preRequest?: ScriptResult;
@@ -56,6 +60,12 @@ interface RequestState {
 
   // Convenience
   createNewRequest: (type: RequestType) => string;
+  /**
+   * Opens a new placeholder HTTP tab tagged with a pseudo-mode (WS / Socket.IO
+   * / Kafka / GraphQL). The actual connection state lives in the per-protocol
+   * store; the tab is just the workspace shell.
+   */
+  openTabWithMode: (mode: TabModeOverride) => string;
   renameTab: (tabId: string, name: string) => void;
   linkTabToSavedRequest: (tabId: string, savedRequestId: string) => void;
   clearTabDirty: (tabId: string) => void;
@@ -127,6 +137,24 @@ function patchActiveTab(
   return state.tabs.map((t) => (t.id === state.activeTabId ? patch(t) : t));
 }
 
+/**
+ * Dispatches per-tab connection cleanup to the WS/Socket.IO/Kafka stores when
+ * one or more tabs are closed. None of those stores import useRequestStore,
+ * so top-level imports are safe — and they avoid async tasks that outlive
+ * the test environment's teardown.
+ */
+function dispatchTabCleanup(closedTabIds: string[]): void {
+  if (closedTabIds.length === 0) return;
+  const ws = useWebSocketStore.getState();
+  const sio = useSocketIOStore.getState();
+  const kafka = useKafkaStore.getState();
+  for (const id of closedTabIds) {
+    ws.cleanupConnectionForTab(id);
+    sio.cleanupConnectionForTab(id);
+    kafka.cleanupConnectionForTab(id);
+  }
+}
+
 export const useRequestStore = create<RequestState>()(
   persist(
     (set, get) => {
@@ -162,6 +190,7 @@ export const useRequestStore = create<RequestState>()(
             nextActive = fallback ? fallback.id : null;
           }
           set({ tabs: newTabs, activeTabId: nextActive });
+          dispatchTabCleanup([id]);
         },
 
         switchTab: (id) => {
@@ -178,7 +207,10 @@ export const useRequestStore = create<RequestState>()(
             ...(JSON.parse(JSON.stringify(source.request)) as Request),
             id: uuidv4(),
           };
-          const tab = createTabFromRequest(clonedRequest);
+          const tab = createTabFromRequest(
+            clonedRequest,
+            source.modeOverride !== undefined ? { modeOverride: source.modeOverride } : {}
+          );
           set((s) => ({
             tabs: [...s.tabs, tab],
             activeTabId: tab.id,
@@ -201,10 +233,16 @@ export const useRequestStore = create<RequestState>()(
           const state = get();
           const keep = state.tabs.find((t) => t.id === id);
           if (!keep) return;
+          const removed = state.tabs.filter((t) => t.id !== id).map((t) => t.id);
           set({ tabs: [keep], activeTabId: keep.id });
+          dispatchTabCleanup(removed);
         },
 
-        closeAllTabs: () => set({ tabs: [], activeTabId: null }),
+        closeAllTabs: () => {
+          const removed = get().tabs.map((t) => t.id);
+          set({ tabs: [], activeTabId: null });
+          dispatchTabCleanup(removed);
+        },
 
         updateRequest: (updates) => {
           const state = get();
@@ -270,6 +308,15 @@ export const useRequestStore = create<RequestState>()(
         createNewRequest: (type) => {
           const request = defaultRequestForType(type);
           return get().openTab(request);
+        },
+
+        openTabWithMode: (mode) => {
+          const tab = createTabFromRequest(createDefaultHttpRequest(), { modeOverride: mode });
+          set((state) => ({
+            tabs: [...state.tabs, tab],
+            activeTabId: tab.id,
+          }));
+          return tab.id;
         },
 
         renameTab: (tabId, name) => {

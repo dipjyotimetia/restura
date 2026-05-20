@@ -1,9 +1,9 @@
-import type { Request, RequestTab, Response } from '@/types';
+import type { Request, RequestTab, Response, TabModeOverride } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 export function createTabFromRequest(
   request: Request,
-  options: { savedRequestId?: string } = {}
+  options: { savedRequestId?: string; modeOverride?: TabModeOverride } = {}
 ): RequestTab {
   const tab: RequestTab = {
     id: `tab_${uuidv4()}`,
@@ -12,6 +12,9 @@ export function createTabFromRequest(
   };
   if (options.savedRequestId !== undefined) {
     tab.savedRequestId = options.savedRequestId;
+  }
+  if (options.modeOverride !== undefined) {
+    tab.modeOverride = options.modeOverride;
   }
   return tab;
 }

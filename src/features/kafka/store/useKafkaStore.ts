@@ -88,6 +88,8 @@ export interface KafkaConnection {
 interface KafkaState {
   connections: Record<string, KafkaConnection>;
   activeConnectionId: string | null;
+  /** Workspace-tab → connection mapping (mirrors useWebSocketStore). */
+  connectionByTabId: Record<string, string>;
   messageFilter: KafkaMessageDirection | 'all';
   searchQuery: string;
 
@@ -95,6 +97,10 @@ interface KafkaState {
   createConnection: (init?: Partial<Pick<KafkaConnection, 'name' | 'bootstrapBrokers' | 'clientId'>>) => string;
   removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
+  /** Idempotent — returns the existing tab connection or creates a fresh one. */
+  ensureConnectionForTab: (tabId: string) => string;
+  /** Disconnects (async, best-effort) and removes the connection bound to `tabId`. */
+  cleanupConnectionForTab: (tabId: string) => void;
 
   // Connection metadata
   updateConnection: (
@@ -151,6 +157,7 @@ export const useKafkaStore = create<KafkaState>()(
     (set, get) => ({
       connections: {},
       activeConnectionId: null,
+      connectionByTabId: {},
       messageFilter: 'all',
       searchQuery: '',
 
@@ -163,11 +170,50 @@ export const useKafkaStore = create<KafkaState>()(
         return conn.id;
       },
 
+      ensureConnectionForTab: (tabId) => {
+        const existing = get().connectionByTabId[tabId];
+        if (existing && get().connections[existing]) {
+          if (get().activeConnectionId !== existing) set({ activeConnectionId: existing });
+          return existing;
+        }
+        const id = get().createConnection();
+        set((state) => ({
+          connectionByTabId: { ...state.connectionByTabId, [tabId]: id },
+          activeConnectionId: id,
+        }));
+        return id;
+      },
+
+      cleanupConnectionForTab: (tabId) => {
+        const connectionId = get().connectionByTabId[tabId];
+        if (!connectionId) return;
+        // Lazy import — kafkaManager imports useKafkaStore, so a top-level
+        // import would create a load-order cycle. The promise is intentionally
+        // not awaited; cleanup is fire-and-forget.
+        void import('@/features/kafka/lib/kafkaManager')
+          .then((m) => m.kafkaManager.disconnect(connectionId))
+          .catch(() => undefined);
+        set((state) => {
+          const { [connectionId]: _drop, ...restConns } = state.connections;
+          const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;
+          return {
+            connections: restConns,
+            connectionByTabId: restMap,
+            activeConnectionId:
+              state.activeConnectionId === connectionId ? null : state.activeConnectionId,
+          };
+        });
+      },
+
       removeConnection: (id) =>
         set((state) => {
           const { [id]: _removed, ...rest } = state.connections;
+          const nextMap = Object.fromEntries(
+            Object.entries(state.connectionByTabId).filter(([, cid]) => cid !== id)
+          );
           return {
             connections: rest,
+            connectionByTabId: nextMap,
             activeConnectionId: state.activeConnectionId === id ? null : state.activeConnectionId,
           };
         }),
@@ -299,6 +345,7 @@ export const useKafkaStore = create<KafkaState>()(
           ])
         ),
         activeConnectionId: state.activeConnectionId,
+        connectionByTabId: state.connectionByTabId,
       }),
     }
   )

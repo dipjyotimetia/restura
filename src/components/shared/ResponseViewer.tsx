@@ -4,6 +4,7 @@ import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/sto
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
+import { detectLanguage } from '@/lib/shared/console-format';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Copy, Check, Zap, Rows, Columns, Search, Download,
@@ -26,6 +27,10 @@ import {
 } from '@/components/ui/spatial';
 import type * as Monaco from 'monaco-editor';
 
+// Bodies above this size skip pretty-print to avoid freezing the main thread
+// on multi-MB responses; raw text still renders fine through Monaco.
+const PRETTY_PRINT_MAX_BYTES = 1_000_000;
+
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
   <div className="absolute inset-0 p-4 space-y-2">
@@ -37,35 +42,20 @@ const CodeEditor = lazyComponent(
 );
 
 const formatJson = (body: string): string => {
+  if (body.length > PRETTY_PRINT_MAX_BYTES) return body;
   try {
-    const parsed = JSON.parse(body);
-    return JSON.stringify(parsed, null, 2);
+    return JSON.stringify(JSON.parse(body), null, 2);
   } catch {
     return body;
   }
 };
 
-const detectLanguage = (body: string, headers: Record<string, string | string[]>): string => {
-  const rawCt = headers['content-type'] ?? headers['Content-Type'] ?? '';
-  const contentType = (Array.isArray(rawCt) ? rawCt[0] ?? '' : rawCt);
-
-  if (contentType.includes('application/json')) return 'json';
-  if (contentType.includes('application/xml') || contentType.includes('text/xml')) return 'xml';
-  if (contentType.includes('text/html')) return 'html';
-  if (contentType.includes('text/css')) return 'css';
-  if (contentType.includes('text/javascript') || contentType.includes('application/javascript')) return 'javascript';
-
-  try {
-    JSON.parse(body);
-    return 'json';
-  } catch {
-    // Not JSON
-  }
-
-  if (body.trim().startsWith('<')) return 'xml';
-
-  return 'text';
-};
+function alpnLabel(alpn?: 'h1.1' | 'h2' | 'h3'): string {
+  if (alpn === 'h2') return 'HTTP/2';
+  if (alpn === 'h3') return 'HTTP/3';
+  if (alpn === 'h1.1') return 'HTTP/1.1';
+  return '—';
+}
 
 function ResponseSkeleton() {
   return (
@@ -102,13 +92,6 @@ function ResponseSkeleton() {
 type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview';
 type BodyFormat = 'pretty' | 'raw' | 'preview';
 
-function alpnLabel(alpn?: 'h1.1' | 'h2' | 'h3'): string {
-  if (alpn === 'h2') return 'HTTP/2';
-  if (alpn === 'h3') return 'HTTP/3';
-  if (alpn === 'h1.1') return 'HTTP/1.1';
-  return '—';
-}
-
 function IconButton({
   icon,
   label,
@@ -136,12 +119,25 @@ function IconButton({
   );
 }
 
+function LayoutToggleButton() {
+  const { settings, updateSettings } = useSettingsStore();
+  const vertical = settings.layoutOrientation === 'vertical';
+  return (
+    <IconButton
+      icon={vertical ? <Columns className="h-3.5 w-3.5" /> : <Rows className="h-3.5 w-3.5" />}
+      label={`Switch to ${vertical ? 'side-by-side' : 'stacked'} layout`}
+      onClick={() =>
+        updateSettings({ layoutOrientation: vertical ? 'horizontal' : 'vertical' })
+      }
+    />
+  );
+}
+
 function ResponseViewer() {
   const currentResponse = useActiveResponse();
   const streamingEvents = useActiveStreamingEvents();
   const activeTabId = useActiveTab()?.id;
   const isLoading = useRequestStore((state) => state.isLoading);
-  const { settings, updateSettings } = useSettingsStore();
   const [activeTab, setActiveTab] = useState<ResponseTab>('body');
   const [bodyFormat, setBodyFormat] = useState<BodyFormat>('pretty');
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
@@ -158,23 +154,21 @@ function ResponseViewer() {
     };
   }, []);
 
-  const toggleLayout = () => {
-    updateSettings({
-      layoutOrientation: settings.layoutOrientation === 'vertical' ? 'horizontal' : 'vertical',
-    });
-  };
-
   const language = useMemo(
     () => (currentResponse ? detectLanguage(currentResponse.body, currentResponse.headers) : 'json'),
     [currentResponse]
   );
 
+  // Pretty-printing a large JSON body can stall the main thread, so only
+  // compute it when the body/preview tab is actually visible.
   const formattedBody = useMemo(() => {
     if (!currentResponse) return '';
+    const showsBody = activeTab === 'body' || activeTab === 'preview';
+    if (!showsBody) return '';
     if (bodyFormat === 'raw') return currentResponse.body;
     if (language === 'json') return formatJson(currentResponse.body);
     return currentResponse.body;
-  }, [currentResponse, language, bodyFormat]);
+  }, [currentResponse, language, bodyFormat, activeTab]);
 
   const headerEntries = useMemo(
     () => Object.entries(currentResponse?.headers ?? {}),
@@ -187,7 +181,6 @@ function ResponseViewer() {
     return headerEntries.filter(([key]) => key.toLowerCase().includes(needle));
   }, [headerEntries, headerFilter]);
 
-  // Cookies: parse Set-Cookie headers (if any) into a simple display list.
   const cookies = useMemo(() => {
     if (!currentResponse) return [] as Array<{ name: string; value: string; attrs: string }>;
     const raw = currentResponse.headers['set-cookie'] ?? currentResponse.headers['Set-Cookie'];
@@ -202,9 +195,10 @@ function ResponseViewer() {
     });
   }, [currentResponse]);
 
-  // Server-Timing parse — for the Timeline panel.
   const serverTiming = useMemo(() => {
-    if (!currentResponse) return [] as Array<{ name: string; dur?: number; desc?: string }>;
+    if (!currentResponse || activeTab !== 'timeline') {
+      return [] as Array<{ name: string; dur?: number; desc?: string }>;
+    }
     const raw = currentResponse.headers['server-timing'] ?? currentResponse.headers['Server-Timing'];
     if (!raw) return [];
     const list = Array.isArray(raw) ? raw : [raw];
@@ -214,8 +208,7 @@ function ResponseViewer() {
         const segs = part.split(';').map((s) => s.trim());
         const first = segs[0];
         if (!first) continue;
-        const name = first;
-        const parsed: { name: string; dur?: number; desc?: string } = { name };
+        const parsed: { name: string; dur?: number; desc?: string } = { name: first };
         for (const seg of segs.slice(1)) {
           const eq = seg.indexOf('=');
           if (eq < 0) continue;
@@ -228,7 +221,7 @@ function ResponseViewer() {
       }
     }
     return out;
-  }, [currentResponse]);
+  }, [currentResponse, activeTab]);
 
   const handleCopyHeader = async (key: string, value: string | string[]) => {
     const displayValue = Array.isArray(value) ? value.join(', ') : value;
@@ -268,7 +261,6 @@ function ResponseViewer() {
     URL.revokeObjectURL(url);
   };
 
-  // Streaming path
   if (streamingEvents) {
     return (
       <TooltipProvider delayDuration={300}>
@@ -280,11 +272,7 @@ function ResponseViewer() {
           <div className="h-11 flex items-center px-3 border-b border-sp-line">
             <span className="sp-label">Streaming response</span>
             <div className="flex-1" />
-            <IconButton
-              icon={settings.layoutOrientation === 'vertical' ? <Columns className="h-3.5 w-3.5" /> : <Rows className="h-3.5 w-3.5" />}
-              label={`Switch to ${settings.layoutOrientation === 'vertical' ? 'side-by-side' : 'stacked'} layout`}
-              onClick={toggleLayout}
-            />
+            <LayoutToggleButton />
           </div>
           <div className="flex-1 min-h-0">
             <StreamingResponseViewer events={streamingEvents} />
@@ -294,7 +282,6 @@ function ResponseViewer() {
     );
   }
 
-  // Tabs configuration (counts derived from response)
   const tabs: ReadonlyArray<SubTab<ResponseTab>> = [
     ...(language === 'html' ? [{ value: 'preview' as const, label: 'Preview' }] : []),
     { value: 'body' as const, label: 'Body', ...(language !== 'text' && { badge: language.toUpperCase() }) },
@@ -304,9 +291,8 @@ function ResponseViewer() {
     { value: 'tests' as const, label: 'Tests' },
   ];
 
-  // Waterfall: best-effort. We only have total `time` — render a single
-  // "Wait" segment (the response's emphasised TTFB color) so the layout
-  // matches the design language without inventing fake DNS/TCP/TLS splits.
+  // Only the total `time` is available on Response — we render a single TTFB
+  // segment rather than invent DNS/TCP/TLS splits we don't have data for.
   const waterfallSegments = currentResponse
     ? [{ label: 'Wait', ms: currentResponse.time, color: '#4d9fff', emphasised: true }]
     : [];
@@ -339,7 +325,7 @@ function ResponseViewer() {
               elevation="float-lg"
               className="h-full flex flex-col items-center justify-center gap-4 text-sp-dim relative z-20"
             >
-              <Floater radius="panel" elevation="float" className="flex flex-col items-center gap-3 px-8 py-6">
+              <div className="flex flex-col items-center gap-3 px-8 py-6 rounded-sp-panel sp-inset">
                 <Zap className="h-6 w-6 text-sp-accent opacity-60" />
                 <div className="text-center space-y-1">
                   <p className="text-sp-12 font-mono text-sp-muted">Send a request to see the response</p>
@@ -348,7 +334,7 @@ function ResponseViewer() {
                     <Kbd size="xs">↵</Kbd>
                   </div>
                 </div>
-              </Floater>
+              </div>
             </Floater>
           </motion.div>
         ) : (
@@ -365,7 +351,7 @@ function ResponseViewer() {
               elevation="float-lg"
               className="h-full flex flex-col overflow-hidden relative z-20"
             >
-              {/* Status zone — 12px×16px padding, hairline bottom per handoff §5 */}
+              {/* Status row padding 12×16 / hairline bottom per handoff §5 */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-sp-line">
                 <StatusPill status={currentResponse.status} text={currentResponse.statusText} />
                 <Stat label="Time" value={formatTime(currentResponse.time)} />
@@ -374,20 +360,14 @@ function ResponseViewer() {
 
                 <div className="flex-1" />
 
-                {/* Waterfall on the right */}
                 <div className="flex flex-col items-end gap-1">
                   <span className="sp-label">Waterfall</span>
                   <WaterfallBar segments={waterfallSegments} width={220} height={8} />
                 </div>
 
-                <IconButton
-                  icon={settings.layoutOrientation === 'vertical' ? <Columns className="h-3.5 w-3.5" /> : <Rows className="h-3.5 w-3.5" />}
-                  label={`Switch to ${settings.layoutOrientation === 'vertical' ? 'side-by-side' : 'stacked'} layout`}
-                  onClick={toggleLayout}
-                />
+                <LayoutToggleButton />
               </div>
 
-              {/* SubTabBar with body-format Segmented + copy/download on the right */}
               <SubTabBar
                 tabs={tabs}
                 value={activeTab}
@@ -426,7 +406,6 @@ function ResponseViewer() {
                 }
               />
 
-              {/* Panel content */}
               <div className="flex-1 min-h-0 overflow-hidden">
                 {activeTab === 'body' && (
                   <div className="relative h-full" style={{ background: 'var(--sp-code)' }}>

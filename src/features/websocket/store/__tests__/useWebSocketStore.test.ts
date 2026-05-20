@@ -325,4 +325,59 @@ describe('useWebSocketStore', () => {
       expect(active?.url).toBe('ws://test.com');
     });
   });
+
+  describe('ensureConnectionForTab / cleanupConnectionForTab', () => {
+    it('creates a connection and binds it to the given tabId', () => {
+      const store = useWebSocketStore.getState();
+      const id = store.ensureConnectionForTab('tab-A');
+      const state = useWebSocketStore.getState();
+      expect(state.connectionByTabId['tab-A']).toBe(id);
+      expect(state.connections[id]).toBeDefined();
+      expect(state.activeConnectionId).toBe(id);
+    });
+
+    it('is idempotent — repeat calls for the same tab return the same id', () => {
+      const a = useWebSocketStore.getState().ensureConnectionForTab('tab-A');
+      const b = useWebSocketStore.getState().ensureConnectionForTab('tab-A');
+      expect(a).toBe(b);
+      expect(Object.keys(useWebSocketStore.getState().connections)).toHaveLength(1);
+    });
+
+    it('keeps connections independent across tabs', () => {
+      const a = useWebSocketStore.getState().ensureConnectionForTab('tab-A');
+      const b = useWebSocketStore.getState().ensureConnectionForTab('tab-B');
+      expect(a).not.toBe(b);
+      const state = useWebSocketStore.getState();
+      expect(state.connectionByTabId['tab-A']).toBe(a);
+      expect(state.connectionByTabId['tab-B']).toBe(b);
+    });
+
+    it('flips activeConnectionId to the tab’s connection on re-ensure', () => {
+      const a = useWebSocketStore.getState().ensureConnectionForTab('tab-A');
+      useWebSocketStore.getState().ensureConnectionForTab('tab-B');
+      // After creating B, active is B's id. Re-ensure A — active must flip back.
+      useWebSocketStore.getState().ensureConnectionForTab('tab-A');
+      expect(useWebSocketStore.getState().activeConnectionId).toBe(a);
+    });
+
+    it('cleanupConnectionForTab removes both the connection and the mapping', () => {
+      const id = useWebSocketStore.getState().ensureConnectionForTab('tab-A');
+      useWebSocketStore.getState().cleanupConnectionForTab('tab-A');
+      const state = useWebSocketStore.getState();
+      expect(state.connections[id]).toBeUndefined();
+      expect(state.connectionByTabId['tab-A']).toBeUndefined();
+      expect(state.activeConnectionId).toBeNull();
+    });
+
+    it('cleanupConnectionForTab is a no-op for unknown tabs', () => {
+      useWebSocketStore.getState().cleanupConnectionForTab('does-not-exist');
+      expect(useWebSocketStore.getState().connections).toEqual({});
+    });
+
+    it('removeConnection prunes any tab mapping pointing at the deleted id', () => {
+      const id = useWebSocketStore.getState().ensureConnectionForTab('tab-A');
+      useWebSocketStore.getState().removeConnection(id);
+      expect(useWebSocketStore.getState().connectionByTabId['tab-A']).toBeUndefined();
+    });
+  });
 });

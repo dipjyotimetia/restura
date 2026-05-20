@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -19,7 +19,9 @@ import {
   VariableText,
   CodeEditorFrame,
 } from '@/components/ui/spatial';
+import { useShallow } from 'zustand/react/shallow';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useActiveTabId } from '@/store/selectors';
 import type {
   WebSocketMessageType,
 } from '@/features/websocket/store/useWebSocketStore';
@@ -120,13 +122,17 @@ function WebSocketClient() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
 
   const { resolveVariables } = useEnvironmentStore();
+  const activeTabId = useActiveTabId();
 
+  const connectionByTabId = useWebSocketStore((s) => s.connectionByTabId);
+  const messageFilter = useWebSocketStore((s) => s.messageFilter);
+  const searchQuery = useWebSocketStore((s) => s.searchQuery);
+  const activeConnectionId = activeTabId ? connectionByTabId[activeTabId] ?? null : null;
+  const connection = useWebSocketStore((s) =>
+    activeConnectionId ? s.connections[activeConnectionId] ?? null : null
+  );
   const {
-    activeConnectionId,
-    connections,
-    messageFilter,
-    searchQuery,
-    createConnection,
+    ensureConnectionForTab,
     updateConnectionUrl,
     setAutoReconnect,
     clearMessages,
@@ -134,28 +140,22 @@ function WebSocketClient() {
     setSearchQuery,
     getFilteredMessages,
     addMessage,
-  } = useWebSocketStore();
-
-  const connection = activeConnectionId ? connections[activeConnectionId] : null;
-
-  const activeConnectionIdRef = useRef(activeConnectionId);
-  useEffect(() => {
-    activeConnectionIdRef.current = activeConnectionId;
-  }, [activeConnectionId]);
-
-  useEffect(() => {
-    if (!activeConnectionId) {
-      createConnection();
-    }
-  }, [activeConnectionId, createConnection]);
+  } = useWebSocketStore(
+    useShallow((s) => ({
+      ensureConnectionForTab: s.ensureConnectionForTab,
+      updateConnectionUrl: s.updateConnectionUrl,
+      setAutoReconnect: s.setAutoReconnect,
+      clearMessages: s.clearMessages,
+      setMessageFilter: s.setMessageFilter,
+      setSearchQuery: s.setSearchQuery,
+      getFilteredMessages: s.getFilteredMessages,
+      addMessage: s.addMessage,
+    }))
+  );
 
   useEffect(() => {
-    return () => {
-      if (activeConnectionIdRef.current) {
-        websocketManager.disconnect(activeConnectionIdRef.current);
-      }
-    };
-  }, []);
+    if (activeTabId) ensureConnectionForTab(activeTabId);
+  }, [activeTabId, ensureConnectionForTab]);
 
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -179,7 +179,7 @@ function WebSocketClient() {
   if (!connection || !activeConnectionId) {
     return (
       <div className="flex-1 flex items-center justify-center bg-sp-bg">
-        <Button onClick={() => createConnection()}>Create Connection</Button>
+        <p className="text-sp-12 text-sp-dim font-mono">Preparing WebSocket connection…</p>
       </div>
     );
   }

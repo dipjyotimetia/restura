@@ -21,6 +21,7 @@ import {
   CodeEditorFrame,
 } from '@/components/ui/spatial';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useActiveTabId } from '@/store/selectors';
 import {
   useSocketIOStore,
   type SocketIOEventDirection,
@@ -152,14 +153,16 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
 }
 
 function SocketIOClient() {
-  const activeConnectionId = useSocketIOStore((s) => s.activeConnectionId);
+  const activeTabId = useActiveTabId();
+  const connectionByTabId = useSocketIOStore((s) => s.connectionByTabId);
+  const activeConnectionId = activeTabId ? connectionByTabId[activeTabId] ?? null : null;
   const connection = useSocketIOStore((s) =>
-    s.activeConnectionId ? s.connections[s.activeConnectionId] ?? null : null
+    activeConnectionId ? s.connections[activeConnectionId] ?? null : null
   );
   const eventFilter = useSocketIOStore((s) => s.eventFilter);
   const searchQuery = useSocketIOStore((s) => s.searchQuery);
   const {
-    createConnection,
+    ensureConnectionForTab,
     updateConnectionField,
     addEvent,
     clearEvents,
@@ -168,7 +171,7 @@ function SocketIOClient() {
     getFilteredEvents,
   } = useSocketIOStore(
     useShallow((s) => ({
-      createConnection: s.createConnection,
+      ensureConnectionForTab: s.ensureConnectionForTab,
       updateConnectionField: s.updateConnectionField,
       addEvent: s.addEvent,
       clearEvents: s.clearEvents,
@@ -187,22 +190,8 @@ function SocketIOClient() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!activeConnectionId) {
-      createConnection();
-    }
-  }, [activeConnectionId, createConnection]);
-
-  const activeIdRef = useRef(activeConnectionId);
-  useEffect(() => {
-    activeIdRef.current = activeConnectionId;
-  }, [activeConnectionId]);
-  useEffect(() => {
-    return () => {
-      if (activeIdRef.current) {
-        socketioManager.disconnect(activeIdRef.current);
-      }
-    };
-  }, []);
+    if (activeTabId) ensureConnectionForTab(activeTabId);
+  }, [activeTabId, ensureConnectionForTab]);
 
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -242,7 +231,7 @@ function SocketIOClient() {
   if (!connection || !activeConnectionId) {
     return (
       <div className="flex flex-1 items-center justify-center bg-sp-bg p-8">
-        <Button onClick={() => createConnection()}>Create Connection</Button>
+        <p className="text-sp-12 text-sp-dim font-mono">Preparing Socket.IO connection…</p>
       </div>
     );
   }
