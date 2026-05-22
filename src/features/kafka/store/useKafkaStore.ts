@@ -361,13 +361,13 @@ function redactSecrets(auth: KafkaAuth): KafkaAuth {
     };
   }
   if (auth.tls) {
-    next.tls = {
-      caPath: auth.tls.caPath,
-      certPath: auth.tls.certPath,
-      keyPath: auth.tls.keyPath,
-      passphrase: auth.tls.passphrase ? KAFKA_SECRET_SENTINEL : undefined,
-      rejectUnauthorized: auth.tls.rejectUnauthorized,
-    };
+    const tls: KafkaTls = {};
+    if (auth.tls.caPath !== undefined) tls.caPath = auth.tls.caPath;
+    if (auth.tls.certPath !== undefined) tls.certPath = auth.tls.certPath;
+    if (auth.tls.keyPath !== undefined) tls.keyPath = auth.tls.keyPath;
+    if (auth.tls.passphrase) tls.passphrase = KAFKA_SECRET_SENTINEL;
+    if (auth.tls.rejectUnauthorized !== undefined) tls.rejectUnauthorized = auth.tls.rejectUnauthorized;
+    next.tls = tls;
   }
   return next;
 }

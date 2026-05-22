@@ -257,7 +257,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             type,
             dataType,
             content,
-            binaryData,
+            ...(binaryData !== undefined ? { binaryData } : {}),
             timestamp: Date.now(),
           };
 
