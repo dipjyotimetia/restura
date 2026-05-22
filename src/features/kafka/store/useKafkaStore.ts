@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages } from '@/lib/shared/message-cap';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
 export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
@@ -187,12 +188,11 @@ export const useKafkaStore = create<KafkaState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
-        // Lazy import — kafkaManager imports useKafkaStore, so a top-level
-        // import would create a load-order cycle. The promise is intentionally
-        // not awaited; cleanup is fire-and-forget.
-        void import('@/features/kafka/lib/kafkaManager')
-          .then((m) => m.kafkaManager.disconnect(connectionId))
-          .catch(() => undefined);
+        try {
+          void kafkaManager.disconnect(connectionId);
+        } catch {
+          /* ignore — manager handles missing/already-closed connections */
+        }
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;

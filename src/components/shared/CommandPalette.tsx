@@ -41,6 +41,11 @@ interface CommandPaletteProps {
   onChangeMode?: (
     mode: 'http' | 'grpc' | 'websocket' | 'socketio' | 'sse' | 'mcp' | 'graphql' | 'kafka'
   ) => void;
+  // Optional controlled mode — when both are provided the palette becomes
+  // controlled (e.g. opened by the chrome Search pill). When omitted the
+  // palette keeps its internal Cmd+K listener as the sole open source.
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 type ItemKind = 'request' | 'new' | 'action' | 'setting';
@@ -99,8 +104,23 @@ export default function CommandPalette({
   onOpenImport,
   onSendRequest,
   onChangeMode,
+  open: openProp,
+  onOpenChange,
 }: CommandPaletteProps) {
-  const [open, setOpen] = useState(false);
+  const [openInternal, setOpenInternal] = useState(false);
+  const isControlled = openProp !== undefined && onOpenChange !== undefined;
+  const open = isControlled ? openProp : openInternal;
+  const setOpen = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      if (isControlled) {
+        const resolved = typeof next === 'function' ? next(openProp) : next;
+        onOpenChange(resolved);
+      } else {
+        setOpenInternal(next);
+      }
+    },
+    [isControlled, onOpenChange, openProp]
+  );
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -113,7 +133,7 @@ export default function CommandPalette({
   const history = useHistoryStore((s) => s.history);
   const currentResponse = useActiveResponse();
 
-  // Toggle ⌘K / Ctrl+K
+  // Toggle ⌘K / Ctrl+K — works regardless of controlled/uncontrolled mode.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -123,7 +143,7 @@ export default function CommandPalette({
     };
     document.addEventListener('keydown', down);
     return () => document.removeEventListener('keydown', down);
-  }, []);
+  }, [setOpen]);
 
   // Reset transient state on open
   useEffect(() => {
@@ -133,7 +153,7 @@ export default function CommandPalette({
     }
   }, [open]);
 
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => setOpen(false), [setOpen]);
   const run = useCallback(
     (cmd: () => void) => {
       close();

@@ -60,13 +60,12 @@ export default function Sidebar({ activePanel, onClose, onOpenEnvironmentManager
       radius="panel"
       elevation="float"
       className={cn(
-        'flex flex-col shrink-0 h-full overflow-hidden',
-        // 268px fixed width per design; reserve the remaining space for the
-        // workspace. Padding lives on the floater so the inner sidebar can
+        'flex flex-col h-full w-full overflow-hidden',
+        // Width is owned by the animated wrapper in routes/index.tsx (268px
+        // per design). Padding lives on the floater so the inner sidebar can
         // still scroll edge-to-edge of the visible frame.
-        'w-67 p-2 gap-2 bg-sp-surface text-sp-text'
+        'p-2 gap-2 bg-sp-surface text-sp-text'
       )}
-      style={{ width: 268 }}
     >
       {/* Org header — gradient + glow shadow anchor the panel visually. The
           trailing Import icon is the only direct entry to the import flow now

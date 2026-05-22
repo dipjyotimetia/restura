@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   X,
@@ -15,9 +15,12 @@ import {
   Info,
   Check,
   Sliders,
+  Trash2,
+  Upload,
   type LucideIcon,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { toast } from 'sonner';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import {
   ToggleField,
@@ -25,11 +28,16 @@ import {
   Stepper,
   TextField,
   Kbd,
+  Floater,
 } from '@/components/ui/spatial';
 import { SPATIAL_ACCENT_PRESETS, type SpatialAccent } from '@/types';
 import { cn } from '@/lib/shared/utils';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { readFileAsText } from '@/lib/shared/file-utils';
+import { CertificateOverride } from '@/features/http/components/CertificateOverride';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 
-type SectionId =
+export type SectionId =
   | 'general'
   | 'appearance'
   | 'requests'
@@ -105,15 +113,24 @@ const SHORTCUT_GROUPS: Array<{
 export interface SettingsDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Optional section to land on when the drawer opens. Defaults to 'general'.
+   * Used by Cmd+/ → 'shortcuts'.
+   */
+  initialSection?: SectionId;
 }
 
-export default function SettingsDrawer({ open, onOpenChange }: SettingsDrawerProps) {
-  const [activeSection, setActiveSection] = useState<SectionId>('general');
+export default function SettingsDrawer({
+  open,
+  onOpenChange,
+  initialSection = 'general',
+}: SettingsDrawerProps) {
+  const [activeSection, setActiveSection] = useState<SectionId>(initialSection);
 
-  // Reset to General when drawer reopens
+  // Reset to the requested initial section whenever the drawer reopens.
   useEffect(() => {
-    if (open) setActiveSection('general');
-  }, [open]);
+    if (open) setActiveSection(initialSection);
+  }, [open, initialSection]);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -535,29 +552,137 @@ function ProxySection() {
 
 function CertificatesSection() {
   const settings = useSettingsStore((s) => s.settings);
+  const setClientCert = useSettingsStore((s) => s.setClientCert);
+  const setCaCert = useSettingsStore((s) => s.setCaCert);
+  const [caFileName, setCaFileName] = React.useState('');
+  const [pastedCa, setPastedCa] = React.useState(settings.caCert?.pem ?? '');
+  const caFileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleCaFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await readFileAsText(file);
+      setCaFileName(file.name);
+      setPastedCa('');
+      setCaCert({ pem: text });
+      toast.success(`CA loaded from ${file.name}`);
+    } catch {
+      toast.error('Failed to read certificate file');
+    }
+    e.target.value = '';
+  };
+
+  const handleCaPaste = (value: string) => {
+    setPastedCa(value);
+    setCaFileName('');
+    if (value.trim()) {
+      setCaCert({ pem: value.trim() });
+    } else {
+      setCaCert(undefined);
+    }
+  };
+
+  const handleClearCa = () => {
+    setCaCert(undefined);
+    setCaFileName('');
+    setPastedCa('');
+    if (caFileInputRef.current) caFileInputRef.current.value = '';
+  };
+
+  const hasCa = !!settings.caCert?.pem;
 
   return (
     <>
       <H1>Certificates</H1>
       <p className="text-sp-13 text-sp-muted">
-        Configure client certificates and custom CA bundles. Available on desktop.
+        Configure client certificates and custom CA bundles.
+        <DesktopOnlyBadge title="Browsers can't present client certificates or override the system trust store. Certificates only take effect in the Restura desktop app." />
       </p>
 
-      <SectionLabel>Client certificate</SectionLabel>
-      <div className="py-3 border-b border-sp-line">
-        <div className="text-sp-13 text-sp-muted">
-          {settings.clientCert
-            ? `${settings.clientCert.format.toUpperCase()} certificate configured.`
-            : 'No client certificate configured.'}
-        </div>
-      </div>
+      <SectionLabel>Client certificate (mTLS)</SectionLabel>
+      <Floater
+        radius="panel"
+        elevation="inset"
+        className="p-4"
+      >
+        <CertificateOverride
+          clientCert={settings.clientCert}
+          onCertChange={setClientCert}
+        />
+      </Floater>
 
-      <SectionLabel>Custom CA</SectionLabel>
-      <div className="py-3">
-        <div className="text-sp-13 text-sp-muted">
-          {settings.caCert ? 'Custom CA bundle is active.' : 'Using system trust store.'}
+      <SectionLabel>Custom CA certificate</SectionLabel>
+      <Floater radius="panel" elevation="inset" className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <input
+            ref={caFileInputRef}
+            type="file"
+            accept=".pem,.crt,.cer"
+            onChange={handleCaFileSelect}
+            className="hidden"
+            aria-label="Choose CA certificate file"
+          />
+          <button
+            type="button"
+            onClick={() => caFileInputRef.current?.click()}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-sp-btn',
+              'bg-sp-surface border border-sp-line text-sp-text font-mono text-sp-12',
+              'hover:bg-sp-hover transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+            )}
+          >
+            <Upload size={12} aria-hidden="true" />
+            Choose file
+          </button>
+          <span className="text-sp-11-5 text-sp-muted font-mono truncate">
+            {caFileName || (hasCa ? '(loaded)' : 'No file chosen')}
+          </span>
+          {hasCa && (
+            <button
+              type="button"
+              onClick={handleClearCa}
+              aria-label="Clear CA certificate"
+              className={cn(
+                'ml-auto inline-flex items-center justify-center w-7 h-7 rounded-sp-btn',
+                'text-sp-muted hover:text-rose-400 hover:bg-sp-hover transition-colors',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+              )}
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
         </div>
-      </div>
+        <div>
+          <label
+            htmlFor="ca-pem-paste"
+            className="text-sp-11-5 text-sp-muted block mb-1"
+          >
+            …or paste a PEM bundle
+          </label>
+          <textarea
+            id="ca-pem-paste"
+            value={pastedCa}
+            onChange={(e) => handleCaPaste(e.target.value)}
+            placeholder="-----BEGIN CERTIFICATE-----&#10;..."
+            spellCheck={false}
+            className={cn(
+              'w-full min-h-[120px] rounded-sp-btn bg-sp-surface border border-sp-line',
+              'p-2 font-mono text-sp-11-5 text-sp-text placeholder:text-sp-dim',
+              'focus:outline-none focus:border-sp-line-strong focus:ring-2 focus:ring-[var(--sp-accent-glow-33)]',
+              'transition-colors resize-y'
+            )}
+          />
+        </div>
+        <p className="text-sp-11 text-amber-500 dark:text-amber-400 flex items-start gap-1.5">
+          <Info size={12} className="shrink-0 mt-0.5" aria-hidden="true" />
+          <span>
+            A custom CA replaces the system trust store for Restura's outbound
+            requests. Only add a CA you trust.
+          </span>
+        </p>
+      </Floater>
     </>
   );
 }
@@ -566,17 +691,119 @@ function CertificatesSection() {
 /*  Secrets                                                                    */
 /* -------------------------------------------------------------------------- */
 
+interface SecretHandleSummary {
+  id: string;
+  label?: string;
+  scope?: string;
+  createdAt: number;
+}
+
 function SecretsSection() {
+  const electron = isElectron();
+  const [handles, setHandles] = useState<SecretHandleSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!electron) return;
+    const api = getElectronAPI();
+    if (!api?.secrets?.list) return;
+    setLoading(true);
+    try {
+      const result = await api.secrets.list();
+      if (result.ok) {
+        setHandles(result.handles);
+      } else {
+        toast.error(`Failed to load handles: ${result.error}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [electron]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const handleDelete = async (id: string) => {
+    const api = getElectronAPI();
+    if (!api?.secrets?.delete) return;
+    const result = await api.secrets.delete(id);
+    if (!result.ok) {
+      toast.error(`Failed to delete: ${result.error}`);
+      return;
+    }
+    toast.success('Secret deleted');
+    void refresh();
+  };
+
+  if (!electron) {
+    return (
+      <>
+        <H1>Secrets</H1>
+        <p className="text-sp-13 text-sp-muted">
+          Tokens and keys referenced from your collections.
+          <DesktopOnlyBadge title="Secret storage requires the Restura desktop app — the browser has no OS keychain." />
+        </p>
+      </>
+    );
+  }
+
   return (
     <>
       <H1>Secrets</H1>
       <p className="text-sp-13 text-sp-muted">
-        Tokens and keys referenced from your collections. Stored in the OS keychain on desktop.
+        Plaintext for these handles lives in the OS keychain. Restura never reads them
+        in the renderer; the main process resolves them at the wire boundary only
+        when a request is sent.
       </p>
-      <div className="mt-6 rounded-sp-panel border border-sp-line bg-sp-surface-lo p-5 text-sp-13 text-sp-muted">
-        Secret management UI lives in the Auth tab on individual requests. A vault overview is coming
-        soon.
-      </div>
+
+      <SectionLabel>Stored handles</SectionLabel>
+      {loading ? (
+        <Floater radius="panel" elevation="inset" className="p-4">
+          <p className="text-sp-12 text-sp-muted font-mono">Loading…</p>
+        </Floater>
+      ) : handles.length === 0 ? (
+        <Floater radius="panel" elevation="inset" className="p-5">
+          <p className="text-sp-13 text-sp-muted">
+            No stored secrets yet. Use the &ldquo;Store&rdquo; button next to a password
+            field in any auth configuration to create a handle.
+          </p>
+        </Floater>
+      ) : (
+        <Floater radius="panel" elevation="inset" className="overflow-hidden">
+          <ul className="divide-y divide-sp-line">
+            {handles.map((h) => (
+              <li key={h.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <KeyRound className="h-3.5 w-3.5 text-sp-muted shrink-0" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="text-sp-12 font-mono text-sp-text truncate">
+                      {h.label || h.id.slice(0, 8) + '…'}
+                    </p>
+                    <p className="text-sp-11 text-sp-muted font-mono">
+                      {new Date(h.createdAt).toLocaleString()}
+                      {h.scope ? ` · scope: ${h.scope}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(h.id)}
+                  aria-label={`Delete handle ${h.label || h.id}`}
+                  title="Delete this handle"
+                  className={cn(
+                    'inline-flex items-center justify-center w-7 h-7 rounded-sp-btn shrink-0',
+                    'text-sp-muted hover:text-rose-400 hover:bg-sp-hover transition-colors',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                  )}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Floater>
+      )}
     </>
   );
 }
@@ -656,31 +883,3 @@ function AboutSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Hook: useSettingsDrawer — controlled open/close with ⌘, shortcut          */
-/* -------------------------------------------------------------------------- */
-
-export function useSettingsDrawer() {
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
-        e.preventDefault();
-        setOpen((o) => !o);
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, []);
-
-  const openDrawer = useCallback(() => setOpen(true), []);
-  const closeDrawer = useCallback(() => setOpen(false), []);
-
-  const props = useMemo(
-    () => ({ open, onOpenChange: setOpen }),
-    [open]
-  );
-
-  return { open, setOpen, openDrawer, closeDrawer, props };
-}

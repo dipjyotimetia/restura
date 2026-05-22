@@ -16,7 +16,7 @@ import TopBar from '@/components/shared/TopBar';
 import CommandPalette from '@/components/shared/CommandPalette';
 import ClientHydration from '@/components/shared/ClientHydration';
 import StatusBar from '@/components/shared/StatusBar';
-import SettingsDrawer from '@/components/shared/SettingsDrawer';
+import SettingsDrawer, { type SectionId } from '@/components/shared/SettingsDrawer';
 import { TabBar } from '@/components/shared/TabBar';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import EnvironmentManager from '@/features/environments/components/EnvironmentManager';
@@ -34,6 +34,8 @@ export default function Home() {
   const [activePanel, setActivePanel] = useState<ActivePanel | null>('collections');
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SectionId>('general');
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [saveDialogTabId, setSaveDialogTabId] = useState<string | null>(null);
   const [windowWidth, setWindowWidth] = useState(() =>
@@ -106,6 +108,12 @@ export default function Home() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault();
+        setSettingsInitialSection('general');
+        setSettingsOpen(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        e.preventDefault();
+        setSettingsInitialSection('shortcuts');
         setSettingsOpen(true);
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -181,7 +189,12 @@ export default function Home() {
         onRequestModeChange={handleRequestModeChange}
         onOpenImport={() => setImportDialogOpen(true)}
         setEnvManagerOpen={setEnvManagerOpen}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenEnvSwitcher={() => setEnvManagerOpen(true)}
+        onOpenCommandPalette={() => setPaletteOpen(true)}
+        onOpenSettings={() => {
+          setSettingsInitialSection('general');
+          setSettingsOpen(true);
+        }}
       />
 
       <div className="flex flex-1 overflow-hidden min-h-0 px-3.5 pb-3 gap-3">
@@ -230,13 +243,22 @@ export default function Home() {
       <StatusBar />
 
       <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
         onOpenEnvironments={() => setEnvManagerOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsInitialSection('general');
+          setSettingsOpen(true);
+        }}
         onOpenImport={() => setImportDialogOpen(true)}
         onSendRequest={handleSendRequest}
         onChangeMode={handleRequestModeChange}
       />
-      <SettingsDrawer open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsDrawer
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        initialSection={settingsInitialSection}
+      />
       <WelcomeOnboarding />
 
       {/* Dialogs */}

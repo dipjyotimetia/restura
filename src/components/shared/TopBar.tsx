@@ -1,4 +1,4 @@
-import { Globe, Settings, Sparkles } from 'lucide-react';
+import { Globe, Settings } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Floater, Kbd } from '@/components/ui/spatial';
@@ -68,7 +68,6 @@ interface WindowChromeProps {
   onOpenCommandPalette?: () => void;
   onOpenSettings?: () => void;
   onOpenEnvSwitcher?: () => void;
-  onOpenAssistant?: () => void;
 }
 
 /**
@@ -86,7 +85,6 @@ export function WindowChrome({
   onOpenCommandPalette,
   onOpenSettings,
   onOpenEnvSwitcher,
-  onOpenAssistant,
   setEnvManagerOpen,
 }: WindowChromeProps) {
   const { environments, activeEnvironmentId } = useEnvironmentStore(
@@ -175,7 +173,7 @@ export function WindowChrome({
         </button>
       </div>
 
-      {/* Right: search trigger + assistant + settings */}
+      {/* Right: search trigger + settings */}
       <div className="ml-auto flex items-center gap-1.5" style={region('no-drag')}>
         <button
           type="button"
@@ -194,11 +192,6 @@ export function WindowChrome({
         </button>
 
         <ChromeIconButton
-          label="Open AI assistant"
-          onClick={onOpenAssistant}
-          icon={<Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
-        />
-        <ChromeIconButton
           label="Open settings"
           onClick={onOpenSettings}
           icon={<Settings className="h-3.5 w-3.5" aria-hidden="true" />}
@@ -216,8 +209,6 @@ interface ChromeIconButtonProps {
 
 /**
  * Small icon-only chrome button (30×30) used in the right cluster.
- * Pulled out so both the assistant + settings affordances share spacing,
- * focus ring, and hover behaviour exactly.
  */
 function ChromeIconButton({ label, icon, onClick }: ChromeIconButtonProps) {
   return (

@@ -44,6 +44,14 @@ interface UrlBarProps {
   onOpenCodeGen: () => void;
 }
 
+// Matches a balanced `{{ name }}` template variable: alnum/underscore start,
+// followed by word/dot/dash chars. Used to gate the variable-highlight overlay
+// so partial input like `{{` or `}}` alone doesn't swap the input invisible.
+const VARIABLE_PATTERN = /\{\{\s*\w[\w.-]*\s*\}\}/;
+function hasVariable(s: string): boolean {
+  return VARIABLE_PATTERN.test(s);
+}
+
 /**
  * Spatial Depth URL bar. Method chip + monospace URL field (with {{var}}
  * highlight overlay) inside a pill-radius Floater, with a glowing accent
@@ -65,7 +73,7 @@ export function UrlBar({
       setUrlError(null);
       return;
     }
-    if (newUrl.includes('{{') && newUrl.includes('}}')) {
+    if (hasVariable(newUrl)) {
       setUrlError(null);
       return;
     }
@@ -151,10 +159,10 @@ export function UrlBar({
                 urlError ? 'text-rose-400' : 'text-sp-text',
                 // Make the visible glyphs transparent only when we have a
                 // {{var}} to overlay-render; otherwise show the raw input.
-                url.includes('{{') && url.includes('}}') && !urlError && 'text-transparent caret-sp-accent'
+                hasVariable(url) && !urlError && 'text-transparent caret-sp-accent'
               )}
             />
-            {url.includes('{{') && url.includes('}}') && !urlError && (
+            {hasVariable(url) && !urlError && (
               <div
                 aria-hidden="true"
                 className="absolute inset-0 pointer-events-none flex items-center overflow-hidden"

@@ -16,6 +16,8 @@ import type {
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
+import { assertKafkaBrokersSafe } from './kafka-broker-guard';
+import type { LogEntry } from './request-logger';
 import {
   KafkaConnectSchema,
   KafkaProduceSchema,
@@ -174,24 +176,66 @@ function bindStreamListeners(entry: ActiveKafka, stream: StringStream): void {
   });
 }
 
-export function registerKafkaHandlerIPC(): void {
+export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   ipcMain.handle('kafka:connect', async (event, rawConfig: unknown) => {
     const cfg = validateIpcInput(KafkaConnectSchema, rawConfig, 'kafka:connect');
     const { connectionId } = cfg;
     const webContentsId = event.sender.id;
+    const startTime = Date.now();
+    // Log entries record the connect attempt only — metadata, not message
+    // bodies. Per-message logging is intentionally omitted to keep the .jsonl
+    // size bounded for high-throughput Kafka topics.
+    const logEntry = (status: number, error?: string): void => {
+      if (!onComplete) return;
+      onComplete({
+        ts: startTime,
+        method: 'CONNECT',
+        url: cfg.bootstrapBrokers.join(','),
+        status,
+        durationMs: Date.now() - startTime,
+        protocol: 'kafka',
+        requestId: connectionId,
+        ...(error !== undefined ? { error } : {}),
+      });
+    };
 
     if (!kafkaRateLimiter.check(webContentsId)) {
+      logEntry(429, 'Rate limit exceeded');
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
     if (activeConnections.size >= MAX_CONCURRENT_KAFKA_CONNECTIONS) {
+      logEntry(503, 'Too many open connections');
       return { success: false, error: 'Too many open Kafka connections.' };
     }
 
     const existing = activeConnections.get(connectionId);
     if (existing) {
+      // Renderer reconnected with the same connectionId — tear down the old
+      // pair before opening a new one. Emit a CLOSE log entry so the audit
+      // trail records the implicit disconnect; matches the explicit
+      // kafka:disconnect path.
+      if (onComplete) {
+        onComplete({
+          ts: Date.now(),
+          method: 'CLOSE',
+          url: existing.clientOptions.bootstrapBrokers.join(','),
+          status: 0,
+          durationMs: Date.now() - existing.createdAt,
+          protocol: 'kafka',
+          requestId: connectionId,
+        });
+      }
       await closeConnection(existing);
       activeConnections.delete(connectionId);
+    }
+
+    try {
+      assertKafkaBrokersSafe(cfg.bootstrapBrokers);
+    } catch (err) {
+      const msg = errorMessage(err);
+      logEntry(400, msg);
+      return { success: false, error: msg };
     }
 
     try {
@@ -228,9 +272,12 @@ export function registerKafkaHandlerIPC(): void {
       });
 
       emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), { timestamp: Date.now() });
+      logEntry(0);
       return { success: true };
     } catch (err) {
-      return { success: false, error: errorMessage(err) };
+      const msg = errorMessage(err);
+      logEntry(500, msg);
+      return { success: false, error: msg };
     }
   });
 

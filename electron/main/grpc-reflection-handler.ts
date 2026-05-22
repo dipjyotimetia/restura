@@ -3,6 +3,11 @@ import * as protoLoader from '@grpc/proto-loader';
 import { app, ipcMain } from 'electron';
 import * as path from 'path';
 import { createValidatedHandler, ReflectionIpcConfigSchema, type ReflectionIpcConfig } from './ipc-validators';
+import { assertUrlHostnameSafe } from './dns-guard';
+
+// gRPC schemes accepted by the SSRF guard. Reflection URLs are routinely
+// passed as grpc:// or grpcs:// in addition to http(s)://.
+const GRPC_REFLECTION_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
 
 // In production, @grpc/reflection proto files are unpacked from the asar archive via asarUnpack.
 // require.resolve() still points inside the asar, so we must redirect to the unpacked location.
@@ -108,6 +113,17 @@ function toRawResponse(response: GrpcReflectionResponse): RawReflectionResponse 
 async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawReflectionResponse> {
   const { url, reflectionService, request, timeout = 30000 } = config;
   const version: 'v1' | 'v1alpha' = reflectionService.includes('v1alpha') ? 'v1alpha' : 'v1';
+
+  // SSRF pre-flight. `@grpc/grpc-js` resolves DNS inside its C++ binding and
+  // exposes no connector hook, so this is best-effort against rebind — see
+  // docs/adr/0006-electron-connection-and-dns-hardening.md.
+  // `parseTargetAddress` accepts bare host:port; normalise to a URL string
+  // first so `assertUrlHostnameSafe` can run its scheme + literal-IP policy.
+  const urlWithScheme = url.includes('://') ? url : `grpc://${url}`;
+  await assertUrlHostnameSafe(urlWithScheme, {
+    allowLocalhost: true,
+    allowedSchemes: GRPC_REFLECTION_ALLOWED_SCHEMES,
+  });
 
   const { address, useTls } = parseTargetAddress(url);
   const credentials = useTls ? grpc.credentials.createSsl() : grpc.credentials.createInsecure();
