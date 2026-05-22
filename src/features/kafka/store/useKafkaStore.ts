@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages } from '@/lib/shared/message-cap';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
 export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
@@ -88,6 +89,8 @@ export interface KafkaConnection {
 interface KafkaState {
   connections: Record<string, KafkaConnection>;
   activeConnectionId: string | null;
+  /** Workspace-tab → connection mapping (mirrors useWebSocketStore). */
+  connectionByTabId: Record<string, string>;
   messageFilter: KafkaMessageDirection | 'all';
   searchQuery: string;
 
@@ -95,6 +98,10 @@ interface KafkaState {
   createConnection: (init?: Partial<Pick<KafkaConnection, 'name' | 'bootstrapBrokers' | 'clientId'>>) => string;
   removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
+  /** Idempotent — returns the existing tab connection or creates a fresh one. */
+  ensureConnectionForTab: (tabId: string) => string;
+  /** Disconnects (async, best-effort) and removes the connection bound to `tabId`. */
+  cleanupConnectionForTab: (tabId: string) => void;
 
   // Connection metadata
   updateConnection: (
@@ -151,6 +158,7 @@ export const useKafkaStore = create<KafkaState>()(
     (set, get) => ({
       connections: {},
       activeConnectionId: null,
+      connectionByTabId: {},
       messageFilter: 'all',
       searchQuery: '',
 
@@ -163,11 +171,49 @@ export const useKafkaStore = create<KafkaState>()(
         return conn.id;
       },
 
+      ensureConnectionForTab: (tabId) => {
+        const existing = get().connectionByTabId[tabId];
+        if (existing && get().connections[existing]) {
+          if (get().activeConnectionId !== existing) set({ activeConnectionId: existing });
+          return existing;
+        }
+        const id = get().createConnection();
+        set((state) => ({
+          connectionByTabId: { ...state.connectionByTabId, [tabId]: id },
+          activeConnectionId: id,
+        }));
+        return id;
+      },
+
+      cleanupConnectionForTab: (tabId) => {
+        const connectionId = get().connectionByTabId[tabId];
+        if (!connectionId) return;
+        try {
+          void kafkaManager.disconnect(connectionId);
+        } catch {
+          /* ignore — manager handles missing/already-closed connections */
+        }
+        set((state) => {
+          const { [connectionId]: _drop, ...restConns } = state.connections;
+          const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;
+          return {
+            connections: restConns,
+            connectionByTabId: restMap,
+            activeConnectionId:
+              state.activeConnectionId === connectionId ? null : state.activeConnectionId,
+          };
+        });
+      },
+
       removeConnection: (id) =>
         set((state) => {
           const { [id]: _removed, ...rest } = state.connections;
+          const nextMap = Object.fromEntries(
+            Object.entries(state.connectionByTabId).filter(([, cid]) => cid !== id)
+          );
           return {
             connections: rest,
+            connectionByTabId: nextMap,
             activeConnectionId: state.activeConnectionId === id ? null : state.activeConnectionId,
           };
         }),
@@ -299,6 +345,7 @@ export const useKafkaStore = create<KafkaState>()(
           ])
         ),
         activeConnectionId: state.activeConnectionId,
+        connectionByTabId: state.connectionByTabId,
       }),
     }
   )
@@ -314,13 +361,13 @@ function redactSecrets(auth: KafkaAuth): KafkaAuth {
     };
   }
   if (auth.tls) {
-    next.tls = {
-      caPath: auth.tls.caPath,
-      certPath: auth.tls.certPath,
-      keyPath: auth.tls.keyPath,
-      passphrase: auth.tls.passphrase ? KAFKA_SECRET_SENTINEL : undefined,
-      rejectUnauthorized: auth.tls.rejectUnauthorized,
-    };
+    const tls: KafkaTls = {};
+    if (auth.tls.caPath !== undefined) tls.caPath = auth.tls.caPath;
+    if (auth.tls.certPath !== undefined) tls.certPath = auth.tls.certPath;
+    if (auth.tls.keyPath !== undefined) tls.keyPath = auth.tls.keyPath;
+    if (auth.tls.passphrase) tls.passphrase = KAFKA_SECRET_SENTINEL;
+    if (auth.tls.rejectUnauthorized !== undefined) tls.rejectUnauthorized = auth.tls.rejectUnauthorized;
+    next.tls = tls;
   }
   return next;
 }

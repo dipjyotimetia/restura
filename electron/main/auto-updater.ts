@@ -2,6 +2,7 @@ import type { BrowserWindow} from 'electron';
 import { dialog, ipcMain } from 'electron';
 import type { UpdateCheckResult } from 'electron-updater';
 import { autoUpdater } from 'electron-updater';
+import { createValidatedHandler, NoInputSchema } from './ipc-validators';
 
 interface UpdateCheckResponse {
   updateAvailable: boolean;
@@ -87,18 +88,28 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
 }
 
 export function registerAutoUpdaterIPC(isDev: boolean): void {
-  ipcMain.handle('app:checkForUpdates', async (): Promise<UpdateCheckResponse> => {
-    if (isDev) {
-      return { updateAvailable: false, message: 'Updates disabled in development' };
-    }
-    try {
-      const result: UpdateCheckResult | null = await autoUpdater.checkForUpdates();
-      return {
-        updateAvailable: result?.updateInfo != null,
-        version: result?.updateInfo?.version,
-      };
-    } catch (error) {
-      return { updateAvailable: false, error: String(error) };
-    }
-  });
+  // Wrapped in createValidatedHandler — input is empty but the wrapper still
+  // enforces assertTrustedSender, keeping the "every channel routes through
+  // one validator" invariant grep-auditable.
+  ipcMain.handle(
+    'app:checkForUpdates',
+    createValidatedHandler(
+      'app:checkForUpdates',
+      NoInputSchema,
+      async (): Promise<UpdateCheckResponse> => {
+        if (isDev) {
+          return { updateAvailable: false, message: 'Updates disabled in development' };
+        }
+        try {
+          const result: UpdateCheckResult | null = await autoUpdater.checkForUpdates();
+          return {
+            updateAvailable: result?.updateInfo != null,
+            version: result?.updateInfo?.version,
+          };
+        } catch (error) {
+          return { updateAvailable: false, error: String(error) };
+        }
+      }
+    )
+  );
 }

@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -11,29 +8,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import type {
-  WebSocketMessageType} from '@/features/websocket/store/useWebSocketStore';
 import {
-  useWebSocketStore
+  Floater,
+  ProtoChip,
+  Stat,
+  Kbd,
+  ToggleField,
+  Segmented,
+  TextField,
+  VariableText,
+  CodeEditorFrame,
+} from '@/components/ui/spatial';
+import { useShallow } from 'zustand/react/shallow';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useActiveTabId } from '@/store/selectors';
+import type {
+  WebSocketMessageType,
+} from '@/features/websocket/store/useWebSocketStore';
+import {
+  useWebSocketStore,
 } from '@/features/websocket/store/useWebSocketStore';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import {
   Send,
   Trash2,
-  Plus,
   Search,
-  RefreshCw,
-  Binary,
   Download,
-  AlertTriangle,
+  X,
+  Filter,
 } from 'lucide-react';
-import type { KeyValue } from '@/types';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
+
+type SendFormat = 'json' | 'text' | 'binary';
 
 const formatDuration = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
@@ -45,55 +53,110 @@ const formatDuration = (ms: number): string => {
   return `${seconds}s`;
 };
 
+const formatTime = (timestamp: number) => {
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString('en-US', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+  });
+};
+
+const formatSize = (content: string): string => {
+  const bytes = new Blob([content]).size;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+function previewContent(content: string): string {
+  const collapsed = content.replace(/\s+/g, ' ').trim();
+  return collapsed.length > 240 ? `${collapsed.slice(0, 240)}…` : collapsed;
+}
+
+function tryPrettyJson(content: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return content;
+  }
+}
+
+function DirTag({ type }: { type: WebSocketMessageType }) {
+  if (type === 'sent') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
+        style={{ color: '#a78bfa', background: 'rgba(167,139,250,0.16)' }}
+      >
+        → tx
+      </span>
+    );
+  }
+  if (type === 'received') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
+        style={{ color: '#22c55e', background: 'rgba(34,197,94,0.16)' }}
+      >
+        ← rx
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
+      style={{ color: '#f59e0b', background: 'rgba(245,158,11,0.16)' }}
+    >
+      sys
+    </span>
+  );
+}
+
 function WebSocketClient() {
   const [message, setMessage] = useState('');
-  const [activeTab, setActiveTab] = useState('messages');
-  const [sendAsBinary, setSendAsBinary] = useState(false);
+  const [sendFormat, setSendFormat] = useState<SendFormat>('json');
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
 
   const { resolveVariables } = useEnvironmentStore();
+  const activeTabId = useActiveTabId();
 
+  const connectionByTabId = useWebSocketStore((s) => s.connectionByTabId);
+  const messageFilter = useWebSocketStore((s) => s.messageFilter);
+  const searchQuery = useWebSocketStore((s) => s.searchQuery);
+  const activeConnectionId = activeTabId ? connectionByTabId[activeTabId] ?? null : null;
+  const connection = useWebSocketStore((s) =>
+    activeConnectionId ? s.connections[activeConnectionId] ?? null : null
+  );
   const {
-    activeConnectionId,
-    connections,
-    messageFilter,
-    searchQuery,
-    createConnection,
+    ensureConnectionForTab,
     updateConnectionUrl,
     setAutoReconnect,
-    setHeartbeatConfig,
     clearMessages,
-    addHeader,
-    updateHeader,
-    removeHeader,
     setMessageFilter,
     setSearchQuery,
     getFilteredMessages,
     addMessage,
-    setProtocols,
-  } = useWebSocketStore();
-
-  const connection = activeConnectionId ? connections[activeConnectionId] : null;
-
-  // Track current connection ID in a ref so the unmount cleanup always disconnects the right one
-  const activeConnectionIdRef = useRef(activeConnectionId);
-  useEffect(() => { activeConnectionIdRef.current = activeConnectionId; }, [activeConnectionId]);
+  } = useWebSocketStore(
+    useShallow((s) => ({
+      ensureConnectionForTab: s.ensureConnectionForTab,
+      updateConnectionUrl: s.updateConnectionUrl,
+      setAutoReconnect: s.setAutoReconnect,
+      clearMessages: s.clearMessages,
+      setMessageFilter: s.setMessageFilter,
+      setSearchQuery: s.setSearchQuery,
+      getFilteredMessages: s.getFilteredMessages,
+      addMessage: s.addMessage,
+    }))
+  );
 
   useEffect(() => {
-    if (!activeConnectionId) {
-      createConnection();
-    }
-  }, [activeConnectionId, createConnection]);
+    if (activeTabId) ensureConnectionForTab(activeTabId);
+  }, [activeTabId, ensureConnectionForTab]);
 
-  // Disconnect only on unmount, not on every activeConnectionId change
-  useEffect(() => {
-    return () => {
-      if (activeConnectionIdRef.current) {
-        websocketManager.disconnect(activeConnectionIdRef.current);
-      }
-    };
-  }, []);
-
-  // Tick every second while connected so the duration display stays live.
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (connection?.status !== 'connected') return;
@@ -101,16 +164,29 @@ function WebSocketClient() {
     return () => clearInterval(id);
   }, [connection?.status]);
 
+  // Counts (memoised so we don't walk the full message list on every render).
+  const counts = useMemo(() => {
+    if (!connection) return { sent: 0, received: 0 };
+    let sent = 0;
+    let received = 0;
+    for (const m of connection.messages) {
+      if (m.type === 'sent') sent++;
+      else if (m.type === 'received') received++;
+    }
+    return { sent, received };
+  }, [connection]);
+
   if (!connection || !activeConnectionId) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <Button onClick={() => createConnection()}>Create Connection</Button>
+      <div className="flex-1 flex items-center justify-center bg-sp-bg">
+        <p className="text-sp-12 text-sp-dim font-mono">Preparing WebSocket connection…</p>
       </div>
     );
   }
 
   const isConnected = connection.status === 'connected';
-  const isConnecting = connection.status === 'connecting' || connection.status === 'reconnecting';
+  const isConnecting =
+    connection.status === 'connecting' || connection.status === 'reconnecting';
 
   const handleConnect = () => {
     try {
@@ -132,7 +208,7 @@ function WebSocketClient() {
   const handleSendMessage = () => {
     if (!message.trim()) return;
 
-    if (sendAsBinary) {
+    if (sendFormat === 'binary') {
       try {
         const buffer = websocketManager.hexToArrayBuffer(message);
         websocketManager.send(activeConnectionId, buffer);
@@ -152,18 +228,7 @@ function WebSocketClient() {
 
   const handleClearMessages = () => {
     clearMessages(activeConnectionId);
-  };
-
-  const handleAddHeader = () => {
-    addHeader(activeConnectionId);
-  };
-
-  const handleUpdateHeader = (id: string, updates: Partial<KeyValue>) => {
-    updateHeader(activeConnectionId, id, updates);
-  };
-
-  const handleDeleteHeader = (id: string) => {
-    removeHeader(activeConnectionId, id);
+    setSelectedMessageId(null);
   };
 
   const handleExportMessages = () => {
@@ -196,228 +261,167 @@ function WebSocketClient() {
   const connectionDuration =
     isConnected && connection.lastConnectedAt ? now - connection.lastConnectedAt : 0;
 
-  const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      fractionalSecondDigits: 3,
-    });
-  };
-
-  const getMessageRowClass = (type: WebSocketMessageType) => {
-    switch (type) {
-      case 'sent':
-        return 'bg-primary/5 border-l-2 border-primary/30';
-      case 'received':
-        return 'glass-2 glass-border-subtle border-l-2';
-      case 'system':
-        return 'bg-amber-500/5 border-l-2 border-amber-500/30';
-    }
-  };
-
-  const getMessageLabelClass = (type: WebSocketMessageType) => {
-    switch (type) {
-      case 'sent':
-        return 'text-primary';
-      case 'received':
-        return 'text-emerald-400';
-      case 'system':
-        return 'text-amber-400';
-    }
-  };
-
-  const getMessageLabel = (type: WebSocketMessageType) => {
-    switch (type) {
-      case 'sent': return 'SENT';
-      case 'received': return 'RECV';
-      case 'system': return 'SYS';
-    }
-  };
-
-  const getStatusDotClass = () => {
-    switch (connection.status) {
-      case 'connected':
-        return 'bg-emerald-400 shadow-[0_0_6px_theme(colors.emerald.400)]';
-      case 'connecting':
-      case 'reconnecting':
-        return 'bg-amber-400 shadow-[0_0_6px_theme(colors.amber.400)]';
-      default:
-        return 'bg-muted-foreground';
-    }
-  };
-
-  const getStatusText = () => {
-    switch (connection.status) {
-      case 'connected': return 'Connected';
-      case 'connecting': return 'Connecting...';
-      case 'reconnecting':
-        return `Reconnecting (${connection.reconnectAttempts}/${connection.maxReconnectAttempts})`;
-      default: return 'Disconnected';
-    }
-  };
-
   const filteredMessages = getFilteredMessages(activeConnectionId);
+  const selectedMessage =
+    (selectedMessageId && connection.messages.find((m) => m.id === selectedMessageId)) ||
+    null;
+
+  const byteCount = new Blob([message]).size;
+  const sendDisabled = !isConnected || !message.trim();
+
+  const statusLabel = isConnected
+    ? 'CONNECTED'
+    : connection.status === 'connecting'
+      ? 'CONNECTING'
+      : connection.status === 'reconnecting'
+        ? `RECONNECTING (${connection.reconnectAttempts}/${connection.maxReconnectAttempts})`
+        : 'DISCONNECTED';
 
   return (
-    <div className="flex-1 flex flex-col">
-      {/* Connection Zone */}
-      <div className="border-b glass-border-subtle glass-3">
-        {/* Status + URL row */}
-        <div className="flex items-center gap-2 px-3 h-8 border-b glass-border-subtle">
-          <div className={cn('h-2 w-2 rounded-full shrink-0', getStatusDotClass())} aria-hidden="true" />
-          <span className="text-xs font-mono text-muted-foreground">{getStatusText()}</span>
-          {connection.status === 'reconnecting' && (
-            <RefreshCw className="h-3 w-3 animate-spin text-amber-400" />
-          )}
-        </div>
-        <div className="flex items-center gap-1 px-3 h-12">
-          <div
-            className={cn(
-              'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded border shrink-0',
-              isConnected
-                ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
-                : isConnecting
-                  ? 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
-                  : 'bg-blue-500/[0.12] border-blue-500/25 text-blue-400'
-            )}
-            aria-hidden="true"
-          >
-            WS
-          </div>
-          <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
-          <Input
-            value={connection.url}
-            onChange={(e) => updateConnectionUrl(activeConnectionId, e.target.value)}
-            placeholder={ECHO_URLS.websocket}
-            className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground/40"
-            disabled={isConnected || isConnecting}
-            aria-label="WebSocket URL"
-          />
-          {!isConnected && !isConnecting ? (
-            <Button
-              variant="glow"
-              size="sm"
-              onClick={handleConnect}
-              disabled={!connection.url}
-              className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
-            >
-              Connect
-            </Button>
+    <div className="flex flex-1 flex-col gap-3 bg-sp-bg p-3 overflow-hidden">
+      {/* Connection bar */}
+      <Floater
+        radius="pill"
+        className="flex items-center gap-2 px-3 h-12 shrink-0"
+      >
+        <ProtoChip protocol="WS" />
+        <div className="flex-1 flex items-center gap-2 min-w-0">
+          {isConnected || isConnecting ? (
+            <span className="font-mono text-sp-13 text-sp-text truncate">
+              <VariableText text={connection.url} />
+            </span>
           ) : (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleDisconnect}
-              className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
-            >
-              Disconnect
-            </Button>
+            <Input
+              value={connection.url}
+              onChange={(e) => updateConnectionUrl(activeConnectionId, e.target.value)}
+              placeholder={ECHO_URLS.websocket}
+              className="h-7 flex-1 bg-transparent border-0 px-1 font-mono text-sp-13 text-sp-text shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              aria-label="WebSocket URL"
+            />
           )}
         </div>
-        <div className="flex items-center gap-4 px-3 pb-2">
-          <div className="flex items-center gap-2">
-            <Switch
-              id="auto-reconnect"
-              checked={connection.autoReconnect}
-              onCheckedChange={(checked) => setAutoReconnect(activeConnectionId, checked)}
-              disabled={isConnected}
-            />
-            <Label htmlFor="auto-reconnect" className="text-xs font-mono cursor-pointer">
-              Auto-reconnect
-            </Label>
-          </div>
-          <div className="flex items-center gap-2 flex-1">
-            <Label htmlFor="protocols" className="text-xs font-mono whitespace-nowrap text-muted-foreground">
-              Protocols:
-            </Label>
-            <Input
-              id="protocols"
-              value={connection.protocols.join(', ')}
-              onChange={(e) => {
-                const protocols = e.target.value.split(',').map((p) => p.trim()).filter((p) => p.length > 0);
-                setProtocols(activeConnectionId, protocols);
-              }}
-              placeholder="e.g., graphql-ws, chat"
-              className="h-6 text-xs font-mono flex-1"
-              disabled={isConnected || isConnecting}
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-4 px-3 pb-2">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="heartbeat-interval" className="text-xs font-mono whitespace-nowrap text-muted-foreground">
-              Heartbeat:
-            </Label>
-            <Input
-              id="heartbeat-interval"
-              type="number"
-              min={0}
-              step={1000}
-              value={connection.heartbeatInterval}
-              onChange={(e) => {
-                const interval = Math.max(0, parseInt(e.target.value, 10) || 0);
-                setHeartbeatConfig(activeConnectionId, interval, connection.heartbeatMessage);
-                websocketManager.updateHeartbeat(activeConnectionId, interval, connection.heartbeatMessage);
-              }}
-              placeholder="ms (0=off)"
-              className="h-6 text-xs font-mono w-24"
-            />
-            <span className="text-xs text-muted-foreground font-mono">ms</span>
-          </div>
-          <div className="flex items-center gap-2 flex-1">
-            <Label htmlFor="heartbeat-message" className="text-xs font-mono whitespace-nowrap text-muted-foreground">
-              Message:
-            </Label>
-            <Input
-              id="heartbeat-message"
-              value={connection.heartbeatMessage}
-              onChange={(e) => {
-                setHeartbeatConfig(activeConnectionId, connection.heartbeatInterval, e.target.value);
-                websocketManager.updateHeartbeat(activeConnectionId, connection.heartbeatInterval, e.target.value);
-              }}
-              placeholder="ping"
-              className="h-6 text-xs font-mono flex-1"
-            />
-          </div>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-sp-pill font-mono font-bold text-sp-10 tracking-wide',
+            isConnected && 'sp-accent-ring'
+          )}
+          style={{
+            color: isConnected ? '#22c55e' : isConnecting ? '#f59e0b' : '#94a3b8',
+            background: isConnected
+              ? 'rgba(34,197,94,0.16)'
+              : isConnecting
+                ? 'rgba(245,158,11,0.16)'
+                : 'rgba(148,163,184,0.14)',
+            boxShadow: isConnected
+              ? '0 0 0 1px rgba(34,197,94,0.4), 0 0 12px rgba(34,197,94,0.35)'
+              : undefined,
+          }}
+          aria-live="polite"
+          data-testid="websocket-status"
+        >
+          <span aria-hidden="true">●</span>
+          {statusLabel}
+        </span>
+        {isConnected || isConnecting ? (
+          <button
+            type="button"
+            onClick={handleDisconnect}
+            className="inline-flex items-center h-7 px-3 rounded-sp-btn font-medium text-sp-12 border transition-colors"
+            style={{
+              color: '#ef4444',
+              borderColor: 'rgba(239,68,68,0.35)',
+              background: 'transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            Disconnect
+          </button>
+        ) : (
+          <Button
+            variant="glow"
+            size="sm"
+            onClick={handleConnect}
+            disabled={!connection.url}
+            className="h-7 min-w-[80px]"
+          >
+            Connect
+          </Button>
+        )}
+      </Floater>
+
+      {/* Stats row */}
+      <div className="flex items-center gap-6 px-1 shrink-0">
+        <Stat
+          label="Uptime"
+          value={connectionDuration > 0 ? formatDuration(connectionDuration) : '—'}
+        />
+        <Stat
+          label="↑ Messages"
+          value={<span style={{ color: '#a78bfa' }}>{counts.sent}</span>}
+        />
+        <Stat
+          label="↓ Messages"
+          value={<span style={{ color: '#22c55e' }}>{counts.received}</span>}
+        />
+        <Stat label="Latency" value="—" />
+        <Stat
+          label="Protocol"
+          value={connection.protocols.length > 0 ? connection.protocols[0] : 'default'}
+        />
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          <span className="sp-label">Auto-reconnect</span>
+          <ToggleField
+            checked={connection.autoReconnect}
+            onChange={(v) => setAutoReconnect(activeConnectionId, v)}
+            disabled={isConnected}
+            ariaLabel="Auto-reconnect"
+            size="sm"
+          />
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="w-full justify-start border-b border-border rounded-none h-9 bg-transparent p-0 shrink-0">
-          <TabsTrigger
-            value="messages"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Messages
-            {connection.messages.length > 0 && (
-              <span className="ml-1 text-[10px] text-muted-foreground">({connection.messages.length})</span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="headers"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Headers
-            {connection.headers.filter((h) => h.enabled).length > 0 && (
-              <span className="ml-1 text-[10px] text-muted-foreground">
-                ({connection.headers.filter((h) => h.enabled).length})
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="messages" className="flex-1 flex flex-col m-0 overflow-hidden">
-          {/* Filter Bar */}
-          <div className="px-3 py-1.5 border-b border-border flex gap-2 items-center shrink-0">
+      {/* Two columns */}
+      <div className="flex flex-1 min-h-0 gap-3">
+        {/* Event log (flex: 1.4) */}
+        <Floater
+          radius="panel"
+          className="flex flex-col min-h-0 overflow-hidden"
+          style={{ flex: 1.4 }}
+        >
+          {/* Header */}
+          <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
+            <span className="text-sp-13 font-medium text-sp-text">Messages</span>
+            <span className="text-sp-11 text-sp-dim font-mono">
+              ({connection.messages.length})
+            </span>
+            <div className="flex-1" />
+            <TextField
+              size="sm"
+              mono
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search…"
+              leadingIcon={<Search className="h-3.5 w-3.5" />}
+              className="w-44"
+              aria-label="Search messages"
+            />
             <Select
               value={messageFilter}
-              onValueChange={(value) => setMessageFilter(value as WebSocketMessageType | 'all')}
+              onValueChange={(value) =>
+                setMessageFilter(value as WebSocketMessageType | 'all')
+              }
             >
-              <SelectTrigger className="w-28 h-7 text-xs font-mono">
+              <SelectTrigger
+                aria-label="Filter messages"
+                className="h-7 w-28 bg-sp-surface-lo border-sp-line text-sp-12 font-mono"
+              >
+                <Filter className="h-3 w-3 mr-1 text-sp-dim" />
                 <SelectValue placeholder="Filter" />
               </SelectTrigger>
               <SelectContent>
@@ -427,158 +431,185 @@ function WebSocketClient() {
                 <SelectItem value="system">System</SelectItem>
               </SelectContent>
             </Select>
-            <div className="relative flex-1">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search messages..."
-                className="pl-7 h-7 text-xs font-mono"
-              />
-            </div>
-            <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-3 shrink-0">
-              <span>{connection.messages.length} msgs</span>
-              {connectionDuration > 0 && <span>{formatDuration(connectionDuration)}</span>}
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
+            <button
+              type="button"
               onClick={handleExportMessages}
               disabled={connection.messages.length === 0}
+              aria-label="Download messages"
               title="Export messages as JSON"
-              className="h-7 w-7"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-40"
             >
               <Download className="h-3.5 w-3.5" />
-            </Button>
+            </button>
+            <button
+              type="button"
+              onClick={handleClearMessages}
+              disabled={connection.messages.length === 0}
+              aria-label="Clear messages"
+              title="Clear messages"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           </div>
 
-          {/* Messages */}
-          <ScrollArea className="flex-1 p-3">
-            <div className="space-y-1 font-mono text-xs">
-              {filteredMessages.length === 0 ? (
-                <div className="text-center text-muted-foreground/50 py-8 font-mono text-xs">
-                  {connection.messages.length === 0
-                    ? 'No messages yet. Connect and start sending.'
-                    : 'No messages match the current filter.'}
-                </div>
-              ) : (
-                filteredMessages.map((msg) => (
-                  <div
+          {/* Column header strip */}
+          <div
+            className="grid items-center gap-3 px-3 h-7 border-b border-sp-line shrink-0 sp-label"
+            style={{ gridTemplateColumns: '52px 88px 64px 1fr' }}
+          >
+            <span>DIR</span>
+            <span>TIME</span>
+            <span>SIZE</span>
+            <span>PREVIEW</span>
+          </div>
+
+          {/* Rows */}
+          <div className="flex-1 min-h-0 overflow-auto font-mono">
+            {filteredMessages.length === 0 ? (
+              <div className="py-10 text-center text-sp-dim text-sp-12">
+                {connection.messages.length === 0
+                  ? 'No messages yet. Connect and start sending.'
+                  : 'No messages match the current filter.'}
+              </div>
+            ) : (
+              filteredMessages.map((msg) => {
+                const selected = msg.id === selectedMessageId;
+                return (
+                  <button
                     key={msg.id}
-                    className={cn('flex gap-3 p-2 rounded', getMessageRowClass(msg.type))}
+                    type="button"
+                    onClick={() => setSelectedMessageId(msg.id)}
+                    className={cn(
+                      'grid w-full items-center gap-3 px-3 py-1.5 text-left border-l-2 transition-colors',
+                      selected
+                        ? 'bg-sp-active border-sp-accent'
+                        : 'border-transparent hover:bg-sp-hover'
+                    )}
+                    style={{ gridTemplateColumns: '52px 88px 64px 1fr' }}
                   >
-                    <span className="text-[10px] text-muted-foreground/60 shrink-0 mt-0.5 tabular-nums">
+                    <DirTag type={msg.type} />
+                    <span className="text-sp-dim text-sp-11 tabular-nums">
                       {formatTime(msg.timestamp)}
                     </span>
-                    <span className={cn('text-[10px] font-bold shrink-0 mt-0.5 tracking-wider', getMessageLabelClass(msg.type))}>
-                      {getMessageLabel(msg.type)}
+                    <span className="text-sp-dim text-sp-11">
+                      {msg.dataType === 'binary' ? 'bin' : formatSize(msg.content)}
                     </span>
-                    {msg.dataType === 'binary' && (
-                      <Binary className="h-3 w-3 text-primary/60 shrink-0 mt-0.5" />
-                    )}
-                    <pre className="flex-1 whitespace-pre-wrap break-words text-[11px]">
-                      {msg.content}
-                    </pre>
-                  </div>
-                ))
+                    <span className="truncate text-sp-12 text-sp-text">
+                      {previewContent(msg.content)}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </Floater>
+
+        {/* Right column */}
+        <div className="flex flex-col gap-3 min-h-0" style={{ flex: 1 }}>
+          {/* Selected message */}
+          <Floater
+            radius="panel"
+            className="flex flex-1 flex-col min-h-0 overflow-hidden"
+          >
+            <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
+              <span className="text-sp-13 font-medium text-sp-text">
+                Selected message
+              </span>
+              {selectedMessage && (
+                <span className="text-sp-11 text-sp-dim font-mono">
+                  {formatTime(selectedMessage.timestamp)} · {formatSize(selectedMessage.content)}
+                </span>
+              )}
+              <div className="flex-1" />
+              {selectedMessage && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedMessageId(null)}
+                  aria-label="Close selected message"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-sp-chip text-sp-muted hover:bg-sp-hover hover:text-sp-text"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
-          </ScrollArea>
-
-          {/* Message Input */}
-          <div className="px-3 py-2 border-t border-border shrink-0">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-4">
-                <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Send</span>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="send-binary"
-                    checked={sendAsBinary}
-                    onCheckedChange={setSendAsBinary}
-                    disabled={!isConnected}
-                  />
-                  <Label htmlFor="send-binary" className="text-xs font-mono cursor-pointer">
-                    Binary (hex)
-                  </Label>
+            <div className="flex-1 min-h-0 overflow-hidden p-2">
+              {selectedMessage ? (
+                <CodeEditorFrame gutter={false} className="h-full">
+                  <pre className="whitespace-pre-wrap break-words text-sp-12 text-sp-text">
+                    {tryPrettyJson(selectedMessage.content)}
+                  </pre>
+                </CodeEditorFrame>
+              ) : (
+                <div className="flex h-full items-center justify-center text-sp-dim text-sp-12">
+                  Select a message to inspect it.
                 </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearMessages}
-                disabled={connection.messages.length === 0}
-                className="h-6 text-xs"
-              >
-                <Trash2 className="h-3 w-3 mr-1" />
-                Clear
-              </Button>
+              )}
             </div>
-            <div className="flex gap-2">
-              <Textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder={sendAsBinary ? 'Enter hex bytes (e.g., 48 65 6c 6c 6f)...' : 'Enter message to send...'}
-                className="flex-1 bg-background border-border font-mono text-xs resize-none"
-                rows={3}
-                disabled={!isConnected}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && e.ctrlKey) {
-                    handleSendMessage();
-                  }
-                }}
+          </Floater>
+
+          {/* Compose */}
+          <Floater
+            radius="panel"
+            className="flex flex-1 flex-col min-h-0 overflow-hidden"
+          >
+            <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
+              <span className="text-sp-13 font-medium text-sp-text">Compose</span>
+              <div className="flex-1" />
+              <Segmented<SendFormat>
+                size="sm"
+                value={sendFormat}
+                onChange={setSendFormat}
+                ariaLabel="Send format"
+                options={[
+                  { value: 'json', label: 'json' },
+                  { value: 'text', label: 'text' },
+                  { value: 'binary', label: 'binary' },
+                ]}
               />
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden p-2">
+              <CodeEditorFrame gutter={false} className="h-full">
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder={
+                    sendFormat === 'binary'
+                      ? 'Enter hex bytes (e.g., 48 65 6c 6c 6f)…'
+                      : sendFormat === 'json'
+                        ? '{ "type": "ping" }'
+                        : 'Enter message to send…'
+                  }
+                  disabled={!isConnected}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  className="block h-full w-full resize-none bg-transparent text-sp-text font-mono text-sp-12 outline-none placeholder:text-sp-dim disabled:opacity-50"
+                />
+              </CodeEditorFrame>
+            </div>
+            <div className="flex items-center gap-2 px-3 h-10 border-t border-sp-line shrink-0">
               <Button
                 variant="glow"
+                size="sm"
                 onClick={handleSendMessage}
-                disabled={!isConnected || !message.trim()}
-                className="h-auto px-3 self-stretch"
+                disabled={sendDisabled}
+                className="h-7"
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-3.5 w-3.5 mr-1" /> Send
               </Button>
+              <Kbd size="xs">⌘↵</Kbd>
+              <div className="flex-1" />
+              <span className="text-sp-11 text-sp-dim font-mono tabular-nums">
+                {byteCount} B
+              </span>
             </div>
-            <p className="text-[10px] text-muted-foreground/50 font-mono mt-1">Ctrl+Enter to send</p>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="headers" className="flex-1 overflow-auto p-4 m-0">
-          <div className="flex items-start gap-2 p-3 rounded bg-amber-500/5 border border-amber-500/20 mb-4">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-muted-foreground font-mono">
-              The browser WebSocket API does not support custom headers. Headers saved here are for reference only and are not sent with the connection. Use the Electron app for header support.
-            </p>
-          </div>
-          <div className={cn('space-y-2', (isConnected || isConnecting) && 'opacity-50 pointer-events-none')}>
-            {connection.headers.map((header) => (
-              <div key={header.id} className="flex items-center gap-2 group py-1.5 px-2 rounded hover:bg-foreground/5 transition-colors">
-                <Input
-                  value={header.key}
-                  onChange={(e) => handleUpdateHeader(header.id, { key: e.target.value })}
-                  placeholder="Key"
-                  className="flex-1 bg-background border-border font-mono text-xs"
-                />
-                <Input
-                  value={header.value}
-                  onChange={(e) => handleUpdateHeader(header.id, { value: e.target.value })}
-                  placeholder="Value"
-                  className="flex-1 bg-background border-border font-mono text-xs"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleDeleteHeader(header.id)}
-                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
-            <Button onClick={handleAddHeader} variant="outline" size="sm" className="border-border">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Header
-            </Button>
-          </div>
-        </TabsContent>
-      </Tabs>
+          </Floater>
+        </div>
+      </div>
     </div>
   );
 }

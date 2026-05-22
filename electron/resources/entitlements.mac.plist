@@ -1,5 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS hardened-runtime entitlements for the Restura desktop app.
+
+  Each entry below is the minimum needed to build, notarize, and run an
+  Electron + V8 + native-module application. Removing any of these has been
+  tried and breaks either app launch, IPC, or the notarized package.
+
+    allow-jit
+      V8 JIT requires writable+executable memory pages.
+    allow-unsigned-executable-memory
+      V8 sometimes maps unsigned executable memory for JIT during start-up;
+      required by Electron with hardened runtime.
+    disable-library-validation
+      Electron loads native modules signed by upstream maintainers (e.g.
+      `@grpc/grpc-js`, `@platformatic/kafka`), not by Restura. Without this,
+      the loader refuses third-party-signed dylibs and the app crashes on
+      first protocol use.
+    network.client
+      Outgoing connections — the whole point of an API client.
+    files.user-selected.read-write
+      User-picked save / open dialogs for collections, certificates, proto
+      files. Sandbox-respecting: NO blanket fs access.
+-->
 <plist version="1.0">
 <dict>
   <key>com.apple.security.cs.allow-jit</key>

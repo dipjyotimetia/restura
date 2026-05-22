@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import { websocketManager } from '@/features/websocket/lib/websocketManager';
 
 export type WebSocketMessageType = 'sent' | 'received' | 'system';
 export type WebSocketDataType = 'text' | 'binary';
@@ -38,6 +39,11 @@ export interface WebSocketConnection {
 interface WebSocketState {
   connections: Record<string, WebSocketConnection>;
   activeConnectionId: string | null;
+  /**
+   * Workspace-tab → connection mapping. Keeps each WS tab's connection
+   * independent so switching tabs doesn't swap the live connection.
+   */
+  connectionByTabId: Record<string, string>;
 
   // Filter state
   messageFilter: WebSocketMessageType | 'all';
@@ -47,6 +53,14 @@ interface WebSocketState {
   createConnection: (url?: string) => string;
   removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
+  /**
+   * Idempotently returns the connection id bound to `tabId`, creating one if
+   * the tab has none yet. Also flips `activeConnectionId` to point at it so
+   * legacy callers still see the right connection.
+   */
+  ensureConnectionForTab: (tabId: string, url?: string) => string;
+  /** Disconnects and removes the connection associated with `tabId`, if any. */
+  cleanupConnectionForTab: (tabId: string) => void;
 
   // Connection state
   updateConnectionStatus: (id: string, status: WebSocketConnection['status']) => void;
@@ -88,6 +102,7 @@ export const useWebSocketStore = create<WebSocketState>()(
     (set, get) => ({
       connections: {},
       activeConnectionId: null,
+      connectionByTabId: {},
       messageFilter: 'all',
       searchQuery: '',
 
@@ -120,13 +135,52 @@ export const useWebSocketStore = create<WebSocketState>()(
       removeConnection: (id) =>
         set((state) => {
           const { [id]: _, ...rest } = state.connections;
+          const nextMap = Object.fromEntries(
+            Object.entries(state.connectionByTabId).filter(([, cid]) => cid !== id)
+          );
           return {
             connections: rest,
+            connectionByTabId: nextMap,
             activeConnectionId: state.activeConnectionId === id ? null : state.activeConnectionId,
           };
         }),
 
       setActiveConnection: (id) => set({ activeConnectionId: id }),
+
+      ensureConnectionForTab: (tabId, url = ECHO_URLS.websocket) => {
+        const existing = get().connectionByTabId[tabId];
+        if (existing && get().connections[existing]) {
+          if (get().activeConnectionId !== existing) set({ activeConnectionId: existing });
+          return existing;
+        }
+        const id = get().createConnection(url);
+        set((state) => ({
+          connectionByTabId: { ...state.connectionByTabId, [tabId]: id },
+          activeConnectionId: id,
+        }));
+        return id;
+      },
+
+      cleanupConnectionForTab: (tabId) => {
+        const connectionId = get().connectionByTabId[tabId];
+        if (!connectionId) return;
+        // Best-effort disconnect; manager is a no-op if the socket is already closed.
+        try {
+          websocketManager.disconnect(connectionId, /* clearReconnect */ true);
+        } catch {
+          /* ignore */
+        }
+        set((state) => {
+          const { [connectionId]: _drop, ...restConns } = state.connections;
+          const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;
+          return {
+            connections: restConns,
+            connectionByTabId: restMap,
+            activeConnectionId:
+              state.activeConnectionId === connectionId ? null : state.activeConnectionId,
+          };
+        });
+      },
 
       updateConnectionStatus: (id, status) =>
         set((state) => {
@@ -203,7 +257,7 @@ export const useWebSocketStore = create<WebSocketState>()(
             type,
             dataType,
             content,
-            binaryData,
+            ...(binaryData !== undefined ? { binaryData } : {}),
             timestamp: Date.now(),
           };
 
@@ -379,6 +433,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           ])
         ),
         activeConnectionId: state.activeConnectionId,
+        connectionByTabId: state.connectionByTabId,
       }),
     }
   )

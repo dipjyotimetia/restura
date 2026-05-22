@@ -1,9 +1,7 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { Loader2, Radio } from 'lucide-react';
 import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveRequest, useActiveTab } from '@/store/selectors';
+import { useActiveRequest, useActiveResponse, useActiveTab } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type {
@@ -12,8 +10,9 @@ import type {
   GrpcRequest,
   GrpcResponse,
   ProtoFileInfo,
+  ReflectionMethodInfo,
+  ReflectionServiceInfo,
 } from '@/types';
-import { AlertCircle, CheckCircle, Loader2, Radio } from 'lucide-react';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import {
   getMethodTypeDescription,
@@ -39,23 +38,35 @@ import {
 } from '@/features/grpc/lib/grpcReflection';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import { toast } from 'sonner';
-import type { ReflectionServiceInfo, ReflectionMethodInfo } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
-import GrpcProtoUploader, { GrpcProtoInfo } from './GrpcProtoUploader';
 import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { GrpcMessageEditor } from './GrpcMessageEditor';
 import { GrpcMethodSelector } from './GrpcMethodSelector';
-import { GrpcReflectionStatus } from './GrpcReflectionStatus';
 import { GrpcSettingsPanel } from './GrpcSettingsPanel';
-import { GrpcUrlBar } from './GrpcUrlBar';
+import { GrpcInvocationBar } from './GrpcInvocationBar';
+import { GrpcServiceTree } from './GrpcServiceTree';
+import { GrpcMethodContext } from './GrpcMethodContext';
+import { GrpcResponsePanel } from './GrpcResponsePanel';
+import { Floater, SubTabBar, TextField } from '@/components/ui/spatial';
+import { Button } from '@/components/ui/button';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+
+type GrpcSubTab =
+  | 'message'
+  | 'metadata'
+  | 'auth'
+  | 'settings'
+  | 'scripts'
+  | 'streaming'
+  | 'web-stream';
 
 function GrpcRequestBuilder() {
   const currentRequest = useActiveRequest('grpc');
   const activeTabId = useActiveTab()?.id;
+  const activeResponse = useActiveResponse();
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const setLoading = useRequestStore((s) => s.setLoading);
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
@@ -64,10 +75,13 @@ function GrpcRequestBuilder() {
   const { addHistoryItem } = useHistoryStore();
   const { resolveVariables } = useEnvironmentStore();
   const { run: runViaRegistry } = useRequestRunner();
-  const [activeTab, setActiveTab] = useState('message');
+  const [activeTab, setActiveTab] = useState<GrpcSubTab>('message');
   const [protoFile, setProtoFile] = useState<File | null>(null);
   const [protoInfo, setProtoInfo] = useState<ProtoFileInfo | null>(null);
-  const [resolvedProto, setResolvedProto] = useState<{ content: string; fileName: string } | null>(null);
+  const [resolvedProto, setResolvedProto] = useState<{
+    content: string;
+    fileName: string;
+  } | null>(null);
   const [validation, setValidation] = useState<GrpcValidationState>(INITIAL_VALIDATION_STATE);
   const [streamingMessages, setStreamingMessages] = useState<string[]>([]);
   const [streamControl, setStreamControl] = useState<{
@@ -167,19 +181,66 @@ function GrpcRequestBuilder() {
 
   // Keep a ref so unmount cleanup always sees the current stream without re-running the effect
   const streamControlRef = useRef(streamControl);
-  useEffect(() => { streamControlRef.current = streamControl; }, [streamControl]);
+  useEffect(() => {
+    streamControlRef.current = streamControl;
+  }, [streamControl]);
 
   useEffect(() => {
     return () => {
-      try { streamControlRef.current?.cancelStream(); } catch { /* ignore cleanup errors */ }
+      try {
+        streamControlRef.current?.cancelStream();
+      } catch {
+        /* ignore cleanup errors */
+      }
     };
   }, []);
+
+  const activeMetadataCount = currentRequest?.metadata.filter((m) => m.enabled).length ?? 0;
+  const hasScripts =
+    !!currentRequest?.preRequestScript?.trim() || !!currentRequest?.testScript?.trim();
+
+  const subTabs = useMemo(() => {
+    const tabs: Array<{
+      value: GrpcSubTab;
+      label: string;
+      count?: number;
+      badge?: string;
+    }> = [
+      { value: 'message', label: 'Message' },
+      { value: 'metadata', label: 'Metadata', count: activeMetadataCount },
+      {
+        value: 'auth',
+        label: 'Auth',
+        ...(currentRequest?.auth.type && currentRequest.auth.type !== 'none'
+          ? { badge: currentRequest.auth.type }
+          : {}),
+      },
+      { value: 'settings', label: 'Settings' },
+      { value: 'scripts', label: 'Scripts', ...(hasScripts ? { badge: 'on' } : {}) },
+    ];
+    if (streamingMessages.length > 0) {
+      tabs.push({ value: 'streaming', label: 'Stream', count: streamingMessages.length });
+    }
+    if (currentRequest?.methodType && currentRequest.methodType !== 'unary') {
+      tabs.push({ value: 'web-stream', label: 'Web Stream' });
+    }
+    return tabs;
+  }, [
+    activeMetadataCount,
+    currentRequest?.auth.type,
+    currentRequest?.methodType,
+    hasScripts,
+    streamingMessages.length,
+  ]);
 
   if (!currentRequest) {
     return null;
   }
 
   const grpcRequest: GrpcRequest = currentRequest;
+  const reflectionResult = reflection.result;
+  const reflectionServices: ReflectionServiceInfo[] =
+    reflectionResult?.success ? reflectionResult.services : [];
 
   const handleMethodTypeChange = (methodType: GrpcMethodType) => {
     updateRequest({ methodType });
@@ -210,6 +271,28 @@ function GrpcRequestBuilder() {
     updateRequest({ auth });
   };
 
+  const handleProtoUpload = (
+    file: File,
+    parsed: ProtoFileInfo,
+    suggested: {
+      service: string;
+      method: string;
+      methodType: GrpcMethodType;
+    } | null
+  ) => {
+    setProtoFile(file);
+    setProtoInfo(parsed);
+    if (suggested) {
+      updateRequest({
+        service: suggested.service,
+        method: suggested.method,
+        methodType: suggested.methodType,
+      });
+      validateService(suggested.service);
+      if (suggested.method) validateMethod(suggested.method);
+    }
+  };
+
   const handleSendRequest = async () => {
     const urlValid = validateUrl(grpcRequest.url);
     const serviceValid = validateService(grpcRequest.service);
@@ -227,7 +310,10 @@ function GrpcRequestBuilder() {
     if (reflection.selectedMethod?.inputMessageSchema && grpcRequest.message) {
       try {
         const parsed = JSON.parse(grpcRequest.message);
-        const schemaValidation = validateRequestAgainstSchema(parsed, reflection.selectedMethod.inputMessageSchema);
+        const schemaValidation = validateRequestAgainstSchema(
+          parsed,
+          reflection.selectedMethod.inputMessageSchema
+        );
         if (!schemaValidation.valid) {
           toast.warning('Schema validation warnings', {
             description: schemaValidation.errors.slice(0, 3).join('; '),
@@ -251,11 +337,15 @@ function GrpcRequestBuilder() {
         protoContent = await protoFile.text();
         protoFileName = protoFile.name;
       } else if (reflection.result?.success && reflection.selectedService) {
-        protoContent = generateProtoFromReflection(grpcRequest.service, reflection.selectedService);
+        protoContent = generateProtoFromReflection(
+          grpcRequest.service,
+          reflection.selectedService
+        );
         protoFileName = 'generated.proto';
       } else {
         toast.error('Proto file or reflection required', {
-          description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
+          description:
+            'Please upload a .proto file or use a server with gRPC reflection enabled.',
         });
         setLoading(false);
         return;
@@ -316,8 +406,7 @@ function GrpcRequestBuilder() {
         useCompression,
       };
 
-      const runOnce = () =>
-        runViaRegistry(grpcRequest, 'grpc', { protocolOptions });
+      const runOnce = () => runViaRegistry(grpcRequest, 'grpc', { protocolOptions });
 
       let { response, scriptResult } = await runOnce();
       let grpcResponse = response as GrpcResponse;
@@ -368,7 +457,8 @@ function GrpcRequestBuilder() {
       if (error instanceof GrpcClientError) {
         toast.error(`gRPC Error: ${error.statusCode}`, { description: error.message });
       } else {
-        const errorMessage = error instanceof Error ? error.message : 'gRPC request failed';
+        const errorMessage =
+          error instanceof Error ? error.message : 'gRPC request failed';
         toast.error('Request failed', { description: errorMessage });
       }
     } finally {
@@ -404,262 +494,233 @@ function GrpcRequestBuilder() {
       .join('\n');
   };
 
-  const activeMetadataCount = grpcRequest.metadata.filter((m) => m.enabled).length;
+  // Cast active response to GrpcResponse if it carries grpc fields. We can't
+  // narrow at the store level (the slot is ApiResponse), so coerce here.
+  const grpcResponse =
+    activeResponse && 'grpcStatus' in activeResponse
+      ? (activeResponse as GrpcResponse)
+      : null;
 
   return (
-    <div className="flex-1 flex flex-col border-b border-border">
-      {/* Request Zone */}
-      <div className="border-b border-border">
-        <GrpcUrlBar
-          methodType={grpcRequest.methodType}
-          url={grpcRequest.url}
-          isLoading={isLoading}
-          isFormValid={!!isFormValid()}
-          streamControl={streamControl}
-          urlError={validation.url.error}
-          isUrlValid={validation.url.valid}
-          onMethodTypeChange={handleMethodTypeChange}
-          onUrlChange={handleUrlChange}
-          onSend={handleSendRequest}
-          onCancelStream={() => {
-            streamControl?.cancelStream();
-            setStreamControl(null);
-            setLoading(false);
-          }}
+    <div className="flex-1 flex flex-col min-h-0 p-2.5 gap-2.5">
+      {/* Method + URL invocation bar (full width) */}
+      <GrpcInvocationBar
+        methodType={grpcRequest.methodType}
+        url={grpcRequest.url}
+        isLoading={isLoading}
+        isFormValid={!!isFormValid()}
+        streamControl={streamControl}
+        urlError={validation.url.error}
+        isUrlValid={validation.url.valid}
+        onMethodTypeChange={handleMethodTypeChange}
+        onUrlChange={handleUrlChange}
+        onSend={handleSendRequest}
+        onCancelStream={() => {
+          streamControl?.cancelStream();
+          setStreamControl(null);
+          setLoading(false);
+        }}
+      />
+
+      {/* 3-column grid: service tree (280px) · center · response */}
+      <div
+        className="flex-1 grid gap-2.5 min-h-0"
+        style={{ gridTemplateColumns: '280px 1fr 1.1fr' }}
+      >
+        {/* Left column: Service Tree */}
+        <GrpcServiceTree
+          services={reflectionServices}
+          selectedService={reflection.selectedService}
+          selectedMethod={reflection.selectedMethod}
+          reflectionReady={!!reflectionResult?.success}
+          reflectionLoading={reflection.loading}
+          protoInfo={protoInfo}
+          onSelectService={reflection.selectService}
+          onSelectMethod={reflection.selectMethod}
+          onProtoUpload={handleProtoUpload}
         />
 
-        {/* Service / Method row */}
-        <div className="flex gap-2 px-3 py-2">
-          <GrpcMethodSelector
-            services={reflection.result?.success ? reflection.result.services : undefined}
-            selectedService={reflection.selectedService}
-            selectedMethod={reflection.selectedMethod}
-            serviceValue={grpcRequest.service}
-            methodValue={grpcRequest.method}
-            serviceValidation={validation.service}
-            methodValidation={validation.method}
-            onSelectService={reflection.selectService}
-            onSelectMethod={reflection.selectMethod}
-            onServiceTextChange={handleServiceChange}
-            onMethodTextChange={handleMethodChange}
-          />
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => reflection.discover(false)}
-            disabled={reflection.loading || !grpcRequest.url}
-            title="Discover services via gRPC reflection"
-            className="shrink-0"
-          >
-            {reflection.loading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Radio className="mr-2 h-4 w-4" />
-            )}
-            {reflection.loading ? 'Discovering...' : 'Discover'}
-          </Button>
-
-          <GrpcProtoUploader
-            protoFile={protoFile}
-            onProtoFileChange={setProtoFile}
-            onProtoInfoChange={setProtoInfo}
-            onServiceChange={(service) => {
-              updateRequest({ service });
-              validateService(service);
-            }}
-            onMethodChange={(method) => {
-              updateRequest({ method });
-              validateMethod(method);
-            }}
-            onMethodTypeChange={(methodType) => updateRequest({ methodType })}
-          />
-        </div>
-
-        <div className="flex items-center gap-4 px-3 pb-2">
-          <span className="text-xs text-muted-foreground font-mono">
-            {getMethodTypeDescription(grpcRequest.methodType)}
-          </span>
-          <div className="flex items-center gap-1.5 ml-auto">
-            <span className="text-[10px] font-mono text-muted-foreground shrink-0">Timeout (ms)</span>
-            <Input
-              type="number"
-              value={timeoutMs}
-              onChange={(e) => setTimeoutMs(Math.max(1000, parseInt(e.target.value, 10) || 30000))}
-              className="h-6 w-24 font-mono text-xs bg-background border-border"
-              min={1000}
-              step={1000}
-              aria-label="gRPC request timeout in milliseconds"
-            />
-          </div>
-        </div>
-
-        {/* Web streaming limitation warning */}
-        {!isElectron() && grpcRequest.methodType !== 'unary' && (
-          <div className="flex items-center gap-2 mx-3 mb-2 p-2 rounded bg-amber-500/10 text-amber-400 text-xs font-mono">
-            <AlertCircle className="h-3 w-3 shrink-0" />
-            <span>
-              Streaming requires the desktop app. In web mode only unary calls are supported.
-            </span>
-          </div>
-        )}
-
-        {/* Reflection result info */}
-        {reflection.result && (
-          <GrpcReflectionStatus
-            result={reflection.result}
+        {/* Center column: method context + tabs + body */}
+        <div className="flex flex-col gap-2.5 min-h-0">
+          <GrpcMethodContext
+            methodName={grpcRequest.method}
+            methodType={grpcRequest.methodType}
             selectedMethod={reflection.selectedMethod}
             showSchema={reflection.showSchema}
             onToggleSchema={() => reflection.setShowSchema(!reflection.showSchema)}
           />
-        )}
 
-        <GrpcProtoInfo protoInfo={protoInfo} />
-      </div>
-
-      {/* Request Detail Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="w-full justify-start border-b border-border rounded-none h-9 bg-transparent p-0 shrink-0">
-          <TabsTrigger
-            value="message"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
+          <Floater
+            radius="panel"
+            elevation="float-lg"
+            className="flex-1 flex flex-col min-h-0 overflow-hidden"
+            style={{ background: 'var(--sp-surface)' }}
           >
-            Message
-            {!validation.message.valid && (
-              <AlertCircle className="ml-1 h-3 w-3 text-destructive" />
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="metadata"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Metadata
-            {activeMetadataCount > 0 && (
-              <span className="ml-1 text-[10px] text-muted-foreground">({activeMetadataCount})</span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="auth"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Auth
-            {grpcRequest.auth.type !== 'none' && (
-              <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="settings"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Settings
-          </TabsTrigger>
-          <TabsTrigger
-            value="scripts"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-          >
-            Scripts
-            {(grpcRequest.preRequestScript?.trim() || grpcRequest.testScript?.trim()) && (
-              <CheckCircle className="ml-1 h-3 w-3 text-emerald-400" />
-            )}
-          </TabsTrigger>
-          {streamingMessages.length > 0 && (
-            <TabsTrigger
-              value="streaming"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              Stream
-              <span className="ml-1 text-[10px] text-muted-foreground">({streamingMessages.length})</span>
-            </TabsTrigger>
-          )}
-          {grpcRequest.methodType !== 'unary' && (
-            <TabsTrigger
-              value="web-stream"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              Web Stream
-            </TabsTrigger>
-          )}
-        </TabsList>
-
-        <TabsContent value="message" className="flex-1 overflow-auto p-4 m-0">
-          <GrpcMessageEditor
-            value={grpcRequest.message}
-            onChange={handleMessageChange}
-            error={validation.message.error}
-            isValid={validation.message.valid}
-            editorPath={activeTabId ? `tab-${activeTabId}-grpc-message` : undefined}
-          />
-        </TabsContent>
-
-        <TabsContent value="metadata" className="flex-1 overflow-auto p-4 m-0">
-          <p className="text-xs text-muted-foreground font-mono mb-3">
-            gRPC metadata (headers). Common: authorization, content-type, grpc-timeout
-          </p>
-          <KeyValueEditor
-            items={grpcRequest.metadata}
-            onAdd={handleAddMetadata}
-            onUpdate={handleUpdateMetadata}
-            onDelete={handleDeleteMetadata}
-            keyPlaceholder="Key (e.g., authorization)"
-            valuePlaceholder="Value"
-            addButtonText="Add Metadata"
-            itemType="metadata"
-          />
-          {grpcRequest.auth.type !== 'none' && (
-            <div className="mt-4 p-3 glass-2 glass-border-subtle rounded border">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
-                Auth Metadata (auto-injected)
-              </div>
-              <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono">
-                {getAuthPreview()}
-              </pre>
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="auth" className="flex-1 overflow-auto p-4 m-0">
-          <p className="text-xs text-muted-foreground font-mono mb-4">
-            Authentication will be automatically converted to gRPC metadata.
-          </p>
-          <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
-        </TabsContent>
-
-        <TabsContent value="scripts" className="flex-1 overflow-auto m-0">
-          <ScriptsEditor
-            preRequestScript={grpcRequest.preRequestScript || ''}
-            testScript={grpcRequest.testScript || ''}
-            onPreRequestScriptChange={(script) => updateRequest({ preRequestScript: script })}
-            onTestScriptChange={(script) => updateRequest({ testScript: script })}
-          />
-        </TabsContent>
-
-        <TabsContent value="settings" className="flex-1 overflow-auto p-4 m-0">
-          <GrpcSettingsPanel
-            retryMaxAttempts={retryMaxAttempts}
-            retryDelayMs={retryDelayMs}
-            useCompression={useCompression}
-            onRetryMaxAttemptsChange={setRetryMaxAttempts}
-            onRetryDelayMsChange={setRetryDelayMs}
-            onUseCompressionChange={setUseCompression}
-          />
-        </TabsContent>
-
-        {streamingMessages.length > 0 && (
-          <TabsContent value="streaming" className="flex-1 overflow-auto p-4 m-0">
-            <GrpcStreamingMessages messages={streamingMessages} />
-          </TabsContent>
-        )}
-
-        {grpcRequest.methodType !== 'unary' && (
-          <TabsContent value="web-stream" className="flex-1 overflow-hidden p-0 m-0">
-            <GrpcStreamingPanel
-              request={grpcRequest}
-              protoContent={resolvedProto?.content}
-              protoFileName={resolvedProto?.fileName}
+            <SubTabBar<GrpcSubTab>
+              tabs={subTabs}
+              value={activeTab}
+              onChange={setActiveTab}
+              right={
+                <div className="flex items-center gap-2 py-1.5">
+                  <span className="sp-label">Timeout (ms)</span>
+                  <TextField
+                    mono
+                    size="sm"
+                    type="number"
+                    value={timeoutMs}
+                    onChange={(e) =>
+                      setTimeoutMs(
+                        Math.max(1000, parseInt(e.target.value, 10) || 30000)
+                      )
+                    }
+                    min={1000}
+                    step={1000}
+                    aria-label="gRPC request timeout in milliseconds"
+                    className="w-24"
+                  />
+                </div>
+              }
             />
-          </TabsContent>
-        )}
-      </Tabs>
+
+            {/* Inline service/method picker — kept available so users can edit
+                service/method names directly. Reflection drives the dropdown,
+                free-text takes over when reflection is unavailable. */}
+            <div className="flex gap-2 px-3 py-2 border-b border-sp-line">
+              <GrpcMethodSelector
+                services={reflectionServices}
+                selectedService={reflection.selectedService}
+                selectedMethod={reflection.selectedMethod}
+                serviceValue={grpcRequest.service}
+                methodValue={grpcRequest.method}
+                serviceValidation={validation.service}
+                methodValidation={validation.method}
+                onSelectService={reflection.selectService}
+                onSelectMethod={reflection.selectMethod}
+                onServiceTextChange={handleServiceChange}
+                onMethodTextChange={handleMethodChange}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => reflection.discover(false)}
+                disabled={reflection.loading || !grpcRequest.url}
+                title="Discover services via gRPC reflection"
+                className="h-8 shrink-0 text-sp-12"
+              >
+                {reflection.loading ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Radio className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {reflection.loading ? 'Discovering…' : 'Discover'}
+              </Button>
+            </div>
+
+            <div className="text-sp-11 font-mono text-sp-muted px-3 py-1.5 border-b border-sp-line">
+              {getMethodTypeDescription(grpcRequest.methodType)}
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-auto">
+              {activeTab === 'message' && (
+                <div className="p-3">
+                  <GrpcMessageEditor
+                    value={grpcRequest.message}
+                    onChange={handleMessageChange}
+                    error={validation.message.error}
+                    isValid={validation.message.valid}
+                    {...(activeTabId
+                      ? { editorPath: `tab-${activeTabId}-grpc-message` }
+                      : {})}
+                  />
+                </div>
+              )}
+
+              {activeTab === 'metadata' && (
+                <div className="p-3 space-y-3">
+                  <p className="text-sp-11 text-sp-muted font-mono">
+                    gRPC metadata (headers). Common: authorization, content-type,
+                    grpc-timeout
+                  </p>
+                  <KeyValueEditor
+                    items={grpcRequest.metadata}
+                    onAdd={handleAddMetadata}
+                    onUpdate={handleUpdateMetadata}
+                    onDelete={handleDeleteMetadata}
+                    keyPlaceholder="Key (e.g., authorization)"
+                    valuePlaceholder="Value"
+                    addButtonText="Add Metadata"
+                    itemType="metadata"
+                  />
+                  {grpcRequest.auth.type !== 'none' && (
+                    <div className="p-3 rounded-sp-btn border border-sp-line bg-sp-surface-lo">
+                      <div className="sp-label mb-1">Auth Metadata (auto-injected)</div>
+                      <pre className="text-sp-11 text-sp-muted whitespace-pre-wrap font-mono">
+                        {getAuthPreview()}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'auth' && (
+                <div className="p-3 space-y-3">
+                  <p className="text-sp-11 text-sp-muted font-mono">
+                    Authentication will be automatically converted to gRPC metadata.
+                  </p>
+                  <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
+                </div>
+              )}
+
+              {activeTab === 'settings' && (
+                <div className="p-3">
+                  <GrpcSettingsPanel
+                    retryMaxAttempts={retryMaxAttempts}
+                    retryDelayMs={retryDelayMs}
+                    useCompression={useCompression}
+                    onRetryMaxAttemptsChange={setRetryMaxAttempts}
+                    onRetryDelayMsChange={setRetryDelayMs}
+                    onUseCompressionChange={setUseCompression}
+                  />
+                </div>
+              )}
+
+              {activeTab === 'scripts' && (
+                <ScriptsEditor
+                  preRequestScript={grpcRequest.preRequestScript || ''}
+                  testScript={grpcRequest.testScript || ''}
+                  onPreRequestScriptChange={(script) =>
+                    updateRequest({ preRequestScript: script })
+                  }
+                  onTestScriptChange={(script) =>
+                    updateRequest({ testScript: script })
+                  }
+                />
+              )}
+
+              {activeTab === 'streaming' && streamingMessages.length > 0 && (
+                <div className="p-3">
+                  <GrpcStreamingMessages messages={streamingMessages} />
+                </div>
+              )}
+
+              {activeTab === 'web-stream' && grpcRequest.methodType !== 'unary' && (
+                <GrpcStreamingPanel
+                  request={grpcRequest}
+                  {...(resolvedProto?.content
+                    ? { protoContent: resolvedProto.content }
+                    : {})}
+                  {...(resolvedProto?.fileName
+                    ? { protoFileName: resolvedProto.fileName }
+                    : {})}
+                />
+              )}
+            </div>
+          </Floater>
+        </div>
+
+        {/* Right column: response panel */}
+        <GrpcResponsePanel response={grpcResponse} isLoading={isLoading} />
+      </div>
     </div>
   );
 }

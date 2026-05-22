@@ -1,19 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useEffect, useMemo, useState } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { Play, Square, Trash2, Search } from 'lucide-react';
-import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
-import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { keyValuePairsToRecord } from '@/lib/shared/utils';
 
+import SseUrlBar from './SseUrlBar';
+import SseStatsRow from './SseStatsRow';
+import SseEventTimeline from './SseEventTimeline';
+import SseAssembledOutput, { type SsePhase } from './SseAssembledOutput';
+import SseCounters from './SseCounters';
+
+/**
+ * SSE view — Spatial Depth redesign.
+ *
+ * Layout:
+ *   UrlBar
+ *   StatsRow
+ *   ┌────────────────────────────┐ ┌────────────────────┐
+ *   │ Event timeline (flex: 1.4) │ │ Assembled output   │
+ *   │                            │ │ Counters (2×2)     │
+ *   └────────────────────────────┘ └────────────────────┘
+ *
+ * All stream state still lives in `useSseStore` + `sseManager`. This file
+ * only composes presentational pieces and derives display-time metrics
+ * from the existing log.
+ */
 export default function SseClient() {
   const {
     connections,
@@ -41,16 +55,12 @@ export default function SseClient() {
   }, [connections, createConnection]);
 
   const active = getActiveConnection();
+  const filtered = useMemo(
+    () => (active ? getFilteredLog(active.id) : []),
+    [active, getFilteredLog]
+  );
 
-  const filtered = useMemo(() => (active ? getFilteredLog(active.id) : []), [active, getFilteredLog]);
-
-  const logRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [filtered.length]);
-
-  // Tear down any open stream when the component unmounts (mode switch, route change).
-  // Without this the fetch reader keeps draining and IPC listeners keep firing.
+  // Tear down any open stream when the component unmounts.
   const activeIdForCleanup = active?.id;
   useEffect(() => {
     return () => {
@@ -62,6 +72,7 @@ export default function SseClient() {
 
   const isConnected = active?.status === 'connected';
   const isConnecting = active?.status === 'connecting' || active?.status === 'reconnecting';
+  const isStreaming = isConnected || isConnecting;
 
   const handleConnect = () => {
     if (!active) return;
@@ -83,65 +94,132 @@ export default function SseClient() {
     return Array.from(set).sort();
   }, [active]);
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Derived display metrics — purely from the existing log. No store
+  // changes; we treat the log as the source of truth.
+  // ─────────────────────────────────────────────────────────────────────
+  const derived = useMemo(() => {
+    if (!active) {
+      return {
+        eventCount: 0,
+        bytes: 0,
+        tokenCount: 0,
+        avgGapMs: null as number | null,
+        assembledText: '',
+        progress: null as number | null,
+        phases: [] as SsePhase[],
+      };
+    }
+    let bytes = 0;
+    let tokenCount = 0;
+    let eventCount = 0;
+    let lastTs: number | null = null;
+    const gaps: number[] = [];
+    let assembledText = '';
+    let progress: number | null = null;
+    const phaseOrder: string[] = [];
+    const phaseStates: Record<string, 'pending' | 'active' | 'done'> = {};
+
+    for (const entry of active.log) {
+      if (entry.kind !== 'event') continue;
+      eventCount += 1;
+      bytes += entry.data.length;
+      if (lastTs != null) gaps.push(entry.timestamp - lastTs);
+      lastTs = entry.timestamp;
+
+      const ev = entry.event.toLowerCase();
+
+      // `token` events — append data to assembled output, count tokens.
+      if (ev === 'token') {
+        tokenCount += 1;
+        assembledText += entry.data;
+      } else if (ev === 'message') {
+        // `message` may carry a JSON payload with a token / text / phase
+        // — be lenient: try JSON, else append.
+        try {
+          const parsed = JSON.parse(entry.data) as Record<string, unknown>;
+          if (typeof parsed['token'] === 'string') {
+            assembledText += parsed['token'];
+            tokenCount += 1;
+          } else if (typeof parsed['text'] === 'string') {
+            assembledText += parsed['text'];
+          } else if (typeof parsed['delta'] === 'string') {
+            assembledText += parsed['delta'];
+            tokenCount += 1;
+          }
+          const phase = parsed['phase'];
+          if (typeof phase === 'string') {
+            if (!(phase in phaseStates)) {
+              phaseOrder.push(phase);
+            }
+            // Mark previous phases done.
+            for (const p of phaseOrder) {
+              if (p === phase) phaseStates[p] = 'active';
+              else if (phaseStates[p] !== 'done') phaseStates[p] = 'done';
+            }
+          }
+        } catch {
+          // Not JSON — show raw line in the timeline only.
+        }
+      } else if (ev === 'progress') {
+        // Accept `{"progress":0.42}` or a bare number.
+        try {
+          const parsed: unknown = JSON.parse(entry.data);
+          if (typeof parsed === 'number') {
+            progress = parsed > 1 ? parsed / 100 : parsed;
+          } else if (parsed && typeof parsed === 'object') {
+            const obj = parsed as Record<string, unknown>;
+            const v = obj['progress'] ?? obj['value'];
+            if (typeof v === 'number') progress = v > 1 ? v / 100 : v;
+          }
+        } catch {
+          const n = Number(entry.data);
+          if (Number.isFinite(n)) progress = n > 1 ? n / 100 : n;
+        }
+      } else if (ev === 'done') {
+        progress = 1;
+        // Mark all phases done.
+        for (const p of phaseOrder) phaseStates[p] = 'done';
+      }
+    }
+
+    const avgGapMs =
+      gaps.length === 0 ? null : gaps.reduce((a, b) => a + b, 0) / gaps.length;
+
+    const phases: SsePhase[] = phaseOrder.map((id) => ({
+      id,
+      label: id,
+      state: phaseStates[id] ?? 'pending',
+    }));
+
+    return {
+      eventCount,
+      bytes,
+      tokenCount,
+      avgGapMs,
+      assembledText,
+      progress,
+      phases,
+    };
+  }, [active]);
+
   if (!active) return null;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3">
-        <div
-          className={cn(
-            'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded border shrink-0',
-            isConnected
-              ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
-              : isConnecting
-                ? 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
-                : 'bg-blue-500/[0.12] border-blue-500/25 text-blue-400'
-          )}
-          aria-label={`SSE status: ${active.status}`}
-        >
-          SSE
-        </div>
-        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
-        <Input
-          placeholder={ECHO_URLS.sse}
-          value={active.url}
-          onChange={(e) => updateConnectionUrl(active.id, e.target.value)}
-          disabled={isConnected || isConnecting}
-          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-muted-foreground/40"
-          aria-label="SSE endpoint URL"
-        />
-        {isConnected || isConnecting ? (
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDisconnect}
-            className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
-          >
-            <Square className="mr-1.5 h-3.5 w-3.5" /> Disconnect
-          </Button>
-        ) : (
-          <Button
-            variant="glow"
-            size="sm"
-            onClick={handleConnect}
-            disabled={!active.url.trim()}
-            className="h-7 min-w-[80px] shrink-0 text-xs font-medium"
-          >
-            <Play className="mr-1.5 h-3.5 w-3.5" /> Connect
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setHeadersOpen((s) => !s)}
-          className="h-7 text-xs text-muted-foreground"
-        >
-          Headers ({active.headers.length})
-        </Button>
-      </div>
+    <div className="flex flex-col h-full overflow-hidden bg-sp-bg">
+      <SseUrlBar
+        url={active.url}
+        onUrlChange={(v) => updateConnectionUrl(active.id, v)}
+        isStreaming={isConnected}
+        isConnecting={isConnecting}
+        onStream={handleConnect}
+        onStop={handleDisconnect}
+        headerCount={active.headers.length}
+        onToggleHeaders={() => setHeadersOpen((s) => !s)}
+      />
 
       {headersOpen && (
-        <div className="border-b glass-border-subtle p-3 glass-2">
+        <div className="border-b border-sp-line p-3 bg-sp-surface-lo">
           <KeyValueEditor
             items={active.headers}
             onAdd={() => addHeader(active.id)}
@@ -151,85 +229,54 @@ export default function SseClient() {
             valuePlaceholder="Header value"
             addButtonText="Add header"
           />
+          <div className="flex items-center gap-2 pt-3 mt-3 border-t border-sp-line">
+            <Switch
+              id="resume"
+              checked={active.reconnectOnResume}
+              onCheckedChange={(c) => setReconnectOnResume(active.id, c)}
+            />
+            <Label htmlFor="resume" className="text-sp-11 text-sp-muted">
+              Reconnect on resume (Last-Event-ID)
+            </Label>
+          </div>
         </div>
       )}
 
-      <div className="flex items-center gap-2 p-2 border-b glass-border-subtle glass-2">
-        <div className="flex items-center gap-2 flex-1">
-          <Search className="size-4 text-muted-foreground" />
-          <Input
-            placeholder="Search events"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 text-sm"
+      <SseStatsRow
+        status={active.status}
+        events={derived.eventCount}
+        lastEventId={active.lastEventId}
+        avgGapMs={derived.avgGapMs}
+        reconnects={active.reconnectAttempts}
+        onStop={handleDisconnect}
+        canStop={isStreaming}
+      />
+
+      <div className="flex-1 min-h-0 grid gap-3 p-3" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+        <SseEventTimeline
+          log={filtered}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          eventNameFilter={eventNameFilter}
+          onEventNameFilterChange={setEventNameFilter}
+          eventNames={eventNames}
+          onClearLog={() => clearLog(active.id)}
+        />
+        <div className="flex flex-col gap-3 min-h-0 overflow-y-auto">
+          <SseAssembledOutput
+            text={derived.assembledText}
+            progress={derived.progress}
+            phases={derived.phases}
+            isStreaming={isStreaming}
+          />
+          <SseCounters
+            events={derived.eventCount}
+            bytes={derived.bytes}
+            tokens={derived.tokenCount}
+            reconnects={active.reconnectAttempts}
           />
         </div>
-        <select
-          value={eventNameFilter}
-          onChange={(e) => setEventNameFilter(e.target.value)}
-          className="h-8 px-2 rounded-md bg-background border border-border text-sm"
-        >
-          <option value="all">All events</option>
-          {eventNames.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        <div className="flex items-center gap-2 px-2">
-          <Switch
-            id="resume"
-            checked={active.reconnectOnResume}
-            onCheckedChange={(c) => setReconnectOnResume(active.id, c)}
-          />
-          <Label htmlFor="resume" className="text-xs whitespace-nowrap">
-            Reconnect on resume
-          </Label>
-        </div>
-        <Button variant="ghost" size="icon-sm" onClick={() => clearLog(active.id)} title="Clear log">
-          <Trash2 />
-        </Button>
       </div>
-
-      {active.lastEventId !== undefined && (
-        <div className="px-3 py-1 text-xs text-muted-foreground border-b border-border bg-muted/10 font-mono">
-          Last-Event-ID: {active.lastEventId}
-        </div>
-      )}
-
-      <Tabs defaultValue="events" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="mx-3 mt-2 self-start">
-          <TabsTrigger value="events">Events ({filtered.length})</TabsTrigger>
-        </TabsList>
-        <TabsContent value="events" className="flex-1 overflow-hidden">
-          <ScrollArea className="h-full">
-            <div ref={logRef} className="p-3 space-y-1.5 font-mono text-xs">
-              {filtered.length === 0 && (
-                <div className="text-muted-foreground italic py-8 text-center">
-                  No events yet. Press Connect to start streaming.
-                </div>
-              )}
-              {filtered.map((entry) => (
-                <div key={entry.id} className="flex gap-2 items-start">
-                  <span className="text-muted-foreground shrink-0">
-                    {new Date(entry.timestamp).toLocaleTimeString()}
-                  </span>
-                  {entry.kind === 'system' ? (
-                    <span className="text-amber-600 dark:text-amber-400 italic">{entry.message}</span>
-                  ) : (
-                    <>
-                      <Badge variant="outline" className="shrink-0 h-5 text-[10px] px-1.5">
-                        {entry.event}
-                      </Badge>
-                      <pre className="whitespace-pre-wrap break-all text-foreground flex-1">{entry.data}</pre>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }

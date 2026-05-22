@@ -17,7 +17,23 @@ import {
 } from './ipc-validators';
 import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+import { assertUrlHostnameSafe } from './dns-guard';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+
+// gRPC schemes the SSRF guard must accept; `validateURL` defaults to http/https,
+// but the reflection handler and the renderer both also produce grpc:// URLs.
+const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
+
+// Pre-flight SSRF guard for gRPC. `@grpc/grpc-js` resolves DNS inside its C++
+// binding with no Node connector hook, so this is best-effort: a sub-second
+// DNS-rebind (TTL=0 swap between this lookup and the actual TCP connect) can
+// still slip through. See docs/adr/0006-electron-connection-and-dns-hardening.md.
+async function assertGrpcUrlSafe(url: string): Promise<void> {
+  await assertUrlHostnameSafe(url, {
+    allowLocalhost: true,
+    allowedSchemes: GRPC_ALLOWED_SCHEMES,
+  });
+}
 
 export const grpcRateLimiter = createKeyedRateLimiter(30, 60_000);
 
@@ -321,8 +337,14 @@ function buildGrpcClient(
     throw new Error(`"${serviceName}" resolved to a non-constructor — check the service name in your proto`);
   }
   const ServiceClient = obj as unknown as typeof grpc.Client;
-  const target = url.replace(/^https?:\/\//, '');
-  const credentials = url.startsWith('https://')
+  // Strip every scheme the SSRF guard accepts (http/https/grpc/grpcs) — grpc-js
+  // dials bare `host:port`. The four schemes are kept in sync with
+  // `GRPC_ALLOWED_SCHEMES` above; if you widen that list, widen this too.
+  const target = url.replace(/^(?:https?|grpcs?):\/\//, '');
+  // TLS-or-not is determined by the URL scheme: https:// and grpcs:// imply
+  // TLS; http:// and grpc:// imply plaintext.
+  const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
+  const credentials = useTls
     ? grpc.credentials.createSsl()
     : grpc.credentials.createInsecure();
   const channelOptions: grpc.ChannelOptions = useCompression
@@ -338,6 +360,24 @@ function buildMetadata(map: Record<string, string> = {}): grpc.Metadata {
 }
 
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
+  // SSRF pre-flight before any disk I/O or socket open. Failure surfaces as
+  // INVALID_ARGUMENT (code 3) with an explicit "[URL policy]" prefix so the
+  // renderer can distinguish URL-policy rejections from a gRPC server that
+  // legitimately returns INVALID_ARGUMENT for a malformed request body.
+  try {
+    await assertGrpcUrlSafe(config.url);
+  } catch (err) {
+    const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
+    return {
+      status: 3,
+      statusText: 'INVALID_ARGUMENT',
+      headers: {},
+      trailers: {},
+      error: '[URL policy] ' + detail,
+      details: '[URL policy] ' + detail,
+    };
+  }
+
   const requestId = config.id && SAFE_GRPC_ID_RE.test(config.id) ? config.id : uuidv4();
   const tempDir = path.join(GRPC_TEMP_BASE, requestId);
   fs.mkdirSync(tempDir, { recursive: true });
@@ -464,17 +504,47 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.on(
     'grpc:start-stream',
-    createValidatedListener('grpc:start-stream', GrpcRequestConfigSchema, (event, config: GrpcRequestConfig) => {
+    createValidatedListener('grpc:start-stream', GrpcRequestConfigSchema, async (event, config: GrpcRequestConfig) => {
       const requestId = config.id;
       if (!requestId || !SAFE_GRPC_ID_RE.test(requestId)) return;
 
+      // Helper: never send to a destroyed renderer. The handler became async
+      // for the SSRF pre-flight (DNS lookup), so `event.sender` may have been
+      // destroyed by the time we try to report an error. Without this guard
+      // the send throws, the rejection escapes `createValidatedListener`'s
+      // sync try/catch, and we surface as an unhandled rejection.
+      const safeSend = (channel: string, payload: unknown): void => {
+        if (event.sender.isDestroyed()) return;
+        try {
+          event.sender.send(channel, payload);
+        } catch {
+          // Sender went away mid-send; nothing more to do.
+        }
+      };
+
       if (!grpcRateLimiter.check(event.sender.id)) {
-        event.sender.send(`grpc:error:${requestId}`, {
+        safeSend(`grpc:error:${requestId}`, {
           status: 14,
           details: 'Rate limit exceeded'
         });
         return;
       }
+
+      // SSRF pre-flight before any cleanup binding or disk I/O so a rejected
+      // URL doesn't leave a temp dir or a renderer-destroy listener behind.
+      try {
+        await assertGrpcUrlSafe(config.url);
+      } catch (err) {
+        safeSend(`grpc:error:${requestId}`, {
+          status: 3,
+          details: '[URL policy] ' + sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
+        });
+        return;
+      }
+
+      // Renderer may have been destroyed during the DNS lookup; bail out
+      // before allocating cleanup listeners and temp directories.
+      if (event.sender.isDestroyed()) return;
 
       bindRendererCleanup(activeCalls, event.sender, (deadId) => {
         disposeByOwner(activeCalls, deadId, (c) => c.cancel());

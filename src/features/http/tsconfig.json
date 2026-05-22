@@ -9,7 +9,7 @@
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "types": ["vite/client", "node"],
+    "types": ["vite/client", "node", "@testing-library/jest-dom"],
     "rootDir": "../../..",
     "baseUrl": "../../..",
     "paths": {

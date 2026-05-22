@@ -57,6 +57,8 @@ const defaultSettings: AppSettings = {
   // Telemetry opt-in defaults to OFF — explicit user consent required before
   // any error is sent to /api/telemetry/error (Gap #2c).
   telemetry: { errorsEnabled: false },
+  // Spatial Depth default accent — cobalt blue
+  accent: '#4d9fff',
   // clientCert and caCert intentionally omitted (optional under EOPT)
 };
 

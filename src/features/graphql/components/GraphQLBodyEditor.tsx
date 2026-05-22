@@ -1,36 +1,25 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
 import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
-import { Button } from '@/components/ui/button';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
-import { parseVariables, generateVariablesTemplate } from '@/features/graphql/lib/queryParser';
-import { formatQuery } from '@/features/graphql/lib/formatter';
-import { validateQuery } from '@/features/graphql/lib/validation';
-import { buildSchemaFromIntrospection, exportSchemaToSDL } from '@/features/graphql/lib/introspection';
 import {
-  Loader2,
-  RefreshCw,
-  CheckCircle,
-  AlertCircle,
-  ChevronDown,
-  ChevronUp,
-  Wand2,
-  PanelRightClose,
-  PanelRight,
-  Download,
-} from 'lucide-react';
+  parseVariables,
+  generateVariablesTemplate,
+} from '@/features/graphql/lib/queryParser';
+import { validateQuery } from '@/features/graphql/lib/validation';
+import { buildSchemaFromIntrospection } from '@/features/graphql/lib/introspection';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
-  <CodeEditorSkeleton className="h-[250px]" />
+  <CodeEditorSkeleton className="h-[260px]" />
 );
-const SchemaExplorer = lazyComponent(() => import('./SchemaExplorer'));
 
 let completionProviderRegistered = false;
 
@@ -42,6 +31,17 @@ interface GraphQLBodyEditorProps {
   onVariablesChange: (variables: string) => void;
 }
 
+function isVariablesValid(raw: string): boolean {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return true;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function GraphQLBodyEditor({
   query,
   variables,
@@ -50,14 +50,12 @@ export default function GraphQLBodyEditor({
   onVariablesChange,
 }: GraphQLBodyEditorProps) {
   const [showVariables, setShowVariables] = useState(true);
-  const [showExplorer, setShowExplorer] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const { fetchSchema, getSchema, isLoading } = useGraphQLSchemaStore();
+  const { getSchema } = useGraphQLSchemaStore();
   const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
   const activeTabId = useActiveTab()?.id;
 
   const schemaResult = url ? getSchema(url) : null;
-  const loading = url ? isLoading(url) : false;
 
   const executableSchema = useMemo(
     () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
@@ -67,8 +65,12 @@ export default function GraphQLBodyEditor({
   // Refs so Monaco providers always read the latest schema without re-registering
   const schemaRef = useRef(schemaResult);
   const executableSchemaRef = useRef(executableSchema);
-  useEffect(() => { schemaRef.current = schemaResult; }, [schemaResult]);
-  useEffect(() => { executableSchemaRef.current = executableSchema; }, [executableSchema]);
+  useEffect(() => {
+    schemaRef.current = schemaResult;
+  }, [schemaResult]);
+  useEffect(() => {
+    executableSchemaRef.current = executableSchema;
+  }, [executableSchema]);
 
   const extractedVariables = useMemo(() => parseVariables(query), [query]);
 
@@ -82,229 +84,146 @@ export default function GraphQLBodyEditor({
   useEffect(() => {
     if (query.trim()) {
       const result = validateQuery(query, executableSchema);
-      setValidationErrors(result.errors.map(e => e.message));
+      setValidationErrors(result.errors.map((e) => e.message));
     } else {
       setValidationErrors([]);
     }
   }, [query, executableSchema]);
 
-  // Auto-fetch schema when URL changes
-  useEffect(() => {
-    if (url && url.trim()) {
-      const timer = setTimeout(() => {
-        if (!schemaResult) {
-          fetchSchema(url);
-        }
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  }, [url, schemaResult, fetchSchema]);
-
   const handleQueryEditorMount = useCallback(
-    (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
+    (
+      editor: Monaco.editor.IStandaloneCodeEditor,
+      monaco: typeof Monaco
+    ) => {
       if (!completionProviderRegistered) {
-        // Pass factory functions that read from refs so the provider always uses the
-        // current schema even after the URL changes — without re-registering the provider.
-        registerGraphQLCompletionProvider(monaco, () => schemaRef.current?.schema ?? null);
+        registerGraphQLCompletionProvider(
+          monaco,
+          () => schemaRef.current?.schema ?? null
+        );
         completionProviderRegistered = true;
       }
       const model = editor.getModel();
       if (model) {
         diagnosticsRef.current?.dispose();
-        diagnosticsRef.current = setupDebouncedDiagnostics(monaco, model, () => executableSchemaRef.current);
+        diagnosticsRef.current = setupDebouncedDiagnostics(
+          monaco,
+          model,
+          () => executableSchemaRef.current
+        );
       }
     },
-    [] // Refs are stable; no deps needed
+    []
   );
 
-  useEffect(() => () => { diagnosticsRef.current?.dispose(); }, []);
+  useEffect(
+    () => () => {
+      diagnosticsRef.current?.dispose();
+    },
+    []
+  );
 
-  const handleFetchSchema = useCallback(async () => {
-    if (!url) return;
-    await fetchSchema(url);
-  }, [url, fetchSchema]);
-
-  const handlePrettify = () => {
-    const formatted = formatQuery(query);
-    onQueryChange(formatted);
-  };
-
-  const handleFieldSelect = (field: string) => {
-    // Insert field at cursor or append
-    onQueryChange(query + '\n  ' + field);
-  };
-
-  const getSchemaStatus = () => {
-    if (!url) return null;
-    if (loading) return { icon: Loader2, text: 'Loading schema...', color: 'text-yellow-500', spin: true };
-    if (schemaResult?.success) return { icon: CheckCircle, text: 'Schema loaded', color: 'text-green-500', spin: false };
-    if (schemaResult && !schemaResult.success) return { icon: AlertCircle, text: schemaResult.error || 'Failed to load', color: 'text-red-500', spin: false };
-    return null;
-  };
-
-  const status = getSchemaStatus();
+  const variablesValid = isVariablesValid(variables);
 
   return (
-    <div className="flex gap-4">
-      {/* Main Editor */}
-      <div className="flex-1 space-y-4">
-        {/* Schema Controls */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleFetchSchema}
-            disabled={!url || loading}
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Fetch Schema
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePrettify}
-            disabled={!query.trim()}
-          >
-            <Wand2 className="h-4 w-4 mr-2" />
-            Prettify
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowExplorer(!showExplorer)}
-          >
-            {showExplorer ? (
-              <PanelRightClose className="h-4 w-4 mr-2" />
-            ) : (
-              <PanelRight className="h-4 w-4 mr-2" />
-            )}
-            Explorer
-          </Button>
-          {executableSchema && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const sdl = exportSchemaToSDL(executableSchema);
-                const blob = new Blob([sdl], { type: 'text/plain' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = 'schema.graphql';
-                a.click();
-                URL.revokeObjectURL(a.href);
-              }}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              SDL
-            </Button>
-          )}
-          {status && (
-            <div className={`flex items-center gap-1 text-xs ${status.color}`}>
-              <status.icon className={`h-3 w-3 ${status.spin ? 'animate-spin' : ''}`} />
-              <span>{status.text}</span>
+    <div className="flex flex-col h-full">
+      {/* Validation errors banner */}
+      {validationErrors.length > 0 && (
+        <div
+          className="mx-3 mt-2 mb-1 px-2 py-1.5 rounded-sp-btn border text-sp-11 font-mono"
+          style={{
+            background: 'rgba(239,68,68,0.08)',
+            borderColor: 'rgba(239,68,68,0.25)',
+            color: '#fca5a5',
+          }}
+        >
+          {validationErrors.slice(0, 3).map((error, i) => (
+            <div key={i} className="flex items-start gap-1.5">
+              <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          ))}
+          {validationErrors.length > 3 && (
+            <div className="text-sp-dim mt-1">
+              …and {validationErrors.length - 3} more error
+              {validationErrors.length - 3 === 1 ? '' : 's'}
             </div>
           )}
-          {schemaResult?.success && schemaResult.schema && (
-            <span className="text-xs text-muted-foreground">
-              {schemaResult.schema.types.filter(t => !t.name?.startsWith('__')).length} types
-            </span>
-          )}
         </div>
+      )}
 
-        {/* Validation Errors */}
-        {validationErrors.length > 0 && (
-          <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-500">
-            {validationErrors.slice(0, 3).map((error, i) => (
-              <div key={i} className="flex items-start gap-1">
-                <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                <span>{error}</span>
-              </div>
-            ))}
-            {validationErrors.length > 3 && (
-              <div className="text-muted-foreground mt-1">
-                ...and {validationErrors.length - 3} more errors
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Query Editor */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Query</span>
-            <span className="text-xs text-muted-foreground">
-              {new Blob([query]).size} bytes
-            </span>
-          </div>
+      {/* Query editor — rendered inside a CodeEditorFrame-like dark surface */}
+      <div className="flex-1 min-h-0 px-3 pt-2 pb-2">
+        <div
+          className="rounded-sp-panel border border-sp-line overflow-hidden h-full"
+          style={{ background: 'var(--sp-code)' }}
+        >
           <CodeEditor
             value={query}
             onChange={onQueryChange}
             language="graphql"
-            height="250px"
+            height="100%"
             onEditorMount={handleQueryEditorMount}
-            {...(activeTabId ? { path: `tab-${activeTabId}-graphql-query` } : {})}
+            {...(activeTabId
+              ? { path: `tab-${activeTabId}-graphql-query` }
+              : {})}
           />
         </div>
+      </div>
 
-        {/* Variables Section */}
-        <div className="space-y-2">
-          <button
-            onClick={() => setShowVariables(!showVariables)}
-            className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors"
+      {/* Variables strip — chevron + sp-label + valid/invalid tag */}
+      <div className="border-t border-sp-line shrink-0">
+        <button
+          type="button"
+          onClick={() => setShowVariables((v) => !v)}
+          className="flex items-center gap-2 w-full text-left px-3 h-8 hover:bg-sp-hover transition-colors"
+          aria-expanded={showVariables}
+        >
+          {showVariables ? (
+            <ChevronDown className="h-3 w-3 text-sp-dim" />
+          ) : (
+            <ChevronRight className="h-3 w-3 text-sp-dim" />
+          )}
+          <span className="sp-label">Variables</span>
+          <span className="text-sp-dim text-sp-11 font-mono">·</span>
+          <span
+            className="inline-flex items-center gap-1 sp-label"
+            style={{
+              color: variablesValid ? '#22c55e' : '#ef4444',
+            }}
           >
-            {showVariables ? (
-              <ChevronUp className="h-4 w-4" />
+            {variablesValid ? (
+              <CheckCircle2 className="h-3 w-3" />
             ) : (
-              <ChevronDown className="h-4 w-4" />
+              <AlertCircle className="h-3 w-3" />
             )}
-            Variables
-            {extractedVariables.length > 0 && (
-              <span className="text-xs text-muted-foreground">
-                ({extractedVariables.length} detected)
-              </span>
-            )}
-          </button>
+            {variablesValid ? 'valid' : 'invalid'}
+          </span>
+          {extractedVariables.length > 0 && (
+            <span className="ml-auto text-sp-dim text-sp-10 font-mono">
+              {extractedVariables.length} detected
+            </span>
+          )}
+        </button>
 
-          {showVariables && (
-            <div className="space-y-2">
-              {/* Detected variables info */}
-              {extractedVariables.length > 0 && (
-                <div className="text-xs text-muted-foreground p-2 bg-muted rounded">
-                  Detected: {extractedVariables.map(v => (
-                    <span key={v.name} className="inline-block mr-2">
-                      <code className="text-primary">${v.name}</code>
-                      <span className="text-muted-foreground">: {v.type}</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-
+        {showVariables && (
+          <div className="px-3 pb-3">
+            <div
+              className="rounded-sp-panel border border-sp-line overflow-hidden"
+              style={{ background: 'var(--sp-code)' }}
+            >
               <CodeEditor
                 value={variables || '{}'}
                 onChange={onVariablesChange}
                 language="json"
-                height="150px"
-                {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables` } : {})}
+                height="140px"
+                {...(activeTabId
+                  ? { path: `tab-${activeTabId}-graphql-variables` }
+                  : {})}
               />
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
-
-      {/* Schema Explorer Panel */}
-      {showExplorer && (
-        <div className="w-64 border-l border-border">
-          <SchemaExplorer
-            schema={schemaResult?.schema || null}
-            onFieldSelect={handleFieldSelect}
-          />
-        </div>
-      )}
     </div>
   );
 }

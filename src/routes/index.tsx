@@ -9,20 +9,18 @@ import SseClient from '@/features/sse/components/SseClient';
 import McpRequestBuilder from '@/features/mcp/components/McpRequestBuilder';
 import KafkaClient from '@/features/kafka/components/KafkaClient';
 import ResponseViewer from '@/components/shared/ResponseViewer';
-import NetworkConsole from '@/features/http/components/NetworkConsole';
+import ConsoleDrawer from '@/components/shared/ConsoleDrawer';
 import ResizableLayout from '@/components/shared/ResizableLayout';
-import Sidebar from '@/features/collections/components/Sidebar';
-import IconRail from '@/components/shared/IconRail';
+import Sidebar from '@/components/shared/Sidebar';
 import TopBar from '@/components/shared/TopBar';
 import CommandPalette from '@/components/shared/CommandPalette';
 import ClientHydration from '@/components/shared/ClientHydration';
 import StatusBar from '@/components/shared/StatusBar';
-import KeyboardShortcutsPanel from '@/components/shared/KeyboardShortcutsPanel';
+import SettingsDrawer, { type SectionId } from '@/components/shared/SettingsDrawer';
 import { TabBar } from '@/components/shared/TabBar';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import EnvironmentManager from '@/features/environments/components/EnvironmentManager';
 import ImportDialog from '@/components/shared/ImportDialog';
-import SettingsDialog from '@/components/shared/SettingsDialog';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useActiveTab } from '@/store/selectors';
@@ -34,11 +32,10 @@ import type { RequestMode, ActivePanel } from '@/types';
 
 export default function Home() {
   const [activePanel, setActivePanel] = useState<ActivePanel | null>('collections');
-  // Optional override for modes that don't map 1:1 to a RequestType (graphql, websocket).
-  // When null, requestMode is derived from the active tab's request type.
-  const [modeOverride, setModeOverride] = useState<RequestMode | null>(null);
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SectionId>('general');
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [saveDialogTabId, setSaveDialogTabId] = useState<string | null>(null);
   const [windowWidth, setWindowWidth] = useState(() =>
@@ -50,39 +47,37 @@ export default function Home() {
   const scriptResult = activeTab?.scriptResult ?? null;
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
+  const openTabWithMode = useRequestStore((s) => s.openTabWithMode);
   const { settings } = useSettingsStore();
 
-  // Keep a ref so the Cmd+S keydown handler always sees the latest activeTab without
-  // adding it as a dep (which would cause listener churn on every render).
+  // Ref keeps Cmd+S handler current without listener churn.
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
 
-  // Derive request mode: prefer the explicit override (for graphql/websocket which aren't
-  // tab types), otherwise fall back to the active tab's request type.
-  const requestMode: RequestMode = modeOverride ?? activeTab?.request.type ?? 'http';
+  // The workspace mode is now derived per-tab — the active tab's modeOverride
+  // (for WS/Socket.IO/Kafka/GraphQL pseudo-modes) takes precedence over its
+  // request type. Tab switches naturally restore the correct view.
+  const requestMode: RequestMode =
+    activeTab?.modeOverride ?? activeTab?.request.type ?? 'http';
 
   const handleRequestModeChange = useCallback(
     (mode: RequestMode) => {
-      const needsHttpTab = mode === 'graphql' || mode === 'websocket' || mode === 'kafka' || mode === 'socketio';
-      if (!needsHttpTab) {
-        setModeOverride(null);
-        if (activeTab?.request.type !== mode) createNewRequest(mode);
+      if (mode === 'graphql' || mode === 'websocket' || mode === 'socketio' || mode === 'kafka') {
+        const tabId = openTabWithMode(mode);
+        if (mode === 'graphql') {
+          // Seed the URL only when the placeholder still holds the default.
+          const state = useRequestStore.getState();
+          const current = state.tabs.find((t) => t.id === tabId);
+          if (current && (current.request.url === '' || current.request.url === ECHO_URLS.http)) {
+            state.updateRequest({ url: ECHO_URLS.graphql });
+          }
+        }
         return;
       }
-      setModeOverride(mode);
-      if (mode !== 'graphql') return;
-      if (activeTab?.request.type !== 'http') createNewRequest('http');
-      // Don't clobber a URL the user typed — only swap when the field is still
-      // at its pristine default (empty or the HTTP echo URL).
-      const state = useRequestStore.getState();
-      const current = state.getActiveTab();
-      if (current?.request.type !== 'http') return;
-      const { url } = current.request;
-      if (url === ECHO_URLS.graphql) return;
-      if (url !== '' && url !== ECHO_URLS.http) return;
-      state.updateRequest({ url: ECHO_URLS.graphql });
+      // Real RequestType — open a fresh tab of that type.
+      createNewRequest(mode);
     },
-    [activeTab?.request.type, createNewRequest]
+    [createNewRequest, openTabWithMode]
   );
 
   const effectiveLayout = windowWidth < 1280 ? 'vertical' : settings.layoutOrientation;
@@ -113,6 +108,12 @@ export default function Home() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault();
+        setSettingsInitialSection('general');
+        setSettingsOpen(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        e.preventDefault();
+        setSettingsInitialSection('shortcuts');
         setSettingsOpen(true);
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -154,12 +155,9 @@ export default function Home() {
           </ResizableLayout>
         );
       case 'grpc':
-        return (
-          <ResizableLayout orientation={effectiveLayout}>
-            <GrpcRequestBuilder />
-            <ResponseViewer />
-          </ResizableLayout>
-        );
+        // gRPC builder owns its own response panel (GrpcResponsePanel) per the
+        // 3-column handoff layout in §7. No outer ResizableLayout/ResponseViewer.
+        return <GrpcRequestBuilder />;
       case 'graphql':
         return (
           <ResizableLayout orientation={effectiveLayout}>
@@ -183,53 +181,61 @@ export default function Home() {
   };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-background">
-      <div className="flex flex-1 overflow-hidden min-h-0">
-        <IconRail
-          activePanel={activePanel}
-          onPanelChange={(panel) => setActivePanel((prev) => (prev === panel ? null : panel))}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+    <div className="flex flex-col h-screen overflow-hidden">
+      {/* WindowChrome — fixed 44px top bar. The Sidebar lives below it so
+          the chrome spans the full window width per design §3. */}
+      <TopBar
+        requestMode={requestMode}
+        onRequestModeChange={handleRequestModeChange}
+        onOpenImport={() => setImportDialogOpen(true)}
+        setEnvManagerOpen={setEnvManagerOpen}
+        onOpenEnvSwitcher={() => setEnvManagerOpen(true)}
+        onOpenCommandPalette={() => setPaletteOpen(true)}
+        onOpenSettings={() => {
+          setSettingsInitialSection('general');
+          setSettingsOpen(true);
+        }}
+      />
 
-        <ClientHydration fallback={<div className="w-60 bg-muted/30 animate-pulse border-r border-border" />}>
+      <div className="flex flex-1 overflow-hidden min-h-0 px-3.5 pb-3 gap-3">
+        <ClientHydration
+          fallback={<div className="w-67 shrink-0 animate-pulse rounded-sp-panel" />}
+        >
           <AnimatePresence initial={false}>
             {activePanel !== null && (
               <motion.div
                 key="sidebar-panel"
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 240, opacity: 1 }}
+                animate={{ width: 268, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
-                className="shrink-0 border-r border-border flex flex-col overflow-hidden"
+                className="shrink-0 overflow-hidden"
               >
-                <Sidebar activePanel={activePanel} onClose={() => setActivePanel(null)} />
+                <Sidebar
+                  activePanel={activePanel}
+                  onClose={() => setActivePanel(null)}
+                  onOpenEnvironmentManager={() => setEnvManagerOpen(true)}
+                  onOpenImport={() => setImportDialogOpen(true)}
+                />
               </motion.div>
             )}
           </AnimatePresence>
         </ClientHydration>
 
-        <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-          <TopBar
-            requestMode={requestMode}
-            onRequestModeChange={handleRequestModeChange}
-            onOpenImport={() => setImportDialogOpen(true)}
-            setEnvManagerOpen={setEnvManagerOpen}
-          />
-
-          <main aria-label="Request workspace" className="flex flex-1 flex-col min-h-0 overflow-hidden">
-            <TabBar onSaveToCollection={setSaveDialogTabId} />
+        <div className="flex flex-1 flex-col min-w-0 overflow-hidden gap-2.5">
+          <main aria-label="Request workspace" className="flex flex-1 flex-col min-h-0 overflow-hidden gap-2.5">
+            <TabBar
+              onSaveToCollection={setSaveDialogTabId}
+              onChangeMode={handleRequestModeChange}
+            />
             <div className="flex flex-1 flex-col min-h-0">
               {renderRequestBuilder()}
             </div>
-            <NetworkConsole
+            <ConsoleDrawer
               scriptLogs={allLogs}
-              tests={allTests}
+              {...(allTests !== undefined && { tests: allTests })}
               onClearScripts={handleClearConsole}
             />
-            {/*
-              The console renders for every protocol — Frames tab carries
-              WebSocket / Socket.IO / Kafka, Network tab carries the rest.
-            */}
           </main>
         </div>
       </div>
@@ -237,19 +243,27 @@ export default function Home() {
       <StatusBar />
 
       <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
         onOpenEnvironments={() => setEnvManagerOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsInitialSection('general');
+          setSettingsOpen(true);
+        }}
         onOpenImport={() => setImportDialogOpen(true)}
         onSendRequest={handleSendRequest}
         onChangeMode={handleRequestModeChange}
       />
-      <KeyboardShortcutsPanel />
+      <SettingsDrawer
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        initialSection={settingsInitialSection}
+      />
       <WelcomeOnboarding />
 
       {/* Dialogs */}
       <EnvironmentManager open={envManagerOpen} onOpenChange={setEnvManagerOpen} />
       <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       {saveDialogTabId && (
         <SaveToCollectionDialog
           tabId={saveDialogTabId}

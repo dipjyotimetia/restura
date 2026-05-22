@@ -306,7 +306,12 @@ class WebSocketManager {
       this.cleanupElectronListeners(connectionId, api);
     });
 
-    api.websocket.connect({ connectionId, url, headers, protocols }).catch((err: unknown) => {
+    api.websocket.connect({
+      connectionId,
+      url,
+      headers,
+      ...(protocols !== undefined ? { protocols } : {}),
+    }).catch((err: unknown) => {
       const errMsg = err instanceof Error ? err.message : 'Connection failed';
       const s = useWebSocketStore.getState();
       s.addMessage(connectionId, 'system', `Failed to connect: ${errMsg}`);

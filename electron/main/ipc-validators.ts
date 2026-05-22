@@ -668,7 +668,17 @@ export function validateIpcInput<T>(schema: z.ZodSchema<T>, data: unknown, chann
 }
 
 /**
- * Creates a validated IPC handler with automatic error handling
+ * Creates a validated IPC handler with automatic error handling.
+ *
+ * Argument unwrap:
+ *   - 0 args (renderer invoked with no payload) → `undefined`
+ *   - 1 arg                                     → `args[0]` (the typical case)
+ *   - 2+ args                                   → the args array (validated as a tuple schema)
+ *
+ * The 0-args → undefined mapping is important: previously a zero-arg invoke
+ * left `input = []` (empty array), which schemas like `z.object({})` reject
+ * with "expected object, received array". `NoInputSchema` (`z.undefined()`)
+ * is the right schema for those channels.
  */
 export function createValidatedHandler<TInput, TOutput>(
   channel: string,
@@ -677,9 +687,7 @@ export function createValidatedHandler<TInput, TOutput>(
 ): (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
   return async (event, ...args) => {
     assertTrustedSender(channel, event);
-    // For handlers with single argument, validate it directly
-    // For handlers with multiple arguments, validate the first one
-    const input = args.length === 1 ? args[0] : args;
+    const input = args.length === 0 ? undefined : args.length === 1 ? args[0] : args;
     const validated = validateIpcInput(schema, input, channel);
     return handler(validated as TInput);
   };
@@ -696,7 +704,7 @@ export function createValidatedListener<TInput>(
   return (event, ...args) => {
     try {
       assertTrustedSender(channel, event);
-      const input = args.length === 1 ? args[0] : args;
+      const input = args.length === 0 ? undefined : args.length === 1 ? args[0] : args;
       const validated = validateIpcInput(schema, input, channel);
       handler(event, validated as TInput);
     } catch (error) {
@@ -705,3 +713,12 @@ export function createValidatedListener<TInput>(
     }
   };
 }
+
+/**
+ * Schema for IPC channels that accept no input. Used together with
+ * `createValidatedHandler` so the wrapper still calls `assertTrustedSender`
+ * but the input validation accepts the zero-args case cleanly. Don't use
+ * `z.object({}).strict().optional()` here — the wrapper now maps zero-args
+ * to `undefined`, which `z.undefined()` accepts and `z.object({})` does not.
+ */
+export const NoInputSchema = z.undefined();

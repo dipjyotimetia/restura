@@ -13,8 +13,35 @@ import * as yaml from 'js-yaml';
 import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
 import { z } from 'zod';
-import { createValidatedHandler, FilePathSchema } from './ipc-validators';
+import { createValidatedHandler, FilePathSchema, NoInputSchema } from './ipc-validators';
 import { isPathSafe } from './file-operations';
+import { redactAuthForExport, authHasPlaintextSecret } from './collection-export-redactor';
+
+/**
+ * Walks the collection tree and emits a single warning to main-process stdout
+ * if ANY request (or the collection itself) carries a plaintext secret that
+ * `redactAuthForExport` will drop on save. Surfaced here so operators have
+ * visibility — the IPC contract doesn't currently bubble warnings back to
+ * the renderer for per-export advisories.
+ */
+function warnIfPlaintextSecretsWillBeDropped(collection: FileCollection): void {
+  const offenders: string[] = [];
+  if (authHasPlaintextSecret(collection.auth)) offenders.push('<collection>');
+  const visit = (items: FileCollectionItem[]): void => {
+    for (const item of items) {
+      if (item.type === 'request' && item.request && authHasPlaintextSecret((item.request as Record<string, unknown>).auth)) {
+        offenders.push(item.name);
+      }
+      if (item.items?.length) visit(item.items);
+    }
+  };
+  visit(collection.items);
+  if (offenders.length > 0) {
+    console.warn(
+      `[collection-export] plaintext auth secrets redacted from: ${offenders.join(', ')} — re-enter after import`
+    );
+  }
+}
 import {
   fileKeyValueSchema,
   fileCollectionMetaSchema,
@@ -296,14 +323,18 @@ async function saveCollectionToDirectory(
       return { success: false, error: 'Access denied: Path is outside allowed directories' };
     }
 
+    warnIfPlaintextSecretsWillBeDropped(collection);
+
     // Create directory if it doesn't exist
     await fsp.mkdir(directoryPath, { recursive: true });
 
-    // Save collection metadata
+    // Save collection metadata. Auth is redacted before write so plaintext
+    // secrets never land in the YAML the user shares / commits to git — see
+    // collection-export-redactor.ts.
     const meta = {
       name: collection.name,
       ...(collection.description ? { description: collection.description } : {}),
-      ...(collection.auth ? { auth: collection.auth } : {}),
+      ...(collection.auth ? { auth: redactAuthForExport(collection.auth) } : {}),
       ...(collection.variables?.length ? { variables: stripIdsFromKeyValues(collection.variables) } : {}),
     };
 
@@ -350,6 +381,8 @@ async function saveDirectoryItems(items: FileCollectionItem[], directoryPath: st
       headers: stripIdsFromKeyValues(requestData.headers),
       params: stripIdsFromKeyValues(requestData.params),
       metadata: stripIdsFromKeyValues(requestData.metadata),
+      // Redact secret-bearing auth fields. See collection-export-redactor.ts.
+      ...(requestData.auth ? { auth: redactAuthForExport(requestData.auth) } : {}),
     };
 
     Object.keys(fileData).forEach((key) => {
@@ -498,18 +531,27 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
     })
   );
 
-  // Select directory dialog
-  ipcMain.handle('collection:select-directory', async () => {
-    const mainWindow = getMainWindow();
-    if (!mainWindow) return { canceled: true };
+  // Select directory dialog. Wrapped in createValidatedHandler so the channel
+  // routes through assertTrustedSender — input is empty but the wrapper still
+  // enforces the trust check.
+  ipcMain.handle(
+    'collection:select-directory',
+    createValidatedHandler(
+      'collection:select-directory',
+      NoInputSchema,
+      async () => {
+        const mainWindow = getMainWindow();
+        if (!mainWindow) return { canceled: true };
 
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory', 'createDirectory'],
-      title: 'Select Collection Directory',
-    });
+        const result = await dialog.showOpenDialog(mainWindow, {
+          properties: ['openDirectory', 'createDirectory'],
+          title: 'Select Collection Directory',
+        });
 
-    return result;
-  });
+        return result;
+      }
+    )
+  );
 
   // Get file info for conflict detection
   ipcMain.handle(

@@ -9,6 +9,7 @@ import {
   AppPathNameSchema,
   ShellUrlSchema,
   createValidatedHandler,
+  NoInputSchema,
 } from './ipc-validators';
 
 // Security: Maximum file size to prevent memory exhaustion
@@ -224,9 +225,12 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
     })
   );
 
-  ipcMain.handle('app:getVersion', () => {
-    return app.getVersion();
-  });
+  ipcMain.handle(
+    'app:getVersion',
+    createValidatedHandler('app:getVersion', NoInputSchema, () => {
+      return app.getVersion();
+    })
+  );
 
   ipcMain.handle(
     'shell:openExternal',

@@ -4,13 +4,22 @@ import * as path from 'path';
 import { z } from 'zod';
 import { LogHistoryLimitSchema, validateIpcInput } from './ipc-validators';
 
+/**
+ * Set of protocols the request logger knows how to record. Streaming
+ * protocols (ws/sse/mcp/socketio/kafka) log a single entry per session
+ * with `method` describing the operation (e.g. "SUBSCRIBE", "PRODUCE"),
+ * `status` mapped from the closing event, and `durationMs` covering the
+ * session lifetime — not per-message events, which would flood the log.
+ */
+export type LogProtocol = 'http' | 'grpc' | 'ws' | 'sse' | 'mcp' | 'kafka' | 'socketio';
+
 export interface LogEntry {
   ts: number;
   method: string;
   url: string;
   status: number;
   durationMs: number;
-  protocol: 'http' | 'grpc';
+  protocol: LogProtocol;
   /** Correlation id threaded from RequestSpec → handler → upstream. */
   requestId?: string;
   error?: string;
@@ -31,7 +40,7 @@ const LogEntrySchema = z.object({
   url: z.string(),
   status: z.number(),
   durationMs: z.number(),
-  protocol: z.enum(['http', 'grpc']),
+  protocol: z.enum(['http', 'grpc', 'ws', 'sse', 'mcp', 'kafka', 'socketio']),
   requestId: z.string().optional(),
   error: z.string().optional(),
 });

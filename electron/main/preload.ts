@@ -482,6 +482,12 @@ const electronAPI = {
         plaintextStores: string[];
         lastChecked: string;
       };
+      /**
+       * Human-readable reason returned by the main process when `rotated: false`.
+       * Renderer surfaces this verbatim so the user knows whether the keyring is
+       * missing or the keyring is available but data-migration is unimplemented.
+       */
+      reason?: string;
     }> => ipcRenderer.invoke('keychain:rotate'),
   },
 

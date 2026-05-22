@@ -21,6 +21,13 @@ import { getKeyStoreStatus, type KeyStoreStatus } from './encrypted-key';
 export interface RotateResult {
   rotated: boolean;
   status: KeyStoreStatus;
+  /**
+   * Human-readable reason returned when `rotated: false`. The renderer
+   * surfaces this verbatim to the user so they understand whether the
+   * keyring is missing, or the keyring is available but existing data
+   * still needs migration.
+   */
+  reason?: string;
 }
 
 export function registerKeychainStatusIPC(): void {
@@ -30,9 +37,27 @@ export function registerKeychainStatusIPC(): void {
 
   ipcMain.handle('keychain:rotate', async (): Promise<RotateResult> => {
     // safeStorage availability is process-global; if it's still unavailable
-    // there is nothing to rotate to. Caller will see status.mode unchanged
-    // and can prompt the user to install a keyring backend.
-    const available = safeStorage.isEncryptionAvailable();
-    return { rotated: available, status: getKeyStoreStatus() };
+    // there is nothing to rotate to. If it IS available, the existing
+    // electron-store records were already encrypted with the *current* key
+    // (either safeStorage-wrapped or plaintext fallback). Re-encrypting them
+    // under a fresh safeStorage-wrapped key would require draining and
+    // re-opening each store with a new key — intentionally out of scope.
+    // We return `rotated: false` with an honest reason so the UI doesn't
+    // imply work happened that didn't, and the user knows whether they
+    // need to manually clear-and-reinitialise.
+    const status = getKeyStoreStatus();
+    if (!safeStorage.isEncryptionAvailable()) {
+      return {
+        rotated: false,
+        status,
+        reason: 'OS keychain (safeStorage) is still unavailable on this platform',
+      };
+    }
+    return {
+      rotated: false,
+      status,
+      reason:
+        'Re-encryption of existing records is not implemented. Existing data is still protected by the current key; to migrate, clear the app data and re-enter secrets.',
+    };
   });
 }

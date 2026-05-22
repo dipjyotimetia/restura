@@ -345,7 +345,12 @@ interface KeychainStatus {
 
 interface ElectronKeychainAPI {
   status: () => Promise<KeychainStatus>;
-  rotate: () => Promise<{ rotated: boolean; status: KeychainStatus }>;
+  rotate: () => Promise<{
+    rotated: boolean;
+    status: KeychainStatus;
+    /** Free-text explanation from main when `rotated: false`. */
+    reason?: string;
+  }>;
 }
 
 interface FileChangedEvent {

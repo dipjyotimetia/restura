@@ -27,7 +27,15 @@ The dedupe set is held in a module-level `WeakMap<object, Set<number>>` so colle
 - `assertUrlHostnameSafe(url, options)`: applies the URL-string policy (`validateURL`: scheme allow-list, length, blocked names, literal-IP rules) and then runs the DNS check on the URL's hostname. The default scheme allow-list is `http/https`; the WS handler passes `ws/wss`, Socket.IO passes both pairs.
 - Single `DnsGuardOptions` shape: `{ allowLocalhost, allowedSchemes? }`. `allowLocalhost` is wired from the same setting that gates `validateURL` so dev workflows that point at localhost work uniformly.
 
-All streaming handlers in `electron/main/` (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `socketio-handler.ts`, `websocket-handler.ts`) call `assertUrlHostnameSafe` before initiating the transport-level connect, and use `bindRendererCleanup` + `disposeByOwner` to tear down on renderer destruction.
+All streaming handlers in `electron/main/` (`grpc-handler.ts`, `grpc-reflection-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `socketio-handler.ts`, `websocket-handler.ts`, `kafka-handler.ts`) call `assertUrlHostnameSafe` (or a transport-specific equivalent for Kafka — see below) before initiating the transport-level connect, and tear down on renderer destruction. The grpc / mcp / sse / socketio / websocket handlers share the `bindRendererCleanup` + `disposeByOwner` helpers; `kafka-handler.ts` does NOT — it predates the shared helpers and uses a per-connection `webContents.once('destroyed', …)` listener wired inside `kafka:connect`. Functionally equivalent but a separate code path; consolidating it onto the shared helpers is tracked as a follow-up.
+
+**Native-binding transports (gRPC, Kafka): pre-flight only with no `lookup` hook**
+
+`@grpc/grpc-js` and `@platformatic/kafka` resolve DNS inside their C++ bindings and don't expose a Node-level `lookup` callback the way `undici` and the Node `http`/`https` agents do. That means the safe-connect IP-pinning trick used for HTTP can't be ported here. We mitigate by calling `assertUrlHostnameSafe` (gRPC: in `makeGrpcRequest` and the `grpc:start-stream` listener; reflection: in `sendReflectionRequest`) or a Kafka-specific equivalent (`assertKafkaBrokersSafe` in `kafka-handler.ts`, which uses `validateURL` with `allowPrivateIPs: true` so production broker clusters on RFC1918 still connect, while cloud-metadata literals and blocked hostnames are rejected) immediately before constructing the client.
+
+gRPC failures are surfaced as `INVALID_ARGUMENT` (code 3) so the renderer can distinguish URL-policy rejections from gRPC-server failures.
+
+**Residual rebind window:** the pre-flight resolves once; if the DNS record is swapped with TTL=0 between the pre-flight and the C++ binding's own internal resolve, the connect lands on the post-swap address. Closing this requires either a custom channel built on top of `grpc-js`'s `subchannel-pool` (substantial) or routing gRPC over our own HTTP/2 stack (impractical given the protoc/protoLoader integration). For Kafka, the cluster also auto-discovers additional brokers via metadata after the first connect — those addresses bypass `assertKafkaBrokersSafe` entirely. Both are accepted limitations documented here.
 
 ## Consequences
 

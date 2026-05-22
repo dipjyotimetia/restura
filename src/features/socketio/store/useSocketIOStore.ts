@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { KeyValue } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { useConsoleStore, type FrameDirection } from '@/store/useConsoleStore';
+import { socketioManager } from '@/features/socketio/lib/socketioManager';
 
 export type SocketIOStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 export type SocketIOEventDirection = 'sent' | 'received' | 'system' | 'ack';
@@ -48,6 +49,8 @@ export type SocketIOEventFilter = SocketIOEventDirection | 'all';
 interface SocketIOState {
   connections: Record<string, SocketIOConnection>;
   activeConnectionId: string | null;
+  /** Workspace-tab → connection mapping (mirrors useWebSocketStore). */
+  connectionByTabId: Record<string, string>;
 
   eventFilter: SocketIOEventFilter;
   searchQuery: string;
@@ -56,6 +59,10 @@ interface SocketIOState {
   createConnection: (url?: string) => string;
   removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
+  /** Idempotent — returns the existing tab connection or creates one. */
+  ensureConnectionForTab: (tabId: string, url?: string) => string;
+  /** Disconnects and removes the connection bound to `tabId`. */
+  cleanupConnectionForTab: (tabId: string) => void;
 
   // Connection state
   updateConnectionStatus: (id: string, status: SocketIOStatus) => void;
@@ -143,6 +150,7 @@ export const useSocketIOStore = create<SocketIOState>()(
     (set, get) => ({
       connections: {},
       activeConnectionId: null,
+      connectionByTabId: {},
       eventFilter: 'all',
       searchQuery: '',
 
@@ -159,13 +167,51 @@ export const useSocketIOStore = create<SocketIOState>()(
       removeConnection: (id) =>
         set((state) => {
           const { [id]: _, ...rest } = state.connections;
+          const nextMap = Object.fromEntries(
+            Object.entries(state.connectionByTabId).filter(([, cid]) => cid !== id)
+          );
           return {
             connections: rest,
+            connectionByTabId: nextMap,
             activeConnectionId: state.activeConnectionId === id ? null : state.activeConnectionId,
           };
         }),
 
       setActiveConnection: (id) => set({ activeConnectionId: id }),
+
+      ensureConnectionForTab: (tabId, url = '') => {
+        const existing = get().connectionByTabId[tabId];
+        if (existing && get().connections[existing]) {
+          if (get().activeConnectionId !== existing) set({ activeConnectionId: existing });
+          return existing;
+        }
+        const id = get().createConnection(url);
+        set((state) => ({
+          connectionByTabId: { ...state.connectionByTabId, [tabId]: id },
+          activeConnectionId: id,
+        }));
+        return id;
+      },
+
+      cleanupConnectionForTab: (tabId) => {
+        const connectionId = get().connectionByTabId[tabId];
+        if (!connectionId) return;
+        try {
+          socketioManager.disconnect(connectionId);
+        } catch {
+          /* ignore — manager handles missing/already-closed sockets */
+        }
+        set((state) => {
+          const { [connectionId]: _drop, ...restConns } = state.connections;
+          const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;
+          return {
+            connections: restConns,
+            connectionByTabId: restMap,
+            activeConnectionId:
+              state.activeConnectionId === connectionId ? null : state.activeConnectionId,
+          };
+        });
+      },
 
       updateConnectionStatus: (id, status) =>
         set((state) => {
@@ -388,6 +434,7 @@ export const useSocketIOStore = create<SocketIOState>()(
           ])
         ),
         activeConnectionId: state.activeConnectionId,
+        connectionByTabId: state.connectionByTabId,
       }),
     }
   )

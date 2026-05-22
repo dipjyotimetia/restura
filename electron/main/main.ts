@@ -116,7 +116,7 @@ function registerIPCHandlers(): void {
   registerSocketIoHandlerIPC();
   registerSseHandlerIPC();
   registerMcpHandlerIPC();
-  registerKafkaHandlerIPC();
+  registerKafkaHandlerIPC(logRequest);
   registerRequestLoggerIPC();
   registerWindowControlsIPC(getMainWindow);
   registerNewWindowIPC(isDev);

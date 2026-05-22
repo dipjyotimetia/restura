@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,10 +15,28 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Send, Plus, Trash2, Plug, PlugZap, RefreshCw, Search } from 'lucide-react';
+import {
+  Send,
+  Trash2,
+  Plug,
+  PlugZap,
+  RefreshCw,
+  Search,
+  Pause,
+  Play,
+} from 'lucide-react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { useActiveTabId } from '@/store/selectors';
+import {
+  Floater,
+  ProtoChip,
+  Segmented,
+  Stat,
+  VariableText,
+  CodeEditorFrame,
+} from '@/components/ui/spatial';
 import {
   useKafkaStore,
   KAFKA_SECRET_SENTINEL,
@@ -28,6 +47,7 @@ import type {
   KafkaCompression,
   KafkaSecurityProtocol,
   KafkaSaslMechanism,
+  KafkaMessage,
 } from '@/features/kafka/store/useKafkaStore';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import { secureStorage } from '@/lib/shared/secure-storage';
@@ -36,31 +56,126 @@ const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = ['PLAINTEXT', 'SASL_PLAINTEX
 const SASL_MECHANISMS: KafkaSaslMechanism[] = ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'];
 const COMPRESSION: KafkaCompression[] = ['none', 'gzip', 'snappy', 'lz4', 'zstd'];
 
+type ConsumeMode = 'latest' | 'earliest' | 'from-offset';
+
+const CONSUME_MODE_OPTIONS = [
+  { value: 'latest' as const, label: 'latest' },
+  { value: 'earliest' as const, label: 'earliest' },
+  { value: 'from-offset' as const, label: 'from-offset' },
+];
+
+const KAFKA_PINK = '#f472b6';
+
+// Rotated palette for per-partition pills + PART column.
+const PARTITION_COLORS = [
+  '#22c55e', // P0
+  '#3b82f6', // P1
+  '#a855f7', // P2
+  '#f59e0b', // P3
+  '#06b6d4', // P4
+  '#ef4444', // P5
+] as const;
+
+function partitionColor(p: number | undefined): string {
+  if (p === undefined || p < 0) return '#94a3b8';
+  return PARTITION_COLORS[p % PARTITION_COLORS.length] ?? '#94a3b8';
+}
+
+function PartitionPill({ partition, count }: { partition: number; count?: number }) {
+  const color = partitionColor(partition);
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 h-6 px-2 font-mono font-bold text-sp-11 tabular-nums rounded-sp-chip"
+      style={{
+        color,
+        background: `${color}26`,
+        border: `1px solid ${color}40`,
+      }}
+    >
+      <span>P{partition}</span>
+      {count !== undefined && <span className="font-normal opacity-80">{count.toLocaleString()}</span>}
+    </span>
+  );
+}
+
+function PartitionMiniPill({ partition }: { partition: number }) {
+  const color = partitionColor(partition);
+  return (
+    <span
+      className="inline-flex items-center justify-center h-5 w-8 font-mono font-bold text-sp-9 rounded-sp-chip"
+      style={{
+        color,
+        background: `${color}26`,
+        border: `1px solid ${color}40`,
+      }}
+    >
+      P{partition}
+    </span>
+  );
+}
+
+function StatusBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: 'green' | 'amber' | 'muted' | 'red';
+}) {
+  const palette = {
+    green: { color: '#22c55e', bg: 'rgba(34,197,94,0.16)', glow: '0 0 8px rgba(34,197,94,0.35)' },
+    amber: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', glow: '0 0 8px rgba(245,158,11,0.35)' },
+    red: { color: '#ef4444', bg: 'rgba(239,68,68,0.16)', glow: '0 0 8px rgba(239,68,68,0.35)' },
+    muted: { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)', glow: 'none' as const },
+  }[tone];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 h-7 px-2.5 font-mono font-bold uppercase tracking-wide text-sp-11 rounded-sp-btn"
+      style={{ color: palette.color, background: palette.bg, boxShadow: palette.glow }}
+    >
+      <span aria-hidden="true">●</span>
+      {label}
+    </span>
+  );
+}
+
+function tryFormatJson(value: string): { formatted: string; isJson: boolean } {
+  try {
+    const parsed = JSON.parse(value);
+    return { formatted: JSON.stringify(parsed, null, 2), isJson: true };
+  } catch {
+    return { formatted: value, isJson: false };
+  }
+}
+
 function DesktopOnlyPanel() {
   return (
     <div className="flex flex-1 items-center justify-center p-8">
-      <div className="max-w-md text-center space-y-3">
-        <h2 className="text-lg font-semibold">Kafka is a desktop-only feature</h2>
-        <p className="text-sm text-muted-foreground">
+      <Floater radius="panel" className="max-w-md p-6 text-center space-y-3">
+        <h2 className="text-lg font-semibold text-sp-text">Kafka is a desktop-only feature</h2>
+        <p className="text-sm text-sp-muted">
           The Kafka client opens raw TCP sockets to your brokers, which the
           browser cannot do. Download the Restura desktop app to publish and
           consume from Kafka.
         </p>
-      </div>
+      </Floater>
     </div>
   );
 }
 
 function KafkaClient() {
   const isDesktop = isElectron();
+  const activeTabId = useActiveTabId();
+
+  const connectionByTabId = useKafkaStore((s) => s.connectionByTabId);
+  const messageFilter = useKafkaStore((s) => s.messageFilter);
+  const searchQuery = useKafkaStore((s) => s.searchQuery);
+  const activeConnectionId = activeTabId ? connectionByTabId[activeTabId] ?? null : null;
+  const connection = useKafkaStore((s) =>
+    activeConnectionId ? s.connections[activeConnectionId] ?? null : null
+  );
   const {
-    connections,
-    activeConnectionId,
-    messageFilter,
-    searchQuery,
-    createConnection,
+    ensureConnectionForTab,
     removeConnection,
-    setActiveConnection,
     updateConnection,
     updateAuth,
     updateConsumer,
@@ -68,16 +183,24 @@ function KafkaClient() {
     setMessageFilter,
     setSearchQuery,
     getFilteredMessages,
-  } = useKafkaStore();
+  } = useKafkaStore(
+    useShallow((s) => ({
+      ensureConnectionForTab: s.ensureConnectionForTab,
+      removeConnection: s.removeConnection,
+      updateConnection: s.updateConnection,
+      updateAuth: s.updateAuth,
+      updateConsumer: s.updateConsumer,
+      clearMessages: s.clearMessages,
+      setMessageFilter: s.setMessageFilter,
+      setSearchQuery: s.setSearchQuery,
+      getFilteredMessages: s.getFilteredMessages,
+    }))
+  );
 
-  const connection = activeConnectionId ? connections[activeConnectionId] ?? null : null;
+  useEffect(() => {
+    if (activeTabId && isDesktop) ensureConnectionForTab(activeTabId);
+  }, [activeTabId, ensureConnectionForTab, isDesktop]);
 
-  // Ephemeral fields the store deliberately doesn't hold:
-  // - new SASL password (until user hits Save → secureStorage)
-  // - new TLS passphrase
-  // - produce form draft (topic/key/value/headers/partition/acks)
-  // - subscribe form draft
-  // - new broker / topic input drafts
   const [saslPasswordDraft, setSaslPasswordDraft] = useState('');
   const [tlsPassphraseDraft, setTlsPassphraseDraft] = useState('');
   const [brokerDraft, setBrokerDraft] = useState('');
@@ -85,6 +208,11 @@ function KafkaClient() {
   const [produceKey, setProduceKey] = useState('');
   const [produceValue, setProduceValue] = useState('');
   const [activeTab, setActiveTab] = useState('messages');
+  // UI-only — does not affect store/subscription. Visually parks the log.
+  const [paused, setPaused] = useState(false);
+  // UI-only — informational picker; maps to consumer.fromBeginning where applicable.
+  const [consumeMode, setConsumeMode] = useState<ConsumeMode>('latest');
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
 
   // Reset drafts when switching connections
   useEffect(() => {
@@ -94,33 +222,69 @@ function KafkaClient() {
     setTopicDraft('');
     setProduceKey('');
     setProduceValue('');
+    setSelectedMessageId(null);
+    setPaused(false);
   }, [activeConnectionId]);
 
-  // Recompute only when the inputs to the filter actually change. Destructuring
-  // the store with `useKafkaStore()` returns a fresh `getFilteredMessages`
-  // function on every store update, so passing it as a dep would re-run the
-  // filter on every inbound consumer message even when nothing relevant
-  // changed.
+  // Sync consumeMode <-> fromBeginning (informational pairing)
+  useEffect(() => {
+    if (!connection) return;
+    setConsumeMode(connection.consumer.fromBeginning ? 'earliest' : 'latest');
+  }, [connection?.id, connection?.consumer.fromBeginning]);
+
   const filteredMessages = useMemo(
     () => (connection ? getFilteredMessages(connection.id) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [connection?.messages, messageFilter, searchQuery]
   );
 
+  // Per-partition counts (drives the colored pills strip)
+  const partitionCounts = useMemo(() => {
+    if (!connection) return [] as Array<{ partition: number; count: number }>;
+    const map = new Map<number, number>();
+    for (const m of connection.messages) {
+      if (m.partition === undefined) continue;
+      map.set(m.partition, (map.get(m.partition) ?? 0) + 1);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([partition, count]) => ({ partition, count }));
+  }, [connection?.messages]);
+
+  // Naive msg/sec — counts received messages in the last 5s window.
+  const msgPerSec = useMemo(() => {
+    if (!connection) return 0;
+    const cutoff = Date.now() - 5_000;
+    const recent = connection.messages.filter(
+      (m) => m.direction === 'received' && m.timestamp >= cutoff
+    );
+    return Math.round((recent.length / 5) * 10) / 10;
+  }, [connection?.messages]);
+
+  // Pause is UI-only: we still receive into the store, we just freeze the
+  // log view to the snapshot taken when the user clicked Pause.
+  const [pausedSnapshot, setPausedSnapshot] = useState<KafkaMessage[] | null>(null);
+  useEffect(() => {
+    if (paused) {
+      setPausedSnapshot(filteredMessages);
+    } else {
+      setPausedSnapshot(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused]);
+  const visibleMessages = paused && pausedSnapshot ? pausedSnapshot : filteredMessages;
+
+  const selectedMessage: KafkaMessage | null = useMemo(() => {
+    if (!connection || !selectedMessageId) return null;
+    return connection.messages.find((m) => m.id === selectedMessageId) ?? null;
+  }, [connection?.messages, selectedMessageId]);
+
   if (!isDesktop) {
     return <DesktopOnlyPanel />;
   }
 
-  const handleCreate = (): void => {
-    createConnection({});
-  };
-
   const handleConnect = async (): Promise<void> => {
     if (!connection) return;
-    // Stash any draft secrets in secureStorage, then compose both auth
-    // mutations into a single updateAuth call. Doing two sequential
-    // updateAuth() calls would leave the second one operating on a stale
-    // `connection.auth` snapshot.
     let nextAuth = connection.auth;
     if (saslPasswordDraft && nextAuth.sasl) {
       secureStorage.set(kafkaSecretKey(connection.id, 'sasl-password'), saslPasswordDraft);
@@ -177,6 +341,17 @@ function KafkaClient() {
   const handleUnsubscribe = async (): Promise<void> => {
     if (!connection) return;
     await kafkaManager.unsubscribe(connection.id);
+  };
+
+  const handleConsumeModeChange = (mode: ConsumeMode): void => {
+    setConsumeMode(mode);
+    if (!connection) return;
+    // earliest <-> fromBeginning; latest <-> !fromBeginning; from-offset is informational
+    if (mode === 'earliest' && !connection.consumer.fromBeginning) {
+      updateConsumer(connection.id, { fromBeginning: true });
+    } else if (mode === 'latest' && connection.consumer.fromBeginning) {
+      updateConsumer(connection.id, { fromBeginning: false });
+    }
   };
 
   const handleAddBroker = (): void => {
@@ -240,60 +415,91 @@ function KafkaClient() {
     updateAuth(connection.id, next);
   };
 
-  const connList = Object.values(connections).sort((a, b) => b.createdAt - a.createdAt);
-
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Header: connection picker + status */}
-      <div className="flex items-center gap-1 border-y glass-border-subtle glass-3 px-3 h-12 shrink-0">
-        <div
-          className={cn(
-            'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded border shrink-0',
-            connection?.status === 'connected'
-              ? 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400'
-              : 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
-          )}
-          aria-label={`Kafka status: ${connection?.status ?? 'no connection'}`}
-        >
-          KAFKA
-        </div>
-        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
-        <Select
-          value={connection?.id ?? ''}
-          onValueChange={(v) => setActiveConnection(v || null)}
-        >
-          <SelectTrigger className="w-64 h-7 text-xs glass-2 glass-border-subtle border">
-            <SelectValue placeholder="Select a Kafka connection" />
-          </SelectTrigger>
-          <SelectContent>
-            {connList.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name} · {c.bootstrapBrokers[0] ?? 'no broker'}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button size="sm" variant="ghost" onClick={handleCreate} title="New connection" className="h-7">
-          <Plus className="h-3.5 w-3.5" />
-        </Button>
+    <div className="flex flex-1 flex-col overflow-hidden gap-3 p-3 bg-sp-bg">
+      {/* Connection bar — pill Floater */}
+      <Floater
+        radius="pill"
+        className="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0"
+      >
+        <ProtoChip protocol="KAFKA" />
+        <span className="text-sp-dim font-mono text-sp-12 select-none">›</span>
+
         {connection && (
+          <span className="font-mono text-sp-13 text-sp-text truncate max-w-[200px]">
+            <VariableText text={connection.bootstrapBrokers[0] ?? 'no broker'} />
+          </span>
+        )}
+
+        {connection?.defaultTopic && (
+          <>
+            <span className="text-sp-dim font-mono text-sp-12 select-none">/</span>
+            <span
+              className="font-mono text-sp-12 font-medium truncate max-w-[180px]"
+              style={{ color: KAFKA_PINK }}
+              title={connection.defaultTopic}
+            >
+              {connection.defaultTopic}
+            </span>
+          </>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <Segmented<ConsumeMode>
+            options={CONSUME_MODE_OPTIONS}
+            value={consumeMode}
+            onChange={handleConsumeModeChange}
+            size="sm"
+            ariaLabel="Consume mode"
+          />
+
+          {connection?.consumer.status === 'subscribed' ? (
+            <StatusBadge label="Subscribed" tone="green" />
+          ) : connection?.consumer.status === 'subscribing' ? (
+            <StatusBadge label="Subscribing" tone="amber" />
+          ) : connection?.consumer.status === 'error' ? (
+            <StatusBadge label="Error" tone="red" />
+          ) : (
+            <StatusBadge label="Idle" tone="muted" />
+          )}
+
           <Button
             size="sm"
-            variant="ghost"
-            onClick={() => removeConnection(connection.id)}
-            title="Delete connection"
-            className="h-7"
+            variant="outline"
+            onClick={() => setPaused((p) => !p)}
+            className="h-7 px-2.5 text-xs font-mono rounded-sp-btn"
+            disabled={!connection}
+            title={paused ? 'Resume log' : 'Pause log'}
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            {paused ? (
+              <>
+                <Play className="h-3 w-3 mr-1.5" /> Resume
+              </>
+            ) : (
+              <>
+                <Pause className="h-3 w-3 mr-1.5" /> Pause
+              </>
+            )}
           </Button>
-        )}
-        <div className="ml-auto flex items-center gap-2">
+
+          {connection && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => removeConnection(connection.id)}
+              title="Delete connection"
+              className="h-7 w-7 p-0 rounded-sp-btn"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
           {connection && connection.status !== 'connected' && (
             <Button
               variant="glow"
               size="sm"
               onClick={handleConnect}
-              className="h-7 min-w-[80px] text-xs font-medium"
+              className="h-7 min-w-[88px] text-xs font-medium rounded-sp-btn"
             >
               <Plug className="h-3.5 w-3.5 mr-1.5" /> Connect
             </Button>
@@ -303,364 +509,545 @@ function KafkaClient() {
               variant="destructive"
               size="sm"
               onClick={handleDisconnect}
-              className="h-7 min-w-[80px] text-xs font-medium"
+              className="h-7 min-w-[88px] text-xs font-medium rounded-sp-btn"
             >
               <PlugZap className="h-3.5 w-3.5 mr-1.5" /> Disconnect
             </Button>
           )}
         </div>
-      </div>
+      </Floater>
 
       {!connection ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+        <Floater radius="panel" className="flex flex-1 items-center justify-center text-sm text-sp-muted">
           No connection — click + to create one.
-        </div>
+        </Floater>
       ) : (
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="mx-3 mt-2 w-fit">
-            <TabsTrigger value="connection">Connection</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0 gap-3">
+          <TabsList className="w-fit shrink-0">
+            <TabsTrigger value="messages">Messages ({connection.messages.length})</TabsTrigger>
             <TabsTrigger value="produce">Produce</TabsTrigger>
             <TabsTrigger value="consume">Consume</TabsTrigger>
-            <TabsTrigger value="messages">Messages ({connection.messages.length})</TabsTrigger>
+            <TabsTrigger value="connection">Connection</TabsTrigger>
           </TabsList>
 
-          {/* Connection tab */}
-          <TabsContent value="connection" className="flex-1 overflow-auto px-3 py-2 space-y-4">
-            <div className="space-y-2">
-              <Label className="text-xs">Connection name</Label>
-              <Input
-                value={connection.name}
-                onChange={(e) => updateConnection(connection.id, { name: e.target.value })}
-                className="h-8 text-xs"
+          {/* Messages tab — the redesigned hero view */}
+          <TabsContent value="messages" className="flex-1 flex flex-col min-h-0 gap-3 m-0">
+            {/* Stats row */}
+            <Floater radius="panel" className="flex flex-wrap items-center gap-x-8 gap-y-3 px-4 py-3 shrink-0">
+              <Stat label="Partitions" value={partitionCounts.length || '—'} />
+              <Stat label="Consumer ID" value={connection.consumer.groupId || '—'} />
+              <Stat
+                label="Lag"
+                value={
+                  <span style={{ color: partitionCounts.length === 0 ? '#22c55e' : '#f59e0b' }}>
+                    {/* No real lag wire — use 0 when not subscribed, else "n/a" */}
+                    {connection.consumer.status === 'subscribed' ? '—' : '0'}
+                  </span>
+                }
               />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Client ID</Label>
-              <Input
-                value={connection.clientId}
-                onChange={(e) => updateConnection(connection.id, { clientId: e.target.value })}
-                className="h-8 text-xs"
+              <Stat
+                label="Offset Reset"
+                value={connection.consumer.fromBeginning ? 'earliest' : 'latest'}
               />
-            </div>
+              <Stat label="Msg/Sec" value={msgPerSec.toFixed(1)} />
 
-            <div className="space-y-2">
-              <Label className="text-xs">Bootstrap brokers</Label>
-              <div className="flex flex-wrap gap-1">
-                {connection.bootstrapBrokers.map((b, idx) => (
-                  <Badge key={`${b}-${idx}`} variant="secondary" className="gap-1">
-                    {b}
-                    <button onClick={() => handleRemoveBroker(idx)} aria-label={`Remove broker ${b}`}>
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-2">
+              {partitionCounts.length > 0 && (
+                <>
+                  <span className="h-7 w-px bg-sp-line" />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {partitionCounts.map(({ partition, count }) => (
+                      <PartitionPill key={partition} partition={partition} count={count} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </Floater>
+
+            {/* Two columns: message log + detail panel */}
+            <div className="flex-1 min-h-0 grid gap-3" style={{ gridTemplateColumns: '1.6fr 1fr' }}>
+              {/* Message log */}
+              <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
+                {/* Toolbar */}
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-sp-line shrink-0">
+                  <Select
+                    value={messageFilter}
+                    onValueChange={(v) => setMessageFilter(v as 'sent' | 'received' | 'system' | 'all')}
+                  >
+                    <SelectTrigger className="h-7 w-28 text-xs bg-sp-surface-lo border border-sp-line">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="sent">Sent</SelectItem>
+                      <SelectItem value="received">Received</SelectItem>
+                      <SelectItem value="system">System</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-sp-dim" />
+                    <Input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search topic, key, value"
+                      className="h-7 pl-7 text-xs bg-sp-surface-lo border-sp-line font-mono"
+                    />
+                  </div>
+                  {paused && <StatusBadge label="Paused" tone="amber" />}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => clearMessages(connection.id)}
+                    className="h-7 w-7 p-0"
+                    title="Clear messages"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+
+                {/* Header row */}
+                <div
+                  className="grid items-center gap-2 px-3 py-1.5 border-b border-sp-line shrink-0"
+                  style={{ gridTemplateColumns: '40px 80px 110px 130px 1fr' }}
+                >
+                  <span className="sp-label">Part</span>
+                  <span className="sp-label">Offset</span>
+                  <span className="sp-label">Time</span>
+                  <span className="sp-label">Key</span>
+                  <span className="sp-label">Value</span>
+                </div>
+
+                <ScrollArea className="flex-1 min-h-0">
+                  <ul className="text-xs">
+                    {visibleMessages.map((m) => {
+                      const selected = m.id === selectedMessageId;
+                      return (
+                        <li
+                          key={m.id}
+                          onClick={() => setSelectedMessageId(m.id)}
+                          className={cn(
+                            'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors',
+                            selected
+                              ? 'bg-sp-active border-l-sp-accent'
+                              : 'border-l-transparent hover:bg-sp-hover'
+                          )}
+                          style={{ gridTemplateColumns: '40px 80px 110px 130px 1fr' }}
+                        >
+                          <div>
+                            {m.partition !== undefined ? (
+                              <PartitionMiniPill partition={m.partition} />
+                            ) : (
+                              <span className="text-sp-dim">—</span>
+                            )}
+                          </div>
+                          <span className="text-sp-muted tabular-nums truncate">
+                            {m.offset ?? '—'}
+                          </span>
+                          <span className="text-sp-dim tabular-nums">
+                            {new Date(m.timestamp).toLocaleTimeString()}
+                          </span>
+                          <span className="text-sp-muted truncate" title={m.key ?? ''}>
+                            {m.key ?? <span className="text-sp-dim">—</span>}
+                          </span>
+                          <span
+                            className={cn(
+                              'truncate',
+                              m.error ? 'text-red-400' : 'text-sp-text'
+                            )}
+                            title={m.value}
+                          >
+                            {m.error ? m.error : m.value}
+                          </span>
+                        </li>
+                      );
+                    })}
+                    {visibleMessages.length === 0 && (
+                      <li className="px-3 py-8 text-center text-sp-muted">
+                        No messages yet.
+                      </li>
+                    )}
+                  </ul>
+                </ScrollArea>
+              </Floater>
+
+              {/* Detail panel */}
+              <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
+                {selectedMessage ? (
+                  <>
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-sp-line shrink-0">
+                      <span className="sp-label">Message</span>
+                      <span className="text-sp-dim font-mono">·</span>
+                      {selectedMessage.partition !== undefined && (
+                        <PartitionMiniPill partition={selectedMessage.partition} />
+                      )}
+                      <span className="font-mono text-sp-12 text-sp-muted tabular-nums">
+                        {selectedMessage.offset ?? '—'}
+                      </span>
+                      <span className="ml-auto font-mono text-sp-11 text-sp-dim">
+                        {new Date(selectedMessage.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <ScrollArea className="flex-1 min-h-0">
+                      <div className="p-3 space-y-3">
+                        {selectedMessage.topic && (
+                          <div className="space-y-1">
+                            <div className="sp-label">Topic</div>
+                            <div
+                              className="font-mono text-sp-12"
+                              style={{ color: KAFKA_PINK }}
+                            >
+                              {selectedMessage.topic}
+                            </div>
+                          </div>
+                        )}
+
+                        {selectedMessage.key && (
+                          <div className="space-y-1">
+                            <div className="sp-label">Key</div>
+                            <div className="font-mono text-sp-12 text-sp-text break-all">
+                              {selectedMessage.key}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          <div className="sp-label">Headers</div>
+                          {selectedMessage.headers && Object.keys(selectedMessage.headers).length > 0 ? (
+                            <div
+                              className="grid gap-x-3 gap-y-1 font-mono text-sp-11-5"
+                              style={{ gridTemplateColumns: 'auto 1fr' }}
+                            >
+                              {Object.entries(selectedMessage.headers).map(([k, v]) => (
+                                <div key={k} className="contents">
+                                  <span className="text-sp-muted">{k}</span>
+                                  <span className="text-sp-text break-all">{v}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-sp-dim text-sp-11-5 italic">No headers</div>
+                          )}
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="sp-label">Value</div>
+                          {(() => {
+                            const { formatted } = tryFormatJson(selectedMessage.value);
+                            const lineCount = formatted.split('\n').length;
+                            return (
+                              <CodeEditorFrame lineCount={lineCount}>
+                                <pre className="whitespace-pre-wrap break-all text-sp-text">
+                                  {formatted}
+                                </pre>
+                              </CodeEditorFrame>
+                            );
+                          })()}
+                        </div>
+
+                        {selectedMessage.error && (
+                          <div className="space-y-1">
+                            <div className="sp-label">Error</div>
+                            <div className="font-mono text-sp-12 text-red-400 break-all">
+                              {selectedMessage.error}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </>
+                ) : (
+                  <div className="flex flex-1 items-center justify-center text-sm text-sp-muted">
+                    Select a message to inspect.
+                  </div>
+                )}
+              </Floater>
+            </div>
+          </TabsContent>
+
+          {/* Connection tab */}
+          <TabsContent value="connection" className="flex-1 overflow-auto m-0">
+            <Floater radius="panel" className="p-4 space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs sp-label">Connection name</Label>
                 <Input
-                  value={brokerDraft}
-                  onChange={(e) => setBrokerDraft(e.target.value)}
-                  placeholder="host:port"
+                  value={connection.name}
+                  onChange={(e) => updateConnection(connection.id, { name: e.target.value })}
                   className="h-8 text-xs"
                 />
-                <Button size="sm" variant="secondary" onClick={handleAddBroker}>
-                  Add
-                </Button>
               </div>
-            </div>
+              <div className="space-y-2">
+                <Label className="text-xs sp-label">Client ID</Label>
+                <Input
+                  value={connection.clientId}
+                  onChange={(e) => updateConnection(connection.id, { clientId: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label className="text-xs">Security protocol</Label>
-              <Select
-                value={connection.auth.securityProtocol}
-                onValueChange={(v) => setSecurityProtocol(v as KafkaSecurityProtocol)}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SECURITY_PROTOCOLS.map((sp) => (
-                    <SelectItem key={sp} value={sp}>{sp}</SelectItem>
+              <div className="space-y-2">
+                <Label className="text-xs sp-label">Bootstrap brokers</Label>
+                <div className="flex flex-wrap gap-1">
+                  {connection.bootstrapBrokers.map((b, idx) => (
+                    <Badge key={`${b}-${idx}`} variant="secondary" className="gap-1 font-mono">
+                      {b}
+                      <button onClick={() => handleRemoveBroker(idx)} aria-label={`Remove broker ${b}`}>
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </Badge>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={brokerDraft}
+                    onChange={(e) => setBrokerDraft(e.target.value)}
+                    placeholder="host:port"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <Button size="sm" variant="secondary" onClick={handleAddBroker}>
+                    Add
+                  </Button>
+                </div>
+              </div>
 
-            {(connection.auth.securityProtocol === 'SASL_PLAINTEXT' ||
-              connection.auth.securityProtocol === 'SASL_SSL') && connection.auth.sasl && (
-              <div className="space-y-2 rounded border p-3">
-                <Label className="text-xs font-semibold">SASL</Label>
+              <div className="space-y-2">
+                <Label className="text-xs sp-label">Security protocol</Label>
                 <Select
-                  value={connection.auth.sasl.mechanism}
-                  onValueChange={(v) => updateAuth(connection.id, {
-                    ...connection.auth,
-                    sasl: { ...connection.auth.sasl!, mechanism: v as KafkaSaslMechanism },
-                  })}
+                  value={connection.auth.securityProtocol}
+                  onValueChange={(v) => setSecurityProtocol(v as KafkaSecurityProtocol)}
                 >
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {SASL_MECHANISMS.map((m) => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    {SECURITY_PROTOCOLS.map((sp) => (
+                      <SelectItem key={sp} value={sp}>{sp}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Input
-                  value={connection.auth.sasl.username}
-                  onChange={(e) => updateAuth(connection.id, {
-                    ...connection.auth,
-                    sasl: { ...connection.auth.sasl!, username: e.target.value },
-                  })}
-                  placeholder="Username"
-                  className="h-8 text-xs"
-                />
-                <Input
-                  type="password"
-                  value={saslPasswordDraft}
-                  onChange={(e) => setSaslPasswordDraft(e.target.value)}
-                  placeholder={
-                    connection.auth.sasl.password === KAFKA_SECRET_SENTINEL
-                      ? 'Password (stored — leave blank to keep)'
-                      : 'Password'
-                  }
-                  className="h-8 text-xs"
-                />
               </div>
-            )}
 
-            {(connection.auth.securityProtocol === 'SASL_SSL' ||
-              connection.auth.securityProtocol === 'SSL') && (
-              <div className="space-y-2 rounded border p-3">
-                <Label className="text-xs font-semibold">TLS</Label>
-                {(['caPath', 'certPath', 'keyPath'] as const).map((field) => (
-                  <div key={field} className="flex gap-2">
-                    <Input
-                      value={connection.auth.tls?.[field] ?? ''}
-                      readOnly
-                      placeholder={field}
-                      className="h-8 text-xs"
-                    />
-                    <Button size="sm" variant="secondary" onClick={() => pickTlsFile(field)}>
-                      Browse
-                    </Button>
-                  </div>
-                ))}
-                <Input
-                  type="password"
-                  value={tlsPassphraseDraft}
-                  onChange={(e) => setTlsPassphraseDraft(e.target.value)}
-                  placeholder={
-                    connection.auth.tls?.passphrase === KAFKA_SECRET_SENTINEL
-                      ? 'Key passphrase (stored — leave blank to keep)'
-                      : 'Key passphrase (optional)'
-                  }
-                  className="h-8 text-xs"
-                />
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={connection.auth.tls?.rejectUnauthorized !== false}
-                    onCheckedChange={(checked) => updateAuth(connection.id, {
+              {(connection.auth.securityProtocol === 'SASL_PLAINTEXT' ||
+                connection.auth.securityProtocol === 'SASL_SSL') && connection.auth.sasl && (
+                <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+                  <Label className="text-xs sp-label">SASL</Label>
+                  <Select
+                    value={connection.auth.sasl.mechanism}
+                    onValueChange={(v) => updateAuth(connection.id, {
                       ...connection.auth,
-                      tls: { ...(connection.auth.tls ?? {}), rejectUnauthorized: checked },
+                      sasl: { ...connection.auth.sasl!, mechanism: v as KafkaSaslMechanism },
                     })}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SASL_MECHANISMS.map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={connection.auth.sasl.username}
+                    onChange={(e) => updateAuth(connection.id, {
+                      ...connection.auth,
+                      sasl: { ...connection.auth.sasl!, username: e.target.value },
+                    })}
+                    placeholder="Username"
+                    className="h-8 text-xs font-mono"
                   />
-                  <Label className="text-xs">Verify server certificate</Label>
+                  <Input
+                    type="password"
+                    value={saslPasswordDraft}
+                    onChange={(e) => setSaslPasswordDraft(e.target.value)}
+                    placeholder={
+                      connection.auth.sasl.password === KAFKA_SECRET_SENTINEL
+                        ? 'Password (stored — leave blank to keep)'
+                        : 'Password'
+                    }
+                    className="h-8 text-xs font-mono"
+                  />
                 </div>
-              </div>
-            )}
+              )}
+
+              {(connection.auth.securityProtocol === 'SASL_SSL' ||
+                connection.auth.securityProtocol === 'SSL') && (
+                <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+                  <Label className="text-xs sp-label">TLS</Label>
+                  {(['caPath', 'certPath', 'keyPath'] as const).map((field) => (
+                    <div key={field} className="flex gap-2">
+                      <Input
+                        value={connection.auth.tls?.[field] ?? ''}
+                        readOnly
+                        placeholder={field}
+                        className="h-8 text-xs font-mono"
+                      />
+                      <Button size="sm" variant="secondary" onClick={() => pickTlsFile(field)}>
+                        Browse
+                      </Button>
+                    </div>
+                  ))}
+                  <Input
+                    type="password"
+                    value={tlsPassphraseDraft}
+                    onChange={(e) => setTlsPassphraseDraft(e.target.value)}
+                    placeholder={
+                      connection.auth.tls?.passphrase === KAFKA_SECRET_SENTINEL
+                        ? 'Key passphrase (stored — leave blank to keep)'
+                        : 'Key passphrase (optional)'
+                    }
+                    className="h-8 text-xs font-mono"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={connection.auth.tls?.rejectUnauthorized !== false}
+                      onCheckedChange={(checked) => updateAuth(connection.id, {
+                        ...connection.auth,
+                        tls: { ...(connection.auth.tls ?? {}), rejectUnauthorized: checked },
+                      })}
+                    />
+                    <Label className="text-xs">Verify server certificate</Label>
+                  </div>
+                </div>
+              )}
+            </Floater>
           </TabsContent>
 
           {/* Produce tab */}
-          <TabsContent value="produce" className="flex-1 overflow-auto px-3 py-2 space-y-3">
-            <div className="space-y-2">
-              <Label className="text-xs">Topic</Label>
-              <Input
-                value={connection.defaultTopic}
-                onChange={(e) => updateConnection(connection.id, { defaultTopic: e.target.value })}
-                placeholder="my-topic"
-                className="h-8 text-xs"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
+          <TabsContent value="produce" className="flex-1 overflow-auto m-0">
+            <Floater radius="panel" className="p-4 space-y-3">
               <div className="space-y-2">
-                <Label className="text-xs">Acks</Label>
-                <Select
-                  value={String(connection.acks)}
-                  onValueChange={(v) => updateConnection(connection.id, { acks: Number(v) as KafkaAcks })}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">0 — fire & forget</SelectItem>
-                    <SelectItem value="1">1 — leader</SelectItem>
-                    <SelectItem value="-1">-1 — all in-sync replicas</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs sp-label">Topic</Label>
+                <Input
+                  value={connection.defaultTopic}
+                  onChange={(e) => updateConnection(connection.id, { defaultTopic: e.target.value })}
+                  placeholder="my-topic"
+                  className="h-8 text-xs font-mono"
+                  style={{ color: connection.defaultTopic ? KAFKA_PINK : undefined }}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  <Label className="text-xs sp-label">Acks</Label>
+                  <Select
+                    value={String(connection.acks)}
+                    onValueChange={(v) => updateConnection(connection.id, { acks: Number(v) as KafkaAcks })}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">0 — fire & forget</SelectItem>
+                      <SelectItem value="1">1 — leader</SelectItem>
+                      <SelectItem value="-1">-1 — all in-sync replicas</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs sp-label">Compression</Label>
+                  <Select
+                    value={connection.compression}
+                    onValueChange={(v) => updateConnection(connection.id, { compression: v as KafkaCompression })}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COMPRESSION.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs">Compression</Label>
-                <Select
-                  value={connection.compression}
-                  onValueChange={(v) => updateConnection(connection.id, { compression: v as KafkaCompression })}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COMPRESSION.map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs sp-label">Key (optional)</Label>
+                <Input
+                  value={produceKey}
+                  onChange={(e) => setProduceKey(e.target.value)}
+                  className="h-8 text-xs font-mono"
+                />
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Key (optional)</Label>
-              <Input
-                value={produceKey}
-                onChange={(e) => setProduceKey(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Value</Label>
-              <Textarea
-                value={produceValue}
-                onChange={(e) => setProduceValue(e.target.value)}
-                className="font-mono text-xs"
-                rows={8}
-              />
-            </div>
-            <Button
-              onClick={handleProduce}
-              disabled={connection.status !== 'connected' || !produceValue || !connection.defaultTopic}
-            >
-              <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
-            </Button>
+              <div className="space-y-2">
+                <Label className="text-xs sp-label">Value</Label>
+                <Textarea
+                  value={produceValue}
+                  onChange={(e) => setProduceValue(e.target.value)}
+                  className="font-mono text-xs"
+                  rows={8}
+                />
+              </div>
+              <Button
+                onClick={handleProduce}
+                disabled={connection.status !== 'connected' || !produceValue || !connection.defaultTopic}
+              >
+                <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
+              </Button>
+            </Floater>
           </TabsContent>
 
           {/* Consume tab */}
-          <TabsContent value="consume" className="flex-1 overflow-auto px-3 py-2 space-y-3">
-            <div className="space-y-2">
-              <Label className="text-xs">Consumer group ID</Label>
-              <Input
-                value={connection.consumer.groupId}
-                onChange={(e) => updateConsumer(connection.id, { groupId: e.target.value })}
-                className="h-8 text-xs"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Topics</Label>
-              <div className="flex flex-wrap gap-1">
-                {connection.consumer.topics.map((t, idx) => (
-                  <Badge key={`${t}-${idx}`} variant="secondary" className="gap-1">
-                    {t}
-                    <button onClick={() => handleRemoveTopic(idx)} aria-label={`Remove topic ${t}`}>
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
+          <TabsContent value="consume" className="flex-1 overflow-auto m-0">
+            <Floater radius="panel" className="p-4 space-y-3">
+              <div className="space-y-2">
+                <Label className="text-xs sp-label">Consumer group ID</Label>
+                <Input
+                  value={connection.consumer.groupId}
+                  onChange={(e) => updateConsumer(connection.id, { groupId: e.target.value })}
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs sp-label">Topics</Label>
+                <div className="flex flex-wrap gap-1">
+                  {connection.consumer.topics.map((t, idx) => (
+                    <Badge
+                      key={`${t}-${idx}`}
+                      variant="secondary"
+                      className="gap-1 font-mono"
+                      style={{ color: KAFKA_PINK }}
+                    >
+                      {t}
+                      <button onClick={() => handleRemoveTopic(idx)} aria-label={`Remove topic ${t}`}>
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={topicDraft}
+                    onChange={(e) => setTopicDraft(e.target.value)}
+                    placeholder="topic-name"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <Button size="sm" variant="secondary" onClick={handleAddTopic}>
+                    Add
+                  </Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={connection.consumer.fromBeginning}
+                  onCheckedChange={(checked) => updateConsumer(connection.id, { fromBeginning: checked })}
+                />
+                <Label className="text-xs">Read from beginning (EARLIEST)</Label>
               </div>
               <div className="flex gap-2">
-                <Input
-                  value={topicDraft}
-                  onChange={(e) => setTopicDraft(e.target.value)}
-                  placeholder="topic-name"
-                  className="h-8 text-xs"
-                />
-                <Button size="sm" variant="secondary" onClick={handleAddTopic}>
-                  Add
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={connection.consumer.fromBeginning}
-                onCheckedChange={(checked) => updateConsumer(connection.id, { fromBeginning: checked })}
-              />
-              <Label className="text-xs">Read from beginning (EARLIEST)</Label>
-            </div>
-            <div className="flex gap-2">
-              {connection.consumer.status !== 'subscribed' ? (
-                <Button
-                  onClick={handleSubscribe}
-                  disabled={connection.status !== 'connected' || connection.consumer.topics.length === 0}
-                >
-                  Subscribe
-                </Button>
-              ) : (
-                <Button variant="secondary" onClick={handleUnsubscribe}>
-                  Unsubscribe
-                </Button>
-              )}
-              <Badge variant="outline">{connection.consumer.status}</Badge>
-            </div>
-          </TabsContent>
-
-          {/* Messages tab */}
-          <TabsContent value="messages" className="flex-1 flex flex-col min-h-0 px-3 py-2">
-            <div className="flex items-center gap-2 mb-2">
-              <Select value={messageFilter} onValueChange={(v) => setMessageFilter(v as 'sent' | 'received' | 'system' | 'all')}>
-                <SelectTrigger className="h-8 w-32 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="sent">Sent</SelectItem>
-                  <SelectItem value="received">Received</SelectItem>
-                  <SelectItem value="system">System</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="relative flex-1">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search topic, key, value"
-                  className="h-8 pl-7 text-xs"
-                />
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => clearMessages(connection.id)}>
-                <RefreshCw className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <ScrollArea className="flex-1 rounded border">
-              <ul className="divide-y text-xs">
-                {filteredMessages.map((m) => (
-                  <li key={m.id} className="px-3 py-2 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={
-                          m.direction === 'sent'
-                            ? 'default'
-                            : m.direction === 'received'
-                              ? 'secondary'
-                              : 'outline'
-                        }
-                        className="capitalize"
-                      >
-                        {m.direction}
-                      </Badge>
-                      {m.topic && <span className="font-mono text-muted-foreground">{m.topic}</span>}
-                      {m.partition !== undefined && (
-                        <span className="text-muted-foreground">p{m.partition}</span>
-                      )}
-                      {m.offset && <span className="text-muted-foreground">@{m.offset}</span>}
-                      <span className="ml-auto text-muted-foreground">
-                        {new Date(m.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                    {m.key && <div className="font-mono text-muted-foreground">key: {m.key}</div>}
-                    <pre className="font-mono whitespace-pre-wrap break-all">{m.value}</pre>
-                    {m.error && <div className="text-destructive">{m.error}</div>}
-                  </li>
-                ))}
-                {filteredMessages.length === 0 && (
-                  <li className="px-3 py-6 text-center text-muted-foreground">No messages yet.</li>
+                {connection.consumer.status !== 'subscribed' ? (
+                  <Button
+                    onClick={handleSubscribe}
+                    disabled={connection.status !== 'connected' || connection.consumer.topics.length === 0}
+                  >
+                    Subscribe
+                  </Button>
+                ) : (
+                  <Button variant="secondary" onClick={handleUnsubscribe}>
+                    Unsubscribe
+                  </Button>
                 )}
-              </ul>
-            </ScrollArea>
+                <Badge variant="outline" className="font-mono">{connection.consumer.status}</Badge>
+              </div>
+            </Floater>
           </TabsContent>
         </Tabs>
       )}
