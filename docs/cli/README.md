@@ -13,7 +13,7 @@ JUnit, JSON, or HTML reports for any CI system that consumes them.
 npm install -g @restura/cli
 ```
 
-Requires Node.js 22 or later. The binary is `restura`.
+Requires Node.js 24 or later. The binary is `restura`.
 
 ## Quick start
 

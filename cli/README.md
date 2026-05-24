@@ -10,7 +10,7 @@ npm install -g @restura/cli
 npx @restura/cli run ./my-collection
 ```
 
-Requires Node.js 22+.
+Requires Node.js 24+.
 
 ## Quick start
 

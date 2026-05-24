@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:web:docker": "cross-env VITE_IS_DOCKER_BUILD=true vite build",
-    "build:server": "esbuild worker/node-entry.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/index.mjs --packages=external --define:__APP_VERSION__=\"\\\"$npm_package_version\\\"\" --log-level=warning",
+    "build:server": "esbuild worker/node-entry.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/server/index.mjs --packages=external --define:__APP_VERSION__=\"\\\"$npm_package_version\\\"\" --log-level=warning",
     "build:docker": "npm run build:web:docker && npm run build:server",
     "start": "node dist/server/index.mjs",
     "preview": "vite preview",
@@ -189,7 +189,7 @@
     "sharp": "^0.34.5"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

@@ -72,7 +72,7 @@ See [`docs/adr/0004-security-hardening.md`](docs/adr/0004-security-hardening.md)
 
 ## Quick Start 🚀
 
-**Prerequisites:** Node.js 22+, npm
+**Prerequisites:** Node.js 24+, npm
 
 ### Web
 

@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1.7
 # ──────────────────────────────────────────────────────────────────────────────
-# Restura self-hosted image — single Node 22 process serving the SPA and the
+# Restura self-hosted image — single Node 24 process serving the SPA and the
 # /api/* Worker endpoints from one port. Multi-stage build keeps the runtime
 # image small; only the compiled output + production node_modules ship.
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ──────── Stage 1: deps ──────────────────────────────────────────────────────
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 
 # Copy lockfile + manifest only so this layer caches across source changes.
@@ -20,7 +20,7 @@ RUN npm ci --ignore-scripts
 
 
 # ──────── Stage 2: build ─────────────────────────────────────────────────────
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 ENV NODE_ENV=production
 ENV VITE_IS_DOCKER_BUILD=true
@@ -38,7 +38,7 @@ RUN npm run build:server
 
 
 # ──────── Stage 3: runtime ───────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -55,13 +55,13 @@ RUN npm ci --omit=dev --ignore-scripts \
 COPY --from=build /app/dist/server ./dist/server
 COPY --from=build /app/dist/web ./dist/web
 
-# Drop privileges. node:22-alpine ships a `node` user (uid 1000) already.
+# Drop privileges. node:24-alpine ships a `node` user (uid 1000) already.
 RUN chown -R node:node /app
 USER node
 
 EXPOSE 3000
 
-# Liveness probe — wget is part of busybox in node:22-alpine. Falls through
+# Liveness probe — wget is part of busybox in node:24-alpine. Falls through
 # to docker-compose `healthcheck:` when set.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${PORT}/health" >/dev/null || exit 1

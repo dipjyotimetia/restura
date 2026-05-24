@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, SSE, and MCP** (Model Context Protocol). It ships as both a web app (Cloudflare Pages + Workers) and an Electron desktop app from a single React renderer. Node.js 22+ required.
+Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, SSE, and MCP** (Model Context Protocol). It ships as both a web app (Cloudflare Pages + Workers) and an Electron desktop app from a single React renderer. Node.js 24+ required.
 
 ## Development Commands
 
