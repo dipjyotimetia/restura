@@ -12,7 +12,7 @@ The app supports distribution on:
 ## Prerequisites
 
 ### Required Software
-- Node.js 22.x or later
+- Node.js 24.x or later
 - npm 10.x or later
 - Git
 
