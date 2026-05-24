@@ -135,7 +135,7 @@ export default function CodeEditor({
         height={height}
         language={language}
         value={value}
-        theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
+        theme={theme === 'dark' ? 'restura-dark' : 'restura-light'}
         onChange={handleChange}
         onMount={handleEditorDidMount}
         {...(path !== undefined && { path })}
