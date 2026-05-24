@@ -22,6 +22,10 @@
     "../shared/**/*.ts",
     "../src/lib/shared/file-collection-schema.ts",
     "../src/lib/shared/validations.ts",
+    "../src/lib/shared/dynamicVariables.ts",
+    "../src/lib/opencollection/**/*.ts",
+    "../src/features/scripts/lib/scriptExecutor.ts",
+    "../src/features/scripts/lib/chaiSubset.ts",
     "../src/types/index.ts"
   ],
   "exclude": ["node_modules", "dist", "fixtures", "**/*.test.ts"]

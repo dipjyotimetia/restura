@@ -1,0 +1,10 @@
+info:
+  type: http
+  name: List posts
+  seq: 1
+http:
+  method: GET
+  url: "{{API_BASE}}/posts"
+  headers:
+    - name: Accept
+      value: application/json

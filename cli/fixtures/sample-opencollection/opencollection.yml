@@ -1,0 +1,10 @@
+opencollection: "1.0.0"
+info:
+  name: Sample OpenCollection
+  version: "0.1.0"
+docs: Demo OpenCollection-format collection for CLI tests
+config:
+  environments:
+    - name: default
+      variables:
+        - { name: API_BASE, value: https://api.example.com }
