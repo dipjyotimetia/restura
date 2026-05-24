@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { mcp } from '../mcp';
+import { createMcpHandler, mcp } from '../mcp';
 
 const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();
 app.post('/mcp', mcp);
@@ -14,7 +14,7 @@ function makeRequest(body: unknown, env: Record<string, string> = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     },
-    env,
+    env
   );
 }
 
@@ -31,10 +31,10 @@ describe('mcp handler', () => {
         headers: { 'Content-Type': 'application/json' },
         body: '{not json',
       },
-      {},
+      {}
     );
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Malformed JSON/);
   });
 
@@ -44,7 +44,7 @@ describe('mcp handler', () => {
       transport: 'streamable-http',
     });
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid request body/);
     expect(json.error).toMatch(/jsonRpc/i);
   });
@@ -56,7 +56,7 @@ describe('mcp handler', () => {
       jsonRpc: { method: 'tools/list' },
     });
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid request body/);
   });
 
@@ -67,7 +67,7 @@ describe('mcp handler', () => {
       jsonRpc: { method: 'tools/list', id: 1 },
     });
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid `transport`/);
   });
 
@@ -79,8 +79,8 @@ describe('mcp handler', () => {
           status: 200,
           statusText: 'OK',
           headers: { 'content-type': 'application/json' },
-        }),
-      ),
+        })
+      )
     );
 
     const res = await makeRequest({
@@ -89,8 +89,39 @@ describe('mcp handler', () => {
       jsonRpc: { method: 'tools/list', id: 1 },
     });
     expect(res.status).toBe(200);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.ok).toBe(true);
     expect(json.jsonRpc).toMatchObject({ id: 1, result: { tools: [] } });
+  });
+
+  it('runs injected Node DNS guard before direct fetch', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    const guard = vi.fn().mockRejectedValue(new Error('DNS blocked'));
+    const guardedApp = new Hono<{
+      Bindings: { ENVIRONMENT?: string; ALLOW_PRIVATE_IPS?: string };
+    }>();
+    guardedApp.post('/mcp', createMcpHandler(guard));
+
+    const res = await guardedApp.request(
+      '/mcp',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://attacker-controlled.example',
+          transport: 'streamable-http',
+          jsonRpc: { method: 'tools/list', id: 1 },
+        }),
+      },
+      {}
+    );
+
+    expect(res.status).toBe(502);
+    expect(guard).toHaveBeenCalledWith('attacker-controlled.example', {
+      allowLocalhost: false,
+      allowPrivateIPs: false,
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

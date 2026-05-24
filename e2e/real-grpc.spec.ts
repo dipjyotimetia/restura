@@ -28,7 +28,9 @@ test.describe('Real gRPC server (Connect-RPC SDK)', () => {
     await page.getByPlaceholder(/Service \(e\.g\./i).fill('echo.v1.EchoService');
     await page.getByPlaceholder(/Method \(e\.g\./i).fill('UnaryEcho');
 
-    await expect(page.getByRole('textbox', { name: 'gRPC server URL' })).toHaveValue(servers.grpc.url);
+    await expect(page.getByRole('textbox', { name: 'gRPC server URL' })).toHaveValue(
+      servers.grpc.url
+    );
   });
 
   test('Worker /api/grpc proxies a unary call to the mock server', async ({ request, servers }) => {
@@ -49,7 +51,10 @@ test.describe('Real gRPC server (Connect-RPC SDK)', () => {
     expect(servers.grpc.unaryCount()).toBeGreaterThanOrEqual(1);
   });
 
-  test('Worker /api/grpc/reflection lists services from the mock server', async ({ request, servers }) => {
+  test('Worker /api/grpc/reflection lists services from the mock server', async ({
+    request,
+    servers,
+  }) => {
     const res = await request.post('http://localhost:5173/api/grpc/reflection', {
       data: {
         url: servers.grpc.url,
@@ -137,10 +142,12 @@ test.describe('Real gRPC server (Connect-RPC SDK)', () => {
     expect(servers.grpc.bidiCount()).toBeGreaterThanOrEqual(1);
   });
 
-  test('UI surfaces a "Web Stream" panel for streaming method types', async ({ app: page, servers }) => {
+  test('UI surfaces a "Web Stream" panel for streaming method types', async ({
+    app: page,
+    servers,
+  }) => {
     await switchMode(page, 'grpc');
-    await page.locator('[role="combobox"]').filter({ hasText: /^Unary$/ }).first().click();
-    await page.locator('[role="option"]').filter({ hasText: /Server Streaming/i }).click();
+    await page.getByRole('radio', { name: 'Server' }).click();
 
     await expect(page.getByRole('tab', { name: /Web Stream/i })).toBeVisible();
 

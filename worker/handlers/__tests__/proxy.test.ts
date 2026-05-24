@@ -26,7 +26,7 @@ function makeRequest(body: unknown, env: Record<string, string> = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     },
-    env,
+    env
   );
 }
 
@@ -44,8 +44,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'application/json' },
-          }),
-        ),
+          })
+        )
       );
     });
 
@@ -74,17 +74,17 @@ describe('proxy handler', () => {
         headers: { 'Content-Type': 'application/json' },
         body: '{not json',
       },
-      {},
+      {}
     );
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Malformed JSON/);
   });
 
   it('schema violation (missing required field) returns 400 with Invalid request body error', async () => {
     const res = await makeRequest({ url: 'https://example.com/api' }); // missing method
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid request body/);
     expect(json.error).toMatch(/method/i);
   });
@@ -95,22 +95,22 @@ describe('proxy handler', () => {
 
     const res = await makeRequest({ method: 'GET', url: 'http://192.168.1.1/' });
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid URL/i);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('localhost allowed in development with DEV_BYPASS_AUTH binding', async () => {
-    const mockFetch = vi.fn().mockResolvedValue(
-      new Response('{}', { status: 200, statusText: 'OK' }),
-    );
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(new Response('{}', { status: 200, statusText: 'OK' }));
     vi.stubGlobal('fetch', mockFetch);
 
     // Per Task 2.6 unification: ENVIRONMENT=development alone no longer
     // relaxes allowLocalhost. Requires DEV_BYPASS_AUTH=true (or Miniflare).
     const res = await makeRequest(
       { method: 'GET', url: 'http://localhost:3000/' },
-      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' },
+      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' }
     );
     expect(mockFetch).toHaveBeenCalled();
     expect(res.status).toBe(200);
@@ -124,7 +124,7 @@ describe('proxy handler', () => {
 
     const res = await makeRequest(
       { method: 'GET', url: 'http://localhost:3000/' },
-      { ENVIRONMENT: 'development' },
+      { ENVIRONMENT: 'development' }
     );
     expect(res.status).toBe(400);
     expect(mockFetch).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe('proxy handler', () => {
 
     const res = await makeRequest(
       { method: 'GET', url: 'http://localhost:3000/' },
-      { ENVIRONMENT: 'production' },
+      { ENVIRONMENT: 'production' }
     );
     expect(res.status).toBe(400);
     expect(mockFetch).not.toHaveBeenCalled();
@@ -151,6 +151,33 @@ describe('proxy handler', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it('runs injected Node DNS guard before direct fetch', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    const guard = vi.fn().mockRejectedValue(new Error('DNS blocked'));
+    const guardedApp = new Hono<{
+      Bindings: { ENVIRONMENT?: string; ALLOW_PRIVATE_IPS?: string };
+    }>();
+    guardedApp.post('/proxy', createProxyHandler(tcpProxyStub, guard));
+
+    const res = await guardedApp.request(
+      '/proxy',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'GET', url: 'https://attacker-controlled.example/api' }),
+      },
+      {}
+    );
+
+    expect(res.status).toBe(502);
+    expect(guard).toHaveBeenCalledWith('attacker-controlled.example', {
+      allowLocalhost: false,
+      allowPrivateIPs: false,
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('blocked request headers are not forwarded to upstream fetch', async () => {
     let capturedHeaders: Record<string, string> | undefined;
     vi.stubGlobal(
@@ -158,7 +185,7 @@ describe('proxy handler', () => {
       vi.fn().mockImplementation((_url: string, opts: RequestInit) => {
         capturedHeaders = opts.headers as Record<string, string>;
         return Promise.resolve(new Response('{}', { status: 200, statusText: 'OK' }));
-      }),
+      })
     );
 
     await makeRequest({
@@ -180,8 +207,8 @@ describe('proxy handler', () => {
           status: 200,
           statusText: 'OK',
           headers: { 'content-length': String(11 * 1024 * 1024) },
-        }),
-      ),
+        })
+      )
     );
 
     const res = await makeRequest({ method: 'GET', url: 'https://example.com/api' });
@@ -219,8 +246,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'text/event-stream' },
-          }),
-        ),
+          })
+        )
       );
 
       const res = await makeRequest({
@@ -251,8 +278,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'application/x-ndjson' },
-          }),
-        ),
+          })
+        )
       );
 
       const res = await makeRequest({
@@ -275,8 +302,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'application/json' },
-          }),
-        ),
+          })
+        )
       );
 
       const res = await makeRequest({
@@ -303,8 +330,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'application/json' },
-          }),
-        ),
+          })
+        )
       );
 
       const res = await makeRequest({
@@ -335,8 +362,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'text/event-stream' },
-          }),
-        ),
+          })
+        )
       );
 
       const res = await makeRequest({
@@ -365,8 +392,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'text/event-stream' },
-          }),
-        ),
+          })
+        )
       );
 
       const res = await makeRequest({
@@ -393,8 +420,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'text/event-stream' },
-          }),
-        ),
+          })
+        )
       );
 
       const res = await makeRequest({
@@ -421,8 +448,8 @@ describe('proxy handler', () => {
             status: 200,
             statusText: 'OK',
             headers: { 'content-type': 'text/plain' },
-          }),
-        ),
+          })
+        )
       );
 
       const res = await makeRequest({

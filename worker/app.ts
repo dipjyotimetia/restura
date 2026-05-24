@@ -12,9 +12,9 @@ import { cors } from 'hono/cors';
 import type { AppDeps } from './adapters';
 import type { Env } from './env';
 import { createProxyHandler } from './handlers/proxy';
-import { grpc } from './handlers/grpc';
-import { grpcReflection } from './handlers/grpc-reflection';
-import { mcp } from './handlers/mcp';
+import { createGrpcHandler } from './handlers/grpc';
+import { createGrpcReflectionHandler } from './handlers/grpc-reflection';
+import { createMcpHandler } from './handlers/mcp';
 import { featureFlags } from './handlers/feature-flags';
 import { telemetryError } from './handlers/telemetry';
 import { wsTicket } from './handlers/ws-ticket';
@@ -65,7 +65,9 @@ function resolveCorsOrigin(origin: string | undefined, env: Env): string {
     .filter(Boolean);
 
   if (configuredOrigins.length > 0) {
-    return configuredOrigins.some((allowed) => originAllowedByPattern(origin, allowed)) ? origin : '';
+    return configuredOrigins.some((allowed) => originAllowedByPattern(origin, allowed))
+      ? origin
+      : '';
   }
 
   if (isLocalDevBypass(env)) {
@@ -155,10 +157,10 @@ export function createApp(
   app.use('/api/*', proxyAuthMiddleware);
   app.use('/api/*', rateLimitMiddleware);
 
-  app.post('/api/proxy', createProxyHandler(deps.tcpProxy));
-  app.post('/api/grpc', grpc);
-  app.post('/api/grpc/reflection', grpcReflection);
-  app.post('/api/mcp', mcp);
+  app.post('/api/proxy', createProxyHandler(deps.tcpProxy, deps.nodeHostnameGuard));
+  app.post('/api/grpc', createGrpcHandler(deps.nodeHostnameGuard));
+  app.post('/api/grpc/reflection', createGrpcReflectionHandler(deps.nodeHostnameGuard));
+  app.post('/api/mcp', createMcpHandler(deps.nodeHostnameGuard));
   app.post('/api/telemetry/error', telemetryError);
   app.get('/api/feature-flags', featureFlags);
   app.post('/api/ws-ticket', wsTicket);

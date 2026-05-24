@@ -13,17 +13,27 @@ test.describe('Real SSE server', () => {
     const urlField = page.getByPlaceholder('https://echo.restura.dev/sse');
     await urlField.fill(`${servers.http.url}/stream/sse`);
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Start SSE stream' }).click();
 
     // The renderer's onmessage handler converts each event into a `message`
     // badge. Wait until at least three of those are present.
-    const messageBadges = page.locator('div').filter({ has: page.getByText('message', { exact: true }) });
-    await expect.poll(async () => await messageBadges.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+    const messageBadges = page
+      .locator('div')
+      .filter({ has: page.getByText('message', { exact: true }) });
+    await expect
+      .poll(async () => await messageBadges.count(), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(3);
 
-    expect(servers.http.requests().filter((r) => r.path === '/stream/sse').length).toBeGreaterThanOrEqual(1);
+    expect(
+      servers.http.requests().filter((r) => r.path === '/stream/sse').length
+    ).toBeGreaterThanOrEqual(1);
 
     // Tear down to stop EventSource reconnect noise before teardown.
-    await page.getByRole('button', { name: 'Disconnect' }).first().click().catch(() => {});
+    await page
+      .getByRole('button', { name: 'Stop SSE stream' })
+      .first()
+      .click()
+      .catch(() => {});
   });
 
   test('UI surfaces a Disconnect button while connected', async ({ app: page, servers }) => {
@@ -31,13 +41,14 @@ test.describe('Real SSE server', () => {
 
     // /slow keeps the connection open long enough to see the button. Use a
     // long sleep — the test cancels it via Disconnect before completion.
-    await page.getByPlaceholder('https://echo.restura.dev/sse')
+    await page
+      .getByPlaceholder('https://echo.restura.dev/sse')
       .fill(`${servers.http.url}/stream/sse`);
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Start SSE stream' }).click();
     // Either Disconnect appears (still streaming) or 3 events arrived first;
     // both are valid resting states. Just assert no errors crashed the panel.
-    await expect(page.getByRole('tab', { name: /Events \(\d+\)/ })).toBeVisible();
+    await expect(page.getByText('Event timeline')).toBeVisible();
   });
 
   test('Wire: /stream/sse emits text/event-stream with three messages', async ({ servers }) => {

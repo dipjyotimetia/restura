@@ -7,10 +7,8 @@ import { type Page, expect } from '@playwright/test';
  */
 export async function configureProxy(page: Page, host: string, port: number): Promise<void> {
   // Open Settings → Proxy.
-  await page.getByRole('navigation', { name: 'Main navigation' })
-    .getByRole('button', { name: 'Settings' })
-    .click();
-  await expect(page.getByText('SETTINGS', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Open settings' }).click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
   await page.getByRole('button', { name: /^Proxy$/ }).click();
 
   // Enable proxy switch.
@@ -20,19 +18,14 @@ export async function configureProxy(page: Page, host: string, port: number): Pr
   }
 
   // Host & port.
-  await page.locator('#proxy-host').fill(host);
-  await page.locator('#proxy-port').fill(String(port));
-
-  // Remove every entry from the bypass list so 127.0.0.1 isn't excluded.
-  const removeButtons = page.locator('[aria-label^="Remove "][aria-label$=" from bypass list"]');
-  // Loop because the list re-renders after each removal.
-  for (let i = 0; i < 10; i += 1) {
-    const count = await removeButtons.count();
-    if (count === 0) break;
-    await removeButtons.first().click();
-  }
+  await page.getByPlaceholder('proxy.example.com').fill(host);
+  const portInput = page
+    .getByRole('dialog', { name: 'Settings' })
+    .locator('input[type="number"]')
+    .first();
+  await portInput.fill(String(port));
 
   // Close settings (Escape).
   await page.keyboard.press('Escape');
-  await expect(page.getByText('SETTINGS', { exact: true })).not.toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).not.toBeVisible();
 }

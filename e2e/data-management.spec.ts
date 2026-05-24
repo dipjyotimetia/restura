@@ -37,9 +37,10 @@ test.describe('Collections', () => {
 
 test.describe('Environments', () => {
   test('opens environment manager and creates an environment', async ({ app: page }) => {
-    await page.getByRole('button', { name: 'Manage Environments' }).click();
+    await page.getByRole('button', { name: /Environment: none/ }).click();
+    await page.getByRole('button', { name: 'New environment' }).click();
 
-    await expect(page.getByRole('heading', { name: /ENVIRONMENTS/i })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'ENVIRONMENTS' })).toBeVisible();
 
     await page.getByRole('button', { name: /New Environment/i }).click();
 
@@ -47,25 +48,22 @@ test.describe('Environments', () => {
     await expect(page.getByText(/New Environment/).first()).toBeVisible();
 
     // Close via the Close button.
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(page.getByRole('heading', { name: /ENVIRONMENTS/i })).not.toBeVisible();
+    await page.getByRole('button', { name: 'Set Active & Close', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'ENVIRONMENTS' })).not.toBeVisible();
   });
 });
 
 test.describe('Settings', () => {
   test('opens settings dialog', async ({ app: page }) => {
-    // The IconRail Settings button is in the main navigation aside.
-    await page.getByRole('navigation', { name: 'Main navigation' })
-      .getByRole('button', { name: 'Settings' })
-      .click();
+    await page.getByRole('button', { name: 'Open settings' }).click();
 
-    await expect(page.getByText('SETTINGS', { exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
     // Side nav inside the dialog.
     await expect(page.getByRole('button', { name: /^Proxy$/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Security$/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Certificates$/ })).toBeVisible();
 
     await page.keyboard.press('Escape');
-    await expect(page.getByText('SETTINGS', { exact: true })).not.toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Settings' })).not.toBeVisible();
   });
 });
 
@@ -74,11 +72,10 @@ test.describe('Theme toggle', () => {
     const html = page.locator('html');
     const initial = await html.getAttribute('class');
 
-    await page.getByRole('button', { name: 'Toggle theme' }).first().click();
+    await page.getByRole('button', { name: 'Open settings' }).click();
+    await page.getByRole('radio', { name: initial?.includes('dark') ? 'Light' : 'Dark' }).click();
 
-    await expect
-      .poll(async () => await html.getAttribute('class'))
-      .not.toBe(initial);
+    await expect.poll(async () => await html.getAttribute('class')).not.toBe(initial);
   });
 });
 
@@ -88,7 +85,10 @@ test.describe('Tabs (request tabs)', () => {
     await page.getByRole('button', { name: 'new request', exact: true }).click();
     await page.getByRole('menuitem', { name: /HTTP/ }).click();
 
-    const tabs = await page.locator('[role="tab"]').filter({ hasText: /New Request/i }).count();
+    const tabs = await page
+      .locator('[role="tab"]')
+      .filter({ hasText: /New Request/i })
+      .count();
     expect(tabs).toBeGreaterThanOrEqual(2);
   });
 });
@@ -100,6 +100,6 @@ test.describe('Sidebar visibility', () => {
     await page.getByRole('button', { name: 'Close panel' }).click();
 
     await expect(page.getByRole('button', { name: 'New', exact: true })).not.toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    await expect(page.getByRole('banner', { name: 'Application chrome' })).toBeVisible();
   });
 });

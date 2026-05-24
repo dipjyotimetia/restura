@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { grpcReflection } from '../grpc-reflection';
+import { createGrpcReflectionHandler, grpcReflection } from '../grpc-reflection';
 
 const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();
 app.post('/grpc/reflection', grpcReflection);
@@ -14,7 +14,7 @@ function makeRequest(body: unknown, env: Record<string, string> = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     },
-    env,
+    env
   );
 }
 
@@ -31,8 +31,8 @@ describe('grpcReflection handler', () => {
           status: 200,
           statusText: 'OK',
           headers: { 'content-type': 'application/json' },
-        }),
-      ),
+        })
+      )
     );
 
     const res = await makeRequest({
@@ -41,7 +41,7 @@ describe('grpcReflection handler', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.reflectionVersion).toBe('v1');
     expect(json.services).toEqual(['helloworld.Greeter']);
   });
@@ -55,7 +55,7 @@ describe('grpcReflection handler', () => {
           status: 200,
           statusText: 'OK',
           headers: { 'content-type': 'application/json' },
-        }),
+        })
       );
     vi.stubGlobal('fetch', mockFetch);
 
@@ -65,7 +65,7 @@ describe('grpcReflection handler', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.reflectionVersion).toBe('v1alpha');
   });
 
@@ -75,7 +75,7 @@ describe('grpcReflection handler', () => {
       vi
         .fn()
         .mockRejectedValueOnce(new Error('v1 error'))
-        .mockRejectedValueOnce(new Error('v1alpha error')),
+        .mockRejectedValueOnce(new Error('v1alpha error'))
     );
 
     const res = await makeRequest({
@@ -84,7 +84,7 @@ describe('grpcReflection handler', () => {
     });
 
     expect(res.status).toBe(500);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/v1 error/);
     expect(json.error).toMatch(/v1alpha error/);
   });
@@ -97,17 +97,17 @@ describe('grpcReflection handler', () => {
         headers: { 'Content-Type': 'application/json' },
         body: '{not json',
       },
-      {},
+      {}
     );
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Malformed JSON/);
   });
 
   it('schema violation (missing request) returns 400 with Invalid request body error', async () => {
     const res = await makeRequest({ url: 'https://api.example.com' }); // missing `request`
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid request body/);
     expect(json.error).toMatch(/request/i);
   });
@@ -125,6 +125,36 @@ describe('grpcReflection handler', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it('runs injected Node DNS guard before direct fetch', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    const guard = vi.fn().mockRejectedValue(new Error('DNS blocked'));
+    const guardedApp = new Hono<{
+      Bindings: { ENVIRONMENT?: string; ALLOW_PRIVATE_IPS?: string };
+    }>();
+    guardedApp.post('/grpc/reflection', createGrpcReflectionHandler(guard));
+
+    const res = await guardedApp.request(
+      '/grpc/reflection',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://attacker-controlled.example',
+          request: { listServices: '' },
+        }),
+      },
+      {}
+    );
+
+    expect(res.status).toBe(500);
+    expect(guard).toHaveBeenCalledWith('attacker-controlled.example', {
+      allowLocalhost: false,
+      allowPrivateIPs: false,
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('v1 AbortError falls through to v1alpha and succeeds', async () => {
     const abortError = Object.assign(new Error('aborted'), { name: 'AbortError' });
     const mockFetch = vi
@@ -135,7 +165,7 @@ describe('grpcReflection handler', () => {
           status: 200,
           statusText: 'OK',
           headers: { 'content-type': 'application/json' },
-        }),
+        })
       );
     vi.stubGlobal('fetch', mockFetch);
 
@@ -145,7 +175,7 @@ describe('grpcReflection handler', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.reflectionVersion).toBe('v1alpha');
   });
 });

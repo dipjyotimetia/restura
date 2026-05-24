@@ -21,7 +21,7 @@ export const test = base.extend<AppFixtures>({
     await seedSkipOnboarding(page);
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
-    await expect(page.getByRole('button', { name: 'Switch to HTTP mode' })).toBeVisible();
+    await expect(page.getByRole('main', { name: 'Request workspace' })).toBeVisible();
     await use(page);
   },
 });

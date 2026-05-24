@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import { stream } from 'hono/streaming';
 import type { StatusCode } from 'hono/utils/http-status';
 import type { Env } from '../env';
-import type { TcpProxyAdapter } from '../adapters';
+import type { NodeHostnameGuard, TcpProxyAdapter } from '../adapters';
 import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { Fetcher } from '@shared/protocol/types';
@@ -55,7 +55,8 @@ function buildFetcher(
   isDev: boolean,
   upstream: UpstreamProxyConfig | undefined,
   tcpProxy: TcpProxyAdapter,
-  allowPrivateIPs: boolean
+  allowPrivateIPs: boolean,
+  nodeHostnameGuard?: NodeHostnameGuard
 ): Fetcher {
   return async (req) => {
     let response: Response;
@@ -86,6 +87,12 @@ function buildFetcher(
           ? await tcpProxy.httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
           : await tcpProxy.httpViaProxy(targetUrl, upstream, init, req.signal);
     } else {
+      if (nodeHostnameGuard) {
+        await nodeHostnameGuard(new URL(req.url).hostname, {
+          allowLocalhost: isDev,
+          allowPrivateIPs,
+        });
+      }
       const init: RequestInit = {
         method: req.method,
         headers: req.headers,
@@ -111,7 +118,10 @@ function buildFetcher(
  * The Cloudflare entry passes `cloudflareTcpProxy` (uses `cloudflare:sockets`);
  * the Node entry passes `nodeTcpProxy` (uses `node:net`/`node:tls`).
  */
-export function createProxyHandler(tcpProxy: TcpProxyAdapter) {
+export function createProxyHandler(
+  tcpProxy: TcpProxyAdapter,
+  nodeHostnameGuard?: NodeHostnameGuard
+) {
   return async function proxyHandler(c: Context<{ Bindings: Env }>) {
     // Use the same gate as auth (worker/app.ts). ENVIRONMENT='development'
     // alone MUST NOT relax allowLocalhost — a preview deploy that inherits
@@ -126,7 +136,9 @@ export function createProxyHandler(tcpProxy: TcpProxyAdapter) {
 
     if (containsAuthHandle(body.auth)) {
       return c.json(
-        { error: 'Secret handles are desktop-only — open this request in the Restura desktop app.' },
+        {
+          error: 'Secret handles are desktop-only — open this request in the Restura desktop app.',
+        },
         400
       );
     }
@@ -135,7 +147,13 @@ export function createProxyHandler(tcpProxy: TcpProxyAdapter) {
     // access via ALLOW_PRIVATE_IPS=true. Distinct from `isDev` so that production
     // self-hosted deployments don't accidentally also relax other dev guards.
     const allowPrivateIPs = readAllowPrivateIPs(c.env);
-    const fetcher = buildFetcher(isDev, body.upstreamProxy, tcpProxy, allowPrivateIPs);
+    const fetcher = buildFetcher(
+      isDev,
+      body.upstreamProxy,
+      tcpProxy,
+      allowPrivateIPs,
+      nodeHostnameGuard
+    );
 
     if (isStreamingRequest(body)) {
       const streamingResult = await executeHttpProxyStreaming(
@@ -155,10 +173,7 @@ export function createProxyHandler(tcpProxy: TcpProxyAdapter) {
       );
 
       if (!streamingResult.ok) {
-        return c.json(
-          streamingResult.payload,
-          streamingResult.status as 400 | 502 | 504
-        );
+        return c.json(streamingResult.payload, streamingResult.status as 400 | 502 | 504);
       }
 
       // Forward sanitised upstream headers verbatim to the renderer.

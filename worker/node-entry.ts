@@ -13,17 +13,14 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
 import type { Env } from './env';
-import {
-  createHttpsViaConnectProxy,
-  createHttpViaProxy,
-} from './shared/tcp-proxy-node';
+import { createHttpsViaConnectProxy, createHttpViaProxy } from './shared/tcp-proxy-node';
+import { assertNodeHostnameSafe } from './shared/dns-guard-node';
 import { createNodeWebsocketHandler } from './handlers/websocket-node';
 
 // The Node bundle lives at `dist/server/index.mjs`; the SPA at `dist/web/`.
 // Resolve relative to the bundle so the same Docker WORKDIR works for both.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const STATIC_ROOT = process.env.RESTURA_STATIC_ROOT
-  ?? path.resolve(__dirname, '..', 'web');
+const STATIC_ROOT = process.env.RESTURA_STATIC_ROOT ?? path.resolve(__dirname, '..', 'web');
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? '0.0.0.0';
 
@@ -93,6 +90,7 @@ createApp(
       upgradeWebSocket as any,
       dnsGuardOpts
     ),
+    nodeHostnameGuard: assertNodeHostnameSafe,
   },
   app
 );
