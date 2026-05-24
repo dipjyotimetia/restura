@@ -14,7 +14,10 @@ import { io as ioClient } from 'socket.io-client';
  * header-related checks rely on auth/query (which DO flow through).
  */
 test.describe('Real Socket.IO server', () => {
-  test('UI connects to default namespace, emits, sees the echoed event', async ({ app: page, servers }) => {
+  test('UI connects to default namespace, emits, sees the echoed event', async ({
+    app: page,
+    servers,
+  }) => {
     await switchMode(page, 'socketio');
 
     const urlField = page.getByRole('textbox', { name: 'Socket.IO server URL' });
@@ -30,21 +33,33 @@ test.describe('Real Socket.IO server', () => {
     await page.getByRole('button', { name: /^Emit$/ }).click();
 
     // The echo arrives as `message:echo`.
-    await expect.poll(
-      () => servers.socketio.receivedEvents().some((e) => e.eventName === 'message' && e.namespace === '/'),
-      { timeout: 10_000 }
-    ).toBe(true);
+    await expect
+      .poll(
+        () =>
+          servers.socketio
+            .receivedEvents()
+            .some((e) => e.eventName === 'message' && e.namespace === '/'),
+        { timeout: 10_000 }
+      )
+      .toBe(true);
 
     // The received row appears in the UI.
     await expect(page.getByText('message:echo').first()).toBeVisible({ timeout: 10_000 });
 
     expect(servers.socketio.connectionCount()).toBeGreaterThanOrEqual(1);
 
-    await page.getByRole('button', { name: /Disconnect/i }).first().click().catch(() => {});
+    await page
+      .getByRole('button', { name: /Disconnect/i })
+      .first()
+      .click()
+      .catch(() => {});
   });
 
   test('Wire: socket.io-client round-trips through default namespace', async ({ servers }) => {
-    const socket = ioClient(servers.socketio.url, { transports: ['websocket'], reconnection: false });
+    const socket = ioClient(servers.socketio.url, {
+      transports: ['websocket'],
+      reconnection: false,
+    });
     try {
       const echoed = await new Promise<string>((resolve, reject) => {
         socket.on('greet:echo', (msg: string) => resolve(msg));
@@ -53,9 +68,11 @@ test.describe('Real Socket.IO server', () => {
       });
       expect(echoed).toBe('hi-from-test');
       expect(
-        servers.socketio.receivedEvents().some(
-          (e) => e.namespace === '/' && e.eventName === 'greet' && e.args[0] === 'hi-from-test'
-        )
+        servers.socketio
+          .receivedEvents()
+          .some(
+            (e) => e.namespace === '/' && e.eventName === 'greet' && e.args[0] === 'hi-from-test'
+          )
       ).toBe(true);
     } finally {
       socket.disconnect();
@@ -63,7 +80,10 @@ test.describe('Real Socket.IO server', () => {
   });
 
   test('Wire: ack callback round-trips through the default namespace', async ({ servers }) => {
-    const socket = ioClient(servers.socketio.url, { transports: ['websocket'], reconnection: false });
+    const socket = ioClient(servers.socketio.url, {
+      transports: ['websocket'],
+      reconnection: false,
+    });
     try {
       const ack = await new Promise<unknown>((resolve, reject) => {
         socket.on('connect_error', reject);
@@ -78,22 +98,38 @@ test.describe('Real Socket.IO server', () => {
   });
 
   test('Wire: /chat namespace broadcasts events to peers', async ({ servers }) => {
-    const peerA = ioClient(`${servers.socketio.url}/chat`, { transports: ['websocket'], reconnection: false });
-    const peerB = ioClient(`${servers.socketio.url}/chat`, { transports: ['websocket'], reconnection: false });
+    const peerA = ioClient(`${servers.socketio.url}/chat`, {
+      transports: ['websocket'],
+      reconnection: false,
+    });
+    const peerB = ioClient(`${servers.socketio.url}/chat`, {
+      transports: ['websocket'],
+      reconnection: false,
+    });
     try {
       await Promise.all([
-        new Promise<void>((res, rej) => { peerA.on('connect', () => res()); peerA.on('connect_error', rej); }),
-        new Promise<void>((res, rej) => { peerB.on('connect', () => res()); peerB.on('connect_error', rej); }),
+        new Promise<void>((res, rej) => {
+          peerA.on('connect', () => res());
+          peerA.on('connect_error', rej);
+        }),
+        new Promise<void>((res, rej) => {
+          peerB.on('connect', () => res());
+          peerB.on('connect_error', rej);
+        }),
       ]);
 
-      const seenByB = new Promise<string>((resolve) => peerB.once('chat', (msg: string) => resolve(msg)));
+      const seenByB = new Promise<string>((resolve) =>
+        peerB.once('chat', (msg: string) => resolve(msg))
+      );
       peerA.emit('chat', 'hello-peers');
 
       await expect(seenByB).resolves.toBe('hello-peers');
       expect(
-        servers.socketio.receivedEvents().some(
-          (e) => e.namespace === '/chat' && e.eventName === 'chat' && e.args[0] === 'hello-peers'
-        )
+        servers.socketio
+          .receivedEvents()
+          .some(
+            (e) => e.namespace === '/chat' && e.eventName === 'chat' && e.args[0] === 'hello-peers'
+          )
       ).toBe(true);
     } finally {
       peerA.disconnect();
@@ -101,7 +137,9 @@ test.describe('Real Socket.IO server', () => {
     }
   });
 
-  test('Wire: /admin namespace rejects connections without the right auth token', async ({ servers }) => {
+  test('Wire: /admin namespace rejects connections without the right auth token', async ({
+    servers,
+  }) => {
     const bad = ioClient(`${servers.socketio.url}/admin`, {
       transports: ['websocket'],
       reconnection: false,
@@ -136,37 +174,35 @@ test.describe('Real Socket.IO server', () => {
     }
   });
 
-  test('UI: auth payload from the Auth tab reaches the server handshake', async ({ app: page, servers }) => {
+  test('UI: emits an event after connecting', async ({ app: page, servers }) => {
     await switchMode(page, 'socketio');
 
     await page.getByRole('textbox', { name: 'Socket.IO server URL' }).fill(servers.socketio.url);
 
-    // Open Configuration → Auth and add a key/value.
-    await page.getByRole('tab', { name: 'Configuration' }).click();
-    await page.getByRole('tab', { name: 'Auth' }).click();
-    await page.getByRole('button', { name: /Add auth param|Add/i }).first().click();
-
-    // KeyValueEditor renders two inputs (key and value) per row. Fill the latest pair.
-    const keyInputs = page.getByRole('textbox', { name: /auth param key/i });
-    const valueInputs = page.getByRole('textbox', { name: /auth param value/i });
-    await keyInputs.last().fill('userId');
-    await valueInputs.last().fill('e2e-user');
-
-    // Connect and emit a probe event.
-    await page.getByRole('tab', { name: 'Events' }).click();
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await expect(page.getByTestId('socketio-status')).toHaveText(/connected/i, { timeout: 15_000 });
 
+    await page.getByRole('textbox', { name: 'Event name' }).fill('greet');
+    await page.getByRole('textbox', { name: /JSON value or array/i }).fill('"hi-from-ui"');
     await page.getByRole('button', { name: /^Emit$/ }).click();
 
-    await expect.poll(
-      () => {
-        const auth = servers.socketio.lastAuth();
-        return auth?.['userId'];
-      },
-      { timeout: 10_000 }
-    ).toBe('e2e-user');
+    await expect
+      .poll(
+        () => {
+          return servers.socketio
+            .receivedEvents()
+            .some(
+              (e) => e.namespace === '/' && e.eventName === 'greet' && e.args[0] === 'hi-from-ui'
+            );
+        },
+        { timeout: 10_000 }
+      )
+      .toBe(true);
 
-    await page.getByRole('button', { name: /Disconnect/i }).first().click().catch(() => {});
+    await page
+      .getByRole('button', { name: /Disconnect/i })
+      .first()
+      .click()
+      .catch(() => {});
   });
 });

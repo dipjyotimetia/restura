@@ -3,6 +3,36 @@ import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
 const ENCODER = new TextEncoder();
 
+/**
+ * Normalise HeadersInit into a plain Record. `Object.entries(new Headers())`
+ * yields [] — the redirect-follower always passes a Headers instance, so
+ * without this normalisation every redirected upstream-proxy hop silently
+ * drops Authorization / Cookie / Content-Type / custom headers.
+ */
+function toRecord(input: RequestInit['headers']): Record<string, string> {
+  if (!input) return {};
+  if (input instanceof Headers) {
+    const out: Record<string, string> = {};
+    input.forEach((v, k) => { out[k] = v; });
+    return out;
+  }
+  if (Array.isArray(input)) {
+    const out: Record<string, string> = {};
+    for (const [k, v] of input) out[k] = v;
+    return out;
+  }
+  return { ...(input as Record<string, string>) };
+}
+
+function parseStatusCode(statusLine: string): number {
+  // Exact-match the second token; substring-matching '200' anywhere in the
+  // line would falsely accept e.g. `HTTP/1.1 502 Backend 200 unavailable`.
+  const token = statusLine.split(' ')[1];
+  if (!token) return 502;
+  const n = parseInt(token, 10);
+  return Number.isNaN(n) ? 502 : n;
+}
+
 export interface UpstreamProxy {
   host: string;
   port: number;
@@ -120,7 +150,7 @@ export async function httpsViaConnectProxy(
   writer.releaseLock();
 
   const { statusLine } = await readHttpResponse(socket.readable);
-  if (!statusLine.includes('200')) {
+  if (parseStatusCode(statusLine) !== 200) {
     await socket.close();
     throw new Error(`Proxy CONNECT failed: ${statusLine}`);
   }
@@ -130,12 +160,9 @@ export async function httpsViaConnectProxy(
   try {
     // Make the real request over the TLS tunnel
     const method = (requestInit.method ?? 'GET').toUpperCase();
-    const headers: Record<string, string> = {};
-    if (requestInit.headers) {
-      for (const [k, v] of Object.entries(requestInit.headers as Record<string, string>)) {
-        headers[k] = v;
-      }
-    }
+    const headers = toRecord(requestInit.headers);
+    delete headers['host'];
+    delete headers['Host'];
     headers['Host'] = targetUrl.hostname;
 
     const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
@@ -150,9 +177,8 @@ export async function httpsViaConnectProxy(
       tlsSocket.readable
     );
 
-    const statusCode = parseInt(respStatusLine.split(' ')[1] ?? '502', 10);
     return new Response(respBody, {
-      status: statusCode,
+      status: parseStatusCode(respStatusLine),
       headers: respHeaders,
     });
   } finally {
@@ -171,12 +197,9 @@ export async function httpViaProxy(
   signal.addEventListener('abort', () => void socket.close(), { once: true });
 
   const method = (requestInit.method ?? 'GET').toUpperCase();
-  const headers: Record<string, string> = {};
-  if (requestInit.headers) {
-    for (const [k, v] of Object.entries(requestInit.headers as Record<string, string>)) {
-      headers[k] = v;
-    }
-  }
+  const headers = toRecord(requestInit.headers);
+  delete headers['host'];
+  delete headers['Host'];
   headers['Host'] = targetUrl.hostname;
   if (proxy.auth) {
     headers['Proxy-Authorization'] = proxyAuthValue(proxy.auth);
@@ -210,9 +233,8 @@ export async function httpViaProxy(
   const { statusLine, headers: respHeaders, body: respBody } = await readHttpResponse(socket.readable);
   await socket.close();
 
-  const statusCode = parseInt(statusLine.split(' ')[1] ?? '502', 10);
   return new Response(respBody, {
-    status: statusCode,
+    status: parseStatusCode(statusLine),
     headers: respHeaders,
   });
 }

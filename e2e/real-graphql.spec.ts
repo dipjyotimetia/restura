@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures/servers';
-import { switchMode } from './utils/selectors';
+import { fillFirstMonacoEditor, switchMode } from './utils/selectors';
 
 /**
  * Real GraphQL endpoint over HTTP. The mock at `${servers.http.url}/graphql`
@@ -17,17 +17,12 @@ test.describe('Real GraphQL server', () => {
   test('UI runs a query and renders the response', async ({ app: page, servers }) => {
     await switchMode(page, 'graphql');
 
-    await page.getByRole('textbox', { name: 'GraphQL endpoint URL' })
+    await page
+      .getByRole('textbox', { name: 'GraphQL endpoint URL' })
       .fill(`${servers.http.url}/graphql`);
 
     // Type a basic query into the Monaco editor.
-    const editor = page.locator('.monaco-editor').first();
-    await editor.waitFor({ state: 'visible' });
-    await editor.click();
-    await page.keyboard.type('{ hello(name: "Ada") ', { delay: 5 });
-    // Monaco's bracket pairs auto-close: typing `{` produces `{}`. We type
-    // the inner `}` last; tail-trim is unnecessary because the auto-close
-    // paired `}` already closes the outer.
+    await fillFirstMonacoEditor(page, '{ hello(name: "Ada") }');
 
     await page.getByRole('button', { name: /Send GraphQL query/i }).click();
 
@@ -39,18 +34,39 @@ test.describe('Real GraphQL server', () => {
     // introspection request when the URL changes — that's a separate hit).
     const reqs = servers.http.requests().filter((r) => r.path === '/graphql');
     expect(reqs.length).toBeGreaterThanOrEqual(1);
-    const helloReq = reqs.find((r) => r.body.includes('hello') && !r.body.includes('IntrospectionQuery') && !r.body.includes('__schema'));
-    expect(helloReq, 'expected a non-introspection request carrying the `hello` query').toBeDefined();
+    const helloReq = reqs.find(
+      (r) =>
+        r.body.includes('hello') &&
+        !r.body.includes('IntrospectionQuery') &&
+        !r.body.includes('__schema')
+    );
+    expect(
+      helloReq,
+      'expected a non-introspection request carrying the `hello` query'
+    ).toBeDefined();
   });
 
-  test('Wire: introspection query returns schema with Query/Mutation/Subscription roots', async ({ servers }) => {
+  test('Wire: introspection query returns schema with Query/Mutation/Subscription roots', async ({
+    servers,
+  }) => {
     const res = await fetch(`${servers.http.url}/graphql`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query: 'query IntrospectionQuery { __schema { queryType { name } mutationType { name } subscriptionType { name } } }' }),
+      body: JSON.stringify({
+        query:
+          'query IntrospectionQuery { __schema { queryType { name } mutationType { name } subscriptionType { name } } }',
+      }),
     });
     expect(res.ok).toBe(true);
-    const json = (await res.json()) as { data: { __schema: { queryType: { name: string }; mutationType: { name: string } | null; subscriptionType: { name: string } | null } } };
+    const json = (await res.json()) as {
+      data: {
+        __schema: {
+          queryType: { name: string };
+          mutationType: { name: string } | null;
+          subscriptionType: { name: string } | null;
+        };
+      };
+    };
     expect(json.data.__schema.queryType.name).toBe('Query');
     expect(json.data.__schema.mutationType?.name).toBe('Mutation');
     expect(json.data.__schema.subscriptionType?.name).toBe('Subscription');
@@ -93,15 +109,16 @@ test.describe('Real GraphQL server', () => {
     expect(json.errors?.length ?? 0).toBeGreaterThan(0);
   });
 
-  test('UI exposes Subscribe button when query is a subscription', async ({ app: page, servers }) => {
+  test('UI exposes Subscribe button when query is a subscription', async ({
+    app: page,
+    servers,
+  }) => {
     await switchMode(page, 'graphql');
-    await page.getByRole('textbox', { name: 'GraphQL endpoint URL' })
+    await page
+      .getByRole('textbox', { name: 'GraphQL endpoint URL' })
       .fill(`${servers.http.url}/graphql`);
 
-    const editor = page.locator('.monaco-editor').first();
-    await editor.waitFor({ state: 'visible' });
-    await editor.click();
-    await page.keyboard.type('subscription { ticks ', { delay: 5 });
+    await fillFirstMonacoEditor(page, 'subscription { ticks }');
 
     // The send button label flips to Subscribe for subscription operations.
     await expect(page.getByRole('button', { name: /Subscribe/i })).toBeVisible({ timeout: 5_000 });

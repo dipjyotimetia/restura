@@ -12,7 +12,10 @@ import { switchMode } from './utils/selectors';
  * Requires the Worker in dev mode (`.dev.vars` ENVIRONMENT=development).
  */
 test.describe('Real MCP server', () => {
-  test('Wire: Worker /api/mcp proxies initialize and surfaces sessionId', async ({ request, servers }) => {
+  test('Wire: Worker /api/mcp proxies initialize and surfaces sessionId', async ({
+    request,
+    servers,
+  }) => {
     const res = await request.post('http://localhost:5173/api/mcp', {
       data: {
         url: servers.mcp.url,
@@ -30,10 +33,15 @@ test.describe('Real MCP server', () => {
       },
     });
 
-    expect(res.ok(), `Worker rejected MCP initialize: ${res.status()} ${await res.text()}`).toBe(true);
+    expect(res.ok(), `Worker rejected MCP initialize: ${res.status()} ${await res.text()}`).toBe(
+      true
+    );
     const json = (await res.json()) as {
       ok: boolean;
-      jsonRpc: { result?: { serverInfo?: { name: string }; protocolVersion?: string }; error?: unknown };
+      jsonRpc: {
+        result?: { serverInfo?: { name: string }; protocolVersion?: string };
+        error?: unknown;
+      };
       sessionId?: string;
     };
     expect(json.ok).toBe(true);
@@ -60,7 +68,10 @@ test.describe('Real MCP server', () => {
     expect(names).toEqual(['add', 'echo', 'fail']);
   });
 
-  test('Wire: tools/call echo returns the input prefixed with "echo:"', async ({ request, servers }) => {
+  test('Wire: tools/call echo returns the input prefixed with "echo:"', async ({
+    request,
+    servers,
+  }) => {
     const res = await request.post('http://localhost:5173/api/mcp', {
       data: {
         url: servers.mcp.url,
@@ -74,7 +85,9 @@ test.describe('Real MCP server', () => {
       },
     });
 
-    const json = (await res.json()) as { jsonRpc: { result: { content: Array<{ text: string }> } } };
+    const json = (await res.json()) as {
+      jsonRpc: { result: { content: Array<{ text: string }> } };
+    };
     expect(json.jsonRpc.result.content[0]?.text).toBe('echo:hi');
     expect(servers.mcp.toolCallCount()).toBeGreaterThanOrEqual(1);
   });
@@ -93,7 +106,9 @@ test.describe('Real MCP server', () => {
       },
     });
 
-    const json = (await res.json()) as { jsonRpc: { result: { content: Array<{ text: string }> } } };
+    const json = (await res.json()) as {
+      jsonRpc: { result: { content: Array<{ text: string }> } };
+    };
     expect(json.jsonRpc.result.content[0]?.text).toBe('42');
   });
 
@@ -112,23 +127,31 @@ test.describe('Real MCP server', () => {
     });
 
     const json = (await res.json()) as {
-      jsonRpc: { error?: { code: number; message: string }; result?: { isError?: boolean; content?: unknown } };
+      jsonRpc: {
+        error?: { code: number; message: string };
+        result?: { isError?: boolean; content?: unknown };
+      };
     };
     // The SDK reports unknown tools either via JSON-RPC `error` (old behavior)
     // or via a result with `isError: true` (newer SDKs). Either is valid.
     const surfaced =
       typeof json.jsonRpc.error?.code === 'number' || json.jsonRpc.result?.isError === true;
-    expect(surfaced, `expected error or isError result, got ${JSON.stringify(json.jsonRpc)}`).toBe(true);
+    expect(surfaced, `expected error or isError result, got ${JSON.stringify(json.jsonRpc)}`).toBe(
+      true
+    );
   });
 
-  test('UI: Connect populates the Tools tab with discovered tools', async ({ app: page, servers }) => {
+  test('UI: Connect populates the Tools tab with discovered tools', async ({
+    app: page,
+    servers,
+  }) => {
     await switchMode(page, 'mcp');
 
     await page.getByPlaceholder('https://mcp.example.com/v1/server').fill(servers.mcp.url);
     await page.getByRole('button', { name: /Connect/i }).click();
 
     // Tools tab badge increases as the client discovers them.
-    await expect(page.getByRole('tab', { name: /Tools \(3\)/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('tab', { name: /Tools\s+3/ })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('echo', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('add', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('fail', { exact: true }).first()).toBeVisible();

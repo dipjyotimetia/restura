@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { grpc } from '../grpc';
+import { createGrpcHandler, grpc } from '../grpc';
 
 const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();
 app.post('/grpc', grpc);
@@ -14,7 +14,7 @@ function makeRequest(body: unknown, env: Record<string, string> = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     },
-    env,
+    env
   );
 }
 
@@ -31,8 +31,8 @@ describe('grpc handler', () => {
           status: 200,
           statusText: 'OK',
           headers: { 'content-type': 'application/json' },
-        }),
-      ),
+        })
+      )
     );
 
     const res = await makeRequest({
@@ -43,7 +43,7 @@ describe('grpc handler', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.grpcStatus).toBe(0);
     expect(json.grpcStatusText).toBe('OK');
   });
@@ -56,17 +56,17 @@ describe('grpc handler', () => {
         headers: { 'Content-Type': 'application/json' },
         body: '{not json',
       },
-      {},
+      {}
     );
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Malformed JSON/);
   });
 
   it('schema violation (missing service) returns 400 with Invalid request body error', async () => {
     const res = await makeRequest({ url: 'https://api.example.com', method: 'SayHello' });
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid request body/);
     expect(json.error).toMatch(/service/i);
   });
@@ -82,7 +82,7 @@ describe('grpc handler', () => {
     });
 
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid URL/i);
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -98,7 +98,7 @@ describe('grpc handler', () => {
     });
 
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid service/i);
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -114,8 +114,39 @@ describe('grpc handler', () => {
     });
 
     expect(res.status).toBe(400);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.error).toMatch(/Invalid method/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('runs injected Node DNS guard before direct fetch', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    const guard = vi.fn().mockRejectedValue(new Error('DNS blocked'));
+    const guardedApp = new Hono<{
+      Bindings: { ENVIRONMENT?: string; ALLOW_PRIVATE_IPS?: string };
+    }>();
+    guardedApp.post('/grpc', createGrpcHandler(guard));
+
+    const res = await guardedApp.request(
+      '/grpc',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://attacker-controlled.example',
+          service: 'helloworld.Greeter',
+          method: 'SayHello',
+        }),
+      },
+      {}
+    );
+
+    expect(res.status).toBe(502);
+    expect(guard).toHaveBeenCalledWith('attacker-controlled.example', {
+      allowLocalhost: false,
+      allowPrivateIPs: false,
+    });
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -126,9 +157,9 @@ describe('grpc handler', () => {
       vi.fn().mockImplementation((_url: string, opts: RequestInit) => {
         capturedHeaders = opts.headers;
         return Promise.resolve(
-          new Response(JSON.stringify({ result: 'ok' }), { status: 200, statusText: 'OK' }),
+          new Response(JSON.stringify({ result: 'ok' }), { status: 200, statusText: 'OK' })
         );
-      }),
+      })
     );
 
     await makeRequest({
@@ -150,8 +181,8 @@ describe('grpc handler', () => {
         new Response(JSON.stringify({ code: 'not_found', message: 'not found' }), {
           status: 400,
           statusText: 'Bad Request',
-        }),
-      ),
+        })
+      )
     );
 
     const res = await makeRequest({
@@ -160,7 +191,7 @@ describe('grpc handler', () => {
       method: 'SayHello',
     });
 
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.grpcStatus).toBe(5);
   });
 
@@ -175,7 +206,7 @@ describe('grpc handler', () => {
     });
 
     expect(res.status).toBe(504);
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     expect(json.grpcStatusText).toBe('DEADLINE_EXCEEDED');
   });
 
@@ -186,9 +217,9 @@ describe('grpc handler', () => {
       vi.fn().mockImplementation((url: string) => {
         capturedUrl = url;
         return Promise.resolve(
-          new Response(JSON.stringify({ result: 'ok' }), { status: 200, statusText: 'OK' }),
+          new Response(JSON.stringify({ result: 'ok' }), { status: 200, statusText: 'OK' })
         );
-      }),
+      })
     );
 
     await makeRequest({

@@ -1,6 +1,15 @@
 import { test, expect } from './fixtures/app';
 import { mockProxy } from './utils/mockProxy';
-import { setUrl, sendButton, methodSelect, headersTab, bodyTab, paramsTab } from './utils/selectors';
+import {
+  setUrl,
+  sendButton,
+  selectHttpMethod,
+  selectBodyType,
+  fillFirstMonacoEditor,
+  headersTab,
+  bodyTab,
+  paramsTab,
+} from './utils/selectors';
 
 test.describe('HTTP request flow', () => {
   test('sends GET and renders status, body, headers', async ({ app: page }) => {
@@ -32,22 +41,13 @@ test.describe('HTTP request flow', () => {
       };
     });
 
-    await methodSelect(page).click();
-    // Radix Select items have role=option in the listbox, but in a portal.
-    await page.locator('[role="option"]').filter({ hasText: /^POST$/ }).first().click();
+    await selectHttpMethod(page, 'POST');
 
     await setUrl(page, 'https://api.example.com/users');
 
     await bodyTab(page).click();
-    // Body-type Select defaults to "None"; switch to JSON to render the editor.
-    await page.getByRole('combobox').filter({ hasText: /^None$/ }).click();
-    await page.locator('[role="option"]').filter({ hasText: /^JSON$/ }).first().click();
-
-    const editor = page.locator('.monaco-editor').first();
-    await editor.waitFor({ state: 'visible', timeout: 15_000 });
-    await editor.click();
-    // Monaco auto-closes braces; type payload that lands as `{"name":"Ada"}`.
-    await page.keyboard.type('{"name":"Ada"', { delay: 10 });
+    await selectBodyType(page, 'JSON');
+    await fillFirstMonacoEditor(page, '{"name":"Ada"}');
 
     await sendButton(page).click();
 
@@ -73,14 +73,14 @@ test.describe('HTTP request flow', () => {
     await setUrl(page, 'https://api.example.com/ping');
 
     await paramsTab(page).click();
-    await page.getByRole('button', { name: 'Add Param', exact: true }).click();
-    await page.getByRole('textbox', { name: 'parameter key' }).first().fill('q');
-    await page.getByRole('textbox', { name: 'parameter value' }).first().fill('hello world');
+    await page.getByRole('button', { name: /Add parameter/i }).click();
+    await page.getByPlaceholder('key').first().fill('q');
+    await page.getByPlaceholder('value').first().fill('hello world');
 
     await headersTab(page).click();
-    await page.getByRole('button', { name: 'Add Header', exact: true }).click();
-    await page.getByRole('textbox', { name: 'header key' }).first().fill('X-Test');
-    await page.getByRole('textbox', { name: 'header value' }).first().fill('yes');
+    await page.getByRole('button', { name: /Add header/i }).click();
+    await page.getByPlaceholder('key').last().fill('X-Test');
+    await page.getByPlaceholder('value').last().fill('yes');
 
     await sendButton(page).click();
 

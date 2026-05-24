@@ -67,6 +67,12 @@ function headersFromRequest(req: FetcherRequest): Headers {
 
 export interface FollowRedirectsOptions {
   allowLocalhost: boolean;
+  /**
+   * Permit redirects to RFC 1918 / link-local / CGNAT targets. Off by default;
+   * self-hosted enterprise deployments may opt in. See SELF_HOSTING.md for
+   * the DNS-rebind caveats.
+   */
+  allowPrivateIPs?: boolean;
 }
 
 export async function followRedirects(
@@ -93,7 +99,7 @@ export async function followRedirects(
     }
 
     const nextValidation = validateURL(nextUrl, {
-      allowPrivateIPs: false,
+      allowPrivateIPs: options.allowPrivateIPs === true,
       allowLocalhost: options.allowLocalhost,
     });
     if (!nextValidation.valid) {

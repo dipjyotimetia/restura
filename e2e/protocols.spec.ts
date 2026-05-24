@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures/app';
-import { switchMode } from './utils/selectors';
+import { fillFirstMonacoEditor, switchMode } from './utils/selectors';
 
 test.describe('Protocol switching', () => {
   test('switches between HTTP, GraphQL, gRPC, WS, SSE, MCP modes', async ({ app: page }) => {
@@ -46,14 +46,13 @@ test.describe('GraphQL flow', () => {
   test('accepts query input in the body editor', async ({ app: page }) => {
     await switchMode(page, 'graphql');
 
-    await page.getByRole('textbox', { name: 'GraphQL endpoint URL' }).fill('https://api.example.com/graphql');
+    await page
+      .getByRole('textbox', { name: 'GraphQL endpoint URL' })
+      .fill('https://api.example.com/graphql');
     await page.getByRole('tab', { name: 'Query' }).click();
 
-    const editor = page.locator('.monaco-editor').first();
-    await editor.waitFor({ state: 'visible' });
-    await editor.click();
-    await page.keyboard.type('{ user(id: 1) { id name } ', { delay: 10 });
-    await expect(editor).toContainText('user(id: 1)');
+    await fillFirstMonacoEditor(page, '{ user(id: 1) { id name } }');
+    await expect(page.locator('.monaco-editor').first()).toContainText('user(id: 1)');
   });
 });
 
@@ -74,16 +73,16 @@ test.describe('gRPC flow', () => {
 
     // Invoke may stay disabled until a method is discovered/uploaded —
     // the important assertion is that filling fields didn't crash the UI.
-    await expect(page.getByRole('textbox', { name: 'gRPC server URL' })).toHaveValue('grpc.example.com:443');
+    await expect(page.getByRole('textbox', { name: 'gRPC server URL' })).toHaveValue(
+      'grpc.example.com:443'
+    );
   });
 
   test('switches gRPC call type via dropdown', async ({ app: page }) => {
     await switchMode(page, 'grpc');
 
-    // Call type dropdown defaults to "Unary"; open and pick a streaming variant.
-    await page.locator('[role="combobox"]').filter({ hasText: /^Unary$/ }).first().click();
-    await page.locator('[role="option"]').filter({ hasText: /Server Streaming/i }).click();
-    await expect(page.locator('[role="combobox"]').filter({ hasText: /Server Streaming/i })).toBeVisible();
+    await page.getByRole('radio', { name: 'Server' }).click();
+    await expect(page.getByRole('radio', { name: 'Server' })).toBeChecked();
   });
 });
 
@@ -119,8 +118,8 @@ test.describe('SSE flow', () => {
   test('shows event log controls', async ({ app: page }) => {
     await switchMode(page, 'sse');
 
-    await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeDisabled();
-    await expect(page.getByRole('switch', { name: /Reconnect on resume/i })).toBeVisible();
-    await expect(page.getByRole('tab', { name: /Events \(\d+\)/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start SSE stream' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Stop SSE stream' })).toBeDisabled();
+    await expect(page.getByText('Event timeline')).toBeVisible();
   });
 });

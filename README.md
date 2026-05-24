@@ -95,6 +95,18 @@ npm run electron:dist:win         # Windows → NSIS + portable (x64 + ia32)
 npm run electron:dist:linux       # Linux   → AppImage + deb + rpm (x64)
 ```
 
+### Self-hosting (Docker)
+
+Run the web app behind your firewall in a single Node container — no Cloudflare account required.
+
+```bash
+cp .env.example .env              # set WORKER_PROXY_TOKEN + ALLOWED_ORIGIN
+docker compose up -d --build
+curl -fs http://localhost:3000/health
+```
+
+See **[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)** for the full operations guide (auth modes, internal-network access, reverse-proxy examples, healthchecks).
+
 ---
 
 ## How it works

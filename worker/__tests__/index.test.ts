@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import app from '../index';
-import type { Env } from '../index';
+import type { Env } from '../env';
 
 function makeApiRequest(
   headers: Record<string, string> = {},
@@ -149,5 +149,45 @@ describe('Miniflare detection', () => {
       env,
     );
     expect([200, 204]).toContain(res.status);
+  });
+});
+
+// Closed-by-default CORS fallback. The earlier implementation echoed the
+// request Origin back when ALLOWED_ORIGIN was unset, effectively opening
+// CORS to any caller. Pin the new behaviour so a future refactor can't
+// silently re-introduce the regression.
+describe('CORS closed-by-default when ALLOWED_ORIGIN is unset', () => {
+  it('does not echo the request Origin in production without ALLOWED_ORIGIN', async () => {
+    const res = await app.request(
+      '/api/proxy',
+      { method: 'OPTIONS', headers: { Origin: 'https://evil.example' } },
+      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' },
+    );
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('still allows local-dev origins under ENVIRONMENT=development + DEV_BYPASS_AUTH=true', async () => {
+    const res = await app.request(
+      '/api/proxy',
+      { method: 'OPTIONS', headers: { Origin: 'http://localhost:5173' } },
+      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' },
+    );
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+  });
+});
+
+// Smoke-test the new /health endpoint. Was added alongside the Docker
+// self-hosting work and must answer 200 + JSON unauthenticated.
+describe('health probes', () => {
+  it('returns 200 JSON for /health without auth', async () => {
+    const res = await app.request('/health', { method: 'GET' });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { status: string };
+    expect(body.status).toBe('ok');
+  });
+
+  it('returns 200 JSON for /ready without auth', async () => {
+    const res = await app.request('/ready', { method: 'GET' });
+    expect(res.status).toBe(200);
   });
 });

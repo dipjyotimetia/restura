@@ -9,7 +9,10 @@ import WebSocket from 'ws';
  *   /graphql  — graphql-transport-ws via the SDK for subscription tests.
  */
 test.describe('Real WebSocket server', () => {
-  test('UI connects to /echo, sends a message, receives the echo, disconnects', async ({ app: page, servers }) => {
+  test('UI connects to /echo, sends a message, receives the echo, disconnects', async ({
+    app: page,
+    servers,
+  }) => {
     await switchMode(page, 'ws');
 
     const urlField = page.getByRole('textbox', { name: 'WebSocket URL' });
@@ -18,13 +21,14 @@ test.describe('Real WebSocket server', () => {
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
 
     // Once connected, the textbox for outbound messages is enabled.
-    const sendInput = page.getByPlaceholder('Enter message to send...');
+    await page.getByRole('radio', { name: 'text' }).click();
+    const sendInput = page.getByPlaceholder(/Enter message to send/i);
     await expect(sendInput).toBeEnabled({ timeout: 10_000 });
 
     await sendInput.fill('hello-from-test');
     // Send button sits next to the textarea. The textarea wires Ctrl+Enter to send;
     // clicking the button is a more direct path that doesn't depend on platform key state.
-    await page.locator('button').filter({ has: page.locator('svg.lucide-send') }).first().click();
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
 
     // The echo response shows up in the message log as `echo:hello-from-test`.
     await expect(page.getByText(/echo:hello-from-test/).first()).toBeVisible({ timeout: 10_000 });
@@ -33,7 +37,11 @@ test.describe('Real WebSocket server', () => {
     expect(servers.ws.receivedMessages().some((m) => m.payload === 'hello-from-test')).toBe(true);
 
     // Disconnect cleanly so teardown doesn't fight reconnect timers.
-    await page.getByRole('button', { name: /Disconnect/i }).first().click().catch(() => {});
+    await page
+      .getByRole('button', { name: /Disconnect/i })
+      .first()
+      .click()
+      .catch(() => {});
   });
 
   test('UI sends binary (hex) and receives the same bytes back', async ({ app: page, servers }) => {
@@ -42,21 +50,26 @@ test.describe('Real WebSocket server', () => {
     await page.getByRole('textbox', { name: 'WebSocket URL' }).fill(`${servers.ws.url}/echo`);
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
 
-    // Toggle "Binary (hex)" so the input parses hex bytes.
-    const binaryToggle = page.getByRole('switch', { name: /Binary \(hex\)/i });
-    await expect(binaryToggle).toBeEnabled({ timeout: 10_000 });
-    await binaryToggle.click();
+    await page.getByRole('radio', { name: 'binary' }).click();
 
     const sendInput = page.getByPlaceholder(/Enter hex bytes/i);
     await sendInput.fill('48 65 6c 6c 6f'); // 'Hello' in hex
-    await page.locator('button').filter({ has: page.locator('svg.lucide-send') }).first().click();
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
 
     // Server records the binary message; UI shows the round-tripped bytes.
-    await expect.poll(() => servers.ws.receivedMessages().filter((m) => m.kind === 'binary').length, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+    await expect
+      .poll(() => servers.ws.receivedMessages().filter((m) => m.kind === 'binary').length, {
+        timeout: 10_000,
+      })
+      .toBeGreaterThanOrEqual(1);
     const binary = servers.ws.receivedMessages().find((m) => m.kind === 'binary');
     expect(binary?.payload.toLowerCase()).toBe('48656c6c6f');
 
-    await page.getByRole('button', { name: /Disconnect/i }).first().click().catch(() => {});
+    await page
+      .getByRole('button', { name: /Disconnect/i })
+      .first()
+      .click()
+      .catch(() => {});
   });
 
   test('Wire: native ws client round-trips through /echo', async ({ servers }) => {
@@ -70,7 +83,9 @@ test.describe('Real WebSocket server', () => {
     sock.close();
   });
 
-  test('Wire: /graphql speaks graphql-transport-ws (SDK) and runs a tick subscription', async ({ servers }) => {
+  test('Wire: /graphql speaks graphql-transport-ws (SDK) and runs a tick subscription', async ({
+    servers,
+  }) => {
     const sock = new WebSocket(`${servers.ws.url}/graphql`, 'graphql-transport-ws');
 
     const frames: Array<{ type: string; payload?: unknown }> = [];
@@ -90,7 +105,10 @@ test.describe('Real WebSocket server', () => {
             JSON.stringify({
               id: '1',
               type: 'subscribe',
-              payload: { query: 'subscription Tick($count: Int) { tick(count: $count) { n } }', variables: { count: 3 } },
+              payload: {
+                query: 'subscription Tick($count: Int) { tick(count: $count) { n } }',
+                variables: { count: 3 },
+              },
             })
           );
         }

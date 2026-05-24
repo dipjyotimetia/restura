@@ -14,7 +14,7 @@ import {
   createIsolateRateLimiter,
   type RateLimitBinding,
 } from '@shared/protocol/rate-limiter';
-import type { Env } from '../index';
+import type { Env } from '../env';
 
 const isolateLimiter = createIsolateRateLimiter();
 export const resetRateLimiter = isolateLimiter.reset;
