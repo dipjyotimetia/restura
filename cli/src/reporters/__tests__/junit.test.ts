@@ -6,6 +6,7 @@ import type { LoadedRequest } from '../../runner/collectionLoader';
 const fakeReq = (name: string): LoadedRequest => ({
   filePath: '/x/y.http.yaml',
   relativePath: 'y.http.yaml',
+  folderPath: [],
   type: 'http',
   request: {
     id: '1',

@@ -1,0 +1,17 @@
+opencollection: "1.0.0"
+info:
+  name: Sample Bundled
+  version: "0.1.0"
+docs: Single-file bundled OpenCollection for CLI tests
+bundled: true
+items:
+  - info:
+      type: http
+      name: Ping
+      seq: 1
+    http:
+      method: GET
+      url: https://api.example.com/ping
+      headers:
+        - name: Accept
+          value: application/json
