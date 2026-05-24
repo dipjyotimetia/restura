@@ -15,6 +15,12 @@ function byteLength(s: string): number {
 
 export interface ExecuteHttpProxyOptions {
   allowLocalhost: boolean;
+  /**
+   * Allow targeting RFC 1918 / link-local / CGNAT addresses. Off by default;
+   * self-hosted enterprise deployments may opt in via `ALLOW_PRIVATE_IPS=true`.
+   * Threaded through to `followRedirects` so the whole chain is consistent.
+   */
+  allowPrivateIPs?: boolean;
   /** Resolves SecretValue fields in `spec.auth`. Electron passes a keychain-backed resolver; Worker defaults to inline-only (throws on handles). */
   resolveSecret?: SecretResolver;
 }
@@ -31,7 +37,7 @@ export async function executeHttpProxy(
   }
 
   const validation = validateURL(spec.url, {
-    allowPrivateIPs: false,
+    allowPrivateIPs: options.allowPrivateIPs === true,
     allowLocalhost: options.allowLocalhost,
   });
   if (!validation.valid) {
@@ -93,7 +99,7 @@ export async function executeHttpProxy(
         signal: controller.signal,
       },
       fetcher,
-      { allowLocalhost: options.allowLocalhost }
+      { allowLocalhost: options.allowLocalhost, allowPrivateIPs: options.allowPrivateIPs === true }
     );
 
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
@@ -197,7 +203,7 @@ export async function executeHttpProxyStreaming(
   }
 
   const validation = validateURL(spec.url, {
-    allowPrivateIPs: false,
+    allowPrivateIPs: options.allowPrivateIPs === true,
     allowLocalhost: options.allowLocalhost,
   });
   if (!validation.valid) {
@@ -258,7 +264,7 @@ export async function executeHttpProxyStreaming(
         signal: controller.signal,
       },
       fetcher,
-      { allowLocalhost: options.allowLocalhost }
+      { allowLocalhost: options.allowLocalhost, allowPrivateIPs: options.allowPrivateIPs === true }
     );
 
     if (!response.body) {

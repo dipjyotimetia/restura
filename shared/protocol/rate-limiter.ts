@@ -142,8 +142,13 @@ export function createRateLimiter(
   }
 
   async function middleware(c: Context, next: Next): Promise<Response | void> {
-    // CF-Connecting-IP is set by Cloudflare and cannot be spoofed by clients.
-    const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
+    // Bucket key. On Cloudflare, CF-Connecting-IP is canonical and unspoofable.
+    // On Node (self-hosted), it's never set — so fall through to the same
+    // chain `buildBucketKey` uses for the binding path: True-Client-IP →
+    // X-Real-IP / X-Forwarded-For (set by the operator's reverse proxy) →
+    // UA-derived hash, instead of collapsing every client into a shared
+    // 'unknown' bucket where one noisy client could DoS everyone.
+    const ip = await buildBucketKey(c);
     const now = Date.now();
     if (now - lastPrune > pruneIntervalMs) {
       pruneOldEntries(now);

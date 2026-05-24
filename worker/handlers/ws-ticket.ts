@@ -16,9 +16,9 @@
 
 import type { Context } from 'hono';
 import { z } from 'zod';
-import type { Env } from '../index';
+import type { Env } from '../env';
 import { validateWsUrl } from '@shared/protocol/websocket-proxy';
-import { isLocalDevBypass } from '../shared/env';
+import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
 
 interface TicketEntry {
@@ -53,6 +53,7 @@ export async function wsTicket(c: Context<{ Bindings: Env }>): Promise<Response>
   if (!parsed.ok) return c.json({ error: parsed.error }, parsed.status);
   const validation = validateWsUrl(parsed.value.target, {
     allowLocalhost: isLocalDevBypass(c.env),
+    allowPrivateIPs: allowPrivateIPs(c.env),
   });
   if (!validation.ok) {
     return c.json({ error: `Invalid target: ${validation.error}` }, 400);

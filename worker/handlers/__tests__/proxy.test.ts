@@ -1,10 +1,22 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { proxy } from '../proxy';
+import { createProxyHandler } from '../proxy';
+
+// The CONNECT-proxy adapter is never exercised by these tests (no
+// upstreamProxy in any request body). Inject a throwing stub so a regression
+// that accidentally routes through it surfaces loudly.
+const tcpProxyStub = {
+  httpsViaConnectProxy: () => {
+    throw new Error('httpsViaConnectProxy unexpectedly called in unit test');
+  },
+  httpViaProxy: () => {
+    throw new Error('httpViaProxy unexpectedly called in unit test');
+  },
+};
 
 const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();
-app.post('/proxy', proxy);
+app.post('/proxy', createProxyHandler(tcpProxyStub));
 
 function makeRequest(body: unknown, env: Record<string, string> = {}) {
   return app.request(

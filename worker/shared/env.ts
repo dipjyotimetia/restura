@@ -1,4 +1,4 @@
-import type { Env } from '../index';
+import type { Env } from '../env';
 
 /**
  * Strict development-bypass gate. ENVIRONMENT='development' alone is NOT
@@ -17,4 +17,13 @@ export function isLocalDevBypass(env: Env): boolean {
   const inMiniflare =
     typeof (globalThis as { MINIFLARE?: unknown }).MINIFLARE !== 'undefined';
   return inMiniflare || env.DEV_BYPASS_AUTH === 'true';
+}
+
+/**
+ * Self-hosted enterprises opt into RFC 1918 / link-local / CGNAT upstreams
+ * via `ALLOW_PRIVATE_IPS=true`. Centralised so call-sites can't drift on
+ * the env-var name or the truthiness check (`'true'` vs `'1'` vs etc.).
+ */
+export function allowPrivateIPs(env: Env): boolean {
+  return env.ALLOW_PRIVATE_IPS === 'true';
 }

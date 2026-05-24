@@ -1,10 +1,10 @@
 import type { Context } from 'hono';
-import type { Env } from '../index';
+import type { Env } from '../env';
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
 import type { Fetcher } from '@shared/protocol/types';
 import { GrpcProxyRequestBodySchema } from '@shared/protocol/grpc-schema';
 import { parseJsonBody } from '../shared/validate-body';
-import { isLocalDevBypass } from '../shared/env';
+import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 
 const fetcher: Fetcher = async (req) => {
   const init: RequestInit = {
@@ -33,7 +33,10 @@ export async function grpc(c: Context<{ Bindings: Env }>) {
   }
   const body = parsed.value;
 
-  const result = await executeGrpcProxy(body, fetcher, { allowLocalhost: isDev });
+  const result = await executeGrpcProxy(body, fetcher, {
+    allowLocalhost: isDev,
+    allowPrivateIPs: allowPrivateIPs(c.env),
+  });
 
   if (!result.ok) {
     return c.json(result.payload as Record<string, unknown>, result.status as 400 | 413 | 502 | 504);

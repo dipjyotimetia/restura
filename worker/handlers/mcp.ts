@@ -2,9 +2,9 @@ import type { Context } from 'hono';
 import { validateMcpSpec, type McpSpec } from '@shared/protocol/mcp-proxy';
 import { McpRequestBodySchema } from '@shared/protocol/mcp-schema';
 import { SseParser } from '@shared/protocol/sse-parser';
-import type { Env } from '../index';
+import type { Env } from '../env';
 import { parseJsonBody } from '../shared/validate-body';
-import { isLocalDevBypass } from '../shared/env';
+import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 
 /**
  * MCP proxy: forwards a single JSON-RPC call from the renderer to a target MCP server.
@@ -95,7 +95,10 @@ export async function mcp(c: Context<{ Bindings: Env }>) {
 
   // Same gate as worker/index.ts auth — see proxy.ts for rationale.
   const isDev = isLocalDevBypass(c.env);
-  const validation = validateMcpSpec(raw, isDev);
+  const validation = validateMcpSpec(raw, {
+    allowLocalhost: isDev,
+    allowPrivateIPs: allowPrivateIPs(c.env),
+  });
   if (!validation.ok) {
     return c.json({ error: validation.error }, validation.status as 400);
   }

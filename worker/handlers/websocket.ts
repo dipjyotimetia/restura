@@ -10,11 +10,11 @@
  */
 
 import type { Context } from 'hono';
-import type { Env } from '../index';
+import type { Env } from '../env';
 import { consumeTicket } from './ws-ticket';
 import { validateWsUrl } from '@shared/protocol/websocket-proxy';
 import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
-import { isLocalDevBypass } from '../shared/env';
+import { allowPrivateIPs as readAllowPrivateIPs, isLocalDevBypass } from '../shared/env';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024; // mirror Electron's MAX_MESSAGE_SIZE
 // Hoisted: TextEncoder is stateless, allocating one per frame would churn GC.
@@ -49,7 +49,8 @@ export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<R
   }
 
   const allowLocalhost = isLocalDevBypass(c.env);
-  const validation = validateWsUrl(spec.target, { allowLocalhost });
+  const allowPrivateIPs = readAllowPrivateIPs(c.env);
+  const validation = validateWsUrl(spec.target, { allowLocalhost, allowPrivateIPs });
   if (!validation.ok) {
     return c.json({ error: `Invalid target: ${validation.error}` }, 400);
   }
