@@ -32,6 +32,8 @@ export type GrpcExecuteResult =
 
 export interface ExecuteGrpcOptions {
   allowLocalhost: boolean;
+  /** Self-hosted opt-in for RFC 1918 / link-local / CGNAT targets. */
+  allowPrivateIPs?: boolean;
 }
 
 const SERVICE_RE = /^[a-zA-Z][a-zA-Z0-9_.]*$/;
@@ -93,7 +95,7 @@ export async function executeGrpcProxy(
   options: ExecuteGrpcOptions
 ): Promise<GrpcExecuteResult> {
   const urlValidation = validateURL(spec.url, {
-    allowPrivateIPs: false,
+    allowPrivateIPs: options.allowPrivateIPs === true,
     allowLocalhost: options.allowLocalhost,
   });
   if (!urlValidation.valid) {

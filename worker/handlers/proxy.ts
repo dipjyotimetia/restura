@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import { stream } from 'hono/streaming';
 import type { StatusCode } from 'hono/utils/http-status';
 import type { Env } from '../index';
+import type { TcpProxyAdapter } from '../adapters';
 import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { Fetcher } from '@shared/protocol/types';
@@ -11,7 +12,6 @@ import {
   type ProxyRequestBody,
   type UpstreamProxyConfig,
 } from '@shared/protocol/proxy-schema';
-import { httpsViaConnectProxy, httpViaProxy } from '../shared/tcp-proxy';
 import { isLocalDevBypass } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
 
@@ -53,7 +53,9 @@ function isStreamingRequest(body: ProxyRequestBody): boolean {
 
 function buildFetcher(
   isDev: boolean,
-  upstream: UpstreamProxyConfig | undefined
+  upstream: UpstreamProxyConfig | undefined,
+  tcpProxy: TcpProxyAdapter,
+  allowPrivateIPs: boolean
 ): Fetcher {
   return async (req) => {
     let response: Response;
@@ -62,8 +64,10 @@ function buildFetcher(
       if (!/^[a-zA-Z0-9.\-[\]:]+$/.test(upstream.host)) {
         throw new Error('Invalid proxy host: contains illegal characters');
       }
+      // Honour ALLOW_PRIVATE_IPS for the proxy-host check too — operators that
+      // explicitly opt in to internal targets typically use an internal proxy.
       const proxyValidation = validateURL(`http://${upstream.host}:${upstream.port}`, {
-        allowPrivateIPs: false,
+        allowPrivateIPs,
         allowLocalhost: isDev,
       });
       if (!proxyValidation.valid) {
@@ -79,8 +83,8 @@ function buildFetcher(
       if (req.body !== undefined) init.body = req.body;
       response =
         targetUrl.protocol === 'https:'
-          ? await httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
-          : await httpViaProxy(targetUrl, upstream, init, req.signal);
+          ? await tcpProxy.httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
+          : await tcpProxy.httpViaProxy(targetUrl, upstream, init, req.signal);
     } else {
       const init: RequestInit = {
         method: req.method,
@@ -102,27 +106,77 @@ function buildFetcher(
   };
 }
 
-export async function proxy(c: Context<{ Bindings: Env }>) {
-  // Use the same gate as auth (worker/index.ts). ENVIRONMENT='development'
-  // alone MUST NOT relax allowLocalhost — a preview deploy that inherits
-  // the env var would otherwise become an open SSRF to internal hosts.
-  const isDev = isLocalDevBypass(c.env);
+/**
+ * Build a /api/proxy handler with the supplied TCP-proxy adapter injected.
+ * The Cloudflare entry passes `cloudflareTcpProxy` (uses `cloudflare:sockets`);
+ * the Node entry passes `nodeTcpProxy` (uses `node:net`/`node:tls`).
+ */
+export function createProxyHandler(tcpProxy: TcpProxyAdapter) {
+  return async function proxyHandler(c: Context<{ Bindings: Env }>) {
+    // Use the same gate as auth (worker/app.ts). ENVIRONMENT='development'
+    // alone MUST NOT relax allowLocalhost — a preview deploy that inherits
+    // the env var would otherwise become an open SSRF to internal hosts.
+    const isDev = isLocalDevBypass(c.env);
 
-  const parsed = await parseJsonBody(c.req.raw, ProxyRequestBodySchema);
-  if (!parsed.ok) {
-    return c.json({ error: parsed.error }, parsed.status);
-  }
-  const body: ProxyRequestBody = parsed.value;
+    const parsed = await parseJsonBody(c.req.raw, ProxyRequestBodySchema);
+    if (!parsed.ok) {
+      return c.json({ error: parsed.error }, parsed.status);
+    }
+    const body: ProxyRequestBody = parsed.value;
 
-  if (containsAuthHandle(body.auth)) {
-    return c.json(
-      { error: 'Secret handles are desktop-only — open this request in the Restura desktop app.' },
-      400
-    );
-  }
+    if (containsAuthHandle(body.auth)) {
+      return c.json(
+        { error: 'Secret handles are desktop-only — open this request in the Restura desktop app.' },
+        400
+      );
+    }
 
-  if (isStreamingRequest(body)) {
-    const streamingResult = await executeHttpProxyStreaming(
+    // Self-hosted enterprises with internal upstreams can opt into private-IP
+    // access via ALLOW_PRIVATE_IPS=true. Distinct from `isDev` so that production
+    // self-hosted deployments don't accidentally also relax other dev guards.
+    const allowPrivateIPs = c.env.ALLOW_PRIVATE_IPS === 'true';
+    const fetcher = buildFetcher(isDev, body.upstreamProxy, tcpProxy, allowPrivateIPs);
+
+    if (isStreamingRequest(body)) {
+      const streamingResult = await executeHttpProxyStreaming(
+        {
+          method: body.method,
+          url: body.url,
+          headers: body.headers,
+          params: body.params,
+          bodyType: body.bodyType,
+          data: body.data,
+          formData: body.formData,
+          timeout: body.timeout,
+          auth: body.auth,
+        },
+        fetcher,
+        { allowLocalhost: isDev, allowPrivateIPs }
+      );
+
+      if (!streamingResult.ok) {
+        return c.json(
+          streamingResult.payload,
+          streamingResult.status as 400 | 502 | 504
+        );
+      }
+
+      // Forward sanitised upstream headers verbatim to the renderer.
+      for (const [k, v] of Object.entries(streamingResult.response.headers)) {
+        c.header(k, v);
+      }
+      // Forward the upstream status code (200 typical, but any 2xx/4xx/5xx is valid).
+      c.status(streamingResult.response.status as StatusCode);
+
+      // Pipe upstream body through Hono's streaming helper. Hono's stream() takes
+      // care of stream lifecycle (close, abort propagation) for us.
+      const upstreamBody = streamingResult.response.body;
+      return stream(c, async (s) => {
+        await s.pipe(upstreamBody);
+      });
+    }
+
+    const result = await executeHttpProxy(
       {
         method: body.method,
         url: body.url,
@@ -134,58 +188,21 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
         timeout: body.timeout,
         auth: body.auth,
       },
-      buildFetcher(isDev, body.upstreamProxy),
-      { allowLocalhost: isDev }
+      fetcher,
+      { allowLocalhost: isDev, allowPrivateIPs }
     );
 
-    if (!streamingResult.ok) {
-      return c.json(
-        streamingResult.payload,
-        streamingResult.status as 400 | 502 | 504
-      );
+    if (!result.ok) {
+      return c.json(result.payload, result.status as 400 | 413 | 500 | 502 | 504);
     }
-
-    // Forward sanitised upstream headers verbatim to the renderer.
-    for (const [k, v] of Object.entries(streamingResult.response.headers)) {
-      c.header(k, v);
-    }
-    // Forward the upstream status code (200 typical, but any 2xx/4xx/5xx is valid).
-    c.status(streamingResult.response.status as StatusCode);
-
-    // Pipe upstream body through Hono's streaming helper. Hono's stream() takes
-    // care of stream lifecycle (close, abort propagation) for us.
-    const upstreamBody = streamingResult.response.body;
-    return stream(c, async (s) => {
-      await s.pipe(upstreamBody);
+    // Preserve the worker's historical response shape: `data` instead of `body`.
+    // Renderer (`requestExecutor.ts`) reads `proxyResponse.data`.
+    return c.json({
+      status: result.response.status,
+      statusText: result.response.statusText,
+      headers: result.response.headers,
+      data: result.response.body,
+      size: result.response.size,
     });
-  }
-
-  const result = await executeHttpProxy(
-    {
-      method: body.method,
-      url: body.url,
-      headers: body.headers,
-      params: body.params,
-      bodyType: body.bodyType,
-      data: body.data,
-      formData: body.formData,
-      timeout: body.timeout,
-      auth: body.auth,
-    },
-    buildFetcher(isDev, body.upstreamProxy),
-    { allowLocalhost: isDev }
-  );
-
-  if (!result.ok) {
-    return c.json(result.payload, result.status as 400 | 413 | 500 | 502 | 504);
-  }
-  // Preserve the worker's historical response shape: `data` instead of `body`.
-  // Renderer (`requestExecutor.ts`) reads `proxyResponse.data`.
-  return c.json({
-    status: result.response.status,
-    statusText: result.response.statusText,
-    headers: result.response.headers,
-    data: result.response.body,
-    size: result.response.size,
-  });
+  };
 }

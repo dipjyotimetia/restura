@@ -33,7 +33,10 @@ export async function grpc(c: Context<{ Bindings: Env }>) {
   }
   const body = parsed.value;
 
-  const result = await executeGrpcProxy(body, fetcher, { allowLocalhost: isDev });
+  const result = await executeGrpcProxy(body, fetcher, {
+    allowLocalhost: isDev,
+    allowPrivateIPs: c.env.ALLOW_PRIVATE_IPS === 'true',
+  });
 
   if (!result.ok) {
     return c.json(result.payload as Record<string, unknown>, result.status as 400 | 413 | 502 | 504);

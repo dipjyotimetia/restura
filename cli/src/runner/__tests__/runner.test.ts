@@ -210,8 +210,11 @@ describe('runCollection', () => {
     expect(result.requests[0]?.errorMessage).toBeDefined();
   });
 
-  it('marks non-HTTP request types as unsupported (errored)', async () => {
-    const dir = makeCollection('UnsupportedTypes', [
+  it('routes gRPC requests through the gRPC executor and surfaces gRPC status', async () => {
+    // The local HTTP server returns 404 for unknown paths. Pointing a gRPC
+    // request at it exercises the gRPC executor + Connect error mapping
+    // without standing up a real gRPC server in this unit test.
+    const dir = makeCollection('GrpcSmoke', [
       {
         filename: 'a-grpc.grpc.yaml',
         body: `name: Grpc\nmethodType: unary\nurl: '{{BASE}}'\nservice: My.Service\nmethod: Echo\n`,
@@ -225,8 +228,11 @@ describe('runCollection', () => {
     );
 
     expect(result.summary.total).toBe(1);
-    expect(result.summary.errored).toBe(1);
-    expect(result.requests[0]?.errorMessage).toContain('not yet supported');
+    expect(result.requests[0]?.passed).toBe(false);
+    // The 404 from the local HTTP server is reinterpreted as a gRPC UNKNOWN
+    // status — confirms the executor ran and the shared proxy was reached.
+    expect(result.requests[0]?.grpcStatus).toEqual({ code: 2, message: 'UNKNOWN' });
+    expect(result.requests[0]?.errorMessage).toMatch(/gRPC UNKNOWN/);
   });
 
   it('resolves env vars and collection variables (env first, collection wins)', async () => {

@@ -21,6 +21,16 @@ function withWindow(getWindow: () => BrowserWindow | null, fn: (w: BrowserWindow
 }
 
 export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: boolean): void {
+  // Enterprise opt-out: skip all update-check side effects when the
+  // operator sets RESTURA_DISABLE_AUTO_UPDATE=true. Distinct from `isDev`
+  // because enterprise production deploys still set NODE_ENV=production
+  // but want air-gapped behaviour (no GitHub release pings).
+  if (process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true') {
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    return;
+  }
+
   if (isDev) {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
@@ -97,6 +107,9 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
       'app:checkForUpdates',
       NoInputSchema,
       async (): Promise<UpdateCheckResponse> => {
+        if (process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true') {
+          return { updateAvailable: false, message: 'Updates disabled by RESTURA_DISABLE_AUTO_UPDATE' };
+        }
         if (isDev) {
           return { updateAvailable: false, message: 'Updates disabled in development' };
         }

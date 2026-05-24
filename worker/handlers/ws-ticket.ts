@@ -53,6 +53,7 @@ export async function wsTicket(c: Context<{ Bindings: Env }>): Promise<Response>
   if (!parsed.ok) return c.json({ error: parsed.error }, parsed.status);
   const validation = validateWsUrl(parsed.value.target, {
     allowLocalhost: isLocalDevBypass(c.env),
+    allowPrivateIPs: c.env.ALLOW_PRIVATE_IPS === 'true',
   });
   if (!validation.ok) {
     return c.json({ error: `Invalid target: ${validation.error}` }, 400);

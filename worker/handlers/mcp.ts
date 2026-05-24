@@ -95,7 +95,10 @@ export async function mcp(c: Context<{ Bindings: Env }>) {
 
   // Same gate as worker/index.ts auth — see proxy.ts for rationale.
   const isDev = isLocalDevBypass(c.env);
-  const validation = validateMcpSpec(raw, isDev);
+  const validation = validateMcpSpec(raw, {
+    allowLocalhost: isDev,
+    allowPrivateIPs: c.env.ALLOW_PRIVATE_IPS === 'true',
+  });
   if (!validation.ok) {
     return c.json({ error: validation.error }, validation.status as 400);
   }

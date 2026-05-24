@@ -65,7 +65,10 @@ export async function grpcReflection(c: Context<{ Bindings: Env }>) {
 
   // Same gate as worker/index.ts auth — see proxy.ts for rationale.
   const isDev = isLocalDevBypass(c.env);
-  const urlValidation = validateURL(url, { allowPrivateIPs: false, allowLocalhost: isDev });
+  const urlValidation = validateURL(url, {
+    allowPrivateIPs: c.env.ALLOW_PRIVATE_IPS === 'true',
+    allowLocalhost: isDev,
+  });
   if (!urlValidation.valid) {
     return c.json({ error: `Invalid URL: ${urlValidation.error}` }, 400);
   }

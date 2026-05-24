@@ -1,0 +1,63 @@
+# Keep the build context small — node_modules will be reinstalled in-image.
+node_modules
+dist
+out
+coverage
+playwright-report
+test-results
+cache
+.next
+.turbo
+.vite
+
+# Local dev / secrets that must never enter an image.
+.env
+.env.local
+.env.*.local
+.dev.vars
+.dev.vars.*
+*.local
+
+# Source-control noise.
+.git
+.gitignore
+.github
+.husky
+
+# Electron, desktop, and platform-specific bundles we don't ship from this image.
+electron
+electron-builder.json
+
+# Tests + e2e — not needed at runtime.
+e2e
+tests
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+playwright.config.ts
+vitest.config.ts
+
+# CLI subproject — separate package.
+cli
+
+# Echo upstream Worker — only used in e2e, not part of the web image.
+echo
+
+# Editor / OS junk.
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+
+# Misc docs that bloat context without affecting the runtime.
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+docs
+*.png
+*.jpg
+*.gif
+*.mp4
+screenshots
+public/screenshots

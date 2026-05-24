@@ -37,6 +37,8 @@ export interface WsTransport {
 
 export interface WsValidationOptions {
   allowLocalhost: boolean;
+  /** Self-hosted opt-in for RFC 1918 / link-local / CGNAT WebSocket targets. */
+  allowPrivateIPs?: boolean;
 }
 
 /** SSRF + scheme gate shared by Worker handler and Electron handler. */
@@ -46,7 +48,7 @@ export function validateWsUrl(
 ): { ok: true; url: URL } | { ok: false; error: string } {
   const v = validateURL(url, {
     allowLocalhost: opts.allowLocalhost,
-    allowPrivateIPs: false,
+    allowPrivateIPs: opts.allowPrivateIPs === true,
     allowedSchemes: ['ws:', 'wss:'],
   });
   if (!v.valid) return { ok: false, error: v.error ?? 'invalid url' };

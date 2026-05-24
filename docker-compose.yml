@@ -1,0 +1,35 @@
+# Restura self-hosted — single-container web app.
+# Copy `.env.example` to `.env`, set WORKER_PROXY_TOKEN + ALLOWED_ORIGIN,
+# then `docker compose up -d`. The container exposes the SPA and the /api/*
+# Worker endpoints on port 3000.
+
+services:
+  restura:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: restura/web:latest
+    container_name: restura
+    restart: unless-stopped
+    ports:
+      - "${RESTURA_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      # Defaults baked into the image; .env can override.
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: 0.0.0.0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    # Optional: drop additional Linux capabilities — the Node process needs
+    # no extra privileges beyond what its non-root `node` user already has.
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # Node writes nothing to disk in production, but
+                      # `tmp` for streaming + npm cache need to be writable.
+                      # Flip to true after validating in your environment.

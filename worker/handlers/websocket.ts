@@ -49,7 +49,8 @@ export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<R
   }
 
   const allowLocalhost = isLocalDevBypass(c.env);
-  const validation = validateWsUrl(spec.target, { allowLocalhost });
+  const allowPrivateIPs = c.env.ALLOW_PRIVATE_IPS === 'true';
+  const validation = validateWsUrl(spec.target, { allowLocalhost, allowPrivateIPs });
   if (!validation.ok) {
     return c.json({ error: `Invalid target: ${validation.error}` }, 400);
   }

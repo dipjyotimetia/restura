@@ -36,7 +36,21 @@ export type McpValidation =
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 120_000;
 
-export function validateMcpSpec(spec: McpSpec, allowLocalhost: boolean): McpValidation {
+export interface McpValidationOptions {
+  allowLocalhost: boolean;
+  /** Self-hosted opt-in for RFC 1918 / link-local / CGNAT MCP server URLs. */
+  allowPrivateIPs?: boolean;
+}
+
+export function validateMcpSpec(
+  spec: McpSpec,
+  optionsOrAllowLocalhost: boolean | McpValidationOptions
+): McpValidation {
+  // Back-compat: callers (Electron, contract tests) still pass a boolean.
+  const opts: McpValidationOptions =
+    typeof optionsOrAllowLocalhost === 'boolean'
+      ? { allowLocalhost: optionsOrAllowLocalhost }
+      : optionsOrAllowLocalhost;
   if (spec.transport !== 'streamable-http' && spec.transport !== 'http-sse') {
     return {
       ok: false,
@@ -62,7 +76,10 @@ export function validateMcpSpec(spec: McpSpec, allowLocalhost: boolean): McpVali
     return { ok: false, status: 400, error: 'http-sse transport requires `postEndpoint`' };
   }
 
-  const v = validateURL(targetUrl, { allowPrivateIPs: false, allowLocalhost });
+  const v = validateURL(targetUrl, {
+    allowPrivateIPs: opts.allowPrivateIPs === true,
+    allowLocalhost: opts.allowLocalhost,
+  });
   if (!v.valid) return { ok: false, status: 400, error: `Invalid URL: ${v.error}` };
 
   const headers: Record<string, string> = {

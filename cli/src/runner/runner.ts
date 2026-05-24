@@ -1,26 +1,52 @@
 import { loadCollection } from './collectionLoader.js';
-import { undiciFetcher } from './undiciFetcher.js';
-import { executeHttpProxy } from '@shared/protocol/http-proxy';
-import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
-import type { HttpRequest } from '@/types';
+import { executeRequest } from './executors/dispatch.js';
+import { runPreRequestScript, runTestScript } from './scriptRunner.js';
+import { applyFilters, type FilterOptions } from './filter.js';
+import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
+import type { IterationRow } from './dataLoader.js';
+import type {
+  Reporter,
+  RunResult,
+  RequestRunResult,
+  RunMeta,
+} from '../reporters/types.js';
 
 export interface RunOptions {
   envVars: Record<string, string>;
   bail: boolean;
   timeoutMs: number;
   allowLocalhost: boolean;
+  /** Subset filters applied before execution. */
+  filter?: FilterOptions;
+  /** Data-driven iterations. Empty array (or undefined) = single iteration with no row vars. */
+  iterations?: IterationRow[];
+  /** Cap on iterations to run. */
+  maxIterations?: number;
+  /** Retry policy for individual requests. */
+  retry?: Partial<RetryOptions>;
+  /** SSE: stream open duration (ms). */
+  sseDurationMs?: number;
+  /** SSE: stop after this many events. */
+  sseMaxEvents?: number;
+  /** WebSocket: socket open duration (ms). */
+  wsDurationMs?: number;
+  /** WebSocket: stop after this many messages. */
+  wsMaxMessages?: number;
 }
 
 /**
- * Execute every request in a Restura file-collection.
+ * Execute every request in a Restura collection (OpenCollection or legacy).
  *
- * v0.1: HTTP requests only. gRPC/SSE/MCP request types are recorded as
- * "unsupported" results and counted as errored. Pre/post test scripts are
- * deferred — pass/fail is determined by HTTP status (2xx = pass).
+ * High-level orchestration:
+ *   1. Load collection → flatten to a request list → apply --folder/--include/--exclude.
+ *   2. For each iteration (1 by default; one per row when `--data` is set):
+ *      a. For each request: run pre-request script → execute (with retry) → test script.
+ *      b. Pass/fail = (assertions all passed when scripts present) AND no script errors.
+ *   3. Aggregate all results into a single RunResult; emit reporter callbacks.
  *
- * Variable resolution: `{{KEY}}` placeholders are resolved against the merged
- * env vars (env file first, collection variables override). Unresolved keys
- * are left as `{{KEY}}` so the upstream sees them and the user notices.
+ * Variables are layered: env vars → collection vars → iteration-row vars
+ * (row-level wins). Variables set inside scripts propagate within the
+ * iteration AND back to the run-wide map for subsequent requests.
  */
 export async function runCollection(
   collectionDir: string,
@@ -30,10 +56,12 @@ export async function runCollection(
   const loaded = await loadCollection(collectionDir);
 
   // Merge: env vars first, then collection vars override.
-  const allVars: Record<string, string> = { ...options.envVars };
+  const baseVars: Record<string, string> = { ...options.envVars };
   for (const v of loaded.meta.variables ?? []) {
-    if ((v as { enabled?: boolean }).enabled !== false) allVars[v.key] = v.value;
+    if ((v as { enabled?: boolean }).enabled !== false) baseVars[v.key] = v.value;
   }
+
+  const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
 
   const meta: RunMeta = {
     collectionName: loaded.meta.name,
@@ -42,97 +70,103 @@ export async function runCollection(
   };
   await reporter.onStart?.(meta);
 
+  const retry: RetryOptions = {
+    ...DEFAULT_RETRY,
+    ...(options.retry ?? {}),
+  };
+
+  // One iteration (with empty row vars) by default; multiple when --data is set.
+  let iterations = options.iterations && options.iterations.length > 0 ? options.iterations : [{}];
+  if (options.maxIterations !== undefined && options.maxIterations >= 0) {
+    iterations = iterations.slice(0, options.maxIterations);
+  }
+  const isDataDriven = iterations.length > 1 || (options.iterations?.length ?? 0) > 0;
+
   const results: RequestRunResult[] = [];
   let bailed = false;
 
-  for (const item of loaded.requests) {
-    if (bailed) break;
-    await reporter.onRequestStart?.(item);
+  iterationLoop: for (let iter = 0; iter < iterations.length; iter++) {
+    const row = iterations[iter] ?? {};
+    // Layer base + row vars; mutated across requests by scripts.
+    const allVars: Record<string, string> = { ...baseVars, ...row };
 
-    if (item.type !== 'http') {
+    for (const item of filtered) {
+      if (bailed) break iterationLoop;
+      await reporter.onRequestStart?.(item);
+
+      const preScript = item.request.preRequestScript;
+      const testScript = item.request.testScript;
+      let perRequestVars = { ...allVars };
+      const allAssertions: Array<{ name: string; passed: boolean; error?: string }> = [];
+      let scriptError: string | undefined;
+
+      if (preScript) {
+        try {
+          const pre = await runPreRequestScript(preScript, item, perRequestVars);
+          perRequestVars = pre.variables;
+          for (const k of Object.keys(pre.variables)) allVars[k] = pre.variables[k]!;
+          if (pre.errors.length > 0) scriptError = `pre-request: ${pre.errors.join('; ')}`;
+          if (pre.assertions.length > 0) allAssertions.push(...pre.assertions);
+        } catch (err) {
+          scriptError = `pre-request: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      const outcome = await withRetry(
+        () =>
+          executeRequest(item, {
+            vars: perRequestVars,
+            timeoutMs: options.timeoutMs,
+            allowLocalhost: options.allowLocalhost,
+            ...(options.sseDurationMs !== undefined ? { sseDurationMs: options.sseDurationMs } : {}),
+            ...(options.sseMaxEvents !== undefined ? { sseMaxEvents: options.sseMaxEvents } : {}),
+            ...(options.wsDurationMs !== undefined ? { wsDurationMs: options.wsDurationMs } : {}),
+            ...(options.wsMaxMessages !== undefined ? { wsMaxMessages: options.wsMaxMessages } : {}),
+          }),
+        retry
+      );
+
+      if (testScript) {
+        try {
+          const test = await runTestScript(testScript, item, outcome, perRequestVars);
+          for (const k of Object.keys(test.variables)) allVars[k] = test.variables[k]!;
+          if (test.assertions.length > 0) allAssertions.push(...test.assertions);
+          if (test.errors.length > 0) {
+            const msg = `test: ${test.errors.join('; ')}`;
+            scriptError = scriptError ? `${scriptError}; ${msg}` : msg;
+          }
+        } catch (err) {
+          const msg = `test: ${err instanceof Error ? err.message : String(err)}`;
+          scriptError = scriptError ? `${scriptError}; ${msg}` : msg;
+        }
+      }
+
+      let passed = outcome.passed;
+      if (allAssertions.length > 0) passed = allAssertions.every((a) => a.passed);
+      if (scriptError) passed = false;
+
       const result: RequestRunResult = {
         request: item,
-        status: 0,
-        passed: false,
-        durationMs: 0,
-        bodyBytes: 0,
-        errorMessage: `Request type '${item.type}' not yet supported by CLI v0.1`,
+        status: outcome.status,
+        passed,
+        durationMs: outcome.durationMs,
+        bodyBytes: outcome.bodyBytes,
+        ...(outcome.responseHeaders ? { responseHeaders: outcome.responseHeaders } : {}),
+        ...(outcome.errorMessage !== undefined
+          ? { errorMessage: scriptError ? `${outcome.errorMessage}; ${scriptError}` : outcome.errorMessage }
+          : scriptError !== undefined
+            ? { errorMessage: scriptError }
+            : {}),
+        ...(outcome.grpcStatus ? { grpcStatus: outcome.grpcStatus } : {}),
+        ...(outcome.streamEvents ? { streamEvents: outcome.streamEvents } : {}),
+        ...(allAssertions.length > 0 ? { assertions: allAssertions } : {}),
+        ...(isDataDriven ? { iteration: iter } : {}),
       };
+
       results.push(result);
       await reporter.onRequestComplete?.(result);
-      if (options.bail) bailed = true;
-      continue;
+      if (!result.passed && options.bail) bailed = true;
     }
-
-    const httpReq = item.request as HttpRequest;
-    const url = resolveVars(httpReq.url, allVars);
-    const headersRecord: Record<string, string> = {};
-    for (const h of httpReq.headers) {
-      if (h.enabled && h.key) headersRecord[h.key] = resolveVars(h.value, allVars);
-    }
-    const paramsRecord: Record<string, string> = {};
-    for (const p of httpReq.params) {
-      if (p.enabled && p.key) paramsRecord[p.key] = resolveVars(p.value, allVars);
-    }
-
-    const hasBody =
-      httpReq.body.type !== 'none' &&
-      (httpReq.body as { raw?: string }).raw !== undefined;
-    const bodyData = hasBody
-      ? resolveVars((httpReq.body as { raw: string }).raw, allVars)
-      : undefined;
-
-    const start = Date.now();
-    let runResult: RequestRunResult;
-    try {
-      const result = await executeHttpProxy(
-        {
-          method: httpReq.method,
-          url,
-          headers: headersRecord,
-          params: paramsRecord,
-          bodyType: hasBody ? 'raw' : 'none',
-          ...(bodyData !== undefined ? { data: bodyData } : {}),
-          timeout: options.timeoutMs,
-        },
-        undiciFetcher,
-        { allowLocalhost: options.allowLocalhost }
-      );
-      const durationMs = Date.now() - start;
-
-      if (result.ok) {
-        runResult = {
-          request: item,
-          status: result.response.status,
-          passed: result.response.status >= 200 && result.response.status < 300,
-          durationMs,
-          bodyBytes: result.response.size,
-          responseHeaders: result.response.headers,
-        };
-      } else {
-        runResult = {
-          request: item,
-          status: 0,
-          passed: false,
-          durationMs,
-          bodyBytes: 0,
-          errorMessage: result.payload.error,
-        };
-      }
-    } catch (err) {
-      runResult = {
-        request: item,
-        status: 0,
-        passed: false,
-        durationMs: Date.now() - start,
-        bodyBytes: 0,
-        errorMessage: err instanceof Error ? err.message : String(err),
-      };
-    }
-
-    results.push(runResult);
-    await reporter.onRequestComplete?.(runResult);
-    if (!runResult.passed && options.bail) bailed = true;
   }
 
   const summary = {
@@ -143,17 +177,14 @@ export async function runCollection(
   };
 
   const final: RunResult = {
-    meta,
+    meta: {
+      ...meta,
+      ...(isDataDriven ? { iteration: iterations.length } : {}),
+    },
     durationMs: Date.now() - meta.startedAt,
     requests: results,
     summary,
   };
   await reporter.onEnd(final);
   return final;
-}
-
-function resolveVars(text: string, vars: Record<string, string>): string {
-  return text.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_match, key: string) => {
-    return vars[key] ?? `{{${key}}}`;
-  });
 }
