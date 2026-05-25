@@ -134,8 +134,21 @@ export function createDexieStorage<T = unknown>(
           const encryptionKey = await getEncryptionKey();
           try {
             jsonString = await decryptValue(jsonString, encryptionKey);
-          } catch (error) {
-            console.error(`Decryption failed for ${name}:`, error);
+          } catch {
+            // The ciphertext was written under a different encryption key (e.g.
+            // the key rotated, or data persisted in another context) and can
+            // never be decrypted with the current one. Evict the dead row so we
+            // stop erroring on every hydration and let the store re-persist
+            // under the current key. Returning null alone would leave the row
+            // and re-log this on every reload.
+            console.warn(
+              `[dexie-storage] dropping undecryptable "${name}" (encryption key changed); resetting to defaults`,
+            );
+            try {
+              await getTable(tableName).delete(name);
+            } catch {
+              /* best-effort eviction */
+            }
             return null;
           }
         }
