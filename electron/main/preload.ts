@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 
 const VALID_EVENT_CHANNELS = ['menu:import', 'menu:export', 'menu:new-request', 'app:focus', 'deep-link'];
 
@@ -457,6 +458,43 @@ const electronAPI = {
       | { ok: true; handles: Array<{ id: string; label?: string; scope?: string; createdAt: number }> }
       | { ok: false; error: string }
     > => ipcRenderer.invoke('secret:list'),
+  },
+
+  ai: {
+    chat: (spec: {
+      streamId: string;
+      provider: 'openai' | 'anthropic' | 'openrouter';
+      model: string;
+      messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+      apiKeyHandleId: string;
+      baseUrlOverride?: string;
+      rawMode: boolean;
+      maxOutputTokens?: number;
+    }): Promise<{ ok: true; streamId: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('ai:chat', spec),
+
+    cancel: (args: { streamId: string }): Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }> =>
+      ipcRenderer.invoke('ai:chat:cancel', args),
+
+    onChunk: (
+      streamId: string,
+      cb: (event: ChatStreamEvent) => void,
+    ): (() => void) => {
+      const channel = `ai:chat:chunk:${streamId}`;
+      const listener = (_event: unknown, payload: ChatStreamEvent) => cb(payload);
+      ipcRenderer.on(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+      return () => ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+    },
+
+    onEnd: (
+      streamId: string,
+      cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void,
+    ): (() => void) => {
+      const channel = `ai:chat:end:${streamId}`;
+      const listener = (_event: unknown, payload: { reason: 'done' | 'cancelled' | 'error' }) => cb(payload);
+      ipcRenderer.on(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+      return () => ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+    },
   },
 
   // Request log operations

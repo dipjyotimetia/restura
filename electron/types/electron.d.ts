@@ -409,6 +409,28 @@ interface ElectronSecretsAPI {
   >;
 }
 
+interface ElectronAiAPI {
+  chat: (spec: {
+    streamId: string;
+    provider: 'openai' | 'anthropic' | 'openrouter';
+    model: string;
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+    apiKeyHandleId: string;
+    baseUrlOverride?: string;
+    rawMode: boolean;
+    maxOutputTokens?: number;
+  }) => Promise<{ ok: true; streamId: string } | { ok: false; error: string }>;
+  cancel: (args: { streamId: string }) => Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }>;
+  onChunk: (
+    streamId: string,
+    cb: (event: import('../../shared/protocol/ai/types').ChatStreamEvent) => void,
+  ) => () => void;
+  onEnd: (
+    streamId: string,
+    cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void,
+  ) => () => void;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -426,6 +448,7 @@ interface ElectronAPI {
   kafka: ElectronKafkaAPI;
   store: ElectronStoreAPI;
   secrets: ElectronSecretsAPI;
+  ai: ElectronAiAPI;
   log: ElectronLogAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
@@ -441,4 +464,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronKeychainAPI, KeychainStatus, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, ElectronSecretsAPI, ElectronSecretHandleDescriptor, ElectronSecretHandleSummary, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };
+export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronKeychainAPI, KeychainStatus, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, ElectronSecretsAPI, ElectronSecretHandleDescriptor, ElectronSecretHandleSummary, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry, ElectronAiAPI };
