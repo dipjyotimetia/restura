@@ -12,10 +12,9 @@
     "sourceMap": true,
     "allowSyntheticDefaultImports": true,
     "types": ["node", "vitest/globals"],
-    "baseUrl": "..",
     "paths": {
-      "@shared/*": ["shared/*"],
-      "@/*": ["src/*"]
+      "@shared/*": ["../shared/*"],
+      "@/*": ["../src/*"]
     }
   },
   "include": ["**/*.ts", "../shared/**/*.ts"],
