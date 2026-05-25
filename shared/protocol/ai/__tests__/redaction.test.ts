@@ -3,6 +3,7 @@ import {
   redactHeaders,
   redactBody,
   redactEnvironment,
+  detectUnredactedSecrets,
 } from '@shared/protocol/ai/redaction';
 
 describe('redactHeaders', () => {
@@ -83,19 +84,16 @@ describe('redactEnvironment', () => {
 });
 
 describe('detectUnredactedSecrets (backend paranoia pass)', () => {
-  it('returns true when body still has Bearer sk-', async () => {
-    const { detectUnredactedSecrets } = await import('@shared/protocol/ai/redaction');
+  it('returns true when body still has Bearer sk-', () => {
     expect(detectUnredactedSecrets('Authorization: Bearer sk-abcdef123456')).toBe(true);
   });
 
-  it('returns true when body still has a JWT', async () => {
-    const { detectUnredactedSecrets } = await import('@shared/protocol/ai/redaction');
+  it('returns true when body still has a JWT', () => {
     const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.sigsigsigsigsigsig';
     expect(detectUnredactedSecrets(`{"token":"${jwt}"}`)).toBe(true);
   });
 
-  it('returns false on clean redacted text', async () => {
-    const { detectUnredactedSecrets } = await import('@shared/protocol/ai/redaction');
+  it('returns false on clean redacted text', () => {
     expect(detectUnredactedSecrets('Authorization: [REDACTED]')).toBe(false);
   });
 });
