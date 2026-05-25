@@ -1,4 +1,4 @@
-import { Globe, Settings } from 'lucide-react';
+import { Globe, Settings, Sparkles } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Floater, Kbd } from '@/components/ui/spatial';
@@ -68,6 +68,7 @@ interface WindowChromeProps {
   onOpenCommandPalette?: () => void;
   onOpenSettings?: () => void;
   onOpenEnvSwitcher?: () => void;
+  onToggleAi?: () => void;
 }
 
 /**
@@ -85,6 +86,7 @@ export function WindowChrome({
   onOpenCommandPalette,
   onOpenSettings,
   onOpenEnvSwitcher,
+  onToggleAi,
   setEnvManagerOpen,
 }: WindowChromeProps) {
   const { environments, activeEnvironmentId } = useEnvironmentStore(
@@ -191,6 +193,13 @@ export function WindowChrome({
           <Kbd size="xs">⌘K</Kbd>
         </button>
 
+        {onToggleAi && (
+          <ChromeIconButton
+            label="Toggle AI chat"
+            onClick={onToggleAi}
+            icon={<Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
+          />
+        )}
         <ChromeIconButton
           label="Open settings"
           onClick={onOpenSettings}
