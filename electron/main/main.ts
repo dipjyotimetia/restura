@@ -23,6 +23,7 @@ import { registerStoreHandlerIPC } from './store-handler';
 import { registerSecretHandleIPC } from './secret-handle-store';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
+import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
 import { registerDeepLinkHandler } from './deep-link-handler';
 import { startStdioMcpServer } from './mcp-server-handler';
 import { loadMcpDispatchContext } from './mcp-context-loader';
@@ -130,6 +131,7 @@ function registerIPCHandlers(): void {
   // active chokidar watchers in collection-manager.
   setGitDirectoryAllowlist(isRegisteredCollectionDirectory);
   registerGitHandlerIPC();
+  registerAiHandlers();
 }
 
 // Setup Content Security Policy for production
@@ -237,6 +239,7 @@ app.on('will-quit', () => {
   stopSseCleanup(); // Close active SSE connections
   stopMcpCleanup(); // Close active MCP connections
   void stopKafkaCleanup(); // Close active Kafka producers/consumers
+  unregisterAiHandlers(); // Remove AI IPC handlers
   cleanupCollectionWatchers(); // Stop file watchers
   destroyTray();
 });
