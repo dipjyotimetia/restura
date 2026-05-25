@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useAiChatStore } from '@/features/ai/store';
+import { useEffect, useRef, useState } from 'react';
+import { useAiChatStore, type ChatMessage } from '@/features/ai/store';
 import { captureActive } from '@/features/ai/lib/contextSnapshot';
 import { buildMessages } from '@/features/ai/lib/promptBuilder';
 import { consumeStream } from '@/features/ai/lib/streamConsumer';
@@ -10,6 +10,10 @@ import { Composer } from './Composer';
 import { Button } from '@/components/ui/button';
 import { Plus, X } from 'lucide-react';
 import type { Usage } from '@shared/protocol/ai/types';
+
+// Stable empty reference so the messages selector doesn't return a fresh array
+// (which would re-render every store change under Object.is equality).
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 function uuid(): string {
   // streamId must satisfy z.string().uuid() at the IPC boundary. Electron's
@@ -22,12 +26,18 @@ interface Props {
 }
 
 export function ChatPanel({ onClose }: Props) {
-  const store = useAiChatStore();
-  const activeId = store.activeConversationId;
-  const activeConv = activeId ? store.conversations[activeId] : undefined;
-
-  const activeProvider = store.activeProvider;
-  const providerConfig = store.providerConfigs[activeProvider];
+  // Granular selectors: re-render only for the slices this panel renders, not
+  // on every unrelated store change (panel toggle, other conversations, etc.).
+  const activeId = useAiChatStore((s) => s.activeConversationId);
+  const messages = useAiChatStore((s) =>
+    s.activeConversationId
+      ? (s.conversations[s.activeConversationId]?.messages ?? EMPTY_MESSAGES)
+      : EMPTY_MESSAGES,
+  );
+  const activeProvider = useAiChatStore((s) => s.activeProvider);
+  const providerConfig = useAiChatStore((s) => s.providerConfigs[s.activeProvider]);
+  const panelWidth = useAiChatStore((s) => s.panelWidth);
+  const newConversation = useAiChatStore((s) => s.newConversation);
   const apiKeyConfigured = !!providerConfig?.apiKeyRef.id;
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
@@ -36,8 +46,8 @@ export function ChatPanel({ onClose }: Props) {
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!activeId) store.newConversation();
-  }, [activeId, store]);
+    if (!activeId) newConversation();
+  }, [activeId, newConversation]);
 
   const scheduleFlush = () => {
     if (rafRef.current != null) return;
@@ -132,22 +142,20 @@ export function ChatPanel({ onClose }: Props) {
     }
   };
 
-  const messages = useMemo(() => activeConv?.messages ?? [], [activeConv?.messages]);
-
   return (
-    <aside className="glass-2 border-border/40 flex h-full flex-col border-l" style={{ width: store.panelWidth }}>
+    <aside className="glass-2 border-border/40 flex h-full flex-col border-l" style={{ width: panelWidth }}>
       <header className="flex items-center justify-between border-b border-border/40 px-3 py-2">
         <div className="flex flex-col">
           <span className="text-xs font-medium">AI chat</span>
-          {activeConv && activeConv.messages.length > 0 && (() => {
-            const total = activeConv.messages.reduce((sum, m) => sum + (m.usage?.estimatedCostUSD ?? 0), 0);
+          {messages.length > 0 && (() => {
+            const total = messages.reduce((sum, m) => sum + (m.usage?.estimatedCostUSD ?? 0), 0);
             return total > 0 ? (
               <span className="text-[10px] text-muted-foreground">Conversation cost: ${total.toFixed(4)}</span>
             ) : null;
           })()}
         </div>
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={() => store.newConversation()} aria-label="New chat">
+          <Button size="sm" variant="ghost" onClick={() => newConversation()} aria-label="New chat">
             <Plus className="h-4 w-4" />
           </Button>
           <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close AI panel">

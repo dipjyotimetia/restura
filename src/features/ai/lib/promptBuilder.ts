@@ -29,8 +29,11 @@ function redactEnvValues(text: string, env: Record<string, string> | undefined):
   if (!env) return text;
   let out = text;
   for (const v of Object.values(env)) {
-    if (v.length >= 4) {
-      // Escape special regex characters in the literal value before substituting.
+    // Floor of 3 chars: substituting 1–2 char values (ports like "80", flags
+    // like "v2") would mangle the context with little security benefit, while
+    // 3+ char values are where real secrets live. Tighten if needed.
+    if (v.length >= 3) {
+      // Escape regex metacharacters in the literal value before substituting.
       const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       out = out.replace(new RegExp(escaped, 'g'), '[REDACTED]');
     }
