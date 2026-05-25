@@ -66,7 +66,8 @@ type StorageTableName =
   | 'socketioConnections'
   | 'console'
   | 'graphqlSchemas'
-  | 'protoFiles';
+  | 'protoFiles'
+  | 'aiChat';
 
 /**
  * Storage adapter configuration
@@ -283,6 +284,9 @@ export const dexieStorageAdapters = {
 
   protoFiles: () =>
     createDexieStorage({ tableName: 'protoFiles', encrypt: true }),
+
+  aiChat: () =>
+    createDexieStorage({ tableName: 'aiChat', encrypt: true }),
 };
 
 /**

@@ -135,6 +135,7 @@ export class ResturaDB extends Dexie {
   console!: Table<ConsoleRecord, string>;
   graphqlSchemas!: Table<GraphqlSchemaRecord, string>;
   protoFiles!: Table<ProtoFileRecord, string>;
+  aiChat!: Table<NamedEncryptedRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
   constructor() {
@@ -203,6 +204,11 @@ export class ResturaDB extends Dexie {
       graphqlSchemas: 'id, name, updatedAt',
       protoFiles: 'id, name, updatedAt',
     });
+
+    this.version(8).stores({
+      // AI chat conversations + provider configs (encrypted, same shape as other single-store tables)
+      aiChat: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -227,6 +233,7 @@ export class ResturaDB extends Dexie {
       this.console,
       this.graphqlSchemas,
       this.protoFiles,
+      this.aiChat,
       this.metadata,
     ], () =>
       Promise.all([
@@ -247,6 +254,7 @@ export class ResturaDB extends Dexie {
         this.console.clear(),
         this.graphqlSchemas.clear(),
         this.protoFiles.clear(),
+        this.aiChat.clear(),
         this.metadata.clear(),
       ])
     );
@@ -278,6 +286,7 @@ export class ResturaDB extends Dexie {
       console: await this.console.count(),
       graphqlSchemas: await this.graphqlSchemas.count(),
       protoFiles: await this.protoFiles.count(),
+      aiChat: await this.aiChat.count(),
     };
 
     const totalRecords = Object.values(tables).reduce((a, b) => a + b, 0);
