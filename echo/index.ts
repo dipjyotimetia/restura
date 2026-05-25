@@ -18,6 +18,7 @@ import { graphqlEcho } from './handlers/graphql';
 import { sseEcho } from './handlers/sse';
 import { websocketEcho } from './handlers/websocket';
 import { connectEcho } from './handlers/connect';
+import { handleOpenAiChat, handleAnthropicChat } from './handlers/ai';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
 
 export type Env = {
@@ -32,6 +33,9 @@ app.use('*', rateLimitMiddleware);
 app.get('/ws', upgradeWebSocket(websocketEcho));
 app.get('/sse', sseEcho);
 app.all('/graphql', graphqlEcho);
+app.post('/v1/chat/completions', handleOpenAiChat);
+app.post('/v1/messages', handleAnthropicChat);
+
 app.use('/*', async (c, next) => {
   const res = await connectEcho(c.req.raw);
   if (res !== null) return res;
