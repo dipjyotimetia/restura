@@ -12,7 +12,9 @@ import { Plus, X } from 'lucide-react';
 import type { Usage } from '@shared/protocol/ai/types';
 
 function uuid(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  // streamId must satisfy z.string().uuid() at the IPC boundary. Electron's
+  // renderer is a secure context, so crypto.randomUUID is always available.
+  return globalThis.crypto.randomUUID();
 }
 
 interface Props {
@@ -89,6 +91,7 @@ export function ChatPanel({ onClose }: Props) {
     cancelRef.current = () => void ai.cancel({ streamId });
 
     let lastUsage: Usage | undefined;
+    let errored = false;
     try {
       for await (const ev of consumeStream(streamId)) {
         if (ev.type === 'delta') {
@@ -97,6 +100,7 @@ export function ChatPanel({ onClose }: Props) {
         } else if (ev.type === 'usage') {
           lastUsage = ev.usage;
         } else if (ev.type === 'error') {
+          errored = true;
           useAiChatStore.getState().setMessageError(assistantMsgId, ev.message);
         } else if (ev.type === 'done') {
           const b = flushBufferRef.current;
@@ -104,7 +108,11 @@ export function ChatPanel({ onClose }: Props) {
             useAiChatStore.getState().appendAssistantDelta(b.msgId, b.buffer);
             b.buffer = '';
           }
-          useAiChatStore.getState().finalizeAssistantMessage(assistantMsgId, lastUsage);
+          // Providers emit `done` after an `error`; don't let finalize flip the
+          // message's status back to 'done' and mask the failure.
+          if (!errored) {
+            useAiChatStore.getState().finalizeAssistantMessage(assistantMsgId, lastUsage);
+          }
         }
       }
     } finally {

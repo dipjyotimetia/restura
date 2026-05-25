@@ -7,6 +7,13 @@
  *
  * `mode: 'raw'` is the per-message "Send raw" toggle. The toggle never sticks
  * — every new user message starts in `default` mode regardless.
+ *
+ * Coverage is pattern-based, not exhaustive: it catches denylisted/`x-*`-secret
+ * headers, JWTs, `Bearer` tokens, and `key|secret|password|token = value`
+ * assignments. A bare, opaque secret value with no recognizable key name or
+ * prefix (e.g. an unlabelled session id in a response body) is NOT caught here.
+ * promptBuilder additionally scrubs known environment-variable values from the
+ * rendered context to cover the common interpolated-secret case.
  */
 
 export type RedactionMode = 'default' | 'raw';

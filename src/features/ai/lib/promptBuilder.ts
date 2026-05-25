@@ -51,7 +51,10 @@ function renderContext(snapshot: RawSnapshot, mode: RedactionMode): string {
 
   lines.push(`REQUEST: ${snapshot.request.method} ${url}`);
   const reqHeaders = redactHeaders(snapshot.request.headers, mode);
-  for (const [k, v] of Object.entries(reqHeaders)) lines.push(`  ${k}: ${v}`);
+  for (const [k, v] of Object.entries(reqHeaders)) {
+    const vv = mode === 'default' ? redactEnvValues(v, snapshot.environment) : v;
+    lines.push(`  ${k}: ${vv}`);
+  }
   if (snapshot.request.body) {
     lines.push('REQUEST BODY:');
     const rawBody = redactBody(snapshot.request.body, mode);
@@ -60,7 +63,10 @@ function renderContext(snapshot: RawSnapshot, mode: RedactionMode): string {
   if (snapshot.response) {
     lines.push(`RESPONSE: ${snapshot.response.status}`);
     const resHeaders = redactHeaders(snapshot.response.headers, mode);
-    for (const [k, v] of Object.entries(resHeaders)) lines.push(`  ${k}: ${v}`);
+    for (const [k, v] of Object.entries(resHeaders)) {
+      const vv = mode === 'default' ? redactEnvValues(v, snapshot.environment) : v;
+      lines.push(`  ${k}: ${vv}`);
+    }
     if (snapshot.response.body) {
       lines.push('RESPONSE BODY:');
       const rawBody = redactBody(snapshot.response.body, mode);

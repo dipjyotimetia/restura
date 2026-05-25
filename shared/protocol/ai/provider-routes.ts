@@ -41,6 +41,8 @@ const openaiRoute: ProviderRoute = {
         model: spec.model,
         messages: spec.messages,
         stream: true,
+        // Without this, OpenAI omits the usage block from the stream entirely.
+        stream_options: { include_usage: true },
         max_tokens: spec.maxOutputTokens ?? 2048,
       }),
     };
@@ -86,6 +88,8 @@ const openrouterRoute: ProviderRoute = {
         model: spec.model,
         messages: spec.messages,
         stream: true,
+        // OpenRouter is OpenAI-compatible; opt in to usage in the stream.
+        stream_options: { include_usage: true },
         max_tokens: spec.maxOutputTokens ?? 2048,
       }),
     };
