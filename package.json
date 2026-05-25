@@ -41,7 +41,7 @@
     "deploy:echo": "wrangler deploy --config echo/wrangler.jsonc",
     "deploy:echo:preview": "wrangler versions upload --config echo/wrangler.jsonc",
     "electron:compile": "tsc -p electron/tsconfig.json && tsc-alias -p electron/tsconfig.json",
-    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron:compile && cross-env NODE_ENV=development electron .\"",
     "electron:build:web": "cross-env VITE_IS_ELECTRON_BUILD=true vite build",
     "electron:build:all": "npm run electron:icons && npm run electron:build:web && npm run electron:compile",
     "electron:dist": "npm run electron:build:all && electron-builder",
