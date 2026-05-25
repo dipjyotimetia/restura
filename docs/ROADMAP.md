@@ -50,6 +50,15 @@ Core functionality is complete and shipping. Web (Cloudflare Pages) and desktop 
 - [x] Real-time execution progress and logging
 - [x] Visual workflow builder
 
+### AI
+
+- [x] Sidebar chat panel (Electron only)
+- [x] BYO key for OpenAI / Anthropic / OpenRouter via OS keychain (SecretRef)
+- [x] Explain mode — model explains current request/response, suggests next steps
+- [x] Aggressive default redaction (Authorization / Cookie / JWT / token patterns) with per-message "Send raw" override
+- [x] Streaming with cancel
+- [x] Per-message token + cost estimate
+
 ---
 
 ## In Progress 🔄
@@ -104,6 +113,14 @@ Features below are planned but not yet scheduled. Contributions welcome.
 - [ ] Plugin architecture for custom auth, code gen, and importers
 - [ ] Plugin marketplace
 
+### AI (planned)
+
+- [ ] Natural-language → request builder (own spec)
+- [ ] Test generation from response (own spec)
+- [ ] Tool calling — chat acts on Restura state via MCP server (v2)
+- [ ] Web build support (re-add worker/handlers/ai.ts)
+- [ ] Multi-modal (image / screenshot input)
+
 ---
 
 ## Long-term Vision
@@ -124,12 +141,6 @@ Features below are planned but not yet scheduled. Contributions welcome.
 - [ ] Single Sign-On (SSO)
 - [ ] Audit logging
 - [ ] Data residency options
-
-### AI Features
-
-- [ ] AI-assisted request building
-- [ ] Smart test generation
-- [ ] Natural language to API call
 
 ---
 
