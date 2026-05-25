@@ -68,4 +68,26 @@ describe('useAiChatStore', () => {
     expect(useAiChatStore.getState().panelOpen).toBe(true);
     expect(useAiChatStore.getState().panelWidth).toBe(420);
   });
+
+  it('routes assistant updates to the owning conversation after the active one changes mid-stream', () => {
+    const convA = useAiChatStore.getState().newConversation();
+    const aId = useAiChatStore.getState().appendAssistantPlaceholder();
+
+    // User starts a new chat (switches active conversation) while A streams.
+    const convB = useAiChatStore.getState().newConversation();
+    expect(useAiChatStore.getState().activeConversationId).toBe(convB);
+
+    // Late stream events for A must still land in A, not the now-active B.
+    useAiChatStore.getState().appendAssistantDelta(aId, 'hello');
+    useAiChatStore.getState().finalizeAssistantMessage(aId, {
+      promptTokens: 1,
+      completionTokens: 1,
+      estimatedCostUSD: 0.0001,
+    });
+
+    const msgInA = useAiChatStore.getState().conversations[convA]?.messages.find((m) => m.id === aId);
+    expect(msgInA?.text).toBe('hello');
+    expect(msgInA?.status).toBe('done');
+    expect(useAiChatStore.getState().conversations[convB]?.messages).toEqual([]);
+  });
 });

@@ -54,13 +54,19 @@ export function ChatPanel({ onClose }: Props) {
   const handleSend = async (text: string, rawMode: boolean) => {
     if (!providerConfig) return;
     const snapshot = captureActive();
+
+    // Read prior turns from the live store at call time — NOT the render-time
+    // `activeConv` closure — so rapid successive sends don't build context from
+    // a stale snapshot that omits the previous turn.
+    const stateBefore = useAiChatStore.getState();
+    const convIdBefore = stateBefore.activeConversationId;
+    const priorTurns = (convIdBefore ? (stateBefore.conversations[convIdBefore]?.messages ?? []) : [])
+      .slice(-20)
+      .map((m) => ({ role: m.role, content: m.text }));
+
     useAiChatStore.getState().appendUserMessage(text, snapshot.contextRef, rawMode);
     const assistantMsgId = useAiChatStore.getState().appendAssistantPlaceholder();
 
-    const priorTurns = (activeConv?.messages ?? []).slice(-20).map((m) => ({
-      role: m.role,
-      content: m.text,
-    }));
     const messages = buildMessages({ snapshot, priorTurns, userText: text, rawMode });
 
     const streamId = uuid();

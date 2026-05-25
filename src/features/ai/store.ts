@@ -72,6 +72,22 @@ function deriveTitle(text: string): string {
   return oneLine.length > 60 ? `${oneLine.slice(0, 60)}…` : oneLine;
 }
 
+/**
+ * Find the conversation that owns a given message id. Stream updates
+ * (delta / finalize / error) must target the conversation the assistant
+ * message lives in — NOT whatever conversation is active now, because the user
+ * can switch conversations (or start a new chat) while a stream is in flight.
+ */
+function findConversationByMessageId(
+  conversations: Record<string, Conversation>,
+  messageId: string,
+): Conversation | undefined {
+  for (const conv of Object.values(conversations)) {
+    if (conv.messages.some((m) => m.id === messageId)) return conv;
+  }
+  return undefined;
+}
+
 export const useAiChatStore = create<AiChatState>()(
   persist(
     (set) => ({
@@ -152,14 +168,12 @@ export const useAiChatStore = create<AiChatState>()(
 
       appendAssistantDelta: (id, delta) =>
         set((s) => {
-          const activeId = s.activeConversationId;
-          if (!activeId) return s;
-          const conv = s.conversations[activeId];
+          const conv = findConversationByMessageId(s.conversations, id);
           if (!conv) return s;
           return {
             conversations: {
               ...s.conversations,
-              [activeId]: {
+              [conv.id]: {
                 ...conv,
                 messages: conv.messages.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m)),
                 updatedAt: Date.now(),
@@ -170,14 +184,12 @@ export const useAiChatStore = create<AiChatState>()(
 
       finalizeAssistantMessage: (id, usage) =>
         set((s) => {
-          const activeId = s.activeConversationId;
-          if (!activeId) return s;
-          const conv = s.conversations[activeId];
+          const conv = findConversationByMessageId(s.conversations, id);
           if (!conv) return s;
           return {
             conversations: {
               ...s.conversations,
-              [activeId]: {
+              [conv.id]: {
                 ...conv,
                 messages: conv.messages.map((m) =>
                   m.id === id ? { ...m, status: 'done' as const, ...(usage ? { usage } : {}) } : m,
@@ -190,14 +202,12 @@ export const useAiChatStore = create<AiChatState>()(
 
       setMessageError: (id, error) =>
         set((s) => {
-          const activeId = s.activeConversationId;
-          if (!activeId) return s;
-          const conv = s.conversations[activeId];
+          const conv = findConversationByMessageId(s.conversations, id);
           if (!conv) return s;
           return {
             conversations: {
               ...s.conversations,
-              [activeId]: {
+              [conv.id]: {
                 ...conv,
                 messages: conv.messages.map((m) =>
                   m.id === id ? { ...m, status: 'error' as const, errorMessage: error } : m,
@@ -232,6 +242,9 @@ export const useAiChatStore = create<AiChatState>()(
         if (!state) return;
         const parsed = AiChatStateSchema.safeParse(state);
         if (!parsed.success) {
+          // Merge (NOT replace) — DEFAULT_STATE carries every persisted data
+          // field, so this overwrites all of them with defaults while keeping
+          // the store's action methods intact. replace:true would wipe them.
           useAiChatStore.setState({ ...DEFAULT_STATE });
           return;
         }

@@ -8,6 +8,17 @@ import { getProviderModule } from './providers';
 type SecretResolver = (handleId: string) => Promise<string | undefined>;
 
 /**
+ * Classify a thrown error as a user/abort cancellation. Prefer the signal's
+ * own `aborted` flag and the standard `AbortError` name over substring-matching
+ * the message — a provider error whose text merely contains "abort" must not be
+ * misreported as a cancellation (which would hide the real failure).
+ */
+function isAbortError(e: unknown, signal: AbortSignal | undefined): boolean {
+  if (signal?.aborted) return true;
+  return e instanceof Error && e.name === 'AbortError';
+}
+
+/**
  * Orchestrates an AI chat call. Resolves the API-key handle, runs the
  * defense-in-depth paranoia pass, builds the provider-specific request,
  * fetches the upstream SSE stream, and yields normalised ChatStreamEvents.
@@ -60,9 +71,11 @@ export async function* executeAiChat(
       signal: spec.signal ?? new AbortController().signal,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const aborted = msg.toLowerCase().includes('abort');
-    yield { type: 'error', code: aborted ? 'aborted' : 'network', message: aborted ? 'Stream aborted.' : msg };
+    if (isAbortError(e, spec.signal)) {
+      yield { type: 'error', code: 'aborted', message: 'Stream aborted.' };
+    } else {
+      yield { type: 'error', code: 'network', message: e instanceof Error ? e.message : String(e) };
+    }
     yield { type: 'done' };
     return;
   }
@@ -108,11 +121,10 @@ export async function* executeAiChat(
     }
     for (const ev of decoder.flush()) yield ev;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.toLowerCase().includes('abort')) {
+    if (isAbortError(e, spec.signal)) {
       yield { type: 'error', code: 'aborted', message: 'Stream aborted.' };
     } else {
-      yield { type: 'error', code: 'network', message: msg };
+      yield { type: 'error', code: 'network', message: e instanceof Error ? e.message : String(e) };
     }
     yield { type: 'done' };
   }
