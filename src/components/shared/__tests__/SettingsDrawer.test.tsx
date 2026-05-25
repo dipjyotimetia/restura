@@ -63,12 +63,14 @@ describe('SettingsDrawer', () => {
     expect(green).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('renders all eight nav sections', () => {
+  it('renders all nine nav sections', () => {
     render(<SettingsDrawer open onOpenChange={vi.fn()} />);
     const nav = screen.getByRole('navigation', { name: /settings sections/i });
     const buttons = nav.querySelectorAll('button');
-    // 8 sections per SECTIONS array.
-    expect(buttons).toHaveLength(8);
+    // 9 sections per SECTIONS array (general, appearance, requests, proxy,
+    // certificates, secrets, ai, shortcuts, about).
+    expect(buttons).toHaveLength(9);
+    expect(screen.getByRole('button', { name: /^AI$/i })).toBeInTheDocument();
   });
 
   it('Certificates section is no longer a stub — renders the client cert UI', () => {
