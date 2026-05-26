@@ -140,7 +140,7 @@
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.12.0",
     "@cloudflare/vite-plugin": "^1.37.1",
-    "@cloudflare/workers-types": "^4.20260519.1",
+    "@cloudflare/workers-types": "^4.20260526.1",
     "@electron/notarize": "^3.1.1",
     "@eslint/js": "^9.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
