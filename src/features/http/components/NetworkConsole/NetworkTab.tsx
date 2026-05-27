@@ -17,6 +17,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Network,
   FileText,
   Clock,
@@ -28,6 +37,8 @@ import {
   RotateCw,
   ExternalLink,
   GitCompare,
+  SlidersHorizontal,
+  ListChecks,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import RequestEntryItem from './RequestEntryItem';
@@ -96,6 +107,13 @@ const PROTOCOL_FILTERS: Array<{ value: ConsoleProtocol | 'all'; label: string }>
   { value: 'sse', label: 'SSE' },
 ];
 
+const SORT_OPTIONS: Array<{ value: 'recent' | 'time' | 'size' | 'status'; label: string }> = [
+  { value: 'recent', label: 'Recent' },
+  { value: 'time', label: 'Time' },
+  { value: 'size', label: 'Size' },
+  { value: 'status', label: 'Status' },
+];
+
 function statusMatches(status: number, filter: ConsoleStatusFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'errored') return status === 0 || status >= 500;
@@ -125,6 +143,9 @@ export default function NetworkTab() {
   // Compare-set is local-only — transient UI state, no need to persist.
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareDialogOpen, setCompareDialogOpen] = useState(false);
+  // Sort + run filter are transient view state.
+  const [sortBy, setSortBy] = useState<'recent' | 'time' | 'size' | 'status'>('recent');
+  const [runFilter, setRunFilter] = useState<string>('all');
 
   const toggleCompare = (id: string) => {
     setCompareIds((prev) => {
@@ -143,20 +164,69 @@ export default function NetworkTab() {
     [compareIds, entries]
   );
 
+  // Distinct runs present in the entry list — drives the run-filter chips.
+  const runs = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const e of entries) {
+      if (e.runId && !seen.has(e.runId)) seen.set(e.runId, e.runLabel ?? 'Run');
+    }
+    return [...seen.entries()].map(([id, label]) => ({ id, label }));
+  }, [entries]);
+
+  // Distinct protocols present — the protocol filter only earns its space when
+  // the log actually mixes protocols.
+  const protocolsPresent = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) set.add(e.protocol ?? 'http');
+    return set;
+  }, [entries]);
+
   const filteredEntries = useMemo(() => {
     const search = searchFilter.trim().toLowerCase();
-    return entries.filter((entry) => {
-      if (!statusMatches(entry.response.status, statusFilter)) return false;
-      if (protocolFilter !== 'all' && (entry.protocol ?? 'http') !== protocolFilter) return false;
+    const matchesSearch = (entry: (typeof entries)[number]) => {
       if (!search) return true;
-      return (
+      // Content search spans method/url/status AND headers + bodies.
+      if (
         entry.request.url.toLowerCase().includes(search) ||
         entry.request.method.toLowerCase().includes(search) ||
         entry.response.status.toString().includes(search) ||
-        entry.response.statusText.toLowerCase().includes(search)
-      );
+        entry.response.statusText.toLowerCase().includes(search) ||
+        (entry.request.body?.toLowerCase().includes(search) ?? false) ||
+        entry.response.body.toLowerCase().includes(search)
+      ) {
+        return true;
+      }
+      const headerHit = (h: Record<string, string | string[]>) =>
+        Object.entries(h).some(
+          ([k, v]) =>
+            k.toLowerCase().includes(search) ||
+            (Array.isArray(v) ? v.join(',') : v).toLowerCase().includes(search)
+        );
+      return headerHit(entry.request.headers) || headerHit(entry.response.headers);
+    };
+
+    const list = entries.filter((entry) => {
+      if (!statusMatches(entry.response.status, statusFilter)) return false;
+      if (protocolFilter !== 'all' && (entry.protocol ?? 'http') !== protocolFilter) return false;
+      if (runFilter !== 'all' && entry.runId !== runFilter) return false;
+      return matchesSearch(entry);
     });
-  }, [entries, searchFilter, statusFilter, protocolFilter]);
+
+    if (sortBy === 'recent') return list;
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      if (sortBy === 'time') return b.response.time - a.response.time;
+      if (sortBy === 'size') return b.response.size - a.response.size;
+      return b.response.status - a.response.status; // 'status'
+    });
+    return sorted;
+  }, [entries, searchFilter, statusFilter, protocolFilter, runFilter, sortBy]);
+
+  // Slowest response in the current view — scales every row's waterfall bar.
+  const maxTime = useMemo(
+    () => filteredEntries.reduce((m, e) => Math.max(m, e.response.time), 0),
+    [filteredEntries]
+  );
 
   const selectedEntry = entries.find((e) => e.id === selectedEntryId);
 
@@ -208,7 +278,10 @@ export default function NetworkTab() {
   }
 
   const filtersActive =
-    statusFilter !== 'all' || protocolFilter !== 'all' || searchFilter.trim().length > 0;
+    statusFilter !== 'all' ||
+    protocolFilter !== 'all' ||
+    runFilter !== 'all' ||
+    searchFilter.trim().length > 0;
 
   return (
     <div className="flex h-full">
@@ -216,24 +289,69 @@ export default function NetworkTab() {
       <div className="w-[280px] border-r border-border flex-shrink-0 flex flex-col">
         {/* Search input */}
         <div className="p-2 border-b border-border space-y-2">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input
-              placeholder="Filter requests..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className="h-7 pl-7 pr-7 text-xs"
-            />
-            {searchFilter && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-0.5 top-1/2 -translate-y-1/2 h-6 w-6"
-                onClick={() => setSearchFilter('')}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
+          {/* Search + sort/protocol menu */}
+          <div className="flex items-center gap-1">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Input
+                placeholder="Filter requests..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                className="h-7 pl-7 pr-7 text-xs"
+              />
+              {searchFilter && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2 h-6 w-6"
+                  onClick={() => setSearchFilter('')}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0"
+                  aria-label="Sort and protocol filters"
+                  title="Sort & filter"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuLabel className="text-[11px]">Sort by</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={sortBy}
+                  onValueChange={(v) => setSortBy(v as typeof sortBy)}
+                >
+                  {SORT_OPTIONS.map((s) => (
+                    <DropdownMenuRadioItem key={s.value} value={s.value} className="text-xs">
+                      {s.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                {protocolsPresent.size > 1 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-[11px]">Protocol</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={protocolFilter}
+                      onValueChange={(v) => setProtocolFilter(v as ConsoleProtocol | 'all')}
+                    >
+                      {PROTOCOL_FILTERS.map((f) => (
+                        <DropdownMenuRadioItem key={f.value} value={f.value} className="text-xs">
+                          {f.label}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           {/* Status filters */}
           <div className="flex flex-wrap gap-1">
@@ -254,25 +372,40 @@ export default function NetworkTab() {
               </button>
             ))}
           </div>
-          {/* Protocol filters */}
-          <div className="flex flex-wrap gap-1">
-            {PROTOCOL_FILTERS.map((f) => (
+          {/* Run filter — only when runner-tagged entries exist */}
+          {runs.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <ListChecks className="h-3 w-3 text-muted-foreground" />
               <button
-                key={f.value}
                 type="button"
-                onClick={() => setProtocolFilter(f.value)}
+                onClick={() => setRunFilter('all')}
                 className={cn(
                   'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
-                  protocolFilter === f.value
+                  runFilter === 'all'
                     ? 'bg-primary/15 border-primary/40 text-primary'
                     : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
                 )}
-                aria-pressed={protocolFilter === f.value}
               >
-                {f.label}
+                All
               </button>
-            ))}
-          </div>
+              {runs.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRunFilter(r.id)}
+                  title={r.label}
+                  className={cn(
+                    'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors max-w-[90px] truncate',
+                    runFilter === r.id
+                      ? 'bg-primary/15 border-primary/40 text-primary'
+                      : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <ScrollArea className="flex-1">
           {filteredEntries.length === 0 ? (
@@ -289,6 +422,7 @@ export default function NetworkTab() {
                     setSearchFilter('');
                     setStatusFilter('all');
                     setProtocolFilter('all');
+                    setRunFilter('all');
                   }}
                 >
                   Clear filters
@@ -305,6 +439,7 @@ export default function NetworkTab() {
                 isCompareChecked={compareIds.includes(entry.id)}
                 onToggleCompare={() => toggleCompare(entry.id)}
                 onPinForCompare={() => toggleCompare(entry.id)}
+                maxTime={maxTime}
               />
             ))
           )}
@@ -314,7 +449,7 @@ export default function NetworkTab() {
       {/* Entry details */}
       <div className="flex-1 min-w-0">
         {selectedEntry ? (
-          <Tabs defaultValue="request" className="h-full flex flex-col">
+          <Tabs defaultValue="response" className="h-full flex flex-col">
             <div className="px-4 pt-2 border-b border-border flex items-center justify-between gap-2">
               <TabsList className="h-8">
                 <TabsTrigger value="request" className="text-xs h-7">
@@ -370,6 +505,28 @@ export default function NetworkTab() {
                   cURL
                 </Button>
               </div>
+            </div>
+
+            {/* At-a-glance summary — visible on both Request and Response tabs. */}
+            <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/60 text-[11px] font-mono">
+              <Badge
+                variant="outline"
+                className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(selectedEntry.response.status))}
+              >
+                {selectedEntry.response.status || 'ERR'} {selectedEntry.response.statusText}
+              </Badge>
+              <span className="flex items-center gap-1 text-muted-foreground tabular-nums">
+                <Clock className="h-3 w-3" />
+                {selectedEntry.response.time}ms
+              </span>
+              {selectedEntry.requestSize != null && (
+                <span className="text-muted-foreground tabular-nums" title="Request size">
+                  ↑ {formatBytes(selectedEntry.requestSize)}
+                </span>
+              )}
+              <span className="text-muted-foreground tabular-nums" title="Response size">
+                ↓ {formatBytes(selectedEntry.response.size)}
+              </span>
             </div>
 
             <TabsContent value="request" className="flex-1 m-0 overflow-hidden">
@@ -463,10 +620,19 @@ export default function NetworkTab() {
                       <div className="flex justify-between">
                         <span className="text-muted-foreground flex items-center gap-1">
                           <Database className="h-3 w-3" />
-                          Size
+                          Response size
                         </span>
                         <span className="font-medium">{formatBytes(selectedEntry.response.size)}</span>
                       </div>
+                      {selectedEntry.requestSize != null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            <Database className="h-3 w-3" />
+                            Request size
+                          </span>
+                          <span className="font-medium">{formatBytes(selectedEntry.requestSize)}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 

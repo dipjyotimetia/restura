@@ -62,6 +62,14 @@ export const ConsoleEntrySchema = z.object({
   }),
   scriptLogs: z.array(ConsoleLogSchema).optional(),
   tests: z.array(ConsoleTestSchema).optional(),
+  // Bytes sent on the wire (body + headers), when measurable.
+  requestSize: z.number().optional(),
+  // Pinned entries survive preserve-on-send clears and trimming.
+  pinned: z.boolean().optional(),
+  // Collection-run provenance (set when an entry comes from the runner).
+  runId: z.string().optional(),
+  runLabel: z.string().optional(),
+  iteration: z.number().optional(),
 });
 
 /**

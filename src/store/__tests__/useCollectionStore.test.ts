@@ -249,6 +249,82 @@ describe('useCollectionStore', () => {
     });
   });
 
+  describe('moveCollectionItem', () => {
+    // Builds: collection "c" with [ folderA[req1], req2 ]
+    function seed() {
+      const req1: CollectionItem = { id: 'req1', name: 'Req 1', type: 'request' };
+      const folderA: CollectionItem = { id: 'fA', name: 'Folder A', type: 'folder', items: [req1] };
+      const req2: CollectionItem = { id: 'req2', name: 'Req 2', type: 'request' };
+      useCollectionStore.setState({
+        collections: [{ id: 'c', name: 'C', items: [folderA, req2] }],
+        activeCollectionId: null,
+      });
+    }
+
+    it('reparents a root item into a folder', () => {
+      seed();
+      useCollectionStore.getState().moveCollectionItem('c', 'req2', { parentId: 'fA' });
+      const col = useCollectionStore.getState().collections[0]!;
+      expect(col.items.map((i) => i.id)).toEqual(['fA']);
+      expect(col.items[0]!.items!.map((i) => i.id)).toEqual(['req1', 'req2']);
+    });
+
+    it('reorders siblings via beforeId', () => {
+      seed();
+      // Move req2 before folderA at root.
+      useCollectionStore.getState().moveCollectionItem('c', 'req2', { beforeId: 'fA' });
+      const col = useCollectionStore.getState().collections[0]!;
+      expect(col.items.map((i) => i.id)).toEqual(['req2', 'fA']);
+    });
+
+    it('no-ops a self-drop (beforeId === itemId)', () => {
+      seed();
+      useCollectionStore.getState().moveCollectionItem('c', 'fA', { beforeId: 'fA' });
+      const col = useCollectionStore.getState().collections[0]!;
+      expect(col.items.map((i) => i.id)).toEqual(['fA', 'req2']);
+    });
+
+    it('reorders before a folder-nested sibling, landing inside that folder', () => {
+      seed(); // c: [ fA[req1], req2 ]
+      // Drop req2 before req1, which lives inside folder fA.
+      useCollectionStore.getState().moveCollectionItem('c', 'req2', { beforeId: 'req1' });
+      const col = useCollectionStore.getState().collections[0]!;
+      expect(col.items.map((i) => i.id)).toEqual(['fA']);
+      expect(col.items[0]!.items!.map((i) => i.id)).toEqual(['req2', 'req1']);
+    });
+
+    it('is a no-op (no data loss) when parentId is not a folder', () => {
+      seed();
+      // req2 is a request, not a folder — dropping into it must not lose req1.
+      useCollectionStore.getState().moveCollectionItem('c', 'req1', { parentId: 'req2' });
+      const col = useCollectionStore.getState().collections[0]!;
+      expect(col.items[0]!.items!.map((i) => i.id)).toEqual(['req1']);
+      expect(col.items.map((i) => i.id)).toEqual(['fA', 'req2']);
+    });
+
+    it('is a no-op when beforeId does not exist (no data loss)', () => {
+      seed();
+      useCollectionStore.getState().moveCollectionItem('c', 'req2', { beforeId: 'ghost' });
+      const col = useCollectionStore.getState().collections[0]!;
+      expect(col.items.map((i) => i.id)).toEqual(['fA', 'req2']);
+    });
+
+    it('refuses to drop a folder into its own descendant', () => {
+      // folderOuter[ folderInner[] ] — moving folderOuter into folderInner is a cycle.
+      const inner: CollectionItem = { id: 'inner', name: 'Inner', type: 'folder', items: [] };
+      const outer: CollectionItem = { id: 'outer', name: 'Outer', type: 'folder', items: [inner] };
+      useCollectionStore.setState({
+        collections: [{ id: 'c', name: 'C', items: [outer] }],
+        activeCollectionId: null,
+      });
+      useCollectionStore.getState().moveCollectionItem('c', 'outer', { parentId: 'inner' });
+      const col = useCollectionStore.getState().collections[0]!;
+      // Unchanged: outer still at root containing inner.
+      expect(col.items.map((i) => i.id)).toEqual(['outer']);
+      expect(col.items[0]!.items!.map((i) => i.id)).toEqual(['inner']);
+    });
+  });
+
   describe('legacy localStorage migration', () => {
     it('rehydrates from legacy localStorage when Dexie is empty', () => {
       localStorage.setItem(

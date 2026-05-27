@@ -1,6 +1,6 @@
 // Components
 export { default as Sidebar } from './components/Sidebar';
-export { default as CollectionRunner } from './components/CollectionRunner';
+export { CollectionRunnerDialog } from './components/CollectionRunnerDialog';
 
 // Lib
 export { exportToPostman, exportToInsomnia, downloadJSON } from './lib/exporters';

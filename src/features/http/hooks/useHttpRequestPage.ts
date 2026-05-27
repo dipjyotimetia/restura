@@ -14,6 +14,47 @@ import { toast } from 'sonner';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
 
+/**
+ * Capture the headers the request actually went out with for the Console.
+ *
+ * axios records the per-request headers (user + auth + its defaults like
+ * `Accept`, plus `Content-Type`/`Content-Length` it adds for a body) on
+ * `config.headers` (an `AxiosHeaders` instance). We flatten that, fall back to
+ * the pre-request map for anything axios didn't surface, and synthesise the
+ * deterministic `Host` from the target URL. These are the headers the *client*
+ * sent — a proxied upstream may add its own — but it's far more useful than the
+ * bare user-defined set, and turns the empty "No headers" detail into reality.
+ */
+function captureSentHeaders(
+  configHeaders: unknown,
+  fallback: Record<string, string>,
+  targetUrl: string | undefined
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const raw =
+    configHeaders && typeof (configHeaders as { toJSON?: () => unknown }).toJSON === 'function'
+      ? (configHeaders as { toJSON: () => Record<string, unknown> }).toJSON()
+      : (configHeaders as Record<string, unknown> | undefined);
+  if (raw && typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw)) {
+      if (v == null || typeof v === 'object') continue; // skip nulls + nested default maps
+      out[k] = String(v);
+    }
+  }
+  for (const [k, v] of Object.entries(fallback)) {
+    if (!Object.keys(out).some((existing) => existing.toLowerCase() === k.toLowerCase())) out[k] = v;
+  }
+  if (targetUrl) {
+    try {
+      const host = new URL(targetUrl).host;
+      if (host && !Object.keys(out).some((k) => k.toLowerCase() === 'host')) out.Host = host;
+    } catch {
+      /* malformed URL — skip Host */
+    }
+  }
+  return out;
+}
+
 export function useHttpRequestPage() {
   const httpRequest = useActiveRequest('http');
   const updateRequest = useRequestStore((s) => s.updateRequest);
@@ -171,7 +212,8 @@ export function useHttpRequestPage() {
       setCurrentResponse(responseData);
       addHistoryItem(httpRequest, responseData);
       const scriptLogs = [...(preRequestResult?.logs || []), ...(testResult?.logs || [])];
-      addEntry(createConsoleEntry(httpRequest, responseData, headers, scriptLogs, testResult?.tests));
+      const sentHeaders = captureSentHeaders(response.config?.headers, headers, response.config?.url ?? resolvedUrl);
+      addEntry(createConsoleEntry(httpRequest, responseData, sentHeaders, scriptLogs, testResult?.tests));
       toast.success(`Request completed: ${response.status} ${response.statusText}`, { id: 'request', duration: 3000 });
     } catch (error: unknown) {
       const endTime = Date.now();
@@ -191,7 +233,12 @@ export function useHttpRequestPage() {
       };
       setCurrentResponse(errorResponse);
       addHistoryItem(httpRequest, errorResponse);
-      addEntry(createConsoleEntry(httpRequest, errorResponse, {}, [], undefined));
+      const sentHeaders = captureSentHeaders(
+        axiosError?.config?.headers,
+        {},
+        axiosError?.config?.url ?? httpRequest.url
+      );
+      addEntry(createConsoleEntry(httpRequest, errorResponse, sentHeaders, [], undefined));
       toast.error(`Request failed: ${errorMessage}`, { id: 'request', duration: 5000 });
     } finally {
       setLoading(false);

@@ -17,6 +17,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { useShallow } from 'zustand/react/shallow';
@@ -40,6 +41,8 @@ import {
   Play,
   Square,
   Folder,
+  FilePlus,
+  Copy,
   Workflow as WorkflowIcon,
   Activity,
 } from 'lucide-react';
@@ -69,6 +72,8 @@ import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import DocsViewer from './DocsViewer';
 import GitDialog from '@/components/shared/GitDialog';
 import RunsPanel from '@/components/shared/RunsPanel';
+import { CollectionRunnerDialog, type RunnerScope } from './CollectionRunnerDialog';
+import { makeFolderItem, makeRequestItem, duplicateRequestItem } from '../lib/itemFactory';
 import { buildMockRoutes } from '../lib/mockRoutes';
 import { useMockStore } from '@/store/useMockStore';
 import { getElectronAPI } from '@/lib/shared/platform';
@@ -94,6 +99,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     removeCollection,
     updateCollection,
     updateCollectionItem,
+    addItemToCollection,
+    removeCollectionItem,
+    moveCollectionItem,
   } = useCollectionStore(
     useShallow((s) => ({
       collections: s.collections,
@@ -102,6 +110,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       removeCollection: s.removeCollection,
       updateCollection: s.updateCollection,
       updateCollectionItem: s.updateCollectionItem,
+      addItemToCollection: s.addItemToCollection,
+      removeCollectionItem: s.removeCollectionItem,
+      moveCollectionItem: s.moveCollectionItem,
     }))
   );
 
@@ -150,6 +161,18 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const itemRenameRef = useRef<HTMLInputElement>(null);
   const itemRenameValueRef = useRef(itemRenameValue);
   itemRenameValueRef.current = itemRenameValue;
+
+  // Collection / folder runner dialog scope (null = closed).
+  const [runnerScope, setRunnerScope] = useState<RunnerScope | null>(null);
+
+  // Item-delete confirmation (folders + requests inside a collection).
+  const [itemToDelete, setItemToDelete] = useState<{ collectionId: string; itemId: string } | null>(
+    null
+  );
+
+  // Drag-and-drop: the item being dragged + the row currently hovered (for highlight).
+  const dragItemRef = useRef<{ collectionId: string; itemId: string } | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   // File collection state
   const conflicts = useFileCollectionStore((state) => state.conflicts);
@@ -405,11 +428,98 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     [tabs, openTab, switchTab]
   );
 
+  const handleAddFolder = useCallback(
+    (collectionId: string, parentId?: string) => {
+      const folder = makeFolderItem();
+      addItemToCollection(collectionId, folder, parentId);
+      startItemRename(folder.id, folder.name);
+    },
+    [addItemToCollection, startItemRename]
+  );
+
+  const handleAddRequest = useCallback(
+    (collectionId: string, parentId?: string) => {
+      const item = makeRequestItem();
+      addItemToCollection(collectionId, item, parentId);
+      // Land the user in the builder for the new saved request.
+      if (item.request) openTab(item.request, { savedRequestId: item.id, switchTo: true });
+    },
+    [addItemToCollection, openTab]
+  );
+
+  const handleDuplicateItem = useCallback(
+    (collectionId: string, item: CollectionItem, parentId?: string) => {
+      addItemToCollection(collectionId, duplicateRequestItem(item), parentId);
+    },
+    [addItemToCollection]
+  );
+
+  const handleConfirmItemDelete = useCallback(() => {
+    if (itemToDelete) {
+      removeCollectionItem(itemToDelete.collectionId, itemToDelete.itemId);
+      setItemToDelete(null);
+    }
+  }, [itemToDelete, removeCollectionItem]);
+
+  // --- Drag and drop ---------------------------------------------------------
+  const handleItemDragStart = useCallback(
+    (e: React.DragEvent, collectionId: string, itemId: string) => {
+      dragItemRef.current = { collectionId, itemId };
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', itemId);
+    },
+    []
+  );
+
+  const handleItemDragEnd = useCallback(() => {
+    dragItemRef.current = null;
+    setDropTargetId(null);
+  }, []);
+
+  /** Drop onto a folder row → move the dragged item *into* that folder. */
+  const handleDropIntoFolder = useCallback(
+    (e: React.DragEvent, collectionId: string, folderId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const drag = dragItemRef.current;
+      setDropTargetId(null);
+      if (!drag || drag.collectionId !== collectionId || drag.itemId === folderId) return;
+      moveCollectionItem(collectionId, drag.itemId, { parentId: folderId });
+    },
+    [moveCollectionItem]
+  );
+
+  /** Drop onto a request row → place the dragged item before it, in that row's parent folder. */
+  const handleDropBeforeItem = useCallback(
+    (e: React.DragEvent, collectionId: string, beforeId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const drag = dragItemRef.current;
+      setDropTargetId(null);
+      if (!drag || drag.collectionId !== collectionId || drag.itemId === beforeId) return;
+      moveCollectionItem(collectionId, drag.itemId, { beforeId });
+    },
+    [moveCollectionItem]
+  );
+
+  /** Drop onto the collection root strip → move the dragged item to the root. */
+  const handleDropToRoot = useCallback(
+    (e: React.DragEvent, collectionId: string) => {
+      e.preventDefault();
+      const drag = dragItemRef.current;
+      setDropTargetId(null);
+      if (!drag || drag.collectionId !== collectionId) return;
+      moveCollectionItem(collectionId, drag.itemId, {});
+    },
+    [moveCollectionItem]
+  );
+
   const renderCollectionItems = useCallback(
     (items: CollectionItem[], collectionId: string, depth = 0) =>
       items.map((item) => {
         const indent = Math.min(depth, 3) * 10;
         const isRenamingThis = item.id === renamingItemId;
+        const isDropTarget = item.id === dropTargetId;
 
         if (item.type === 'folder') {
           return (
@@ -417,7 +527,23 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
               <ContextMenu>
                 <ContextMenuTrigger asChild>
                   <div
-                    className="group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent cursor-default"
+                    draggable={!isRenamingThis}
+                    onDragStart={(e) => handleItemDragStart(e, collectionId, item.id)}
+                    onDragEnd={handleItemDragEnd}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      // Stop the bubble so the collection root strip's
+                      // onDragOver doesn't overwrite this row's drop highlight.
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dropTargetId !== item.id) setDropTargetId(item.id);
+                    }}
+                    onDragLeave={() => setDropTargetId((id) => (id === item.id ? null : id))}
+                    onDrop={(e) => handleDropIntoFolder(e, collectionId, item.id)}
+                    className={cn(
+                      'group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent cursor-grab active:cursor-grabbing',
+                      isDropTarget && 'ring-1 ring-primary bg-primary/5'
+                    )}
                     style={{ marginLeft: indent }}
                   >
                     <FolderPlus className="h-3 w-3 shrink-0 text-primary/60" />
@@ -444,10 +570,40 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                 <ContextMenuContent>
                   <ContextMenuItem
                     className="text-xs"
+                    onClick={() => setRunnerScope({ collectionId, folderId: item.id })}
+                  >
+                    <Play className="mr-2 h-3.5 w-3.5" />
+                    Run folder
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    className="text-xs"
+                    onClick={() => handleAddRequest(collectionId, item.id)}
+                  >
+                    <FilePlus className="mr-2 h-3.5 w-3.5" />
+                    New request
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    className="text-xs"
+                    onClick={() => handleAddFolder(collectionId, item.id)}
+                  >
+                    <FolderPlus className="mr-2 h-3.5 w-3.5" />
+                    New subfolder
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    className="text-xs"
                     onClick={() => startItemRename(item.id, item.name)}
                   >
                     <Pencil className="mr-2 h-3.5 w-3.5" />
                     Rename
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    className="text-destructive focus:text-destructive text-xs"
+                    onClick={() => setItemToDelete({ collectionId, itemId: item.id })}
+                  >
+                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                    Delete
                   </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
@@ -473,7 +629,23 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
             <ContextMenuTrigger asChild>
               <button
                 type="button"
-                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                draggable={!isRenamingThis}
+                onDragStart={(e) => handleItemDragStart(e, collectionId, item.id)}
+                onDragEnd={handleItemDragEnd}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  // Stop the bubble so the collection root strip's onDragOver
+                  // doesn't overwrite this row's drop highlight.
+                  e.stopPropagation();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dropTargetId !== item.id) setDropTargetId(item.id);
+                }}
+                onDragLeave={() => setDropTargetId((id) => (id === item.id ? null : id))}
+                onDrop={(e) => handleDropBeforeItem(e, collectionId, item.id)}
+                className={cn(
+                  'flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-grab active:cursor-grabbing',
+                  isDropTarget && 'border-t-2 border-primary'
+                )}
                 style={{ marginLeft: indent }}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -516,6 +688,21 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                 <Pencil className="mr-2 h-3.5 w-3.5" />
                 Rename
               </ContextMenuItem>
+              <ContextMenuItem
+                className="text-xs"
+                onClick={() => handleDuplicateItem(collectionId, item)}
+              >
+                <Copy className="mr-2 h-3.5 w-3.5" />
+                Duplicate
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                className="text-destructive focus:text-destructive text-xs"
+                onClick={() => setItemToDelete({ collectionId, itemId: item.id })}
+              >
+                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                Delete
+              </ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
         );
@@ -526,6 +713,14 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       itemRenameValue,
       commitItemRename,
       startItemRename,
+      dropTargetId,
+      handleItemDragStart,
+      handleItemDragEnd,
+      handleDropIntoFolder,
+      handleDropBeforeItem,
+      handleAddFolder,
+      handleAddRequest,
+      handleDuplicateItem,
     ]
   );
 
@@ -691,6 +886,29 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
+                              onClick={() => setRunnerScope({ collectionId: collection.id })}
+                              className="text-xs"
+                            >
+                              <Play className="mr-2 h-3.5 w-3.5" />
+                              Run collection
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => handleAddRequest(collection.id)}
+                              className="text-xs"
+                            >
+                              <FilePlus className="mr-2 h-3.5 w-3.5" />
+                              New request
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleAddFolder(collection.id)}
+                              className="text-xs"
+                            >
+                              <FolderPlus className="mr-2 h-3.5 w-3.5" />
+                              New folder
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
                               onClick={() => startCollectionRename(collection.id, collection.name)}
                               className="text-xs"
                             >
@@ -819,13 +1037,45 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
-                      {collection.items.length > 0 && (
-                        <div className="border-t border-border/60 px-2 py-1.5">
+                      <div
+                        className={cn(
+                          'border-t border-border/60 px-2 py-1.5',
+                          dropTargetId === `root:${collection.id}` && 'bg-primary/5 ring-1 ring-inset ring-primary'
+                        )}
+                        onDragOver={(e) => {
+                          if (!dragItemRef.current) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          setDropTargetId(`root:${collection.id}`);
+                        }}
+                        onDragLeave={() =>
+                          setDropTargetId((id) => (id === `root:${collection.id}` ? null : id))
+                        }
+                        onDrop={(e) => handleDropToRoot(e, collection.id)}
+                      >
+                        {collection.items.length > 0 ? (
                           <div className="space-y-0.5">
                             {renderCollectionItems(collection.items, collection.id)}
                           </div>
-                        </div>
-                      )}
+                        ) : (
+                          <div className="flex items-center gap-1.5 py-1">
+                            <button
+                              type="button"
+                              onClick={() => handleAddRequest(collection.id)}
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                            >
+                              <FilePlus className="h-3 w-3" /> Add request
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAddFolder(collection.id)}
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                            >
+                              <FolderPlus className="h-3 w-3" /> Add folder
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </StaggerItem>
                   ))}
                 </Stagger>
@@ -1046,7 +1296,20 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
             }
           }}
         />
+
+        <ConfirmDialog
+          open={itemToDelete !== null}
+          onOpenChange={(open) => { if (!open) setItemToDelete(null); }}
+          title="Delete item"
+          description="Delete this item and everything inside it? This action cannot be undone."
+          confirmText="Delete"
+          cancelText="Cancel"
+          onConfirm={handleConfirmItemDelete}
+          variant="destructive"
+        />
       </aside>
+
+      <CollectionRunnerDialog scope={runnerScope} onClose={() => setRunnerScope(null)} />
 
       <Dialog
         open={!!settingsDialogCollection}
