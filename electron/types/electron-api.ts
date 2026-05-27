@@ -131,6 +131,10 @@ interface ElectronHttpResponse {
   statusText: string;
   headers: Record<string, string>;
   data: unknown;
+  /** Decoded byte size of the response body. */
+  size?: number;
+  /** 'base64' when `data` is base64 of a binary body (see shared/protocol/binary.ts). */
+  bodyEncoding?: 'base64';
   /**
    * Negotiated ALPN protocol from undici (h2 / h1.1 / h3 when available).
    * Surfaced by the renderer as a small "HTTP/2" / "HTTP/1.1" badge.
@@ -393,6 +397,53 @@ interface ElectronGitAPI {
     | { ok: true; branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }> }
     | { ok: false; error: string }
   >;
+  add: (
+    directoryPath: string,
+    filePaths: string[]
+  ) => Promise<{ ok: true; staged: true } | { ok: false; error: string }>;
+  commit: (
+    directoryPath: string,
+    message: string,
+    all?: boolean
+  ) => Promise<
+    | { ok: true; commit: { sha: string; abbreviatedSha: string } }
+    | { ok: false; error: string }
+  >;
+  createBranch: (
+    directoryPath: string,
+    name: string
+  ) => Promise<{ ok: true; branch: string } | { ok: false; error: string }>;
+  checkoutBranch: (
+    directoryPath: string,
+    name: string
+  ) => Promise<{ ok: true; branch: string } | { ok: false; error: string }>;
+}
+
+interface ElectronMockStatus {
+  running: boolean;
+  port?: number;
+  baseUrl?: string;
+  collectionId?: string;
+  routeCount?: number;
+}
+
+interface ElectronMockRoute {
+  method: string;
+  path: string;
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+  delayMs?: number;
+}
+
+interface ElectronMockAPI {
+  start: (config: {
+    collectionId: string;
+    port?: number;
+    routes: ElectronMockRoute[];
+  }) => Promise<{ ok: true; status: ElectronMockStatus } | { ok: false; error: string }>;
+  stop: () => Promise<{ ok: true; status: ElectronMockStatus } | { ok: false; error: string }>;
+  status: () => Promise<{ ok: true; status: ElectronMockStatus } | { ok: false; error: string }>;
 }
 
 interface LogEntry {
@@ -494,6 +545,7 @@ interface ElectronAiAPI {
     baseUrlOverride?: string;
     rawMode: boolean;
     maxOutputTokens?: number;
+    tools?: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
   }) => Promise<{ ok: true; streamId: string } | { ok: false; error: string }>;
   cancel: (args: { streamId: string }) => Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }>;
   onChunk: (
@@ -524,6 +576,7 @@ interface ElectronAPI {
   notification: ElectronNotificationAPI;
   store: ElectronStoreAPI;
   git: ElectronGitAPI;
+  mock: ElectronMockAPI;
   secrets: ElectronSecretsAPI;
   ai: ElectronAiAPI;
   log: ElectronLogAPI;
@@ -550,6 +603,7 @@ export type {
   ElectronWindowAPI,
   ElectronNotificationAPI,
   ElectronGitAPI,
+  ElectronMockAPI,
   ElectronLogAPI,
   ElectronKeychainAPI,
   KeychainStatus,

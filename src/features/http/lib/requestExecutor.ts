@@ -233,6 +233,9 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
       size: proxyResponse.size ?? new Blob([bodyString]).size,
       time: endTime - startTime,
       timestamp: Date.now(),
+      ...(proxyResponse.bodyEncoding !== undefined
+        ? { bodyEncoding: proxyResponse.bodyEncoding }
+        : {}),
       ...(proxyResponse.negotiatedAlpn !== undefined
         ? { negotiatedAlpn: proxyResponse.negotiatedAlpn }
         : {}),

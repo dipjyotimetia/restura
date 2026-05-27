@@ -8,8 +8,16 @@ import { ContextPill } from './ContextPill';
 import { MessageList } from './MessageList';
 import { Composer } from './Composer';
 import { Button } from '@/components/ui/button';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, Wand2, Check } from 'lucide-react';
+import { toast } from 'sonner';
+import { agentToolDefs, runAgentTool } from '@/features/ai/agent/tools';
 import type { Usage } from '@shared/protocol/ai/types';
+
+interface PendingToolCall {
+  id: string;
+  name: string;
+  input: string;
+}
 
 // Stable empty reference so the messages selector doesn't return a fresh array
 // (which would re-render every store change under Object.is equality).
@@ -41,6 +49,9 @@ export function ChatPanel({ onClose }: Props) {
   const apiKeyConfigured = !!providerConfig?.apiKeyRef.id;
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  // Tool calls proposed by the assistant, awaiting user approval ("propose &
+  // apply" consent model). Nothing mutates until the user clicks Apply.
+  const [toolCalls, setToolCalls] = useState<PendingToolCall[]>([]);
   const cancelRef = useRef<(() => void) | null>(null);
   const flushBufferRef = useRef<{ msgId: string; buffer: string } | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -84,6 +95,7 @@ export function ChatPanel({ onClose }: Props) {
   const handleSend = async (text: string, rawMode: boolean) => {
     if (!providerConfig || sendingRef.current) return;
     sendingRef.current = true;
+    setToolCalls([]);
     const snapshot = captureActive();
 
     // Read prior turns from the live store at call time — NOT the render-time
@@ -109,6 +121,9 @@ export function ChatPanel({ onClose }: Props) {
       apiKeyHandleId: providerConfig.apiKeyRef.id,
       ...(providerConfig.baseUrlOverride ? { baseUrlOverride: providerConfig.baseUrlOverride } : {}),
       rawMode,
+      // Advertise agent tools so the model can propose actions (create request,
+      // write a test). Proposals require explicit user approval to apply.
+      tools: agentToolDefs(),
     };
 
     const ai = getElectronAPI()?.ai;
@@ -150,6 +165,9 @@ export function ChatPanel({ onClose }: Props) {
         if (ev.type === 'delta') {
           if (flushBufferRef.current) flushBufferRef.current.buffer += ev.text;
           scheduleFlush();
+        } else if (ev.type === 'tool_call') {
+          // Surface as a pending proposal; don't mutate state until approved.
+          setToolCalls((prev) => [...prev, { id: ev.id, name: ev.name, input: ev.input }]);
         } else if (ev.type === 'usage') {
           lastUsage = ev.usage;
         } else if (ev.type === 'error') {
@@ -178,6 +196,22 @@ export function ChatPanel({ onClose }: Props) {
     }
   };
 
+  const applyToolCall = (tc: PendingToolCall) => {
+    const res = runAgentTool(tc.name, tc.input);
+    if (res.ok) toast.success(res.summary);
+    else toast.error(res.error);
+    setToolCalls((prev) => prev.filter((t) => t.id !== tc.id));
+  };
+  const dismissToolCall = (id: string) =>
+    setToolCalls((prev) => prev.filter((t) => t.id !== id));
+  const prettyInput = (raw: string): string => {
+    try {
+      return JSON.stringify(JSON.parse(raw), null, 2);
+    } catch {
+      return raw;
+    }
+  };
+
   return (
     <aside className="glass-2 border-border/40 flex h-full flex-col border-l" style={{ width: panelWidth }}>
       <header className="flex items-center justify-between border-b border-border/40 px-3 py-2">
@@ -201,6 +235,31 @@ export function ChatPanel({ onClose }: Props) {
       </header>
       <ContextPill />
       <MessageList messages={messages} />
+      {toolCalls.length > 0 && (
+        <div className="border-t border-border/40 p-2 space-y-2 max-h-60 overflow-auto">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground px-0.5">
+            Proposed actions
+          </div>
+          {toolCalls.map((tc) => (
+            <div key={tc.id} className="rounded-md border border-border/40 bg-muted/30 p-2">
+              <div className="flex items-center gap-1.5 text-xs font-medium">
+                <Wand2 className="h-3.5 w-3.5 text-sp-accent" /> {tc.name}
+              </div>
+              <pre className="mt-1 text-[10px] text-muted-foreground whitespace-pre-wrap break-words max-h-24 overflow-auto">
+                {prettyInput(tc.input)}
+              </pre>
+              <div className="mt-1.5 flex gap-1.5">
+                <Button size="sm" onClick={() => applyToolCall(tc)}>
+                  <Check className="mr-1 h-3.5 w-3.5" /> Apply
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => dismissToolCall(tc.id)}>
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <Composer
         disabled={!apiKeyConfigured}
         streaming={!!streamingId}

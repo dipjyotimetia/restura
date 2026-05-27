@@ -24,6 +24,7 @@ import { registerSecretHandleIPC } from './secret-handle-store';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
+import { registerMockServerIPC, unregisterMockServerIPC, stopMockServer } from './mock-server-handler';
 import { registerDeepLinkHandler } from './deep-link-handler';
 import { startStdioMcpServer } from './mcp-server-handler';
 import { loadMcpDispatchContext } from './mcp-context-loader';
@@ -147,6 +148,13 @@ const IPC_MODULES: IpcModule[] = [
     },
   },
   { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
+  {
+    register: () => registerMockServerIPC(),
+    dispose: () => {
+      void stopMockServer();
+      unregisterMockServerIPC();
+    },
+  },
 ];
 
 // Register all IPC handlers

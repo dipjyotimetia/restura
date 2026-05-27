@@ -29,8 +29,18 @@ function baseUrl(spec: ChatRequestSpec): string {
   return spec.baseUrlOverride?.replace(/\/+$/, '') ?? DEFAULT_BASE_URLS[spec.provider];
 }
 
+/** OpenAI tools: [{ type:'function', function:{ name, description, parameters } }]. */
+function openaiTools(spec: ChatRequestSpec) {
+  if (!spec.tools || spec.tools.length === 0) return undefined;
+  return spec.tools.map((t) => ({
+    type: 'function' as const,
+    function: { name: t.name, description: t.description, parameters: t.inputSchema },
+  }));
+}
+
 const openaiRoute: ProviderRoute = {
   buildRequest(spec, apiKey) {
+    const tools = openaiTools(spec);
     return {
       url: `${baseUrl(spec)}/v1/chat/completions`,
       headers: {
@@ -44,6 +54,7 @@ const openaiRoute: ProviderRoute = {
         // Without this, OpenAI omits the usage block from the stream entirely.
         stream_options: { include_usage: true },
         max_tokens: spec.maxOutputTokens ?? 2048,
+        ...(tools ? { tools } : {}),
       }),
     };
   },
@@ -68,6 +79,16 @@ const anthropicRoute: ProviderRoute = {
         messages: turnMessages,
         stream: true,
         max_tokens: spec.maxOutputTokens ?? 2048,
+        // Anthropic tools: [{ name, description, input_schema }].
+        ...(spec.tools && spec.tools.length > 0
+          ? {
+              tools: spec.tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                input_schema: t.inputSchema,
+              })),
+            }
+          : {}),
       }),
     };
   },
@@ -91,6 +112,7 @@ const openrouterRoute: ProviderRoute = {
         // OpenRouter is OpenAI-compatible; opt in to usage in the stream.
         stream_options: { include_usage: true },
         max_tokens: spec.maxOutputTokens ?? 2048,
+        ...(openaiTools(spec) ? { tools: openaiTools(spec) } : {}),
       }),
     };
   },

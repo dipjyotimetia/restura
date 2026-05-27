@@ -31,6 +31,7 @@ rather than discover it experimentally.
 | Socket.IO client | ✅ | ✅ |  |
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ |  |
+| Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |
 | OS keychain (safeStorage) for secrets | ❌ | ✅ | Web falls back to encrypted IndexedDB |
 | Encrypted local storage | ✅ | ✅ |  |
 | Native shell.openExternal | ❌ | ✅ |  |

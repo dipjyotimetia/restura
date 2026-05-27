@@ -22,6 +22,10 @@ class AnthropicDecoder implements StreamDecoder {
   private inputTokens = 0;
   private outputTokens = 0;
   private finished = false;
+  // Tool-use content blocks, keyed by stream `index`. Anthropic streams the
+  // arguments JSON in `input_json_delta` fragments; we accumulate and emit a
+  // single tool_call on content_block_stop.
+  private toolBlocks = new Map<number, { id: string; name: string; json: string }>();
 
   constructor(private readonly model: string) {}
 
@@ -35,8 +39,10 @@ class AnthropicDecoder implements StreamDecoder {
     }
     const p = parsed as {
       type?: string;
+      index?: number;
+      content_block?: { type?: string; id?: string; name?: string };
       message?: { usage?: { input_tokens?: number; output_tokens?: number } };
-      delta?: { text?: string; type?: string };
+      delta?: { text?: string; type?: string; partial_json?: string };
       usage?: { input_tokens?: number; output_tokens?: number };
       error?: { message?: string };
     };
@@ -46,9 +52,40 @@ class AnthropicDecoder implements StreamDecoder {
         if (p.message?.usage?.input_tokens != null) this.inputTokens = p.message.usage.input_tokens;
         if (p.message?.usage?.output_tokens != null) this.outputTokens = p.message.usage.output_tokens;
         break;
+      case 'content_block_start':
+        if (
+          p.content_block?.type === 'tool_use' &&
+          p.content_block.id &&
+          p.content_block.name &&
+          p.index != null
+        ) {
+          this.toolBlocks.set(p.index, { id: p.content_block.id, name: p.content_block.name, json: '' });
+        }
+        break;
       case 'content_block_delta':
         if (p.delta?.type === 'text_delta' && typeof p.delta.text === 'string' && p.delta.text.length > 0) {
           this.buffered.push({ type: 'delta', text: p.delta.text });
+        } else if (
+          p.delta?.type === 'input_json_delta' &&
+          typeof p.delta.partial_json === 'string' &&
+          p.index != null
+        ) {
+          const block = this.toolBlocks.get(p.index);
+          if (block) block.json += p.delta.partial_json;
+        }
+        break;
+      case 'content_block_stop':
+        if (p.index != null) {
+          const block = this.toolBlocks.get(p.index);
+          if (block) {
+            this.buffered.push({
+              type: 'tool_call',
+              id: block.id,
+              name: block.name,
+              input: block.json || '{}',
+            });
+            this.toolBlocks.delete(p.index);
+          }
         }
         break;
       case 'message_delta':

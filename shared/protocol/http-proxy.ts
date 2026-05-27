@@ -3,6 +3,12 @@ import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy
 import { buildRequestBody } from './body-builder';
 import { applyAuth, type SecretResolver } from './auth-signer';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
+import {
+  isBinaryContentType,
+  getHeaderCI,
+  bytesToBase64,
+  readStreamToBytes,
+} from './binary';
 import type { Fetcher, RequestSpec, ExecuteResult } from './types';
 
 export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
@@ -110,13 +116,42 @@ export async function executeHttpProxy(
       };
     }
 
-    const text = await response.text();
-    if (text.length > MAX_RESPONSE_SIZE) {
-      return {
-        ok: false,
-        status: 413,
-        payload: { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
-      };
+    const responseHeaders = sanitizeResponseHeaders(response.headers);
+
+    // Binary content types are base64-encoded so the raw bytes survive the
+    // JSON transport to the renderer (text() would UTF-8-decode and corrupt
+    // them). We read the raw stream rather than text(); both are backed by the
+    // same body, so only one may be consumed. Fall back to text() when the
+    // fetcher didn't expose a stream (then the body is whatever text() yields).
+    const binary = isBinaryContentType(getHeaderCI(responseHeaders, 'content-type'));
+
+    let responseBody: string;
+    let responseSize: number;
+    let bodyEncoding: 'base64' | undefined;
+
+    if (binary && response.body) {
+      const bytes = await readStreamToBytes(response.body, MAX_RESPONSE_SIZE);
+      if (bytes === null) {
+        return {
+          ok: false,
+          status: 413,
+          payload: { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
+        };
+      }
+      responseBody = bytesToBase64(bytes);
+      responseSize = bytes.length;
+      bodyEncoding = 'base64';
+    } else {
+      const text = await response.text();
+      if (text.length > MAX_RESPONSE_SIZE) {
+        return {
+          ok: false,
+          status: 413,
+          payload: { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
+        };
+      }
+      responseBody = text;
+      responseSize = byteLength(text);
     }
 
     const normalized: ExecuteResult = {
@@ -124,9 +159,10 @@ export async function executeHttpProxy(
       response: {
         status: response.status,
         statusText: response.statusText,
-        headers: sanitizeResponseHeaders(response.headers),
-        body: text,
-        size: byteLength(text),
+        headers: responseHeaders,
+        body: responseBody,
+        size: responseSize,
+        ...(bodyEncoding ? { bodyEncoding } : {}),
       },
     };
     if (normalized.ok && response.negotiatedAlpn) {

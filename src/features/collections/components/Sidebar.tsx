@@ -36,6 +36,9 @@ import {
   FolderOpen,
   HardDrive,
   Pencil,
+  FileText,
+  Play,
+  Square,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { ActivePanel, AuthConfig, Collection, CollectionItem, Workflow } from '@/types';
@@ -60,6 +63,11 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { FileStatusBadge } from './FileStatusBadge';
 import { ConflictDialog } from './ConflictDialog';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
+import DocsViewer from './DocsViewer';
+import GitDialog from '@/components/shared/GitDialog';
+import { buildMockRoutes } from '../lib/mockRoutes';
+import { useMockStore } from '@/store/useMockStore';
+import { getElectronAPI } from '@/lib/shared/platform';
 import {
   useFileCollectionStore,
   isElectronEnvironment,
@@ -113,6 +121,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<string | null>(null);
   const [settingsDialogCollection, setSettingsDialogCollection] = useState<Collection | null>(null);
+  const [docsCollection, setDocsCollection] = useState<Collection | null>(null);
+  const [gitTarget, setGitTarget] = useState<{ collection: Collection; directoryPath: string } | null>(null);
   const [settingsDraftAuth, setSettingsDraftAuth] = useState<AuthConfig>({ type: 'none' });
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
@@ -249,6 +259,47 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       }
     },
     [collections]
+  );
+
+  const mockStatus = useMockStore((s) => s.status);
+  const setMockStatus = useMockStore((s) => s.setStatus);
+
+  const handleToggleMock = useCallback(
+    async (collectionId: string) => {
+      const api = getElectronAPI();
+      if (!api?.mock) {
+        toast.error('Mock server is only available in the desktop app');
+        return;
+      }
+      const isRunningHere = mockStatus.running && mockStatus.collectionId === collectionId;
+      if (isRunningHere) {
+        const res = await api.mock.stop();
+        if (res.ok) {
+          setMockStatus(res.status);
+          toast.success('Mock server stopped');
+        } else {
+          toast.error(`Failed to stop mock server: ${res.error}`);
+        }
+        return;
+      }
+      const collection = collections.find((c) => c.id === collectionId);
+      if (!collection) return;
+      const routes = buildMockRoutes(collection, useHistoryStore.getState().history);
+      if (routes.length === 0) {
+        toast.warning('No HTTP requests in this collection to mock');
+        return;
+      }
+      const res = await api.mock.start({ collectionId, routes });
+      if (res.ok) {
+        setMockStatus(res.status);
+        toast.success(`Mock server running at ${res.status.baseUrl}`, {
+          description: `${res.status.routeCount} route${res.status.routeCount === 1 ? '' : 's'} · replays recorded responses`,
+        });
+      } else {
+        toast.error(`Failed to start mock server: ${res.error}`);
+      }
+    },
+    [collections, mockStatus, setMockStatus]
   );
 
   const handleDeleteClick = useCallback((collectionId: string) => {
@@ -630,6 +681,13 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                               <Pencil className="mr-2 h-3.5 w-3.5" />
                               Rename
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setDocsCollection(collection)}
+                              className="text-xs"
+                            >
+                              <FileText className="mr-2 h-3.5 w-3.5" />
+                              View API docs
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuSub>
                               <DropdownMenuSubTrigger className="text-xs">
@@ -668,8 +726,36 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                             {isElectronEnvironment() && (
                               <>
                                 <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleToggleMock(collection.id)}
+                                  className="text-xs"
+                                >
+                                  {mockStatus.running && mockStatus.collectionId === collection.id ? (
+                                    <>
+                                      <Square className="mr-2 h-3.5 w-3.5" />
+                                      Stop mock server
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="mr-2 h-3.5 w-3.5" />
+                                      Start mock server
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
                                 {isFileCollection(collection.id) ? (
                                   <>
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        const dir =
+                                          useFileCollectionStore.getState().fileCollections[collection.id]
+                                            ?.directoryPath;
+                                        if (dir) setGitTarget({ collection, directoryPath: dir });
+                                      }}
+                                      className="text-xs"
+                                    >
+                                      <GitBranch className="mr-2 h-3.5 w-3.5" />
+                                      Git…
+                                    </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={() => handleOpenInExplorer(collection.id)}
                                       className="text-xs"
@@ -978,6 +1064,15 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DocsViewer collection={docsCollection} onClose={() => setDocsCollection(null)} />
+
+      <GitDialog
+        open={gitTarget !== null}
+        collectionName={gitTarget?.collection.name ?? ''}
+        directoryPath={gitTarget?.directoryPath ?? null}
+        onClose={() => setGitTarget(null)}
+      />
     </TooltipProvider>
   );
 }

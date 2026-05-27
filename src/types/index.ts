@@ -412,6 +412,12 @@ export interface Response {
   time: number;
   timestamp: number;
   /**
+   * How `body` is encoded. Absent means `body` is response text as-is.
+   * 'base64' means the upstream returned a binary content type and `body` holds
+   * the base64 of the raw bytes (decode before use, e.g. for image preview).
+   */
+  bodyEncoding?: 'base64';
+  /**
    * Negotiated ALPN protocol when known. Populated by Electron's undici fetcher;
    * absent for the worker path (CF runtime doesn't expose ALPN).
    */
@@ -602,6 +608,33 @@ export interface HistoryItem {
   request: Request;
   response?: Response;
   timestamp: number;
+}
+
+/**
+ * A single route served by the desktop mock server (record-and-replay). Built
+ * from a collection + history by `buildMockRoutes`, then sent over IPC to
+ * `electron/main/mock-server-handler.ts`. Mock is desktop-only (see
+ * capabilities `mock.localServer`) — web can't bind a local listener.
+ */
+export interface MockRoute {
+  /** Upper-case HTTP method, or '*' to match any method. */
+  method: string;
+  /** Pathname pattern. Supports `:param` / `{param}` segments and a trailing `*`. */
+  path: string;
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+  /** Artificial latency before responding, in ms. */
+  delayMs?: number;
+}
+
+/** Renderer-side view of the mock server's running state. */
+export interface MockServerStatus {
+  running: boolean;
+  port?: number;
+  baseUrl?: string;
+  collectionId?: string;
+  routeCount?: number;
 }
 
 // Script Execution Result

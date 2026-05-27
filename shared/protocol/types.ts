@@ -125,6 +125,13 @@ export interface NormalizedResponse {
   body: string;
   size: number;
   /**
+   * How `body` is encoded. Absent (or 'utf8') means `body` is the response text
+   * as-is. 'base64' means the upstream returned a binary content type and `body`
+   * is the base64 of the raw bytes — the renderer must decode before use (e.g.
+   * to build a `data:` URL for image preview). `size` is the decoded byte count.
+   */
+  bodyEncoding?: 'base64';
+  /**
    * Negotiated ALPN protocol when known. The Worker doesn't have direct ALPN
    * visibility (the runtime negotiates), so this is populated only by Electron
    * (via undici) and surfaced informationally in the response viewer.

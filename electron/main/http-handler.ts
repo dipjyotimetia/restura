@@ -91,6 +91,10 @@ export interface HttpResponse {
   statusText: string;
   headers: Record<string, string | string[]>;
   data: unknown;
+  /** Decoded byte size of the response body. */
+  size?: number;
+  /** Set to 'base64' when `data` is base64 of a binary body (see shared/protocol/binary.ts). */
+  bodyEncoding?: 'base64';
   /** Negotiated ALPN protocol (h2 or h1.1) when available — populated by undici's TLS handshake. */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
 }
@@ -679,12 +683,20 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
     }
 
     // Translate NormalizedResponse → legacy IPC HttpResponse shape (parses JSON when possible).
+    // Base64 binary bodies are passed through verbatim — never JSON-parsed.
     rawResult = {
       status: result.response.status,
       statusText: result.response.statusText,
       headers: result.response.headers,
-      data: tryParseJson(result.response.body),
+      data:
+        result.response.bodyEncoding === 'base64'
+          ? result.response.body
+          : tryParseJson(result.response.body),
+      size: result.response.size,
     };
+    if (result.response.bodyEncoding) {
+      rawResult.bodyEncoding = result.response.bodyEncoding;
+    }
     if (result.response.negotiatedAlpn) {
       rawResult.negotiatedAlpn = result.response.negotiatedAlpn;
     }

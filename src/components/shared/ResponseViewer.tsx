@@ -5,9 +5,12 @@ import { StreamingResponseViewer } from '@/components/shared/StreamingResponseVi
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { detectLanguage } from '@/lib/shared/console-format';
+import { isCsvResponse } from '@/lib/shared/csvParser';
+import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
+import { ImagePreview } from '@/components/shared/ImagePreview';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Copy, Check, Zap, Rows, Columns, Search, Download,
+  Copy, Check, Zap, Rows, Columns, Search, Download, Braces, FileDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -39,6 +42,16 @@ const CodeEditor = lazyComponent(
     <Skeleton className="h-3.5 w-2/3 rounded" />
     <Skeleton className="h-3.5 w-4/5 rounded" />
   </div>
+);
+
+// CSV (papaparse) and JSONPath (jsonpath-plus) only load when actually used.
+const CsvTableViewer = lazyComponent(
+  () => import('@/components/shared/CsvTableViewer'),
+  <div className="p-4"><Skeleton className="h-4 w-1/2 rounded" /></div>
+);
+const JsonPathQuery = lazyComponent(
+  () => import('@/components/shared/JsonPathQuery'),
+  <div className="p-4"><Skeleton className="h-4 w-1/2 rounded" /></div>
 );
 
 const formatJson = (body: string): string => {
@@ -90,7 +103,7 @@ function ResponseSkeleton() {
 }
 
 type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview';
-type BodyFormat = 'pretty' | 'raw' | 'preview';
+type BodyFormat = 'pretty' | 'raw' | 'preview' | 'table';
 
 function IconButton({
   icon,
@@ -140,6 +153,7 @@ function ResponseViewer() {
   const isLoading = useRequestStore((state) => state.isLoading);
   const [activeTab, setActiveTab] = useState<ResponseTab>('body');
   const [bodyFormat, setBodyFormat] = useState<BodyFormat>('pretty');
+  const [showJsonPath, setShowJsonPath] = useState(false);
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [copiedBody, setCopiedBody] = useState(false);
   const [headerFilter, setHeaderFilter] = useState('');
@@ -159,16 +173,43 @@ function ResponseViewer() {
     [currentResponse]
   );
 
+  const contentType = useMemo(() => {
+    const raw =
+      currentResponse?.headers['content-type'] ?? currentResponse?.headers['Content-Type'] ?? '';
+    return (Array.isArray(raw) ? raw[0] : raw) ?? '';
+  }, [currentResponse?.headers]);
+
+  // Binary bodies arrive base64-encoded (Response.bodyEncoding); image/* gets a
+  // visual preview, other binary gets a download affordance. CSV is text, so it
+  // only applies when the body wasn't base64-encoded.
+  const isBase64 = currentResponse?.bodyEncoding === 'base64';
+  const isImage = Boolean(isBase64 && /^image\//i.test(contentType));
+  const isCsv = Boolean(
+    currentResponse && !isBase64 && isCsvResponse(contentType, currentResponse.body)
+  );
+
+  // Reset the body view to a sensible default whenever the response changes:
+  // CSV → table, everything else → pretty. Also drop any open JSONPath overlay.
+  useEffect(() => {
+    setBodyFormat(isCsv ? 'table' : 'pretty');
+    setShowJsonPath(false);
+    // Keyed on response identity, not on isCsv directly, so a user toggling
+    // formats mid-response isn't overridden.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentResponse?.timestamp]);
+
   // Pretty-printing a large JSON body can stall the main thread, so only
   // compute it when the body/preview tab is actually visible.
   const formattedBody = useMemo(() => {
     if (!currentResponse) return '';
     const showsBody = activeTab === 'body' || activeTab === 'preview';
     if (!showsBody) return '';
+    // Binary (base64) and table views render their own components, not Monaco.
+    if (isBase64 || bodyFormat === 'table') return '';
     if (bodyFormat === 'raw') return currentResponse.body;
     if (language === 'json') return formatJson(currentResponse.body);
     return currentResponse.body;
-  }, [currentResponse, language, bodyFormat, activeTab]);
+  }, [currentResponse, language, bodyFormat, activeTab, isBase64]);
 
   const headerEntries = useMemo(
     () => Object.entries(currentResponse?.headers ?? {}),
@@ -250,11 +291,21 @@ function ResponseViewer() {
 
   const handleDownloadBody = () => {
     if (!currentResponse) return;
-    const blob = new Blob([currentResponse.body], { type: 'application/octet-stream' });
+    let blob: Blob;
+    let ext: string;
+    if (isBase64) {
+      // Reconstruct the original bytes from the base64 body for a faithful download.
+      const bytes = base64ToBytes(currentResponse.body);
+      blob = new Blob([bytes as BlobPart], { type: contentType || 'application/octet-stream' });
+      ext = extensionForContentType(contentType);
+    } else {
+      blob = new Blob([currentResponse.body], { type: 'application/octet-stream' });
+      ext = language === 'json' ? 'json' : isCsv ? 'csv' : 'txt';
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `response-${activeTabId ?? 'body'}.${language === 'json' ? 'json' : 'txt'}`;
+    a.download = `response-${activeTabId ?? 'body'}.${ext}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -375,30 +426,45 @@ function ResponseViewer() {
                 right={
                   activeTab === 'body' ? (
                     <div className="flex items-center gap-2">
-                      <Segmented
-                        size="sm"
-                        value={bodyFormat}
-                        onChange={setBodyFormat}
-                        options={[
-                          { value: 'pretty', label: 'Pretty' },
-                          { value: 'raw', label: 'Raw' },
-                          ...(language === 'html' ? [{ value: 'preview' as const, label: 'Preview' }] : []),
-                        ]}
-                        ariaLabel="Response body format"
-                      />
+                      {!isBase64 && (
+                        <Segmented
+                          size="sm"
+                          value={bodyFormat}
+                          onChange={setBodyFormat}
+                          options={[
+                            { value: 'pretty', label: 'Pretty' },
+                            { value: 'raw', label: 'Raw' },
+                            ...(language === 'html' ? [{ value: 'preview' as const, label: 'Preview' }] : []),
+                            ...(isCsv ? [{ value: 'table' as const, label: 'Table' }] : []),
+                          ]}
+                          ariaLabel="Response body format"
+                        />
+                      )}
+                      {!isBase64 && language === 'json' && (
+                        <IconButton
+                          icon={<Braces className="h-3.5 w-3.5" />}
+                          label="Query with JSONPath"
+                          active={showJsonPath}
+                          onClick={() => setShowJsonPath((v) => !v)}
+                        />
+                      )}
+                      {!isBase64 && bodyFormat !== 'table' && !showJsonPath && (
+                        <IconButton
+                          icon={<Search className="h-3.5 w-3.5" />}
+                          label="Find in response (Ctrl+F)"
+                          onClick={() => responseEditorRef.current?.getAction('actions.find')?.run()}
+                        />
+                      )}
+                      {!isBase64 && (
+                        <IconButton
+                          icon={copiedBody ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                          label={copiedBody ? 'Copied!' : 'Copy response body'}
+                          onClick={handleCopyBody}
+                        />
+                      )}
                       <IconButton
-                        icon={<Search className="h-3.5 w-3.5" />}
-                        label="Find in response (Ctrl+F)"
-                        onClick={() => responseEditorRef.current?.getAction('actions.find')?.run()}
-                      />
-                      <IconButton
-                        icon={copiedBody ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                        label={copiedBody ? 'Copied!' : 'Copy response body'}
-                        onClick={handleCopyBody}
-                      />
-                      <IconButton
-                        icon={<Download className="h-3.5 w-3.5" />}
-                        label="Download response"
+                        icon={isBase64 ? <FileDown className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
+                        label={isBase64 ? 'Download file' : 'Download response'}
                         onClick={handleDownloadBody}
                       />
                     </div>
@@ -409,7 +475,36 @@ function ResponseViewer() {
               <div className="flex-1 min-h-0 overflow-hidden">
                 {activeTab === 'body' && (
                   <div className="relative h-full" style={{ background: 'var(--sp-code)' }}>
-                    {formattedBody ? (
+                    {isImage ? (
+                      <ImagePreview
+                        base64={currentResponse.body}
+                        contentType={contentType}
+                        size={currentResponse.size}
+                      />
+                    ) : isBase64 ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
+                        <FileDown className="h-7 w-7 opacity-60" />
+                        <p className="text-sp-12 font-mono text-center">
+                          Binary response · {contentType || 'unknown type'}
+                          <br />
+                          {formatBytes(currentResponse.size)}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleDownloadBody}
+                          className="px-3 py-1.5 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono text-sp-text hover:bg-sp-hover transition-colors"
+                        >
+                          Download file
+                        </button>
+                      </div>
+                    ) : showJsonPath ? (
+                      <JsonPathQuery
+                        body={currentResponse.body}
+                        onClose={() => setShowJsonPath(false)}
+                      />
+                    ) : bodyFormat === 'table' ? (
+                      <CsvTableViewer body={currentResponse.body} />
+                    ) : formattedBody ? (
                       <CodeEditor
                         value={formattedBody}
                         language={language}

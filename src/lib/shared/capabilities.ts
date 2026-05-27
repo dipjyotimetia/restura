@@ -30,6 +30,7 @@ export type CapabilityName =
   | 'socketio.basic'
   | 'collections.file'
   | 'collections.git'
+  | 'mock.localServer'
   | 'storage.osKeychain'
   | 'storage.encryptedLocal'
   | 'native.shell'
@@ -67,6 +68,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'socketio.basic':        { label: 'Socket.IO client', web: true, desktop: true },
   'collections.file':      { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git':       { label: 'Git operations on collections', web: false, desktop: true },
+  'mock.localServer':      { label: 'Local mock server', web: false, desktop: true, notes: 'Binds a localhost HTTP listener; no browser TCP' },
   'storage.osKeychain':    { label: 'OS keychain (safeStorage) for secrets', web: false, desktop: true, notes: 'Web falls back to encrypted IndexedDB' },
   'storage.encryptedLocal': { label: 'Encrypted local storage', web: true, desktop: true },
   'native.shell':          { label: 'Native shell.openExternal', web: false, desktop: true },

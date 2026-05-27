@@ -1,15 +1,21 @@
 /**
  * Git-native collections — Electron main-process handler.
  *
- * v1 ships read-only operations:
+ * Read operations:
  *   - git:status   → modified / untracked / staged file lists
  *   - git:log      → recent commits
  *   - git:diff     → unified diff for a single file (HEAD vs working tree)
  *   - git:branch:list → branches + current
  *
- * v2 (deferred) adds commit, branch switch/create, remote fetch/push/pull.
- * Those need an auth model (SSH key vs HTTPS token + SecretRef) plus the
- * renderer-reload cascade for branch switches; both are bigger conversations.
+ * Local write operations (no remote):
+ *   - git:add             → stage files
+ *   - git:commit          → commit staged (optionally stage-all first)
+ *   - git:branch:create   → create + switch to a branch
+ *   - git:branch:checkout → switch branch (triggers a collection reload via the
+ *                           file watcher)
+ *
+ * Deferred: remote fetch/push/pull — needs a credential model (SSH key vs
+ * HTTPS token + SecretRef), a bigger conversation.
  *
  * Security:
  *  - Directory paths are validated against a whitelist (provided by the
@@ -78,6 +84,16 @@ const DiffInputSchema = DirectoryInputSchema.extend({
 });
 const LogInputSchema = DirectoryInputSchema.extend({
   limit: z.number().int().min(1).max(500).optional(),
+});
+const AddFilesInputSchema = DirectoryInputSchema.extend({
+  filePaths: z.array(z.string().min(1).max(2048)).min(1).max(1000),
+});
+const CommitInputSchema = DirectoryInputSchema.extend({
+  message: z.string().min(1).max(5000),
+  all: z.boolean().optional(),
+});
+const RefInputSchema = DirectoryInputSchema.extend({
+  name: z.string().min(1).max(255),
 });
 
 /**
@@ -338,6 +354,72 @@ export async function gitBranchList(directoryPath: string): Promise<GitBranch[]>
 }
 
 // ---------------------------------------------------------------------------
+// Write operations (local only — no remote/push/pull; that needs a credential
+// model and lands in a later milestone). All reuse the allowlist + per-dir lock.
+// ---------------------------------------------------------------------------
+
+/** Resolve a file path and assert it stays within the collection directory. */
+function resolveWithin(dir: string, filePath: string): string {
+  const abs = path.resolve(dir, filePath);
+  if (!abs.startsWith(dir + path.sep) && abs !== dir) {
+    throw new GitError(`File path escapes the collection directory: ${filePath}`, 'invalid-input');
+  }
+  return abs;
+}
+
+export async function gitAddFiles(directoryPath: string, filePaths: string[]): Promise<true> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  // Validate every path before touching the index.
+  for (const fp of filePaths) resolveWithin(dir, fp);
+  return withLock(dir, async () => {
+    // `--` terminates option parsing so a path can't be read as a flag.
+    await runGit(dir, ['add', '--', ...filePaths]);
+    return true as const;
+  });
+}
+
+/**
+ * Commit staged changes (optionally staging everything first). Returns the new
+ * commit's full + abbreviated SHA. Fails clearly when there's nothing to commit
+ * or when git identity (user.name/email) isn't configured — we never set it.
+ */
+export async function gitCommit(
+  directoryPath: string,
+  message: string,
+  options: { all?: boolean } = {}
+): Promise<{ sha: string; abbreviatedSha: string }> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  return withLock(dir, async () => {
+    if (options.all) await runGit(dir, ['add', '-A']);
+    // message passed as a single execFile arg — no shell, no injection.
+    await runGit(dir, ['commit', '-m', message]);
+    const sha = (await runGit(dir, ['rev-parse', 'HEAD'])).trim();
+    return { sha, abbreviatedSha: sha.slice(0, 7) };
+  });
+}
+
+export async function gitCreateBranch(directoryPath: string, name: string): Promise<string> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  const ref = sanitiseRefName(name);
+  return withLock(dir, async () => {
+    // Create and switch in one step.
+    await runGit(dir, ['checkout', '-b', ref]);
+    return ref;
+  });
+}
+
+export async function gitCheckoutBranch(directoryPath: string, name: string): Promise<string> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  const ref = sanitiseRefName(name);
+  return withLock(dir, async () => {
+    // Switching branches rewrites files on disk; the collection-manager file
+    // watcher (chokidar) picks the change up and reloads the collection.
+    await runGit(dir, ['checkout', ref]);
+    return ref;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // IPC registration
 // ---------------------------------------------------------------------------
 
@@ -386,6 +468,30 @@ export function registerGitHandlerIPC(): void {
       gitBranchList(directoryPath)
     )
   );
+  ipcMain.handle(
+    IPC.git.add,
+    ipcCommand(AddFilesInputSchema, 'staged', ({ directoryPath, filePaths }) =>
+      gitAddFiles(directoryPath, filePaths)
+    )
+  );
+  ipcMain.handle(
+    IPC.git.commit,
+    ipcCommand(CommitInputSchema, 'commit', ({ directoryPath, message, all }) =>
+      gitCommit(directoryPath, message, all !== undefined ? { all } : {})
+    )
+  );
+  ipcMain.handle(
+    IPC.git.createBranch,
+    ipcCommand(RefInputSchema, 'branch', ({ directoryPath, name }) =>
+      gitCreateBranch(directoryPath, name)
+    )
+  );
+  ipcMain.handle(
+    IPC.git.checkoutBranch,
+    ipcCommand(RefInputSchema, 'branch', ({ directoryPath, name }) =>
+      gitCheckoutBranch(directoryPath, name)
+    )
+  );
 }
 
 export function unregisterGitHandlerIPC(): void {
@@ -393,6 +499,10 @@ export function unregisterGitHandlerIPC(): void {
   ipcMain.removeHandler(IPC.git.log);
   ipcMain.removeHandler(IPC.git.diff);
   ipcMain.removeHandler(IPC.git.branchList);
+  ipcMain.removeHandler(IPC.git.add);
+  ipcMain.removeHandler(IPC.git.commit);
+  ipcMain.removeHandler(IPC.git.createBranch);
+  ipcMain.removeHandler(IPC.git.checkoutBranch);
 }
 
 function errorMessage(err: unknown): string {

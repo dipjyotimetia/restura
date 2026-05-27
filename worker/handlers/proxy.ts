@@ -218,6 +218,7 @@ export function createProxyHandler(
       headers: result.response.headers,
       data: result.response.body,
       size: result.response.size,
+      ...(result.response.bodyEncoding ? { bodyEncoding: result.response.bodyEncoding } : {}),
     });
   };
 }

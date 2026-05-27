@@ -35,6 +35,9 @@ class OpenAIDecoder implements StreamDecoder {
   private buffered: ChatStreamEvent[] = [];
   private pendingUsage: { promptTokens: number; completionTokens: number } | null = null;
   private finished = false;
+  // Tool calls stream as delta.tool_calls[]; id/name arrive first, arguments
+  // accumulate across chunks. Keyed by `index`; emitted on flush().
+  private toolCalls = new Map<number, { id: string; name: string; args: string }>();
 
   constructor(
     private readonly model: string,
@@ -55,7 +58,17 @@ class OpenAIDecoder implements StreamDecoder {
     }
     if (!parsed || typeof parsed !== 'object') return [];
     const p = parsed as {
-      choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+      choices?: Array<{
+        delta?: {
+          content?: string;
+          tool_calls?: Array<{
+            index?: number;
+            id?: string;
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+        finish_reason?: string | null;
+      }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
       error?: { message?: string };
     };
@@ -66,6 +79,17 @@ class OpenAIDecoder implements StreamDecoder {
     const delta = p.choices?.[0]?.delta?.content;
     if (typeof delta === 'string' && delta.length > 0) {
       this.buffered.push({ type: 'delta', text: delta });
+    }
+    const toolDeltas = p.choices?.[0]?.delta?.tool_calls;
+    if (toolDeltas) {
+      for (const td of toolDeltas) {
+        const idx = td.index ?? 0;
+        const existing = this.toolCalls.get(idx) ?? { id: '', name: '', args: '' };
+        if (td.id) existing.id = td.id;
+        if (td.function?.name) existing.name = td.function.name;
+        if (td.function?.arguments) existing.args += td.function.arguments;
+        this.toolCalls.set(idx, existing);
+      }
     }
     // A non-null finish_reason terminates the completion. Mark finished so a
     // stream that closes without a trailing `[DONE]` (some proxies / self-hosted
@@ -83,6 +107,15 @@ class OpenAIDecoder implements StreamDecoder {
   }
 
   flush(): ChatStreamEvent[] {
+    // Emit completed tool calls before usage/done, in index order.
+    if (this.toolCalls.size > 0) {
+      for (const [, tc] of [...this.toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
+        if (tc.id && tc.name) {
+          this.buffered.push({ type: 'tool_call', id: tc.id, name: tc.name, input: tc.args || '{}' });
+        }
+      }
+      this.toolCalls.clear();
+    }
     if (this.pendingUsage) {
       this.buffered.push({
         type: 'usage',
