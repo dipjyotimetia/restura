@@ -246,6 +246,10 @@ export const AiChatStateSchema = z.object({
   }),
   activeProvider: ProviderEnumSchema,
   redactionMode: z.enum(['default', 'raw']),
+  // When false, the chat does NOT advertise agent tools to the model, so it
+  // won't propose actions. Optional + default so older persisted state upgrades
+  // cleanly to the enabled-by-default behaviour.
+  agentToolsEnabled: z.boolean().optional().default(true),
 });
 
 export type PersistedAiChatState = z.infer<typeof AiChatStateSchema>;

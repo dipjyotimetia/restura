@@ -574,6 +574,7 @@ function buildElectronFetcher(
       statusText: '',
       headers: headersOut,
       text: () => response.body.text(),
+      arrayBuffer: () => response.body.arrayBuffer(),
       contentLengthHeader: (response.headers['content-length'] as string | undefined) ?? null,
       // Web stream interop — undici body is a Node Readable, expose as a web ReadableStream
       // so streaming consumers (StreamingResponseViewer) can read incrementally if desired.

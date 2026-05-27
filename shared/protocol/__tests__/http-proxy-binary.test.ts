@@ -39,6 +39,32 @@ describe('executeHttpProxy binary handling', () => {
     }
   });
 
+  it('prefers arrayBuffer() over the body stream for binary', async () => {
+    const pngBytes = new Uint8Array([137, 80, 78, 71, 9, 9, 9]);
+    const fetcher: Fetcher = vi.fn().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'image/png' }),
+      text: async () => 'should-not-be-used',
+      arrayBuffer: async () => pngBytes.buffer.slice(0),
+      contentLengthHeader: String(pngBytes.length),
+      body: null, // no stream — arrayBuffer must be used
+    });
+
+    const result = await executeHttpProxy(
+      { method: 'GET', url: 'https://cdn.example/logo.png' },
+      fetcher,
+      { allowLocalhost: false }
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.response.bodyEncoding).toBe('base64');
+      expect(result.response.body).toBe(bytesToBase64(pngBytes));
+      expect(result.response.size).toBe(pngBytes.length);
+    }
+  });
+
   it('leaves text responses unencoded', async () => {
     const fetcher: Fetcher = vi.fn().mockResolvedValue({
       status: 200,

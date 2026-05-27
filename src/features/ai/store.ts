@@ -114,6 +114,7 @@ export interface AiChatState extends PersistedAiChatState {
   setProviderConfig: (p: Provider, cfg: ProviderConfig | null) => void;
   setActiveProvider: (p: Provider) => void;
   setRedactionMode: (m: 'default' | 'raw') => void;
+  setAgentToolsEnabled: (enabled: boolean) => void;
 }
 
 const DEFAULT_STATE: PersistedAiChatState = {
@@ -124,6 +125,7 @@ const DEFAULT_STATE: PersistedAiChatState = {
   providerConfigs: { openai: null, anthropic: null, openrouter: null },
   activeProvider: 'anthropic',
   redactionMode: 'default',
+  agentToolsEnabled: true,
 };
 
 function deriveTitle(text: string): string {
@@ -283,6 +285,7 @@ export const useAiChatStore = create<AiChatState>()(
         set((s) => ({ providerConfigs: { ...s.providerConfigs, [p]: cfg } })),
       setActiveProvider: (p) => set({ activeProvider: p }),
       setRedactionMode: (m) => set({ redactionMode: m }),
+      setAgentToolsEnabled: (enabled) => set({ agentToolsEnabled: enabled }),
     }),
     {
       name: 'ai-chat-store',
@@ -298,6 +301,7 @@ export const useAiChatStore = create<AiChatState>()(
         providerConfigs: state.providerConfigs,
         activeProvider: state.activeProvider,
         redactionMode: state.redactionMode,
+        agentToolsEnabled: state.agentToolsEnabled,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

@@ -107,6 +107,7 @@ function buildFetcher(
       statusText: response.statusText,
       headers: response.headers,
       text: () => response.text(),
+      arrayBuffer: () => response.arrayBuffer(),
       contentLengthHeader: response.headers.get('content-length'),
       body: response.body,
     };

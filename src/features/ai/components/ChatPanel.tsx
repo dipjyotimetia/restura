@@ -46,6 +46,8 @@ export function ChatPanel({ onClose }: Props) {
   const providerConfig = useAiChatStore((s) => s.providerConfigs[s.activeProvider]);
   const panelWidth = useAiChatStore((s) => s.panelWidth);
   const newConversation = useAiChatStore((s) => s.newConversation);
+  const agentToolsEnabled = useAiChatStore((s) => s.agentToolsEnabled);
+  const setAgentToolsEnabled = useAiChatStore((s) => s.setAgentToolsEnabled);
   const apiKeyConfigured = !!providerConfig?.apiKeyRef.id;
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
@@ -122,8 +124,9 @@ export function ChatPanel({ onClose }: Props) {
       ...(providerConfig.baseUrlOverride ? { baseUrlOverride: providerConfig.baseUrlOverride } : {}),
       rawMode,
       // Advertise agent tools so the model can propose actions (create request,
-      // write a test). Proposals require explicit user approval to apply.
-      tools: agentToolDefs(),
+      // write a test) — only when enabled. Proposals still require explicit
+      // user approval to apply; this just controls whether tools are offered.
+      ...(agentToolsEnabled ? { tools: agentToolDefs() } : {}),
     };
 
     const ai = getElectronAPI()?.ai;
@@ -225,6 +228,21 @@ export function ChatPanel({ onClose }: Props) {
           })()}
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setAgentToolsEnabled(!agentToolsEnabled)}
+            aria-label={agentToolsEnabled ? 'Disable agent actions' : 'Enable agent actions'}
+            aria-pressed={agentToolsEnabled}
+            title={
+              agentToolsEnabled
+                ? 'Agent actions on — the assistant may propose actions to apply'
+                : 'Agent actions off — chat only'
+            }
+            className={agentToolsEnabled ? 'text-sp-accent' : 'text-muted-foreground'}
+          >
+            <Wand2 className="h-4 w-4" />
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => newConversation()} aria-label="New chat">
             <Plus className="h-4 w-4" />
           </Button>

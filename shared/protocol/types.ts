@@ -169,6 +169,14 @@ export interface FetcherResponse {
    * Plan 4 (streaming) extends this contract with a streaming variant via `body`.
    */
   text: () => Promise<string>;
+  /**
+   * Buffered raw bytes — the canonical read for binary responses. Preferred
+   * over `body` for the buffered path because it's reliable across every
+   * runtime (workerd, the vite-plugin Miniflare dev proxy, and undici), whereas
+   * the `body` stream property isn't always surfaced. Consumes the body once,
+   * same as `text()`.
+   */
+  arrayBuffer?: () => Promise<ArrayBuffer>;
   contentLengthHeader: string | null;
   /**
    * Optional access to the raw response stream. When present, the shared core

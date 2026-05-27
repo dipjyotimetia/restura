@@ -32,10 +32,10 @@ test.describe('Response visualization', () => {
     await expect(page.getByText('"world"')).toBeVisible();
   });
 
-  // NB: image/binary preview is intentionally not e2e-tested here. It depends on
-  // the proxy base64-encoding binary bodies, which requires the fetcher to expose
-  // the raw response stream — true for real Cloudflare workerd and Electron's
-  // undici, but NOT reliably surfaced by the @cloudflare/vite-plugin Miniflare
-  // dev proxy. That path is covered by unit/integration tests
-  // (shared/protocol/__tests__/http-proxy-binary.test.ts).
+  // Image/binary preview isn't asserted here: the Playwright dev harness can't
+  // reliably observe the /api/proxy response (waitForResponse + response events
+  // both miss it). The underlying path IS verified — the worker base64-encodes
+  // binary bodies via arrayBuffer() (confirmed by curling the dev worker, and by
+  // shared/protocol/__tests__/http-proxy-binary.test.ts), and the renderer
+  // decodes Response.bodyEncoding === 'base64' to a data: URL.
 });
