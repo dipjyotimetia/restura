@@ -2,9 +2,13 @@ import { getElectronAPI } from '@/lib/shared/platform';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 
 /**
- * Bridges IPC chunk events to an AsyncIterable. Unsubscribes on completion.
- * Callers MUST invoke this after electronAPI.ai.chat() succeeds (which
- * registers the channels main-side). In a non-Electron build it yields a
+ * Bridges IPC chunk events to an AsyncIterable. Unsubscribes on completion
+ * (the `end` event), on early `return()`, and on the non-Electron path.
+ *
+ * Callers MUST invoke this BEFORE electronAPI.ai.chat() — subscription happens
+ * synchronously here, and the main process starts emitting before ai.chat()
+ * resolves, so subscribing afterwards would drop the earliest events (and the
+ * terminating `end`, hanging the iterator). In a non-Electron build it yields a
  * single guard error followed by done.
  */
 export function consumeStream(streamId: string): AsyncIterable<ChatStreamEvent> {

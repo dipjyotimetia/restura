@@ -16,7 +16,15 @@ interface RequestLike {
   method?: unknown;
   url?: unknown;
   headers?: unknown;
-  body?: { raw?: string } | null;
+  body?: RequestBodyLike | null;
+}
+
+/** A loose view of RequestBody covering the body types we can render to text. */
+interface RequestBodyLike {
+  type?: string;
+  raw?: string;
+  formData?: Array<{ key?: string; value?: string; enabled?: boolean }>;
+  multipartParts?: Array<{ contentType?: string; content?: string }>;
 }
 
 function normalizeHeaders(headers: Record<string, string | string[]>): Record<string, string> {
@@ -25,6 +33,32 @@ function normalizeHeaders(headers: Record<string, string | string[]>): Record<st
     out[k] = Array.isArray(v) ? v.join(', ') : v;
   }
   return out;
+}
+
+/**
+ * Render a request body to text for the AI context. `raw` covers json / xml /
+ * text / graphql / protobuf; form-data and url-encoded bodies live in
+ * `formData`, and multipart bodies in `multipartParts`. Reading only `raw` (the
+ * old behavior) sent an empty body for every form/multipart request, so the
+ * model never saw the payload it was asked about. Binary bodies have no text
+ * representation and are summarized.
+ */
+function bodyToText(body: RequestBodyLike | null | undefined): string {
+  if (!body) return '';
+  if (typeof body.raw === 'string' && body.raw.length > 0) return body.raw;
+  if (Array.isArray(body.formData) && body.formData.length > 0) {
+    return body.formData
+      .filter((f) => f.enabled !== false)
+      .map((f) => `${f.key ?? ''}=${f.value ?? ''}`)
+      .join('\n');
+  }
+  if (Array.isArray(body.multipartParts) && body.multipartParts.length > 0) {
+    return body.multipartParts
+      .map((p) => `[part ${p.contentType ?? 'application/octet-stream'}]\n${p.content ?? ''}`)
+      .join('\n');
+  }
+  if (body.type === 'binary') return '(binary body)';
+  return '';
 }
 
 /**
@@ -67,7 +101,7 @@ export function captureActive(): RawSnapshot {
       method: typeof request.method === 'string' ? request.method : '',
       url: typeof request.url === 'string' ? request.url : '',
       headers: reqHeaders,
-      body: request.body?.raw ?? '',
+      body: bodyToText(request.body),
     },
     ...(response
       ? {

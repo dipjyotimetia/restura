@@ -12,7 +12,7 @@ import {
 import { SseParser, type ParsedSseEvent } from './lib/sse-parser';
 import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
-import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
+import { makeFetchFetcher } from './fetch-fetcher';
 
 export const sseRateLimiter = createKeyedRateLimiter(20, 60_000);
 const MAX_CONCURRENT_SSE_CONNECTIONS = 50;
@@ -121,26 +121,10 @@ export function registerSseHandlerIPC(): void {
       });
     });
 
-    // Adapter: wraps native fetch with `redirect: 'manual'` so followRedirects
-    // can validate every hop (matches the Worker proxy's policy — Location
-    // pointing at metadata IPs etc. is rejected before we connect).
-    const sseFetcher: Fetcher = async (req) => {
-      const res = await fetch(req.url, {
-        method: req.method,
-        headers: req.headers,
-        signal: req.signal,
-        redirect: 'manual',
-      });
-      const fetcherResponse: FetcherResponse = {
-        status: res.status,
-        statusText: res.statusText,
-        headers: res.headers,
-        text: () => res.text(),
-        contentLengthHeader: res.headers.get('content-length'),
-        body: res.body,
-      };
-      return fetcherResponse;
-    };
+    // `redirect: 'manual'` so followRedirects can validate every hop (matches
+    // the Worker proxy's policy — Location pointing at metadata IPs etc. is
+    // rejected before we connect). Shared adapter; see fetch-fetcher.ts.
+    const sseFetcher = makeFetchFetcher({ redirect: 'manual' });
 
     try {
       // Same orchestrator as the HTTP handler so SSE inherits the SSRF /

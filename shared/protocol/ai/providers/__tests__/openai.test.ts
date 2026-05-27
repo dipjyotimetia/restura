@@ -44,4 +44,18 @@ describe('openai decoder', () => {
       expect(m.outputUSDPerMTok).toBeGreaterThan(0);
     }
   });
+
+  it('emits done when the stream ends with finish_reason but no [DONE] sentinel', () => {
+    // Some OpenAI-compatible gateways/proxies omit the trailing `data: [DONE]`.
+    // A non-null finish_reason must still terminate the stream so the renderer
+    // finalizes the message instead of leaving it stuck "streaming".
+    const decoder = openaiModule.createDecoder('gpt-4o-mini');
+    const events = [
+      ...decoder.feed('{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}'),
+      ...decoder.feed('{"choices":[{"delta":{},"finish_reason":"stop"}]}'),
+      ...decoder.flush(),
+    ];
+    expect(events.some((e) => e.type === 'delta' && e.text === 'hi')).toBe(true);
+    expect(events.at(-1)?.type).toBe('done');
+  });
 });

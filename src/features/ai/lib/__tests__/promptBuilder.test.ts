@@ -47,4 +47,25 @@ describe('buildMessages', () => {
     const msgs = buildMessages({ snapshot, priorTurns: [], userText: 'why', rawMode: true });
     expect(msgs.at(-1)!.content).toContain('Bearer sk-x');
   });
+
+  it('keeps short structural env values in context but still redacts long ones', () => {
+    const snap: RawSnapshot = {
+      contextRef: { kind: 'request', tabId: 't1', capturedAt: 0 },
+      request: {
+        method: 'GET',
+        url: 'https://host/api/v2/users?token=supersecretvalue123',
+        headers: {},
+        body: '',
+      },
+      // version "v2" (2 chars) and path "api" (3 chars) are structure, not secrets,
+      // and must survive so the model can reason about the URL. The long value is
+      // redacted wherever it's interpolated.
+      environment: { version: 'v2', path: 'api', sessionToken: 'supersecretvalue123' },
+    };
+    const last = buildMessages({ snapshot: snap, priorTurns: [], userText: 'x', rawMode: false }).at(
+      -1,
+    )!.content;
+    expect(last).toContain('/api/v2/users');
+    expect(last).not.toContain('supersecretvalue123');
+  });
 });

@@ -44,10 +44,30 @@ export function ChatPanel({ onClose }: Props) {
   const cancelRef = useRef<(() => void) | null>(null);
   const flushBufferRef = useRef<{ msgId: string; buffer: string } | null>(null);
   const rafRef = useRef<number | null>(null);
+  // Synchronous re-entry guard. `streamingId` is React state, so it isn't set
+  // until a re-render — a second ⌘+Enter fired during the ai.chat() round-trip
+  // would otherwise start a competing stream that clobbers the shared refs.
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     if (!activeId) newConversation();
   }, [activeId, newConversation]);
+
+  // Flush the RAF-batched delta buffer to the store immediately and cancel any
+  // pending frame. Used on every stream-termination path so the rendered text
+  // is complete before we finalize (the old code dropped the un-flushed tail on
+  // error/cancel).
+  const flushNow = () => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    const b = flushBufferRef.current;
+    if (b && b.buffer.length > 0) {
+      useAiChatStore.getState().appendAssistantDelta(b.msgId, b.buffer);
+      b.buffer = '';
+    }
+  };
 
   const scheduleFlush = () => {
     if (rafRef.current != null) return;
@@ -62,7 +82,8 @@ export function ChatPanel({ onClose }: Props) {
   };
 
   const handleSend = async (text: string, rawMode: boolean) => {
-    if (!providerConfig) return;
+    if (!providerConfig || sendingRef.current) return;
+    sendingRef.current = true;
     const snapshot = captureActive();
 
     // Read prior turns from the live store at call time — NOT the render-time
@@ -93,23 +114,39 @@ export function ChatPanel({ onClose }: Props) {
     const ai = getElectronAPI()?.ai;
     if (!ai) {
       useAiChatStore.getState().setMessageError(assistantMsgId, 'AI not available (non-Electron build).');
+      sendingRef.current = false;
       return;
     }
 
-    const result = await ai.chat(spec);
-    if (!result.ok) {
-      useAiChatStore.getState().setMessageError(assistantMsgId, 'error' in result ? result.error : 'Unknown error');
-      return;
-    }
-
+    // Subscribe to the stream BEFORE invoking ai.chat. The main process fires
+    // the stream off the instant `ai:chat` runs and returns before it finishes,
+    // so its earliest events — including the synchronous guard / "API key not
+    // found" error AND its terminating `end` — are emitted before ai.chat()
+    // even resolves. emitTo does not buffer, so a late subscription would drop
+    // them and leave the message stuck "streaming" forever with no `end` to
+    // close the iterator. Subscribe first, then invoke.
+    const iterator = consumeStream(streamId)[Symbol.asyncIterator]();
     setStreamingId(assistantMsgId);
     flushBufferRef.current = { msgId: assistantMsgId, buffer: '' };
     cancelRef.current = () => void ai.cancel({ streamId });
 
+    const result = await ai.chat(spec);
+    if (!result.ok) {
+      await iterator.return?.(); // tear down the subscription we opened above
+      useAiChatStore.getState().setMessageError(assistantMsgId, 'error' in result ? result.error : 'Unknown error');
+      setStreamingId(null);
+      cancelRef.current = null;
+      flushBufferRef.current = null;
+      sendingRef.current = false;
+      return;
+    }
+
     let lastUsage: Usage | undefined;
     let errored = false;
     try {
-      for await (const ev of consumeStream(streamId)) {
+      for (;;) {
+        const { value: ev, done } = await iterator.next();
+        if (done) break;
         if (ev.type === 'delta') {
           if (flushBufferRef.current) flushBufferRef.current.buffer += ev.text;
           scheduleFlush();
@@ -118,27 +155,26 @@ export function ChatPanel({ onClose }: Props) {
         } else if (ev.type === 'error') {
           errored = true;
           useAiChatStore.getState().setMessageError(assistantMsgId, ev.message);
-        } else if (ev.type === 'done') {
-          const b = flushBufferRef.current;
-          if (b && b.buffer.length > 0) {
-            useAiChatStore.getState().appendAssistantDelta(b.msgId, b.buffer);
-            b.buffer = '';
-          }
-          // Providers emit `done` after an `error`; don't let finalize flip the
-          // message's status back to 'done' and mask the failure.
-          if (!errored) {
-            useAiChatStore.getState().finalizeAssistantMessage(assistantMsgId, lastUsage);
-          }
         }
+        // `done` events need no handling here: the stream terminates via the
+        // iterator's `done` (driven by the IPC `end` channel), and we finalize
+        // in `finally` below.
       }
     } finally {
+      // Flush the RAF-batched tail BEFORE finalizing so the rendered text is
+      // complete on every path (success, provider error, user cancel).
+      flushNow();
+      // Finalize on ANY clean termination, not only on a `done` event. A cancel
+      // ends the stream via the `end` channel with no `done` event, and some
+      // providers close without a trailing `[DONE]`; gating finalize on a
+      // `done` event left those messages stuck "streaming".
+      if (!errored) {
+        useAiChatStore.getState().finalizeAssistantMessage(assistantMsgId, lastUsage);
+      }
       setStreamingId(null);
       cancelRef.current = null;
       flushBufferRef.current = null;
-      if (rafRef.current != null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      sendingRef.current = false;
     }
   };
 

@@ -22,7 +22,7 @@ import { resolveSecretHandle } from './secret-handle-store';
 import { AiChatRequestSchema, AiChatCancelSchema } from './ipc-validators';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import type { ChatRequestSpec } from '@shared/protocol/ai/types';
-import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
+import { makeFetchFetcher } from './fetch-fetcher';
 
 const rateLimiter = createKeyedRateLimiter(30, 60_000); // 30 chat msgs / min / webContents
 const MAX_CONCURRENT_STREAMS = 5;
@@ -35,22 +35,7 @@ interface ActiveStream {
 
 const active = new Map<string, ActiveStream>();
 
-const nodeFetcher: Fetcher = async (req) => {
-  const res = await fetch(req.url, {
-    method: req.method,
-    headers: req.headers as HeadersInit,
-    body: req.body,
-    signal: req.signal,
-  });
-  return {
-    status: res.status,
-    statusText: res.statusText,
-    headers: res.headers,
-    body: res.body,
-    contentLengthHeader: res.headers.get('content-length'),
-    text: () => res.text(),
-  } satisfies FetcherResponse;
-};
+const nodeFetcher = makeFetchFetcher();
 
 async function resolveSecretFn(handleId: string): Promise<string | undefined> {
   const v = resolveSecretHandle(handleId);

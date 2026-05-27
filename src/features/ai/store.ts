@@ -1,9 +1,68 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { AiChatStateSchema, type PersistedAiChatState } from '@/lib/shared/store-validators';
 import type { Provider } from '@shared/protocol/ai/types';
+
+/**
+ * Wrap a persist storage so rapid `setItem` calls coalesce into one write.
+ * During streaming the store is mutated ~60×/s (RAF-batched delta appends), and
+ * each write re-serializes AND AES-GCM-encrypts the ENTIRE chat history with a
+ * PBKDF2-derived key — that is dozens of 100k-iteration derivations per second,
+ * scaling with total history. Debouncing collapses it to a trailing write
+ * `waitMs` after activity stops, with `maxWaitMs` so a long stream still
+ * checkpoints, plus a flush on page hide so the final state isn't lost.
+ * `getItem`/`removeItem` pass through; persistence is best-effort either way.
+ */
+function debouncedStorage<T>(
+  inner: PersistStorage<T>,
+  waitMs: number,
+  maxWaitMs: number,
+): PersistStorage<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let firstPendingAt = 0;
+  let pending: { name: string; value: StorageValue<T> } | null = null;
+
+  const flush = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    firstPendingAt = 0;
+    const p = pending;
+    pending = null;
+    if (p) void inner.setItem(p.name, p.value);
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+  }
+
+  return {
+    getItem: (name) => inner.getItem(name),
+    removeItem: (name) => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      pending = null;
+      firstPendingAt = 0;
+      return inner.removeItem(name);
+    },
+    setItem: (name, value) => {
+      pending = { name, value };
+      const now = Date.now();
+      if (firstPendingAt === 0) firstPendingAt = now;
+      if (timer) clearTimeout(timer);
+      // Shrink the delay as we approach maxWait so a continuous stream still
+      // checkpoints rather than starving the trailing write indefinitely.
+      const delay = Math.max(0, Math.min(waitMs, maxWaitMs - (now - firstPendingAt)));
+      timer = setTimeout(flush, delay);
+    },
+  };
+}
 
 type SecretRefHandle = { kind: 'handle'; id: string; label?: string };
 
@@ -227,7 +286,9 @@ export const useAiChatStore = create<AiChatState>()(
     }),
     {
       name: 'ai-chat-store',
-      storage: dexieStorageAdapters.aiChat(),
+      // Debounced so streamed deltas don't trigger a full-history re-encrypt per
+      // frame (see debouncedStorage). 400ms trailing, 2s max between writes.
+      storage: debouncedStorage(dexieStorageAdapters.aiChat(), 400, 2000),
       version: 1,
       partialize: (state) => ({
         conversations: state.conversations,

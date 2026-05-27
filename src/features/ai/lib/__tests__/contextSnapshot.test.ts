@@ -71,4 +71,34 @@ describe('captureActive', () => {
     expect(snap.contextRef.kind).toBe('none');
     expect(snap.request).toBeUndefined();
   });
+
+  it('captures form-data bodies (not just raw) so the AI sees the payload', () => {
+    vi.mocked(useRequestStore.getState).mockReturnValue({
+      activeTabId: 't1',
+      tabs: [
+        {
+          id: 't1',
+          request: {
+            type: 'http',
+            method: 'POST',
+            url: 'https://api/login',
+            headers: [],
+            body: {
+              type: 'x-www-form-urlencoded',
+              formData: [
+                { id: 'f1', key: 'username', value: 'alice', enabled: true },
+                { id: 'f2', key: 'grant_type', value: 'password', enabled: true },
+                { id: 'f3', key: 'disabled', value: 'nope', enabled: false },
+              ],
+            },
+          },
+          response: null,
+        },
+      ],
+    } as never);
+    const snap = captureActive();
+    expect(snap.request?.body).toContain('username=alice');
+    expect(snap.request?.body).toContain('grant_type=password');
+    expect(snap.request?.body).not.toContain('disabled=nope');
+  });
 });

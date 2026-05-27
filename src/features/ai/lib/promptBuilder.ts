@@ -29,10 +29,14 @@ function redactEnvValues(text: string, env: Record<string, string> | undefined):
   if (!env) return text;
   let out = text;
   for (const v of Object.values(env)) {
-    // Floor of 3 chars: substituting 1–2 char values (ports like "80", flags
-    // like "v2") would mangle the context with little security benefit, while
-    // 3+ char values are where real secrets live. Tighten if needed.
-    if (v.length >= 3) {
+    // Floor of 8 chars (matching the token-pattern minimum in redaction.ts):
+    // short structural values — ports ("8080"), versions ("v2", "2024"), path
+    // fragments ("api"), region codes — are not secrets, and blanket-replacing
+    // them globally mangles the very context the model needs to reason about
+    // (e.g. "https://x/api/2024/users" → "https://x/[REDACTED]/[REDACTED]/users").
+    // Real secrets are high-entropy and well over 8 chars; the ENVIRONMENT block
+    // itself never exposes values regardless (redactEnvironment masks them all).
+    if (v.length >= 8) {
       // Escape regex metacharacters in the literal value before substituting.
       const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       out = out.replace(new RegExp(escaped, 'g'), '[REDACTED]');
