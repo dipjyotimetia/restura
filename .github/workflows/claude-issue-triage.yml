@@ -1,0 +1,55 @@
+name: Claude Issue Triage
+
+# Auto-triages newly opened issues: reads the issue, picks appropriate labels
+# from the repo's existing label set, and applies them. Self-contained — no
+# custom slash command required. Requires the ANTHROPIC_API_KEY repo secret.
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code for issue triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Allow triage to run on issues from users without write access.
+          allowed_non_write_users: "*"
+
+          # Issue number is a trusted integer; the action reads the issue body
+          # itself via gh, so untrusted text never touches a shell here.
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE NUMBER: ${{ github.event.issue.number }}
+
+            You are triaging a newly opened GitHub issue for the Restura repo (a
+            multi-protocol API client; see CLAUDE.md for context).
+
+            Steps:
+            1. Read the issue with: gh issue view ${{ github.event.issue.number }}
+            2. List the repo's available labels with: gh label list --limit 100
+            3. Choose ONLY labels that already exist. Pick:
+               - one type label if applicable (e.g. bug, enhancement, documentation)
+               - any relevant area labels matching the protocol/platform involved
+                 (e.g. http, grpc, websocket, electron, worker, security)
+               - priority only if clearly warranted
+            4. Apply them with:
+               gh issue edit ${{ github.event.issue.number }} --add-label "label1,label2"
+            5. Do NOT create new labels, comment, close, or otherwise modify the issue.
+               If no existing label fits, do nothing.
+
+          claude_args: |
+            --allowedTools "Bash(gh issue view:*),Bash(gh label list:*),Bash(gh issue edit:*)"
