@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { Gauge, Play, Square } from 'lucide-react';
 import {
   Dialog,
@@ -9,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { useLoadTest } from '../hooks/useLoadTest';
 import { computeLoadStats } from '@/lib/shared/loadStats';
+import { useLoadTestStore } from '@/store/useLoadTestStore';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import type { HttpRequest } from '@/types';
@@ -59,10 +61,28 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
       ]
     : [];
 
+  // Record each completed run once into the Runs panel's history.
+  const recordedRef = useRef(false);
+  const addRun = useLoadTestStore((s) => s.addRun);
   const handleRun = () => {
     if (!request) return;
+    recordedRef.current = false;
     start(request, { iterations, concurrency });
   };
+  useEffect(() => {
+    if (!progress?.done || !stats || !request || recordedRef.current) return;
+    recordedRef.current = true;
+    addRun({
+      id: uuidv4(),
+      method: request.method,
+      url: request.url,
+      requestName: request.name || request.url,
+      request,
+      stats,
+      rps,
+      completedAt: Date.now(),
+    });
+  }, [progress?.done, stats, request, rps, addRun]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>

@@ -65,6 +65,7 @@ import { ConflictDialog } from './ConflictDialog';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import DocsViewer from './DocsViewer';
 import GitDialog from '@/components/shared/GitDialog';
+import RunsPanel from '@/components/shared/RunsPanel';
 import { buildMockRoutes } from '../lib/mockRoutes';
 import { useMockStore } from '@/store/useMockStore';
 import { getElectronAPI } from '@/lib/shared/platform';
@@ -263,6 +264,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
   const mockStatus = useMockStore((s) => s.status);
   const setMockStatus = useMockStore((s) => s.setStatus);
+  const setMockRoutes = useMockStore((s) => s.setRoutes);
 
   const handleToggleMock = useCallback(
     async (collectionId: string) => {
@@ -276,6 +278,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
         const res = await api.mock.stop();
         if (res.ok) {
           setMockStatus(res.status);
+          setMockRoutes([]);
           toast.success('Mock server stopped');
         } else {
           toast.error(`Failed to stop mock server: ${res.error}`);
@@ -292,6 +295,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       const res = await api.mock.start({ collectionId, routes });
       if (res.ok) {
         setMockStatus(res.status);
+        // Surface the served routes in the Runs panel.
+        setMockRoutes(routes.map((r) => ({ method: r.method, path: r.path })));
         toast.success(`Mock server running at ${res.status.baseUrl}`, {
           description: `${res.status.routeCount} route${res.status.routeCount === 1 ? '' : 's'} · replays recorded responses`,
         });
@@ -299,7 +304,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
         toast.error(`Failed to start mock server: ${res.error}`);
       }
     },
-    [collections, mockStatus, setMockStatus]
+    [collections, mockStatus, setMockStatus, setMockRoutes]
   );
 
   const handleDeleteClick = useCallback((collectionId: string) => {
@@ -531,7 +536,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
               ? 'Collections'
               : activeTab === 'history'
                 ? 'History'
-                : 'Workflows'}
+                : activeTab === 'runs'
+                  ? 'Runs'
+                  : 'Workflows'}
           </span>
           <Button
             variant="ghost"
@@ -558,7 +565,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
           className="flex-1 flex flex-col overflow-hidden"
         >
           <div className="px-3 py-2 border-b border-border/40">
-            <TabsList className="w-full grid grid-cols-3">
+            <TabsList className="w-full grid grid-cols-4">
               <TabsTrigger value="collections" className="text-xs">
                 Collections
                 {filteredCollections.length > 0 && (
@@ -572,6 +579,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
               </TabsTrigger>
               <TabsTrigger value="workflows" className="text-xs">
                 Workflows
+              </TabsTrigger>
+              <TabsTrigger value="runs" className="text-xs">
+                Runs
               </TabsTrigger>
             </TabsList>
           </div>
@@ -984,6 +994,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="runs" className="flex-1 overflow-auto p-3 mt-0 min-h-0">
+            <RunsPanel />
           </TabsContent>
         </Tabs>
 

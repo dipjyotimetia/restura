@@ -9,10 +9,15 @@ import type { MockServerStatus } from '@/types';
  */
 interface MockState {
   status: MockServerStatus;
+  /** Lightweight summary of the served routes, for the Runs panel. */
+  routes: Array<{ method: string; path: string }>;
   setStatus: (status: MockServerStatus) => void;
+  setRoutes: (routes: Array<{ method: string; path: string }>) => void;
 }
 
 export const useMockStore = create<MockState>((set) => ({
   status: { running: false },
+  routes: [],
   setStatus: (status) => set({ status }),
+  setRoutes: (routes) => set({ routes }),
 }));

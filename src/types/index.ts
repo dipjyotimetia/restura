@@ -745,7 +745,7 @@ export const SPATIAL_ACCENT_PRESETS: ReadonlyArray<SpatialAccent> = [
 export type GlobalSettings = AppSettings;
 
 // Active sidebar panel
-export type ActivePanel = 'collections' | 'history' | 'workflows';
+export type ActivePanel = 'collections' | 'history' | 'workflows' | 'runs';
 
 // Postman Collection Format (simplified)
 export interface PostmanVariable {
