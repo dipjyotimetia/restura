@@ -43,6 +43,11 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
     return computeLoadStats(latencies, progress.elapsedMs, errors);
   }, [progress]);
 
+  // Throughput over ALL completed requests (success + failure), not just the OK
+  // ones the latency percentiles are computed from.
+  const rps =
+    progress && progress.elapsedMs > 0 ? progress.completed / (progress.elapsedMs / 1000) : 0;
+
   const pct = progress ? Math.round((progress.completed / progress.total) * 100) : 0;
   const maxBar = stats ? Math.max(stats.p99, 1) : 1;
   const bars: Array<{ label: string; v: number }> = stats
@@ -139,7 +144,7 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
               {stats && (
                 <>
                   <div className="grid grid-cols-4 gap-2">
-                    <Stat label="Req/s" value={stats.rps.toFixed(1)} />
+                    <Stat label="Req/s" value={rps.toFixed(1)} />
                     <Stat label="Mean" value={stats.mean.toFixed(0)} unit="ms" />
                     <Stat label="Min" value={stats.min.toFixed(0)} unit="ms" />
                     <Stat label="Max" value={stats.max.toFixed(0)} unit="ms" />

@@ -42,8 +42,11 @@ function comboMatches(combo: string, e: KeyboardEvent): boolean {
   const needAlt = parts.includes('alt');
   const hasMod = e.metaKey || e.ctrlKey;
   if (needMod !== hasMod) return false;
-  if (needShift !== e.shiftKey) return false;
-  if (needAlt !== e.altKey) return false;
+  // Require shift/alt only when the combo asks for them; don't reject when they
+  // happen to be held otherwise. This keeps punctuation combos (e.g. mod+/ ,
+  // mod+, ) working on layouts where the key itself requires Shift.
+  if (needShift && !e.shiftKey) return false;
+  if (needAlt && !e.altKey) return false;
   return e.key.toLowerCase() === key;
 }
 

@@ -184,19 +184,21 @@ function ResponseViewer() {
   // only applies when the body wasn't base64-encoded.
   const isBase64 = currentResponse?.bodyEncoding === 'base64';
   const isImage = Boolean(isBase64 && /^image\//i.test(contentType));
-  const isCsv = Boolean(
-    currentResponse && !isBase64 && isCsvResponse(contentType, currentResponse.body)
+  // Memoized: CSV sniffing splits the whole body, so don't redo it on every
+  // unrelated re-render (header-filter typing, copy toasts, tab switches).
+  const isCsv = useMemo(
+    () => Boolean(currentResponse && !isBase64 && isCsvResponse(contentType, currentResponse.body)),
+    [currentResponse, isBase64, contentType]
   );
 
   // Reset the body view to a sensible default whenever the response changes:
   // CSV → table, everything else → pretty. Also drop any open JSONPath overlay.
+  // Keyed on the response id (unique) — timestamps can collide within a ms.
   useEffect(() => {
     setBodyFormat(isCsv ? 'table' : 'pretty');
     setShowJsonPath(false);
-    // Keyed on response identity, not on isCsv directly, so a user toggling
-    // formats mid-response isn't overridden.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentResponse?.timestamp]);
+  }, [currentResponse?.id]);
 
   // Pretty-printing a large JSON body can stall the main thread, so only
   // compute it when the body/preview tab is actually visible.

@@ -52,4 +52,18 @@ describe('formatLoadStatsReport', () => {
     const out = formatLoadStatsReport(result([10, 20, 30], [200, 404, 0]));
     expect(out).toContain('errors   2');
   });
+
+  it('treats gRPC code 0 as success even when status is 0', () => {
+    const grpcResult: RunResult = {
+      meta: { collectionName: 'G', collectionDir: '/x', startedAt: 1 },
+      durationMs: 1000,
+      requests: [
+        { request: fakeReq(), status: 0, passed: true, durationMs: 5, bodyBytes: 0, grpcStatus: { code: 0, message: 'OK' } } as RequestRunResult,
+        { request: fakeReq(), status: 0, passed: false, durationMs: 5, bodyBytes: 0, grpcStatus: { code: 14, message: 'unavailable' } } as RequestRunResult,
+      ],
+      summary: { total: 2, passed: 1, failed: 1, errored: 0 },
+    };
+    const out = formatLoadStatsReport(grpcResult);
+    expect(out).toContain('errors   1'); // only the code-14 one
+  });
 });

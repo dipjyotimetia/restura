@@ -18,10 +18,15 @@ describe('comboMatches', () => {
     expect(comboMatches('mod+k', key({ key: 'K', metaKey: true }))).toBe(true);
   });
 
-  it('requires shift when specified and rejects it otherwise', () => {
+  it('requires shift when specified', () => {
     expect(comboMatches('mod+shift+c', key({ key: 'c', metaKey: true, shiftKey: true }))).toBe(true);
     expect(comboMatches('mod+shift+c', key({ key: 'c', metaKey: true }))).toBe(false);
-    expect(comboMatches('mod+s', key({ key: 's', metaKey: true, shiftKey: true }))).toBe(false);
+  });
+
+  it('tolerates an extra shift on combos that do not specify it (layout punctuation)', () => {
+    // On layouts where '/' or ',' need Shift, the combo must still fire.
+    expect(comboMatches('mod+/', key({ key: '/', metaKey: true, shiftKey: true }))).toBe(true);
+    expect(comboMatches('mod+s', key({ key: 's', metaKey: true, shiftKey: true }))).toBe(true);
   });
 
   it('handles punctuation keys', () => {

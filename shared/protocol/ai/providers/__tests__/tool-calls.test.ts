@@ -43,4 +43,13 @@ describe('openai tool_calls decoding', () => {
     expect(call?.name).toBe('create_http_request');
     expect(JSON.parse(call!.input)).toEqual({ method: 'GET', url: 'https://api.example/users' });
   });
+
+  it('keeps parallel tool calls separate when deltas omit index', () => {
+    const calls = decode(openaiModule, 'openai-tool-call-noindex.sse.txt', 'gpt-4o').filter(
+      (e): e is ToolCall => e.type === 'tool_call'
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls.map((c) => c.id)).toEqual(['call_a', 'call_b']);
+    expect(JSON.parse(calls[1]!.input)).toEqual({ y: 2 });
+  });
 });

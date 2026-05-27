@@ -38,6 +38,9 @@ class OpenAIDecoder implements StreamDecoder {
   // Tool calls stream as delta.tool_calls[]; id/name arrive first, arguments
   // accumulate across chunks. Keyed by `index`; emitted on flush().
   private toolCalls = new Map<number, { id: string; name: string; args: string }>();
+  // Fallback key for gateways that omit `index` on tool-call deltas: advance on
+  // each new `id` so parallel calls don't collapse onto one bucket.
+  private autoToolIdx = -1;
 
   constructor(
     private readonly model: string,
@@ -83,7 +86,15 @@ class OpenAIDecoder implements StreamDecoder {
     const toolDeltas = p.choices?.[0]?.delta?.tool_calls;
     if (toolDeltas) {
       for (const td of toolDeltas) {
-        const idx = td.index ?? 0;
+        let idx: number;
+        if (td.index != null) {
+          idx = td.index;
+        } else {
+          // No index: a delta carrying a new `id` starts the next call; arg-only
+          // continuation deltas (no id) append to the current one.
+          if (td.id) this.autoToolIdx += 1;
+          idx = this.autoToolIdx < 0 ? 0 : this.autoToolIdx;
+        }
         const existing = this.toolCalls.get(idx) ?? { id: '', name: '', args: '' };
         if (td.id) existing.id = td.id;
         if (td.function?.name) existing.name = td.function.name;

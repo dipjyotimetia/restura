@@ -58,10 +58,11 @@ describe('parsePorcelainV2', () => {
     expect(r.branch).toBeNull();
   });
 
-  it('extracts rename paths from "2" entries via the tab-separated form', () => {
+  it('extracts the NEW path from rename "2" entries (porcelain v2: <newPath>\\t<origPath>)', () => {
+    // Real git emits the current (new) path before the tab, original after.
     const raw = [
       '# branch.head main',
-      '2 R. N... 100644 100644 100644 1111 2222 R100 old.txt\tnew.txt',
+      '2 R. N... 100644 100644 100644 1111 2222 R100 new.txt\told.txt',
     ].join('\n');
     const r = parsePorcelainV2(raw);
     expect(r.files).toHaveLength(1);

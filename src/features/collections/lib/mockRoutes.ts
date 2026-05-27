@@ -6,14 +6,24 @@
  */
 import type { Collection, CollectionItem, HistoryItem, HttpRequest, MockRoute } from '@/types';
 
-/** Extract the pathname from a request URL, tolerating template vars / bad URLs. */
+/**
+ * Extract a matchable pathname from a request URL. `{{token}}` segments become
+ * `:token` wildcards (matchRoute treats `:seg`/`{seg}` as one-segment
+ * wildcards) so path-param endpoints still match; a leading `{{baseUrl}}`
+ * collapses into the host and is dropped. Tolerates non-absolute / bad URLs.
+ */
 export function extractPath(url: string): string {
-  const cleaned = url.replace(/\{\{[^}]*\}\}/g, '').trim();
+  const withWildcards = url
+    .trim()
+    .replace(/\{\{\s*([^}]*?)\s*\}\}/g, (_m, name: string) => {
+      const clean = String(name).replace(/[^a-zA-Z0-9_]/g, '');
+      return `:${clean || 'param'}`;
+    });
   try {
-    return new URL(cleaned).pathname || '/';
+    return new URL(withWildcards).pathname || '/';
   } catch {
-    // Not absolute (or contained leftover junk) — strip scheme+host heuristically.
-    const noScheme = cleaned.replace(/^[a-z]+:\/\//i, '');
+    // Not absolute (or a leading :token host) — strip scheme+host heuristically.
+    const noScheme = withWildcards.replace(/^[a-z]+:\/\//i, '');
     const slash = noScheme.indexOf('/');
     const path = slash >= 0 ? noScheme.slice(slash) : '/';
     return path.split('?')[0]?.split('#')[0] || '/';
@@ -49,6 +59,9 @@ function routeForHttpRequest(req: HttpRequest, history: HistoryItem[]): MockRout
       status: recorded.status || 200,
       headers: ct ? { 'content-type': ct } : { 'content-type': 'text/plain' },
       body: recorded.body,
+      // Carry binary encoding so the server decodes base64 back to bytes
+      // instead of replaying the base64 text verbatim.
+      ...(recorded.bodyEncoding === 'base64' ? { bodyEncoding: 'base64' as const } : {}),
     };
   }
 

@@ -143,7 +143,10 @@ export default function CommandPalette({
   const setActiveEnvironment = useEnvironmentStore((s) => s.setActiveEnvironment);
   const currentResponse = useActiveResponse();
   const activeTab = useActiveTab();
-  const activeIsHttp = activeTab?.request?.type === 'http';
+  // A WS/Socket.IO/Kafka/GraphQL tab is a placeholder type:'http' tab with a
+  // modeOverride; in those modes RequestBuilder (which hosts the code-gen /
+  // load-test dialogs) isn't mounted, so gate on the effective mode.
+  const activeIsHttp = !activeTab?.modeOverride && activeTab?.request?.type === 'http';
 
   // Toggle ⌘K / Ctrl+K — works regardless of controlled/uncontrolled mode.
   useEffect(() => {

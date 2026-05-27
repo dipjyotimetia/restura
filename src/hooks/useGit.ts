@@ -58,18 +58,28 @@ export function useGit(directoryPath: string | null) {
       return;
     }
     setState((s) => ({ ...s, loading: true, error: null }));
-    const [statusRes, branchRes, logRes] = await Promise.all([
-      api.git.status(directoryPath),
-      api.git.branchList(directoryPath),
-      api.git.log(directoryPath, 20),
-    ]);
-    setState({
-      status: statusRes.ok ? statusRes.status : null,
-      branches: branchRes.ok ? branchRes.branches : [],
-      log: logRes.ok ? logRes.commits : [],
-      loading: false,
-      error: !statusRes.ok ? statusRes.error : null,
-    });
+    try {
+      const [statusRes, branchRes, logRes] = await Promise.all([
+        api.git.status(directoryPath),
+        api.git.branchList(directoryPath),
+        api.git.log(directoryPath, 20),
+      ]);
+      setState({
+        status: statusRes.ok ? statusRes.status : null,
+        branches: branchRes.ok ? branchRes.branches : [],
+        log: logRes.ok ? logRes.commits : [],
+        loading: false,
+        error: !statusRes.ok ? statusRes.error : null,
+      });
+    } catch (err) {
+      // An IPC invoke can reject during teardown / missing handler — never leave
+      // the spinner stuck.
+      setState((s) => ({
+        ...s,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Git operation failed',
+      }));
+    }
   }, [directoryPath]);
 
   useEffect(() => {
@@ -84,7 +94,13 @@ export function useGit(directoryPath: string | null) {
         const staged = await api.git.add(directoryPath, filePaths);
         if (!staged.ok) return staged.error;
       }
-      const res = await api.git.commit(directoryPath, message);
+      // Scope the commit to exactly the selected files so anything staged
+      // outside this dialog isn't committed too.
+      const res = await api.git.commit(
+        directoryPath,
+        message,
+        filePaths.length > 0 ? { paths: filePaths } : undefined
+      );
       await refresh();
       return res.ok ? null : res.error;
     },

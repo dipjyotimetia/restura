@@ -7,8 +7,9 @@ describe('extractPath', () => {
     expect(extractPath('https://api.example.com/users/1?x=1')).toBe('/users/1');
   });
 
-  it('strips template variables', () => {
-    expect(extractPath('{{baseUrl}}/users/{{id}}')).toBe('/users/');
+  it('converts template variables to :param wildcards', () => {
+    expect(extractPath('{{baseUrl}}/users/{{id}}')).toBe('/users/:id');
+    expect(extractPath('https://api.example/users/{{userId}}/posts')).toBe('/users/:userId/posts');
   });
 
   it('handles bare paths', () => {
@@ -81,5 +82,19 @@ describe('buildMockRoutes', () => {
     expect(users.status).toBe(201);
     expect(users.body).toBe('[{"id":1}]');
     expect(users.headers['content-type']).toBe('application/json');
+  });
+
+  it('carries base64 bodyEncoding for recorded binary responses', () => {
+    const history: HistoryItem[] = [
+      {
+        id: 'h2',
+        timestamp: 3,
+        request: { id: 'r1', name: 'Get users', type: 'http', method: 'GET', url: 'https://api.example/users', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' } } as never,
+        response: { id: 'y', requestId: 'r1', status: 200, statusText: 'OK', headers: { 'content-type': 'image/png' }, body: 'iVBORw0KGgo=', size: 8, time: 5, timestamp: 3, bodyEncoding: 'base64' },
+      },
+    ];
+    const route = buildMockRoutes(collection, history).find((r) => r.path === '/users')!;
+    expect(route.bodyEncoding).toBe('base64');
+    expect(route.body).toBe('iVBORw0KGgo=');
   });
 });

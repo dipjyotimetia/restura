@@ -1,9 +1,15 @@
 import type { Reporter, RunResult } from './types.js';
 import { computeLoadStats } from '@/lib/shared/loadStats';
 
-/** Count a request as failed when it errored at transport level or returned 4xx/5xx. */
+/**
+ * Count failures. gRPC carries its outcome in `grpcStatus.code` (0 = OK), where
+ * `status` semantics differ — use that when present; otherwise treat HTTP
+ * transport errors (0) and 4xx/5xx as failures.
+ */
 function errorCount(result: RunResult): number {
-  return result.requests.filter((r) => r.status === 0 || r.status >= 400).length;
+  return result.requests.filter((r) =>
+    r.grpcStatus ? r.grpcStatus.code !== 0 : r.status === 0 || r.status >= 400
+  ).length;
 }
 
 /**

@@ -404,7 +404,7 @@ interface ElectronGitAPI {
   commit: (
     directoryPath: string,
     message: string,
-    all?: boolean
+    options?: { all?: boolean; paths?: string[] }
   ) => Promise<
     | { ok: true; commit: { sha: string; abbreviatedSha: string } }
     | { ok: false; error: string }
@@ -433,6 +433,7 @@ interface ElectronMockRoute {
   status: number;
   headers: Record<string, string>;
   body: string;
+  bodyEncoding?: 'base64';
   delayMs?: number;
 }
 

@@ -43,7 +43,7 @@ export function CsvTableViewer({ body }: CsvTableViewerProps) {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex-1 min-h-0 overflow-x-auto">
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-x-auto">
         <div style={{ minWidth: 'max-content' }}>
           {/* Sticky header */}
           <div

@@ -624,6 +624,8 @@ export interface MockRoute {
   status: number;
   headers: Record<string, string>;
   body: string;
+  /** When 'base64', `body` is base64 of binary bytes and is served decoded. */
+  bodyEncoding?: 'base64';
   /** Artificial latency before responding, in ms. */
   delayMs?: number;
 }

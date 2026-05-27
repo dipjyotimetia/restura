@@ -16,6 +16,8 @@ export interface MockRoute {
   status: number;
   headers: Record<string, string>;
   body: string;
+  /** When 'base64', `body` is base64 of binary bytes and is served decoded. */
+  bodyEncoding?: 'base64';
   delayMs?: number;
 }
 
@@ -32,7 +34,8 @@ const RouteSchema: z.ZodType<MockRoute> = z.object({
   path: z.string().min(1).max(2048),
   status: z.number().int().min(100).max(599),
   headers: z.record(z.string(), z.string()),
-  body: z.string().max(5 * 1024 * 1024),
+  body: z.string().max(7 * 1024 * 1024), // headroom: base64 inflates bytes ~4/3
+  bodyEncoding: z.literal('base64').optional(),
   delayMs: z.number().int().min(0).max(60_000).optional(),
 });
 
@@ -129,7 +132,12 @@ export async function startMockServer(opts: {
       if (route.delayMs && route.delayMs > 0) await delay(route.delayMs);
       const headers = { ...route.headers, 'x-restura-mock': 'true' };
       res.writeHead(route.status, headers);
-      res.end(expandTemplate(route.body));
+      // Base64 routes carry binary bytes — decode and send raw, never templated.
+      if (route.bodyEncoding === 'base64') {
+        res.end(Buffer.from(route.body, 'base64'));
+      } else {
+        res.end(expandTemplate(route.body));
+      }
     })();
   });
 

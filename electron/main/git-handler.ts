@@ -91,6 +91,7 @@ const AddFilesInputSchema = DirectoryInputSchema.extend({
 const CommitInputSchema = DirectoryInputSchema.extend({
   message: z.string().min(1).max(5000),
   all: z.boolean().optional(),
+  paths: z.array(z.string().min(1).max(2048)).max(1000).optional(),
 });
 const RefInputSchema = DirectoryInputSchema.extend({
   name: z.string().min(1).max(255),
@@ -163,13 +164,16 @@ export function parsePorcelainV2(raw: string): GitStatus {
       ahead = Number((parts[0] ?? '+0').replace(/[+-]/g, '')) || 0;
       behind = Number((parts[1] ?? '-0').replace(/[+-]/g, '')) || 0;
     } else if (line.startsWith('1 ') || line.startsWith('2 ')) {
-      // 1 XY <other fields> <path>
-      // 2 XY <other fields> <orig>\t<new> (rename)
-      const parts = line.split(' ');
-      const xy = parts[1] ?? '..';
+      // 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+      // 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <newPath>\t<origPath>
+      const xy = line.split(' ')[1] ?? '..';
       const isRename = line.startsWith('2 ');
-      // For rename entries the path appears after a tab; fall back to last segment.
-      const filePath = isRename ? line.split('\t').pop() ?? '' : parts.slice(8).join(' ');
+      // Rename: the CURRENT (new) path is before the tab, after the rename-score
+      // field (index 9). Ordinary change: path is field 8 onward.
+      const beforeTab = line.split('\t')[0] ?? '';
+      const filePath = isRename
+        ? beforeTab.split(' ').slice(9).join(' ')
+        : line.split(' ').slice(8).join(' ');
       if (filePath) {
         files.push({
           path: filePath,
@@ -386,13 +390,18 @@ export async function gitAddFiles(directoryPath: string, filePaths: string[]): P
 export async function gitCommit(
   directoryPath: string,
   message: string,
-  options: { all?: boolean } = {}
+  options: { all?: boolean; paths?: string[] } = {}
 ): Promise<{ sha: string; abbreviatedSha: string }> {
   const dir = ensureDirectoryAllowed(directoryPath);
+  if (options.paths) for (const p of options.paths) resolveWithin(dir, p);
   return withLock(dir, async () => {
     if (options.all) await runGit(dir, ['add', '-A']);
     // message passed as a single execFile arg — no shell, no injection.
-    await runGit(dir, ['commit', '-m', message]);
+    // When `paths` are given, scope the commit to exactly those (git's --only
+    // semantics) so content staged outside this UI isn't swept in.
+    const args = ['commit', '-m', message];
+    if (options.paths && options.paths.length > 0) args.push('--', ...options.paths);
+    await runGit(dir, args);
     const sha = (await runGit(dir, ['rev-parse', 'HEAD'])).trim();
     return { sha, abbreviatedSha: sha.slice(0, 7) };
   });
@@ -476,8 +485,11 @@ export function registerGitHandlerIPC(): void {
   );
   ipcMain.handle(
     IPC.git.commit,
-    ipcCommand(CommitInputSchema, 'commit', ({ directoryPath, message, all }) =>
-      gitCommit(directoryPath, message, all !== undefined ? { all } : {})
+    ipcCommand(CommitInputSchema, 'commit', ({ directoryPath, message, all, paths }) =>
+      gitCommit(directoryPath, message, {
+        ...(all !== undefined ? { all } : {}),
+        ...(paths !== undefined ? { paths } : {}),
+      })
     )
   );
   ipcMain.handle(

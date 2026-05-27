@@ -20,7 +20,7 @@
  * <iframe>/inline), while raster image types fall through to binary.
  */
 const TEXT_CONTENT_TYPE_RE =
-  /^(?:text\/|application\/(?:json|xml|javascript|ecmascript|x-www-form-urlencoded|x-ndjson|graphql|ld\+json|.*\+json|.*\+xml)|image\/svg\+xml)/i;
+  /^(?:text\/|application\/(?:json|xml|(?:x-)?javascript|(?:x-)?ecmascript|x-www-form-urlencoded|x-ndjson|graphql|ld\+json|.*\+json|.*\+xml)|image\/svg\+xml)/i;
 
 /**
  * Read a header value (case-insensitively) from the sanitised header record.

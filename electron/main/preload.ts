@@ -381,11 +381,17 @@ const electronAPI = {
     commit: (
       directoryPath: string,
       message: string,
-      all?: boolean
+      options?: { all?: boolean; paths?: string[] }
     ): Promise<
       | { ok: true; commit: { sha: string; abbreviatedSha: string } }
       | { ok: false; error: string }
-    > => ipcRenderer.invoke(IPC.git.commit, { directoryPath, message, ...(all !== undefined ? { all } : {}) }),
+    > =>
+      ipcRenderer.invoke(IPC.git.commit, {
+        directoryPath,
+        message,
+        ...(options?.all !== undefined ? { all: options.all } : {}),
+        ...(options?.paths !== undefined ? { paths: options.paths } : {}),
+      }),
 
     createBranch: (
       directoryPath: string,
@@ -412,6 +418,7 @@ const electronAPI = {
         status: number;
         headers: Record<string, string>;
         body: string;
+        bodyEncoding?: 'base64';
         delayMs?: number;
       }>;
     }): Promise<
