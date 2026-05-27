@@ -115,6 +115,7 @@ export function registerAiHandlers(): void {
       rawMode: data.rawMode,
       ...(data.baseUrlOverride ? { baseUrlOverride: data.baseUrlOverride } : {}),
       ...(data.maxOutputTokens ? { maxOutputTokens: data.maxOutputTokens } : {}),
+      ...(data.tools ? { tools: data.tools } : {}),
     };
 
     // Kick off the stream — do NOT await; the renderer receives events via channels.

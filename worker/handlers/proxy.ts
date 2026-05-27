@@ -107,6 +107,7 @@ function buildFetcher(
       statusText: response.statusText,
       headers: response.headers,
       text: () => response.text(),
+      arrayBuffer: () => response.arrayBuffer(),
       contentLengthHeader: response.headers.get('content-length'),
       body: response.body,
     };
@@ -218,6 +219,7 @@ export function createProxyHandler(
       headers: result.response.headers,
       data: result.response.body,
       size: result.response.size,
+      ...(result.response.bodyEncoding ? { bodyEncoding: result.response.bodyEncoding } : {}),
     });
   };
 }

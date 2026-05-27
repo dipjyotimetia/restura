@@ -7,6 +7,8 @@ import UrlBar from '@/features/http/components/UrlBar';
 import CodeGeneratorDialog from '@/features/http/components/CodeGeneratorDialog';
 import { RequestBuilderTabs } from './RequestBuilderTabs';
 import { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
+import { useUiStore } from '@/store/useUiStore';
+import LoadTestDialog from '@/features/load-testing/components/LoadTestDialog';
 
 type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings';
 
@@ -24,7 +26,17 @@ function RequestBuilder() {
     useHttpRequestPage();
   const { sendRequest } = handlers;
   const [activeTab, setActiveTab] = useState<SubTabKey>('params');
-  const [codeGenOpen, setCodeGenOpen] = useState(false);
+  // Code-gen open state lives in the UI store so the command palette can open
+  // it from outside this subtree. Reset on unmount so it can't reopen stale
+  // when switching protocols.
+  const codeGenOpen = useUiStore((s) => s.codeGenOpen);
+  const setCodeGenOpen = useUiStore((s) => s.setCodeGenOpen);
+  const loadTestOpen = useUiStore((s) => s.loadTestOpen);
+  const setLoadTestOpen = useUiStore((s) => s.setLoadTestOpen);
+  useEffect(() => () => {
+    setCodeGenOpen(false);
+    setLoadTestOpen(false);
+  }, [setCodeGenOpen, setLoadTestOpen]);
 
   // Alt+1..6 sub-tab jump
   useEffect(() => {
@@ -75,6 +87,12 @@ function RequestBuilder() {
       <CodeGeneratorDialog
         open={codeGenOpen}
         onOpenChange={setCodeGenOpen}
+        request={httpRequest}
+      />
+
+      <LoadTestDialog
+        open={loadTestOpen}
+        onClose={() => setLoadTestOpen(false)}
         request={httpRequest}
       />
 

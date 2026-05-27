@@ -371,6 +371,70 @@ const electronAPI = {
       | { ok: true; branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }> }
       | { ok: false; error: string }
     > => ipcRenderer.invoke(IPC.git.branchList, { directoryPath }),
+
+    add: (
+      directoryPath: string,
+      filePaths: string[]
+    ): Promise<{ ok: true; staged: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.git.add, { directoryPath, filePaths }),
+
+    commit: (
+      directoryPath: string,
+      message: string,
+      options?: { all?: boolean; paths?: string[] }
+    ): Promise<
+      | { ok: true; commit: { sha: string; abbreviatedSha: string } }
+      | { ok: false; error: string }
+    > =>
+      ipcRenderer.invoke(IPC.git.commit, {
+        directoryPath,
+        message,
+        ...(options?.all !== undefined ? { all: options.all } : {}),
+        ...(options?.paths !== undefined ? { paths: options.paths } : {}),
+      }),
+
+    createBranch: (
+      directoryPath: string,
+      name: string
+    ): Promise<{ ok: true; branch: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.git.createBranch, { directoryPath, name }),
+
+    checkoutBranch: (
+      directoryPath: string,
+      name: string
+    ): Promise<{ ok: true; branch: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.git.checkoutBranch, { directoryPath, name }),
+  },
+
+  // Desktop mock server (record-and-replay). Routes are compiled by the
+  // renderer and bound to 127.0.0.1 only by the main process.
+  mock: {
+    start: (config: {
+      collectionId: string;
+      port?: number;
+      routes: Array<{
+        method: string;
+        path: string;
+        status: number;
+        headers: Record<string, string>;
+        body: string;
+        bodyEncoding?: 'base64';
+        delayMs?: number;
+      }>;
+    }): Promise<
+      | { ok: true; status: { running: boolean; port?: number; baseUrl?: string; collectionId?: string; routeCount?: number } }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke(IPC.mock.start, config),
+
+    stop: (): Promise<
+      | { ok: true; status: { running: boolean } }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke(IPC.mock.stop),
+
+    status: (): Promise<
+      | { ok: true; status: { running: boolean; port?: number; baseUrl?: string; collectionId?: string; routeCount?: number } }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke(IPC.mock.status),
   },
 
   // Secret handle store — keychain-backed secret references.
@@ -416,6 +480,7 @@ const electronAPI = {
       baseUrlOverride?: string;
       rawMode: boolean;
       maxOutputTokens?: number;
+      tools?: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
     }): Promise<{ ok: true; streamId: string } | { ok: false; error: string }> =>
       ipcRenderer.invoke(IPC.ai.chat, spec),
 

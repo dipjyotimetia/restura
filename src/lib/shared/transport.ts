@@ -22,6 +22,8 @@ export interface ProxyJsonResponse {
   /** Worker returns the body under `data` (historical wire shape). */
   data: unknown;
   size?: number;
+  /** Present when `data` is base64 of a binary body (see shared/protocol/binary.ts). */
+  bodyEncoding?: 'base64';
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
 }
 
@@ -146,6 +148,8 @@ async function executeViaElectronIpc(spec: ProxyRequestBody): Promise<ProxyJsonR
     statusText: result.statusText,
     headers: result.headers,
     data: result.data,
+    ...(result.size !== undefined ? { size: result.size } : {}),
+    ...(result.bodyEncoding !== undefined ? { bodyEncoding: result.bodyEncoding } : {}),
     ...(result.negotiatedAlpn !== undefined
       ? { negotiatedAlpn: result.negotiatedAlpn }
       : {}),

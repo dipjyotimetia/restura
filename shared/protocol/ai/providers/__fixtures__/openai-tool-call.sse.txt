@@ -1,0 +1,8 @@
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_01","function":{"name":"create_http_request","arguments":"{\"method\":\"GET\","}}]},"finish_reason":null}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"url\":\"https://api.example/users\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":12,"completion_tokens":8}}
+
+data: [DONE]
+

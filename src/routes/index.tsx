@@ -26,6 +26,7 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useActiveTab } from '@/store/selectors';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
+import { useKeybindings } from '@/hooks/useKeybindings';
 import { SaveToCollectionDialog } from '@/components/shared/SaveToCollectionDialog';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { isElectron } from '@/lib/shared/platform';
@@ -109,24 +110,35 @@ export default function Home() {
     setScriptResult(null);
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
-        e.preventDefault();
-        setActivePanel((prev) => (prev !== null ? null : 'collections'));
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
-        e.preventDefault();
+  // App-level shortcuts. All use allowInInput so they keep working while the
+  // user is typing in the URL bar / editors (matching prior behaviour). Cmd+K
+  // (command palette) is owned by CommandPalette's own listener.
+  useKeybindings([
+    {
+      combo: 'mod+b',
+      allowInInput: true,
+      handler: () => setActivePanel((prev) => (prev !== null ? null : 'collections')),
+    },
+    {
+      combo: 'mod+,',
+      allowInInput: true,
+      handler: () => {
         setSettingsInitialSection('general');
         setSettingsOpen(true);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
-        e.preventDefault();
+      },
+    },
+    {
+      combo: 'mod+/',
+      allowInInput: true,
+      handler: () => {
         setSettingsInitialSection('shortcuts');
         setSettingsOpen(true);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
+      },
+    },
+    {
+      combo: 'mod+s',
+      allowInInput: true,
+      handler: () => {
         const tab = activeTabRef.current;
         if (!tab?.isDirty) return;
         if (tab.savedRequestId) {
@@ -138,12 +150,9 @@ export default function Home() {
         } else {
           setSaveDialogTabId(tab.id);
         }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+      },
+    },
+  ]);
 
   const handleSendRequest = useCallback(() => {
     const event = new KeyboardEvent('keydown', {

@@ -70,19 +70,32 @@ function encodeRequest(
   return combined;
 }
 
+function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
+}
+
 async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
   statusLine: string;
   headers: Record<string, string>;
-  body: string;
+  body: Uint8Array;
 }> {
   const reader = readable.getReader();
   const decoder = new TextDecoder();
-  // Single buffer accumulates all decoded bytes; headerBodySplit tracks the \r\n\r\n offset once found.
-  let buf = '';
+  // Keep the body as raw bytes so binary responses (images, PDFs, gzip) survive
+  // the proxy untouched. Only the header section is decoded as text — HTTP
+  // headers are ASCII, so the char index of \r\n\r\n equals its byte offset.
+  const chunks: Uint8Array[] = [];
   let totalBytes = 0;
+  let headerText = '';
+  let headerByteLen = -1; // bytes up to and including the \r\n\r\n terminator
   const headers: Record<string, string> = {};
   let statusLine = '';
-  let headerBodySplit = -1;
   let contentLength: number | null = null;
 
   while (true) {
@@ -93,13 +106,15 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
       reader.releaseLock();
       throw new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
     }
-    buf += decoder.decode(value, { stream: true });
+    chunks.push(value);
 
-    if (headerBodySplit === -1) {
-      headerBodySplit = buf.indexOf('\r\n\r\n');
-      if (headerBodySplit === -1) continue;
+    if (headerByteLen === -1) {
+      headerText += decoder.decode(value, { stream: true });
+      const idx = headerText.indexOf('\r\n\r\n');
+      if (idx === -1) continue;
+      headerByteLen = idx + 4;
 
-      const lines = buf.slice(0, headerBodySplit).split('\r\n');
+      const lines = headerText.slice(0, idx).split('\r\n');
       statusLine = lines[0] ?? '';
       for (const line of lines.slice(1)) {
         const colon = line.indexOf(':');
@@ -115,18 +130,21 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
       }
     }
 
-    const bodyStart = headerBodySplit + 4;
-    if (contentLength === null || buf.length - bodyStart >= contentLength) {
+    const bodyBytesSoFar = totalBytes - headerByteLen;
+    if (contentLength === null || bodyBytesSoFar >= contentLength) {
       reader.releaseLock();
-      const body = contentLength !== null
-        ? buf.slice(bodyStart, bodyStart + contentLength)
-        : buf.slice(bodyStart);
+      const all = concatChunks(chunks, totalBytes);
+      const body =
+        contentLength !== null
+          ? all.slice(headerByteLen, headerByteLen + contentLength)
+          : all.slice(headerByteLen);
       return { statusLine, headers, body };
     }
   }
 
   reader.releaseLock();
-  const body = headerBodySplit !== -1 ? buf.slice(headerBodySplit + 4) : '';
+  const all = concatChunks(chunks, totalBytes);
+  const body = headerByteLen !== -1 ? all.slice(headerByteLen) : new Uint8Array(0);
   return { statusLine, headers, body };
 }
 

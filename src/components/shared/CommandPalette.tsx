@@ -15,6 +15,9 @@ import {
   FolderOpen,
   Copy,
   Code2,
+  FileCode2,
+  Gauge,
+  Check,
   Wifi,
   Server,
   type LucideIcon,
@@ -24,7 +27,9 @@ import { Kbd, MethodChip, ProtoChip } from '@/components/ui/spatial';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
-import { useActiveResponse } from '@/store/selectors';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useUiStore } from '@/store/useUiStore';
+import { useActiveResponse, useActiveTab } from '@/store/selectors';
 import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
 import type { Collection, CollectionItem, RequestType } from '@/types';
@@ -48,7 +53,7 @@ interface CommandPaletteProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-type ItemKind = 'request' | 'new' | 'action' | 'setting';
+type ItemKind = 'request' | 'new' | 'action' | 'setting' | 'environment';
 
 interface PaletteItem {
   id: string;
@@ -63,8 +68,10 @@ interface PaletteItem {
   icon?: LucideIcon;
   /** When kind === 'request' — flagged as recent */
   recent?: boolean;
+  /** When kind === 'environment' — currently-active marker. */
+  activeMarker?: boolean;
   shortcut?: string;
-  group: 'Requests' | 'Actions' | 'New' | 'Settings';
+  group: 'Recent' | 'Requests' | 'Actions' | 'New' | 'Environments' | 'Settings';
   onSelect: () => void;
 }
 
@@ -131,7 +138,15 @@ export default function CommandPalette({
   const collections = useCollectionStore((s) => s.collections);
   const clearHistory = useHistoryStore((s) => s.clearHistory);
   const history = useHistoryStore((s) => s.history);
+  const environments = useEnvironmentStore((s) => s.environments);
+  const activeEnvironmentId = useEnvironmentStore((s) => s.activeEnvironmentId);
+  const setActiveEnvironment = useEnvironmentStore((s) => s.setActiveEnvironment);
   const currentResponse = useActiveResponse();
+  const activeTab = useActiveTab();
+  // A WS/Socket.IO/Kafka/GraphQL tab is a placeholder type:'http' tab with a
+  // modeOverride; in those modes RequestBuilder (which hosts the code-gen /
+  // load-test dialogs) isn't mounted, so gate on the effective mode.
+  const activeIsHttp = !activeTab?.modeOverride && activeTab?.request?.type === 'http';
 
   // Toggle ⌘K / Ctrl+K — works regardless of controlled/uncontrolled mode.
   useEffect(() => {
@@ -172,6 +187,26 @@ export default function CommandPalette({
   // Build full item list
   const allItems = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = [];
+
+    // Recent group — quick reopen of the last few executed requests. Distinct
+    // from the RECENT badge in Requests: these come straight from history and
+    // open the exact request that ran (even if not saved to a collection).
+    const seenRecent = new Set<string>();
+    for (const h of history) {
+      if (seenRecent.has(h.request.id)) continue;
+      seenRecent.add(h.request.id);
+      const req = h.request;
+      const method = 'method' in req && typeof req.method === 'string' ? req.method : req.type.toUpperCase();
+      items.push({
+        id: `recent-${h.id}`,
+        kind: 'request',
+        group: 'Recent',
+        name: req.name || req.url || method,
+        method,
+        onSelect: () => openTab(req, { switchTo: true }),
+      });
+      if (seenRecent.size >= 5) break;
+    }
 
     // Requests group — flattened from collections
     for (const collection of collections) {
@@ -227,6 +262,24 @@ export default function CommandPalette({
         onSelect: () => navigator.clipboard.writeText(currentResponse.body),
       });
     }
+    if (activeIsHttp) {
+      items.push({
+        id: 'generate-code',
+        kind: 'action',
+        group: 'Actions',
+        name: 'Generate code for current request',
+        icon: FileCode2,
+        onSelect: () => useUiStore.getState().setCodeGenOpen(true),
+      });
+      items.push({
+        id: 'load-test',
+        kind: 'action',
+        group: 'Actions',
+        name: 'Run load test on current request',
+        icon: Gauge,
+        onSelect: () => useUiStore.getState().setLoadTestOpen(true),
+      });
+    }
     if (onOpenImport) {
       items.push({
         id: 'import',
@@ -279,6 +332,31 @@ export default function CommandPalette({
       });
     }
 
+    // Environments group — switch the active environment without opening the
+    // manager. Includes a "No environment" entry to clear the selection.
+    if (environments.length > 0) {
+      items.push({
+        id: 'env-none',
+        kind: 'environment',
+        group: 'Environments',
+        name: 'No environment',
+        icon: Globe,
+        activeMarker: activeEnvironmentId === null,
+        onSelect: () => setActiveEnvironment(null),
+      });
+      for (const env of environments) {
+        items.push({
+          id: `env-${env.id}`,
+          kind: 'environment',
+          group: 'Environments',
+          name: env.name,
+          icon: Globe,
+          activeMarker: env.id === activeEnvironmentId,
+          onSelect: () => setActiveEnvironment(env.id),
+        });
+      }
+    }
+
     // Settings group
     items.push({
       id: 'toggle-theme',
@@ -314,6 +392,11 @@ export default function CommandPalette({
   }, [
     collections,
     recentRequestIds,
+    history,
+    environments,
+    activeEnvironmentId,
+    setActiveEnvironment,
+    activeIsHttp,
     onSendRequest,
     onOpenImport,
     onOpenEnvironments,
@@ -339,7 +422,7 @@ export default function CommandPalette({
 
   // Group preserving original order
   const grouped = useMemo(() => {
-    const order: Array<PaletteItem['group']> = ['Requests', 'Actions', 'New', 'Settings'];
+    const order: Array<PaletteItem['group']> = ['Recent', 'Requests', 'Actions', 'New', 'Environments', 'Settings'];
     const map = new Map<PaletteItem['group'], PaletteItem[]>();
     for (const g of order) map.set(g, []);
     for (const it of filtered) map.get(it.group)?.push(it);
@@ -561,6 +644,7 @@ function PaletteRow({ item, index, active, onMouseEnter, onClick }: PaletteRowPr
 
       {/* Trailing */}
       <div className="shrink-0 inline-flex items-center gap-2">
+        {item.activeMarker && <Check size={13} className="text-sp-accent" />}
         {item.recent && (
           <span
             className="font-mono uppercase tracking-wide rounded-sp-chip px-1.5 py-0.5"

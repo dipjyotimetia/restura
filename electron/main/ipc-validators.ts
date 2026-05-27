@@ -732,6 +732,12 @@ export const AiChatMessageSchema = z.object({
   content: z.string().max(200_000),  // ~50k tokens; over this is almost certainly a bug
 });
 
+export const AiChatToolSchema = z.object({
+  name: z.string().min(1).max(64),
+  description: z.string().max(4000),
+  inputSchema: z.record(z.string(), z.unknown()),
+});
+
 export const AiChatRequestSchema = z.object({
   streamId: z.string().uuid(),
   provider: z.enum(['openai', 'anthropic', 'openrouter']),
@@ -741,6 +747,7 @@ export const AiChatRequestSchema = z.object({
   baseUrlOverride: z.string().url().optional(),
   rawMode: z.boolean(),
   maxOutputTokens: z.number().int().positive().max(8192).optional(),
+  tools: z.array(AiChatToolSchema).max(32).optional(),
 });
 
 export const AiChatCancelSchema = z.object({

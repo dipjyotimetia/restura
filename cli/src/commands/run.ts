@@ -7,6 +7,7 @@ import { JsonReporter } from '../reporters/json.js';
 import { JUnitReporter } from '../reporters/junit.js';
 import { HtmlReporter } from '../reporters/html.js';
 import { LiveReporter } from '../reporters/live.js';
+import { StatsReporter } from '../reporters/stats.js';
 import { CompositeReporter } from '../reporters/composite.js';
 import type { Reporter } from '../reporters/types.js';
 
@@ -53,7 +54,7 @@ export function registerRunCommand(program: Command): void {
     .option('--env <file>', 'Path to env file (json or yaml)')
     .option(
       '--reporter <list>',
-      'Reporter(s) to use, comma-separated: live | json | junit | html',
+      'Reporter(s) to use, comma-separated: live | json | junit | html | stats',
       'live'
     )
     .option('--output <file>', 'Output path when only one file reporter is used')
@@ -166,7 +167,9 @@ function buildOne(name: string, outputPath: string | undefined): Reporter {
     case 'html':
       if (!outputPath) throw new Error('--reporter html requires --output or --reporter-output html=<path>');
       return new HtmlReporter(outputPath);
+    case 'stats':
+      return new StatsReporter();
     default:
-      throw new Error(`Unknown reporter '${name}'. Use one of: live | json | junit | html`);
+      throw new Error(`Unknown reporter '${name}'. Use one of: live | json | junit | html | stats`);
   }
 }

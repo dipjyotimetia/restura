@@ -3,6 +3,12 @@ import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy
 import { buildRequestBody } from './body-builder';
 import { applyAuth, type SecretResolver } from './auth-signer';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
+import {
+  isBinaryContentType,
+  getHeaderCI,
+  bytesToBase64,
+  readStreamToBytes,
+} from './binary';
 import type { Fetcher, RequestSpec, ExecuteResult } from './types';
 
 export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
@@ -110,13 +116,47 @@ export async function executeHttpProxy(
       };
     }
 
-    const text = await response.text();
-    if (text.length > MAX_RESPONSE_SIZE) {
-      return {
-        ok: false,
-        status: 413,
-        payload: { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
-      };
+    const responseHeaders = sanitizeResponseHeaders(response.headers);
+
+    // Binary content types are base64-encoded so the raw bytes survive the
+    // JSON transport to the renderer (text() would UTF-8-decode and corrupt
+    // them). Read the bytes via arrayBuffer() when the fetcher exposes it (the
+    // reliable read across workerd / Miniflare / undici), else the raw stream;
+    // both share the body, so only one read happens.
+    const binary = isBinaryContentType(getHeaderCI(responseHeaders, 'content-type'));
+    const tooLarge = {
+      ok: false as const,
+      status: 413 as const,
+      payload: { error: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)` },
+    };
+
+    let responseBody: string;
+    let responseSize: number;
+    let bodyEncoding: 'base64' | undefined;
+
+    let binaryBytes: Uint8Array | null = null;
+    if (binary) {
+      if (response.arrayBuffer) {
+        const buf = await response.arrayBuffer();
+        if (buf.byteLength > MAX_RESPONSE_SIZE) return tooLarge;
+        binaryBytes = new Uint8Array(buf);
+      } else if (response.body) {
+        const bytes = await readStreamToBytes(response.body, MAX_RESPONSE_SIZE);
+        if (bytes === null) return tooLarge;
+        binaryBytes = bytes;
+      }
+    }
+
+    if (binaryBytes) {
+      responseBody = bytesToBase64(binaryBytes);
+      responseSize = binaryBytes.length;
+      bodyEncoding = 'base64';
+    } else {
+      // Text content type, or a binary type the fetcher couldn't read as bytes.
+      const text = await response.text();
+      if (text.length > MAX_RESPONSE_SIZE) return tooLarge;
+      responseBody = text;
+      responseSize = byteLength(text);
     }
 
     const normalized: ExecuteResult = {
@@ -124,9 +164,10 @@ export async function executeHttpProxy(
       response: {
         status: response.status,
         statusText: response.statusText,
-        headers: sanitizeResponseHeaders(response.headers),
-        body: text,
-        size: byteLength(text),
+        headers: responseHeaders,
+        body: responseBody,
+        size: responseSize,
+        ...(bodyEncoding ? { bodyEncoding } : {}),
       },
     };
     if (normalized.ok && response.negotiatedAlpn) {

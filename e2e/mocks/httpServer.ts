@@ -64,6 +64,14 @@ const routes: Route[] = [
   },
   {
     method: 'GET',
+    test: '/csv',
+    handle: ({ res }) => {
+      res.writeHead(200, { 'content-type': 'text/csv' });
+      res.end('name,age,city\nAlice,30,NYC\nBob,25,LA\nCarol,41,SF\n');
+    },
+  },
+  {
+    method: 'GET',
     test: /^\/status\/(\d{3})$/,
     handle: ({ res, match }) => {
       const code = Number(match![1]);

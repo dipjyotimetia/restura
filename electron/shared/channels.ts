@@ -97,6 +97,10 @@ export const IPC = {
     log: 'git:log',
     diff: 'git:diff',
     branchList: 'git:branch:list',
+    add: 'git:add',
+    commit: 'git:commit',
+    createBranch: 'git:branch:create',
+    checkoutBranch: 'git:branch:checkout',
   },
   log: {
     getHistory: 'log:getHistory',
@@ -118,6 +122,11 @@ export const IPC = {
   ai: {
     chat: 'ai:chat',
     chatCancel: 'ai:chat:cancel',
+  },
+  mock: {
+    start: 'mock:start',
+    stop: 'mock:stop',
+    status: 'mock:status',
   },
 } as const;
 
