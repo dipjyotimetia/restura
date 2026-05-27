@@ -16,11 +16,12 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Copy, ExternalLink, GitCompare, RotateCw, Trash2 } from 'lucide-react';
+import { Copy, ExternalLink, GitCompare, Pin, PinOff, RotateCw, Trash2, X, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveTab } from '@/store/selectors';
 import {
+  formatBytes,
   formatRelativeTime,
   getMethodColor,
   getStatusTextColor,
@@ -36,6 +37,10 @@ interface RequestEntryItemProps {
   onToggleCompare?: () => void;
   /** When non-null, "Compare with selected" appears in the context menu. */
   onPinForCompare?: () => void;
+  /** Slowest response time in the current list — scales the waterfall bar. */
+  maxTime?: number;
+  /** Requests slower than this (ms) get a "slow" marker. */
+  slowThresholdMs?: number;
 }
 
 const formatDuration = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`);
@@ -47,12 +52,20 @@ export default function RequestEntryItem({
   isCompareChecked,
   onToggleCompare,
   onPinForCompare,
+  maxTime,
+  slowThresholdMs = 1000,
 }: RequestEntryItemProps) {
   const { request, response, timestamp } = entry;
   const methodColor = getMethodColor(request.method);
   const statusColor = getStatusTextColor(response.status);
   const removeEntry = useConsoleStore((s) => s.removeEntry);
+  const togglePin = useConsoleStore((s) => s.togglePin);
   const openTab = useRequestStore((s) => s.openTab);
+
+  const isSlow = response.time >= slowThresholdMs;
+  const barPct = maxTime && maxTime > 0 ? Math.max(2, (response.time / maxTime) * 100) : 0;
+  const passedTests = entry.tests?.filter((t) => t.passed).length ?? 0;
+  const totalTests = entry.tests?.length ?? 0;
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const activeTab = useActiveTab();
 
@@ -118,8 +131,9 @@ export default function RequestEntryItem({
         <div
           onClick={onClick}
           className={cn(
-            'px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
-            isSelected && 'bg-accent'
+            'group/entry px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
+            isSelected && 'bg-accent',
+            entry.pinned && 'bg-primary/[0.04]'
           )}
         >
           <div className="flex items-center gap-2 mb-1">
@@ -143,16 +157,76 @@ export default function RequestEntryItem({
                 {entry.protocol}
               </Badge>
             )}
-            <span className="text-[10px] text-muted-foreground ml-auto">
-              {formatRelativeTime(timestamp)}
-            </span>
+            {isSlow && (
+              <span title={`Slow (≥${slowThresholdMs}ms)`}>
+                <Zap className="h-3 w-3 text-amber-500" />
+              </span>
+            )}
+            {entry.pinned && <Pin className="h-3 w-3 text-primary fill-primary" />}
+            {/* Quick actions — pin + remove, on hover. */}
+            <div className="ml-auto flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); togglePin(entry.id); }}
+                className="opacity-0 group-hover/entry:opacity-100 p-0.5 rounded text-muted-foreground hover:text-foreground transition-opacity"
+                aria-label={entry.pinned ? 'Unpin entry' : 'Pin entry'}
+                title={entry.pinned ? 'Unpin' : 'Pin (keeps across clears)'}
+              >
+                {entry.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); removeEntry(entry.id); }}
+                className="opacity-0 group-hover/entry:opacity-100 p-0.5 rounded text-muted-foreground hover:text-red-500 transition-opacity"
+                aria-label="Remove entry"
+                title="Remove"
+              >
+                <X className="h-3 w-3" />
+              </button>
+              <span className="text-[10px] text-muted-foreground group-hover/entry:hidden">
+                {formatRelativeTime(timestamp)}
+              </span>
+            </div>
           </div>
           <div className="text-xs text-foreground/80 truncate font-mono">
             {displayUrl}
           </div>
+          {/* Waterfall bar — duration relative to the slowest entry in view. */}
+          {barPct > 0 && (
+            <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn(
+                  'h-full rounded-full',
+                  isSlow ? 'bg-red-500' : response.time < 200 ? 'bg-emerald-500' : 'bg-amber-500'
+                )}
+                style={{ width: `${barPct}%` }}
+              />
+            </div>
+          )}
           <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
-            <span>{formatDuration(response.time)}</span>
-            <span>{(response.size / 1024).toFixed(1)} KB</span>
+            <span className={cn(isSlow && 'text-amber-600 dark:text-amber-400')}>
+              {formatDuration(response.time)}
+            </span>
+            {entry.requestSize != null && <span title="Request size">↑ {formatBytes(entry.requestSize)}</span>}
+            <span title="Response size">↓ {formatBytes(response.size)}</span>
+            {totalTests > 0 && (
+              <span
+                className={cn(
+                  'font-mono tabular-nums',
+                  passedTests === totalTests
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-red-600 dark:text-red-400'
+                )}
+                title="Test assertions"
+              >
+                {passedTests}/{totalTests} ✓
+              </span>
+            )}
+            {entry.runLabel && (
+              <span className="ml-auto truncate max-w-[90px] text-primary/70" title={`Run: ${entry.runLabel}`}>
+                ⚡ {entry.runLabel}
+              </span>
+            )}
           </div>
         </div>
       </ContextMenuTrigger>
@@ -184,6 +258,19 @@ export default function RequestEntryItem({
           </>
         )}
         <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => togglePin(entry.id)}>
+          {entry.pinned ? (
+            <>
+              <PinOff className="h-3.5 w-3.5 mr-2" />
+              Unpin entry
+            </>
+          ) : (
+            <>
+              <Pin className="h-3.5 w-3.5 mr-2" />
+              Pin entry
+            </>
+          )}
+        </ContextMenuItem>
         <ContextMenuItem
           onClick={() => removeEntry(entry.id)}
           className="text-red-500 focus:text-red-500"

@@ -42,6 +42,14 @@ export interface ConsoleEntry {
   response: ApiResponse;
   scriptLogs?: ConsoleLog[];
   tests?: ConsoleTest[];
+  /** Bytes sent on the wire (body + headers), when measurable. */
+  requestSize?: number;
+  /** Pinned entries survive preserve-on-send clears and trimming. */
+  pinned?: boolean;
+  /** Collection-run provenance — set when this entry was produced by the runner. */
+  runId?: string;
+  runLabel?: string;
+  iteration?: number;
 }
 
 export type FrameProtocol = 'websocket' | 'socketio' | 'kafka';
@@ -98,6 +106,7 @@ interface ConsoleState {
   addEntry: (entry: Omit<ConsoleEntry, 'id'>) => void;
   clearEntries: () => void;
   removeEntry: (id: string) => void;
+  togglePin: (id: string) => void;
   addFrame: (frame: Omit<ConsoleFrame, 'id'>) => void;
   clearFrames: () => void;
   selectEntry: (id: string | null) => void;
@@ -113,6 +122,20 @@ interface ConsoleState {
 function truncate(str: string, limit: number): string {
   if (str.length <= limit) return str;
   return `${str.slice(0, limit)}…[truncated ${str.length - limit} chars]`;
+}
+
+/**
+ * Cap the entry list to MAX_ENTRIES while never evicting pinned entries.
+ * Preserves order (newest first); pinned entries beyond the cap still survive.
+ */
+function capEntries(entries: ConsoleEntry[]): ConsoleEntry[] {
+  if (entries.length <= MAX_ENTRIES) return entries;
+  const pinned = entries.filter((e) => e.pinned);
+  const unpinned = entries.filter((e) => !e.pinned);
+  const room = Math.max(0, MAX_ENTRIES - pinned.length);
+  const keptUnpinned = new Set(unpinned.slice(0, room));
+  // Re-walk the original order so pinned + kept-unpinned stay interleaved as-is.
+  return entries.filter((e) => e.pinned || keptUnpinned.has(e));
 }
 
 function trimForPersist(entry: ConsoleEntry): ConsoleEntry {
@@ -154,24 +177,32 @@ export const useConsoleStore = create<ConsoleState>()(
       addEntry: (entry) =>
         set((state) => {
           const newEntry: ConsoleEntry = { ...entry, id: uuidv4() };
-          const base = state.preserveOnSend ? state.entries : [];
-          const newEntries = [newEntry, ...base].slice(0, MAX_ENTRIES);
+          // preserve-off still keeps pinned entries — pins are an explicit "keep this".
+          const base = state.preserveOnSend ? state.entries : state.entries.filter((e) => e.pinned);
           return {
-            entries: newEntries,
+            entries: capEntries([newEntry, ...base]),
             selectedEntryId: newEntry.id,
           };
         }),
 
       clearEntries: () =>
-        set({
-          entries: [],
-          selectedEntryId: null,
+        set((state) => {
+          const pinned = state.entries.filter((e) => e.pinned);
+          return {
+            entries: pinned,
+            selectedEntryId: null,
+          };
         }),
 
       removeEntry: (id) =>
         set((state) => ({
           entries: state.entries.filter((e) => e.id !== id),
           selectedEntryId: state.selectedEntryId === id ? null : state.selectedEntryId,
+        })),
+
+      togglePin: (id) =>
+        set((state) => ({
+          entries: state.entries.map((e) => (e.id === id ? { ...e, pinned: !e.pinned } : e)),
         })),
 
       addFrame: (frame) =>
@@ -241,6 +272,24 @@ export const useConsoleStore = create<ConsoleState>()(
   )
 );
 
+/** Estimate bytes sent on the wire: header lines + body. Cheap, good enough for a size column. */
+export function estimateRequestSize(headers: Record<string, string>, body?: string): number {
+  let bytes = 0;
+  for (const [k, v] of Object.entries(headers)) {
+    bytes += k.length + (v?.length ?? 0) + 4; // ": " + CRLF
+  }
+  if (body) bytes += new TextEncoder().encode(body).length;
+  return bytes;
+}
+
+/** Optional provenance / metrics attached to a console entry. */
+export interface ConsoleEntryExtra {
+  requestSize?: number;
+  runId?: string;
+  runLabel?: string;
+  iteration?: number;
+}
+
 // Helper to create console entry from request/response
 export function createConsoleEntry(
   request: HttpRequest,
@@ -248,9 +297,11 @@ export function createConsoleEntry(
   sentHeaders: Record<string, string>,
   scriptLogs?: ConsoleLog[],
   tests?: ConsoleTest[],
-  protocol: ConsoleProtocol = 'http'
+  protocol: ConsoleProtocol = 'http',
+  extra?: ConsoleEntryExtra
 ): Omit<ConsoleEntry, 'id'> {
   const body = request.body.type !== 'none' ? request.body.raw : undefined;
+  const requestSize = extra?.requestSize ?? estimateRequestSize(sentHeaders, body);
   return {
     timestamp: Date.now(),
     protocol,
@@ -261,8 +312,12 @@ export function createConsoleEntry(
       ...(body !== undefined && { body }),
     },
     response,
+    requestSize,
     ...(scriptLogs !== undefined && { scriptLogs }),
     ...(tests !== undefined && { tests }),
+    ...(extra?.runId !== undefined && { runId: extra.runId }),
+    ...(extra?.runLabel !== undefined && { runLabel: extra.runLabel }),
+    ...(extra?.iteration !== undefined && { iteration: extra.iteration }),
   };
 }
 

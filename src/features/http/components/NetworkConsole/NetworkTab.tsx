@@ -28,6 +28,8 @@ import {
   RotateCw,
   ExternalLink,
   GitCompare,
+  ArrowDownWideNarrow,
+  ListChecks,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import RequestEntryItem from './RequestEntryItem';
@@ -96,6 +98,13 @@ const PROTOCOL_FILTERS: Array<{ value: ConsoleProtocol | 'all'; label: string }>
   { value: 'sse', label: 'SSE' },
 ];
 
+const SORT_OPTIONS: Array<{ value: 'recent' | 'time' | 'size' | 'status'; label: string }> = [
+  { value: 'recent', label: 'Recent' },
+  { value: 'time', label: 'Time' },
+  { value: 'size', label: 'Size' },
+  { value: 'status', label: 'Status' },
+];
+
 function statusMatches(status: number, filter: ConsoleStatusFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'errored') return status === 0 || status >= 500;
@@ -125,6 +134,9 @@ export default function NetworkTab() {
   // Compare-set is local-only — transient UI state, no need to persist.
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareDialogOpen, setCompareDialogOpen] = useState(false);
+  // Sort + run filter are transient view state.
+  const [sortBy, setSortBy] = useState<'recent' | 'time' | 'size' | 'status'>('recent');
+  const [runFilter, setRunFilter] = useState<string>('all');
 
   const toggleCompare = (id: string) => {
     setCompareIds((prev) => {
@@ -143,20 +155,61 @@ export default function NetworkTab() {
     [compareIds, entries]
   );
 
+  // Distinct runs present in the entry list — drives the run-filter chips.
+  const runs = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const e of entries) {
+      if (e.runId && !seen.has(e.runId)) seen.set(e.runId, e.runLabel ?? 'Run');
+    }
+    return [...seen.entries()].map(([id, label]) => ({ id, label }));
+  }, [entries]);
+
   const filteredEntries = useMemo(() => {
     const search = searchFilter.trim().toLowerCase();
-    return entries.filter((entry) => {
-      if (!statusMatches(entry.response.status, statusFilter)) return false;
-      if (protocolFilter !== 'all' && (entry.protocol ?? 'http') !== protocolFilter) return false;
+    const matchesSearch = (entry: (typeof entries)[number]) => {
       if (!search) return true;
-      return (
+      // Content search spans method/url/status AND headers + bodies.
+      if (
         entry.request.url.toLowerCase().includes(search) ||
         entry.request.method.toLowerCase().includes(search) ||
         entry.response.status.toString().includes(search) ||
-        entry.response.statusText.toLowerCase().includes(search)
-      );
+        entry.response.statusText.toLowerCase().includes(search) ||
+        (entry.request.body?.toLowerCase().includes(search) ?? false) ||
+        entry.response.body.toLowerCase().includes(search)
+      ) {
+        return true;
+      }
+      const headerHit = (h: Record<string, string | string[]>) =>
+        Object.entries(h).some(
+          ([k, v]) =>
+            k.toLowerCase().includes(search) ||
+            (Array.isArray(v) ? v.join(',') : v).toLowerCase().includes(search)
+        );
+      return headerHit(entry.request.headers) || headerHit(entry.response.headers);
+    };
+
+    const list = entries.filter((entry) => {
+      if (!statusMatches(entry.response.status, statusFilter)) return false;
+      if (protocolFilter !== 'all' && (entry.protocol ?? 'http') !== protocolFilter) return false;
+      if (runFilter !== 'all' && entry.runId !== runFilter) return false;
+      return matchesSearch(entry);
     });
-  }, [entries, searchFilter, statusFilter, protocolFilter]);
+
+    if (sortBy === 'recent') return list;
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      if (sortBy === 'time') return b.response.time - a.response.time;
+      if (sortBy === 'size') return b.response.size - a.response.size;
+      return b.response.status - a.response.status; // 'status'
+    });
+    return sorted;
+  }, [entries, searchFilter, statusFilter, protocolFilter, runFilter, sortBy]);
+
+  // Slowest response in the current view — scales every row's waterfall bar.
+  const maxTime = useMemo(
+    () => filteredEntries.reduce((m, e) => Math.max(m, e.response.time), 0),
+    [filteredEntries]
+  );
 
   const selectedEntry = entries.find((e) => e.id === selectedEntryId);
 
@@ -208,7 +261,10 @@ export default function NetworkTab() {
   }
 
   const filtersActive =
-    statusFilter !== 'all' || protocolFilter !== 'all' || searchFilter.trim().length > 0;
+    statusFilter !== 'all' ||
+    protocolFilter !== 'all' ||
+    runFilter !== 'all' ||
+    searchFilter.trim().length > 0;
 
   return (
     <div className="flex h-full">
@@ -273,6 +329,60 @@ export default function NetworkTab() {
               </button>
             ))}
           </div>
+          {/* Sort */}
+          <div className="flex items-center gap-1">
+            <ArrowDownWideNarrow className="h-3 w-3 text-muted-foreground" />
+            {SORT_OPTIONS.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                onClick={() => setSortBy(s.value)}
+                className={cn(
+                  'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                  sortBy === s.value
+                    ? 'bg-primary/15 border-primary/40 text-primary'
+                    : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
+                )}
+                aria-pressed={sortBy === s.value}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          {/* Run filter — only when runner-tagged entries exist */}
+          {runs.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <ListChecks className="h-3 w-3 text-muted-foreground" />
+              <button
+                type="button"
+                onClick={() => setRunFilter('all')}
+                className={cn(
+                  'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                  runFilter === 'all'
+                    ? 'bg-primary/15 border-primary/40 text-primary'
+                    : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
+                )}
+              >
+                All
+              </button>
+              {runs.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRunFilter(r.id)}
+                  title={r.label}
+                  className={cn(
+                    'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors max-w-[90px] truncate',
+                    runFilter === r.id
+                      ? 'bg-primary/15 border-primary/40 text-primary'
+                      : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <ScrollArea className="flex-1">
           {filteredEntries.length === 0 ? (
@@ -289,6 +399,7 @@ export default function NetworkTab() {
                     setSearchFilter('');
                     setStatusFilter('all');
                     setProtocolFilter('all');
+                    setRunFilter('all');
                   }}
                 >
                   Clear filters
@@ -305,6 +416,7 @@ export default function NetworkTab() {
                 isCompareChecked={compareIds.includes(entry.id)}
                 onToggleCompare={() => toggleCompare(entry.id)}
                 onPinForCompare={() => toggleCompare(entry.id)}
+                maxTime={maxTime}
               />
             ))
           )}
@@ -463,10 +575,19 @@ export default function NetworkTab() {
                       <div className="flex justify-between">
                         <span className="text-muted-foreground flex items-center gap-1">
                           <Database className="h-3 w-3" />
-                          Size
+                          Response size
                         </span>
                         <span className="font-medium">{formatBytes(selectedEntry.response.size)}</span>
                       </div>
+                      {selectedEntry.requestSize != null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            <Database className="h-3 w-3" />
+                            Request size
+                          </span>
+                          <span className="font-medium">{formatBytes(selectedEntry.requestSize)}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 

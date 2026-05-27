@@ -354,4 +354,95 @@ describe('createConsoleEntry', () => {
 
     expect(entry.request.body).toBeUndefined();
   });
+
+  describe('pins, size, and run metadata', () => {
+    const baseEntry = (overrides: Record<string, unknown> = {}) => ({
+      timestamp: Date.now(),
+      request: { method: 'GET', url: 'https://x.test', headers: {} },
+      response: {
+        id: 'r',
+        requestId: 'req',
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: '',
+        size: 0,
+        time: 1,
+        timestamp: Date.now(),
+      },
+      ...overrides,
+    });
+
+    it('keeps pinned entries when clearing', () => {
+      const { addEntry, togglePin, clearEntries } = useConsoleStore.getState();
+      addEntry(baseEntry());
+      const id = useConsoleStore.getState().entries[0]!.id;
+      togglePin(id);
+      addEntry(baseEntry());
+      clearEntries();
+      const entries = useConsoleStore.getState().entries;
+      expect(entries).toHaveLength(1);
+      expect(entries[0]!.id).toBe(id);
+      expect(entries[0]!.pinned).toBe(true);
+    });
+
+    it('keeps pinned entries when over the cap', () => {
+      const { addEntry, togglePin } = useConsoleStore.getState();
+      addEntry(baseEntry());
+      const pinnedId = useConsoleStore.getState().entries[0]!.id;
+      togglePin(pinnedId);
+      // Push well past MAX_ENTRIES (100).
+      for (let i = 0; i < 120; i++) addEntry(baseEntry());
+      const entries = useConsoleStore.getState().entries;
+      expect(entries.length).toBeLessThanOrEqual(100);
+      expect(entries.some((e) => e.id === pinnedId && e.pinned)).toBe(true);
+    });
+
+    it('preserve-off still keeps pinned entries', () => {
+      const { addEntry, togglePin, setPreserveOnSend } = useConsoleStore.getState();
+      addEntry(baseEntry());
+      const pinnedId = useConsoleStore.getState().entries[0]!.id;
+      togglePin(pinnedId);
+      setPreserveOnSend(false);
+      addEntry(baseEntry());
+      const entries = useConsoleStore.getState().entries;
+      expect(entries.some((e) => e.id === pinnedId)).toBe(true);
+    });
+
+    it('computes request size in createConsoleEntry', () => {
+      const request: HttpRequest = {
+        id: '1',
+        name: 'req',
+        type: 'http',
+        method: 'POST',
+        url: 'https://x.test',
+        headers: [],
+        params: [],
+        body: { type: 'json', raw: '{"hello":"world"}' },
+        auth: { type: 'none' },
+      };
+      const response: ApiResponse = {
+        id: 'r',
+        requestId: '1',
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: '',
+        size: 0,
+        time: 1,
+        timestamp: Date.now(),
+      };
+      const entry = createConsoleEntry(request, response, { 'content-type': 'application/json' });
+      expect(entry.requestSize).toBeGreaterThan(0);
+    });
+
+    it('carries run provenance onto the entry', () => {
+      const { addEntry } = useConsoleStore.getState();
+      addEntry(baseEntry({ runId: 'run-1', runLabel: 'My Collection', iteration: 2 }));
+      const e = useConsoleStore.getState().entries[0]!;
+      expect(e.runId).toBe('run-1');
+      expect(e.runLabel).toBe('My Collection');
+      expect(e.iteration).toBe(2);
+    });
+  });
 });

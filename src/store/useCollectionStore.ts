@@ -30,6 +30,77 @@ function migrateItemAuth(item: CollectionItem): CollectionItem {
   return item;
 }
 
+/** Find an item anywhere in a tree by id (depth-first). */
+function findItem(items: CollectionItem[], itemId: string): CollectionItem | undefined {
+  for (const i of items) {
+    if (i.id === itemId) return i;
+    if (i.items) {
+      const found = findItem(i.items, itemId);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+/** Collect the dragged item's id plus all descendant ids — the set a drop target must not fall inside. */
+function collectSubtreeIds(item: CollectionItem): Set<string> {
+  const ids = new Set<string>([item.id]);
+  const walk = (children: CollectionItem[]) => {
+    for (const c of children) {
+      ids.add(c.id);
+      if (c.items) walk(c.items);
+    }
+  };
+  if (item.items) walk(item.items);
+  return ids;
+}
+
+/** Remove an item by id, returning the pruned tree. */
+function removeFromTree(items: CollectionItem[], itemId: string): CollectionItem[] {
+  return items
+    .filter((i) => i.id !== itemId)
+    .map((i) => (i.items ? { ...i, items: removeFromTree(i.items, itemId) } : i));
+}
+
+/**
+ * Insert `node` into the tree. `beforeId` takes precedence: the node is placed
+ * before that sibling *wherever it lives* in the tree (so reordering onto a
+ * folder-nested sibling lands in that folder, not the root). With only
+ * `parentId`, append into that folder. With neither, append to the root.
+ *
+ * Callers must validate the target exists before pruning — see
+ * `moveCollectionItem` — otherwise a miss here would drop the node.
+ */
+function insertIntoTree(
+  items: CollectionItem[],
+  node: CollectionItem,
+  parentId: string | undefined,
+  beforeId: string | undefined
+): CollectionItem[] {
+  if (beforeId) {
+    const idx = items.findIndex((i) => i.id === beforeId);
+    if (idx >= 0) {
+      const next = [...items];
+      next.splice(idx, 0, node);
+      return next;
+    }
+    return items.map((i) =>
+      i.items ? { ...i, items: insertIntoTree(i.items, node, parentId, beforeId) } : i
+    );
+  }
+
+  if (parentId) {
+    return items.map((i) => {
+      if (i.id === parentId && i.type === 'folder') {
+        return { ...i, items: [...(i.items ?? []), node] };
+      }
+      return i.items ? { ...i, items: insertIntoTree(i.items, node, parentId, beforeId) } : i;
+    });
+  }
+
+  return [...items, node];
+}
+
 interface CollectionState {
   collections: Collection[];
   activeCollectionId: string | null;
@@ -43,6 +114,17 @@ interface CollectionState {
   updateCollectionItem: (collectionId: string, itemId: string, updates: Partial<CollectionItem>) => void;
   updateAnyCollectionItem: (itemId: string, updates: Partial<CollectionItem>) => void;
   removeCollectionItem: (collectionId: string, itemId: string) => void;
+  /**
+   * Move an item within a collection tree — reparent into a folder and/or
+   * reorder relative to a sibling. `parentId: undefined` targets the root.
+   * `beforeId` inserts before that sibling; omit to append. No-ops on a
+   * self-drop or a drop into the item's own descendant (cycle guard).
+   */
+  moveCollectionItem: (
+    collectionId: string,
+    itemId: string,
+    target: { parentId?: string; beforeId?: string }
+  ) => void;
   getCollectionById: (id: string) => Collection | undefined;
   createNewCollection: (name: string) => Collection;
 }
@@ -131,6 +213,44 @@ export const useCollectionStore = create<CollectionState>()(
                 }));
 
             return { ...col, items: removeItem(col.items) };
+          }),
+        })),
+
+      moveCollectionItem: (collectionId, itemId, target) =>
+        set((state) => ({
+          collections: state.collections.map((col) => {
+            if (col.id !== collectionId) return col;
+
+            const node = findItem(col.items, itemId);
+            if (!node) return col;
+
+            const subtreeIds = collectSubtreeIds(node);
+
+            // Validate the target BEFORE pruning — an invalid target would
+            // otherwise remove the node and fail to reinsert it (data loss).
+            if (target.parentId) {
+              const parent = findItem(col.items, target.parentId);
+              // Drop is a no-op if the target isn't a real folder, or it's the
+              // moved node itself / one of its descendants (cycle).
+              if (parent?.type !== 'folder' || subtreeIds.has(target.parentId)) return col;
+            }
+            if (target.beforeId) {
+              // No-op if dropping before itself, before one of its own
+              // descendants, or before a sibling that no longer exists.
+              if (
+                target.beforeId === itemId ||
+                subtreeIds.has(target.beforeId) ||
+                !findItem(col.items, target.beforeId)
+              ) {
+                return col;
+              }
+            }
+
+            const pruned = removeFromTree(col.items, itemId);
+            return {
+              ...col,
+              items: insertIntoTree(pruned, node, target.parentId, target.beforeId),
+            };
           }),
         })),
 

@@ -1,0 +1,289 @@
+import { v4 as uuidv4 } from 'uuid';
+import type { Collection, Request, Response as ApiResponse } from '@/types';
+import { protocolRegistry } from '@/features/registry/registry';
+import type { ProtocolScriptResult } from '@/features/registry/types';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import type { RunnableRequest } from './flattenRunnables';
+import type { IterationRow } from './dataLoader';
+
+/**
+ * Postman-style collection / folder runner. Mirrors the CLI's orchestration
+ * (`cli/src/runner/runner.ts`) but dispatches through the in-app protocol
+ * registry instead of the CLI's executor, so HTTP/gRPC-unary run through the
+ * exact same wire path (and SSRF/secret resolution) as a normal send.
+ *
+ * Dispatch is imperative — `protocol.injectVariables` then `runRequest(ctx)` —
+ * the same pattern the DAG executor uses. The React `useRequestRunner` hook is
+ * deliberately NOT used: it writes history and pushes script results to the
+ * active tab's Console, neither of which a batch run should do.
+ *
+ * Protocols whose `runRequest` throws (SSE/MCP/WebSocket/streaming-gRPC) are
+ * skipped with a reason rather than invoked.
+ */
+
+export interface RunnerAssertion {
+  name: string;
+  passed: boolean;
+  error?: string;
+}
+
+export interface CollectionRequestResult {
+  itemId: string;
+  itemName: string;
+  protocol: string;
+  /** 0-based iteration index (data row or repeat). */
+  iteration: number;
+  status: 'success' | 'failed' | 'skipped';
+  /** HTTP status or gRPC code, when the request ran. */
+  httpStatus?: number;
+  durationMs?: number;
+  sizeBytes?: number;
+  assertions: RunnerAssertion[];
+  error?: string;
+  skippedReason?: string;
+}
+
+export interface CollectionRunResult {
+  id: string;
+  collectionId: string;
+  collectionName: string;
+  /** Collection or folder name — what the user chose to run. */
+  scopeName: string;
+  startedAt: number;
+  durationMs: number;
+  iterations: number;
+  dataRows: number;
+  requests: CollectionRequestResult[];
+  summary: { total: number; passed: number; failed: number; skipped: number };
+}
+
+export interface CollectionRunOptions {
+  collection: Collection;
+  scopeName: string;
+  runnables: RunnableRequest[];
+  /** env (enabled) then collection.variables already merged in by the caller. */
+  baseVars: Record<string, string>;
+  /** Repeat count when no data file; ignored when dataRows is non-empty. */
+  iterations: number;
+  /** Data-file rows; when non-empty drives one iteration per row (Postman semantics). */
+  dataRows: IterationRow[];
+  delayMs: number;
+  stopOnFailure: boolean;
+}
+
+export interface RunProgress {
+  completed: number;
+  total: number;
+  current?: { itemName: string; iteration: number };
+  results: CollectionRequestResult[];
+  done: boolean;
+}
+
+/** Protocols that have no usable single-shot `runRequest` (their impl throws). */
+const STREAMING_PROTOCOLS = new Set(['sse', 'mcp', 'websocket', 'socketio', 'kafka']);
+
+/**
+ * Fired after each executed request so callers can mirror the request into the
+ * Console (tagged by run). Carries the resolved request and — when the request
+ * actually ran — the response and captured script results.
+ */
+export interface RequestCompleteInfo {
+  result: CollectionRequestResult;
+  request: Request;
+  response?: ApiResponse;
+  scripts?: ProtocolScriptResult;
+  runId: string;
+  scopeName: string;
+}
+export type OnRequestComplete = (info: RequestCompleteInfo) => void;
+
+function isProtocolOk(response: ApiResponse): boolean {
+  // gRPC carries a status code separate from the (always-200) HTTP envelope.
+  const grpcStatus = (response as { grpcStatus?: number }).grpcStatus;
+  if (typeof grpcStatus === 'number') return grpcStatus === 0;
+  return response.status >= 200 && response.status < 300;
+}
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (ms <= 0 || signal.aborted) return resolve();
+    const t = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+export async function runCollection(
+  options: CollectionRunOptions,
+  onProgress: (p: RunProgress) => void,
+  signal: AbortSignal,
+  onRequestComplete?: OnRequestComplete
+): Promise<CollectionRunResult> {
+  const { collection, scopeName, runnables, baseVars, iterations, dataRows, delayMs, stopOnFailure } =
+    options;
+
+  const runId = uuidv4();
+  const startedAt = Date.now();
+  const results: CollectionRequestResult[] = [];
+
+  // Data-driven: one iteration per row. Otherwise N empty-row iterations.
+  // Guard against a non-finite count (NaN/Infinity) silently producing zero
+  // iterations — a malformed caller should still run at least once.
+  const iterCount = Number.isFinite(iterations) ? Math.max(1, Math.floor(iterations)) : 1;
+  const rows: IterationRow[] = dataRows.length > 0 ? dataRows : Array.from({ length: iterCount }, () => ({}));
+  const total = rows.length * runnables.length;
+
+  const emit = (done: boolean, current?: { itemName: string; iteration: number }) =>
+    onProgress({ completed: results.length, total, ...(current ? { current } : {}), results: [...results], done });
+
+  let bailed = false;
+
+  outer: for (let iter = 0; iter < rows.length; iter++) {
+    // Carry-forward map for this iteration: base + row, mutated by scripts as we go.
+    const allVars: Record<string, string> = { ...baseVars, ...rows[iter] };
+
+    for (const runnable of runnables) {
+      if (signal.aborted || bailed) break outer;
+
+      emit(false, { itemName: runnable.name, iteration: iter });
+
+      const protocolId = runnable.request.type;
+      const protocol = protocolRegistry.get(protocolId);
+
+      // Skip protocols without a usable single-shot runner.
+      if (!protocol || STREAMING_PROTOCOLS.has(protocolId)) {
+        results.push({
+          itemId: runnable.itemId,
+          itemName: runnable.name,
+          protocol: protocolId,
+          iteration: iter,
+          status: 'skipped',
+          assertions: [],
+          skippedReason: protocol ? `${protocolId} is not supported in the runner` : `Unknown protocol: ${protocolId}`,
+        });
+        emit(false);
+        continue;
+      }
+      if (protocolId === 'grpc' && (runnable.request as { methodType?: string }).methodType !== 'unary') {
+        results.push({
+          itemId: runnable.itemId,
+          itemName: runnable.name,
+          protocol: protocolId,
+          iteration: iter,
+          status: 'skipped',
+          assertions: [],
+          skippedReason: 'Only unary gRPC is supported in the runner',
+        });
+        emit(false);
+        continue;
+      }
+
+      // Collection-level auth inheritance (folder-level auth is unimplemented).
+      const authed = withEffectiveAuth(runnable.request, collection.auth);
+      const injected = protocol.injectVariables?.(authed, allVars) ?? authed;
+
+      let scripts: ProtocolScriptResult | undefined;
+      const ctx = {
+        signal,
+        variables: { ...allVars },
+        onScriptResult: (r: ProtocolScriptResult) => {
+          scripts = r;
+        },
+      };
+
+      const startedReq = Date.now();
+      const result: CollectionRequestResult = {
+        itemId: runnable.itemId,
+        itemName: runnable.name,
+        protocol: protocolId,
+        iteration: iter,
+        status: 'failed',
+        assertions: [],
+      };
+
+      let response: ApiResponse | undefined;
+      try {
+        response = await protocol.runRequest(injected, ctx);
+        result.durationMs = Date.now() - startedReq;
+        result.httpStatus = response.status;
+        result.sizeBytes = response.size;
+
+        // Aggregate pm.test() assertions from both script phases.
+        const assertions: RunnerAssertion[] = [];
+        for (const phase of [scripts?.preRequest, scripts?.test]) {
+          if (phase?.tests) {
+            for (const t of phase.tests) {
+              assertions.push({ name: t.name, passed: t.passed, ...(t.error ? { error: t.error } : {}) });
+            }
+          }
+          // Carry-forward pm.variables.set() mutations into the iteration map.
+          if (phase?.variables) Object.assign(allVars, phase.variables);
+        }
+        result.assertions = assertions;
+
+        const scriptError = [scripts?.preRequest, scripts?.test]
+          .flatMap((p) => p?.errors ?? [])
+          .filter(Boolean);
+
+        let passed = isProtocolOk(response);
+        if (assertions.length > 0) passed = assertions.every((a) => a.passed);
+        if (scriptError.length > 0) {
+          passed = false;
+          result.error = scriptError.join('; ');
+        }
+        result.status = passed ? 'success' : 'failed';
+      } catch (err) {
+        result.durationMs = Date.now() - startedReq;
+        result.status = 'failed';
+        result.error = err instanceof Error ? err.message : String(err);
+      }
+
+      results.push(result);
+      onRequestComplete?.({
+        result,
+        request: injected,
+        ...(response ? { response } : {}),
+        ...(scripts ? { scripts } : {}),
+        runId,
+        scopeName,
+      });
+      emit(false);
+
+      if (result.status === 'failed' && stopOnFailure) {
+        bailed = true;
+        break outer;
+      }
+
+      if (delayMs > 0) await delay(delayMs, signal);
+    }
+  }
+
+  const summary = {
+    total: results.length,
+    passed: results.filter((r) => r.status === 'success').length,
+    failed: results.filter((r) => r.status === 'failed').length,
+    skipped: results.filter((r) => r.status === 'skipped').length,
+  };
+
+  const final: CollectionRunResult = {
+    id: runId,
+    collectionId: collection.id,
+    collectionName: collection.name,
+    scopeName,
+    startedAt,
+    durationMs: Date.now() - startedAt,
+    iterations: rows.length,
+    dataRows: dataRows.length,
+    requests: results,
+    summary,
+  };
+
+  emit(true);
+  return final;
+}
