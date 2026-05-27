@@ -11,6 +11,11 @@ import { getKeyProvider, type KeyProvider } from './keyProvider';
 // Singleton encryption key cache
 let cachedEncryptionKey: string | null = null;
 
+// Suffix for the backup key holding an undecryptable row's original ciphertext.
+// Quarantining (vs. deleting) keeps the data recoverable if the key is later
+// fixed; getItem never reads this key, so it doesn't reintroduce the error loop.
+const QUARANTINE_SUFFIX = '__undecryptable';
+
 /**
  * Get the encryption key for Dexie storage via the active KeyProvider.
  *
@@ -66,7 +71,8 @@ type StorageTableName =
   | 'socketioConnections'
   | 'console'
   | 'graphqlSchemas'
-  | 'protoFiles';
+  | 'protoFiles'
+  | 'aiChat';
 
 /**
  * Storage adapter configuration
@@ -133,8 +139,29 @@ export function createDexieStorage<T = unknown>(
           const encryptionKey = await getEncryptionKey();
           try {
             jsonString = await decryptValue(jsonString, encryptionKey);
-          } catch (error) {
-            console.error(`Decryption failed for ${name}:`, error);
+          } catch {
+            // The ciphertext can't be decrypted with the current key. This is
+            // usually data written under an old/rotated key, but a transient or
+            // partial-write corruption is INDISTINGUISHABLE here — so do NOT
+            // hard-delete (that would irreversibly destroy recoverable data on a
+            // one-off bad read). Instead QUARANTINE: move the ciphertext to a
+            // backup key and free the live row so the store hydrates to defaults
+            // and re-persists under the current key (stops the per-reload error
+            // loop) while keeping the original recoverable if the key is fixed.
+            console.warn(
+              `[dexie-storage] "${name}" could not be decrypted with the current key; ` +
+                `quarantining to "${name}${QUARANTINE_SUFFIX}" and resetting to defaults. ` +
+                `If this is unexpected, the original ciphertext is preserved for recovery.`,
+            );
+            try {
+              const table = getTable(tableName);
+              // `jsonString` still holds the original ciphertext (the failed
+              // assignment above never completed). Overwrite any prior backup.
+              await table.put(createStorageRecord(`${name}${QUARANTINE_SUFFIX}`, jsonString));
+              await table.delete(name);
+            } catch {
+              /* best-effort quarantine */
+            }
             return null;
           }
         }
@@ -283,6 +310,9 @@ export const dexieStorageAdapters = {
 
   protoFiles: () =>
     createDexieStorage({ tableName: 'protoFiles', encrypt: true }),
+
+  aiChat: () =>
+    createDexieStorage({ tableName: 'aiChat', encrypt: true }),
 };
 
 /**

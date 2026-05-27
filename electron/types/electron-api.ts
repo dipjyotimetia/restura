@@ -1,4 +1,15 @@
-// Type definitions for the Electron API exposed via preload script
+// Type definitions for the Electron API exposed via the preload script.
+//
+// SINGLE SOURCE OF TRUTH for the IPC surface. This module is imported by both
+// programs:
+//   - the renderer (`tsconfig.json` includes `electron/types/**/*.ts`), which
+//     reads `window.electron` typed via the `declare global` block below; and
+//   - the Electron main program (`electron/tsconfig.json`), where `preload.ts`
+//     does `const electronAPI = { ... } satisfies ElectronAPI`.
+// Because preload `satisfies` this interface, any drift between the declared
+// surface and the real preload object is a COMPILE ERROR under
+// `npm run electron:compile` (which runs in CI). Keep this file the canonical
+// definition — do not reintroduce a parallel `typeof electronAPI` type.
 
 interface ElectronDialogAPI {
   openFile: (options?: {
@@ -79,7 +90,7 @@ interface ElectronWindowAPI {
 
 interface ElectronHttpProxyConfig {
   enabled: boolean;
-  type: 'http' | 'https' | 'socks5' | 'pac';
+  type: 'http' | 'https' | 'socks4' | 'socks5' | 'pac';
   host: string;
   port: number;
   pacUrl?: string;
@@ -90,6 +101,7 @@ interface ElectronHttpProxyConfig {
 }
 
 interface ElectronHttpClientCert {
+  format: 'pfx' | 'pem';
   pfx?: string;
   cert?: string;
   key?: string;
@@ -313,12 +325,74 @@ interface ElectronKafkaAPI {
   removeAllListeners: (channel: string) => void;
 }
 
+interface ElectronNotificationAPI {
+  isSupported: () => Promise<boolean>;
+  show: (options: {
+    title: string;
+    body: string;
+    silent?: boolean;
+    urgency?: 'normal' | 'critical' | 'low';
+  }) => Promise<{ success: boolean }>;
+  requestComplete: (data: { status: number; time: number; url: string }) => Promise<{ success: boolean }>;
+  updateAvailable: (version: string) => Promise<{ success: boolean }>;
+  error: (message: string) => Promise<{ success: boolean }>;
+}
+
 interface ElectronStoreAPI {
   get: (key: string) => Promise<string | undefined>;
   set: (key: string, value: string) => Promise<void>;
   delete: (key: string) => Promise<void>;
   clear: () => Promise<void>;
   has: (key: string) => Promise<boolean>;
+}
+
+/**
+ * Git operations for file-backed collections. Read-only in v1. All operations
+ * are gated main-side by collection-manager's directory allowlist.
+ */
+interface ElectronGitAPI {
+  status: (
+    directoryPath: string
+  ) => Promise<
+    | {
+        ok: true;
+        status: {
+          files: Array<{ path: string; staged: string; unstaged: string }>;
+          branch: string | null;
+          ahead: number;
+          behind: number;
+          clean: boolean;
+        };
+      }
+    | { ok: false; error: string }
+  >;
+  log: (
+    directoryPath: string,
+    limit?: number
+  ) => Promise<
+    | {
+        ok: true;
+        commits: Array<{
+          sha: string;
+          abbreviatedSha: string;
+          author: string;
+          email: string;
+          timestamp: number;
+          subject: string;
+        }>;
+      }
+    | { ok: false; error: string }
+  >;
+  diff: (
+    directoryPath: string,
+    filePath: string
+  ) => Promise<{ ok: true; diff: string } | { ok: false; error: string }>;
+  branchList: (
+    directoryPath: string
+  ) => Promise<
+    | { ok: true; branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }> }
+    | { ok: false; error: string }
+  >;
 }
 
 interface LogEntry {
@@ -367,6 +441,7 @@ interface ElectronCollectionsAPI {
   unwatchDirectory: (path: string) => Promise<{ success: boolean }>;
   selectDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
   openInExplorer: (path: string) => Promise<{ success: boolean; error?: string }>;
+  getFileInfo: (filePath: string) => Promise<{ exists: boolean; lastModified?: number; size?: number }>;
   onFileChanged: (callback: (event: FileChangedEvent) => void) => void;
   removeFileChangedListener: () => void;
 }
@@ -409,6 +484,28 @@ interface ElectronSecretsAPI {
   >;
 }
 
+interface ElectronAiAPI {
+  chat: (spec: {
+    streamId: string;
+    provider: 'openai' | 'anthropic' | 'openrouter';
+    model: string;
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+    apiKeyHandleId: string;
+    baseUrlOverride?: string;
+    rawMode: boolean;
+    maxOutputTokens?: number;
+  }) => Promise<{ ok: true; streamId: string } | { ok: false; error: string }>;
+  cancel: (args: { streamId: string }) => Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }>;
+  onChunk: (
+    streamId: string,
+    cb: (event: import('../../shared/protocol/ai/types').ChatStreamEvent) => void,
+  ) => () => void;
+  onEnd: (
+    streamId: string,
+    cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void,
+  ) => () => void;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -424,8 +521,11 @@ interface ElectronAPI {
   sse: ElectronSseAPI;
   mcp: ElectronMcpAPI;
   kafka: ElectronKafkaAPI;
+  notification: ElectronNotificationAPI;
   store: ElectronStoreAPI;
+  git: ElectronGitAPI;
   secrets: ElectronSecretsAPI;
+  ai: ElectronAiAPI;
   log: ElectronLogAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
@@ -441,4 +541,34 @@ declare global {
   }
 }
 
-export type { ElectronAPI, ElectronDialogAPI, ElectronFSAPI, ElectronAppAPI, ElectronShellAPI, ElectronWindowAPI, ElectronLogAPI, ElectronKeychainAPI, KeychainStatus, ElectronCollectionsAPI, ElectronGrpcAPI, ElectronSseAPI, ElectronMcpAPI, ElectronKafkaAPI, ElectronSecretsAPI, ElectronSecretHandleDescriptor, ElectronSecretHandleSummary, KafkaAuthIpc, KafkaTlsIpc, KafkaSaslMechanism, KafkaAck, GrpcIpcResult, FileChangedEvent, LogEntry };
+export type {
+  ElectronAPI,
+  ElectronDialogAPI,
+  ElectronFSAPI,
+  ElectronAppAPI,
+  ElectronShellAPI,
+  ElectronWindowAPI,
+  ElectronNotificationAPI,
+  ElectronGitAPI,
+  ElectronLogAPI,
+  ElectronKeychainAPI,
+  KeychainStatus,
+  ElectronCollectionsAPI,
+  ElectronHttpRequestConfig,
+  ElectronHttpResponse,
+  ElectronGrpcAPI,
+  ElectronSseAPI,
+  ElectronMcpAPI,
+  ElectronKafkaAPI,
+  ElectronSecretsAPI,
+  ElectronSecretHandleDescriptor,
+  ElectronSecretHandleSummary,
+  KafkaAuthIpc,
+  KafkaTlsIpc,
+  KafkaSaslMechanism,
+  KafkaAck,
+  GrpcIpcResult,
+  FileChangedEvent,
+  LogEntry,
+  ElectronAiAPI,
+};

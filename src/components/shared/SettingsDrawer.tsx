@@ -17,6 +17,7 @@ import {
   Sliders,
   Trash2,
   Upload,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -34,8 +35,17 @@ import { SPATIAL_ACCENT_PRESETS, type SpatialAccent } from '@/types';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { readFileAsText } from '@/lib/shared/file-utils';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+
+const ProviderSettings = lazyComponent(
+  async () => {
+    const m = await import('@/features/ai/components/ProviderSettings');
+    const Comp: React.ComponentType<object> = m.ProviderSettings;
+    return { default: Comp };
+  },
+);
 
 export type SectionId =
   | 'general'
@@ -44,6 +54,7 @@ export type SectionId =
   | 'proxy'
   | 'certificates'
   | 'secrets'
+  | 'ai'
   | 'shortcuts'
   | 'about';
 
@@ -60,6 +71,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'proxy', label: 'Proxy', icon: Network },
   { id: 'certificates', label: 'Certificates', icon: ShieldCheck },
   { id: 'secrets', label: 'Secrets', icon: KeyRound },
+  { id: 'ai', label: 'AI', icon: Sparkles },
   { id: 'shortcuts', label: 'Shortcuts', icon: KeyboardIcon },
   { id: 'about', label: 'About', icon: Info },
 ];
@@ -219,6 +231,12 @@ export default function SettingsDrawer({
               {activeSection === 'proxy' && <ProxySection />}
               {activeSection === 'certificates' && <CertificatesSection />}
               {activeSection === 'secrets' && <SecretsSection />}
+              {activeSection === 'ai' && isElectron() && <ProviderSettings />}
+              {activeSection === 'ai' && !isElectron() && (
+                <div className="text-sm text-muted-foreground">
+                  AI features are available in the desktop app only.
+                </div>
+              )}
               {activeSection === 'shortcuts' && <ShortcutsSection />}
               {activeSection === 'about' && <AboutSection />}
             </div>

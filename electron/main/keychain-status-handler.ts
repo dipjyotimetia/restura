@@ -17,6 +17,7 @@
 
 import { ipcMain, safeStorage } from 'electron';
 import { getKeyStoreStatus, type KeyStoreStatus } from './encrypted-key';
+import { IPC } from '../shared/channels';
 
 export interface RotateResult {
   rotated: boolean;
@@ -31,11 +32,11 @@ export interface RotateResult {
 }
 
 export function registerKeychainStatusIPC(): void {
-  ipcMain.handle('keychain:status', async (): Promise<KeyStoreStatus> => {
+  ipcMain.handle(IPC.keychain.status, async (): Promise<KeyStoreStatus> => {
     return getKeyStoreStatus();
   });
 
-  ipcMain.handle('keychain:rotate', async (): Promise<RotateResult> => {
+  ipcMain.handle(IPC.keychain.rotate, async (): Promise<RotateResult> => {
     // safeStorage availability is process-global; if it's still unavailable
     // there is nothing to rotate to. If it IS available, the existing
     // electron-store records were already encrypted with the *current* key

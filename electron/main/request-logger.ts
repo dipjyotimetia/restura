@@ -3,6 +3,7 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { z } from 'zod';
 import { LogHistoryLimitSchema, validateIpcInput } from './ipc-validators';
+import { IPC } from '../shared/channels';
 
 /**
  * Set of protocols the request logger knows how to record. Streaming
@@ -78,8 +79,8 @@ export function logRequest(entry: LogEntry): void {
 }
 
 export function registerRequestLoggerIPC(): void {
-  ipcMain.handle('log:getHistory', async (_event, rawLimit?: unknown) => {
-    const limit = validateIpcInput(LogHistoryLimitSchema, rawLimit, 'log:getHistory');
+  ipcMain.handle(IPC.log.getHistory, async (_event, rawLimit?: unknown) => {
+    const limit = validateIpcInput(LogHistoryLimitSchema, rawLimit, IPC.log.getHistory);
     try {
       const filePath = await getLogFilePath();
       const content = await fsp.readFile(filePath, 'utf8');
@@ -108,7 +109,7 @@ export function registerRequestLoggerIPC(): void {
     }
   });
 
-  ipcMain.handle('log:clear', async () => {
+  ipcMain.handle(IPC.log.clear, async () => {
     try {
       await fsp.writeFile(await getLogFilePath(), '');
     } catch {

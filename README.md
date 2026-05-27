@@ -4,11 +4,11 @@
 
 **The API client that speaks every protocol.**
 
-🌐 HTTP · 🧬 GraphQL · ⚙️ gRPC · 💬 WebSocket · 🔥 SSE · 🤖 MCP
+🌐 HTTP · 🧬 GraphQL · ⚙️ gRPC · 💬 WebSocket · 🔌 Socket.IO · 🔥 SSE · 📨 Kafka · 🤖 MCP
 
 [![CI](https://github.com/dipjyotimetia/restura/actions/workflows/ci.yml/badge.svg)](https://github.com/dipjyotimetia/restura/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D24-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)](https://www.typescriptlang.org)
 [![Cloudflare Pages](https://img.shields.io/badge/deployed%20on-Cloudflare%20Pages-F38020)](https://restura.pages.dev)
 
@@ -34,7 +34,9 @@ Both are free forever.
 | `GQL` | GraphQL | Query builder, schema introspection, subscriptions |
 | `RPC` | gRPC | Unary, server streaming, server reflection |
 | `WS` | WebSocket | Connect, send/receive, full message history |
+| `IO` | Socket.IO | Connect, emit/listen events, acks (desktop only) |
 | `SSE` | Server-Sent Events | Live event stream viewer with reconnection |
+| `KFK` | Kafka | Produce / consume, SASL + TLS (desktop only) |
 | `MCP` | Model Context Protocol | Proxy to any MCP server |
 
 ---
@@ -143,8 +145,10 @@ src/
 │   ├── http/          # REST request builder & executor
 │   ├── grpc/          # gRPC client + server reflection
 │   ├── websocket/     # WebSocket client
+│   ├── socketio/      # Socket.IO client (desktop only)
 │   ├── graphql/       # GraphQL builder + schema explorer
 │   ├── sse/           # Server-Sent Events client
+│   ├── kafka/         # Kafka producer/consumer (desktop only)
 │   ├── mcp/           # MCP client
 │   ├── workflows/     # Request chaining + variable extraction
 │   ├── collections/   # Sidebar, runner, Postman/Insomnia import
@@ -172,7 +176,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a full breakdown.
 | Editor | Monaco Editor |
 | Script VM | QuickJS WASM (`quickjs-emscripten`) |
 | Worker | Hono on Cloudflare Pages Functions |
-| Desktop | Electron 41 |
+| Desktop | Electron 42 |
 | Tests | Vitest + React Testing Library |
 
 ---

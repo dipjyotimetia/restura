@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, SSE, and MCP** (Model Context Protocol). It ships as both a web app (Cloudflare Pages + Workers) and an Electron desktop app from a single React renderer. Node.js 24+ required.
+Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, and MCP** (Model Context Protocol), plus an **AI assistant** that can read request context. It ships from a single React renderer to three targets: a web app (Cloudflare Pages + Workers), a self-hostable Node/Docker server, and an Electron desktop app. Restura can also act *as* an MCP server (`src/features/mcp-server`, `electron/main/mcp-server-handler.ts`). Node.js 24+ required.
 
 ## Development Commands
 
@@ -19,7 +19,7 @@ npm run lint:fix               # ESLint --fix
 npm run format                 # Prettier write
 npm run format:check           # Prettier check
 
-# Cloudflare Worker (web-only API)
+# Worker / Node API (shared Hono app — Cloudflare + self-host)
 npx tsc --noEmit -p worker/tsconfig.json    # Type-check Worker independently
 
 # Testing
@@ -30,17 +30,25 @@ npm run test:coverage          # Coverage report
 npm run test:e2e               # Playwright (boots dev server via webServer; needs .dev.vars)
 npm run test:e2e:ui            # Playwright UI mode
 npm run test:e2e:headed        # Playwright headed
+npm run test:contract          # Contract tests (vitest run tests/contract)
 vitest run path/to/file.test.ts                  # Run a single Vitest file
 vitest run -t "test name pattern"                # Filter by test name
 npx playwright test e2e/real-http.spec.ts        # Run a single e2e spec
 
 # Full validation (matches CI)
-npm run validate               # type-check + lint + verify:opencollection-types + test:run
+npm run validate               # type-check + lint + verify:opencollection-types + capabilities:check + test:run
 
 # Generated code
 npm run proto:gen                       # buf generate (regenerates protobuf TS)
 npm run gen:opencollection-types        # Regenerate OpenCollection JSON Schema → TS
 npm run verify:opencollection-types     # Generate + fail if diff (CI gate)
+npm run capabilities:matrix             # Regenerate docs/CAPABILITY_MATRIX.md from src/lib/shared/capabilities.ts
+npm run capabilities:check              # Fail if the matrix is stale (CI gate)
+
+# Self-hosted Node / Docker server (single process: SPA + /api/* on one port)
+npm run build:docker           # build:web:docker (plain SPA → dist/web) + build:server (esbuild Worker → dist/server/index.mjs)
+npm run start                  # node dist/server/index.mjs (PORT/HOST/RESTURA_STATIC_ROOT env-tunable)
+# Dockerfile + docker-compose.yml at repo root; see docs/SELF_HOSTING.md
 
 # Electron desktop app
 npm run electron:dev           # Dev mode (Vite + Electron with wait-on)
@@ -57,17 +65,18 @@ npm run deploy:echo            # Deploy the echo test server (echo/wrangler.json
 
 ## Architecture
 
-### Dual-Platform: One Renderer, Two Transports
+### Multi-Platform: One Renderer, Three Backends
 
-The same Vite-built React SPA serves both targets. The transport layer is the only thing that differs — chosen at runtime by `isElectron()` in `src/lib/shared/platform.ts`.
+The same Vite-built React SPA serves all targets. The transport layer is the only thing that differs — chosen at runtime by `isElectron()` in `src/lib/shared/platform.ts`. The two HTTP backends (Cloudflare Worker and Node/Docker server) share a single Hono app via the `createApp(deps)` factory in `worker/app.ts`; each entry supplies its own adapters for the platform-specific bits (CONNECT proxy, native WebSocket).
 
 - **Web** — SPA on Cloudflare Pages → fetch `/api/*` → Cloudflare Worker (Hono) at `worker/index.ts` → upstream. Same-origin, no CORS friction.
-- **Desktop** — SPA loaded via `file://` → IPC over `window.electronAPI` (preload bridge) → Electron main process handlers in `electron/main/*-handler.ts` → upstream. The Worker is **never** bundled into the desktop app (`electron-builder.json` files glob excludes `_worker.js`).
+- **Self-hosted** — `worker/node-entry.ts` runs `createApp` in one Node process that serves both the SPA (`dist/web`) and `/api/*` on one port. Node-native adapters live in `worker/shared/tcp-proxy-node.ts`, `worker/shared/dns-guard-node.ts`, `worker/handlers/websocket-node.ts`. `nodeEntry` MUST `Object.assign` onto `c.env` (not reassign) — `@hono/node-ws` stamps state onto that exact reference. See `docs/SELF_HOSTING.md`.
+- **Desktop** — SPA loaded via `file://` → IPC over `window.electron` (preload bridge; `contextBridge.exposeInMainWorld('electron', …)`) → Electron main process handlers in `electron/main/*-handler.ts` → upstream. The Worker is **never** bundled into the desktop app (`electron-builder.json` files glob excludes `_worker.js`).
 - **Routing** — `createHashRouter` so the renderer works under both `https://` (Pages) and `file://` (Electron). There is no server-side routing.
 
 ### Shared protocol core (`shared/protocol/`) — read this first
 
-This is the most important architectural piece in the repo. Each protocol (HTTP, gRPC, MCP, SSE) is implemented **once** as a backend-agnostic orchestrator. The Worker and the Electron main process each supply only a thin `Fetcher` adapter; everything else — SSRF validation, header sanitisation, body construction, response shape, gRPC status mapping, SSE/NDJSON parsing — lives in `shared/protocol/` and runs identically on both backends.
+This is the most important architectural piece in the repo. Each protocol (HTTP, gRPC, MCP, SSE, WebSocket, AI) is implemented **once** as a backend-agnostic orchestrator. Each backend (Cloudflare Worker, Node/Docker server, Electron main process) supplies only a thin `Fetcher` adapter; everything else — SSRF validation, header sanitisation, body construction, response shape, gRPC status mapping, SSE/NDJSON parsing — lives in `shared/protocol/` and runs identically across all of them.
 
 ```
                     shared/protocol/{http,grpc,mcp,sse}-proxy.ts
@@ -85,23 +94,33 @@ Key modules:
 - `shared/protocol/header-policy.ts` — Hop-by-hop deny lists, header sanitisers.
 - `shared/protocol/body-builder.ts` — JSON / text / form-urlencoded / form-data / binary.
 - `shared/protocol/types.ts` — `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union.
-- `shared/protocol/http-proxy.ts`, `grpc-proxy.ts`, `mcp-proxy.ts`, `sse-parser.ts`, `ndjson-parser.ts`.
+- `shared/protocol/http-proxy.ts`, `grpc-proxy.ts`, `mcp-proxy.ts`, `websocket-proxy.ts`, `sse-parser.ts`, `ndjson-parser.ts`.
+- `shared/protocol/ai/` — AI chat orchestrator (`ai-proxy.ts`) + per-provider wire shapes (`provider-routes.ts`) and decoders (`providers/{openai,anthropic,openrouter}.ts`, each paired with a fixture). The orchestrator is provider-agnostic and emits raw SSE bytes downstream; `redaction.ts` scrubs secrets from prompts/context. See AI assistant note below.
 - `shared/protocol/auth-signer.ts`, `oauth1-signer.ts`, `wsse-header.ts` — auth signing **at the wire** (Worker/Electron, not the renderer) so signatures match exact upstream bytes.
+- `shared/protocol/secret-value-schema.ts`, `crypto-utils.ts` — `SecretRef` handle-based secrets (ADR-0007); see State + Persistence below.
 
 **When adding a new protocol**: add `shared/protocol/<name>-proxy.ts` exposing `execute<Name>Proxy(spec, fetcher, options)`, then ~30 lines of Fetcher adapter each in `worker/handlers/` and `electron/main/`. SSRF, headers, body, timeouts come for free.
 
+### AI assistant (`src/features/ai/`) — active development (`feat/ai_actions`)
+
+A chat assistant that can read the current request/response context. **Electron-first**: the renderer streams via the IPC bridge (`window.electron.ai` → `ai:chat` / `ai:chat:cancel`, with `ai:chat:chunk:<id>` / `ai:chat:end:<id>` event channels) → `electron/main/ai-handler.ts` → `shared/protocol/ai/ai-proxy.ts`. There is **no `/api/ai` Worker route yet**, so the web path is not wired through the proxy — confirm platform support before assuming parity. Renderer pieces: `lib/promptBuilder.ts`, `lib/contextSnapshot.ts` (captures request context; URLs/secrets redacted), `lib/streamConsumer.ts` (subscribe to chunk channel **before** invoking `chat`). Providers (OpenAI, Anthropic, OpenRouter) decode in `shared/protocol/ai/providers/*` against fixtures. This feature is in flux — verify against the code.
+
 ### Feature-based renderer layout (`src/features/`)
 
-Each feature module owns its components, hooks, lib (executors/clients), and store. Protocol features (`http/`, `grpc/`, `graphql/`, `websocket/`, `sse/`, `mcp/`) follow the same shape and export a `protocol.ts` describing their schema. The renderer's executor in each feature branches on `isElectron()` to pick IPC vs. HTTP transport — no behavioural difference.
+Each feature module owns its components, hooks, lib (executors/clients), and store. Protocol features (`http/`, `grpc/`, `graphql/`, `websocket/`, `socketio/`, `sse/`, `mcp/`, `kafka/`) follow the same shape and export a `protocol.ts` describing their schema. The renderer's executor in each feature branches on `isElectron()` to pick IPC vs. HTTP transport — no behavioural difference.
 
 ```
-src/features/{http,grpc,graphql,websocket,sse,mcp}   # protocol features
-src/features/{collections,environments,workflows,scripts,auth,registry}
+src/features/{http,grpc,graphql,websocket,socketio,sse,mcp,kafka}   # protocol features
+src/features/ai                                      # AI assistant (chat + request-context tooling)
+src/features/mcp-server                              # Restura-as-MCP-server (agent-drivable surface)
+src/features/{collections,environments,workflows,scripts,auth,registry,contracts}
 src/components/{ui,shared,providers}
 src/routes/                                          # React Router route components
-src/lib/shared/                                      # platform, encryption, storage, validators, etc.
+src/lib/shared/                                      # platform, encryption, storage, validators, capabilities, etc.
 src/lib/opencollection/                              # OpenCollection spec import/export (generated types)
 ```
+
+> **Capability parity is data-driven.** `src/lib/shared/capabilities.ts` is the single source of truth for which features work on web vs. desktop (e.g. Kafka and SOCKS/PAC/mTLS are desktop-only — no browser TCP). It is codegen'd into `docs/CAPABILITY_MATRIX.md` and gated by `npm run capabilities:check`. Update `capabilities.ts` (not the doc) when you add a feature that differs across platforms.
 
 ### State + Persistence (Zustand)
 
@@ -111,19 +130,23 @@ All global state lives in Zustand stores with the `persist` middleware. Stores a
 - **Desktop** — `src/lib/shared/secure-storage.ts` (encrypted electron-store via IPC; key wrapped by Electron `safeStorage` → OS keychain).
 - **The legacy localStorage adapter has been removed.** Don't add new persistence through `window.localStorage`.
 
-Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`.
+Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, `useKafkaStore`, AI store (`src/features/ai/store.ts`).
+
+**Secret handling — `SecretRef` (ADR-0007).** Secret-bearing auth fields are migrating from plaintext `string` to `SecretValue = string | SecretRef`, where `SecretRef` is `{ kind: 'inline'; value }` or `{ kind: 'handle'; id; label? }`. With a `handle`, the renderer **never sees the plaintext** — `electron/main/secret-handle-store.ts` (electron-store + `safeStorage`) holds the encrypted value and resolves it only at wire-signing time in the main process. This keeps secrets out of the Zustand store, Dexie/electron-store persistence, exported collections, crash logs, and the MCP-server's agent-readable surface. Migration is incremental (per-descriptor); see `docs/adr/0007-secret-ref-pattern.md` and `electron/main/collection-export-redactor.ts`.
 
 ### Electron main process (`electron/main/`)
 
-One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`. Plus:
+One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts` (+ `kafka-broker-guard.ts`), `ai-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `git-handler.ts`. Plus:
 
 - `main.ts` — entry / orchestrator
 - `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod
-- `preload.ts` — context-isolated IPC bridge (`window.electronAPI`)
+- `preload.ts` — context-isolated IPC bridge (`window.electron`); bundled by esbuild (`electron:bundle-preload`) so the sandboxed preload is self-contained. Channel names come from `electron/shared/channels.ts`; the exposed surface is type-checked against `electron/types/electron-api.ts` via `satisfies ElectronAPI`
 - `ipc-validators.ts` + `ipc-rate-limiter.ts` — input validation and rate limits at the IPC boundary (legacy rate-limiter API deprecated; see ADR-0006)
 - `connection-cleanup.ts` — idempotent renderer-`destroyed` listener dedupe (`bindRendererCleanup`) + walk-and-dispose helper (`disposeByOwner`). Shared by every long-lived streaming handler.
 - `dns-guard.ts` — pre-flight SSRF guard. `assertHostnameSafe` / `assertUrlHostnameSafe` resolve the hostname and call `assertResolvedAddressAllowed` from `shared/protocol/url-validation` against every record. Pre-flight only — does NOT mitigate true DNS-rebind (TTL=0 swap during connect).
 - `store-handler.ts`, `collection-manager.ts` — persistent storage bridge (encryption key fetched from OS keychain via `safeStorage`; warns at startup if unavailable)
+- `secret-handle-store.ts`, `encrypted-key.ts`, `keychain-status-handler.ts` — `SecretRef` handle store + key management (see ADR-0007)
+- `safe-connect.ts` — SSRF-guarded `net`/`tls` connect helper shared by streaming handlers; `auth-applier.ts` — applies resolved auth/secrets to outbound requests
 - `interceptor-registry.ts`, `request-logger.ts`, `deep-link-handler.ts`, `auto-updater.ts`, `menu.ts`, `system-tray.ts`, `notifications.ts`, `window-controls.ts`
 - `file-operations.ts` — async fs helpers (no behavioral change; was sync)
 
@@ -131,9 +154,9 @@ Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-fligh
 
 ### Worker (`worker/`)
 
-Hono app deployed as Cloudflare Pages Functions. Routes: `/api/proxy`, `/api/grpc`, `/api/grpc/reflection`, `/api/mcp`. Notable bits:
+Hono app (`createApp` in `worker/app.ts`, composed with Cloudflare adapters in `worker/index.ts`) deployed as Cloudflare Pages Functions. Routes: `/health`, `/ready`, `/api/proxy`, `/api/grpc`, `/api/grpc/reflection`, `/api/mcp`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`. The same `createApp` is reused by the Node/Docker entry (`worker/node-entry.ts`). Notable bits:
 
-- Bundled into `dist/web/_worker.js` by `@cloudflare/vite-plugin` during `vite build`.
+- The web build (`@cloudflare/vite-plugin`, active only when **not** an Electron/Docker build) emits the SPA to `dist/web/client/` and the Worker bundle + `wrangler.json` to `dist/web/restura/` — the two `npm run deploy` targets.
 - `nodejs_compat` flag enabled (for `Buffer` etc.) — see `wrangler.jsonc`.
 - Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
 - Rate limiting in `worker/middleware/rateLimiter.ts`.

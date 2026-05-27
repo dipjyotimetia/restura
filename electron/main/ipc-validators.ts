@@ -722,3 +722,27 @@ export function createValidatedListener<TInput>(
  * to `undefined`, which `z.undefined()` accepts and `z.object({})` does not.
  */
 export const NoInputSchema = z.undefined();
+
+// ===========================
+// AI Chat Schemas
+// ===========================
+
+export const AiChatMessageSchema = z.object({
+  role: z.enum(['system', 'user', 'assistant']),
+  content: z.string().max(200_000),  // ~50k tokens; over this is almost certainly a bug
+});
+
+export const AiChatRequestSchema = z.object({
+  streamId: z.string().uuid(),
+  provider: z.enum(['openai', 'anthropic', 'openrouter']),
+  model: z.string().min(1).max(120),
+  messages: z.array(AiChatMessageSchema).min(1).max(200),
+  apiKeyHandleId: z.string().uuid(),
+  baseUrlOverride: z.string().url().optional(),
+  rawMode: z.boolean(),
+  maxOutputTokens: z.number().int().positive().max(8192).optional(),
+});
+
+export const AiChatCancelSchema = z.object({
+  streamId: z.string().uuid(),
+});

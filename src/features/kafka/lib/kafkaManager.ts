@@ -8,7 +8,7 @@ import type {
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
-import type { KafkaAuthIpc } from '../../../../electron/types/electron.d';
+import type { KafkaAuthIpc } from '../../../../electron/types/electron-api';
 
 export function kafkaSecretKey(
   connectionId: string,

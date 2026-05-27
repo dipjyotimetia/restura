@@ -14,7 +14,7 @@ Restura is a multi-protocol API testing client that ships as both a **web applic
 │                                                                  │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │          React SPA (shared renderer)                    │   │
-│   │  Vite 7 · React 19 · React Router v7 (hash) · Zustand  │   │
+│   │  Vite 8 · React 19 · React Router v7 (hash) · Zustand  │   │
 │   └───────────────┬────────────────────┬────────────────────┘   │
 │                   │ Web                │ Electron                │
 │         isElectron() = false   isElectron() = true              │
@@ -47,7 +47,7 @@ SSRF guards in `shared/protocol/url-validation.ts` block private/localhost URLs 
 ### Electron path
 
 ```
-User → Vite SPA → window.electronAPI (preload IPC) → main process handlers → Target API
+User → Vite SPA → window.electron (preload IPC) → main process handlers → Target API
 ```
 
 The Electron main process exposes native handlers via a secure context-isolated preload script. No Worker is bundled; the desktop app uses Node.js APIs directly for all protocols.
@@ -102,7 +102,7 @@ Each backend supplies a `Fetcher` — `(req: FetcherRequest) => Promise<FetcherR
 ```
 
 - **Cloudflare Worker** — `worker/handlers/{proxy,grpc,mcp}.ts` wrap `globalThis.fetch`. Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
-- **Electron main process** — `electron/main/http-handler.ts` wraps Node's `http`/`https` (via undici). Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, DNS-rebind guard via `Agent.connect.lookup` for HTTP, pre-flight DNS guard via `electron/main/dns-guard.ts` for transports without a `lookup` hook) live inside the Electron fetcher closures — **not** in shared. The shared core stays backend-agnostic. Long-lived streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`) share renderer-cleanup bookkeeping via `electron/main/connection-cleanup.ts` (`bindRendererCleanup`, `disposeByOwner`) — see ADR-0006.
+- **Electron main process** — `electron/main/http-handler.ts` wraps Node's `http`/`https` (via undici). Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, connect-time DNS-rebind pinning for HTTP/gRPC/WebSocket/SSE via `Agent.connect.lookup` + `electron/main/safe-connect.ts`, and a pre-flight DNS guard via `electron/main/dns-guard.ts` for the remaining transports) live inside the Electron fetcher closures — **not** in shared. The shared core stays backend-agnostic. Long-lived streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`) share renderer-cleanup bookkeeping via `electron/main/connection-cleanup.ts` (`bindRendererCleanup`, `disposeByOwner`) — see ADR-0006.
 
 ### Adding a new protocol
 
@@ -118,7 +118,7 @@ SSRF rules, header sanitisers, body construction, error mapping, and timeouts co
 
 | Concern | Technology |
 |---|---|
-| Build tool | Vite 7 + `@cloudflare/vite-plugin` |
+| Build tool | Vite 8 + `@cloudflare/vite-plugin` |
 | UI framework | React 19 |
 | Routing | React Router v7 (`createHashRouter`) |
 | Styling | TailwindCSS v4 via `@tailwindcss/vite` |
@@ -130,7 +130,7 @@ SSRF rules, header sanitisers, body construction, error mapping, and timeouts co
 | gRPC (web) | `@connectrpc/connect-web` + `@bufbuild/protobuf` |
 | gRPC (desktop) | `@grpc/grpc-js` + `@grpc/proto-loader` |
 | Worker framework | Hono |
-| Desktop shell | Electron 41 |
+| Desktop shell | Electron 42 |
 | Auto-updates | `electron-updater` |
 | Testing | Vitest + React Testing Library |
 | Deployment | Cloudflare Pages + Functions |
@@ -344,15 +344,15 @@ The web client surfaces a "Desktop only" badge (`src/components/shared/DesktopOn
 
 ### Protocol Transport Abstraction
 
-The renderer detects its runtime environment via `isElectron()` (checks for `window.electronAPI`):
+The renderer detects its runtime environment via `isElectron()` (checks for `window.electron`):
 
 ```
 requestExecutor.ts
-  isElectron() → window.electronAPI.sendHttpRequest(...)   // IPC
+  isElectron() → window.electron.http.request(...)         // IPC
               → fetch('/api/proxy', ...)                   // Worker
 
 grpcClient.ts
-  isElectron() → window.electronAPI.sendGrpcRequest(...)   // IPC
+  isElectron() → window.electron.grpc.request(...)         // IPC
               → fetch('/api/grpc', ...)                    // Worker
 ```
 
@@ -469,7 +469,7 @@ User test scripts run in a QuickJS WASM sandbox (`src/features/scripts/lib/scrip
 
 ### Network — SSRF prevention
 
-SSRF guards on both Worker (`shared/protocol/url-validation.ts`) and Electron paths block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. The HTTP/gRPC paths additionally enforce a connect-time DNS-rebind guard via undici's `Agent.connect.lookup` (`createSecureLookup`). Other Electron transports (WebSocket, Socket.IO, SSE, MCP) — which don't accept a lookup hook — use the **pre-flight** guard in `electron/main/dns-guard.ts`: `assertUrlHostnameSafe(url, ...)` resolves the hostname and applies `assertResolvedAddressAllowed` to every record before the connect. Pre-flight only — true DNS-rebind (TTL=0 swap between resolve and connect) requires per-transport custom dispatchers, tracked as future work in ADR-0006.
+SSRF guards on both Worker (`shared/protocol/url-validation.ts`) and Electron paths block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. **HTTP, gRPC, WebSocket, and SSE additionally pin the connect to the validated address** (closing the DNS-rebind window): HTTP via undici's `Agent.connect.lookup` (`createSecureLookup`); WebSocket/SSE via `createPinnedLookup` / `createPinnedFetch` (`electron/main/safe-connect.ts`); gRPC by dialing the validated IP literal with the original hostname kept as `grpc.default_authority` (grpc-js has no `lookup` hook). The remaining transports (Socket.IO, MCP, gRPC reflection, Kafka) use the **pre-flight** guard in `electron/main/dns-guard.ts`: `assertUrlHostnameSafe(url, ...)` resolves the hostname and applies `assertResolvedAddressAllowed` to every record before connect, but cannot pin — a TTL=0 rebind between resolve and connect is not mitigated for them. Tracked as future work in ADR-0006.
 
 The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for local development on the Worker; the Electron path receives the same `allowLocalhost` flag through the fetcher options.
 
@@ -489,7 +489,7 @@ All stores are validated with Zod schemas on hydration from persisted storage �
 - Removed unnecessary `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` (the app is a client only)
 - Encryption key for persisted store fetched from OS keychain via `safeStorage`; if unavailable, a startup warning is surfaced and the user is told plaintext fallback is active
 - Renderer-cleanup deduplication via `electron/main/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers
-- Pre-flight DNS guard via `electron/main/dns-guard.ts` extends SSRF coverage to transports without a connector-level `lookup` hook (WebSocket, Socket.IO, SSE, MCP)
+- Connect-time DNS-rebind pinning for HTTP, gRPC, WebSocket, and SSE (undici `Agent.connect.lookup`, gRPC IP-literal dial, and `electron/main/safe-connect.ts`'s `createPinnedLookup` / `createPinnedFetch`); pre-flight DNS guard via `electron/main/dns-guard.ts` covers the rest (Socket.IO, MCP, gRPC reflection, Kafka)
 
 See `docs/adr/0004-security-hardening.md` and `docs/adr/0006-electron-connection-and-dns-hardening.md` for design rationale.
 

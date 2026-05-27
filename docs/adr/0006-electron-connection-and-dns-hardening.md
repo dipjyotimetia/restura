@@ -58,8 +58,37 @@ gRPC failures are surfaced as `INVALID_ARGUMENT` (code 3) so the renderer can di
 - **Keep cleanup inline in each handler.** Rejected — the dedup logic is non-obvious (every reviewer who saw it asked "why a WeakMap?"). Extracting it is the only way to share intent.
 - **`dns.resolve4`/`dns.resolve6` instead of `dns.lookup`.** Rejected — `lookup` respects the OS hosts file and resolver behavior; users with `/etc/hosts` overrides for development would have been broken. `lookup` with `{ all: true }` returns every record across both families.
 
+## Update (2026-05-27): connect-time pinning for ws / sse / grpc
+
+The "pre-flight only" residual rebind window described above is now **closed for
+WebSocket, SSE, and gRPC** — they resolve + validate once and then dial the
+pinned address rather than letting the transport re-resolve the hostname:
+
+- **WebSocket** (`websocket-handler.ts`): passes `lookup: createPinnedLookup(host, ip)`
+  (from `safe-connect.ts`) into the `ws` client options, so the handshake dials
+  the validated IP. SNI + Host header stay on the original hostname.
+- **SSE** (`sse-handler.ts`): builds its fetcher with `createPinnedFetch(host, ip)`
+  (an undici dispatcher whose `connect.lookup` returns the validated IP) via the
+  new `fetchImpl` option on `makeFetchFetcher`.
+- **gRPC** (`grpc-handler.ts`): `resolveGrpcDialAddress` resolves + validates,
+  then `computeGrpcDial` rewrites the dial target to the **IP literal** while
+  setting `grpc.default_authority` (and, for TLS, `grpc.ssl_target_name_override`)
+  to the original hostname. grpc-js's C++ resolver therefore never gets the
+  hostname to re-resolve. This is the IP-literal-target technique the original
+  ADR didn't consider — it's far lighter than a custom subchannel pool. The
+  pinning logic (`computeGrpcDial`, `createPinnedLookup`) is unit-tested in
+  `electron/main/__tests__/dns-rebind-pinning.test.ts`; a live TLS handshake is
+  not exercised by the suite, so the authority-override path carries some
+  residual untested risk.
+
+**Still pre-flight only:** `mcp-handler.ts`, `socketio-handler.ts` (socket.io-client
+exposes no `lookup` hook), `grpc-reflection-handler.ts`, and `kafka-handler.ts`
+(plus Kafka's post-connect broker auto-discovery). These remain accepted
+limitations and are the next candidates for the same treatment.
+
 ## Out of scope (future work)
 
+- Connect-time pinning for the remaining transports (mcp, socketio, grpc-reflection, kafka).
 - Per-transport custom dispatchers with `lookup` hooks for true DNS-rebind protection.
 - A unified "destination policy" that takes both the URL-string check and the resolved-address check into one decision point shared with the renderer (currently the renderer has its own less-strict policy because it doesn't have `dns.lookup`).
 - Metrics on DNS-guard rejections — observability for "how often does this fire in production" is unwritten.

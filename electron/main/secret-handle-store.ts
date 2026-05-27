@@ -30,6 +30,7 @@
  */
 
 import { ipcMain } from 'electron';
+import { IPC } from '../shared/channels';
 import * as crypto from 'crypto';
 import { z } from 'zod';
 import { getOrCreateEncryptedKey } from './encrypted-key';
@@ -163,7 +164,7 @@ const HandleIdSchema = z.object({
  * the renderer side.
  */
 export function registerSecretHandleIPC(): void {
-  ipcMain.handle('secret:store', (_event, payload: unknown) => {
+  ipcMain.handle(IPC.secret.store, (_event, payload: unknown) => {
     const parsed = StoreInputSchema.safeParse(payload);
     if (!parsed.success) {
       return { ok: false, error: parsed.error.message };
@@ -178,7 +179,7 @@ export function registerSecretHandleIPC(): void {
     return { ok: true, id };
   });
 
-  ipcMain.handle('secret:delete', (_event, payload: unknown) => {
+  ipcMain.handle(IPC.secret.delete, (_event, payload: unknown) => {
     const parsed = HandleIdSchema.safeParse(payload);
     if (!parsed.success) {
       return { ok: false, error: parsed.error.message };
@@ -187,7 +188,7 @@ export function registerSecretHandleIPC(): void {
     return { ok: true };
   });
 
-  ipcMain.handle('secret:describe', (_event, payload: unknown) => {
+  ipcMain.handle(IPC.secret.describe, (_event, payload: unknown) => {
     const parsed = HandleIdSchema.safeParse(payload);
     if (!parsed.success) {
       return { ok: false, error: parsed.error.message };
@@ -196,7 +197,7 @@ export function registerSecretHandleIPC(): void {
     return { ok: true, handle: desc ?? null };
   });
 
-  ipcMain.handle('secret:list', () => {
+  ipcMain.handle(IPC.secret.list, () => {
     return { ok: true, handles: listSecretHandles() };
   });
 }

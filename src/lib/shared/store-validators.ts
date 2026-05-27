@@ -182,6 +182,74 @@ export function safeParseJSON<T>(
   }
 }
 
+// ===========================
+// AI Chat Store Schema
+// ===========================
+
+const SecretHandleRefSchema = z.object({
+  kind: z.literal('handle'),
+  id: z.string().uuid(),
+  label: z.string().optional(),
+});
+
+const ProviderEnumSchema = z.enum(['openai', 'anthropic', 'openrouter']);
+
+const ProviderConfigSchema = z.object({
+  provider: ProviderEnumSchema,
+  defaultModel: z.string().min(1),
+  apiKeyRef: SecretHandleRefSchema,
+  baseUrlOverride: z.string().url().optional(),
+});
+
+const ContextRefSchema = z.object({
+  kind: z.enum(['request', 'response', 'history-entry', 'none']),
+  tabId: z.string().optional(),
+  historyId: z.string().optional(),
+  capturedAt: z.number(),
+});
+
+const UsageSchema = z.object({
+  promptTokens: z.number(),
+  completionTokens: z.number(),
+  estimatedCostUSD: z.number(),
+});
+
+const ChatMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(['system', 'user', 'assistant']),
+  text: z.string(),
+  status: z.enum(['streaming', 'done', 'error']),
+  errorMessage: z.string().optional(),
+  usage: UsageSchema.optional(),
+  contextRef: ContextRefSchema.optional(),
+  rawMode: z.boolean().optional(),
+  createdAt: z.number(),
+});
+
+const ConversationSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  messages: z.array(ChatMessageSchema),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export const AiChatStateSchema = z.object({
+  conversations: z.record(z.string(), ConversationSchema),
+  activeConversationId: z.string().nullable(),
+  panelOpen: z.boolean(),
+  panelWidth: z.number().min(280).max(800),
+  providerConfigs: z.object({
+    openai: ProviderConfigSchema.nullable(),
+    anthropic: ProviderConfigSchema.nullable(),
+    openrouter: ProviderConfigSchema.nullable(),
+  }),
+  activeProvider: ProviderEnumSchema,
+  redactionMode: z.enum(['default', 'raw']),
+});
+
+export type PersistedAiChatState = z.infer<typeof AiChatStateSchema>;
+
 /**
  * Validates URL format
  */

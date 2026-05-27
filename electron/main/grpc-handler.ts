@@ -17,22 +17,58 @@ import {
 } from './ipc-validators';
 import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
-import { assertUrlHostnameSafe } from './dns-guard';
+import { resolveUrlHostnameSafe } from './dns-guard';
+import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 
 // gRPC schemes the SSRF guard must accept; `validateURL` defaults to http/https,
 // but the reflection handler and the renderer both also produce grpc:// URLs.
 const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
 
-// Pre-flight SSRF guard for gRPC. `@grpc/grpc-js` resolves DNS inside its C++
-// binding with no Node connector hook, so this is best-effort: a sub-second
-// DNS-rebind (TTL=0 swap between this lookup and the actual TCP connect) can
-// still slip through. See docs/adr/0006-electron-connection-and-dns-hardening.md.
-async function assertGrpcUrlSafe(url: string): Promise<void> {
-  await assertUrlHostnameSafe(url, {
+export interface GrpcDialAddress {
+  ip: string;
+  port: number;
+  family: 4 | 6;
+}
+
+// SSRF guard for gRPC. `@grpc/grpc-js` resolves DNS inside its C++ binding with
+// no Node connector hook, so a pre-flight check alone leaves a TTL=0 rebind
+// window. We close it by resolving + validating here, then dialing the pinned
+// IP literal (see computeGrpcDial) instead of letting grpc-js re-resolve the
+// hostname. See docs/adr/0006-electron-connection-and-dns-hardening.md.
+async function resolveGrpcDialAddress(url: string): Promise<GrpcDialAddress> {
+  const records = await resolveUrlHostnameSafe(url, {
     allowLocalhost: true,
     allowedSchemes: GRPC_ALLOWED_SCHEMES,
   });
+  const chosen = records[0];
+  if (!chosen) throw new Error(`DNS resolution returned no records for ${new URL(url).hostname}`);
+  const parsed = new URL(url);
+  const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
+  const port = parsed.port ? parseInt(parsed.port, 10) : useTls ? 443 : 80;
+  return { ip: chosen.address, port, family: chosen.family === 6 ? 6 : 4 };
+}
+
+/**
+ * Compute the gRPC dial target + channel options that PIN the connection to a
+ * pre-validated IP. The original hostname is kept as the gRPC authority (and,
+ * for TLS, the SSL target name) so `:authority` routing and certificate
+ * validation behave exactly as if grpc-js had resolved the name itself —
+ * grpc-js just never gets the chance to re-resolve (and be rebound). Pure +
+ * exported so the pinning logic is unit-tested without a live handshake.
+ */
+export function computeGrpcDial(
+  url: string,
+  pinned: GrpcDialAddress
+): { target: string; useTls: boolean; channelOptions: grpc.ChannelOptions } {
+  const host = new URL(url).hostname;
+  const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
+  const target = pinned.family === 6 ? `[${pinned.ip}]:${pinned.port}` : `${pinned.ip}:${pinned.port}`;
+  const channelOptions: grpc.ChannelOptions = {
+    'grpc.default_authority': host,
+    ...(useTls ? { 'grpc.ssl_target_name_override': host } : {}),
+  };
+  return { target, useTls, channelOptions };
 }
 
 export const grpcRateLimiter = createKeyedRateLimiter(30, 60_000);
@@ -325,6 +361,7 @@ function buildGrpcClient(
   protoDef: grpc.GrpcObject,
   serviceName: string,
   url: string,
+  pinned: GrpcDialAddress,
   useCompression: boolean
 ): grpc.Client {
   const parts = serviceName.split('.');
@@ -337,19 +374,19 @@ function buildGrpcClient(
     throw new Error(`"${serviceName}" resolved to a non-constructor — check the service name in your proto`);
   }
   const ServiceClient = obj as unknown as typeof grpc.Client;
-  // Strip every scheme the SSRF guard accepts (http/https/grpc/grpcs) — grpc-js
-  // dials bare `host:port`. The four schemes are kept in sync with
-  // `GRPC_ALLOWED_SCHEMES` above; if you widen that list, widen this too.
-  const target = url.replace(/^(?:https?|grpcs?):\/\//, '');
-  // TLS-or-not is determined by the URL scheme: https:// and grpcs:// imply
-  // TLS; http:// and grpc:// imply plaintext.
-  const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
+  // Dial the pre-validated IP literal (not the hostname) so grpc-js's C++
+  // resolver can't be rebound between our check and the connect. Authority +
+  // SSL target name stay on the original hostname (see computeGrpcDial).
+  const { target, useTls, channelOptions: authorityOptions } = computeGrpcDial(url, pinned);
   const credentials = useTls
     ? grpc.credentials.createSsl()
     : grpc.credentials.createInsecure();
-  const channelOptions: grpc.ChannelOptions = useCompression
-    ? { 'grpc.default_compression_algorithm': 2, 'grpc.default_compression_level': 2 }
-    : {};
+  const channelOptions: grpc.ChannelOptions = {
+    ...authorityOptions,
+    ...(useCompression
+      ? { 'grpc.default_compression_algorithm': 2, 'grpc.default_compression_level': 2 }
+      : {}),
+  };
   return new ServiceClient(target, credentials, channelOptions);
 }
 
@@ -364,8 +401,9 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
   // INVALID_ARGUMENT (code 3) with an explicit "[URL policy]" prefix so the
   // renderer can distinguish URL-policy rejections from a gRPC server that
   // legitimately returns INVALID_ARGUMENT for a malformed request body.
+  let grpcDial: GrpcDialAddress;
   try {
-    await assertGrpcUrlSafe(config.url);
+    grpcDial = await resolveGrpcDialAddress(config.url);
   } catch (err) {
     const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return {
@@ -387,7 +425,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
 
   try {
     const protoDef = loadProto(config, tempDir);
-    const grpcClient = buildGrpcClient(protoDef, config.service, config.url, !!config.useCompression);
+    const grpcClient = buildGrpcClient(protoDef, config.service, config.url, grpcDial, !!config.useCompression);
     const metadata = buildMetadata(config.metadata);
     const method = config.method;
 
@@ -483,7 +521,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     'grpc:request',
     rateLimited(
       grpcRateLimiter,
-      createValidatedHandler('grpc:request', GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
+      createValidatedHandler(IPC.grpc.request, GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
         const startTime = Date.now();
         const result = await makeGrpcRequest(config);
         if (onComplete) {
@@ -504,7 +542,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.on(
     'grpc:start-stream',
-    createValidatedListener('grpc:start-stream', GrpcRequestConfigSchema, async (event, config: GrpcRequestConfig) => {
+    createValidatedListener(IPC.grpc.startStream, GrpcRequestConfigSchema, async (event, config: GrpcRequestConfig) => {
       const requestId = config.id;
       if (!requestId || !SAFE_GRPC_ID_RE.test(requestId)) return;
 
@@ -523,19 +561,21 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       };
 
       if (!grpcRateLimiter.check(event.sender.id)) {
-        safeSend(`grpc:error:${requestId}`, {
+        safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
           status: 14,
           details: 'Rate limit exceeded'
         });
         return;
       }
 
-      // SSRF pre-flight before any cleanup binding or disk I/O so a rejected
-      // URL doesn't leave a temp dir or a renderer-destroy listener behind.
+      // SSRF guard before any cleanup binding or disk I/O so a rejected URL
+      // doesn't leave a temp dir or a renderer-destroy listener behind. Resolve
+      // + validate + pin the address here (closes the rebind window).
+      let grpcDial: GrpcDialAddress;
       try {
-        await assertGrpcUrlSafe(config.url);
+        grpcDial = await resolveGrpcDialAddress(config.url);
       } catch (err) {
-        safeSend(`grpc:error:${requestId}`, {
+        safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
           status: 3,
           details: '[URL policy] ' + sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
         });
@@ -556,7 +596,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
     try {
       const protoDef = loadProto(config, tempDir);
-      const grpcClient = buildGrpcClient(protoDef, config.service, config.url, !!config.useCompression);
+      const grpcClient = buildGrpcClient(protoDef, config.service, config.url, grpcDial, !!config.useCompression);
       const metadata = buildMetadata(config.metadata);
       const method = config.method;
       let accumulatedSize = 0;
@@ -567,14 +607,14 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
         if (accumulatedSize > MAX_RESPONSE_SIZE) {
           activeCalls.get(requestId)?.cancel();
-          event.sender.send(`grpc:error:${requestId}`, {
+          event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 8, // RESOURCE_EXHAUSTED
             details: `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
           });
           return;
         }
 
-        event.sender.send(`grpc:data:${requestId}`, data);
+        event.sender.send(eventChannel(EVENT_PREFIX.grpc.data, requestId), data);
       };
 
       const handleError = (err: unknown) => {
@@ -583,7 +623,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           cleanup();
           return;
         }
-        event.sender.send(`grpc:error:${requestId}`, {
+        event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
           status: error.code || 2,
           details: sanitizeErrorMessage(error.message)
         });
@@ -602,7 +642,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       };
 
       const handleEnd = () => {
-        event.sender.send(`grpc:status:${requestId}`, {
+        event.sender.send(eventChannel(EVENT_PREFIX.grpc.status, requestId), {
           status: 0,
           details: 'OK'
         });
@@ -641,7 +681,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
         if (!added) {
           ssCall.cancel();
-          event.sender.send(`grpc:error:${requestId}`, {
+          event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 13,
             details: `Stream with ID ${requestId} already exists`
           });
@@ -675,7 +715,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
         if (!csAdded) {
           csCall.cancel();
-          event.sender.send(`grpc:error:${requestId}`, {
+          event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 13,
             details: `Stream with ID ${requestId} already exists`
           });
@@ -699,7 +739,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
         if (!bidiAdded) {
           bidiCall.cancel();
-          event.sender.send(`grpc:error:${requestId}`, {
+          event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 13,
             details: `Stream with ID ${requestId} already exists`
           });
@@ -709,7 +749,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      event.sender.send(`grpc:error:${requestId}`, {
+      event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
         status: 2,
         details: sanitizeErrorMessage(error.message)
       });
@@ -720,7 +760,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.on(
     'grpc:send-message',
-    createValidatedListener('grpc:send-message', GrpcSendMessageSchema, (_event, [requestId, message]) => {
+    createValidatedListener(IPC.grpc.sendMessage, GrpcSendMessageSchema, (_event, [requestId, message]) => {
       const call = activeCalls.get(requestId);
       if (call) {
         call.write(message);
@@ -730,7 +770,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.on(
     'grpc:end-stream',
-    createValidatedListener('grpc:end-stream', GrpcStreamRequestIdSchema, (_event, requestId: string) => {
+    createValidatedListener(IPC.grpc.endStream, GrpcStreamRequestIdSchema, (_event, requestId: string) => {
       const call = activeCalls.get(requestId);
       if (call) {
         call.end();
@@ -740,7 +780,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.on(
     'grpc:cancel-stream',
-    createValidatedListener('grpc:cancel-stream', GrpcStreamRequestIdSchema, (_event, requestId: string) => {
+    createValidatedListener(IPC.grpc.cancelStream, GrpcStreamRequestIdSchema, (_event, requestId: string) => {
       const call = activeCalls.get(requestId);
       if (call) {
         call.cancel();

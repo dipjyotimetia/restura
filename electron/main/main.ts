@@ -23,6 +23,7 @@ import { registerStoreHandlerIPC } from './store-handler';
 import { registerSecretHandleIPC } from './secret-handle-store';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
+import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
 import { registerDeepLinkHandler } from './deep-link-handler';
 import { startStdioMcpServer } from './mcp-server-handler';
 import { loadMcpDispatchContext } from './mcp-context-loader';
@@ -105,31 +106,52 @@ registerDeepLinkHandler(getMainWindow);
 // Register security measures early so all web-contents are protected from creation
 setupSecurityMeasures();
 
+/**
+ * One IPC subsystem: its `register` side and (for handlers that hold long-lived
+ * state — streams, watchers, listeners) its `dispose` side. Registration and
+ * teardown iterate this single array, so a streaming handler structurally
+ * cannot be registered without also wiring up its cleanup (the old failure mode
+ * was two hand-ordered lists drifting apart and leaking on quit).
+ */
+interface IpcModule {
+  register: () => void;
+  dispose?: () => void | Promise<void>;
+}
+
+const IPC_MODULES: IpcModule[] = [
+  { register: () => registerAutoUpdaterIPC(isDev) },
+  { register: () => registerFileOperationsIPC(getMainWindow) },
+  { register: () => registerHttpHandlerIPC(logRequest) },
+  { register: () => registerGrpcHandlerIPC(logRequest), dispose: () => stopStreamCleanup() },
+  { register: () => registerGrpcReflectionIPC() },
+  { register: () => registerWebSocketHandlerIPC(), dispose: () => stopWebSocketCleanup() },
+  { register: () => registerSocketIoHandlerIPC(), dispose: () => stopSocketIoCleanup() },
+  { register: () => registerSseHandlerIPC(), dispose: () => stopSseCleanup() },
+  { register: () => registerMcpHandlerIPC(), dispose: () => stopMcpCleanup() },
+  { register: () => registerKafkaHandlerIPC(logRequest), dispose: () => stopKafkaCleanup() },
+  { register: () => registerRequestLoggerIPC() },
+  { register: () => registerWindowControlsIPC(getMainWindow) },
+  { register: () => registerNewWindowIPC(isDev) },
+  { register: () => registerNotificationIPC(getMainWindow, isDev) },
+  { register: () => registerCollectionManagerIPC(getMainWindow), dispose: () => cleanupCollectionWatchers() },
+  { register: () => registerStoreHandlerIPC() },
+  { register: () => registerSecretHandleIPC() },
+  { register: () => registerKeychainStatusIPC() },
+  {
+    // Git operations are restricted to directories that are registered as
+    // file-backed collections — `isRegisteredCollectionDirectory` consults the
+    // active chokidar watchers in collection-manager.
+    register: () => {
+      setGitDirectoryAllowlist(isRegisteredCollectionDirectory);
+      registerGitHandlerIPC();
+    },
+  },
+  { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
+];
+
 // Register all IPC handlers
 function registerIPCHandlers(): void {
-  registerAutoUpdaterIPC(isDev);
-  registerFileOperationsIPC(getMainWindow);
-  registerHttpHandlerIPC(logRequest);
-  registerGrpcHandlerIPC(logRequest);
-  registerGrpcReflectionIPC();
-  registerWebSocketHandlerIPC();
-  registerSocketIoHandlerIPC();
-  registerSseHandlerIPC();
-  registerMcpHandlerIPC();
-  registerKafkaHandlerIPC(logRequest);
-  registerRequestLoggerIPC();
-  registerWindowControlsIPC(getMainWindow);
-  registerNewWindowIPC(isDev);
-  registerNotificationIPC(getMainWindow, isDev);
-  registerCollectionManagerIPC(getMainWindow);
-  registerStoreHandlerIPC();
-  registerSecretHandleIPC();
-  registerKeychainStatusIPC();
-  // Git operations are restricted to directories that are registered as
-  // file-backed collections — `isRegisteredCollectionDirectory` consults the
-  // active chokidar watchers in collection-manager.
-  setGitDirectoryAllowlist(isRegisteredCollectionDirectory);
-  registerGitHandlerIPC();
+  for (const mod of IPC_MODULES) mod.register();
 }
 
 // Setup Content Security Policy for production
@@ -229,15 +251,19 @@ app.on('window-all-closed', () => {
   }
 });
 
-// Cleanup on quit
+// Cleanup on quit — iterate the same registry the handlers registered from, so
+// teardown can never silently fall out of sync with registration.
 app.on('will-quit', () => {
-  stopStreamCleanup(); // Stop gRPC stream cleanup interval
-  stopWebSocketCleanup(); // Close active WebSocket connections
-  stopSocketIoCleanup(); // Close active Socket.IO connections
-  stopSseCleanup(); // Close active SSE connections
-  stopMcpCleanup(); // Close active MCP connections
-  void stopKafkaCleanup(); // Close active Kafka producers/consumers
-  cleanupCollectionWatchers(); // Stop file watchers
+  for (const mod of IPC_MODULES) {
+    if (!mod.dispose) continue;
+    try {
+      void mod.dispose();
+    } catch (err) {
+      log.error('IPC module dispose failed', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
   destroyTray();
 });
 

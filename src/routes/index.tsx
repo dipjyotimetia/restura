@@ -28,7 +28,12 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { SaveToCollectionDialog } from '@/components/shared/SaveToCollectionDialog';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { isElectron } from '@/lib/shared/platform';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { useAiChatStore } from '@/features/ai/store';
 import type { RequestMode, ActivePanel } from '@/types';
+
+const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
 
 export default function Home() {
   const [activePanel, setActivePanel] = useState<ActivePanel | null>('collections');
@@ -49,6 +54,10 @@ export default function Home() {
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
   const openTabWithMode = useRequestStore((s) => s.openTabWithMode);
   const { settings } = useSettingsStore();
+
+  const aiPanelOpen = useAiChatStore((s) => s.panelOpen);
+  const setAiPanelOpen = useAiChatStore((s) => s.setPanelOpen);
+  const enableAi = isElectron();
 
   // Ref keeps Cmd+S handler current without listener churn.
   const activeTabRef = useRef(activeTab);
@@ -195,6 +204,7 @@ export default function Home() {
           setSettingsInitialSection('general');
           setSettingsOpen(true);
         }}
+        onToggleAi={enableAi ? () => setAiPanelOpen(!aiPanelOpen) : undefined}
       />
 
       <div className="flex flex-1 overflow-hidden min-h-0 px-3.5 pb-3 gap-3">
@@ -238,6 +248,7 @@ export default function Home() {
             />
           </main>
         </div>
+        {enableAi && aiPanelOpen && <ChatPanel onClose={() => setAiPanelOpen(false)} />}
       </div>
 
       <StatusBar />

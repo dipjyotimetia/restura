@@ -11,6 +11,7 @@ import {
   createValidatedHandler,
   NoInputSchema,
 } from './ipc-validators';
+import { IPC } from '../shared/channels';
 
 // Security: Maximum file size to prevent memory exhaustion
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -143,7 +144,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
   // Dialog handlers
   ipcMain.handle(
     'dialog:openFile',
-    createValidatedHandler('dialog:openFile', DialogOptionsSchema.optional(), async (options) => {
+    createValidatedHandler(IPC.dialog.openFile, DialogOptionsSchema.optional(), async (options) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
       const result = await dialog.showOpenDialog(mainWindow, {
@@ -160,7 +161,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
 
   ipcMain.handle(
     'dialog:saveFile',
-    createValidatedHandler('dialog:saveFile', DialogOptionsSchema.optional(), async (options) => {
+    createValidatedHandler(IPC.dialog.saveFile, DialogOptionsSchema.optional(), async (options) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
       const result = await dialog.showSaveDialog(mainWindow, {
@@ -178,7 +179,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
   // import/export touches a 50 MB collection).
   ipcMain.handle(
     'fs:readFile',
-    createValidatedHandler('fs:readFile', FilePathSchema, async (filePath: string) => {
+    createValidatedHandler(IPC.fs.readFile, FilePathSchema, async (filePath: string) => {
       try {
         if (!isPathSafe(filePath)) {
           return { success: false, error: 'Access denied: Path is outside allowed directories' };
@@ -199,7 +200,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
 
   ipcMain.handle(
     'fs:writeFile',
-    createValidatedHandler('fs:writeFile', WriteFileSchema, async ([filePath, content]: [string, string]) => {
+    createValidatedHandler(IPC.fs.writeFile, WriteFileSchema, async ([filePath, content]: [string, string]) => {
       try {
         if (!isPathSafe(filePath)) {
           return { success: false, error: 'Access denied: Path is outside allowed directories' };
@@ -220,21 +221,21 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
   // App info handlers
   ipcMain.handle(
     'app:getPath',
-    createValidatedHandler('app:getPath', AppPathNameSchema, (name) => {
+    createValidatedHandler(IPC.app.getPath, AppPathNameSchema, (name) => {
       return app.getPath(name as Parameters<typeof app.getPath>[0]);
     })
   );
 
   ipcMain.handle(
     'app:getVersion',
-    createValidatedHandler('app:getVersion', NoInputSchema, () => {
+    createValidatedHandler(IPC.app.getVersion, NoInputSchema, () => {
       return app.getVersion();
     })
   );
 
   ipcMain.handle(
     'shell:openExternal',
-    createValidatedHandler('shell:openExternal', ShellUrlSchema, async (url: string) => {
+    createValidatedHandler(IPC.shell.openExternal, ShellUrlSchema, async (url: string) => {
       await shell.openExternal(url);
     })
   );

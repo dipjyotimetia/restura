@@ -10,7 +10,8 @@ import {
   validateIpcInput,
   createValidatedHandler,
 } from './ipc-validators';
-import { SseParser, type ParsedSseEvent } from './lib/sse-parser';
+import { SseParser, type ParsedSseEvent } from './sse-parser';
+import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { followRedirects, RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 
@@ -84,7 +85,7 @@ async function readSseStream(
   body: ReadableStream<Uint8Array> | null
 ): Promise<void> {
   if (!body) {
-    emitTo(session.webContentsId, `mcp:error:${session.connectionId}`, { message: 'No SSE body' });
+    emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.error, session.connectionId), { message: 'No SSE body' });
     teardownSession(session.connectionId);
     return;
   }
@@ -123,9 +124,9 @@ async function readSseStream(
           return;
         }
         // Unmatched message — treat as a server-initiated notification
-        emitTo(session.webContentsId, `mcp:notification:${session.connectionId}`, parsed);
+        emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.notification, session.connectionId), parsed);
       } catch (err) {
-        emitTo(session.webContentsId, `mcp:error:${session.connectionId}`, {
+        emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.error, session.connectionId), {
           message: `Failed to parse SSE message: ${err instanceof Error ? err.message : 'unknown'}`,
         });
       }
@@ -141,13 +142,13 @@ async function readSseStream(
     parser.feed(decoder.decode(), onEvent);
   } catch (err) {
     if (!session.abortController.signal.aborted) {
-      emitTo(session.webContentsId, `mcp:error:${session.connectionId}`, {
+      emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.error, session.connectionId), {
         message: err instanceof Error ? err.message : 'SSE read error',
       });
     }
   } finally {
     if (sessions.get(session.connectionId) === session) {
-      emitTo(session.webContentsId, `mcp:close:${session.connectionId}`, { reason: 'stream ended' });
+      emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.close, session.connectionId), { reason: 'stream ended' });
       teardownSession(session.connectionId);
     }
   }
@@ -200,8 +201,8 @@ async function readStreamableHttpResponse(
 }
 
 export function registerMcpHandlerIPC(): void {
-  ipcMain.handle('mcp:connect', async (event, rawConfig: unknown) => {
-    const config = validateIpcInput(McpConnectSchema, rawConfig, 'mcp:connect');
+  ipcMain.handle(IPC.mcp.connect, async (event, rawConfig: unknown) => {
+    const config = validateIpcInput(McpConnectSchema, rawConfig, IPC.mcp.connect);
     const webContentsId = event.sender.id;
 
     if (!mcpRateLimiter.check(webContentsId)) {
@@ -233,7 +234,7 @@ export function registerMcpHandlerIPC(): void {
         transport: 'streamable-http',
       };
       sessions.set(config.connectionId, session);
-      emitTo(webContentsId, `mcp:open:${config.connectionId}`);
+      emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.open, config.connectionId));
       return { success: true };
     }
 
@@ -290,7 +291,7 @@ export function registerMcpHandlerIPC(): void {
         teardownSession(config.connectionId);
         return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
       }
-      emitTo(webContentsId, `mcp:open:${config.connectionId}`);
+      emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.open, config.connectionId));
       void readSseStream(session, response.body ?? null);
       return { success: true };
     } catch (err) {
@@ -303,10 +304,10 @@ export function registerMcpHandlerIPC(): void {
   });
 
   ipcMain.handle(
-    'mcp:request',
+    IPC.mcp.request,
     rateLimited(
       mcpRateLimiter,
-      createValidatedHandler('mcp:request', McpRequestSchema, async (config) => {
+      createValidatedHandler(IPC.mcp.request, McpRequestSchema, async (config) => {
         const session = sessions.get(config.connectionId);
         if (!session) {
           return { success: false, error: 'Not connected' };
@@ -395,8 +396,8 @@ export function registerMcpHandlerIPC(): void {
   );
 
   ipcMain.handle(
-    'mcp:disconnect',
-    createValidatedHandler('mcp:disconnect', McpDisconnectSchema, async (config) => {
+    IPC.mcp.disconnect,
+    createValidatedHandler(IPC.mcp.disconnect, McpDisconnectSchema, async (config) => {
       teardownSession(config.connectionId);
       return { success: true };
     })

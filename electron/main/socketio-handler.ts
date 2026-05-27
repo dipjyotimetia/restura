@@ -12,6 +12,7 @@ import {
   createValidatedHandler,
 } from './ipc-validators';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
+import { IPC } from '../shared/channels';
 
 export const socketIoRateLimiter = createKeyedRateLimiter(20, 60_000);
 
@@ -50,8 +51,8 @@ function buildConnectUrl(rawUrl: string, namespace: string | undefined): string 
 export function registerSocketIoHandlerIPC(): void {
   // socketio:connect is handled manually so we can capture event.sender.id
   // and target IPC emissions to the originating renderer window.
-  ipcMain.handle('socketio:connect', async (event, rawConfig: unknown) => {
-    const config = validateIpcInput(SocketIoConnectSchema, rawConfig, 'socketio:connect');
+  ipcMain.handle(IPC.socketio.connect, async (event, rawConfig: unknown) => {
+    const config = validateIpcInput(SocketIoConnectSchema, rawConfig, IPC.socketio.connect);
     const connectionId = config.connectionId;
     const webContentsId = event.sender.id;
 
@@ -161,8 +162,8 @@ export function registerSocketIoHandlerIPC(): void {
   });
 
   ipcMain.handle(
-    'socketio:emit',
-    createValidatedHandler('socketio:emit', SocketIoEmitSchema, async (config) => {
+    IPC.socketio.emit,
+    createValidatedHandler(IPC.socketio.emit, SocketIoEmitSchema, async (config) => {
       const entry = activeConnections.get(config.connectionId);
       if (!entry) {
         return { success: false, error: 'Not connected' };
@@ -210,8 +211,8 @@ export function registerSocketIoHandlerIPC(): void {
   );
 
   ipcMain.handle(
-    'socketio:disconnect',
-    createValidatedHandler('socketio:disconnect', SocketIoDisconnectSchema, async (config) => {
+    IPC.socketio.disconnect,
+    createValidatedHandler(IPC.socketio.disconnect, SocketIoDisconnectSchema, async (config) => {
       const entry = activeConnections.get(config.connectionId);
       if (entry) {
         entry.explicitlyClosed = true;

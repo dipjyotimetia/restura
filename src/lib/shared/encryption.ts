@@ -138,8 +138,9 @@ export async function decryptValue(encryptedValue: string, password: string): Pr
 
     const decoder = new TextDecoder();
     return decoder.decode(decryptedData);
-  } catch (error) {
-    console.error('Decryption failed:', error);
+  } catch {
+    // Don't log here — the caller (e.g. dexie-storage.getItem) decides how to
+    // handle and report a decryption failure, avoiding a duplicate console line.
     throw new Error('Failed to decrypt data. Incorrect password or corrupted data.');
   }
 }

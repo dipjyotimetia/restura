@@ -12,11 +12,12 @@
  * `createPinnedFetch(host, ip)` wraps undici with the same lookup hook so the
  * underlying connect uses the pinned IP regardless of TTL.
  *
- * gRPC (`@grpc/grpc-js`) and Kafka (`@platformatic/kafka`) resolve inside
- * C++ bindings with no Node-side hook — those handlers still get
- * `assertUrlHostnameSafe()` immediately before connect (narrowing the rebind
- * window to microseconds) but cannot be fully pinned without a custom
- * channel/connector. See ADR-0006 for the residual gap.
+ * gRPC (`@grpc/grpc-js`) has no Node `lookup` hook, but `grpc-handler.ts` pins
+ * it a different way: it resolves+validates here and dials the IP literal with
+ * `grpc.default_authority` / `grpc.ssl_target_name_override` set to the original
+ * host (see `computeGrpcDial`). Kafka (`@platformatic/kafka`) resolves inside its
+ * C++ binding and still gets `assertUrlHostnameSafe()` immediately before connect
+ * (narrowing the rebind window) but isn't fully pinned. See ADR-0006.
  */
 
 import * as dns from 'node:dns';
