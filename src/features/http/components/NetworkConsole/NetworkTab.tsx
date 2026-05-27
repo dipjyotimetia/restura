@@ -17,6 +17,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Network,
   FileText,
   Clock,
@@ -28,7 +37,7 @@ import {
   RotateCw,
   ExternalLink,
   GitCompare,
-  ArrowDownWideNarrow,
+  SlidersHorizontal,
   ListChecks,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -164,6 +173,14 @@ export default function NetworkTab() {
     return [...seen.entries()].map(([id, label]) => ({ id, label }));
   }, [entries]);
 
+  // Distinct protocols present — the protocol filter only earns its space when
+  // the log actually mixes protocols.
+  const protocolsPresent = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) set.add(e.protocol ?? 'http');
+    return set;
+  }, [entries]);
+
   const filteredEntries = useMemo(() => {
     const search = searchFilter.trim().toLowerCase();
     const matchesSearch = (entry: (typeof entries)[number]) => {
@@ -272,24 +289,69 @@ export default function NetworkTab() {
       <div className="w-[280px] border-r border-border flex-shrink-0 flex flex-col">
         {/* Search input */}
         <div className="p-2 border-b border-border space-y-2">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input
-              placeholder="Filter requests..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className="h-7 pl-7 pr-7 text-xs"
-            />
-            {searchFilter && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-0.5 top-1/2 -translate-y-1/2 h-6 w-6"
-                onClick={() => setSearchFilter('')}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
+          {/* Search + sort/protocol menu */}
+          <div className="flex items-center gap-1">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Input
+                placeholder="Filter requests..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                className="h-7 pl-7 pr-7 text-xs"
+              />
+              {searchFilter && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2 h-6 w-6"
+                  onClick={() => setSearchFilter('')}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0"
+                  aria-label="Sort and protocol filters"
+                  title="Sort & filter"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuLabel className="text-[11px]">Sort by</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={sortBy}
+                  onValueChange={(v) => setSortBy(v as typeof sortBy)}
+                >
+                  {SORT_OPTIONS.map((s) => (
+                    <DropdownMenuRadioItem key={s.value} value={s.value} className="text-xs">
+                      {s.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                {protocolsPresent.size > 1 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-[11px]">Protocol</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={protocolFilter}
+                      onValueChange={(v) => setProtocolFilter(v as ConsoleProtocol | 'all')}
+                    >
+                      {PROTOCOL_FILTERS.map((f) => (
+                        <DropdownMenuRadioItem key={f.value} value={f.value} className="text-xs">
+                          {f.label}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           {/* Status filters */}
           <div className="flex flex-wrap gap-1">
@@ -307,45 +369,6 @@ export default function NetworkTab() {
                 aria-pressed={statusFilter === f.value}
               >
                 {f.label}
-              </button>
-            ))}
-          </div>
-          {/* Protocol filters */}
-          <div className="flex flex-wrap gap-1">
-            {PROTOCOL_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setProtocolFilter(f.value)}
-                className={cn(
-                  'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
-                  protocolFilter === f.value
-                    ? 'bg-primary/15 border-primary/40 text-primary'
-                    : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
-                )}
-                aria-pressed={protocolFilter === f.value}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-          {/* Sort */}
-          <div className="flex items-center gap-1">
-            <ArrowDownWideNarrow className="h-3 w-3 text-muted-foreground" />
-            {SORT_OPTIONS.map((s) => (
-              <button
-                key={s.value}
-                type="button"
-                onClick={() => setSortBy(s.value)}
-                className={cn(
-                  'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
-                  sortBy === s.value
-                    ? 'bg-primary/15 border-primary/40 text-primary'
-                    : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
-                )}
-                aria-pressed={sortBy === s.value}
-              >
-                {s.label}
               </button>
             ))}
           </div>
@@ -426,7 +449,7 @@ export default function NetworkTab() {
       {/* Entry details */}
       <div className="flex-1 min-w-0">
         {selectedEntry ? (
-          <Tabs defaultValue="request" className="h-full flex flex-col">
+          <Tabs defaultValue="response" className="h-full flex flex-col">
             <div className="px-4 pt-2 border-b border-border flex items-center justify-between gap-2">
               <TabsList className="h-8">
                 <TabsTrigger value="request" className="text-xs h-7">
@@ -482,6 +505,28 @@ export default function NetworkTab() {
                   cURL
                 </Button>
               </div>
+            </div>
+
+            {/* At-a-glance summary — visible on both Request and Response tabs. */}
+            <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/60 text-[11px] font-mono">
+              <Badge
+                variant="outline"
+                className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(selectedEntry.response.status))}
+              >
+                {selectedEntry.response.status || 'ERR'} {selectedEntry.response.statusText}
+              </Badge>
+              <span className="flex items-center gap-1 text-muted-foreground tabular-nums">
+                <Clock className="h-3 w-3" />
+                {selectedEntry.response.time}ms
+              </span>
+              {selectedEntry.requestSize != null && (
+                <span className="text-muted-foreground tabular-nums" title="Request size">
+                  ↑ {formatBytes(selectedEntry.requestSize)}
+                </span>
+              )}
+              <span className="text-muted-foreground tabular-nums" title="Response size">
+                ↓ {formatBytes(selectedEntry.response.size)}
+              </span>
             </div>
 
             <TabsContent value="request" className="flex-1 m-0 overflow-hidden">
