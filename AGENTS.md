@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-Restura is a multi-protocol API testing client supporting HTTP/REST, GraphQL, gRPC, and WebSockets. It runs as both a web application (Cloudflare Pages + Workers) and an Electron desktop app.
+Restura is a multi-protocol API testing client supporting HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, and MCP. It runs as both a web application (Cloudflare Pages + Workers) and an Electron desktop app.
 
 ## Development Commands
 
@@ -56,7 +56,11 @@ src/features/
 ├── http/           # RequestBuilder, requestExecutor, useHttpRequest, useCookieStore
 ├── grpc/           # GrpcRequestBuilder, grpcClient, grpcReflection
 ├── websocket/      # WebSocketClient
+├── socketio/       # Socket.IO client (desktop only)
 ├── graphql/        # GraphQLRequestBuilder, GraphQLBodyEditor, SchemaExplorer
+├── sse/            # Server-Sent Events client
+├── kafka/          # Kafka producer/consumer (desktop only)
+├── mcp/            # MCP client
 ├── collections/    # Sidebar, CollectionRunner, importers, exporters
 ├── environments/   # EnvironmentManager
 ├── auth/           # AuthConfig (shared by HTTP & gRPC)
@@ -102,7 +106,7 @@ The renderer's `requestExecutor` and `grpcClient` branch on `isElectron()` to us
 
 **Path Alias**: `@/` → `./src/` (configured in `tsconfig.json` and `vitest.config.ts`)
 
-**Build tool**: Vite 7 with `@vitejs/plugin-react` and `@cloudflare/vite-plugin`. The Cloudflare plugin runs the Worker locally via Miniflare during `vite dev` — single command boots both SPA and Worker. Config is `vite.config.mts` (ESM-only, due to `@cloudflare/vite-plugin`).
+**Build tool**: Vite 8 with `@vitejs/plugin-react` and `@cloudflare/vite-plugin`. The Cloudflare plugin runs the Worker locally via Miniflare during `vite dev` — single command boots both SPA and Worker. Config is `vite.config.mts` (ESM-only, due to `@cloudflare/vite-plugin`).
 
 **Tailwind**: v4 via `@tailwindcss/vite` plugin (no separate PostCSS config).
 

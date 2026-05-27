@@ -16,6 +16,7 @@ import type {
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
+import { IPC } from '../shared/channels';
 import { assertKafkaBrokersSafe } from './kafka-broker-guard';
 import type { LogEntry } from './request-logger';
 import {
@@ -177,8 +178,8 @@ function bindStreamListeners(entry: ActiveKafka, stream: StringStream): void {
 }
 
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
-  ipcMain.handle('kafka:connect', async (event, rawConfig: unknown) => {
-    const cfg = validateIpcInput(KafkaConnectSchema, rawConfig, 'kafka:connect');
+  ipcMain.handle(IPC.kafka.connect, async (event, rawConfig: unknown) => {
+    const cfg = validateIpcInput(KafkaConnectSchema, rawConfig, IPC.kafka.connect);
     const { connectionId } = cfg;
     const webContentsId = event.sender.id;
     const startTime = Date.now();
@@ -282,9 +283,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
   });
 
   ipcMain.handle(
-    'kafka:produce',
+    IPC.kafka.produce,
     createValidatedHandler(
-      'kafka:produce',
+      IPC.kafka.produce,
       KafkaProduceSchema,
       async (cfg: KafkaProduceConfig) => {
         const entry = activeConnections.get(cfg.connectionId);
@@ -339,8 +340,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
   );
 
   ipcMain.handle(
-    'kafka:subscribe',
-    createValidatedHandler('kafka:subscribe', KafkaSubscribeSchema, async (cfg) => {
+    IPC.kafka.subscribe,
+    createValidatedHandler(IPC.kafka.subscribe, KafkaSubscribeSchema, async (cfg) => {
       const entry = activeConnections.get(cfg.connectionId);
       if (!entry) {
         return { success: false, error: 'Not connected' };
@@ -372,8 +373,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
   );
 
   ipcMain.handle(
-    'kafka:unsubscribe',
-    createValidatedHandler('kafka:unsubscribe', KafkaUnsubscribeSchema, async (cfg) => {
+    IPC.kafka.unsubscribe,
+    createValidatedHandler(IPC.kafka.unsubscribe, KafkaUnsubscribeSchema, async (cfg) => {
       const entry = activeConnections.get(cfg.connectionId);
       if (!entry) return { success: false, error: 'Not connected' };
       await closeConsumerAndStream(entry);
@@ -382,8 +383,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
   );
 
   ipcMain.handle(
-    'kafka:disconnect',
-    createValidatedHandler('kafka:disconnect', KafkaDisconnectSchema, async (cfg) => {
+    IPC.kafka.disconnect,
+    createValidatedHandler(IPC.kafka.disconnect, KafkaDisconnectSchema, async (cfg) => {
       const entry = activeConnections.get(cfg.connectionId);
       if (entry) {
         await closeConnection(entry);

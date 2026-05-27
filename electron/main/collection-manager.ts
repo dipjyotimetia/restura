@@ -14,6 +14,7 @@ import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
 import { z } from 'zod';
 import { createValidatedHandler, FilePathSchema, NoInputSchema } from './ipc-validators';
+import { IPC, EVENT } from '../shared/channels';
 import { isPathSafe } from './file-operations';
 import { redactAuthForExport, authHasPlaintextSecret } from './collection-export-redactor';
 
@@ -113,7 +114,7 @@ function sendFileChange(
   if (!sender) {
     sender = debounce((p: unknown) => {
       const w = getMainWindow();
-      if (w) w.webContents.send('collection:file-changed', p);
+      if (w) w.webContents.send(EVENT.collectionFileChanged, p);
     }, FILE_CHANGE_DEBOUNCE_MS);
     debouncedSenders.set(key, sender);
   }
@@ -485,17 +486,17 @@ const SaveCollectionSchema = z.tuple([CollectionDataSchema, FilePathSchema]);
 export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow | null): void {
   // Load collection from directory
   ipcMain.handle(
-    'collection:load-directory',
-    createValidatedHandler('collection:load-directory', FilePathSchema, async (directoryPath: string) => {
+    IPC.collection.loadDirectory,
+    createValidatedHandler(IPC.collection.loadDirectory, FilePathSchema, async (directoryPath: string) => {
       return loadCollectionFromDirectory(directoryPath);
     })
   );
 
   // Save collection to directory
   ipcMain.handle(
-    'collection:save-directory',
+    IPC.collection.saveDirectory,
     createValidatedHandler(
-      'collection:save-directory',
+      IPC.collection.saveDirectory,
       SaveCollectionSchema,
       async ([collection, directoryPath]) => {
         return saveCollectionToDirectory(collection as FileCollection, directoryPath);
@@ -505,24 +506,24 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
 
   // Start watching directory
   ipcMain.handle(
-    'collection:watch',
-    createValidatedHandler('collection:watch', FilePathSchema, (directoryPath: string) => {
+    IPC.collection.watch,
+    createValidatedHandler(IPC.collection.watch, FilePathSchema, (directoryPath: string) => {
       return watchCollectionDirectory(directoryPath, getMainWindow);
     })
   );
 
   // Stop watching directory
   ipcMain.handle(
-    'collection:unwatch',
-    createValidatedHandler('collection:unwatch', FilePathSchema, (directoryPath: string) => {
+    IPC.collection.unwatch,
+    createValidatedHandler(IPC.collection.unwatch, FilePathSchema, (directoryPath: string) => {
       return unwatchCollectionDirectory(directoryPath);
     })
   );
 
   // Open directory in file manager
   ipcMain.handle(
-    'collection:open-in-explorer',
-    createValidatedHandler('collection:open-in-explorer', FilePathSchema, async (directoryPath: string) => {
+    IPC.collection.openInExplorer,
+    createValidatedHandler(IPC.collection.openInExplorer, FilePathSchema, async (directoryPath: string) => {
       if (!isPathSafe(directoryPath)) {
         return { success: false, error: 'Access denied' };
       }
@@ -535,9 +536,9 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
   // routes through assertTrustedSender — input is empty but the wrapper still
   // enforces the trust check.
   ipcMain.handle(
-    'collection:select-directory',
+    IPC.collection.selectDirectory,
     createValidatedHandler(
-      'collection:select-directory',
+      IPC.collection.selectDirectory,
       NoInputSchema,
       async () => {
         const mainWindow = getMainWindow();
@@ -555,8 +556,8 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
 
   // Get file info for conflict detection
   ipcMain.handle(
-    'collection:get-file-info',
-    createValidatedHandler('collection:get-file-info', FilePathSchema, async (filePath: string) => {
+    IPC.collection.getFileInfo,
+    createValidatedHandler(IPC.collection.getFileInfo, FilePathSchema, async (filePath: string) => {
       const stat = await statOrNull(filePath);
       if (!stat) return { exists: false };
       return {

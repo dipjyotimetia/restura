@@ -4,6 +4,7 @@ import { app, ipcMain } from 'electron';
 import * as path from 'path';
 import { createValidatedHandler, ReflectionIpcConfigSchema, type ReflectionIpcConfig } from './ipc-validators';
 import { assertUrlHostnameSafe } from './dns-guard';
+import { IPC } from '../shared/channels';
 
 // gRPC schemes accepted by the SSRF guard. Reflection URLs are routinely
 // passed as grpc:// or grpcs:// in addition to http(s)://.
@@ -179,7 +180,7 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
 
 export function registerGrpcReflectionIPC(): void {
   ipcMain.handle(
-    'grpc:reflect',
-    createValidatedHandler('grpc:reflect', ReflectionIpcConfigSchema, sendReflectionRequest)
+    IPC.grpc.reflect,
+    createValidatedHandler(IPC.grpc.reflect, ReflectionIpcConfigSchema, sendReflectionRequest)
   );
 }

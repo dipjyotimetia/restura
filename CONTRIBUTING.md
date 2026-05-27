@@ -22,7 +22,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 ### Prerequisites
 
-- **Node.js** >= 22.x
+- **Node.js** >= 24.x
 - **npm** >= 10.x
 - **Git**
 

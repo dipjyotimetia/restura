@@ -21,7 +21,7 @@ export function workerAuthHeaders(): Record<string, string> {
   return token ? { 'X-Restura-Proxy-Token': token } : {};
 }
 
-import type { ElectronAPI } from '../../../electron/types/electron.d';
+import type { ElectronAPI } from '../../../electron/types/electron-api';
 
 /**
  * Check if the application is running in Electron

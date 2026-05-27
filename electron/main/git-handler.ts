@@ -30,6 +30,7 @@
 
 import { execFile } from 'child_process';
 import { ipcMain } from 'electron';
+import { IPC } from '../shared/channels';
 import { promisify } from 'util';
 import * as path from 'path';
 import { z } from 'zod';
@@ -364,23 +365,23 @@ function ipcCommand<T, R>(
 
 export function registerGitHandlerIPC(): void {
   ipcMain.handle(
-    'git:status',
+    IPC.git.status,
     ipcCommand(DirectoryInputSchema, 'status', ({ directoryPath }) => gitStatus(directoryPath))
   );
   ipcMain.handle(
-    'git:log',
+    IPC.git.log,
     ipcCommand(LogInputSchema, 'commits', ({ directoryPath, limit }) =>
       gitLog(directoryPath, limit ?? 50)
     )
   );
   ipcMain.handle(
-    'git:diff',
+    IPC.git.diff,
     ipcCommand(DiffInputSchema, 'diff', ({ directoryPath, filePath }) =>
       gitDiff(directoryPath, filePath)
     )
   );
   ipcMain.handle(
-    'git:branch:list',
+    IPC.git.branchList,
     ipcCommand(DirectoryInputSchema, 'branches', ({ directoryPath }) =>
       gitBranchList(directoryPath)
     )
@@ -388,10 +389,10 @@ export function registerGitHandlerIPC(): void {
 }
 
 export function unregisterGitHandlerIPC(): void {
-  ipcMain.removeHandler('git:status');
-  ipcMain.removeHandler('git:log');
-  ipcMain.removeHandler('git:diff');
-  ipcMain.removeHandler('git:branch:list');
+  ipcMain.removeHandler(IPC.git.status);
+  ipcMain.removeHandler(IPC.git.log);
+  ipcMain.removeHandler(IPC.git.diff);
+  ipcMain.removeHandler(IPC.git.branchList);
 }
 
 function errorMessage(err: unknown): string {

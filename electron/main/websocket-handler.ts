@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
-import { assertUrlHostnameSafe } from './dns-guard';
+import { resolveSafeAddress, createPinnedLookup } from './safe-connect';
 import {
   WsConnectSchema,
   WsSendSchema,
@@ -11,6 +11,7 @@ import {
   validateIpcInput,
   createValidatedHandler,
 } from './ipc-validators';
+import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 
 export const wsRateLimiter = createKeyedRateLimiter(20, 60_000);
 
@@ -34,8 +35,8 @@ const MAX_MESSAGE_SIZE = 1024 * 1024;
 export function registerWebSocketHandlerIPC(): void {
   // ws:connect is handled manually (not via createValidatedHandler) so we can capture
   // event.sender.id and target IPC emissions to the originating renderer window.
-  ipcMain.handle('ws:connect', async (event, rawConfig: unknown) => {
-    const config = validateIpcInput(WsConnectSchema, rawConfig, 'ws:connect');
+  ipcMain.handle(IPC.ws.connect, async (event, rawConfig: unknown) => {
+    const config = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
     const connectionId = config.connectionId;
     const webContentsId = event.sender.id;
 
@@ -54,8 +55,13 @@ export function registerWebSocketHandlerIPC(): void {
       activeConnections.delete(connectionId);
     }
 
+    // Resolve + validate once, then PIN the handshake to that IP via a Node
+    // `lookup` hook (closes the DNS-rebind window pre-flight validation alone
+    // leaves open). The URL keeps the original hostname so SNI + Host header
+    // stay correct for TLS.
+    let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
     try {
-      await assertUrlHostnameSafe(config.url, {
+      pinned = await resolveSafeAddress(config.url, {
         allowLocalhost: true,
         allowedSchemes: ['ws:', 'wss:'],
       });
@@ -71,6 +77,7 @@ export function registerWebSocketHandlerIPC(): void {
         maxPayload: MAX_MESSAGE_SIZE,
         followRedirects: true,
         handshakeTimeout: 30000,
+        lookup: createPinnedLookup(pinned.host, pinned.ip),
       });
 
       // NOTE: success is returned immediately (handshake in progress).
@@ -84,7 +91,7 @@ export function registerWebSocketHandlerIPC(): void {
       };
 
       ws.on('open', () => {
-        emitTo(webContentsId, `ws:open:${connectionId}`);
+        emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.open, connectionId));
       });
 
       ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
@@ -93,21 +100,21 @@ export function registerWebSocketHandlerIPC(): void {
           const b64 = Buffer.isBuffer(data)
             ? data.toString('base64')
             : Buffer.from(data as ArrayBuffer).toString('base64');
-          emitTo(webContentsId, `ws:message:${connectionId}`, { type: 'binary', data: b64 });
+          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.message, connectionId), { type: 'binary', data: b64 });
         } else {
-          emitTo(webContentsId, `ws:message:${connectionId}`, { type: 'text', data: data.toString() });
+          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.message, connectionId), { type: 'text', data: data.toString() });
         }
       });
 
       ws.on('error', (err: Error) => {
-        emitTo(webContentsId, `ws:error:${connectionId}`, { message: err.message });
+        emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.error, connectionId), { message: err.message });
       });
 
       ws.on('close', (code: number, reason: Buffer) => {
         activeConnections.delete(connectionId);
         // Only forward unexpected closes; explicit ws:disconnect is already acked to the renderer
         if (!explicitlyClosed) {
-          emitTo(webContentsId, `ws:close:${connectionId}`, { code, reason: reason.toString() });
+          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.close, connectionId), { code, reason: reason.toString() });
         }
       });
 
@@ -131,8 +138,8 @@ export function registerWebSocketHandlerIPC(): void {
   });
 
   ipcMain.handle(
-    'ws:send',
-    createValidatedHandler('ws:send', WsSendSchema, async (config) => {
+    IPC.ws.send,
+    createValidatedHandler(IPC.ws.send, WsSendSchema, async (config) => {
       const connectionId = config.connectionId;
       const entry = activeConnections.get(connectionId);
 
@@ -159,8 +166,8 @@ export function registerWebSocketHandlerIPC(): void {
   );
 
   ipcMain.handle(
-    'ws:disconnect',
-    createValidatedHandler('ws:disconnect', WsDisconnectSchema, async (config) => {
+    IPC.ws.disconnect,
+    createValidatedHandler(IPC.ws.disconnect, WsDisconnectSchema, async (config) => {
       const connectionId = config.connectionId;
       const entry = activeConnections.get(connectionId);
       if (entry) {

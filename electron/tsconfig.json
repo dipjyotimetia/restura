@@ -3,6 +3,12 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "nodenext",
+    // DOM is included because preload.ts (compiled by this program) legitimately
+    // needs it — `contextBridge`, `window`, `ipcRenderer` callbacks. The trade-off
+    // is that main-only files can also reference `window`/`document` and still
+    // compile; a separate preload tsconfig would split this cleanly but is
+    // over-engineering for one file. Keep DOM here; rely on review for stray
+    // `window` use in main-only modules.
     "lib": ["ES2022", "DOM"],
     "outDir": "../dist/electron",
     "rootDir": "..",
@@ -18,5 +24,5 @@
     }
   },
   "include": ["**/*.ts", "../shared/**/*.ts"],
-  "exclude": ["node_modules", "types"]
+  "exclude": ["node_modules"]
 }

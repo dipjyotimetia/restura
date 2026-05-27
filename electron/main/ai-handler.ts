@@ -20,6 +20,7 @@ import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { assertUrlHostnameSafe } from './dns-guard';
 import { resolveSecretHandle } from './secret-handle-store';
 import { AiChatRequestSchema, AiChatCancelSchema } from './ipc-validators';
+import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import type { ChatRequestSpec } from '@shared/protocol/ai/types';
 import { makeFetchFetcher } from './fetch-fetcher';
@@ -48,8 +49,8 @@ async function runChat(
   webContentsId: number,
   abort: AbortController
 ): Promise<void> {
-  const chunkChannel = `ai:chat:chunk:${streamId}`;
-  const endChannel = `ai:chat:end:${streamId}`;
+  const chunkChannel = eventChannel(EVENT_PREFIX.ai.chunk, streamId);
+  const endChannel = eventChannel(EVENT_PREFIX.ai.end, streamId);
   try {
     for await (const ev of executeAiChat(
       { ...spec, signal: abort.signal },
@@ -73,7 +74,7 @@ async function runChat(
 }
 
 export function registerAiHandlers(): void {
-  ipcMain.handle('ai:chat', async (event, raw: unknown) => {
+  ipcMain.handle(IPC.ai.chat, async (event, raw: unknown) => {
     const parsed = AiChatRequestSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
 
@@ -122,21 +123,21 @@ export function registerAiHandlers(): void {
     return { ok: true as const, streamId: data.streamId };
   });
 
-  ipcMain.handle('ai:chat:cancel', async (_event, raw: unknown) => {
+  ipcMain.handle(IPC.ai.chatCancel, async (_event, raw: unknown) => {
     const parsed = AiChatCancelSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const entry = active.get(parsed.data.streamId);
     if (!entry) return { ok: true as const, alreadyDone: true };
     entry.abort.abort();
     active.delete(parsed.data.streamId);
-    emitTo(entry.webContentsId, `ai:chat:end:${parsed.data.streamId}`, { reason: 'cancelled' });
+    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.ai.end, parsed.data.streamId), { reason: 'cancelled' });
     return { ok: true as const };
   });
 }
 
 export function unregisterAiHandlers(): void {
-  ipcMain.removeHandler('ai:chat');
-  ipcMain.removeHandler('ai:chat:cancel');
+  ipcMain.removeHandler(IPC.ai.chat);
+  ipcMain.removeHandler(IPC.ai.chatCancel);
   for (const e of active.values()) e.abort.abort();
   active.clear();
 }

@@ -49,15 +49,32 @@ The Worker does not store user data. Requests are proxied and forgotten.
 Cloudflare's network-level encryption applies; no application-layer
 encryption is performed.
 
-## Pre-flight SSRF / DNS guard (Electron)
+## SSRF / DNS-rebind guard (Electron)
 
-`electron/main/dns-guard.ts` is the SSRF guard for the Electron transports
-that don't accept a connector-level `lookup` hook — WebSocket (`ws`),
-Socket.IO (`socket.io-client`), SSE, and MCP. The HTTP and gRPC paths
-already enforce a connect-time check via undici's `Agent.connect.lookup`
-(`createSecureLookup`) and don't go through this module.
+All Electron transports validate the destination against the shared SSRF
+policy (`shared/protocol/url-validation.ts`) before connecting. They split
+into two tiers depending on whether the transport lets us pin the connect to
+the address we validated:
 
-API:
+**Connect-time pinned (no rebind window):**
+
+- **HTTP** — undici `Agent.connect.lookup` (`createSecureLookup` in
+  `http-handler.ts`) re-validates every resolved address at connect.
+- **gRPC** (`grpc-handler.ts`, request + stream) — `@grpc/grpc-js` has no
+  Node `lookup` hook, so `resolveGrpcDialAddress` resolves + validates once and
+  `computeGrpcDial` dials the validated **IP literal** while keeping the original
+  hostname as `grpc.default_authority` / `grpc.ssl_target_name_override`.
+- **WebSocket** (`websocket-handler.ts`) — `resolveSafeAddress` +
+  `createPinnedLookup` (from `safe-connect.ts`) passed as the `ws` `lookup` option.
+- **SSE** (`sse-handler.ts`) — `createPinnedFetch`, an undici dispatcher whose
+  `connect.lookup` returns the validated IP.
+
+**Pre-flight only (`electron/main/dns-guard.ts`):** Socket.IO
+(`socket.io-client`), MCP, gRPC reflection, and Kafka (`assertKafkaBrokersSafe`)
+still resolve + validate immediately before connect but cannot pin the address,
+so a TTL=0 rebind between the check and the connect is not mitigated for them.
+
+`dns-guard.ts` API (used by the pre-flight tier and by `safe-connect.ts`):
 
 - `assertUrlHostnameSafe(url, { allowLocalhost, allowedSchemes? })` —
   applies the URL-string policy (`validateURL`: scheme allow-list, length,
@@ -65,21 +82,21 @@ API:
   on the URL's hostname.
 - `assertHostnameSafe(hostname, options)` — DNS-only variant. Used by
   callers that have already validated the URL string separately.
+- `resolveUrlHostnameSafe(url, options)` — same checks, but returns the
+  resolved records so callers (gRPC, `safe-connect.ts`) can pin without a
+  second lookup.
 
-Both call `assertResolvedAddressAllowed` from
+All call `assertResolvedAddressAllowed` from
 `shared/protocol/url-validation.ts` against every record returned by
 `dns.lookup(hostname, { all: true })`. If `hostname` is an IP literal, the
 resolve step is skipped and the literal is checked directly. Any
 violation throws synchronously — handlers catch and surface the message
 to the renderer.
 
-> **Pre-flight only.** This module does not protect against true DNS-
-> rebind attacks (a TTL=0 swap between this lookup and the actual
-> connect). Full mitigation requires a transport-level dispatcher with a
-> `lookup` hook per transport. The pre-flight check raises the bar
-> against unsophisticated attackers and is materially better than the
-> previous state (no DNS check on these transports). Tracked as future
-> work in `docs/adr/0006-electron-connection-and-dns-hardening.md`.
+> **Residual gap.** Socket.IO, MCP, gRPC reflection, and Kafka remain
+> pre-flight only (plus Kafka's post-connect broker auto-discovery). Bringing
+> them onto connect-time pinning is tracked in
+> `docs/adr/0006-electron-connection-and-dns-hardening.md`.
 
 ## Long-lived connection cleanup (Electron)
 

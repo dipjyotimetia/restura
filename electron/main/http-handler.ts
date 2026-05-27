@@ -16,6 +16,7 @@ import type { Fetcher, FetcherRequest, FetcherResponse, ProtocolAuthConfig } fro
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { unwrapSecretValueMain } from './secret-handle-store';
 import { applyNonSignAtWireAuth } from './auth-applier';
+import { IPC } from '../shared/channels';
 
 // =============================================================================
 // Migration map (Plan 4 / Task 9): node:http/https → undici
@@ -731,10 +732,10 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 
 export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   ipcMain.handle(
-    'http:request',
+    IPC.http.request,
     rateLimited(
       httpRateLimiter,
-      createValidatedHandler('http:request', HttpRequestConfigSchema, async (config: HttpRequestConfig) => {
+      createValidatedHandler(IPC.http.request, HttpRequestConfigSchema, async (config: HttpRequestConfig) => {
         const startTime = Date.now();
         let result: HttpResponse | undefined;
         let thrownError: string | undefined;

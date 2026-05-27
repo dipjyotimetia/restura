@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { z } from 'zod';
 import { createApplicationMenu } from './menu';
 import { SAFE_OPEN_PROTOCOLS } from './ipc-validators';
+import { IPC } from '../shared/channels';
 import { bindLimiterToWebContents } from './rate-limiter-cleanup';
 import { httpRateLimiter } from './http-handler';
 import { grpcRateLimiter } from './grpc-handler';
@@ -214,7 +215,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
 }
 
 export function registerNewWindowIPC(isDev: boolean): void {
-  ipcMain.handle('window:new', async () => {
+  ipcMain.handle(IPC.window.new, async () => {
     createMainWindow(isDev);
   });
 }

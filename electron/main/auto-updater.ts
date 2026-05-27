@@ -3,6 +3,7 @@ import { dialog, ipcMain } from 'electron';
 import type { UpdateCheckResult } from 'electron-updater';
 import { autoUpdater } from 'electron-updater';
 import { createValidatedHandler, NoInputSchema } from './ipc-validators';
+import { IPC } from '../shared/channels';
 
 interface UpdateCheckResponse {
   updateAvailable: boolean;
@@ -102,9 +103,9 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
   // enforces assertTrustedSender, keeping the "every channel routes through
   // one validator" invariant grep-auditable.
   ipcMain.handle(
-    'app:checkForUpdates',
+    IPC.app.checkForUpdates,
     createValidatedHandler(
-      'app:checkForUpdates',
+      IPC.app.checkForUpdates,
       NoInputSchema,
       async (): Promise<UpdateCheckResponse> => {
         if (process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true') {

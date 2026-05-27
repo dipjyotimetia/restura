@@ -4,6 +4,7 @@
  */
 
 import { ipcMain } from 'electron';
+import { IPC } from '../shared/channels';
 import {
   StoreKeySchema,
   StoreValueSchema,
@@ -58,8 +59,8 @@ function getStoreInstance(): ElectronStoreInstance {
  */
 export function registerStoreHandlerIPC(): void {
   ipcMain.handle(
-    'store:get',
-    createValidatedHandler('store:get', StoreKeySchema, async (key): Promise<string | undefined> => {
+    IPC.store.get,
+    createValidatedHandler(IPC.store.get, StoreKeySchema, async (key): Promise<string | undefined> => {
       try {
         return getStoreInstance().get(key) as string | undefined;
       } catch (error) {
@@ -70,9 +71,9 @@ export function registerStoreHandlerIPC(): void {
   );
 
   // store:set takes two args: key and value — validate both
-  ipcMain.handle('store:set', async (_event, key: unknown, value: unknown): Promise<void> => {
-    const validKey = validateIpcInput(StoreKeySchema, key, 'store:set');
-    const validValue = validateIpcInput(StoreValueSchema, value, 'store:set');
+  ipcMain.handle(IPC.store.set, async (_event, key: unknown, value: unknown): Promise<void> => {
+    const validKey = validateIpcInput(StoreKeySchema, key, IPC.store.set);
+    const validValue = validateIpcInput(StoreValueSchema, value, IPC.store.set);
     try {
       getStoreInstance().set(validKey, validValue);
     } catch (error) {
@@ -82,8 +83,8 @@ export function registerStoreHandlerIPC(): void {
   });
 
   ipcMain.handle(
-    'store:delete',
-    createValidatedHandler('store:delete', StoreKeySchema, async (key): Promise<void> => {
+    IPC.store.delete,
+    createValidatedHandler(IPC.store.delete, StoreKeySchema, async (key): Promise<void> => {
       try {
         getStoreInstance().delete(key);
       } catch (error) {
@@ -93,7 +94,7 @@ export function registerStoreHandlerIPC(): void {
     })
   );
 
-  ipcMain.handle('store:clear', async (): Promise<void> => {
+  ipcMain.handle(IPC.store.clear, async (): Promise<void> => {
     try {
       getStoreInstance().clear();
     } catch (error) {
@@ -103,8 +104,8 @@ export function registerStoreHandlerIPC(): void {
   });
 
   ipcMain.handle(
-    'store:has',
-    createValidatedHandler('store:has', StoreKeySchema, async (key): Promise<boolean> => {
+    IPC.store.has,
+    createValidatedHandler(IPC.store.has, StoreKeySchema, async (key): Promise<boolean> => {
       try {
         return getStoreInstance().has(key);
       } catch (error) {

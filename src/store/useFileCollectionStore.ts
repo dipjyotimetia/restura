@@ -7,7 +7,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ElectronAPI } from '../../electron/types/electron.d';
+import type { ElectronAPI } from '../../electron/types/electron-api';
 import type { Collection } from '@/types';
 import { isElectron } from '@/lib/shared/platform';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';

@@ -12,11 +12,18 @@ import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
  * `redirect`: handlers that run through the shared redirect-follower (which
  * SSRF-validates every hop) pass `'manual'`; callers that don't pass the
  * default `'follow'`.
+ *
+ * `fetchImpl`: defaults to the global `fetch`. SSRF-sensitive handlers pass a
+ * DNS-pinned fetch (`createPinnedFetch` from safe-connect.ts) so the connect
+ * dials the IP we already validated rather than a freshly-resolved (possibly
+ * rebound) address.
  */
-export function makeFetchFetcher(options: { redirect?: RequestRedirect } = {}): Fetcher {
-  const { redirect = 'follow' } = options;
+export function makeFetchFetcher(
+  options: { redirect?: RequestRedirect; fetchImpl?: typeof globalThis.fetch } = {}
+): Fetcher {
+  const { redirect = 'follow', fetchImpl = fetch } = options;
   return async (req) => {
-    const res = await fetch(req.url, {
+    const res = await fetchImpl(req.url, {
       method: req.method,
       headers: req.headers as HeadersInit,
       body: req.body,
