@@ -39,6 +39,9 @@ import {
   FileText,
   Play,
   Square,
+  Folder,
+  Workflow as WorkflowIcon,
+  Activity,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { ActivePanel, AuthConfig, Collection, CollectionItem, Workflow } from '@/types';
@@ -565,23 +568,26 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
           className="flex-1 flex flex-col overflow-hidden"
         >
           <div className="px-3 py-2 border-b border-border/40">
+            {/* Icon tabs — four text labels crowd the 268px rail, so the row is
+                icon-only with tooltips; the panel header above names the active
+                one. */}
             <TabsList className="w-full grid grid-cols-4">
-              <TabsTrigger value="collections" className="text-xs">
-                Collections
+              <TabsTrigger value="collections" aria-label="Collections" title="Collections" className="relative">
+                <Folder className="h-4 w-4" />
                 {filteredCollections.length > 0 && (
-                  <span className="ml-1 text-[10px] bg-primary/10 text-primary px-1 py-0.5 rounded-full tabular-nums font-bold">
+                  <span className="absolute -top-0.5 right-1 text-[8px] leading-none bg-primary/15 text-primary px-1 py-0.5 rounded-full tabular-nums font-bold">
                     {filteredCollections.length}
                   </span>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="history" className="text-xs">
-                History
+              <TabsTrigger value="history" aria-label="History" title="History">
+                <History className="h-4 w-4" />
               </TabsTrigger>
-              <TabsTrigger value="workflows" className="text-xs">
-                Workflows
+              <TabsTrigger value="workflows" aria-label="Workflows" title="Workflows">
+                <WorkflowIcon className="h-4 w-4" />
               </TabsTrigger>
-              <TabsTrigger value="runs" className="text-xs">
-                Runs
+              <TabsTrigger value="runs" aria-label="Runs" title="Runs">
+                <Activity className="h-4 w-4" />
               </TabsTrigger>
             </TabsList>
           </div>
