@@ -51,17 +51,18 @@ jobs:
 
       - name: Determine next version
         id: bump
-        uses: mathieudutour/github-tag-action@v6.2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: patch
-          tag_prefix: v
-          release_branches: main
-          fetch_all_tags: true
-          # First run with no existing tags starts here so we don't regress
-          # below the version already in package.json.
-          default_prerelease_bump: false
-          dry_run: true
+        # anothrNick is a Docker action — Linux runners only (we're on ubuntu-latest).
+        # Inputs go via env: rather than with:. Pinned to a tagged release, not @v1,
+        # so we don't silently track upstream breakage.
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          TAG_PREFIX: v
+          RELEASE_BRANCHES: main
+          # Let *this* workflow do the actual tag push (after the version-bump commit),
+          # so we don't end up with a tag that points at the pre-bump commit.
+          DRY_RUN: 'true'
 
       - name: Configure git author
         run: |
@@ -70,8 +71,11 @@ jobs:
 
       - name: Bump root + workspace versions
         env:
-          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          # anothrNick exposes new_tag (e.g. v1.2.3) but no stripped version,
+          # so we strip the prefix here for npm version.
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
         run: |
+          NEW_VERSION="${NEW_TAG#v}"
           npm version "$NEW_VERSION" \
             --no-git-tag-version \
             --workspaces \
@@ -109,7 +113,7 @@ jobs:
             --output-format XML --output-file restura.cdx.xml
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.bump.outputs.new_tag }}
           name: ${{ steps.bump.outputs.new_tag }}
