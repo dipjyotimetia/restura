@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/dipjyotimetia/restura/security/advisories/new
+    about: Report a vulnerability privately via GitHub Security Advisories. Do not file a public issue.
+  - name: Question or discussion
+    url: https://github.com/dipjyotimetia/restura/discussions
+    about: Ask questions, share ideas, or discuss usage.

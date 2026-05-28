@@ -1,0 +1,120 @@
+name: Release
+
+# Every merge to main creates a new tag and GitHub release.
+#
+# Flow:
+#   1. Determine next semver from conventional-commit messages since the last
+#      tag (feat → minor, feat!/BREAKING CHANGE → major, anything else → patch).
+#   2. Bump root + every workspace's package.json to that version.
+#   3. Commit the bump as `chore(release): vX.Y.Z` and push it back to main.
+#   4. Create + push the `vX.Y.Z` tag.
+#   5. Generate a CycloneDX SBOM for the production dep tree.
+#   6. Cut a GitHub release with auto-generated notes + the SBOM attached.
+#
+# Loop safety: the bump commit + tag are pushed with the default GITHUB_TOKEN,
+# which by design does NOT re-trigger workflows. The `chore(release):` prefix
+# guard is belt-and-suspenders in case anyone swaps in a PAT later.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  # Never cancel an in-flight release — partial state (bumped commit without a
+  # tag, or a tag without a release) is much worse than queueing.
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag + release
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # full history so the bump action can read every prior tag
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine next version
+        id: bump
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch
+          tag_prefix: v
+          release_branches: main
+          fetch_all_tags: true
+          # First run with no existing tags starts here so we don't regress
+          # below the version already in package.json.
+          default_prerelease_bump: false
+          dry_run: true
+
+      - name: Configure git author
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Bump root + workspace versions
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          npm version "$NEW_VERSION" \
+            --no-git-tag-version \
+            --workspaces \
+            --include-workspace-root \
+            --allow-same-version
+
+      - name: Commit, tag, push
+        env:
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+          git add package.json package-lock.json cli/package.json
+          if git diff --staged --quiet; then
+            echo "No version changes to commit (already at ${NEW_TAG})."
+          else
+            git commit -m "chore(release): ${NEW_TAG}"
+          fi
+          # Handle the rare case where another commit landed during the run.
+          git pull --rebase origin main
+          git push origin HEAD:main
+          git tag -a "${NEW_TAG}" -m "${NEW_TAG}"
+          git push origin "${NEW_TAG}"
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          # Production-only tree — devDeps don't ship.
+          npm ci --omit=dev
+          npx --yes @cyclonedx/cyclonedx-npm@2 \
+            --output-format JSON --output-file restura.cdx.json
+          npx --yes @cyclonedx/cyclonedx-npm@2 \
+            --output-format XML --output-file restura.cdx.xml
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.new_tag }}
+          name: ${{ steps.bump.outputs.new_tag }}
+          generate_release_notes: true
+          body: |
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.bump.outputs.previous_tag }}...${{ steps.bump.outputs.new_tag }}
+
+            A CycloneDX SBOM of the production dependency tree is attached
+            (`restura.cdx.json` / `.xml`).
+          files: |
+            restura.cdx.json
+            restura.cdx.xml

@@ -1,0 +1,27 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Review dependency changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+          # Allow OSI-approved licenses common in our dep tree.
+          # Tighten over time once we audit transitive deps.
+          allow-licenses: >-
+            MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0,
+            CC0-1.0, CC-BY-4.0, Unlicense, 0BSD, BlueOak-1.0.0, Python-2.0

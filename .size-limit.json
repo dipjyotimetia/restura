@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Renderer entry (gzip)",
+    "path": "dist/web/client/assets/index-*.js",
+    "limit": "850 KB"
+  },
+  {
+    "name": "Renderer CSS (gzip)",
+    "path": "dist/web/client/assets/index-*.css",
+    "limit": "120 KB"
+  },
+  {
+    "name": "ChatPanel chunk (gzip)",
+    "path": "dist/web/client/assets/ChatPanel-*.js",
+    "limit": "60 KB"
+  },
+  {
+    "name": "CodeEditor (Monaco) chunk (gzip)",
+    "path": "dist/web/client/assets/CodeEditor-*.js",
+    "limit": "120 KB"
+  }
+]

@@ -1,0 +1,25 @@
+# Default owners for everything in the repo
+* @dipjyotimetia
+
+# Subsystem owners — add reviewers here as the project grows.
+# Patterns are matched in order; the last match wins.
+
+# Shared backend-agnostic protocol core — high-care area, all changes
+# must keep web/Worker/Node/Electron parity.
+/shared/protocol/                       @dipjyotimetia
+
+# Cloudflare Worker + self-hosted Node entry (share createApp)
+/worker/                                @dipjyotimetia
+
+# Electron main process (IPC boundary, OS keychain, native net)
+/electron/main/                         @dipjyotimetia
+
+# CLI package
+/cli/                                   @dipjyotimetia
+
+# CI / release infra
+/.github/                               @dipjyotimetia
+/scripts/                               @dipjyotimetia
+
+# Architecture decision records — require maintainer review
+/docs/adr/                              @dipjyotimetia

@@ -9,8 +9,10 @@ out/
 dist/
 build/
 
-# Coverage
+# Coverage / test reports
 coverage/
+playwright-report/
+test-results/
 
 # Electron
 electron/dist/
@@ -23,7 +25,12 @@ pnpm-lock.yaml
 # Generated files
 *.generated.*
 .next/types/**/*.ts
+src/lib/opencollection/spec-types.ts
+docs/CAPABILITY_MATRIX.md
 
-# Cache
+# Cache / tool dirs
 .cache/
 .turbo/
+.wrangler/
+.husky/_/
+*.tsbuildinfo
