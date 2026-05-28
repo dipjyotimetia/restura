@@ -1,0 +1,31 @@
+---
+title: Kafka
+description: Produce and consume Kafka topics with SASL authentication and TLS. Desktop only.
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="desktop only" variant="caution" /> The browser sandbox doesn't allow raw TCP connections, so Kafka — which requires a long-lived TCP session — is available only in the [desktop app](/overview/install/).
+
+## What works
+
+- **Produce** — pick a topic, set headers, send a key + value (text, JSON, or binary).
+- **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp.
+- **Multiple brokers** — bootstrap list, broker discovery happens through the cluster.
+- **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`.
+- **TLS** — server certificate validation, optional client certificate (mTLS).
+- **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
+
+## Broker guard
+
+The Electron Kafka handler runs every broker address through the same [SSRF guard](/architecture/security/) used by HTTP — including the cloud-metadata IP and the IPv6 unique-local range. This guards against a malicious or misconfigured `bootstrap.servers` aiming traffic at your machine's metadata endpoint.
+
+## Tips
+
+- Set the **client ID** (defaults to `restura`) to make your activity easy to spot in broker logs.
+- For schema-encoded payloads, decode in a [test script](/guides/scripts/) — Restura doesn't bundle a Schema Registry client (yet).
+
+## Related
+
+- [Self-hosting](/self-hosting/docker/) — Kafka stays desktop-only even when self-hosting the SPA; the consume/produce path needs Node.
+- [Capability matrix](/reference/capability-matrix/)

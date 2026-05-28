@@ -1,0 +1,56 @@
+---
+title: MCP server mode
+description: Run Restura as an MCP server so an agent like Claude can read your collections, environments, and history.
+---
+
+import { Badge, Aside } from '@astrojs/starlight/components';
+
+<Badge text="desktop only" variant="caution" />
+
+Restura can act as an MCP server, exposing a curated, redacted view of your saved data to an agent. The desktop app handles the MCP wire protocol; you wire it up in your agent's settings.
+
+## What gets exposed
+
+| Tool | What it does |
+|---|---|
+| `list_collections` | Enumerate saved collections. |
+| `list_requests` | Browse requests in a collection (filterable by folder). |
+| `list_environments` | List environments and their active variables. |
+| `get_environment` | Fetch one environment's details — secrets auto-redacted. |
+| `get_history` | Query past request executions (filterable, with a limit). |
+
+The tool surface is intentionally read-only and metadata-shaped. Your agent can ask *what* requests exist; it can't trigger sends or modify saved state.
+
+## Consent + redaction
+
+- Each connecting client requires explicit consent — the desktop app shows a confirmation dialog before exposing the tool surface.
+- Secret values (auth tokens, API keys, mTLS material) never leave the main-process secret store. Tool responses redact them by name.
+- The same `SecretRef` machinery used by [auth](/guides/auth/) protects MCP-exposed values.
+
+## Wiring it up
+
+The Restura desktop app advertises an MCP endpoint on a local port; configure your agent (Claude Desktop, Goose, your own MCP client) to connect to it.
+
+Setup steps in your agent's config file usually look like this:
+
+```json
+{
+  "mcpServers": {
+    "restura": {
+      "url": "http://127.0.0.1:<port>",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+Open the **Settings → MCP server** panel in the desktop app for the exact port and the toggle to enable the server.
+
+<Aside type="caution">
+MCP server mode is opt-in. It's off by default. When on, the desktop app only listens on `127.0.0.1` — never on a public interface.
+</Aside>
+
+## Related
+
+- [MCP protocol](/protocols/mcp/) — Restura *as a client* of other MCP servers.
+- [AI assistant](/guides/ai-assistant/) — the built-in chat panel.

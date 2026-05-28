@@ -1,0 +1,73 @@
+---
+title: Install
+description: Use the hosted web app, download the desktop client, or self-host with Docker.
+---
+
+import { Tabs, TabItem, Card, CardGrid } from '@astrojs/starlight/components';
+
+You have three ways to run Restura. Pick the one that fits.
+
+<CardGrid>
+  <Card title="Web — restura.pages.dev" icon="rocket">
+    Nothing to install. Open the link, accept the default settings, and you're sending requests. Data stays in your browser (IndexedDB).
+  </Card>
+  <Card title="Desktop — macOS / Windows / Linux" icon="laptop">
+    Full native capability: mTLS, SOCKS, PAC, custom CAs, Kafka, Socket.IO acks, OS keychain. Built with Electron.
+  </Card>
+  <Card title="Self-hosted — Docker" icon="seti:docker">
+    Single image, one port. Drop it behind your reverse proxy, set an auth token, done. Stateless server, browser-local storage.
+  </Card>
+</CardGrid>
+
+## Web
+
+Open **[restura.pages.dev](https://restura.pages.dev)**. That's it.
+
+All your data — collections, environments, history, secrets — is stored in your browser via IndexedDB. Clearing site data clears Restura.
+
+Some protocols and features need native networking and are **desktop only**. The web UI shows a "Desktop only" badge on those fields. See the [capability matrix](/reference/capability-matrix/) for the full list.
+
+## Desktop
+
+Download from the [GitHub releases page](https://github.com/dipjyotimetia/restura/releases) or build from source.
+
+<Tabs>
+<TabItem label="macOS">
+- Download the `.dmg` (Intel or Apple Silicon) from the [latest release](https://github.com/dipjyotimetia/restura/releases).
+- Drag `Restura.app` to `/Applications`.
+- First launch: right-click the app → **Open** to bypass Gatekeeper (signed builds are coming).
+</TabItem>
+<TabItem label="Windows">
+- Download the NSIS installer (`Restura-Setup-x64.exe`) or the portable build.
+- Run the installer; Restura installs to `%LOCALAPPDATA%\Programs\Restura`.
+</TabItem>
+<TabItem label="Linux">
+- Pick one: `AppImage` (universal), `.deb` (Debian / Ubuntu), or `.rpm` (Fedora / RHEL).
+- For `.AppImage`, `chmod +x Restura-*.AppImage && ./Restura-*.AppImage`.
+</TabItem>
+<TabItem label="From source">
+```bash
+git clone https://github.com/dipjyotimetia/restura.git
+cd restura
+npm install
+npm run electron:dist:mac    # or :win / :linux
+```
+Distributables land in `dist/`.
+</TabItem>
+</Tabs>
+
+Desktop builds unlock the full feature set — see [Platforms](/overview/platforms/) for the differences.
+
+## Self-hosted (Docker)
+
+A single image serves the SPA and the API proxy on one port.
+
+```bash
+docker run -p 3000:3000 \
+  -e WORKER_PROXY_TOKEN=$(openssl rand -hex 32) \
+  ghcr.io/dipjyotimetia/restura:latest
+```
+
+Open `http://localhost:3000`. The server is stateless — all collections, environments, and history live in the browser's IndexedDB, exactly like the web app. Your data does not leave the browser.
+
+For production setups (reverse proxy, TLS, multi-replica), see [Self-hosting → Docker](/self-hosting/docker/) and [Reverse proxy](/self-hosting/reverse-proxy/).

@@ -4,15 +4,10 @@ import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Send, Code2, Loader2, Link2 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
-import {
-  Floater,
-  Kbd,
-  MethodChip,
-  VariableText,
-  methodLabel,
-} from '@/components/ui/spatial';
+import { Floater, Kbd, MethodChip, VariableText, methodLabel } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import type { HttpMethod } from '@/types';
+import { VariableInput } from '@/components/shared/VariableInput';
 
 const HTTP_METHODS: ReadonlyArray<HttpMethod> = [
   'GET',
@@ -144,10 +139,11 @@ export function UrlBar({
 
           {/* URL field with variable highlight overlay */}
           <div className="relative flex-1 min-w-0 h-7 flex items-center">
-            <input
+            <VariableInput
+              rawInput
               type="text"
               value={url}
-              onChange={(e) => handleUrlChange(e.target.value)}
+              onValueChange={handleUrlChange}
               placeholder={ECHO_URLS.http}
               spellCheck={false}
               aria-label="Request URL"
@@ -235,10 +231,7 @@ export function UrlBar({
             <>
               <Send className="h-3.5 w-3.5" />
               <span>Send</span>
-              <Kbd
-                size="xs"
-                className="ml-0.5 border-white/30 bg-white/15 text-white"
-              >
+              <Kbd size="xs" className="ml-0.5 border-white/30 bg-white/15 text-white">
                 ⌘↵
               </Kbd>
             </>
@@ -246,11 +239,7 @@ export function UrlBar({
         </button>
       </div>
       {urlError && (
-        <p
-          id="url-error"
-          role="alert"
-          className="mt-1 px-3 text-sp-11 text-rose-400 font-medium"
-        >
+        <p id="url-error" role="alert" className="mt-1 px-3 text-sp-11 text-rose-400 font-medium">
           {urlError}
         </p>
       )}

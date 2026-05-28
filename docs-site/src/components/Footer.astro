@@ -1,0 +1,138 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro';
+---
+
+<Default><slot /></Default>
+
+<div class="restura-footer">
+  <div class="restura-footer-inner">
+    <div class="restura-footer-brand">
+      <a href="https://restura.pages.dev" class="restura-brand">Restura</a>
+      <span class="restura-tagline">The API client that speaks every protocol.</span>
+    </div>
+    <div class="restura-footer-meta">
+      <span>
+        Built by
+        <a href="https://github.com/dipjyotimetia" rel="noopener" target="_blank">
+          Dipjyoti Metia
+        </a>
+      </span>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/dipjyotimetia/restura" rel="noopener" target="_blank" class="restura-gh">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor">
+          <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2 .37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+        </svg>
+        GitHub
+      </a>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/dipjyotimetia/restura/blob/main/LICENSE" rel="noopener" target="_blank">
+        MIT licensed
+      </a>
+    </div>
+  </div>
+</div>
+
+<script is:inline>
+  (() => {
+    if (window.__resturaMotionWired) return;
+    window.__resturaMotionWired = true;
+
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // Scroll-reveal for cards (skip if reduced-motion)
+    const selector = '.protocol-grid a, .card, [class*="card_"], .sl-link-card';
+    const revealAll = () =>
+      document.querySelectorAll(selector).forEach((el) => el.classList.add('is-revealed'));
+
+    if (!reduce && 'IntersectionObserver' in window) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              e.target.classList.add('is-revealed');
+              io.unobserve(e.target);
+            }
+          }
+        },
+        { rootMargin: '0px 0px -10% 0px', threshold: 0.05 }
+      );
+      document.querySelectorAll(selector).forEach((el) => io.observe(el));
+      // Safety net: after 4s reveal anything still hidden (covers JS errors,
+      // off-viewport cards on pages users don't scroll, etc.).
+      setTimeout(revealAll, 4000);
+    } else {
+      revealAll();
+    }
+
+    // Mermaid render hook — softens SVG pop
+    const mermaidObs = new MutationObserver(() => {
+      document.querySelectorAll('.mermaid, [data-mermaid]').forEach((el) => {
+        if (el.querySelector('svg') && !el.classList.contains('is-rendered')) {
+          el.classList.add('is-rendered');
+        }
+      });
+    });
+    mermaidObs.observe(document.body, { childList: true, subtree: true });
+  })();
+</script>
+
+<style>
+  .restura-footer {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.08));
+  }
+  .restura-footer-inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+  .restura-footer-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    line-height: 1.4;
+  }
+  .restura-brand {
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: -0.01em;
+    background: linear-gradient(135deg, rgb(123 110 246), rgb(79 70 229) 55%, rgb(34 211 238));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    text-decoration: none;
+  }
+  .restura-tagline {
+    font-size: 0.75rem;
+    color: var(--sl-color-gray-4, var(--sl-color-gray-3));
+  }
+  .restura-footer-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.6rem;
+  }
+  .restura-footer-meta a {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.15s ease;
+  }
+  .restura-footer-meta a:hover {
+    color: rgb(var(--restura-violet, 123 110 246));
+  }
+  .restura-gh {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .restura-gh svg {
+    vertical-align: -0.125em;
+  }
+</style>

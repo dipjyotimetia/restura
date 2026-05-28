@@ -1,0 +1,60 @@
+---
+title: Postman compatibility
+description: What Postman scripts and features work in Restura, and what doesn't.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Restura runs scripts in a **QuickJS WASM sandbox** that implements the Postman `pm.*` API. Most existing Postman scripts work without changes; here's the surface.
+
+## What works
+
+| Postman API | Restura support |
+|---|---|
+| `pm.request` | Read-only access to method, URL, headers, body. |
+| `pm.response` | Read-only `.status`, `.code`, `.text()`, `.json()`, `.headers.get(...)`. |
+| `pm.environment.get/set/unset` | Full read/write to active environment. |
+| `pm.collectionVariables.get/set/unset` | Collection-scope variables. |
+| `pm.variables.get/set/unset` | Request-scope variables (shadows env / collection). |
+| `pm.globals.get/set/unset` | Workspace globals. |
+| `pm.test(name, fn)` | Test assertions with named scope. |
+| `pm.expect(value)` | `chai`-style assertions: `.to.equal`, `.to.be.a`, `.to.include`, `.to.have.property`, etc. |
+| `pm.iterationData.get` | Data-driven runs (CSV / JSON rows). |
+| `pm.cookies.get` | Cookie jar lookup. |
+| `console.log/warn/error` | Output to the script panel. |
+
+## Inline helpers (in `{{...}}`)
+
+| Helper | What it returns |
+|---|---|
+| `{{$randomUUID}}` | UUID v4 per request. |
+| `{{$guid}}` | Alias for `$randomUUID`. |
+| `{{$timestamp}}` | Epoch seconds. |
+| `{{$isoTimestamp}}` | ISO 8601 timestamp. |
+
+## What doesn't work (yet)
+
+- `pm.sendRequest(...)` — would require network access inside the sandbox; use a [workflow](/guides/workflows/) instead.
+- `pm.execution.setNextRequest(...)` — same; use workflow conditionals.
+- `pm.visualizer.*` — no visualization rendering in v1.
+- `pm.test.skip` — skipped tests aren't differentiated from passed in v1.
+- `require('node-libs-browser/*')` and other Node-shim modules — no module loading.
+
+## Why the limits
+
+The sandbox is intentionally narrow:
+
+- **Shared collections are everywhere.** Scripts from a downloaded collection should never be able to exfiltrate data or escape the request context.
+- **Predictable runtime.** Memory and execution time caps mean a malformed loop can't take down the app.
+
+For things you'd normally do with `pm.sendRequest`, the right tool is a [workflow](/guides/workflows/) — they're declarative, more readable, and don't require a script.
+
+<Aside title="Canonical docs">
+Full compat notes at [`docs/postman-compat.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/postman-compat.md).
+</Aside>
+
+## Related
+
+- [Scripts](/guides/scripts/) — the script editor and examples.
+- [Workflows](/guides/workflows/) — declarative chaining where you'd otherwise script.
+- [Import & export](/guides/import-export/) — importing Postman v2.1 collections.

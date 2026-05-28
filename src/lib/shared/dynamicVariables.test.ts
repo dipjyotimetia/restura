@@ -33,7 +33,11 @@ describe('applyDynamicVariables', () => {
 
   it('expands $randomEmail to a syntactically valid email', () => {
     const out = applyDynamicVariables('email={{$randomEmail}}');
-    expect(out).toMatch(/^email=[a-z]+\.\d+@[a-z]+\.[a-z]+$/);
+    // Postman v12 / faker output is shape-flexible (proper-cased names,
+    // numeric suffixes, apostrophes, plus-tags). Assert the broad RFC 5322
+    // shape — `localpart@domain.tld` — rather than the legacy
+    // hand-rolled `alice.123@example.com` pattern that no longer applies.
+    expect(out).toMatch(/^email=[^\s@]+@[^\s@]+\.[^\s@]+$/);
   });
 
   it('expands $randomAlphaNumeric', () => {
@@ -121,4 +125,3 @@ describe('getAndResetUnknownDynamicVarCounts', () => {
     expect(getAndResetUnknownDynamicVarCounts()).toEqual([]);
   });
 });
-

@@ -1,0 +1,67 @@
+---
+title: HTTP / REST
+description: All HTTP methods, body types, headers, cookies, query parameters, code generation, and history.
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+The bread and butter. Restura's HTTP client supports every method, every body shape, and gives you the full request/response timeline with timing breakdown.
+
+## Methods
+
+GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, and any custom verb you type.
+
+## Body types
+
+- **None**
+- **JSON** — pretty-printed, schema-aware editor with formatting on `Cmd+Shift+F`.
+- **Text** — plain text, UTF-8.
+- **XML** — syntax highlighted.
+- **Form data (`multipart/form-data`)** — supports file inputs.
+- **Form URL-encoded (`application/x-www-form-urlencoded`)**.
+- **Binary** — drag in any file; Restura reads it as a stream.
+- **Protobuf** — paste base64 or upload a binary; helpful for testing gRPC-style endpoints behind a JSON adapter.
+- **multipart/mixed** — for SSE / streaming uploads.
+
+## Headers, params, cookies
+
+- **Query parameters** — autocomplete from the URL, drag to reorder.
+- **Headers** — autocompletion for standard names + values where applicable.
+- **Cookies** — per-request override, plus a session-wide cookie jar on desktop.
+
+## Authentication
+
+Every auth scheme Restura supports works on HTTP: Bearer, Basic, API Key, OAuth 2.0 (all four common grants with PKCE), OAuth 1.0a (HMAC-SHA1), AWS Signature v4, Digest, NTLM, WSSE, and mTLS on desktop. See the [auth guide](/guides/auth/).
+
+## Code generation
+
+Click the `</>` icon next to the URL to copy the request as:
+
+- `curl` (full or short form).
+- JavaScript `fetch` / `axios`.
+- Python `requests` / `httpx`.
+- Go `net/http`.
+- Node `http` / `https`.
+- More languages added in releases — open an issue if your stack is missing.
+
+## History & timing
+
+Every send is recorded to history with status, timing, request hash, and a quick way to **resend**. Per-response, you get:
+
+- **Status** + status text.
+- **Timing** — DNS / TCP / TLS / TTFB / download.
+- **Size** — raw + decompressed.
+- **Headers** — searchable.
+- **Body** — pretty-printed JSON, syntax-highlighted XML, hex view for binary.
+
+## Worth knowing
+
+- The **SSRF guard** blocks requests to RFC 1918, RFC 6598 (CGNAT), link-local, loopback, IPv4-mapped IPv6, cloud metadata endpoints (`169.254.169.254`), and IPv6 unique-local — unless explicitly allowed (e.g. `ENVIRONMENT=development` in the Worker, `--allow-localhost` in the CLI).
+- The **desktop client** also enforces a **pre-flight DNS guard** against DNS-rebind: hostnames are resolved before connecting, and every record is validated.
+- **Custom CAs**, **disabled TLS verification**, **client certificates (mTLS)**, **SOCKS4/5** and **PAC** are <Badge text="desktop only" variant="caution" /> — the browser sandbox doesn't expose them.
+
+## Related
+
+- [Authentication](/guides/auth/) — full list of supported schemes.
+- [Workflows](/guides/workflows/) — chain HTTP requests.
+- [Scripts](/guides/scripts/) — assertion and mutation hooks.

@@ -1,0 +1,55 @@
+---
+title: AI assistant
+description: Chat with OpenAI, Anthropic, or OpenRouter — with the current request and response as context. Secrets and URLs redacted at the wire.
+---
+
+import { Badge, Aside } from '@astrojs/starlight/components';
+
+The built-in AI assistant is a chat panel that can read the current request and response as context — useful for explaining an API, drafting a payload, debugging a failed response, or generating a test script.
+
+## Providers
+
+- **OpenAI** (GPT-4o, GPT-4.1, o-series).
+- **Anthropic** (Claude Sonnet 4.x, Haiku 4.x).
+- **OpenRouter** — any model OpenRouter relays.
+
+For each provider, paste your **own API key** (stored as a `SecretRef`, never plaintext in the renderer). You can also point any of them at a **custom base URL** for self-hosted gateways or local model servers.
+
+## What it can see
+
+When you invoke a chat that references the current request, Restura builds a **context snapshot**:
+
+- The request URL (path only — host is redacted).
+- The request method and selected protocol.
+- Headers (sensitive ones — `Authorization`, `Cookie`, `X-Api-Key` — redacted).
+- The request body (JSON pretty-printed, large blobs truncated).
+- The response status, headers, and body (with the same redaction rules).
+- The active environment name (variables not exposed).
+
+The snapshot is what goes to the provider. Secrets and absolute URLs are stripped before the prompt is sent.
+
+## Where it runs
+
+- **Desktop** — fully wired. The renderer streams chunks from the Electron main process over IPC; the main process talks to the provider directly. <Badge text="primary path" variant="success" />
+- **Web** — in progress; not all providers proxied through the Worker yet. Check the in-app indicator.
+
+## What it can do
+
+- **Explain** the current request or response in plain language.
+- **Generate** a body, a header value, a test script, or a curl command for the current request.
+- **Debug** — paste in the response and ask why it's 4xx.
+- **Compose** workflow extractions: "extract the user ID from the response and use it in the next request."
+
+## Tips
+
+- Keep prompts short and reference the current request explicitly — the snapshot is dense; you don't need to repeat what's already there.
+- For long debugging sessions, save the chat to history — chat history lives alongside request history.
+
+<Aside type="note">
+Want Restura *itself* to be an MCP server your agent calls? See [MCP server mode](/guides/mcp-server-mode/).
+</Aside>
+
+## Related
+
+- [MCP server mode](/guides/mcp-server-mode/) — expose Restura's data to an external agent.
+- [Architecture / Security](/architecture/security/) — secrets-at-rest, redaction.

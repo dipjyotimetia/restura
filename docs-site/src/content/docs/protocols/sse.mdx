@@ -1,0 +1,33 @@
+---
+title: Server-Sent Events (SSE)
+description: Live event stream viewer with reconnection, event-type filtering, and history.
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events flow in, filter by event type, and replay later.
+
+## What works
+
+- **Connect** to any `text/event-stream` URL.
+- **Automatic reconnection** — uses `Last-Event-ID` to resume where you left off.
+- **Per-event-type filtering** — toggle event names on/off as they arrive.
+- **Long-running session** — stays open until you disconnect; capped by your platform's connection budget.
+- **JSON pretty-printing** — when the event `data:` is valid JSON.
+- **Custom request headers** — <Badge text="desktop only" variant="caution" /> on web, the browser `EventSource` API doesn't allow custom headers. Workaround on web: use a query-string token or path-based auth.
+
+## When SSE vs WebSocket
+
+- **SSE** is one-way (server → client). Perfect for log tailing, AI streaming responses, live notifications.
+- **WebSocket** is bidirectional. Use it when the client also needs to send mid-stream.
+- **GraphQL subscriptions** can ride either — see [GraphQL](/protocols/graphql/).
+
+## Tips
+
+- Many AI providers (OpenAI, Anthropic, OpenRouter) stream completions over SSE. Restura's [AI assistant](/guides/ai-assistant/) does this internally.
+- Use [scripts](/guides/scripts/) to assert on event payloads — `pm.test("got a hello event", () => ...)` style.
+
+## Related
+
+- [WebSocket](/protocols/websocket/)
+- [AI assistant](/guides/ai-assistant/) — uses SSE internally to stream provider responses.

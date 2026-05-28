@@ -1,0 +1,161 @@
+---
+title: Restura vs other API clients
+description: An honest comparison with Postman, Hoppscotch, Bruno, Insomnia, Thunder Client, HTTPie Desktop, and Yaak — including where each wins.
+---
+
+import { Aside, Badge, CardGrid, Card } from '@astrojs/starlight/components';
+
+Restura isn't trying to replace every API client. This page is an honest read on **what fits where** — including the things competitors do better than us.
+
+## At a glance
+
+Legend: ✅ supported · ⚠️ partial / paid / behind sign-in · ❌ not supported
+
+| Feature | **Restura** | Postman | Hoppscotch | Bruno | Insomnia | Thunder Client | Yaak | HTTPie Desktop |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **No account required** | ✅ | ❌ | ✅ | ✅ | ⚠️ | ✅ | ✅ | ✅ |
+| **Local-only data (no cloud sync)** | ✅ | ❌ | ⚠️ | ✅ | ⚠️ | ✅ | ✅ | ✅ |
+| **Open source** | ✅ (MIT) | ❌ | ✅ (MIT) | ✅ (MIT) | ❌ since 2023 | ❌ | ✅ | ⚠️ |
+| **Web app** | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ (VS Code) | ❌ | ❌ |
+| **Native desktop app** | ✅ Mac/Win/Linux | ✅ | ⚠️ (Tauri) | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **Self-hostable** | ✅ Docker | ⚠️ Enterprise | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **CLI runner for CI** | ✅ `@restura/cli` | ✅ `newman` | ✅ `hopp` | ✅ `bru` | ⚠️ Inso (paid) | ❌ | ❌ | ❌ |
+| **HTTP / REST** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **GraphQL** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **gRPC** | ✅ unary + streaming | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **WebSocket** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Socket.IO** | ✅ desktop | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Server-Sent Events** | ✅ | ✅ | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Kafka** | ✅ desktop | ❌ | ⚠️ beta | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **MCP (client)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **MCP server mode** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **AI assistant** | ✅ BYOK | ⚠️ Postbot (paid tiers) | ❌ | ❌ | ⚠️ paid | ⚠️ paid | ❌ | ❌ |
+| **Pre-request / test scripts** | ✅ QuickJS sandbox | ✅ Node-like | ✅ | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| **mTLS / custom CA** | ✅ desktop | ✅ | ❌ | ✅ | ✅ | ❌ | ⚠️ | ✅ |
+| **SOCKS / PAC proxies** | ✅ desktop | ✅ | ❌ | ⚠️ | ⚠️ | ❌ | ❌ | ⚠️ |
+| **OS keychain for secrets** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ⚠️ | ❌ |
+| **Git-native collection layout** | ✅ OpenCollection dir | ❌ | ❌ | ✅ `.bru` files | ❌ | ⚠️ | ✅ | ❌ |
+| **Postman import** | ✅ v2.1 | — | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Real-time team collab** | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| **Mock servers** | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| **Scheduled monitoring** | ❌ | ✅ | ❌ | ❌ | ⚠️ | ❌ | ❌ | ❌ |
+
+<Aside type="note" title="Methodology">
+This table reflects feature availability **in the free / open-source tier** of each tool as of late 2026. Paid features that gate behind sign-up are marked ⚠️. Corrections welcome — open an issue if any cell here is wrong.
+</Aside>
+
+## Where Restura fits
+
+<CardGrid>
+  <Card title="You care about privacy" icon="seti:lock">
+    No account. No cloud sync. No telemetry. Collections, history, secrets live on your machine — IndexedDB on web, OS keychain on desktop. Same goes for self-hosted Docker.
+  </Card>
+  <Card title="You work with multiple protocols" icon="puzzle">
+    HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, **Kafka**, and **MCP** in one tool. Most clients give you 2–4 of these. Restura is the broadest free option.
+  </Card>
+  <Card title="You build with AI agents" icon="seti:notebook">
+    Built-in AI chat (OpenAI / Anthropic / OpenRouter, BYOK) that reads request context with redaction. And — uniquely — Restura **acts as an MCP server** for agents like Claude.
+  </Card>
+  <Card title="You want one tool, three places" icon="laptop">
+    Web app on Cloudflare Pages, native desktop on macOS / Windows / Linux, self-hosted Docker — same React renderer, same shortcuts, same UX.
+  </Card>
+</CardGrid>
+
+## Where Restura is *not* the right pick (yet)
+
+Honesty matters. If any of these are deal-breakers, pick another tool — we'll get there or we won't, but we won't pretend.
+
+- **Team collaboration & shared workspaces.** No realtime sync, no shared cursors, no comments. If your team needs a Figma-like collaborative API workspace, **Postman or Hoppscotch Enterprise** are better.
+- **Mock servers.** Restura can run a *local* mock during testing (desktop), but there's no hosted-mock-server feature. **Postman, Hoppscotch, and Insomnia** all do this well.
+- **Scheduled monitoring / synthetic uptime checks.** Restura has a CLI you can run on cron, but there's no built-in scheduling UI or alerting. **Postman Monitors** or dedicated tools (Checkly, Better Stack) fit better.
+- **API design (OpenAPI authoring) workflows.** Restura imports OpenAPI, but isn't a design-first IDE. **Insomnia (Inso) or Stoplight** are stronger here.
+- **Public API marketplaces.** Postman has a huge gallery of community-published collections; Restura doesn't.
+- **Plugin ecosystem.** Postman and Insomnia both support third-party plugins. Restura's extension model is limited to the script sandbox and import/export formats.
+
+## Per-tool notes
+
+### Postman
+
+The industry default. Massive ecosystem, mature mock-server / monitor / collaboration features, AI features (Postbot) on paid tiers. Newman is the gold-standard CLI runner.
+
+**Trade-off:** Postman is **cloud-first**. Even local-feel features increasingly require an account, and the free tier limits team workspaces, monitor runs, and mock-server quotas. Recent changes have moved more state into Postman's cloud.
+
+**Pick Postman if:** you need mature team collaboration, mock servers, monitors, or your team already lives in it.
+
+**Pick Restura if:** you don't want an account, you need Kafka or MCP, or you want a self-hosted option.
+
+### Hoppscotch
+
+Modern open-source web app with a clean UI. Real-time collaboration on shared workspaces. Lightweight, fast, self-hostable. CLI runner (`hopp`) is improving.
+
+**Trade-off:** Hoppscotch is **primarily a web app**. The Tauri-based desktop wrapper exists but doesn't unlock raw-TCP capabilities like Kafka, mTLS-with-OS-keychain, or PAC scripting that a true Node-based desktop process has.
+
+**Pick Hoppscotch if:** you want a fast collaborative web client and don't need desktop-only capabilities.
+
+**Pick Restura if:** you need true native networking (Kafka, custom CAs, OS-keychain secrets), or you want both a web app *and* a real native desktop app from the same project.
+
+### Bruno
+
+The git-native API client. Stores everything as `.bru` files in a directory you commit. Excellent fit for "your API definition lives in your repo." Free, open source, lightweight.
+
+**Trade-off:** Bruno is **single-protocol-focused** (HTTP/GraphQL primarily). No Kafka, no MCP, no Socket.IO, limited SSE. Scripting is simpler than Postman's. No web app.
+
+**Pick Bruno if:** your workflow is "API definitions live in git alongside the code" and you only need HTTP/GraphQL.
+
+**Pick Restura if:** you also need gRPC, WebSocket, Kafka, MCP, an AI assistant — or a web target. Restura imports Bruno collections, so you can switch without losing work.
+
+### Insomnia
+
+Long-standing client with gRPC, GraphQL, design-first features (Inso CLI), plugin ecosystem. Strong design-first workflows.
+
+**Trade-off:** Insomnia switched from MIT to commercial licensing in 2023 and has had **several account-required pivots and partial roll-backs** that frustrated long-time users. Owned by Kong, which prioritises enterprise features. Local-only mode exists but workflows around it have been bumpy.
+
+**Pick Insomnia if:** you do API design-first with OpenAPI and want the Inso CLI integration.
+
+**Pick Restura if:** you want a free, MIT-licensed tool that doesn't change its terms underneath you, or you want MCP / Kafka.
+
+### Thunder Client (VS Code extension)
+
+Lives inside VS Code. Convenient if your whole workflow is in the editor. Free tier covers most use cases; sync and team features are paid.
+
+**Trade-off:** It's a **VS Code extension** — no standalone app, no web app, narrow protocol set (HTTP, GraphQL). Scripting is intentionally light. No gRPC, no WebSocket, no SSE.
+
+**Pick Thunder Client if:** you never leave VS Code and only test HTTP/GraphQL.
+
+**Pick Restura if:** you need multi-protocol breadth or a standalone tool you can hand to non-engineers.
+
+### Yaak
+
+Newer open-source desktop client; clean UI, file-based collections, no account.
+
+**Trade-off:** Still maturing. **HTTP-focused** (limited gRPC / WS support), no web app, no built-in CLI, smaller community.
+
+**Pick Yaak if:** you want a minimal modern HTTP-focused desktop client and like its UI.
+
+**Pick Restura if:** you need protocol breadth (Kafka, MCP, gRPC streaming), a web app, or a CI-grade CLI.
+
+### HTTPie Desktop
+
+Beautiful, minimal, designed for HTTP-only workflows. Great defaults, polished UX.
+
+**Trade-off:** **HTTP only.** No GraphQL builder, no gRPC, no WebSocket, no Kafka. The CLI (`http`) is famous but doesn't run collections.
+
+**Pick HTTPie Desktop if:** you only do HTTP and value beautiful minimal UX.
+
+**Pick Restura if:** you do anything beyond HTTP.
+
+## What's unique to Restura
+
+A short list of capabilities not currently available in any of the alternatives above:
+
+1. **Restura *as* an MCP server.** No other client exposes its collections / environments / history to AI agents over MCP with consent gating and per-tool secret redaction. (See [MCP server mode](/guides/mcp-server-mode/).)
+2. **MCP *as a protocol* with all three transports.** `streamable-http`, `http-sse`, and `stdio` (desktop). Other clients with MCP support are emerging but limited.
+3. **Wire-level auth signing across protocols.** AWS SigV4, OAuth 1.0a, and WSSE sign at the Worker / Electron main process — not the renderer — so signatures match the exact bytes the upstream receives. Bruno and Insomnia sign at the client; Postman handles this on its cloud proxy.
+4. **`SecretRef` handle pattern.** Secrets stored on desktop are never exposed to the renderer in plaintext — resolved only at wire time in the main process, with `safeStorage` + OS keychain. See [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/).
+5. **One renderer to three backends.** The same React SPA ships to Cloudflare Pages (web), Electron (native desktop), and a Node+Docker container (self-hosted) — see the [architecture overview](/architecture/overview/).
+
+## Related
+
+- [What is Restura?](/overview/what-is-restura/)
+- [Platforms](/overview/platforms/) — web vs desktop capability matrix.
+- [Capability matrix](/reference/capability-matrix/) — the auto-generated source of truth.

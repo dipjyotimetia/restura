@@ -1,0 +1,66 @@
+---
+title: Scripts
+description: Pre-request and test scripts run in a sandboxed QuickJS WASM runtime. Postman pm.* API compatible.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every request can carry two kinds of script:
+
+- **Pre-request script** — runs before the request goes out. Mutate variables, sign a payload, decide a header.
+- **Test script** — runs after the response lands. Assert, extract, set environment variables.
+
+Both run in an **isolated QuickJS WASM sandbox**. No DOM. No filesystem. No network escape. Memory and execution time are capped.
+
+## What's available
+
+- The **Postman `pm.*` API** — `pm.request`, `pm.response`, `pm.environment`, `pm.collectionVariables`, `pm.variables`, `pm.test`, `pm.expect`.
+- **`chai`-style assertions** — `pm.expect(response.json().name).to.equal('alice')`.
+- **JSON helpers** — `pm.response.json()`, `pm.response.text()`.
+- **Header / status helpers** — `pm.response.headers.get('content-type')`, `pm.response.status`.
+- **Crypto helpers** — `crypto-js` style for HMAC / hash / base64.
+- **Console** — `console.log` writes to the script output panel.
+
+## What's not available
+
+- `fetch` / `XMLHttpRequest` — no network from inside scripts (yet; see roadmap).
+- `require` / `import` — no module loading.
+- DOM globals, timers beyond `setTimeout`, the filesystem.
+
+These limitations are deliberate: collections are often shared, and a script in a downloaded collection should never be able to exfiltrate data or reach into your machine.
+
+## Postman compat
+
+Most Postman scripts copy over without modification. The full mapping — `pm.sendRequest`, `pm.cookies`, `pm.iterationData`, etc. — lives in the [Postman compatibility reference](/reference/postman-compat/).
+
+<Aside type="caution" title="Watch out">
+Postman scripts that call `pm.sendRequest` won't work in Restura's sandbox yet — `fetch` is disabled. Use a [workflow](/guides/workflows/) to chain requests instead.
+</Aside>
+
+## Example: a test script
+
+```js
+pm.test('status is 200', () => {
+  pm.expect(pm.response.status).to.equal(200);
+});
+
+const body = pm.response.json();
+pm.test('returns a user id', () => {
+  pm.expect(body.id).to.be.a('string');
+});
+
+// stash the id for the next request in this collection
+pm.environment.set('user_id', body.id);
+```
+
+## Example: a pre-request script
+
+```js
+const ts = Math.floor(Date.now() / 1000);
+pm.variables.set('signed_at', ts.toString());
+```
+
+## Related
+
+- [Workflows](/guides/workflows/) — chain requests; extracts can be done declaratively too.
+- [Postman compatibility reference](/reference/postman-compat/) — full API surface.
