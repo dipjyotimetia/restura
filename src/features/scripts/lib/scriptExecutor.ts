@@ -236,6 +236,19 @@ class ScriptExecutor {
   private callCookieAdapter: PmCookieAdapter | undefined;
   /** Count of in-flight host-side promises (pm.sendRequest, pm.vault.*). */
   private pendingHostOps = 0;
+  /**
+   * Cleanup callbacks for in-flight host promises. Each pending op
+   * registers a function that frees its allocated handles (the QuickJS
+   * deferred wrapper plus any cbHandle the user passed). On wall-clock
+   * timeout or `dispose()` we iterate this set, run every cleanup, and
+   * clear — without this, QuickJS's `JS_FreeRuntime` asserts on a
+   * non-empty `gc_obj_list` and crashes the host process.
+   *
+   * The corresponding host-side .then/.catch/.finally also call their
+   * own cleanup once the promise settles; the `Set` membership check is
+   * the idempotency guard so a settle-after-cleanup is a no-op.
+   */
+  private readonly pendingHostCleanups = new Set<() => void>();
   private logs: ScriptResult['logs'] = [];
   private errors: string[] = [];
   private tests: Array<{ name: string; passed: boolean; error?: string }> = [];
@@ -247,6 +260,14 @@ class ScriptExecutor {
    */
   private readonly globalsMutations: Record<string, string | null> = {};
   private readonly collectionMutations: Record<string, string | null> = {};
+  /**
+   * Test-only override. Production code never sets this; tests inject a
+   * short ceiling so the wall-clock-deadline path is exercised in
+   * sub-second time. When undefined, the synchronous-vs-async constants
+   * apply unchanged.
+   */
+  private syncCeilingOverrideMs: number | undefined;
+  private asyncCeilingOverrideMs: number | undefined;
 
   // QuickJS lifecycle. `initialize()` populates these once; `eval()` reuses
   // them across many calls; `dispose()` tears down. The one-shot
@@ -254,6 +275,18 @@ class ScriptExecutor {
   // call, preserving its existing semantics.
   private runtime: QuickJSRuntime | null = null;
   private vm: QuickJSContext | null = null;
+  /**
+   * Wall-clock start of the currently-running `eval()`, or `0` when no
+   * user script is in flight.
+   *
+   * **Contract**: the interrupt handler and the async pump skip
+   * enforcement whenever this is `0` — that's how `initialize()`'s
+   * trusted bundle / pm.* / setup evals run untimed. Anything that
+   * calls `vm.evalCode(...)` directly outside `eval()` runs without a
+   * timeout. If you add such a call site, decide explicitly whether it
+   * should be bounded and set `evalStartTime` accordingly before the
+   * eval (then restore to `0` after).
+   */
   private evalStartTime = 0;
   private evalInterrupted = false;
 
@@ -287,6 +320,49 @@ class ScriptExecutor {
   }
 
   /**
+   * Run every registered host-promise cleanup. Each callback rejects +
+   * disposes its QuickJS deferred and disposes any cbHandle the caller
+   * captured. Called from the wall-clock timeout path and from
+   * `dispose()` — anything left in the set would otherwise trip
+   * QuickJS's `gc_obj_list` assertion when the runtime is torn down.
+   */
+  private releasePendingHostOps(): void {
+    if (this.pendingHostCleanups.size === 0) return;
+    for (const cleanup of this.pendingHostCleanups) {
+      try {
+        cleanup();
+      } catch {
+        // Best-effort — keep iterating so a single bad cleanup doesn't
+        // strand others.
+      }
+    }
+    this.pendingHostCleanups.clear();
+    // Drain so any .then() chains waiting on the rejected deferreds run
+    // (and short-circuit out via `!this.runtime` in the settle handlers).
+    if (this.runtime) {
+      const pending = this.runtime.executePendingJobs();
+      if (pending.error) pending.error.dispose();
+    }
+  }
+
+  private executionCeilingMs(): number {
+    if (this.hasAsyncBridges()) {
+      return this.asyncCeilingOverrideMs ?? MAX_EXECUTION_TIME_MS_ASYNC;
+    }
+    return this.syncCeilingOverrideMs ?? MAX_EXECUTION_TIME_MS;
+  }
+
+  /**
+   * Test-only setter. Production code does not touch this — call sites
+   * rely on the module-level constants. Tests use it to exercise the
+   * timeout path without a real-time wait.
+   */
+  __setCeilingsForTest(syncMs: number | undefined, asyncMs: number | undefined): void {
+    this.syncCeilingOverrideMs = syncMs;
+    this.asyncCeilingOverrideMs = asyncMs;
+  }
+
+  /**
    * Create the QuickJS runtime + context and run the static setup once.
    * Idempotent — subsequent calls return immediately. Required before
    * `eval()`, `setVariable()`, or `bindRequestResponse()` can be used.
@@ -306,7 +382,7 @@ class ScriptExecutor {
       // — those run trusted code we authored, and the 2MB library
       // bundle can take a couple of seconds to parse on slower devices.
       if (this.evalStartTime === 0) return false;
-      const ceiling = this.hasAsyncBridges() ? MAX_EXECUTION_TIME_MS_ASYNC : MAX_EXECUTION_TIME_MS;
+      const ceiling = this.executionCeilingMs();
       if (Date.now() - this.evalStartTime > ceiling) {
         this.evalInterrupted = true;
         return true;
@@ -395,9 +471,15 @@ class ScriptExecutor {
 
   /**
    * Dispose the QuickJS runtime + context. Idempotent.
+   *
+   * Order matters: any pending host-promise deferreds must be released
+   * BEFORE the runtime tear-down, otherwise QuickJS asserts on leaked
+   * handles and crashes the host process. Any in-flight host JS promise
+   * that settles later finds `this.runtime === null` and no-ops.
    */
   dispose(): void {
     if (this.vm) {
+      this.releasePendingHostOps();
       this.vm.dispose();
       this.vm = null;
     }
@@ -635,12 +717,49 @@ class ScriptExecutor {
       this.pendingHostOps++;
 
       // Capture callback as a (cloned) handle if user passed one. We must
-      // call `vm.dupHandle` so the user's function survives past this
-      // native frame.
+      // call `.dup()` so the user's function survives past this native
+      // frame and stays alive for the settle.
       let cbHandle: QuickJSHandle | undefined;
       if (callbackHandle && vm.typeof(callbackHandle) === 'function') {
         cbHandle = callbackHandle.dup();
       }
+
+      // Cleanup registered for both happy-path completion and the
+      // wall-clock-timeout path. Idempotency: the cleanup checks
+      // `pendingHostCleanups` membership via Set semantics — once removed,
+      // a second call is a no-op.
+      const cleanup = (): void => {
+        if (!this.pendingHostCleanups.has(cleanup)) return;
+        this.pendingHostCleanups.delete(cleanup);
+        if (this.runtime) {
+          // Reject the still-pending deferred so any .then() chain in
+          // the user script propagates rather than hanging forever.
+          if (deferred.alive) {
+            try {
+              const err = vm.newError('Script execution interrupted');
+              deferred.reject(err);
+              err.dispose();
+            } catch {
+              // vm may already be in tear-down.
+            }
+          }
+        }
+        if (deferred.alive) {
+          try {
+            deferred.dispose();
+          } catch {
+            // already disposed
+          }
+        }
+        if (cbHandle && cbHandle.alive) {
+          try {
+            cbHandle.dispose();
+          } catch {
+            // already disposed
+          }
+        }
+      };
+      this.pendingHostCleanups.add(cleanup);
 
       const sendRequest = this.host.sendRequest;
       const promise = sendRequest
@@ -649,6 +768,11 @@ class ScriptExecutor {
 
       promise
         .then((response) => {
+          // Bail if dispose() ran during the host-side work — every
+          // handle below (vm, deferred, cbHandle) is owned by the runtime
+          // and was already freed. Note: `errH = vm.null` / `nullH = vm.null`
+          // are shared QuickJS singletons — never call `.dispose()` on them.
+          if (!this.runtime) return;
           const respJs = this.makeJSValue(vm, response as unknown);
           deferred.resolve(respJs);
           if (cbHandle) {
@@ -660,6 +784,7 @@ class ScriptExecutor {
           respJs.dispose();
         })
         .catch((err: unknown) => {
+          if (!this.runtime) return;
           const msg = err instanceof Error ? err.message : String(err);
           const errObj = this.makeJSValue(vm, { message: msg });
           deferred.reject(errObj);
@@ -673,12 +798,16 @@ class ScriptExecutor {
         })
         .finally(() => {
           this.pendingHostOps--;
-          // Drain microtasks the callback / promise continuation queued.
+          // If we already cleaned up (timeout / dispose) this is a no-op.
+          // Otherwise run the cleanup now (drains microtasks, disposes
+          // cbHandle). The deferred is already settled by then so its
+          // dispose() inside cleanup is a no-op.
+          cleanup();
+          // Drain microtasks the .then() callback queued.
           if (this.runtime) {
             const pending = this.runtime.executePendingJobs();
             if (pending.error) pending.error.dispose();
           }
-          if (cbHandle) cbHandle.dispose();
         });
 
       return deferred.handle;
@@ -698,13 +827,38 @@ class ScriptExecutor {
     const wrapAsync = <T>(work: () => Promise<T>, onResolve: (value: T) => QuickJSHandle) => {
       const deferred = vm.newPromise();
       this.pendingHostOps++;
+      const cleanup = (): void => {
+        if (!this.pendingHostCleanups.has(cleanup)) return;
+        this.pendingHostCleanups.delete(cleanup);
+        if (this.runtime && deferred.alive) {
+          try {
+            const err = vm.newError('Script execution interrupted');
+            deferred.reject(err);
+            err.dispose();
+          } catch {
+            // vm in tear-down
+          }
+        }
+        if (deferred.alive) {
+          try {
+            deferred.dispose();
+          } catch {
+            // already disposed
+          }
+        }
+      };
+      this.pendingHostCleanups.add(cleanup);
       work()
         .then((value) => {
+          // Bail if dispose() ran during host work — every handle below
+          // is owned by the vm that's now gone.
+          if (!this.runtime) return;
           const h = onResolve(value);
           deferred.resolve(h);
           h.dispose();
         })
         .catch((err: unknown) => {
+          if (!this.runtime) return;
           const msg = err instanceof Error ? err.message : String(err);
           const e = this.makeJSValue(vm, { message: msg });
           deferred.reject(e);
@@ -712,6 +866,7 @@ class ScriptExecutor {
         })
         .finally(() => {
           this.pendingHostOps--;
+          cleanup();
           if (this.runtime) {
             const pending = this.runtime.executePendingJobs();
             if (pending.error) pending.error.dispose();
@@ -875,13 +1030,26 @@ class ScriptExecutor {
     // For sync-only scripts this is a single immediate call. For scripts
     // that called pm.sendRequest, we loop: pump QuickJS microtasks, yield
     // to the host event loop so the in-flight Promise can resolve, then
-    // pump again — until no host-side work is outstanding (or we hit the
-    // execution-time ceiling enforced by the interrupt handler).
+    // pump again — until no host-side work is outstanding OR the wall-clock
+    // deadline is hit.
+    //
+    // The wall-clock guard is the load-bearing safety net. QuickJS's
+    // interrupt handler only fires while JS bytecode runs; a script that
+    // awaits a hung host promise queues NO bytecode while waiting, so
+    // `evalInterrupted` never flips on its own. We compute the same
+    // ceiling the interrupt handler uses and flip `evalInterrupted`
+    // ourselves when the deadline passes.
+    const ceiling = this.executionCeilingMs();
+    const deadline = this.evalStartTime + ceiling;
     if (this.runtime) {
       const pending = this.runtime.executePendingJobs();
       if (pending.error) pending.error.dispose();
     }
     while (this.pendingHostOps > 0 && !this.evalInterrupted) {
+      if (Date.now() >= deadline) {
+        this.evalInterrupted = true;
+        break;
+      }
       // Yield once to the host so any pending Promise.then() callbacks
       // attached by pm.sendRequest can fire. setImmediate isn't available
       // in browsers; setTimeout(0) is the portable equivalent.
@@ -892,9 +1060,15 @@ class ScriptExecutor {
       }
     }
     if (this.evalInterrupted) {
-      const ceiling = this.hasAsyncBridges() ? MAX_EXECUTION_TIME_MS_ASYNC : MAX_EXECUTION_TIME_MS;
       this.addLog('error', `Script execution timed out after ${ceiling}ms`);
       this.errors.push(`Script execution timed out after ${ceiling}ms`);
+      // Reject + dispose any still-pending host-promise deferreds. The
+      // host-side Promises they wrap are still running (we can't cancel
+      // an arbitrary host promise), but their QuickJS-side deferred is
+      // freed so the runtime can be disposed cleanly. The host promise's
+      // own .then/.catch/.finally will short-circuit on `!this.runtime`
+      // once it eventually settles.
+      this.releasePendingHostOps();
     }
 
     // Harvest the per-eval sentinels back into the result shape. Both are

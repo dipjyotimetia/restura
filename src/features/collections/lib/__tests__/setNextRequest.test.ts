@@ -157,7 +157,10 @@ describe('runCollection — pm.execution.setNextRequest', () => {
     expect(last?.error).toMatch(/no runnable with that name/);
   });
 
-  it('caps self-loop jumps at 1000', async () => {
+  // Explicit 5s per-test timeout — if MAX_NEXT_REQUEST_JUMPS regresses or
+  // the index loop misbehaves, this test would otherwise hang until the
+  // suite-level timeout and noisily mask the actual failure.
+  it('caps self-loop jumps at 1000', { timeout: 5000 }, async () => {
     behaviors.set('A', { nextRequest: 'A' });
     const result = await runCollection(
       {

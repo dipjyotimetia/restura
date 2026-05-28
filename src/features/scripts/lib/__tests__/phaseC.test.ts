@@ -223,6 +223,31 @@ describe('pm.cookies — jar adapter', () => {
   });
 });
 
+describe('pm.sendRequest — wall-clock guard', () => {
+  it('a hung host promise is killed by the async deadline', async () => {
+    // Host promise that never settles. Without the wall-clock guard the
+    // executor would pin on this forever — QuickJS's interrupt handler
+    // can't fire because no JS bytecode is running while the user
+    // script awaits, so `evalInterrupted` would never flip without our
+    // setTimeout-pump checking Date.now() against the deadline.
+    const host = {
+      sendRequest: vi.fn(() => new Promise<never>(() => undefined)),
+    };
+    const ex = new ScriptExecutor({ host });
+    await ex.initialize();
+    // Shorten the async ceiling so the deadline trips in ~50ms instead
+    // of the production 30s. Production code never calls this; it's
+    // declared on the class specifically for this kind of timing test.
+    ex.__setCeilingsForTest(undefined, 50);
+    const r = await ex.eval(
+      `pm.sendRequest('https://hang.example/never-returns', function () {});`,
+      {}
+    );
+    expect(r.errors.some((e) => /timed out/.test(e))).toBe(true);
+    ex.dispose();
+  }, 10_000);
+});
+
 describe('pm.execution survives async pm.sendRequest', () => {
   it('setNextRequest still surfaces when called before/after a sub-request', async () => {
     const host = { sendRequest: async () => buildMockResponse() };

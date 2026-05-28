@@ -237,11 +237,21 @@ export async function executeRequest(
   let preRequestResult: ScriptResult | undefined;
   if (request.preRequestScript) {
     const globalVars = useGlobalsStore.getState().vars;
+    // Pre-request runs before buildProxyRequestSpec has resolved auth, so
+    // the inherited-header set is the user-defined headers only. The test
+    // script (further down) gets the fully-resolved sentHeaders including
+    // the Authorization that auth-applier produced.
+    const inheritedHeadersPre = request.headers
+      .filter((h) => h.enabled)
+      .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {} as Record<string, string>);
     const executor = new ScriptExecutor({
       envVars,
       globalVars,
       host: {
-        sendRequest: makeRendererSendRequest(),
+        sendRequest: makeRendererSendRequest({
+          variables: envVars,
+          inheritedHeaders: inheritedHeadersPre,
+        }),
         cookies: (currentUrl) => makeCookieAdapter(currentUrl),
         vault: makeVaultAdapter(),
       },
@@ -315,11 +325,18 @@ export async function executeRequest(
   let testResult: ScriptResult | undefined;
   if (request.testScript) {
     const globalVars = useGlobalsStore.getState().vars;
+    // Test script gets the fully-resolved sentHeaders (auth + content-type
+    // + framework defaults) so pm.sendRequest sub-requests inherit the
+    // same Authorization the parent went out with. The user can still
+    // override per-call via the headers param to pm.sendRequest.
     const executor = new ScriptExecutor({
       envVars,
       globalVars,
       host: {
-        sendRequest: makeRendererSendRequest(),
+        sendRequest: makeRendererSendRequest({
+          variables: envVars,
+          inheritedHeaders: sentHeaders,
+        }),
         cookies: (currentUrl) => makeCookieAdapter(currentUrl),
         vault: makeVaultAdapter(),
       },
