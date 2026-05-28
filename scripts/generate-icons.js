@@ -71,7 +71,7 @@ async function generateIcons() {
     const icoBuffer = await pngToIco(pngSizes);
     fs.writeFileSync(path.join(resourcesDir, 'icon.ico'), icoBuffer);
     console.log('  Created icon.ico');
-  } catch (err) {
+  } catch (_err) {
     console.log('  Skipping ICO generation (install png-to-ico for Windows support)');
   }
 

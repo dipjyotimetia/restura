@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
@@ -19,7 +20,14 @@ const sharedTsRules = {
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', '.wrangler/**', 'scripts/**', '*.config.mts'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      '.wrangler/**',
+      'cli/dist/**',
+      'cli/fixtures/**',
+      '*.config.mts',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -52,6 +60,23 @@ export default tseslint.config(
     files: ['electron/main/**/*.ts'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  // Build/codegen scripts — Node, mix of ESM (.mjs) and CJS (.js).
+  {
+    files: ['scripts/**/*.{mjs,js,cjs}'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-console': 'off',
+      'no-undef': 'error',
+      // scripts/*.js are CJS and use require() intentionally
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
     },
   },
   // Keep the eagerly-loaded workflow executor + helpers free of React Flow.

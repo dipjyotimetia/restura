@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
@@ -42,16 +42,22 @@ jobs:
       - name: Type-check (echo)
         run: npx tsc --noEmit -p echo/tsconfig.json
 
+      - name: Type-check (CLI workspace)
+        run: npm run --workspace @restura/cli type-check
+
       - name: Lint
         run: npm run lint
 
       - name: Verify generated opencollection types are up-to-date
         run: npm run verify:opencollection-types
 
+      - name: Verify capability matrix is up-to-date
+        run: npm run capabilities:check
+
       - name: Security audit
         run: npm audit --audit-level=critical
 
-      - name: Run tests
+      - name: Run tests with coverage
         # `electron`'s package index.js calls `downloadElectron()` at
         # module-load time when `path.txt` is missing. On GitHub-hosted runners
         # the postinstall download intermittently exits 0 without writing
@@ -63,13 +69,60 @@ jobs:
         # the test's mock takes over from there. Local dev is unaffected.
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp
-        run: npm run test:run
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
 
       - name: Build renderer
         run: npm run build
 
       - name: Build Electron main
         run: npm run electron:compile
+
+      - name: Check bundle size
+        run: npm run size
+
+  electron-smoke:
+    name: Electron pack smoke (${{ matrix.os }})
+    if: github.event_name == 'pull_request'
+    needs: [validate]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile Electron main
+        run: npm run electron:compile
+
+      - name: Build renderer (Electron mode)
+        env:
+          VITE_IS_ELECTRON_BUILD: 'true'
+        run: npm run electron:build:web
+
+      - name: Pack unsigned (smoke only)
+        env:
+          # Skip signing/notarization for smoke; this catches packaging regressions
+          # without needing certs in CI.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --dir --publish never
 
   e2e:
     if: github.event_name == 'pull_request'
@@ -83,7 +136,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
@@ -143,7 +196,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
@@ -204,7 +257,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
@@ -233,13 +286,34 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler pages project create restura --production-branch=main || true
 
+      # Sanitize head_ref before passing to wrangler-action. The action templates
+      # `command` into a shell invocation, and branch refs allow shell metachars
+      # (`;`, `$`, backticks, etc.) — a malicious fork could open a PR whose
+      # branch name is a payload. Refuse anything outside [a-zA-Z0-9._/-] and
+      # cap to 64 chars (Cloudflare Pages branch alias limit).
+      - name: Sanitize preview branch slug
+        id: branch
+        env:
+          RAW_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RAW_REF" =~ ^[a-zA-Z0-9._/-]{1,64}$ ]]; then
+            echo "::error::Refusing to deploy preview for unsafe head_ref: $RAW_REF"
+            exit 1
+          fi
+          # Pages doesn't allow leading dashes or slashes; double-check.
+          case "$RAW_REF" in
+            -*|/*) echo "::error::Branch ref cannot start with - or /"; exit 1 ;;
+          esac
+          echo "slug=$RAW_REF" >> "$GITHUB_OUTPUT"
+
       - name: Deploy SPA preview to Cloudflare Pages
         id: preview
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist/web/client --project-name=restura --branch=${{ github.head_ref }}
+          command: pages deploy dist/web/client --project-name=restura --branch=${{ steps.branch.outputs.slug }}
 
       - name: Comment preview URL on PR
         uses: actions/github-script@v9
