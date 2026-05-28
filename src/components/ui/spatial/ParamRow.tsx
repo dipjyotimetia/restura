@@ -3,6 +3,7 @@ import { cn } from '@/lib/shared/utils';
 import { ToggleField } from './ToggleField';
 import { VariableText } from './VariableText';
 import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
+import { VariableInput } from '@/components/shared/VariableInput';
 
 export interface ParamRowData {
   id: string;
@@ -53,9 +54,10 @@ export function ParamRow({
   const renderKey = () => {
     if (!keySuggestions || keySuggestions.length === 0) {
       return (
-        <input
+        <VariableInput
+          rawInput
           value={row.key}
-          onChange={(e) => onChange({ ...row, key: e.target.value })}
+          onValueChange={(val) => onChange({ ...row, key: val })}
           placeholder="key"
           className={baseInput}
         />
@@ -86,9 +88,10 @@ export function ParamRow({
   const renderValue = () => {
     if (!valueSuggestions) {
       return (
-        <input
+        <VariableInput
+          rawInput
           value={row.value}
-          onChange={(e) => onChange({ ...row, value: e.target.value })}
+          onValueChange={(val) => onChange({ ...row, value: val })}
           placeholder="value"
           className={baseInput}
         />
