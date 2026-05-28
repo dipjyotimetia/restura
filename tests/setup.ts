@@ -34,10 +34,16 @@ vi.mock('@/lib/shared/dexie-storage', () => {
       graphqlSchemas: f,
       protoFiles: f,
       aiChat: f,
+      globals: f,
     },
     checkDexieStorageHealth: async () => ({ available: false, healthy: false }),
     clearDexieStorage: async () => undefined,
-    getDexieStorageStats: async () => ({ totalRecords: 0, tables: {}, estimatedSize: 0, formattedSize: '0 B' }),
+    getDexieStorageStats: async () => ({
+      totalRecords: 0,
+      tables: {},
+      estimatedSize: 0,
+      formattedSize: '0 B',
+    }),
     exportDexieData: async () => '{}',
     importDexieData: async () => undefined,
     secureDeleteRecord: async () => undefined,
@@ -59,10 +65,18 @@ if (isBrowser) {
     let store: Record<string, string> = {};
     return {
       getItem: (key: string) => store[key] || null,
-      setItem: (key: string, value: string) => { store[key] = value.toString(); },
-      removeItem: (key: string) => { delete store[key]; },
-      clear: () => { store = {}; },
-      get length() { return Object.keys(store).length; },
+      setItem: (key: string, value: string) => {
+        store[key] = value.toString();
+      },
+      removeItem: (key: string) => {
+        delete store[key];
+      },
+      clear: () => {
+        store = {};
+      },
+      get length() {
+        return Object.keys(store).length;
+      },
       key: (index: number) => Object.keys(store)[index] || null,
     };
   })();

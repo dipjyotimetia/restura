@@ -23,18 +23,11 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule } from '@/features/registry/types';
-import type {
-  GrpcRequest,
-  GrpcResponse,
-  Request,
-  Response as ApiResponse,
-} from '@/types';
-import {
-  makeProxyGrpcRequest,
-  makeElectronGrpcRequest,
-} from './lib/grpcClient';
+import type { GrpcRequest, GrpcResponse, Request, Response as ApiResponse } from '@/types';
+import { makeProxyGrpcRequest, makeElectronGrpcRequest } from './lib/grpcClient';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { isElectron } from '@/lib/shared/platform';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 
@@ -53,10 +46,7 @@ function createDefaultGrpcRequest(): GrpcRequest {
   };
 }
 
-function defaultResolveVariables(
-  text: string,
-  vars: Record<string, string>
-): string {
+function defaultResolveVariables(text: string, vars: Record<string, string>): string {
   let result = text;
   for (const [key, value] of Object.entries(vars)) {
     result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
@@ -75,9 +65,7 @@ interface GrpcProtocolOptions {
   useCompression?: boolean;
 }
 
-function readProtocolOptions(
-  raw: Record<string, unknown> | undefined
-): GrpcProtocolOptions {
+function readProtocolOptions(raw: Record<string, unknown> | undefined): GrpcProtocolOptions {
   if (!raw) return {};
   const out: GrpcProtocolOptions = {};
   if (typeof raw.protoContent === 'string') out.protoContent = raw.protoContent;
@@ -87,10 +75,7 @@ function readProtocolOptions(
   return out;
 }
 
-function injectGrpcVariables(
-  request: Request,
-  variables: Record<string, string>
-): Request {
+function injectGrpcVariables(request: Request, variables: Record<string, string>): Request {
   if (request.type !== 'grpc') return request;
   const grpc = request as GrpcRequest;
   const inject = (text: string) => injectString(text, variables);
@@ -147,7 +132,8 @@ export const grpcProtocol: ProtocolModule = {
     const scriptEnvVars: Record<string, string> = { ...variables };
     let preRequestResult: ScriptResult | undefined;
     if (request.preRequestScript?.trim()) {
-      const executor = new ScriptExecutor(scriptEnvVars, {});
+      const globalVars = useGlobalsStore.getState().vars;
+      const executor = new ScriptExecutor({ envVars: scriptEnvVars, globalVars });
       preRequestResult = await executor.executeScript(request.preRequestScript, {
         request: {
           url: request.url,
@@ -158,6 +144,9 @@ export const grpcProtocol: ProtocolModule = {
       });
       if (preRequestResult.variables) {
         Object.assign(scriptEnvVars, preRequestResult.variables);
+      }
+      if (preRequestResult.globalsMutations) {
+        useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
       }
     }
 
@@ -184,7 +173,8 @@ export const grpcProtocol: ProtocolModule = {
     // grpcStatus, body, headers, etc.
     let testResult: ScriptResult | undefined;
     if (request.testScript?.trim()) {
-      const executor = new ScriptExecutor(scriptEnvVars, {});
+      const globalVars = useGlobalsStore.getState().vars;
+      const executor = new ScriptExecutor({ envVars: scriptEnvVars, globalVars });
       testResult = await executor.executeScript(request.testScript, {
         request: {
           url: request.url,
@@ -201,6 +191,9 @@ export const grpcProtocol: ProtocolModule = {
           size: response.size,
         },
       });
+      if (testResult.globalsMutations) {
+        useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
+      }
     }
 
     if (ctx.onScriptResult && (preRequestResult || testResult)) {

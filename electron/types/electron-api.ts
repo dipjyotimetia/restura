@@ -402,9 +402,7 @@ interface ElectronGitAPI {
     directoryPath: string,
     filePath: string
   ) => Promise<{ ok: true; diff: string } | { ok: false; error: string }>;
-  branchList: (
-    directoryPath: string
-  ) => Promise<
+  branchList: (directoryPath: string) => Promise<
     | {
         ok: true;
         branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }>;
@@ -554,6 +552,12 @@ interface ElectronSecretsAPI {
   >;
 }
 
+interface ElectronVaultAPI {
+  get: (key: string) => Promise<{ value: string | null }>;
+  set: (key: string, value: string) => Promise<{ ok: true }>;
+  unset: (key: string) => Promise<{ ok: true }>;
+}
+
 interface ElectronAiAPI {
   chat: (spec: {
     streamId: string;
@@ -599,6 +603,7 @@ interface ElectronAPI {
   git: ElectronGitAPI;
   mock: ElectronMockAPI;
   secrets: ElectronSecretsAPI;
+  vault: ElectronVaultAPI;
   ai: ElectronAiAPI;
   log: ElectronLogAPI;
   keychain: ElectronKeychainAPI;

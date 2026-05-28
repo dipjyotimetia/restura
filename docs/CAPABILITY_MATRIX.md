@@ -38,6 +38,8 @@ rather than discover it experimentally.
 | Native shell.openExternal | ❌ | ✅ |  |
 | Native OS notifications | ❌ | ✅ |  |
 | System tray icon | ❌ | ✅ |  |
+| pm.sendRequest sub-requests inside scripts | ✅ | ✅ | Routes through the same SSRF-guarded proxy as a top-level send |
+| pm.vault encrypted key-value secret store | ❌ | ✅ | Backed by OS keychain via electron safeStorage; no equivalent in browser |
 
 ---
 

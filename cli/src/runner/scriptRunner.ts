@@ -26,7 +26,7 @@ export async function runPreRequestScript(
   item: LoadedRequest,
   vars: Record<string, string>
 ): Promise<RunScriptResult> {
-  const executor = new ScriptExecutor({ ...vars }, {});
+  const executor = new ScriptExecutor({ envVars: { ...vars } });
   const ctx = buildRequestContext(item, vars);
   const result = await executor.executeScript(script, { request: ctx });
   return toRunScriptResult(result, vars);
@@ -44,7 +44,7 @@ export async function runTestScript(
   outcome: ExecuteOutcome,
   vars: Record<string, string>
 ): Promise<RunScriptResult> {
-  const executor = new ScriptExecutor({ ...vars }, {});
+  const executor = new ScriptExecutor({ envVars: { ...vars } });
   const requestCtx = buildRequestContext(item, vars);
   const responseCtx = {
     status: outcome.status,

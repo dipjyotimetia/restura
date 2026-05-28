@@ -21,10 +21,15 @@ import {
 } from './collection-manager';
 import { registerStoreHandlerIPC } from './store-handler';
 import { registerSecretHandleIPC } from './secret-handle-store';
+import { registerVaultHandlers, unregisterVaultHandlers } from './vault-handler';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
-import { registerMockServerIPC, unregisterMockServerIPC, stopMockServer } from './mock-server-handler';
+import {
+  registerMockServerIPC,
+  unregisterMockServerIPC,
+  stopMockServer,
+} from './mock-server-handler';
 import { registerDeepLinkHandler } from './deep-link-handler';
 import { startStdioMcpServer } from './mcp-server-handler';
 import { loadMcpDispatchContext } from './mcp-context-loader';
@@ -52,7 +57,9 @@ crashReporter.start({
 // Warn loudly so operators notice the misconfig before users start hitting
 // crashes that never reach the maintainers.
 if (app.isPackaged && !crashReportUrl) {
-  log.warn('crashReporter is enabled but CRASH_REPORT_URL is unset — native crashes will not be reported');
+  log.warn(
+    'crashReporter is enabled but CRASH_REPORT_URL is unset — native crashes will not be reported'
+  );
 }
 
 // crashReporter only captures native crashes; log JS-level failures so
@@ -134,9 +141,13 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerWindowControlsIPC(getMainWindow) },
   { register: () => registerNewWindowIPC(isDev) },
   { register: () => registerNotificationIPC(getMainWindow, isDev) },
-  { register: () => registerCollectionManagerIPC(getMainWindow), dispose: () => cleanupCollectionWatchers() },
+  {
+    register: () => registerCollectionManagerIPC(getMainWindow),
+    dispose: () => cleanupCollectionWatchers(),
+  },
   { register: () => registerStoreHandlerIPC() },
   { register: () => registerSecretHandleIPC() },
+  { register: () => registerVaultHandlers(), dispose: () => unregisterVaultHandlers() },
   { register: () => registerKeychainStatusIPC() },
   {
     // Git operations are restricted to directories that are registered as
@@ -195,7 +206,9 @@ function setupSecurityMeasures(): void {
         try {
           const parsedUrl = new URL(navigationUrl);
           if (parsedUrl.origin === 'http://localhost:5173') return;
-        } catch { /* fall through to block */ }
+        } catch {
+          /* fall through to block */
+        }
         event.preventDefault();
         return;
       }
@@ -274,4 +287,3 @@ app.on('will-quit', () => {
   }
   destroyTray();
 });
-

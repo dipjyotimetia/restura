@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import path from 'path';
+import { sandboxLibsPlugin } from './scripts/vite-plugin-sandbox-libs';
 
 const isElectronBuild = process.env.VITE_IS_ELECTRON_BUILD === 'true';
 // Self-hosted Docker build: emit a plain SPA bundle and skip the Cloudflare
@@ -13,6 +14,7 @@ const skipCloudflare = isElectronBuild || isDockerBuild;
 
 export default defineConfig({
   plugins: [
+    sandboxLibsPlugin(),
     react(),
     tailwind(),
     ...(skipCloudflare ? [] : [cloudflare()]),

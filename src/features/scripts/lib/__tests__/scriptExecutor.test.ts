@@ -15,7 +15,7 @@ import ScriptExecutor from '../scriptExecutor';
 // would mask `success` even on completely innocuous scripts.
 describe('ScriptExecutor — sandbox is the security boundary', () => {
   it('user scripts using Function.prototype.bind execute (not source-rejected)', async () => {
-    const executor = new ScriptExecutor({ MY_VAR: 'value' });
+    const executor = new ScriptExecutor({ envVars: { MY_VAR: 'value' } });
     const result = await executor.executeScript(
       `
       const fn = function() { return this.x; };
@@ -29,7 +29,7 @@ describe('ScriptExecutor — sandbox is the security boundary', () => {
   });
 
   it('user scripts accessing constructor.name execute (not source-rejected)', async () => {
-    const executor = new ScriptExecutor({});
+    const executor = new ScriptExecutor();
     const result = await executor.executeScript(
       `
       console.log('type is', (42).constructor.name);
@@ -41,7 +41,7 @@ describe('ScriptExecutor — sandbox is the security boundary', () => {
   });
 
   it('eval inside the sandbox runs and returns a value (no source-level rejection)', async () => {
-    const executor = new ScriptExecutor({});
+    const executor = new ScriptExecutor();
     const result = await executor.executeScript(
       `
       const v = eval('40 + 2');

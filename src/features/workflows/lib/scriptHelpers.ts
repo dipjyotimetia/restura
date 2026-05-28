@@ -17,6 +17,7 @@
  * succeeding with no value.
  */
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
 
 const RESULT_KEY = '__restura_script_result';
 const COMPLETED_KEY = '__restura_script_completed';
@@ -58,10 +59,7 @@ export type EvalSuccess = { ok: true; value: unknown };
 export type EvalFailure = { ok: false; error: string };
 export type EvalResult = EvalSuccess | EvalFailure;
 
-export async function evalScriptValue(
-  script: string,
-  ctx: ScriptEvalContext
-): Promise<EvalResult> {
+export async function evalScriptValue(script: string, ctx: ScriptEvalContext): Promise<EvalResult> {
   const trimmed = script?.trim?.();
   if (!trimmed) {
     return { ok: false, error: 'Script is empty' };
@@ -87,7 +85,10 @@ export async function evalScriptValue(
     })();
   `;
 
-  const executor = new ScriptExecutor(callerVars, {});
+  const executor = new ScriptExecutor({
+    envVars: callerVars,
+    globalVars: useGlobalsStore.getState().vars,
+  });
   const scriptCtx: Parameters<ScriptExecutor['executeScript']>[1] = {};
   if (ctx.request) scriptCtx.request = ctx.request;
   if (ctx.response) scriptCtx.response = ctx.response;
@@ -133,10 +134,7 @@ export async function evalScriptValue(
  * successfully returns `false` now actually returns `false` instead of
  * being misread as `true`.
  */
-export async function evalScriptBoolean(
-  script: string,
-  ctx: ScriptEvalContext
-): Promise<boolean> {
+export async function evalScriptBoolean(script: string, ctx: ScriptEvalContext): Promise<boolean> {
   const result = await evalScriptValue(script, ctx);
   if (!result.ok) return false;
   return Boolean(result.value);
@@ -167,7 +165,10 @@ export async function createPooledScriptEvaluator(
   const trimmed = script?.trim?.();
   if (!trimmed) return noopEvaluator;
 
-  const executor = new ScriptExecutor({ ...baseCtx.variables }, {});
+  const executor = new ScriptExecutor({
+    envVars: { ...baseCtx.variables },
+    globalVars: useGlobalsStore.getState().vars,
+  });
   await executor.initialize();
 
   // The sentinel-wrapped script is composed once and reused across calls
@@ -275,7 +276,10 @@ export async function evalScriptForVariables(
     })();
   `;
 
-  const executor = new ScriptExecutor(callerVars, {});
+  const executor = new ScriptExecutor({
+    envVars: callerVars,
+    globalVars: useGlobalsStore.getState().vars,
+  });
   const scriptCtx: Parameters<ScriptExecutor['executeScript']>[1] = {};
   if (ctx.request) scriptCtx.request = ctx.request;
   if (ctx.response) scriptCtx.response = ctx.response;

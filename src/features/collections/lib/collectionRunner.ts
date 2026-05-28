@@ -125,8 +125,16 @@ export async function runCollection(
   signal: AbortSignal,
   onRequestComplete?: OnRequestComplete
 ): Promise<CollectionRunResult> {
-  const { collection, scopeName, runnables, baseVars, iterations, dataRows, delayMs, stopOnFailure } =
-    options;
+  const {
+    collection,
+    scopeName,
+    runnables,
+    baseVars,
+    iterations,
+    dataRows,
+    delayMs,
+    stopOnFailure,
+  } = options;
 
   const runId = uuidv4();
   const startedAt = Date.now();
@@ -136,19 +144,43 @@ export async function runCollection(
   // Guard against a non-finite count (NaN/Infinity) silently producing zero
   // iterations — a malformed caller should still run at least once.
   const iterCount = Number.isFinite(iterations) ? Math.max(1, Math.floor(iterations)) : 1;
-  const rows: IterationRow[] = dataRows.length > 0 ? dataRows : Array.from({ length: iterCount }, () => ({}));
+  const rows: IterationRow[] =
+    dataRows.length > 0 ? dataRows : Array.from({ length: iterCount }, () => ({}));
   const total = rows.length * runnables.length;
 
   const emit = (done: boolean, current?: { itemName: string; iteration: number }) =>
-    onProgress({ completed: results.length, total, ...(current ? { current } : {}), results: [...results], done });
+    onProgress({
+      completed: results.length,
+      total,
+      ...(current ? { current } : {}),
+      results: [...results],
+      done,
+    });
 
   let bailed = false;
+
+  // Build a name → index map so `pm.execution.setNextRequest('Login')`
+  // can jump anywhere in the runnable list. Postman matches by name; first
+  // match wins (later duplicates are unreachable). The map is iteration-
+  // stable since the runnable order doesn't change inside a run.
+  const indexByName: Record<string, number> = {};
+  for (let i = 0; i < runnables.length; i++) {
+    const n = runnables[i]?.name;
+    if (n && !(n in indexByName)) indexByName[n] = i;
+  }
+  // Guard against `setNextRequest` infinite loops by capping per-iteration
+  // jumps; the user's script is buggy if it triggers this. Matches Newman's
+  // behaviour (Newman emits an error at ~1000).
+  const MAX_NEXT_REQUEST_JUMPS = 1000;
 
   outer: for (let iter = 0; iter < rows.length; iter++) {
     // Carry-forward map for this iteration: base + row, mutated by scripts as we go.
     const allVars: Record<string, string> = { ...baseVars, ...rows[iter] };
+    let jumps = 0;
 
-    for (const runnable of runnables) {
+    for (let idx = 0; idx < runnables.length; ) {
+      const runnable = runnables[idx];
+      if (!runnable) break;
       if (signal.aborted || bailed) break outer;
 
       emit(false, { itemName: runnable.name, iteration: iter });
@@ -165,12 +197,18 @@ export async function runCollection(
           iteration: iter,
           status: 'skipped',
           assertions: [],
-          skippedReason: protocol ? `${protocolId} is not supported in the runner` : `Unknown protocol: ${protocolId}`,
+          skippedReason: protocol
+            ? `${protocolId} is not supported in the runner`
+            : `Unknown protocol: ${protocolId}`,
         });
         emit(false);
+        idx++;
         continue;
       }
-      if (protocolId === 'grpc' && (runnable.request as { methodType?: string }).methodType !== 'unary') {
+      if (
+        protocolId === 'grpc' &&
+        (runnable.request as { methodType?: string }).methodType !== 'unary'
+      ) {
         results.push({
           itemId: runnable.itemId,
           itemName: runnable.name,
@@ -181,6 +219,7 @@ export async function runCollection(
           skippedReason: 'Only unary gRPC is supported in the runner',
         });
         emit(false);
+        idx++;
         continue;
       }
 
@@ -219,7 +258,11 @@ export async function runCollection(
         for (const phase of [scripts?.preRequest, scripts?.test]) {
           if (phase?.tests) {
             for (const t of phase.tests) {
-              assertions.push({ name: t.name, passed: t.passed, ...(t.error ? { error: t.error } : {}) });
+              assertions.push({
+                name: t.name,
+                passed: t.passed,
+                ...(t.error ? { error: t.error } : {}),
+              });
             }
           }
           // Carry-forward pm.variables.set() mutations into the iteration map.
@@ -261,6 +304,55 @@ export async function runCollection(
       }
 
       if (delayMs > 0) await delay(delayMs, signal);
+
+      // pm.execution.setNextRequest from EITHER phase wins; the test phase
+      // has the last word when both set a value. Use the test phase if its
+      // `nextRequest` is *present* (even when explicitly null — null ends
+      // the iteration), else the preRequest phase, else undefined for the
+      // default linear advance. `??` would mask `null` as nullish, so check
+      // with `nextRequest in execution` semantics via Reflect-style detection.
+      const testExec = scripts?.test?.execution;
+      const preExec = scripts?.preRequest?.execution;
+      const execNext =
+        testExec && 'nextRequest' in testExec
+          ? testExec.nextRequest
+          : preExec && 'nextRequest' in preExec
+            ? preExec.nextRequest
+            : undefined;
+      if (execNext === null) {
+        break;
+      }
+      if (typeof execNext === 'string') {
+        const target = indexByName[execNext];
+        if (target === undefined) {
+          // Unknown target name — surface as a script error and stop the iteration.
+          results.push({
+            itemId: runnable.itemId,
+            itemName: runnable.name,
+            protocol: protocolId,
+            iteration: iter,
+            status: 'failed',
+            assertions: [],
+            error: `pm.execution.setNextRequest("${execNext}"): no runnable with that name`,
+          });
+          break;
+        }
+        if (++jumps > MAX_NEXT_REQUEST_JUMPS) {
+          results.push({
+            itemId: runnable.itemId,
+            itemName: runnable.name,
+            protocol: protocolId,
+            iteration: iter,
+            status: 'failed',
+            assertions: [],
+            error: `pm.execution.setNextRequest jump limit (${MAX_NEXT_REQUEST_JUMPS}) exceeded`,
+          });
+          break;
+        }
+        idx = target;
+        continue;
+      }
+      idx++;
     }
   }
 

@@ -16,6 +16,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "prebuild": "node ../scripts/build-sandbox-libs.mjs",
     "build": "tsup src/index.ts --format esm --target node24 --clean --tsconfig tsconfig.json",
     "test": "vitest run",
     "type-check": "tsc --noEmit"
