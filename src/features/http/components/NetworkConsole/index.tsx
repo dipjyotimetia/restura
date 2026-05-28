@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { buildExportFile, downloadExportFile } from '@/lib/shared/console-export';
+import { filterEntries } from '@/lib/shared/console-filter';
 import { type ConsoleTabId } from '@/store/useConsoleStore';
 import NetworkTab from './NetworkTab';
 import ScriptsTab from './ScriptsTab';
@@ -64,6 +65,10 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
     panelHeight,
     activeTab,
     preserveOnSend,
+    searchFilter,
+    statusFilter,
+    protocolFilter,
+    runFilter,
     setExpanded,
     setPanelHeight,
     setActiveTab,
@@ -139,14 +144,33 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
     (activeTab === 'frames' && frames.length === 0) ||
     (activeTab === 'scripts' && scriptLogs.length === 0 && (!tests || tests.length === 0));
 
-  const handleExport = (format: 'har' | 'ndjson' | 'curl') => {
-    if (entries.length === 0) {
+  // Filtered set mirrors what NetworkTab currently shows. Computed here too so
+  // the export menu — which lives in the panel header, not inside NetworkTab —
+  // can offer "Export filtered" without prop-drilling through the tab stack.
+  const filteredEntries = useMemo(
+    () => filterEntries(entries, {
+      query: searchFilter,
+      statusFilter,
+      protocolFilter,
+      runFilter,
+    }),
+    [entries, searchFilter, statusFilter, protocolFilter, runFilter]
+  );
+  const filtersActive =
+    searchFilter.trim() !== '' ||
+    statusFilter !== 'all' ||
+    protocolFilter !== 'all' ||
+    runFilter !== 'all';
+
+  const handleExport = (format: 'har' | 'ndjson' | 'curl', scope: 'all' | 'filtered' = 'all') => {
+    const list = scope === 'filtered' ? filteredEntries : entries;
+    if (list.length === 0) {
       toast.error('Nothing to export');
       return;
     }
-    const file = buildExportFile(format, entries);
+    const file = buildExportFile(format, list);
     downloadExportFile(file);
-    toast.success(`Exported ${entries.length} entries to ${file.filename}`);
+    toast.success(`Exported ${list.length} ${scope === 'filtered' ? 'filtered ' : ''}entries to ${file.filename}`);
   };
 
   const passedTests = tests?.filter((t) => t.passed).length ?? 0;
@@ -187,7 +211,8 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
             aria-orientation="horizontal"
             aria-label="Resize console panel"
             aria-valuenow={Math.round(panelHeight)}
-            aria-valuemin={120}
+            aria-valuemin={CONSOLE_MIN_PX}
+            aria-valuemax={Math.round(maxConsoleHeight())}
             tabIndex={0}
           >
             <div className="h-1 w-10 rounded-full bg-border group-hover:bg-primary/60 group-focus-visible:bg-primary/60 transition-colors" />
@@ -295,20 +320,46 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
                     <Download className="h-3 w-3" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel className="text-[11px]">
-                    Export {entries.length} entries
+                    Export all ({entries.length})
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => handleExport('har')}>
+                  <DropdownMenuItem onClick={() => handleExport('har', 'all')}>
                     HAR 1.2 (.har)
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleExport('ndjson')}>
+                  <DropdownMenuItem onClick={() => handleExport('ndjson', 'all')}>
                     NDJSON (.ndjson)
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleExport('curl')}>
+                  <DropdownMenuItem onClick={() => handleExport('curl', 'all')}>
                     cURL batch (.sh)
                   </DropdownMenuItem>
+                  {filtersActive && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-[11px]">
+                        Export filtered ({filteredEntries.length})
+                      </DropdownMenuLabel>
+                      <DropdownMenuItem
+                        disabled={filteredEntries.length === 0}
+                        onClick={() => handleExport('har', 'filtered')}
+                      >
+                        HAR 1.2 (.har)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={filteredEntries.length === 0}
+                        onClick={() => handleExport('ndjson', 'filtered')}
+                      >
+                        NDJSON (.ndjson)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={filteredEntries.length === 0}
+                        onClick={() => handleExport('curl', 'filtered')}
+                      >
+                        cURL batch (.sh)
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

@@ -100,6 +100,10 @@ interface ConsoleState {
   searchFilter: string;
   statusFilter: ConsoleStatusFilter;
   protocolFilter: ConsoleProtocol | 'all';
+  /** Run id from the collection runner (or 'all'). Lives in the store so the
+   *  export menu and any other consumer outside NetworkTab can read the
+   *  currently-applied filter set without prop-drilling. */
+  runFilter: string;
   preserveOnSend: boolean;
 
   // Actions
@@ -116,6 +120,7 @@ interface ConsoleState {
   setSearchFilter: (filter: string) => void;
   setStatusFilter: (filter: ConsoleStatusFilter) => void;
   setProtocolFilter: (filter: ConsoleProtocol | 'all') => void;
+  setRunFilter: (filter: string) => void;
   setPreserveOnSend: (preserve: boolean) => void;
 }
 
@@ -172,6 +177,7 @@ export const useConsoleStore = create<ConsoleState>()(
       searchFilter: '',
       statusFilter: 'all',
       protocolFilter: 'all',
+      runFilter: 'all',
       preserveOnSend: true,
 
       addEntry: (entry) =>
@@ -234,6 +240,8 @@ export const useConsoleStore = create<ConsoleState>()(
 
       setProtocolFilter: (filter) => set({ protocolFilter: filter }),
 
+      setRunFilter: (filter) => set({ runFilter: filter }),
+
       setPreserveOnSend: (preserve) => {
         // When toggling OFF, the next send clears prior entries (handled in
         // addEntry). Existing entries stay so the user doesn't lose context
@@ -249,8 +257,10 @@ export const useConsoleStore = create<ConsoleState>()(
         isExpanded: state.isExpanded,
         panelHeight: state.panelHeight,
         activeTab: state.activeTab,
+        searchFilter: state.searchFilter,
         statusFilter: state.statusFilter,
         protocolFilter: state.protocolFilter,
+        // runFilter intentionally not persisted — run IDs are session-scoped.
         preserveOnSend: state.preserveOnSend,
         entries: state.entries.slice(0, PERSIST_ENTRY_LIMIT).map(trimForPersist),
       }),

@@ -11,6 +11,7 @@ import {
   Cable,
   Copy,
   Info,
+  Layers,
   Search,
   X,
 } from 'lucide-react';
@@ -50,6 +51,7 @@ export default function FramesTab() {
   const [search, setSearch] = useState('');
   const [protocolFilter, setProtocolFilter] = useState<FrameProtocol | 'all'>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [groupByConnection, setGroupByConnection] = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -64,7 +66,74 @@ export default function FramesTab() {
     });
   }, [frames, search, protocolFilter]);
 
+  // Distinct connections present — the Group-by toggle only earns its space
+  // when more than one connection has ever produced a frame.
+  const connectionCount = useMemo(() => {
+    const s = new Set<string>();
+    for (const f of frames) s.add(f.connectionId ?? '');
+    return s.size;
+  }, [frames]);
+
+  // Grouped view: frames bucketed by connectionId, each bucket newest-last.
+  // Buckets themselves are ordered by their *first* frame so the connection
+  // that connected earliest appears first.
+  const grouped = useMemo(() => {
+    if (!groupByConnection) return null;
+    const map = new Map<string, ConsoleFrame[]>();
+    for (const f of filtered) {
+      const key = f.connectionId ?? '(no connection)';
+      let bucket = map.get(key);
+      if (!bucket) { bucket = []; map.set(key, bucket); }
+      bucket.push(f);
+    }
+    return [...map.entries()].map(([id, items]) => ({ id, items }));
+  }, [filtered, groupByConnection]);
+
   const selectedFrame = selectedId ? frames.find((f) => f.id === selectedId) : undefined;
+
+  // Row render reused by both the flat list and the grouped buckets. System
+  // frames (connect / disconnect / errors) get a subtle background tint so
+  // lifecycle events are scannable amid normal traffic.
+  const renderFrameRow = (frame: ConsoleFrame) => {
+    const isSelected = frame.id === selectedId;
+    const isSystem = frame.direction === 'system';
+    const preview =
+      frame.payload.length > 80 ? frame.payload.slice(0, 80) + '…' : frame.payload;
+    return (
+      <div
+        key={frame.id}
+        onClick={() => setSelectedId(frame.id)}
+        className={cn(
+          'px-3 py-1.5 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
+          isSelected && 'bg-accent',
+          isSystem && !isSelected && 'bg-muted/40'
+        )}
+      >
+        <div className="flex items-center gap-2 mb-0.5">
+          {directionIcon(frame.direction)}
+          <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">
+            {frame.protocol === 'socketio' ? 'SIO' : frame.protocol === 'websocket' ? 'WS' : 'KAFKA'}
+          </Badge>
+          {frame.label && (
+            <span className="text-[11px] font-mono text-foreground/80 truncate max-w-[120px]">
+              {frame.label}
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
+            {formatClockTime(frame.timestamp)}
+          </span>
+        </div>
+        <div
+          className={cn(
+            'text-[11px] font-mono truncate',
+            directionColor(frame.direction)
+          )}
+        >
+          {preview || <span className="text-muted-foreground">(empty)</span>}
+        </div>
+      </div>
+    );
+  };
 
   if (frames.length === 0) {
     return (
@@ -129,17 +198,44 @@ export default function FramesTab() {
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              className="text-[10px] underline text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                clearFrames();
-                setSelectedId(null);
-              }}
-            >
-              Clear
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Group-by-connection toggle — only shows when multiple
+                  connections have produced frames, so a single-WS session
+                  doesn't get an empty switch. */}
+              {connectionCount > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setGroupByConnection((v) => !v)}
+                  className={cn(
+                    'inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                    groupByConnection
+                      ? 'bg-primary/15 border-primary/40 text-primary'
+                      : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
+                  )}
+                  aria-pressed={groupByConnection}
+                  title="Group frames by their connectionId"
+                >
+                  <Layers className="h-3 w-3" />
+                  Group
+                </button>
+              )}
+              <button
+                type="button"
+                className="text-[10px] underline text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  clearFrames();
+                  setSelectedId(null);
+                }}
+              >
+                Clear
+              </button>
+            </div>
           </div>
+          {/* Frames live only in memory — make the expectation explicit so a
+              user closing the app and coming back isn't surprised. */}
+          <p className="text-[10px] text-muted-foreground/80 leading-snug">
+            Frames are session-only — they aren't persisted across reload.
+          </p>
         </div>
         <ScrollArea className="flex-1">
           {filtered.length === 0 ? (
@@ -147,47 +243,25 @@ export default function FramesTab() {
               <Search className="h-5 w-5 mb-2 opacity-30" />
               <p className="text-[11px]">No matching frames</p>
             </div>
-          ) : (
-            filtered.map((frame) => {
-              const isSelected = frame.id === selectedId;
-              const preview =
-                frame.payload.length > 80
-                  ? frame.payload.slice(0, 80) + '…'
-                  : frame.payload;
-              return (
+          ) : grouped ? (
+            grouped.map((group) => (
+              <div key={group.id}>
                 <div
-                  key={frame.id}
-                  onClick={() => setSelectedId(frame.id)}
-                  className={cn(
-                    'px-3 py-1.5 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
-                    isSelected && 'bg-accent'
-                  )}
+                  role="heading"
+                  aria-level={3}
+                  className="sticky top-0 z-[1] flex items-center gap-2 px-3 py-1 bg-muted/80 backdrop-blur-sm border-y border-border/60 text-[10px] font-mono uppercase tracking-wider text-muted-foreground"
                 >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    {directionIcon(frame.direction)}
-                    <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">
-                      {frame.protocol === 'socketio' ? 'SIO' : frame.protocol === 'websocket' ? 'WS' : 'KAFKA'}
-                    </Badge>
-                    {frame.label && (
-                      <span className="text-[11px] font-mono text-foreground/80 truncate max-w-[120px]">
-                        {frame.label}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
-                      {formatClockTime(frame.timestamp)}
-                    </span>
-                  </div>
-                  <div
-                    className={cn(
-                      'text-[11px] font-mono truncate',
-                      directionColor(frame.direction)
-                    )}
-                  >
-                    {preview || <span className="text-muted-foreground">(empty)</span>}
-                  </div>
+                  <Cable className="h-3 w-3" aria-hidden="true" />
+                  <span className="truncate max-w-[200px]">{group.id}</span>
+                  <Badge variant="secondary" className="ml-auto text-[9px] h-4 px-1 tabular-nums">
+                    {group.items.length}
+                  </Badge>
                 </div>
-              );
-            })
+                {group.items.map(renderFrameRow)}
+              </div>
+            ))
+          ) : (
+            filtered.map(renderFrameRow)
           )}
         </ScrollArea>
       </div>
