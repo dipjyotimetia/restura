@@ -77,7 +77,6 @@ function resolveCorsOrigin(origin: string | undefined, env: Env): string {
 
   if (!warnedMissingAllowedOrigin) {
     warnedMissingAllowedOrigin = true;
-    // eslint-disable-next-line no-console
     console.warn(
       '[restura] ALLOWED_ORIGIN is not set and ENVIRONMENT is not "development" — ' +
         'all cross-origin requests will be denied by CORS. Set ALLOWED_ORIGIN ' +

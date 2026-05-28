@@ -15,16 +15,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import {
-  Send,
-  Trash2,
-  Plug,
-  PlugZap,
-  RefreshCw,
-  Search,
-  Pause,
-  Play,
-} from 'lucide-react';
+import { Send, Trash2, Plug, PlugZap, RefreshCw, Search, Pause, Play } from 'lucide-react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
@@ -37,10 +28,7 @@ import {
   VariableText,
   CodeEditorFrame,
 } from '@/components/ui/spatial';
-import {
-  useKafkaStore,
-  KAFKA_SECRET_SENTINEL,
-} from '@/features/kafka/store/useKafkaStore';
+import { useKafkaStore, KAFKA_SECRET_SENTINEL } from '@/features/kafka/store/useKafkaStore';
 import type {
   KafkaAuth,
   KafkaAcks,
@@ -52,7 +40,12 @@ import type {
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import { secureStorage } from '@/lib/shared/secure-storage';
 
-const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = ['PLAINTEXT', 'SASL_PLAINTEXT', 'SASL_SSL', 'SSL'];
+const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
+  'PLAINTEXT',
+  'SASL_PLAINTEXT',
+  'SASL_SSL',
+  'SSL',
+];
 const SASL_MECHANISMS: KafkaSaslMechanism[] = ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'];
 const COMPRESSION: KafkaCompression[] = ['none', 'gzip', 'snappy', 'lz4', 'zstd'];
 
@@ -93,7 +86,9 @@ function PartitionPill({ partition, count }: { partition: number; count?: number
       }}
     >
       <span>P{partition}</span>
-      {count !== undefined && <span className="font-normal opacity-80">{count.toLocaleString()}</span>}
+      {count !== undefined && (
+        <span className="font-normal opacity-80">{count.toLocaleString()}</span>
+      )}
     </span>
   );
 }
@@ -153,9 +148,8 @@ function DesktopOnlyPanel() {
       <Floater radius="panel" className="max-w-md p-6 text-center space-y-3">
         <h2 className="text-lg font-semibold text-sp-text">Kafka is a desktop-only feature</h2>
         <p className="text-sm text-sp-muted">
-          The Kafka client opens raw TCP sockets to your brokers, which the
-          browser cannot do. Download the Restura desktop app to publish and
-          consume from Kafka.
+          The Kafka client opens raw TCP sockets to your brokers, which the browser cannot do.
+          Download the Restura desktop app to publish and consume from Kafka.
         </p>
       </Floater>
     </div>
@@ -169,9 +163,9 @@ function KafkaClient() {
   const connectionByTabId = useKafkaStore((s) => s.connectionByTabId);
   const messageFilter = useKafkaStore((s) => s.messageFilter);
   const searchQuery = useKafkaStore((s) => s.searchQuery);
-  const activeConnectionId = activeTabId ? connectionByTabId[activeTabId] ?? null : null;
+  const activeConnectionId = activeTabId ? (connectionByTabId[activeTabId] ?? null) : null;
   const connection = useKafkaStore((s) =>
-    activeConnectionId ? s.connections[activeConnectionId] ?? null : null
+    activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
   );
   const {
     ensureConnectionForTab,
@@ -226,40 +220,51 @@ function KafkaClient() {
     setPaused(false);
   }, [activeConnectionId]);
 
+  // Narrow scalar locals — the underlying `connection` reference can swap on
+  // unrelated store updates (e.g. new messages), so hooks depend on the
+  // specific primitives/arrays they actually read. Using the same identifiers
+  // in body + deps keeps react-hooks/exhaustive-deps happy without widening
+  // the trigger set.
+  const connectionId = connection?.id;
+  const connectionMessages = connection?.messages;
+  const fromBeginning = connection?.consumer.fromBeginning;
+
   // Sync consumeMode <-> fromBeginning (informational pairing)
   useEffect(() => {
-    if (!connection) return;
-    setConsumeMode(connection.consumer.fromBeginning ? 'earliest' : 'latest');
-  }, [connection?.id, connection?.consumer.fromBeginning]);
+    if (connectionId === undefined) return;
+    setConsumeMode(fromBeginning ? 'earliest' : 'latest');
+  }, [connectionId, fromBeginning]);
 
   const filteredMessages = useMemo(
-    () => (connection ? getFilteredMessages(connection.id) : []),
+    () => (connectionId ? getFilteredMessages(connectionId) : []),
+    // `getFilteredMessages` selects from the store using the inputs below;
+    // re-running on its identity change isn't needed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [connection?.messages, messageFilter, searchQuery]
+    [connectionId, connectionMessages, messageFilter, searchQuery]
   );
 
   // Per-partition counts (drives the colored pills strip)
   const partitionCounts = useMemo(() => {
-    if (!connection) return [] as Array<{ partition: number; count: number }>;
+    if (!connectionMessages) return [] as Array<{ partition: number; count: number }>;
     const map = new Map<number, number>();
-    for (const m of connection.messages) {
+    for (const m of connectionMessages) {
       if (m.partition === undefined) continue;
       map.set(m.partition, (map.get(m.partition) ?? 0) + 1);
     }
     return Array.from(map.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([partition, count]) => ({ partition, count }));
-  }, [connection?.messages]);
+  }, [connectionMessages]);
 
   // Naive msg/sec — counts received messages in the last 5s window.
   const msgPerSec = useMemo(() => {
-    if (!connection) return 0;
+    if (!connectionMessages) return 0;
     const cutoff = Date.now() - 5_000;
-    const recent = connection.messages.filter(
+    const recent = connectionMessages.filter(
       (m) => m.direction === 'received' && m.timestamp >= cutoff
     );
     return Math.round((recent.length / 5) * 10) / 10;
-  }, [connection?.messages]);
+  }, [connectionMessages]);
 
   // Pause is UI-only: we still receive into the store, we just freeze the
   // log view to the snapshot taken when the user clicked Pause.
@@ -275,9 +280,9 @@ function KafkaClient() {
   const visibleMessages = paused && pausedSnapshot ? pausedSnapshot : filteredMessages;
 
   const selectedMessage: KafkaMessage | null = useMemo(() => {
-    if (!connection || !selectedMessageId) return null;
-    return connection.messages.find((m) => m.id === selectedMessageId) ?? null;
-  }, [connection?.messages, selectedMessageId]);
+    if (!connectionMessages || !selectedMessageId) return null;
+    return connectionMessages.find((m) => m.id === selectedMessageId) ?? null;
+  }, [connectionMessages, selectedMessageId]);
 
   if (!isDesktop) {
     return <DesktopOnlyPanel />;
@@ -384,9 +389,7 @@ function KafkaClient() {
     });
   };
 
-  const pickTlsFile = async (
-    field: 'caPath' | 'certPath' | 'keyPath'
-  ): Promise<void> => {
+  const pickTlsFile = async (field: 'caPath' | 'certPath' | 'keyPath'): Promise<void> => {
     if (!connection) return;
     const api = getElectronAPI();
     if (!api) return;
@@ -418,10 +421,7 @@ function KafkaClient() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-3 p-3 bg-sp-bg">
       {/* Connection bar — pill Floater */}
-      <Floater
-        radius="pill"
-        className="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0"
-      >
+      <Floater radius="pill" className="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0">
         <ProtoChip protocol="KAFKA" />
         <span className="text-sp-dim font-mono text-sp-12 select-none">›</span>
 
@@ -518,11 +518,18 @@ function KafkaClient() {
       </Floater>
 
       {!connection ? (
-        <Floater radius="panel" className="flex flex-1 items-center justify-center text-sm text-sp-muted">
+        <Floater
+          radius="panel"
+          className="flex flex-1 items-center justify-center text-sm text-sp-muted"
+        >
           No connection — click + to create one.
         </Floater>
       ) : (
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0 gap-3">
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="flex-1 flex flex-col min-h-0 gap-3"
+        >
           <TabsList className="w-fit shrink-0">
             <TabsTrigger value="messages">Messages ({connection.messages.length})</TabsTrigger>
             <TabsTrigger value="produce">Produce</TabsTrigger>
@@ -533,7 +540,10 @@ function KafkaClient() {
           {/* Messages tab — the redesigned hero view */}
           <TabsContent value="messages" className="flex-1 flex flex-col min-h-0 gap-3 m-0">
             {/* Stats row */}
-            <Floater radius="panel" className="flex flex-wrap items-center gap-x-8 gap-y-3 px-4 py-3 shrink-0">
+            <Floater
+              radius="panel"
+              className="flex flex-wrap items-center gap-x-8 gap-y-3 px-4 py-3 shrink-0"
+            >
               <Stat label="Partitions" value={partitionCounts.length || '—'} />
               <Stat label="Consumer ID" value={connection.consumer.groupId || '—'} />
               <Stat
@@ -571,7 +581,9 @@ function KafkaClient() {
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-sp-line shrink-0">
                   <Select
                     value={messageFilter}
-                    onValueChange={(v) => setMessageFilter(v as 'sent' | 'received' | 'system' | 'all')}
+                    onValueChange={(v) =>
+                      setMessageFilter(v as 'sent' | 'received' | 'system' | 'all')
+                    }
                   >
                     <SelectTrigger className="h-7 w-28 text-xs bg-sp-surface-lo border border-sp-line">
                       <SelectValue />
@@ -649,10 +661,7 @@ function KafkaClient() {
                             {m.key ?? <span className="text-sp-dim">—</span>}
                           </span>
                           <span
-                            className={cn(
-                              'truncate',
-                              m.error ? 'text-red-400' : 'text-sp-text'
-                            )}
+                            className={cn('truncate', m.error ? 'text-red-400' : 'text-sp-text')}
                             title={m.value}
                           >
                             {m.error ? m.error : m.value}
@@ -661,9 +670,7 @@ function KafkaClient() {
                       );
                     })}
                     {visibleMessages.length === 0 && (
-                      <li className="px-3 py-8 text-center text-sp-muted">
-                        No messages yet.
-                      </li>
+                      <li className="px-3 py-8 text-center text-sp-muted">No messages yet.</li>
                     )}
                   </ul>
                 </ScrollArea>
@@ -692,10 +699,7 @@ function KafkaClient() {
                         {selectedMessage.topic && (
                           <div className="space-y-1">
                             <div className="sp-label">Topic</div>
-                            <div
-                              className="font-mono text-sp-12"
-                              style={{ color: KAFKA_PINK }}
-                            >
+                            <div className="font-mono text-sp-12" style={{ color: KAFKA_PINK }}>
                               {selectedMessage.topic}
                             </div>
                           </div>
@@ -712,7 +716,8 @@ function KafkaClient() {
 
                         <div className="space-y-1">
                           <div className="sp-label">Headers</div>
-                          {selectedMessage.headers && Object.keys(selectedMessage.headers).length > 0 ? (
+                          {selectedMessage.headers &&
+                          Object.keys(selectedMessage.headers).length > 0 ? (
                             <div
                               className="grid gap-x-3 gap-y-1 font-mono text-sp-11-5"
                               style={{ gridTemplateColumns: 'auto 1fr' }}
@@ -790,7 +795,10 @@ function KafkaClient() {
                   {connection.bootstrapBrokers.map((b, idx) => (
                     <Badge key={`${b}-${idx}`} variant="secondary" className="gap-1 font-mono">
                       {b}
-                      <button onClick={() => handleRemoveBroker(idx)} aria-label={`Remove broker ${b}`}>
+                      <button
+                        onClick={() => handleRemoveBroker(idx)}
+                        aria-label={`Remove broker ${b}`}
+                      >
                         <Trash2 className="h-3 w-3" />
                       </button>
                     </Badge>
@@ -820,54 +828,63 @@ function KafkaClient() {
                   </SelectTrigger>
                   <SelectContent>
                     {SECURITY_PROTOCOLS.map((sp) => (
-                      <SelectItem key={sp} value={sp}>{sp}</SelectItem>
+                      <SelectItem key={sp} value={sp}>
+                        {sp}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
               {(connection.auth.securityProtocol === 'SASL_PLAINTEXT' ||
-                connection.auth.securityProtocol === 'SASL_SSL') && connection.auth.sasl && (
-                <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
-                  <Label className="text-xs sp-label">SASL</Label>
-                  <Select
-                    value={connection.auth.sasl.mechanism}
-                    onValueChange={(v) => updateAuth(connection.id, {
-                      ...connection.auth,
-                      sasl: { ...connection.auth.sasl!, mechanism: v as KafkaSaslMechanism },
-                    })}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SASL_MECHANISMS.map((m) => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={connection.auth.sasl.username}
-                    onChange={(e) => updateAuth(connection.id, {
-                      ...connection.auth,
-                      sasl: { ...connection.auth.sasl!, username: e.target.value },
-                    })}
-                    placeholder="Username"
-                    className="h-8 text-xs font-mono"
-                  />
-                  <Input
-                    type="password"
-                    value={saslPasswordDraft}
-                    onChange={(e) => setSaslPasswordDraft(e.target.value)}
-                    placeholder={
-                      connection.auth.sasl.password === KAFKA_SECRET_SENTINEL
-                        ? 'Password (stored — leave blank to keep)'
-                        : 'Password'
-                    }
-                    className="h-8 text-xs font-mono"
-                  />
-                </div>
-              )}
+                connection.auth.securityProtocol === 'SASL_SSL') &&
+                connection.auth.sasl && (
+                  <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+                    <Label className="text-xs sp-label">SASL</Label>
+                    <Select
+                      value={connection.auth.sasl.mechanism}
+                      onValueChange={(v) =>
+                        updateAuth(connection.id, {
+                          ...connection.auth,
+                          sasl: { ...connection.auth.sasl!, mechanism: v as KafkaSaslMechanism },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SASL_MECHANISMS.map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {m}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={connection.auth.sasl.username}
+                      onChange={(e) =>
+                        updateAuth(connection.id, {
+                          ...connection.auth,
+                          sasl: { ...connection.auth.sasl!, username: e.target.value },
+                        })
+                      }
+                      placeholder="Username"
+                      className="h-8 text-xs font-mono"
+                    />
+                    <Input
+                      type="password"
+                      value={saslPasswordDraft}
+                      onChange={(e) => setSaslPasswordDraft(e.target.value)}
+                      placeholder={
+                        connection.auth.sasl.password === KAFKA_SECRET_SENTINEL
+                          ? 'Password (stored — leave blank to keep)'
+                          : 'Password'
+                      }
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                )}
 
               {(connection.auth.securityProtocol === 'SASL_SSL' ||
                 connection.auth.securityProtocol === 'SSL') && (
@@ -900,10 +917,12 @@ function KafkaClient() {
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={connection.auth.tls?.rejectUnauthorized !== false}
-                      onCheckedChange={(checked) => updateAuth(connection.id, {
-                        ...connection.auth,
-                        tls: { ...(connection.auth.tls ?? {}), rejectUnauthorized: checked },
-                      })}
+                      onCheckedChange={(checked) =>
+                        updateAuth(connection.id, {
+                          ...connection.auth,
+                          tls: { ...(connection.auth.tls ?? {}), rejectUnauthorized: checked },
+                        })
+                      }
                     />
                     <Label className="text-xs">Verify server certificate</Label>
                   </div>
@@ -919,7 +938,9 @@ function KafkaClient() {
                 <Label className="text-xs sp-label">Topic</Label>
                 <Input
                   value={connection.defaultTopic}
-                  onChange={(e) => updateConnection(connection.id, { defaultTopic: e.target.value })}
+                  onChange={(e) =>
+                    updateConnection(connection.id, { defaultTopic: e.target.value })
+                  }
                   placeholder="my-topic"
                   className="h-8 text-xs font-mono"
                   style={{ color: connection.defaultTopic ? KAFKA_PINK : undefined }}
@@ -930,7 +951,9 @@ function KafkaClient() {
                   <Label className="text-xs sp-label">Acks</Label>
                   <Select
                     value={String(connection.acks)}
-                    onValueChange={(v) => updateConnection(connection.id, { acks: Number(v) as KafkaAcks })}
+                    onValueChange={(v) =>
+                      updateConnection(connection.id, { acks: Number(v) as KafkaAcks })
+                    }
                   >
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />
@@ -946,14 +969,18 @@ function KafkaClient() {
                   <Label className="text-xs sp-label">Compression</Label>
                   <Select
                     value={connection.compression}
-                    onValueChange={(v) => updateConnection(connection.id, { compression: v as KafkaCompression })}
+                    onValueChange={(v) =>
+                      updateConnection(connection.id, { compression: v as KafkaCompression })
+                    }
                   >
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {COMPRESSION.map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -978,7 +1005,9 @@ function KafkaClient() {
               </div>
               <Button
                 onClick={handleProduce}
-                disabled={connection.status !== 'connected' || !produceValue || !connection.defaultTopic}
+                disabled={
+                  connection.status !== 'connected' || !produceValue || !connection.defaultTopic
+                }
               >
                 <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
               </Button>
@@ -1007,7 +1036,10 @@ function KafkaClient() {
                       style={{ color: KAFKA_PINK }}
                     >
                       {t}
-                      <button onClick={() => handleRemoveTopic(idx)} aria-label={`Remove topic ${t}`}>
+                      <button
+                        onClick={() => handleRemoveTopic(idx)}
+                        aria-label={`Remove topic ${t}`}
+                      >
                         <Trash2 className="h-3 w-3" />
                       </button>
                     </Badge>
@@ -1028,7 +1060,9 @@ function KafkaClient() {
               <div className="flex items-center gap-2">
                 <Switch
                   checked={connection.consumer.fromBeginning}
-                  onCheckedChange={(checked) => updateConsumer(connection.id, { fromBeginning: checked })}
+                  onCheckedChange={(checked) =>
+                    updateConsumer(connection.id, { fromBeginning: checked })
+                  }
                 />
                 <Label className="text-xs">Read from beginning (EARLIEST)</Label>
               </div>
@@ -1036,7 +1070,9 @@ function KafkaClient() {
                 {connection.consumer.status !== 'subscribed' ? (
                   <Button
                     onClick={handleSubscribe}
-                    disabled={connection.status !== 'connected' || connection.consumer.topics.length === 0}
+                    disabled={
+                      connection.status !== 'connected' || connection.consumer.topics.length === 0
+                    }
                   >
                     Subscribe
                   </Button>
@@ -1045,7 +1081,9 @@ function KafkaClient() {
                     Unsubscribe
                   </Button>
                 )}
-                <Badge variant="outline" className="font-mono">{connection.consumer.status}</Badge>
+                <Badge variant="outline" className="font-mono">
+                  {connection.consumer.status}
+                </Badge>
               </div>
             </Floater>
           </TabsContent>

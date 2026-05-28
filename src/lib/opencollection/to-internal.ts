@@ -213,7 +213,10 @@ function grpcToInternal(item: Record<string, unknown>): GrpcRequest {
  * type concatenate with a clear separator. Unsupported types
  * (`after-response`, `hooks`) increment the unrecognized-script counter.
  */
-function extractScripts(item: Record<string, unknown>, requestName: string): {
+function extractScripts(
+  item: Record<string, unknown>,
+  requestName: string
+): {
   preRequest?: string;
   test?: string;
 } {
@@ -307,11 +310,10 @@ function bodyToInternal(body: unknown, context: string): RequestBody {
   // OpenCollection field we don't yet handle. Warn so the user can spot
   // data loss; the original is preserved in `_oc` for byte-stable export.
   unrecognizedBodyCount++;
-  // eslint-disable-next-line no-console
   console.warn(
     `[opencollection] Unrecognized body shape on import (request: ${context}); ` +
       `falling back to type 'none'. The original is preserved via the _oc passthrough ` +
-      `and will round-trip on export, but won't be editable in the UI.`,
+      `and will round-trip on export, but won't be editable in the UI.`
   );
   return { type: 'none' };
 }
@@ -339,7 +341,7 @@ function authToInternal(auth: unknown): AuthConfig {
         apiKey: {
           key: (a.key as string) ?? '',
           value: (a.value as string) ?? '',
-          in: ((a.placement as 'header' | 'query') ?? 'header'),
+          in: (a.placement as 'header' | 'query') ?? 'header',
         },
       };
     case 'awsv4':
@@ -369,7 +371,9 @@ function authToInternal(auth: unknown): AuthConfig {
           ...(typeof a.clientId === 'string' ? { clientId: a.clientId } : {}),
           ...(typeof a.clientSecret === 'string' ? { clientSecret: a.clientSecret } : {}),
           ...(typeof a.tokenUrl === 'string' ? { tokenUrl: a.tokenUrl } : {}),
-          ...(typeof a.authorizationUrl === 'string' ? { authorizationUrl: a.authorizationUrl } : {}),
+          ...(typeof a.authorizationUrl === 'string'
+            ? { authorizationUrl: a.authorizationUrl }
+            : {}),
           ...(typeof a.scope === 'string' ? { scope: a.scope } : {}),
         },
       };
@@ -400,7 +404,12 @@ function extractRootVariables(oc: OpenCollection): KeyValue[] {
   return env.variables
     .filter((v) => !('secret' in v))
     .map((v) => {
-      const variable = v as { name: string; value?: unknown; description?: unknown; disabled?: boolean };
+      const variable = v as {
+        name: string;
+        value?: unknown;
+        description?: unknown;
+        disabled?: boolean;
+      };
       const out: KeyValue = {
         id: uuid(),
         key: variable.name,
@@ -450,7 +459,8 @@ function extensionItems(ext: Record<string, unknown> | undefined): WithOC<Collec
     const entry = (m ?? {}) as Record<string, unknown>;
     const info = (entry.info ?? {}) as { name?: string };
     const mcpCfg = (entry.mcp ?? {}) as Record<string, unknown>;
-    const transport = (mcpCfg.transport as 'streamable-http' | 'http-sse' | undefined) ?? 'streamable-http';
+    const transport =
+      (mcpCfg.transport as 'streamable-http' | 'http-sse' | undefined) ?? 'streamable-http';
     const req: McpRequest = {
       id: uuid(),
       name: info.name ?? 'MCP',
