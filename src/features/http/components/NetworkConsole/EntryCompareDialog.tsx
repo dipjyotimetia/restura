@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
 import { detectLanguage, formatLongTimestamp, getStatusTextColor } from '@/lib/shared/console-format';
+import { diffLines, type LineDiffEntry } from '@/lib/shared/line-diff';
 import type { ConsoleEntry } from '@/store/useConsoleStore';
 
 interface EntryCompareDialogProps {
@@ -71,6 +72,22 @@ export default function EntryCompareDialog({
     return diffHeaders(left.response.headers, right.response.headers);
   }, [left, right]);
 
+  // Unified line diffs across the bodies — only computed when both sides have
+  // a body. The LCS routine bails out coarsely above MAX_DIFF_LINES so this
+  // stays responsive for big payloads.
+  const requestBodyDiff = useMemo<LineDiffEntry[]>(() => {
+    if (!left || !right) return [];
+    const a = left.request.body ?? '';
+    const b = right.request.body ?? '';
+    if (!a && !b) return [];
+    return diffLines(a, b);
+  }, [left, right]);
+
+  const responseBodyDiff = useMemo<LineDiffEntry[]>(() => {
+    if (!left || !right) return [];
+    return diffLines(left.response.body, right.response.body);
+  }, [left, right]);
+
   if (!left || !right) return null;
 
   return (
@@ -78,8 +95,11 @@ export default function EntryCompareDialog({
       <DialogContent className="!max-w-[min(96vw,1400px)] !w-[min(96vw,1400px)] max-h-[90vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-6 py-3 border-b border-border">
           <DialogTitle className="text-sm">Compare entries</DialogTitle>
+          <DialogDescription className="sr-only">
+            Side-by-side view of two captured entries; header differences are highlighted, and bodies are shown as a unified line diff below.
+          </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-px bg-border overflow-hidden flex-1">
+        <div className="grid grid-cols-2 gap-px bg-border overflow-auto flex-1 content-start">
           {[left, right].map((entry, idx) => (
             <div key={idx} className="bg-background overflow-auto p-4 space-y-4 text-xs">
               <div className="space-y-1">
@@ -192,10 +212,58 @@ export default function EntryCompareDialog({
             </div>
           ))}
         </div>
+
+        {/* Inline body diffs (unified, full-width) — added on top of the
+            side-by-side view because for bodies a unified diff is far more
+            scannable than two columns. Headers stay side-by-side above. */}
+        {(requestBodyDiff.length > 0 || responseBodyDiff.length > 0) && (
+          <div className="border-t border-border bg-muted/10 max-h-[40vh] overflow-auto">
+            {requestBodyDiff.length > 0 && (
+              <DiffSection title="Request body — inline diff" entries={requestBodyDiff} />
+            )}
+            {responseBodyDiff.length > 0 && (
+              <DiffSection title="Response body — inline diff" entries={responseBodyDiff} />
+            )}
+          </div>
+        )}
+
         <div className="px-6 py-2 border-t border-border text-[11px] text-muted-foreground bg-muted/30">
-          Highlighted rows differ between the two entries. Body diff is visual (no inline highlight) — use Cmd+F to scan large payloads.
+          Highlighted rows show changed headers (side-by-side). Body changes are shown as a unified line diff below.
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DiffSection({ title, entries }: { title: string; entries: LineDiffEntry[] }) {
+  // Quick sanity: if every line is "equal", say so up front rather than
+  // dumping the full body again.
+  const allEqual = entries.every((e) => e.op === 'equal');
+  return (
+    <div className="px-4 py-3 border-b border-border/60 last:border-b-0 space-y-1.5">
+      <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{title}</h4>
+      {allEqual ? (
+        <p className="text-[11px] text-muted-foreground italic">No differences.</p>
+      ) : (
+        <div className="font-mono text-[11px] leading-relaxed rounded border border-border/60 bg-background/50 overflow-hidden">
+          {entries.map((e, i) => (
+            <div
+              key={i}
+              className={cn(
+                'px-3 py-px whitespace-pre-wrap break-words',
+                e.op === 'added' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+                e.op === 'removed' && 'bg-red-500/10 text-red-700 dark:text-red-300',
+                e.op === 'equal' && 'text-foreground/70'
+              )}
+            >
+              <span className="select-none inline-block w-3 mr-2 text-muted-foreground/70">
+                {e.op === 'added' ? '+' : e.op === 'removed' ? '−' : ' '}
+              </span>
+              {e.text || ' '}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,0 +1,174 @@
+import { describe, it, expect } from 'vitest';
+import {
+  parseQuery,
+  matchesQuery,
+  filterEntries,
+  statusClassCounts,
+  statusMatchesClass,
+} from '@/lib/shared/console-filter';
+import type { ConsoleEntry } from '@/store/useConsoleStore';
+
+const make = (overrides: Partial<ConsoleEntry> = {}): ConsoleEntry => ({
+  id: overrides.id ?? 'e1',
+  timestamp: 1,
+  protocol: overrides.protocol ?? 'http',
+  request: {
+    method: 'GET',
+    url: 'https://api.example.com/users/42',
+    headers: { 'content-type': 'application/json', 'x-trace': 'abc' },
+    ...(overrides.request ?? {}),
+  },
+  response: {
+    id: 'r1', requestId: overrides.id ?? 'e1',
+    status: 200, statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+    body: '{"ok":true}', size: 11, time: 100, timestamp: 1,
+    ...(overrides.response ?? {}),
+  },
+  ...(overrides.runId !== undefined && { runId: overrides.runId }),
+  ...(overrides.runLabel !== undefined && { runLabel: overrides.runLabel }),
+  ...(overrides.tests !== undefined && { tests: overrides.tests }),
+  ...(overrides.scriptLogs !== undefined && { scriptLogs: overrides.scriptLogs }),
+});
+
+describe('parseQuery', () => {
+  it('parses plain text', () => {
+    expect(parseQuery('users')).toEqual([{ negated: false, value: 'users' }]);
+  });
+
+  it('parses key:value with known field', () => {
+    expect(parseQuery('status:500')).toEqual([{ negated: false, field: 'status', value: '500' }]);
+  });
+
+  it('treats unknown keys as plain text', () => {
+    // `weird:foo` has no known key — kept as free-text "weird:foo".
+    expect(parseQuery('weird:foo')).toEqual([{ negated: false, value: 'weird:foo' }]);
+  });
+
+  it('respects quoted spans', () => {
+    expect(parseQuery('"hello world" url:/api')).toEqual([
+      { negated: false, value: 'hello world' },
+      { negated: false, field: 'url', value: '/api' },
+    ]);
+  });
+
+  it('negates with leading -', () => {
+    const t = parseQuery('-url:health')[0]!;
+    expect(t.negated).toBe(true);
+    expect(t.field).toBe('url');
+    expect(t.value).toBe('health');
+  });
+
+  it('compiles regex on value~prefix', () => {
+    const t = parseQuery('url:~/users/\\d+')[0]!;
+    expect(t.regex).toBeInstanceOf(RegExp);
+    expect(t.regex!.test('/users/42')).toBe(true);
+    expect(t.regex!.test('/users/x')).toBe(false);
+  });
+
+  it('falls back to literal when regex is malformed', () => {
+    const t = parseQuery('url:~[')[0]!;
+    expect(t.regex).toBeUndefined();
+    expect(t.value).toBe('~[');
+  });
+});
+
+describe('matchesQuery — field tokens', () => {
+  const e = make();
+
+  it('status:200 matches exact', () => expect(matchesQuery(e, 'status:200')).toBe(true));
+  it('status:5 prefix-matches 5xx', () => expect(matchesQuery(make({ response: { ...e.response, status: 503 } }), 'status:5')).toBe(true));
+  it('status:5xx matches via class', () => expect(matchesQuery(make({ response: { ...e.response, status: 503 } }), 'status:5xx')).toBe(true));
+  it('status:errored matches status=0', () => expect(matchesQuery(make({ response: { ...e.response, status: 0 } }), 'status:errored')).toBe(true));
+
+  it('method:POST is exact-ish (case-insensitive)', () => {
+    const post = make({ request: { ...e.request, method: 'POST' } });
+    expect(matchesQuery(post, 'method:POST')).toBe(true);
+    expect(matchesQuery(post, 'method:get')).toBe(false);
+  });
+
+  it('url:substring matches', () => expect(matchesQuery(e, 'url:users')).toBe(true));
+  it('url:~regex matches', () => expect(matchesQuery(e, 'url:~/users/\\d+')).toBe(true));
+
+  it('host: matches the URL host', () => {
+    expect(matchesQuery(e, 'host:example.com')).toBe(true);
+    expect(matchesQuery(e, 'host:other.com')).toBe(false);
+  });
+
+  it('protocol: matches', () => {
+    expect(matchesQuery(make({ protocol: 'graphql' }), 'protocol:graphql')).toBe(true);
+    expect(matchesQuery(make({ protocol: 'graphql' }), 'protocol:http')).toBe(false);
+  });
+
+  it('has:body / has:test / has:script', () => {
+    expect(matchesQuery(e, 'has:body')).toBe(true);
+    expect(matchesQuery(make({ tests: [{ name: 't', passed: true }] }), 'has:test')).toBe(true);
+    expect(matchesQuery(make({ scriptLogs: [{ type: 'log', message: 'x', timestamp: 1 }] }), 'has:script')).toBe(true);
+  });
+});
+
+describe('matchesQuery — composition', () => {
+  const list = [
+    make({ id: 'a', request: { ...make().request, method: 'POST', url: 'https://api.example.com/login' }, response: { ...make().response, status: 200 } }),
+    make({ id: 'b', request: { ...make().request, method: 'GET',  url: 'https://api.example.com/health' }, response: { ...make().response, status: 200 } }),
+    make({ id: 'c', request: { ...make().request, method: 'POST', url: 'https://api.example.com/users' }, response: { ...make().response, status: 500 } }),
+  ];
+
+  it('ANDs multiple tokens', () => {
+    expect(list.filter((e) => matchesQuery(e, 'status:5xx method:POST')).map((e) => e.id)).toEqual(['c']);
+  });
+
+  it('negation excludes', () => {
+    expect(list.filter((e) => matchesQuery(e, '-url:health')).map((e) => e.id)).toEqual(['a', 'c']);
+  });
+
+  it('combines field tokens with free text', () => {
+    expect(list.filter((e) => matchesQuery(e, 'POST login')).map((e) => e.id)).toEqual(['a']);
+  });
+
+  it('empty query matches everything', () => {
+    expect(list.every((e) => matchesQuery(e, ''))).toBe(true);
+    expect(list.every((e) => matchesQuery(e, '   '))).toBe(true);
+  });
+});
+
+describe('filterEntries — multi-criteria', () => {
+  const entries = [
+    make({ id: 'a', response: { ...make().response, status: 200 } }),
+    make({ id: 'b', protocol: 'graphql', response: { ...make().response, status: 500 } }),
+    make({ id: 'c', runId: 'run-1', response: { ...make().response, status: 200 } }),
+  ];
+
+  it('combines text query + status filter + protocol + run', () => {
+    expect(
+      filterEntries(entries, { query: '', statusFilter: '5xx', protocolFilter: 'graphql', runFilter: 'all' }).map((e) => e.id)
+    ).toEqual(['b']);
+    expect(
+      filterEntries(entries, { query: '', statusFilter: 'all', protocolFilter: 'all', runFilter: 'run-1' }).map((e) => e.id)
+    ).toEqual(['c']);
+  });
+});
+
+describe('statusClassCounts', () => {
+  it('buckets entries by class; errored includes status=0 and 5xx', () => {
+    const entries = [
+      make({ id: 'a', response: { ...make().response, status: 200 } }),
+      make({ id: 'b', response: { ...make().response, status: 301 } }),
+      make({ id: 'c', response: { ...make().response, status: 404 } }),
+      make({ id: 'd', response: { ...make().response, status: 502 } }),
+      make({ id: 'e', response: { ...make().response, status: 0 } }),
+    ];
+    expect(statusClassCounts(entries)).toEqual({
+      all: 5, '2xx': 1, '3xx': 1, '4xx': 1, '5xx': 1, errored: 2,
+    });
+  });
+});
+
+describe('statusMatchesClass (re-exported)', () => {
+  it('handles class strings the legacy callers rely on', () => {
+    expect(statusMatchesClass(204, '2xx')).toBe(true);
+    expect(statusMatchesClass(0, 'errored')).toBe(true);
+    expect(statusMatchesClass(404, 'errored')).toBe(false);
+    expect(statusMatchesClass(404, '4xx')).toBe(true);
+  });
+});

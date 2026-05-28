@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import {
   entryToCurl,
@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -29,7 +30,6 @@ import {
   Network,
   FileText,
   Clock,
-  Database,
   Copy,
   Check,
   Search,
@@ -39,10 +39,15 @@ import {
   GitCompare,
   SlidersHorizontal,
   ListChecks,
+  Maximize2,
+  Code2,
+  Cookie as CookieIcon,
+  HelpCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import RequestEntryItem from './RequestEntryItem';
 import EntryCompareDialog from './EntryCompareDialog';
+import EntryExpandDialog from './EntryExpandDialog';
 import { cn } from '@/lib/shared/utils';
 import {
   detectLanguage,
@@ -50,6 +55,9 @@ import {
   formatClockTime,
   getStatusBadgeColor,
 } from '@/lib/shared/console-format';
+import { filterEntries, statusClassCounts } from '@/lib/shared/console-filter';
+import { parseRequestCookies, parseResponseCookies } from '@/lib/shared/cookie-parser';
+import { codeGenerators, type CodeGeneratorType } from '@/lib/shared/codeGenerators';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
@@ -114,16 +122,6 @@ const SORT_OPTIONS: Array<{ value: 'recent' | 'time' | 'size' | 'status'; label:
   { value: 'status', label: 'Status' },
 ];
 
-function statusMatches(status: number, filter: ConsoleStatusFilter): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'errored') return status === 0 || status >= 500;
-  if (filter === '2xx') return status >= 200 && status < 300;
-  if (filter === '3xx') return status >= 300 && status < 400;
-  if (filter === '4xx') return status >= 400 && status < 500;
-  if (filter === '5xx') return status >= 500 && status < 600;
-  return true;
-}
-
 export default function NetworkTab() {
   const {
     entries,
@@ -135,6 +133,10 @@ export default function NetworkTab() {
     setStatusFilter,
     protocolFilter,
     setProtocolFilter,
+    runFilter,
+    setRunFilter,
+    removeEntry,
+    togglePin,
   } = useConsoleStore();
   const openTab = useRequestStore((s) => s.openTab);
   const updateRequest = useRequestStore((s) => s.updateRequest);
@@ -143,9 +145,10 @@ export default function NetworkTab() {
   // Compare-set is local-only — transient UI state, no need to persist.
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareDialogOpen, setCompareDialogOpen] = useState(false);
-  // Sort + run filter are transient view state.
+  const [expandOpen, setExpandOpen] = useState(false);
+  // Sort is transient view state — order doesn't affect what's in the list.
   const [sortBy, setSortBy] = useState<'recent' | 'time' | 'size' | 'status'>('recent');
-  const [runFilter, setRunFilter] = useState<string>('all');
+  const listRef = useRef<HTMLDivElement>(null);
 
   const toggleCompare = (id: string) => {
     setCompareIds((prev) => {
@@ -181,37 +184,15 @@ export default function NetworkTab() {
     return set;
   }, [entries]);
 
+  // Filter using the shared DSL-aware predicate (plain text + key:value +
+  // negation + regex). Sort is applied as a separate, view-only step.
   const filteredEntries = useMemo(() => {
-    const search = searchFilter.trim().toLowerCase();
-    const matchesSearch = (entry: (typeof entries)[number]) => {
-      if (!search) return true;
-      // Content search spans method/url/status AND headers + bodies.
-      if (
-        entry.request.url.toLowerCase().includes(search) ||
-        entry.request.method.toLowerCase().includes(search) ||
-        entry.response.status.toString().includes(search) ||
-        entry.response.statusText.toLowerCase().includes(search) ||
-        (entry.request.body?.toLowerCase().includes(search) ?? false) ||
-        entry.response.body.toLowerCase().includes(search)
-      ) {
-        return true;
-      }
-      const headerHit = (h: Record<string, string | string[]>) =>
-        Object.entries(h).some(
-          ([k, v]) =>
-            k.toLowerCase().includes(search) ||
-            (Array.isArray(v) ? v.join(',') : v).toLowerCase().includes(search)
-        );
-      return headerHit(entry.request.headers) || headerHit(entry.response.headers);
-    };
-
-    const list = entries.filter((entry) => {
-      if (!statusMatches(entry.response.status, statusFilter)) return false;
-      if (protocolFilter !== 'all' && (entry.protocol ?? 'http') !== protocolFilter) return false;
-      if (runFilter !== 'all' && entry.runId !== runFilter) return false;
-      return matchesSearch(entry);
+    const list = filterEntries(entries, {
+      query: searchFilter,
+      statusFilter,
+      protocolFilter,
+      runFilter,
     });
-
     if (sortBy === 'recent') return list;
     const sorted = [...list];
     sorted.sort((a, b) => {
@@ -222,6 +203,10 @@ export default function NetworkTab() {
     return sorted;
   }, [entries, searchFilter, statusFilter, protocolFilter, runFilter, sortBy]);
 
+  // Per-class counts on the unfiltered list — these badge the status chips so
+  // the chip row doubles as a histogram of what's in the log.
+  const classCounts = useMemo(() => statusClassCounts(entries), [entries]);
+
   // Slowest response in the current view — scales every row's waterfall bar.
   const maxTime = useMemo(
     () => filteredEntries.reduce((m, e) => Math.max(m, e.response.time), 0),
@@ -229,6 +214,84 @@ export default function NetworkTab() {
   );
 
   const selectedEntry = entries.find((e) => e.id === selectedEntryId);
+
+  // Cookies parsed from the captured headers — same source the headers section
+  // renders. Memoised because the detail pane re-renders on every selection.
+  const requestCookies = useMemo(
+    () => (selectedEntry ? parseRequestCookies(selectedEntry.request.headers as Record<string, string | string[]>) : []),
+    [selectedEntry]
+  );
+  const responseCookies = useMemo(
+    () => (selectedEntry ? parseResponseCookies(selectedEntry.response.headers) : []),
+    [selectedEntry]
+  );
+
+  // Keyboard navigation over the entry list. Focus moves with ↑/↓ to the
+  // adjacent visible row; Enter selects (already true on click); Delete
+  // removes; `p` toggles pin. We rely on the parent's `tabIndex={0}` so the
+  // list is focusable; the actual focus-ring is handled by the row.
+  const moveSelection = useCallback((dir: 1 | -1) => {
+    if (filteredEntries.length === 0) return;
+    const idx = filteredEntries.findIndex((e) => e.id === selectedEntryId);
+    const next = idx < 0
+      ? (dir === 1 ? 0 : filteredEntries.length - 1)
+      : Math.min(filteredEntries.length - 1, Math.max(0, idx + dir));
+    const target = filteredEntries[next];
+    if (target) selectEntry(target.id);
+  }, [filteredEntries, selectedEntryId, selectEntry]);
+
+  const handleListKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown' || e.key === 'j') {
+      e.preventDefault();
+      moveSelection(1);
+    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+      e.preventDefault();
+      moveSelection(-1);
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (!selectedEntryId) return;
+      e.preventDefault();
+      // Move selection to the next neighbour before removal — the row at the
+      // current index vanishes, so we pick the one that will slide up into it.
+      const idx = filteredEntries.findIndex((x) => x.id === selectedEntryId);
+      const replacement = filteredEntries[idx + 1] ?? filteredEntries[idx - 1];
+      removeEntry(selectedEntryId);
+      if (replacement) selectEntry(replacement.id);
+    } else if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (!selectedEntryId) return;
+      e.preventDefault();
+      togglePin(selectedEntryId);
+    }
+  }, [moveSelection, selectedEntryId, filteredEntries, removeEntry, togglePin, selectEntry]);
+
+  // Keep the selected row visible after keyboard moves.
+  useEffect(() => {
+    if (!selectedEntryId || !listRef.current) return;
+    const el = listRef.current.querySelector<HTMLElement>(`[data-entry-id="${selectedEntryId}"]`);
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [selectedEntryId]);
+
+  const handleCopyAsCode = async (generatorKey: CodeGeneratorType) => {
+    if (!selectedEntry) return;
+    try {
+      const req = entryToHttpRequest(selectedEntry);
+      // Captured entries already hold the resolved values (env-vars baked in).
+      // We reconstruct the GenerateOptions shape the generators expect.
+      const resolvedParams: Record<string, string> = {};
+      try {
+        for (const [k, v] of new URL(req.url).searchParams) resolvedParams[k] = v;
+      } catch { /* malformed URL — generators handle a blank params map fine */ }
+      const code = codeGenerators[generatorKey].generate({
+        request: req,
+        resolvedUrl: req.url,
+        resolvedHeaders: selectedEntry.request.headers,
+        resolvedParams,
+      });
+      await navigator.clipboard.writeText(code);
+      toast.success(`Copied as ${codeGenerators[generatorKey].name}`);
+    } catch (e) {
+      toast.error(`Failed to copy: ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
+  };
 
   const handleReplay = () => {
     if (!selectedEntry) return;
@@ -294,12 +357,26 @@ export default function NetworkTab() {
             <div className="relative flex-1">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
               <Input
-                placeholder="Filter requests..."
+                placeholder="Filter… try status:5xx -url:health"
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
-                className="h-7 pl-7 pr-7 text-xs"
+                className="h-7 pl-7 pr-12 text-xs"
+                title={
+                  // The full DSL reference, shown on native tooltip hover so we
+                  // don't need a popover library for what is essentially a hint.
+                  'Filter DSL\n' +
+                  '  plain text         → match anywhere\n' +
+                  '  "quoted phrase"    → preserves spaces\n' +
+                  '  status:5xx | 200   → status class or number\n' +
+                  '  method:POST        → HTTP method\n' +
+                  '  url:/users         url:~regex\n' +
+                  '  host:api.foo.com   protocol:graphql\n' +
+                  '  has:body | cookie | test | script\n' +
+                  '  -<token>           → negate\n' +
+                  'Multiple tokens AND together.'
+                }
               />
-              {searchFilter && (
+              {searchFilter ? (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -308,6 +385,11 @@ export default function NetworkTab() {
                 >
                   <X className="h-3 w-3" />
                 </Button>
+              ) : (
+                <HelpCircle
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50 pointer-events-none"
+                  aria-hidden="true"
+                />
               )}
             </div>
             <DropdownMenu>
@@ -353,24 +435,37 @@ export default function NetworkTab() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          {/* Status filters */}
+          {/* Status filters — each chip carries a live count so the row doubles
+              as a histogram of what's in the log. 'all' is implicit total. */}
           <div className="flex flex-wrap gap-1">
-            {STATUS_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setStatusFilter(f.value)}
-                className={cn(
-                  'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
-                  statusFilter === f.value
-                    ? 'bg-primary/15 border-primary/40 text-primary'
-                    : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
-                )}
-                aria-pressed={statusFilter === f.value}
-              >
-                {f.label}
-              </button>
-            ))}
+            {STATUS_FILTERS.map((f) => {
+              const count = classCounts[f.value] ?? 0;
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setStatusFilter(f.value)}
+                  className={cn(
+                    'inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                    statusFilter === f.value
+                      ? 'bg-primary/15 border-primary/40 text-primary'
+                      : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60',
+                    f.value !== 'all' && count === 0 && 'opacity-50'
+                  )}
+                  aria-pressed={statusFilter === f.value}
+                >
+                  <span>{f.label}</span>
+                  {count > 0 && (
+                    <span className={cn(
+                      'text-[9px] tabular-nums px-1 rounded-sm',
+                      statusFilter === f.value ? 'bg-primary/20' : 'bg-muted-foreground/15'
+                    )}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           {/* Run filter — only when runner-tagged entries exist */}
           {runs.length > 0 && (
@@ -408,41 +503,52 @@ export default function NetworkTab() {
           )}
         </div>
         <ScrollArea className="flex-1">
-          {filteredEntries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground px-4 text-center">
-              <Search className="h-6 w-6 mb-2 opacity-30" />
-              <p className="text-xs">
-                {filtersActive ? 'No matching requests' : 'No requests yet'}
-              </p>
-              {filtersActive && (
-                <button
-                  type="button"
-                  className="text-[10px] underline mt-2 text-primary"
-                  onClick={() => {
-                    setSearchFilter('');
-                    setStatusFilter('all');
-                    setProtocolFilter('all');
-                    setRunFilter('all');
-                  }}
-                >
-                  Clear filters
-                </button>
-              )}
-            </div>
-          ) : (
-            filteredEntries.map((entry) => (
-              <RequestEntryItem
-                key={entry.id}
-                entry={entry}
-                isSelected={entry.id === selectedEntryId}
-                onClick={() => selectEntry(entry.id)}
-                isCompareChecked={compareIds.includes(entry.id)}
-                onToggleCompare={() => toggleCompare(entry.id)}
-                onPinForCompare={() => toggleCompare(entry.id)}
-                maxTime={maxTime}
-              />
-            ))
-          )}
+          <div
+            ref={listRef}
+            tabIndex={0}
+            role="listbox"
+            aria-label="Request log"
+            aria-activedescendant={selectedEntryId ? `entry-${selectedEntryId}` : undefined}
+            onKeyDown={handleListKeyDown}
+            className="outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {filteredEntries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground px-4 text-center">
+                <Search className="h-6 w-6 mb-2 opacity-30" />
+                <p className="text-xs">
+                  {filtersActive ? 'No matching requests' : 'No requests yet'}
+                </p>
+                {filtersActive && (
+                  <button
+                    type="button"
+                    className="text-[10px] underline mt-2 text-primary"
+                    onClick={() => {
+                      setSearchFilter('');
+                      setStatusFilter('all');
+                      setProtocolFilter('all');
+                      setRunFilter('all');
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredEntries.map((entry) => (
+                <div key={entry.id} id={`entry-${entry.id}`} data-entry-id={entry.id} role="option" aria-selected={entry.id === selectedEntryId}>
+                  <RequestEntryItem
+                    entry={entry}
+                    isSelected={entry.id === selectedEntryId}
+                    onClick={() => selectEntry(entry.id)}
+                    isCompareChecked={compareIds.includes(entry.id)}
+                    onToggleCompare={() => toggleCompare(entry.id)}
+                    onPinForCompare={() => toggleCompare(entry.id)}
+                    maxTime={maxTime}
+                  />
+                </div>
+              ))
+            )}
+          </div>
         </ScrollArea>
       </div>
 
@@ -494,15 +600,46 @@ export default function NetworkTab() {
                   <ExternalLink className="h-3 w-3 mr-1" />
                   New tab
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      title="Copy request as code"
+                    >
+                      <Code2 className="h-3 w-3 mr-1" />
+                      Copy as
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel className="text-[11px]">Copy request as</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-xs" onClick={handleCopyCurl}>
+                      cURL
+                    </DropdownMenuItem>
+                    {(Object.entries(codeGenerators) as Array<[CodeGeneratorType, typeof codeGenerators[CodeGeneratorType]]>)
+                      .filter(([key]) => key !== 'curl')
+                      .map(([key, gen]) => (
+                        <DropdownMenuItem
+                          key={key}
+                          className="text-xs"
+                          onClick={() => handleCopyAsCode(key)}
+                        >
+                          {gen.name}
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-[11px]"
-                  onClick={handleCopyCurl}
-                  title="Copy as cURL"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setExpandOpen(true)}
+                  title="Expand entry to a full-screen view"
+                  aria-label="Expand entry"
                 >
-                  <Copy className="h-3 w-3 mr-1" />
-                  cURL
+                  <Maximize2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
@@ -531,9 +668,9 @@ export default function NetworkTab() {
 
             <TabsContent value="request" className="flex-1 m-0 overflow-hidden">
               <ScrollArea className="h-full">
-                <div className="p-4 space-y-4">
+                <div className="px-4 pt-2 pb-4 space-y-3">
                   {/* General info */}
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">General</h4>
                     <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs">
                       <div className="flex justify-between items-center group">
@@ -584,6 +721,25 @@ export default function NetworkTab() {
                     </div>
                   </div>
 
+                  {/* Cookies sent — parsed from the Cookie request header. */}
+                  {requestCookies.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                        <CookieIcon className="h-3 w-3" />
+                        Cookies
+                        <Badge variant="secondary" className="ml-1 text-[10px]">{requestCookies.length}</Badge>
+                      </h4>
+                      <div className="bg-muted/50 rounded-lg p-3 space-y-1.5 text-xs font-mono">
+                        {requestCookies.map((c) => (
+                          <div key={c.name} className="flex">
+                            <span className="text-primary/80 font-medium min-w-[120px]">{c.name}</span>
+                            <span className="text-foreground/80 break-all ml-2">{c.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Request body */}
                   {selectedEntry.request.body && (
                     <div className="space-y-2">
@@ -606,38 +762,14 @@ export default function NetworkTab() {
 
             <TabsContent value="response" className="flex-1 m-0 overflow-hidden">
               <ScrollArea className="h-full">
-                <div className="p-4 space-y-4">
-                  {/* Response summary */}
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Summary</h4>
-                    <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Status</span>
-                        <Badge variant="outline" className={cn('text-xs', getStatusBadgeColor(selectedEntry.response.status))}>
-                          {selectedEntry.response.status} {selectedEntry.response.statusText}
-                        </Badge>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground flex items-center gap-1">
-                          <Database className="h-3 w-3" />
-                          Response size
-                        </span>
-                        <span className="font-medium">{formatBytes(selectedEntry.response.size)}</span>
-                      </div>
-                      {selectedEntry.requestSize != null && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Database className="h-3 w-3" />
-                            Request size
-                          </span>
-                          <span className="font-medium">{formatBytes(selectedEntry.requestSize)}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                <div className="px-4 pt-2 pb-4 space-y-3">
+                  {/* The Status / Response size / Request size summary box that
+                      used to live here was a duplicate of the inline summary
+                      row just above (status + ↑↓ bytes). Removed so the detail
+                      pane gets straight to Timing → Headers → Body. */}
 
                   {/* Timing breakdown */}
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                       <Clock className="h-3 w-3" />
                       Timing
@@ -708,6 +840,38 @@ export default function NetworkTab() {
                     </div>
                   </div>
 
+                  {/* Cookies set — parsed from response Set-Cookie. */}
+                  {responseCookies.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                        <CookieIcon className="h-3 w-3" />
+                        Set-Cookie
+                        <Badge variant="secondary" className="ml-1 text-[10px]">{responseCookies.length}</Badge>
+                      </h4>
+                      <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs font-mono">
+                        {responseCookies.map((c, i) => (
+                          <div key={`${c.name}-${i}`} className="space-y-0.5">
+                            <div className="flex">
+                              <span className="text-primary/80 font-medium min-w-[120px]">{c.name}</span>
+                              <span className="text-foreground/80 break-all ml-2">{c.value}</span>
+                            </div>
+                            {/* Attributes — only render when something was actually parsed,
+                                so the panel stays compact for typical cookies. */}
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-[120px] ml-2">
+                              {c.domain && <span>Domain: <span className="text-foreground/70">{c.domain}</span></span>}
+                              {c.path && <span>Path: <span className="text-foreground/70">{c.path}</span></span>}
+                              {c.expires && <span>Expires: <span className="text-foreground/70">{c.expires}</span></span>}
+                              {c.maxAge !== undefined && <span>Max-Age: <span className="text-foreground/70">{c.maxAge}</span></span>}
+                              {c.sameSite && <span>SameSite: <span className="text-foreground/70">{c.sameSite}</span></span>}
+                              {c.httpOnly && <span className="text-amber-600 dark:text-amber-400">HttpOnly</span>}
+                              {c.secure && <span className="text-emerald-600 dark:text-emerald-400">Secure</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Response body preview */}
                   {selectedEntry.response.body && (
                     <div className="space-y-2">
@@ -746,6 +910,11 @@ export default function NetworkTab() {
         onOpenChange={setCompareDialogOpen}
         left={compareEntries[0] ?? null}
         right={compareEntries[1] ?? null}
+      />
+      <EntryExpandDialog
+        open={expandOpen}
+        onOpenChange={setExpandOpen}
+        entry={selectedEntry ?? null}
       />
     </div>
   );
