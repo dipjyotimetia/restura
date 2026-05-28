@@ -1,7 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ElectronAPI } from '../types/electron-api';
-import { IPC, EVENT, EVENT_PREFIX, eventChannel, CHANNEL_PREFIXES, VALID_EVENT_CHANNELS } from '../shared/channels';
+import {
+  IPC,
+  EVENT,
+  EVENT_PREFIX,
+  eventChannel,
+  CHANNEL_PREFIXES,
+  VALID_EVENT_CHANNELS,
+} from '../shared/channels';
 
 const validEventChannels: readonly string[] = VALID_EVENT_CHANNELS;
 
@@ -20,7 +27,10 @@ function channelEventBridge(prefix: string) {
     },
     removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
       if (channel.startsWith(prefix)) {
-        ipcRenderer.removeListener(channel, callback as Parameters<typeof ipcRenderer.removeListener>[1]);
+        ipcRenderer.removeListener(
+          channel,
+          callback as Parameters<typeof ipcRenderer.removeListener>[1]
+        );
       }
     },
     removeAllListeners: (channel: string) => {
@@ -135,7 +145,8 @@ const electronAPI = {
     request: (config: unknown) => ipcRenderer.invoke(IPC.grpc.request, config),
     reflect: (config: unknown) => ipcRenderer.invoke(IPC.grpc.reflect, config),
     startStream: (config: unknown) => ipcRenderer.send(IPC.grpc.startStream, config),
-    sendMessage: (requestId: string, message: unknown) => ipcRenderer.send(IPC.grpc.sendMessage, requestId, message),
+    sendMessage: (requestId: string, message: unknown) =>
+      ipcRenderer.send(IPC.grpc.sendMessage, requestId, message),
     endStream: (requestId: string) => ipcRenderer.send(IPC.grpc.endStream, requestId),
     cancelStream: (requestId: string) => ipcRenderer.send(IPC.grpc.cancelStream, requestId),
     // gRPC exposes on/removeListener only (no removeAllListeners) — pick those
@@ -151,15 +162,13 @@ const electronAPI = {
       url: string;
       headers?: Record<string, string>;
       protocols?: string[];
-    }): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke(IPC.ws.connect, config),
+    }): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke(IPC.ws.connect, config),
 
     send: (config: {
       connectionId: string;
       message: string;
       binary?: boolean;
-    }): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke(IPC.ws.send, config),
+    }): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke(IPC.ws.send, config),
 
     disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke(IPC.ws.disconnect, config),
@@ -232,8 +241,12 @@ const electronAPI = {
       params?: unknown;
       requestId?: string | number;
       timeout?: number;
-    }): Promise<{ success: boolean; result?: unknown; error?: string; jsonRpcError?: { code: number; message: string; data?: unknown } }> =>
-      ipcRenderer.invoke(IPC.mcp.request, config),
+    }): Promise<{
+      success: boolean;
+      result?: unknown;
+      error?: string;
+      jsonRpcError?: { code: number; message: string; data?: unknown };
+    }> => ipcRenderer.invoke(IPC.mcp.request, config),
 
     disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke(IPC.mcp.disconnect, config),
@@ -251,16 +264,36 @@ const electronAPI = {
         | { securityProtocol: 'PLAINTEXT' }
         | {
             securityProtocol: 'SASL_PLAINTEXT';
-            sasl: { mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512'; username: string; password: string };
+            sasl: {
+              mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
+              username: string;
+              password: string;
+            };
           }
         | {
             securityProtocol: 'SASL_SSL';
-            sasl: { mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512'; username: string; password: string };
-            tls?: { ca?: string; cert?: string; key?: string; passphrase?: string; rejectUnauthorized?: boolean };
+            sasl: {
+              mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
+              username: string;
+              password: string;
+            };
+            tls?: {
+              ca?: string;
+              cert?: string;
+              key?: string;
+              passphrase?: string;
+              rejectUnauthorized?: boolean;
+            };
           }
         | {
             securityProtocol: 'SSL';
-            tls: { ca?: string; cert?: string; key?: string; passphrase?: string; rejectUnauthorized?: boolean };
+            tls: {
+              ca?: string;
+              cert?: string;
+              key?: string;
+              passphrase?: string;
+              rejectUnauthorized?: boolean;
+            };
           };
     }): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.kafka.connect, config),
@@ -288,7 +321,9 @@ const electronAPI = {
     }): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.kafka.subscribe, config),
 
-    unsubscribe: (config: { connectionId: string }): Promise<{ success: boolean; error?: string }> =>
+    unsubscribe: (config: {
+      connectionId: string;
+    }): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.kafka.unsubscribe, config),
 
     disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
@@ -323,20 +358,16 @@ const electronAPI = {
 
   // Encrypted store operations
   store: {
-    get: (key: string): Promise<string | undefined> =>
-      ipcRenderer.invoke(IPC.store.get, key),
+    get: (key: string): Promise<string | undefined> => ipcRenderer.invoke(IPC.store.get, key),
 
     set: (key: string, value: string): Promise<void> =>
       ipcRenderer.invoke(IPC.store.set, key, value),
 
-    delete: (key: string): Promise<void> =>
-      ipcRenderer.invoke(IPC.store.delete, key),
+    delete: (key: string): Promise<void> => ipcRenderer.invoke(IPC.store.delete, key),
 
-    clear: (): Promise<void> =>
-      ipcRenderer.invoke(IPC.store.clear),
+    clear: (): Promise<void> => ipcRenderer.invoke(IPC.store.clear),
 
-    has: (key: string): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.store.has, key),
+    has: (key: string): Promise<boolean> => ipcRenderer.invoke(IPC.store.has, key),
   },
 
   // Git operations for file-backed collections. Read-only in v1 — write
@@ -347,7 +378,16 @@ const electronAPI = {
     status: (
       directoryPath: string
     ): Promise<
-      | { ok: true; status: { files: Array<{ path: string; staged: string; unstaged: string }>; branch: string | null; ahead: number; behind: number; clean: boolean } }
+      | {
+          ok: true;
+          status: {
+            files: Array<{ path: string; staged: string; unstaged: string }>;
+            branch: string | null;
+            ahead: number;
+            behind: number;
+            clean: boolean;
+          };
+        }
       | { ok: false; error: string }
     > => ipcRenderer.invoke(IPC.git.status, { directoryPath }),
 
@@ -355,9 +395,20 @@ const electronAPI = {
       directoryPath: string,
       limit?: number
     ): Promise<
-      | { ok: true; commits: Array<{ sha: string; abbreviatedSha: string; author: string; email: string; timestamp: number; subject: string }> }
+      | {
+          ok: true;
+          commits: Array<{
+            sha: string;
+            abbreviatedSha: string;
+            author: string;
+            email: string;
+            timestamp: number;
+            subject: string;
+          }>;
+        }
       | { ok: false; error: string }
-    > => ipcRenderer.invoke(IPC.git.log, { directoryPath, ...(limit !== undefined ? { limit } : {}) }),
+    > =>
+      ipcRenderer.invoke(IPC.git.log, { directoryPath, ...(limit !== undefined ? { limit } : {}) }),
 
     diff: (
       directoryPath: string,
@@ -368,7 +419,15 @@ const electronAPI = {
     branchList: (
       directoryPath: string
     ): Promise<
-      | { ok: true; branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }> }
+      | {
+          ok: true;
+          branches: Array<{
+            name: string;
+            isCurrent: boolean;
+            isRemote: boolean;
+            upstream?: string;
+          }>;
+        }
       | { ok: false; error: string }
     > => ipcRenderer.invoke(IPC.git.branchList, { directoryPath }),
 
@@ -383,8 +442,7 @@ const electronAPI = {
       message: string,
       options?: { all?: boolean; paths?: string[] }
     ): Promise<
-      | { ok: true; commit: { sha: string; abbreviatedSha: string } }
-      | { ok: false; error: string }
+      { ok: true; commit: { sha: string; abbreviatedSha: string } } | { ok: false; error: string }
     > =>
       ipcRenderer.invoke(IPC.git.commit, {
         directoryPath,
@@ -422,17 +480,33 @@ const electronAPI = {
         delayMs?: number;
       }>;
     }): Promise<
-      | { ok: true; status: { running: boolean; port?: number; baseUrl?: string; collectionId?: string; routeCount?: number } }
+      | {
+          ok: true;
+          status: {
+            running: boolean;
+            port?: number;
+            baseUrl?: string;
+            collectionId?: string;
+            routeCount?: number;
+          };
+        }
       | { ok: false; error: string }
     > => ipcRenderer.invoke(IPC.mock.start, config),
 
-    stop: (): Promise<
-      | { ok: true; status: { running: boolean } }
-      | { ok: false; error: string }
-    > => ipcRenderer.invoke(IPC.mock.stop),
+    stop: (): Promise<{ ok: true; status: { running: boolean } } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.mock.stop),
 
     status: (): Promise<
-      | { ok: true; status: { running: boolean; port?: number; baseUrl?: string; collectionId?: string; routeCount?: number } }
+      | {
+          ok: true;
+          status: {
+            running: boolean;
+            port?: number;
+            baseUrl?: string;
+            collectionId?: string;
+            routeCount?: number;
+          };
+        }
       | { ok: false; error: string }
     > => ipcRenderer.invoke(IPC.mock.status),
   },
@@ -465,9 +539,23 @@ const electronAPI = {
 
     // list: enumerate every stored handle's metadata.
     list: (): Promise<
-      | { ok: true; handles: Array<{ id: string; label?: string; scope?: string; createdAt: number }> }
+      | {
+          ok: true;
+          handles: Array<{ id: string; label?: string; scope?: string; createdAt: number }>;
+        }
       | { ok: false; error: string }
     > => ipcRenderer.invoke(IPC.secret.list),
+  },
+
+  // pm.vault — user-named encrypted key-value secret store. Separate from
+  // `secrets` above so user-chosen names can't collide with UUID handles
+  // and the access surface stays simple. See electron/main/vault-handler.ts.
+  vault: {
+    get: (key: string): Promise<{ value: string | null }> =>
+      ipcRenderer.invoke(IPC.vault.get, { key }),
+    set: (key: string, value: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC.vault.set, { key, value }),
+    unset: (key: string): Promise<{ ok: true }> => ipcRenderer.invoke(IPC.vault.unset, { key }),
   },
 
   ai: {
@@ -484,27 +572,29 @@ const electronAPI = {
     }): Promise<{ ok: true; streamId: string } | { ok: false; error: string }> =>
       ipcRenderer.invoke(IPC.ai.chat, spec),
 
-    cancel: (args: { streamId: string }): Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }> =>
+    cancel: (args: {
+      streamId: string;
+    }): Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.ai.chatCancel, args),
 
-    onChunk: (
-      streamId: string,
-      cb: (event: ChatStreamEvent) => void,
-    ): (() => void) => {
+    onChunk: (streamId: string, cb: (event: ChatStreamEvent) => void): (() => void) => {
       const channel = eventChannel(EVENT_PREFIX.ai.chunk, streamId);
       const listener = (_event: unknown, payload: ChatStreamEvent) => cb(payload);
       ipcRenderer.on(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
-      return () => ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+      return () =>
+        ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
     },
 
     onEnd: (
       streamId: string,
-      cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void,
+      cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void
     ): (() => void) => {
       const channel = eventChannel(EVENT_PREFIX.ai.end, streamId);
-      const listener = (_event: unknown, payload: { reason: 'done' | 'cancelled' | 'error' }) => cb(payload);
+      const listener = (_event: unknown, payload: { reason: 'done' | 'cancelled' | 'error' }) =>
+        cb(payload);
       ipcRenderer.on(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
-      return () => ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+      return () =>
+        ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
     },
   },
 
@@ -542,23 +632,32 @@ const electronAPI = {
 
   // Collection file operations (Git-native collections)
   collections: {
-    loadFromDirectory: (directoryPath: string): Promise<{
+    loadFromDirectory: (
+      directoryPath: string
+    ): Promise<{
       success: boolean;
       collection?: unknown;
       error?: string;
     }> => ipcRenderer.invoke(IPC.collection.loadDirectory, directoryPath),
 
-    saveToDirectory: (collection: unknown, directoryPath: string): Promise<{
+    saveToDirectory: (
+      collection: unknown,
+      directoryPath: string
+    ): Promise<{
       success: boolean;
       error?: string;
     }> => ipcRenderer.invoke(IPC.collection.saveDirectory, collection, directoryPath),
 
-    watchDirectory: (directoryPath: string): Promise<{
+    watchDirectory: (
+      directoryPath: string
+    ): Promise<{
       success: boolean;
       error?: string;
     }> => ipcRenderer.invoke(IPC.collection.watch, directoryPath),
 
-    unwatchDirectory: (directoryPath: string): Promise<{
+    unwatchDirectory: (
+      directoryPath: string
+    ): Promise<{
       success: boolean;
     }> => ipcRenderer.invoke(IPC.collection.unwatch, directoryPath),
 
@@ -567,23 +666,29 @@ const electronAPI = {
       filePaths?: string[];
     }> => ipcRenderer.invoke(IPC.collection.selectDirectory),
 
-    openInExplorer: (directoryPath: string): Promise<{
+    openInExplorer: (
+      directoryPath: string
+    ): Promise<{
       success: boolean;
       error?: string;
     }> => ipcRenderer.invoke(IPC.collection.openInExplorer, directoryPath),
 
-    getFileInfo: (filePath: string): Promise<{
+    getFileInfo: (
+      filePath: string
+    ): Promise<{
       exists: boolean;
       lastModified?: number;
       size?: number;
     }> => ipcRenderer.invoke(IPC.collection.getFileInfo, filePath),
 
-    onFileChanged: (callback: (event: {
-      type: 'modified' | 'added' | 'deleted';
-      filePath: string;
-      directoryPath: string;
-      lastModified?: number;
-    }) => void) => {
+    onFileChanged: (
+      callback: (event: {
+        type: 'modified' | 'added' | 'deleted';
+        filePath: string;
+        directoryPath: string;
+        lastModified?: number;
+      }) => void
+    ) => {
       ipcRenderer.on(EVENT.collectionFileChanged, (_event, data) => callback(data));
     },
 

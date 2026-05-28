@@ -33,6 +33,7 @@
     "out",
     "worker",
     "electron/main",
-    "cli"
+    "cli",
+    "docs-site"
   ]
 }

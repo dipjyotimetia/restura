@@ -72,7 +72,8 @@ type StorageTableName =
   | 'console'
   | 'graphqlSchemas'
   | 'protoFiles'
-  | 'aiChat';
+  | 'aiChat'
+  | 'globals';
 
 /**
  * Storage adapter configuration
@@ -117,9 +118,7 @@ function createStorageRecord(id: string, encryptedData: string) {
  * Create a Dexie storage adapter for Zustand persist middleware
  * Stores data encrypted in IndexedDB for unlimited offline storage
  */
-export function createDexieStorage<T = unknown>(
-  config: DexieStorageConfig
-): PersistStorage<T> {
+export function createDexieStorage<T = unknown>(config: DexieStorageConfig): PersistStorage<T> {
   const { tableName, encrypt = true } = config;
 
   return {
@@ -128,7 +127,7 @@ export function createDexieStorage<T = unknown>(
 
       try {
         const table = getTable(tableName);
-        const record = await table.get(name) as { encryptedData?: string } | undefined;
+        const record = (await table.get(name)) as { encryptedData?: string } | undefined;
 
         if (!record?.encryptedData) return null;
 
@@ -151,7 +150,7 @@ export function createDexieStorage<T = unknown>(
             console.warn(
               `[dexie-storage] "${name}" could not be decrypted with the current key; ` +
                 `quarantining to "${name}${QUARANTINE_SUFFIX}" and resetting to defaults. ` +
-                `If this is unexpected, the original ciphertext is preserved for recovery.`,
+                `If this is unexpected, the original ciphertext is preserved for recovery.`
             );
             try {
               const table = getTable(tableName);
@@ -209,8 +208,13 @@ export function createDexieStorage<T = unknown>(
         // zustand's persist middleware as an unhandled rejection in test
         // environments without IndexedDB (jsdom + fake-indexeddb races on
         // module-load cookie hydration). Mirrors getItem/removeItem above.
-        if (error instanceof Error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
-          window.dispatchEvent(new CustomEvent('restura:storage-quota-exceeded', { bubbles: true }));
+        if (
+          error instanceof Error &&
+          (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+        ) {
+          window.dispatchEvent(
+            new CustomEvent('restura:storage-quota-exceeded', { bubbles: true })
+          );
         }
         console.error(`Failed to set item ${name} in Dexie:`, error);
       }
@@ -290,29 +294,24 @@ export const dexieStorageAdapters = {
   websocketConnections: () =>
     createDexieStorage({ tableName: 'websocketConnections', encrypt: true }),
 
-  sseConnections: () =>
-    createDexieStorage({ tableName: 'sseConnections', encrypt: true }),
+  sseConnections: () => createDexieStorage({ tableName: 'sseConnections', encrypt: true }),
 
-  mcpConnections: () =>
-    createDexieStorage({ tableName: 'mcpConnections', encrypt: true }),
+  mcpConnections: () => createDexieStorage({ tableName: 'mcpConnections', encrypt: true }),
 
-  kafkaConnections: () =>
-    createDexieStorage({ tableName: 'kafkaConnections', encrypt: true }),
+  kafkaConnections: () => createDexieStorage({ tableName: 'kafkaConnections', encrypt: true }),
 
   socketioConnections: () =>
     createDexieStorage({ tableName: 'socketioConnections', encrypt: true }),
 
-  console: () =>
-    createDexieStorage({ tableName: 'console', encrypt: true }),
+  console: () => createDexieStorage({ tableName: 'console', encrypt: true }),
 
-  graphqlSchemas: () =>
-    createDexieStorage({ tableName: 'graphqlSchemas', encrypt: true }),
+  graphqlSchemas: () => createDexieStorage({ tableName: 'graphqlSchemas', encrypt: true }),
 
-  protoFiles: () =>
-    createDexieStorage({ tableName: 'protoFiles', encrypt: true }),
+  protoFiles: () => createDexieStorage({ tableName: 'protoFiles', encrypt: true }),
 
-  aiChat: () =>
-    createDexieStorage({ tableName: 'aiChat', encrypt: true }),
+  aiChat: () => createDexieStorage({ tableName: 'aiChat', encrypt: true }),
+
+  globals: () => createDexieStorage({ tableName: 'globals', encrypt: true }),
 };
 
 /**
@@ -408,10 +407,7 @@ export async function importDexieData(backupJson: string): Promise<void> {
 /**
  * Secure delete with overwrite (for privacy)
  */
-export async function secureDeleteRecord(
-  tableName: StorageTableName,
-  id: string
-): Promise<void> {
+export async function secureDeleteRecord(tableName: StorageTableName, id: string): Promise<void> {
   try {
     const table = getTable(tableName);
 

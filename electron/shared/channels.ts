@@ -92,6 +92,15 @@ export const IPC = {
     describe: 'secret:describe',
     list: 'secret:list',
   },
+  // pm.vault — user-named async key-value secret store, separate from
+  // the UUID-keyed handle store above so the two namespaces can't collide.
+  // Keys are user-controlled strings (validated by ipc-validators); values
+  // are encrypted with safeStorage in the main process.
+  vault: {
+    get: 'vault:get',
+    set: 'vault:set',
+    unset: 'vault:unset',
+  },
   git: {
     status: 'git:status',
     log: 'git:log',

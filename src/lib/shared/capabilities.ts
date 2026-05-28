@@ -37,7 +37,13 @@ export type CapabilityName =
   | 'storage.encryptedLocal'
   | 'native.shell'
   | 'native.notifications'
-  | 'native.tray';
+  | 'native.tray'
+  | 'scripts.basic'
+  | 'scripts.sendRequest'
+  | 'scripts.cookies'
+  | 'scripts.setNextRequest'
+  | 'scripts.visualizer'
+  | 'scripts.vault';
 
 export interface CapabilityRow {
   /** Display label for docs/UI. */
@@ -139,6 +145,38 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'native.shell': { label: 'Native shell.openExternal', web: false, desktop: true },
   'native.notifications': { label: 'Native OS notifications', web: false, desktop: true },
   'native.tray': { label: 'System tray icon', web: false, desktop: true },
+  'scripts.basic': {
+    label: 'Pre-request / test scripts (pm.* sandbox)',
+    web: true,
+    desktop: true,
+  },
+  'scripts.sendRequest': {
+    label: 'pm.sendRequest sub-requests inside scripts',
+    web: true,
+    desktop: true,
+    notes: 'Routes through the same SSRF-guarded proxy as a top-level send',
+  },
+  'scripts.cookies': {
+    label: 'pm.cookies read/write against the cookie jar',
+    web: true,
+    desktop: true,
+  },
+  'scripts.setNextRequest': {
+    label: 'pm.execution.setNextRequest / skipRequest runner flow control',
+    web: true,
+    desktop: true,
+  },
+  'scripts.visualizer': {
+    label: 'pm.visualizer.set rendered in a sandboxed iframe tab',
+    web: true,
+    desktop: true,
+  },
+  'scripts.vault': {
+    label: 'pm.vault encrypted key-value secret store',
+    web: false,
+    desktop: true,
+    notes: 'Backed by OS keychain via electron safeStorage; no equivalent in browser',
+  },
 };
 
 export function isCapableHere(name: CapabilityName, isElectron: boolean): boolean {

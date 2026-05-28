@@ -41,17 +41,27 @@ async function runScript(
     response?: TestResponse;
     envVars?: Record<string, string>;
     globals?: Record<string, string>;
-    info?: { requestName?: string; requestId?: string; iteration?: number; iterationCount?: number };
+    info?: {
+      requestName?: string;
+      requestId?: string;
+      iteration?: number;
+      iterationCount?: number;
+    };
   } = {}
 ) {
-  const executor = new ScriptExecutor(opts.envVars ?? {}, opts.globals ?? {});
+  const executor = new ScriptExecutor({
+    envVars: opts.envVars ?? {},
+    globalVars: opts.globals ?? {},
+  });
   return executor.executeScript(script, {
     response: opts.response ?? baseResponse,
     ...(opts.info ? { info: opts.info } : {}),
   });
 }
 
-function expectAllTestsPass(result: { tests?: Array<{ name: string; passed: boolean; error?: string }> }) {
+function expectAllTestsPass(result: {
+  tests?: Array<{ name: string; passed: boolean; error?: string }>;
+}) {
   expect(result.tests).toBeDefined();
   const failed = result.tests!.filter((t) => !t.passed);
   if (failed.length > 0) {
@@ -72,7 +82,9 @@ describe('pm.test — reporting', () => {
     const r = await runScript(`pm.test('fails', function () { pm.expect(1).to.equal(2); });`);
     expect(r.tests).toHaveLength(1);
     expect(r.tests![0]?.passed).toBe(false);
-    expect(r.tests![0]?.error).toMatch(/Expected 2 but got 1/);
+    // chai's default message is "expected 1 to equal 2"; relax the match
+    // so a future chai upgrade that tweaks the wording doesn't break us.
+    expect(r.tests![0]?.error?.toLowerCase()).toMatch(/expected 1.*equal.*2/);
   });
 });
 
@@ -235,12 +247,18 @@ describe('pm.environment / pm.variables / pm.collectionVariables / pm.globals', 
     expect(r.variables).not.toHaveProperty('token');
   });
 
-  it('pm.collectionVariables aliases workspace state', async () => {
+  it('pm.collectionVariables is a separate scope from pm.environment / pm.variables', async () => {
+    // Postman semantics: collectionVariables, environment, and globals are
+    // distinct stores. Setting one does NOT make the value visible in the
+    // others. (Resolution-chain reads through pm.variables still favour
+    // collection then environment then globals, but a raw .get() against
+    // pm.variables hits only the environment-aliased map.)
     const r = await runScript(
       `
       pm.collectionVariables.set('base', 'https://api.example.com');
       pm.test('readback', function () { pm.expect(pm.collectionVariables.get('base')).to.equal('https://api.example.com'); });
-      pm.test('cross-namespace', function () { pm.expect(pm.variables.get('base')).to.equal('https://api.example.com'); });
+      pm.test('isolated from env', function () { pm.expect(pm.environment.has('base')).to.be.false; });
+      pm.test('isolated from variables', function () { pm.expect(pm.variables.has('base')).to.be.false; });
     `
     );
     expectAllTestsPass(r);
@@ -358,7 +376,13 @@ describe('real-world Postman fixtures', () => {
         pm.expect(pm.response.text()).to.match(/hello/);
       });
     `,
-      { response: { ...baseResponse, body: 'hello world', headers: { 'content-type': 'text/plain' } } }
+      {
+        response: {
+          ...baseResponse,
+          body: 'hello world',
+          headers: { 'content-type': 'text/plain' },
+        },
+      }
     );
     expectAllTestsPass(r);
   });

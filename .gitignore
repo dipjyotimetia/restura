@@ -54,6 +54,11 @@ yarn-error.log*
 /dist/**/*.yaml
 !electron-builder.json
 
+# docs site (Astro Starlight)
+/docs-site/node_modules/
+/docs-site/dist/
+/docs-site/.astro/
+
 # git worktrees
 .worktrees/
 
@@ -73,3 +78,5 @@ Thumbs.db
 ./configs/**/**
 cache/**/*
 .playwright-mcp/
+# Phase B — sandbox library bundle (regenerated each build by scripts/build-sandbox-libs.mjs)
+src/features/scripts/lib/sandboxLibraries/bundle.generated.ts

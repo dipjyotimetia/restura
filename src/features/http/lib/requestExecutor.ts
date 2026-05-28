@@ -12,6 +12,10 @@ import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
+import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
+import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
+import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import {
   applyAuthHeaders,
   applyApiKeyQueryParam,
@@ -232,7 +236,27 @@ export async function executeRequest(
 
   let preRequestResult: ScriptResult | undefined;
   if (request.preRequestScript) {
-    const executor = new ScriptExecutor(envVars, {});
+    const globalVars = useGlobalsStore.getState().vars;
+    // Pre-request runs before buildProxyRequestSpec has resolved auth, so
+    // the inherited-header set is the user-defined headers only. The test
+    // script (further down) gets the fully-resolved sentHeaders including
+    // the Authorization that auth-applier produced.
+    const inheritedHeadersPre = request.headers
+      .filter((h) => h.enabled)
+      .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {} as Record<string, string>);
+    const executor = new ScriptExecutor({
+      envVars,
+      globalVars,
+      host: {
+        sendRequest: makeRendererSendRequest({
+          variables: envVars,
+          inheritedHeaders: inheritedHeadersPre,
+        }),
+        cookies: (currentUrl) => makeCookieAdapter(currentUrl),
+        vault: makeVaultAdapter(),
+      },
+    });
+    void useCookieStore; // keep the import side-effect for cookieAdapter's lazy store binding
     preRequestResult = await executor.executeScript(request.preRequestScript, {
       request: {
         url: request.url,
@@ -245,6 +269,9 @@ export async function executeRequest(
     });
     if (preRequestResult.success && preRequestResult.variables) {
       Object.assign(envVars, preRequestResult.variables);
+    }
+    if (preRequestResult.globalsMutations) {
+      useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
     }
   }
 
@@ -297,7 +324,24 @@ export async function executeRequest(
 
   let testResult: ScriptResult | undefined;
   if (request.testScript) {
-    const executor = new ScriptExecutor(envVars, {});
+    const globalVars = useGlobalsStore.getState().vars;
+    // Test script gets the fully-resolved sentHeaders (auth + content-type
+    // + framework defaults) so pm.sendRequest sub-requests inherit the
+    // same Authorization the parent went out with. The user can still
+    // override per-call via the headers param to pm.sendRequest.
+    const executor = new ScriptExecutor({
+      envVars,
+      globalVars,
+      host: {
+        sendRequest: makeRendererSendRequest({
+          variables: envVars,
+          inheritedHeaders: sentHeaders,
+        }),
+        cookies: (currentUrl) => makeCookieAdapter(currentUrl),
+        vault: makeVaultAdapter(),
+      },
+    });
+    void useCookieStore; // keep the import side-effect for cookieAdapter's lazy store binding
     testResult = await executor.executeScript(request.testScript, {
       request: {
         url: request.url,
@@ -316,6 +360,9 @@ export async function executeRequest(
         size: responseData.size,
       },
     });
+    if (testResult.globalsMutations) {
+      useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
+    }
   }
 
   const result: RequestExecutionResult = {

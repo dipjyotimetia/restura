@@ -3,11 +3,12 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveRequest } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpMethod, AuthConfig, RequestSettings, RequestBody } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import type { AxiosProxyConfig} from 'axios';
+import type { AxiosProxyConfig } from 'axios';
 import axios, { isAxiosError } from 'axios';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { toast } from 'sonner';
@@ -42,7 +43,8 @@ function captureSentHeaders(
     }
   }
   for (const [k, v] of Object.entries(fallback)) {
-    if (!Object.keys(out).some((existing) => existing.toLowerCase() === k.toLowerCase())) out[k] = v;
+    if (!Object.keys(out).some((existing) => existing.toLowerCase() === k.toLowerCase()))
+      out[k] = v;
   }
   if (targetUrl) {
     try {
@@ -67,20 +69,28 @@ export function useHttpRequestPage() {
   const { settings: globalSettings } = useSettingsStore();
   const { addEntry } = useConsoleStore();
 
-  const { handleAdd: addParam, handleUpdate: updateParam, handleDelete: removeParam } =
-    useKeyValueCollection(httpRequest?.params ?? [], (params) => updateRequest({ params }));
+  const {
+    handleAdd: addParam,
+    handleUpdate: updateParam,
+    handleDelete: removeParam,
+  } = useKeyValueCollection(httpRequest?.params ?? [], (params) => updateRequest({ params }));
 
-  const { handleAdd: addHeader, handleUpdate: updateHeader, handleDelete: removeHeader } =
-    useKeyValueCollection(httpRequest?.headers ?? [], (headers) => updateRequest({ headers }));
+  const {
+    handleAdd: addHeader,
+    handleUpdate: updateHeader,
+    handleDelete: removeHeader,
+  } = useKeyValueCollection(httpRequest?.headers ?? [], (headers) => updateRequest({ headers }));
 
   const getEffectiveSettings = useCallback((): RequestSettings => {
-    return httpRequest?.settings || {
-      timeout: globalSettings.defaultTimeout,
-      followRedirects: globalSettings.followRedirects,
-      maxRedirects: globalSettings.maxRedirects,
-      verifySsl: globalSettings.verifySsl,
-      proxy: globalSettings.proxy,
-    };
+    return (
+      httpRequest?.settings || {
+        timeout: globalSettings.defaultTimeout,
+        followRedirects: globalSettings.followRedirects,
+        maxRedirects: globalSettings.maxRedirects,
+        verifySsl: globalSettings.verifySsl,
+        proxy: globalSettings.proxy,
+      }
+    );
   }, [httpRequest?.settings, globalSettings]);
 
   const sendRequest = useCallback(async () => {
@@ -94,37 +104,51 @@ export function useHttpRequestPage() {
       const envVars: Record<string, string> = {};
       const activeEnv = getActiveEnvironment();
       if (activeEnv) {
-        activeEnv.variables.filter((v) => v.enabled).forEach((v) => {
-          envVars[v.key] = v.value;
-        });
+        activeEnv.variables
+          .filter((v) => v.enabled)
+          .forEach((v) => {
+            envVars[v.key] = v.value;
+          });
       }
 
       let preRequestResult;
       if (httpRequest.preRequestScript) {
-        const executor = new ScriptExecutor(envVars, {});
+        const globalVars = useGlobalsStore.getState().vars;
+        const executor = new ScriptExecutor({ envVars, globalVars });
         preRequestResult = await executor.executeScript(httpRequest.preRequestScript, {
           request: {
             url: httpRequest.url,
             method: httpRequest.method,
-            headers: httpRequest.headers.filter((h) => h.enabled).reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {}),
+            headers: httpRequest.headers
+              .filter((h) => h.enabled)
+              .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {}),
             body: httpRequest.body.raw,
           },
         });
         if (preRequestResult.success && preRequestResult.variables) {
-          Object.entries(preRequestResult.variables).forEach(([key, value]) => { envVars[key] = value; });
+          Object.entries(preRequestResult.variables).forEach(([key, value]) => {
+            envVars[key] = value;
+          });
+        }
+        if (preRequestResult.globalsMutations) {
+          useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
         }
         setScriptResult({ preRequest: preRequestResult });
       }
 
       const resolvedUrl = resolveVariables(httpRequest.url);
       let params: Record<string, string> = {};
-      httpRequest.params.filter((p) => p.enabled && p.key).forEach((p) => {
-        params[p.key] = resolveVariables(p.value);
-      });
+      httpRequest.params
+        .filter((p) => p.enabled && p.key)
+        .forEach((p) => {
+          params[p.key] = resolveVariables(p.value);
+        });
       let headers: Record<string, string> = {};
-      httpRequest.headers.filter((h) => h.enabled && h.key).forEach((h) => {
-        headers[h.key] = resolveVariables(h.value);
-      });
+      httpRequest.headers
+        .filter((h) => h.enabled && h.key)
+        .forEach((h) => {
+          headers[h.key] = resolveVariables(h.value);
+        });
 
       // Apply auth headers (handles all auth types including AWS SigV4).
       // SecretRef handle: renderer cannot resolve; Electron HTTP handler
@@ -169,7 +193,8 @@ export function useHttpRequestPage() {
       });
 
       const endTime = Date.now();
-      const bodyContent = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2);
+      const bodyContent =
+        typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2);
       const responseData = {
         id: uuidv4(),
         requestId: httpRequest.id,
@@ -184,25 +209,34 @@ export function useHttpRequestPage() {
 
       let testResult;
       if (httpRequest.testScript) {
-        const executor = new ScriptExecutor(envVars, {});
+        const globalVars = useGlobalsStore.getState().vars;
+        const executor = new ScriptExecutor({ envVars, globalVars });
         testResult = await executor.executeScript(httpRequest.testScript, {
           request: {
             url: httpRequest.url,
             method: httpRequest.method,
-            headers: httpRequest.headers.filter((h) => h.enabled).reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {}),
+            headers: httpRequest.headers
+              .filter((h) => h.enabled)
+              .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {}),
             body: httpRequest.body.raw,
           },
           response: {
             status: response.status,
             statusText: response.statusText,
             headers: Object.fromEntries(
-              Object.entries(response.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value])
+              Object.entries(response.headers).map(([key, value]) => [
+                key,
+                Array.isArray(value) ? value.join(', ') : value,
+              ])
             ),
             body: response.data,
             time: endTime - startTime,
             size: responseData.size,
           },
         });
+        if (testResult.globalsMutations) {
+          useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
+        }
         setScriptResult({
           ...(preRequestResult !== undefined && { preRequest: preRequestResult }),
           ...(testResult !== undefined && { test: testResult }),
@@ -212,14 +246,25 @@ export function useHttpRequestPage() {
       setCurrentResponse(responseData);
       addHistoryItem(httpRequest, responseData);
       const scriptLogs = [...(preRequestResult?.logs || []), ...(testResult?.logs || [])];
-      const sentHeaders = captureSentHeaders(response.config?.headers, headers, response.config?.url ?? resolvedUrl);
-      addEntry(createConsoleEntry(httpRequest, responseData, sentHeaders, scriptLogs, testResult?.tests));
-      toast.success(`Request completed: ${response.status} ${response.statusText}`, { id: 'request', duration: 3000 });
+      const sentHeaders = captureSentHeaders(
+        response.config?.headers,
+        headers,
+        response.config?.url ?? resolvedUrl
+      );
+      addEntry(
+        createConsoleEntry(httpRequest, responseData, sentHeaders, scriptLogs, testResult?.tests)
+      );
+      toast.success(`Request completed: ${response.status} ${response.statusText}`, {
+        id: 'request',
+        duration: 3000,
+      });
     } catch (error: unknown) {
       const endTime = Date.now();
       const axiosError = isAxiosError(error) ? error : null;
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const errorBody = axiosError?.response?.data ? JSON.stringify(axiosError.response.data, null, 2) : errorMessage;
+      const errorBody = axiosError?.response?.data
+        ? JSON.stringify(axiosError.response.data, null, 2)
+        : errorMessage;
       const errorResponse = {
         id: uuidv4(),
         requestId: httpRequest.id,
@@ -244,41 +289,58 @@ export function useHttpRequestPage() {
       setLoading(false);
     }
   }, [
-    httpRequest, isLoading, setLoading, getActiveEnvironment, resolveVariables,
-    setScriptResult, setCurrentResponse, addHistoryItem, getEffectiveSettings, addEntry,
+    httpRequest,
+    isLoading,
+    setLoading,
+    getActiveEnvironment,
+    resolveVariables,
+    setScriptResult,
+    setCurrentResponse,
+    addHistoryItem,
+    getEffectiveSettings,
+    addEntry,
   ]);
 
-  const changeSettings = useCallback((updates: Partial<RequestSettings>) => {
-    const current = httpRequest?.settings || getEffectiveSettings();
-    updateRequest({ settings: { ...current, ...updates } });
-  }, [httpRequest?.settings, getEffectiveSettings, updateRequest]);
+  const changeSettings = useCallback(
+    (updates: Partial<RequestSettings>) => {
+      const current = httpRequest?.settings || getEffectiveSettings();
+      updateRequest({ settings: { ...current, ...updates } });
+    },
+    [httpRequest?.settings, getEffectiveSettings, updateRequest]
+  );
 
-  const toggleSettingsOverride = useCallback((enabled: boolean) => {
-    if (enabled) {
-      changeSettings({});
-    } else {
-      // EOPT(maintainability): updateRequest treats `undefined` as a clear
-      // signal — Partial<T> can't model that under EOPT, so cast through to
-      // preserve the existing contract. TODO: replace with an explicit reset
-      // action on the store.
-      updateRequest({ settings: undefined } as Parameters<typeof updateRequest>[0]);
-    }
-  }, [changeSettings, updateRequest]);
-
-  const changeProxyOverride = useCallback((useOverride: boolean) => {
-    if (useOverride) {
-      changeSettings({ proxy: { ...globalSettings.proxy } });
-    } else {
-      const current = httpRequest?.settings;
-      if (current) {
-        const { proxy: _omit, ...rest } = current;
-        void _omit;
-        // EOPT(maintainability): omit the `proxy` key entirely instead of
-        // setting it to undefined.
-        updateRequest({ settings: rest });
+  const toggleSettingsOverride = useCallback(
+    (enabled: boolean) => {
+      if (enabled) {
+        changeSettings({});
+      } else {
+        // EOPT(maintainability): updateRequest treats `undefined` as a clear
+        // signal — Partial<T> can't model that under EOPT, so cast through to
+        // preserve the existing contract. TODO: replace with an explicit reset
+        // action on the store.
+        updateRequest({ settings: undefined } as Parameters<typeof updateRequest>[0]);
       }
-    }
-  }, [changeSettings, globalSettings.proxy, httpRequest?.settings, updateRequest]);
+    },
+    [changeSettings, updateRequest]
+  );
+
+  const changeProxyOverride = useCallback(
+    (useOverride: boolean) => {
+      if (useOverride) {
+        changeSettings({ proxy: { ...globalSettings.proxy } });
+      } else {
+        const current = httpRequest?.settings;
+        if (current) {
+          const { proxy: _omit, ...rest } = current;
+          void _omit;
+          // EOPT(maintainability): omit the `proxy` key entirely instead of
+          // setting it to undefined.
+          updateRequest({ settings: rest });
+        }
+      }
+    },
+    [changeSettings, globalSettings.proxy, httpRequest?.settings, updateRequest]
+  );
 
   const counts = {
     activeParams: httpRequest?.params.filter((p) => p.enabled && p.key).length ?? 0,
@@ -300,8 +362,12 @@ export function useHttpRequestPage() {
     },
     changePreRequestScript: (script: string) => updateRequest({ preRequestScript: script }),
     changeTestScript: (script: string) => updateRequest({ testScript: script }),
-    addParam, updateParam, removeParam,
-    addHeader, updateHeader, removeHeader,
+    addParam,
+    updateParam,
+    removeParam,
+    addHeader,
+    updateHeader,
+    removeHeader,
     changeSettings,
     toggleSettingsOverride,
     changeProxyOverride,

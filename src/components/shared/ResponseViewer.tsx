@@ -9,15 +9,14 @@ import { isCsvResponse } from '@/lib/shared/csvParser';
 import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
 import { ImagePreview } from '@/components/shared/ImagePreview';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Copy, Check, Zap, Rows, Columns, Search, Download, Braces, FileDown,
-} from 'lucide-react';
+import { Copy, Check, Zap, Rows, Columns, Search, Download, Braces, FileDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 import { Scale, Stagger, StaggerItem, AnimatePresence, motion } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
 import {
   Floater,
   StatusPill,
@@ -47,11 +46,15 @@ const CodeEditor = lazyComponent(
 // CSV (papaparse) and JSONPath (jsonpath-plus) only load when actually used.
 const CsvTableViewer = lazyComponent(
   () => import('@/components/shared/CsvTableViewer'),
-  <div className="p-4"><Skeleton className="h-4 w-1/2 rounded" /></div>
+  <div className="p-4">
+    <Skeleton className="h-4 w-1/2 rounded" />
+  </div>
 );
 const JsonPathQuery = lazyComponent(
   () => import('@/components/shared/JsonPathQuery'),
-  <div className="p-4"><Skeleton className="h-4 w-1/2 rounded" /></div>
+  <div className="p-4">
+    <Skeleton className="h-4 w-1/2 rounded" />
+  </div>
 );
 
 const formatJson = (body: string): string => {
@@ -83,7 +86,9 @@ function ResponseSkeleton() {
         </div>
         <div className="flex-1 p-4">
           <Stagger className="space-y-2 font-mono text-sm">
-            <StaggerItem><Skeleton className="h-3.5 w-12 rounded" /></StaggerItem>
+            <StaggerItem>
+              <Skeleton className="h-3.5 w-12 rounded" />
+            </StaggerItem>
             <StaggerItem className="pl-4 space-y-2">
               <Skeleton className="h-3.5 w-3/4 rounded" />
               <Skeleton className="h-3.5 w-1/2 rounded" />
@@ -94,7 +99,9 @@ function ResponseSkeleton() {
               </div>
               <Skeleton className="h-3.5 w-2/5 rounded" />
             </StaggerItem>
-            <StaggerItem><Skeleton className="h-3.5 w-8 rounded" /></StaggerItem>
+            <StaggerItem>
+              <Skeleton className="h-3.5 w-8 rounded" />
+            </StaggerItem>
           </Stagger>
         </div>
       </Floater>
@@ -102,7 +109,7 @@ function ResponseSkeleton() {
   );
 }
 
-type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview';
+type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview' | 'visualize';
 type BodyFormat = 'pretty' | 'raw' | 'preview' | 'table';
 
 function IconButton({
@@ -110,7 +117,12 @@ function IconButton({
   label,
   onClick,
   active,
-}: { icon: React.ReactNode; label: string; onClick?: () => void; active?: boolean }) {
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  active?: boolean;
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -139,9 +151,7 @@ function LayoutToggleButton() {
     <IconButton
       icon={vertical ? <Columns className="h-3.5 w-3.5" /> : <Rows className="h-3.5 w-3.5" />}
       label={`Switch to ${vertical ? 'side-by-side' : 'stacked'} layout`}
-      onClick={() =>
-        updateSettings({ layoutOrientation: vertical ? 'horizontal' : 'vertical' })
-      }
+      onClick={() => updateSettings({ layoutOrientation: vertical ? 'horizontal' : 'vertical' })}
     />
   );
 }
@@ -149,7 +159,13 @@ function LayoutToggleButton() {
 function ResponseViewer() {
   const currentResponse = useActiveResponse();
   const streamingEvents = useActiveStreamingEvents();
-  const activeTabId = useActiveTab()?.id;
+  const activeTab_ = useActiveTab();
+  const activeTabId = activeTab_?.id;
+  // pm.visualizer.set captures into ScriptResult.visualization. We check
+  // either script phase; the test phase wins (last writer) if both fired.
+  const visualization =
+    activeTab_?.scriptResult?.test?.visualization ??
+    activeTab_?.scriptResult?.preRequest?.visualization;
   const isLoading = useRequestStore((state) => state.isLoading);
   const [activeTab, setActiveTab] = useState<ResponseTab>('body');
   const [bodyFormat, setBodyFormat] = useState<BodyFormat>('pretty');
@@ -169,7 +185,8 @@ function ResponseViewer() {
   }, []);
 
   const language = useMemo(
-    () => (currentResponse ? detectLanguage(currentResponse.body, currentResponse.headers) : 'json'),
+    () =>
+      currentResponse ? detectLanguage(currentResponse.body, currentResponse.headers) : 'json',
     [currentResponse]
   );
 
@@ -242,7 +259,8 @@ function ResponseViewer() {
     if (!currentResponse || activeTab !== 'timeline') {
       return [] as Array<{ name: string; dur?: number; desc?: string }>;
     }
-    const raw = currentResponse.headers['server-timing'] ?? currentResponse.headers['Server-Timing'];
+    const raw =
+      currentResponse.headers['server-timing'] ?? currentResponse.headers['Server-Timing'];
     if (!raw) return [];
     const list = Array.isArray(raw) ? raw : [raw];
     const out: Array<{ name: string; dur?: number; desc?: string }> = [];
@@ -256,7 +274,10 @@ function ResponseViewer() {
           const eq = seg.indexOf('=');
           if (eq < 0) continue;
           const k = seg.slice(0, eq).trim().toLowerCase();
-          const v = seg.slice(eq + 1).trim().replace(/^"|"$/g, '');
+          const v = seg
+            .slice(eq + 1)
+            .trim()
+            .replace(/^"|"$/g, '');
           if (k === 'dur') parsed.dur = Number(v);
           else if (k === 'desc') parsed.desc = v;
         }
@@ -337,11 +358,22 @@ function ResponseViewer() {
 
   const tabs: ReadonlyArray<SubTab<ResponseTab>> = [
     ...(language === 'html' ? [{ value: 'preview' as const, label: 'Preview' }] : []),
-    { value: 'body' as const, label: 'Body', ...(language !== 'text' && { badge: language.toUpperCase() }) },
+    {
+      value: 'body' as const,
+      label: 'Body',
+      ...(language !== 'text' && { badge: language.toUpperCase() }),
+    },
     { value: 'headers' as const, label: 'Headers', count: headerEntries.length },
     { value: 'cookies' as const, label: 'Cookies', count: cookies.length },
     { value: 'timeline' as const, label: 'Timeline' },
     { value: 'tests' as const, label: 'Tests' },
+    // Visualize tab — only present when the test script called
+    // pm.visualizer.set. Postman's behaviour: the tab disappears on the
+    // next request that doesn't visualize, which falls out of this
+    // conditional naturally.
+    ...(visualization
+      ? [{ value: 'visualize' as const, label: 'Visualize' } satisfies SubTab<ResponseTab>]
+      : []),
   ];
 
   // Only the total `time` is available on Response — we render a single TTFB
@@ -381,7 +413,9 @@ function ResponseViewer() {
               <div className="flex flex-col items-center gap-3 px-8 py-6 rounded-sp-panel sp-inset">
                 <Zap className="h-6 w-6 text-sp-accent opacity-60" />
                 <div className="text-center space-y-2">
-                  <p className="text-sp-12 font-mono text-sp-muted">Send a request to see the response</p>
+                  <p className="text-sp-12 font-mono text-sp-muted">
+                    Send a request to see the response
+                  </p>
                   <div className="flex items-center justify-center gap-1.5 text-sp-11 text-sp-dim">
                     <Kbd size="sm">⌘</Kbd>
                     <Kbd size="sm">↵</Kbd>
@@ -437,7 +471,9 @@ function ResponseViewer() {
                           options={[
                             { value: 'pretty', label: 'Pretty' },
                             { value: 'raw', label: 'Raw' },
-                            ...(language === 'html' ? [{ value: 'preview' as const, label: 'Preview' }] : []),
+                            ...(language === 'html'
+                              ? [{ value: 'preview' as const, label: 'Preview' }]
+                              : []),
                             ...(isCsv ? [{ value: 'table' as const, label: 'Table' }] : []),
                           ]}
                           ariaLabel="Response body format"
@@ -455,18 +491,32 @@ function ResponseViewer() {
                         <IconButton
                           icon={<Search className="h-3.5 w-3.5" />}
                           label="Find in response (Ctrl+F)"
-                          onClick={() => responseEditorRef.current?.getAction('actions.find')?.run()}
+                          onClick={() =>
+                            responseEditorRef.current?.getAction('actions.find')?.run()
+                          }
                         />
                       )}
                       {!isBase64 && (
                         <IconButton
-                          icon={copiedBody ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                          icon={
+                            copiedBody ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )
+                          }
                           label={copiedBody ? 'Copied!' : 'Copy response body'}
                           onClick={handleCopyBody}
                         />
                       )}
                       <IconButton
-                        icon={isBase64 ? <FileDown className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
+                        icon={
+                          isBase64 ? (
+                            <FileDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <Download className="h-3.5 w-3.5" />
+                          )
+                        }
                         label={isBase64 ? 'Download file' : 'Download response'}
                         onClick={handleDownloadBody}
                       />
@@ -514,7 +564,9 @@ function ResponseViewer() {
                         readOnly
                         height="100%"
                         showCopyButton={false}
-                        onEditorMount={(editor) => { responseEditorRef.current = editor; }}
+                        onEditorMount={(editor) => {
+                          responseEditorRef.current = editor;
+                        }}
                         path={activeTabId ? `tab-${activeTabId}-response` : undefined}
                       />
                     ) : (
@@ -572,7 +624,9 @@ function ResponseViewer() {
                                 )}
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent>{copiedHeader === key ? 'Copied!' : 'Copy header'}</TooltipContent>
+                            <TooltipContent>
+                              {copiedHeader === key ? 'Copied!' : 'Copy header'}
+                            </TooltipContent>
                           </Tooltip>
                         </div>
                       ))}
@@ -584,15 +638,24 @@ function ResponseViewer() {
                   <div className="h-full overflow-auto">
                     {cookies.length === 0 ? (
                       <div className="flex items-center justify-center h-full">
-                        <p className="text-sp-12 text-sp-dim font-mono">No cookies set by this response</p>
+                        <p className="text-sp-12 text-sp-dim font-mono">
+                          No cookies set by this response
+                        </p>
                       </div>
                     ) : (
                       <div className="px-3 py-2 space-y-1">
                         {cookies.map((c, i) => (
-                          <div key={`${c.name}-${i}`} className="grid grid-cols-[160px_1fr] gap-3 py-1.5 border-b border-sp-line">
-                            <span className="font-mono text-sp-12 text-sp-text truncate">{c.name}</span>
+                          <div
+                            key={`${c.name}-${i}`}
+                            className="grid grid-cols-[160px_1fr] gap-3 py-1.5 border-b border-sp-line"
+                          >
+                            <span className="font-mono text-sp-12 text-sp-text truncate">
+                              {c.name}
+                            </span>
                             <div className="space-y-0.5">
-                              <span className="font-mono text-sp-12 text-sp-muted break-all">{c.value}</span>
+                              <span className="font-mono text-sp-12 text-sp-muted break-all">
+                                {c.value}
+                              </span>
                               {c.attrs && (
                                 <div className="text-sp-10-5 text-sp-dim font-mono">{c.attrs}</div>
                               )}
@@ -626,7 +689,10 @@ function ResponseViewer() {
                       ) : (
                         <Floater radius="btn" elevation="inset" className="p-3 space-y-2">
                           {serverTiming.map((t, i) => (
-                            <div key={`${t.name}-${i}`} className="grid grid-cols-[140px_1fr_auto] gap-3 items-center">
+                            <div
+                              key={`${t.name}-${i}`}
+                              className="grid grid-cols-[140px_1fr_auto] gap-3 items-center"
+                            >
                               <span className="font-mono text-sp-12 text-sp-text">{t.name}</span>
                               <span className="font-mono text-sp-11-5 text-sp-muted truncate">
                                 {t.desc ?? ''}
@@ -644,8 +710,18 @@ function ResponseViewer() {
 
                 {activeTab === 'tests' && (
                   <div className="flex items-center justify-center h-full">
-                    <p className="text-sp-12 text-sp-dim font-mono">No tests recorded for this response</p>
+                    <p className="text-sp-12 text-sp-dim font-mono">
+                      No tests recorded for this response
+                    </p>
                   </div>
+                )}
+
+                {activeTab === 'visualize' && visualization && (
+                  <VisualizerFrame
+                    template={visualization.template}
+                    data={visualization.data}
+                    className="h-full"
+                  />
                 )}
               </div>
             </Floater>
