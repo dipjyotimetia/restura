@@ -98,7 +98,11 @@ jobs:
       - name: Generate CycloneDX SBOM
         run: |
           # Production-only tree — devDeps don't ship.
-          npm ci --omit=dev
+          # --ignore-scripts skips the root postinstall (electron-builder
+          # install-app-deps), which is a devDep and absent from this tree.
+          # We only need the resolved prod dep graph for the SBOM, not a
+          # runnable install.
+          npm ci --omit=dev --ignore-scripts
           npx --yes @cyclonedx/cyclonedx-npm@2 \
             --output-format JSON --output-file restura.cdx.json
           npx --yes @cyclonedx/cyclonedx-npm@2 \
@@ -109,10 +113,11 @@ jobs:
         with:
           tag_name: ${{ steps.bump.outputs.new_tag }}
           name: ${{ steps.bump.outputs.new_tag }}
+          # GitHub generates "## What's Changed" + its own "**Full Changelog**"
+          # link from PR history. `body` is prepended to that, so we only put
+          # the bits the generator doesn't know about (SBOM attachment note).
           generate_release_notes: true
           body: |
-            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.bump.outputs.previous_tag }}...${{ steps.bump.outputs.new_tag }}
-
             A CycloneDX SBOM of the production dependency tree is attached
             (`restura.cdx.json` / `.xml`).
           files: |
