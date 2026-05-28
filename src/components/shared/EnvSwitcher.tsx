@@ -5,31 +5,9 @@ import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { Check, Plus, Globe } from 'lucide-react';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { cn } from '@/lib/shared/utils';
+import { envColorFor } from '@/features/environments/lib/envColor';
 import type { Environment } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-
-/**
- * Deterministic per-environment color — used for the row dot and halo.
- * Cycles through the Spatial Depth chip palette so different envs read
- * distinctly without persisting a color field on Environment.
- */
-const ENV_COLORS = [
-  '#22c55e', // green — prod feel
-  '#f59e0b', // amber — staging
-  '#4d9fff', // cobalt — dev
-  '#a78bfa', // violet
-  '#06b6d4', // cyan
-  '#ef4444', // red
-  '#e879a4', // pink
-] as const;
-
-function colorForEnv(env: Environment, index: number): string {
-  const lower = env.name.toLowerCase();
-  if (lower.includes('prod')) return '#22c55e';
-  if (lower.includes('stag')) return '#f59e0b';
-  if (lower.includes('dev') || lower.includes('local')) return '#4d9fff';
-  return ENV_COLORS[index % ENV_COLORS.length] ?? '#4d9fff';
-}
 
 /**
  * Detect a "host-like" variable to surface as the row subtitle. Falls back to
@@ -125,9 +103,9 @@ export default function EnvSwitcher({
                 No environments yet
               </div>
             ) : (
-              environments.map((env, i) => {
+              environments.map((env) => {
                 const isActive = env.id === activeId;
-                const color = colorForEnv(env, i);
+                const color = envColorFor(env);
                 return (
                   <button
                     key={env.id}
@@ -141,9 +119,7 @@ export default function EnvSwitcher({
                       'transition-colors',
                       isActive ? 'bg-sp-active' : 'hover:bg-sp-hover'
                     )}
-                    style={
-                      isActive ? { boxShadow: 'inset 2px 0 0 0 var(--sp-accent)' } : undefined
-                    }
+                    style={isActive ? { boxShadow: 'inset 2px 0 0 0 var(--sp-accent)' } : undefined}
                   >
                     {/* Color dot with halo */}
                     <span

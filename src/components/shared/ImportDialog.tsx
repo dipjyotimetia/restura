@@ -141,8 +141,8 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
 };
 
 const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   postman: async (data) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     collection: await importPostmanCollection(data as any),
     warnings: [],
   }),
