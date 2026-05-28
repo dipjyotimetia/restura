@@ -187,7 +187,8 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
             aria-orientation="horizontal"
             aria-label="Resize console panel"
             aria-valuenow={Math.round(panelHeight)}
-            aria-valuemin={120}
+            aria-valuemin={CONSOLE_MIN_PX}
+            aria-valuemax={Math.round(maxConsoleHeight())}
             tabIndex={0}
           >
             <div className="h-1 w-10 rounded-full bg-border group-hover:bg-primary/60 group-focus-visible:bg-primary/60 transition-colors" />
