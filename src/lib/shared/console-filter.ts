@@ -30,6 +30,15 @@ const FIELD_KEYS: ReadonlySet<string> = new Set([
   'status', 'method', 'url', 'protocol', 'host', 'has', 'run',
 ]);
 
+/**
+ * Cap on the length of a user-typed regex pattern. Captured URLs are short
+ * (~< 2 KB), so realistic ReDoS risk is limited, but a pathological pattern
+ * like `(a+)+$` against a long URL can still freeze the renderer. A 256-char
+ * cap rejects deeply nested patterns without inconveniencing real use.
+ * Over-length patterns fall back to literal-substring matching.
+ */
+const MAX_REGEX_LENGTH = 256;
+
 export interface FilterToken {
   negated: boolean;
   /** Field-scoped (key set) or free-text. */
@@ -76,7 +85,11 @@ export function parseQuery(input: string): FilterToken[] {
     }
     const tok: FilterToken = { negated, value };
     if (field) tok.field = field;
-    if (value.startsWith('~') && value.length > 1) {
+    if (
+      value.startsWith('~') &&
+      value.length > 1 &&
+      value.length - 1 <= MAX_REGEX_LENGTH
+    ) {
       try { tok.regex = new RegExp(value.slice(1), 'i'); }
       catch { /* fall through — literal match on the raw value */ }
     }
@@ -132,6 +145,10 @@ function hasCookieHeader(h: Record<string, string | string[]>): boolean {
 /** Evaluate a single token against an entry. Field tokens use the named field;
  *  free-text searches the same surfaces as the legacy literal-substring search. */
 function tokenMatches(entry: ConsoleEntry, t: FilterToken): boolean {
+  // Partial-token guard: `status:` / `method:` mid-typing shouldn't empty the
+  // list — treat a field token with no value (and no regex) as a no-op.
+  if (t.field && !t.value && !t.regex) return true;
+
   const v = t.value.toLowerCase();
 
   // Field-scoped tokens.
@@ -139,7 +156,14 @@ function tokenMatches(entry: ConsoleEntry, t: FilterToken): boolean {
   if (t.field === 'method') return entry.request.method.toLowerCase() === v || entry.request.method.toLowerCase().includes(v);
   if (t.field === 'protocol') return (entry.protocol ?? 'http').toLowerCase() === v;
   if (t.field === 'host') return hostOf(entry.request.url).includes(v);
-  if (t.field === 'run') return (entry.runLabel ?? entry.runId ?? '').toLowerCase().includes(v);
+  if (t.field === 'run') {
+    // Match either the label or the id — labels are user-friendly, ids are
+    // shareable in URLs; `run:` should accept whichever the user happens to
+    // have in clipboard.
+    const label = (entry.runLabel ?? '').toLowerCase();
+    const id = (entry.runId ?? '').toLowerCase();
+    return label.includes(v) || id.includes(v);
+  }
   if (t.field === 'has') {
     if (v === 'body') return !!entry.request.body || entry.response.body.length > 0;
     if (v === 'cookie') return hasCookieHeader(entry.request.headers as Record<string, string | string[]>) ||
@@ -167,14 +191,22 @@ function tokenMatches(entry: ConsoleEntry, t: FilterToken): boolean {
   return false;
 }
 
-export function matchesQuery(entry: ConsoleEntry, query: string): boolean {
-  const tokens = parseQuery(query);
+/** Match an entry against a pre-parsed token list — preferred when filtering
+ *  many entries with the same query (parse the query once, reuse the tokens).
+ *  An empty token list matches everything. */
+export function matchesTokens(entry: ConsoleEntry, tokens: FilterToken[]): boolean {
   if (tokens.length === 0) return true;
   for (const t of tokens) {
     const hit = tokenMatches(entry, t);
     if (t.negated ? hit : !hit) return false;
   }
   return true;
+}
+
+/** Single-entry convenience that parses the query each call. Use
+ *  `parseQuery` + `matchesTokens` instead when iterating a list. */
+export function matchesQuery(entry: ConsoleEntry, query: string): boolean {
+  return matchesTokens(entry, parseQuery(query));
 }
 
 export interface FilterCriteria {
@@ -184,13 +216,16 @@ export interface FilterCriteria {
   runFilter: string;      // run id or 'all'
 }
 
-/** Apply all four console filters (text query + status class + protocol + run). */
+/** Apply all four console filters (text query + status class + protocol + run).
+ *  The text query is parsed exactly once for the whole list; without this,
+ *  every keystroke recompiled each regex token N times (once per entry). */
 export function filterEntries(entries: ConsoleEntry[], c: FilterCriteria): ConsoleEntry[] {
+  const tokens = parseQuery(c.query);
   return entries.filter((entry) => {
     if (!statusMatchesClass(entry.response.status, c.statusFilter)) return false;
     if (c.protocolFilter !== 'all' && (entry.protocol ?? 'http') !== c.protocolFilter) return false;
     if (c.runFilter !== 'all' && entry.runId !== c.runFilter) return false;
-    return matchesQuery(entry, c.query);
+    return matchesTokens(entry, tokens);
   });
 }
 

@@ -76,7 +76,14 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
                 <CookieList title="Cookies" rows={reqCookies.map((c) => ({ name: c.name, value: c.value }))} />
               )}
               {entry.request.body && (
-                <BodyBlock label="Body" value={entry.request.body} headers={undefined} height="320px" />
+                <BodyBlock
+                  label="Body"
+                  value={entry.request.body}
+                  // Pass the captured request headers so language detection
+                  // can use Content-Type rather than payload-sniffing.
+                  headers={entry.request.headers as Record<string, string | string[]>}
+                  height="320px"
+                />
               )}
             </div>
 

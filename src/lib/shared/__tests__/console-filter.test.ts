@@ -71,6 +71,15 @@ describe('parseQuery', () => {
     expect(t.regex).toBeUndefined();
     expect(t.value).toBe('~[');
   });
+
+  it('refuses to compile regex past the length cap (ReDoS guard)', () => {
+    // 300 chars of `a` is a valid regex but past the 256-char cap. Refusing
+    // to compile keeps a pathological pattern from freezing the renderer.
+    const longPat = 'a'.repeat(300);
+    const t = parseQuery(`url:~${longPat}`)[0]!;
+    expect(t.regex).toBeUndefined();
+    expect(t.field).toBe('url');
+  });
 });
 
 describe('matchesQuery — field tokens', () => {
@@ -104,6 +113,33 @@ describe('matchesQuery — field tokens', () => {
     expect(matchesQuery(e, 'has:body')).toBe(true);
     expect(matchesQuery(make({ tests: [{ name: 't', passed: true }] }), 'has:test')).toBe(true);
     expect(matchesQuery(make({ scriptLogs: [{ type: 'log', message: 'x', timestamp: 1 }] }), 'has:script')).toBe(true);
+  });
+
+  it('has:cookie matches either a request Cookie or a response Set-Cookie', () => {
+    const reqCookie = make({
+      request: { ...e.request, headers: { cookie: 'sid=abc' } },
+    });
+    const resCookie = make({
+      response: { ...e.response, headers: { 'set-cookie': 'theme=dark; Path=/' } },
+    });
+    expect(matchesQuery(reqCookie, 'has:cookie')).toBe(true);
+    expect(matchesQuery(resCookie, 'has:cookie')).toBe(true);
+    expect(matchesQuery(e, 'has:cookie')).toBe(false);
+  });
+
+  it('run: matches by runLabel or runId (case-insensitive)', () => {
+    const labelled = make({ runId: 'r1', runLabel: 'Smoke' });
+    expect(matchesQuery(labelled, 'run:smoke')).toBe(true);
+    expect(matchesQuery(labelled, 'run:r1')).toBe(true);
+    expect(matchesQuery(labelled, 'run:other')).toBe(false);
+  });
+
+  it('partial typing of a field key (`status:`) is treated as a no-op', () => {
+    // Mid-typing — the user just typed `status:` and hasn't entered a value
+    // yet. The list should NOT empty as a result.
+    expect(matchesQuery(e, 'status:')).toBe(true);
+    expect(matchesQuery(e, 'method:')).toBe(true);
+    expect(matchesQuery(e, 'url:')).toBe(true);
   });
 });
 

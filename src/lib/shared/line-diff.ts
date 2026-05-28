@@ -6,9 +6,12 @@
  *   - "removed" lines (in `a` only)
  *   - "added" lines (in `b` only)
  *
- * Complexity is O(m·n). To stay snappy on big bodies (Monaco already caps at
- * 10KB), we bail out and return a coarse "changed-as-a-whole" diff if either
- * side exceeds MAX_DIFF_LINES.
+ * Complexity is O(m·n) in both time AND memory — the (m+1)·(n+1) table is
+ * allocated up front. At MAX_DIFF_LINES = 800 the worst case is
+ * 801·801 ≈ 640 k cells, ~5 MB on V8's packed small-int representation —
+ * well within budget for a click-to-open dialog. Above the threshold we fall
+ * back to a coarse "all-removed then all-added" diff so the dialog stays
+ * responsive on multi-thousand-line bodies.
  */
 
 export type LineDiffOp = 'equal' | 'added' | 'removed';
@@ -18,7 +21,7 @@ export interface LineDiffEntry {
   text: string;
 }
 
-export const MAX_DIFF_LINES = 2000;
+export const MAX_DIFF_LINES = 800;
 
 function toLines(s: string): string[] {
   // Treat empty input as zero lines (avoid a spurious "1 line" diff for "").
@@ -71,10 +74,4 @@ export function diffLines(left: string, right: string): LineDiffEntry[] {
   while (i < a.length) { out.push({ op: 'removed', text: a[i++]! }); }
   while (j < b.length) { out.push({ op: 'added', text: b[j++]! }); }
   return out;
-}
-
-/** True iff the two strings differ on at least one line. */
-export function hasDiff(left: string, right: string): boolean {
-  if (left === right) return false;
-  return true;
 }

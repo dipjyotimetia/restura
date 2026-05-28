@@ -38,4 +38,11 @@ describe('diffLines', () => {
     expect(ds[ds.length - 1]!.op).toBe('added');
     expect(ds.filter((e) => e.op === 'equal').length).toBe(0);
   });
+
+  it('MAX_DIFF_LINES is conservative enough to keep memory bounded', () => {
+    // The (m+1)·(n+1) table allocates up front; a 2000-line threshold meant
+    // ~32 MB peak. 800 keeps the worst case at ~5 MB. Lock the value here so
+    // a future bump is intentional rather than accidental.
+    expect(MAX_DIFF_LINES).toBeLessThanOrEqual(1000);
+  });
 });

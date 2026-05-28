@@ -246,8 +246,12 @@ export default function FramesTab() {
           ) : grouped ? (
             grouped.map((group) => (
               <div key={group.id}>
-                <div className="sticky top-0 z-[1] flex items-center gap-2 px-3 py-1 bg-muted/80 backdrop-blur-sm border-y border-border/60 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  <Cable className="h-3 w-3" />
+                <div
+                  role="heading"
+                  aria-level={3}
+                  className="sticky top-0 z-[1] flex items-center gap-2 px-3 py-1 bg-muted/80 backdrop-blur-sm border-y border-border/60 text-[10px] font-mono uppercase tracking-wider text-muted-foreground"
+                >
+                  <Cable className="h-3 w-3" aria-hidden="true" />
                   <span className="truncate max-w-[200px]">{group.id}</span>
                   <Badge variant="secondary" className="ml-auto text-[9px] h-4 px-1 tabular-nums">
                     {group.items.length}
