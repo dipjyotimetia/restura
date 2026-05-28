@@ -29,7 +29,7 @@ const LITERALS_AND_COMMENTS = /(['"`])(?:\\[\s\S]|(?!\1)[\s\S])*\1|\/\/[^\n]*|\/
 // so `pm.x` there is still migrated. Applied AFTER strings/comments are masked.
 const REGEX_LITERAL = new RegExp(
   '(?<=(?:^|[-+=(,:;[{}!&|?*/%^~<>]|\\breturn|\\btypeof|\\bcase|\\bdo|\\belse|\\bvoid|\\bdelete|\\bin|\\bof|\\byield)\\s*)' +
-    '\\/(?:\\\\.|\\[(?:\\\\.|[^\\]\\r\\n])*\\]|[^/\\r\\n\\\\])+\\/[a-z]*',
+    '\\/(?:[^/\\[\\r\\n\\\\]|\\\\[\\s\\S]|\\[(?:[^\\]\\\\\\r\\n]|\\\\[\\s\\S])*\\])+\\/[a-z]*',
   'gm'
 );
 
