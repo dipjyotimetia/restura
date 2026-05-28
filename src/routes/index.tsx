@@ -112,21 +112,26 @@ export default function Home() {
 
   // Auto-collapse / restore the sidebar on width crossings. Acting only on the
   // crossing (not on every render) lets the user manually open the sidebar
-  // while narrow without it immediately snapping shut again.
+  // while narrow without it immediately snapping shut again. We remember
+  // *which* panel was open at the moment of auto-collapse so the restore
+  // respects the user's last choice (History / Workflows / Runs), not just
+  // the default 'collections' tab.
   const prevWidthRef = useRef(windowWidth);
   const autoCollapsedRef = useRef(isNarrow());
+  const lastPanelRef = useRef<ActivePanel>(activePanel ?? 'collections');
   useEffect(() => {
     const prev = prevWidthRef.current;
     prevWidthRef.current = windowWidth;
     if (prev >= SIDEBAR_AUTO_COLLAPSE_PX && windowWidth < SIDEBAR_AUTO_COLLAPSE_PX) {
       if (activePanel !== null) {
+        lastPanelRef.current = activePanel;
         autoCollapsedRef.current = true;
         setActivePanel(null);
       }
     } else if (prev < SIDEBAR_AUTO_COLLAPSE_PX && windowWidth >= SIDEBAR_AUTO_COLLAPSE_PX) {
       if (autoCollapsedRef.current) {
         autoCollapsedRef.current = false;
-        setActivePanel('collections');
+        setActivePanel(lastPanelRef.current);
       }
     }
   }, [windowWidth, activePanel]);
