@@ -1,15 +1,11 @@
 /**
- * Bridge from the QuickJS sandbox `pm.cookies` API to the renderer's
- * persistent cookie jar (`useCookieStore`).
+ * Type-only surface for the QuickJS `pm.cookies` host bridge.
  *
- * Postman's `pm.cookies` exposes the cookies the current request URL
- * would carry — domain + path match against the live jar. The
- * implementation is shared by every protocol executor: a single
- * `makeCookieAdapter(currentUrl)` closure captures the URL for the
- * "get/has by name" shortcuts (which Postman scopes to the request URL),
- * while `jar()` operations are URL-explicit.
+ * The renderer implementation that wraps `useCookieStore` lives in
+ * `pmCookieAdapter.renderer.ts` — kept separate so `scriptExecutor.ts`
+ * (which re-exports these types) doesn't drag the renderer-only
+ * `useCookieStore` import into the CLI's type-check graph.
  */
-import { useCookieStore } from '@/features/http/store/useCookieStore';
 
 export interface PmCookieRecord {
   name: string;
@@ -32,72 +28,4 @@ export interface PmCookieAdapter {
   unset(url: string, name: string): void;
   /** Remove every cookie matching the URL's domain/path. */
   clear(url: string): void;
-}
-
-function toPmRecord(
-  c: ReturnType<typeof useCookieStore.getState>['cookies'][number]
-): PmCookieRecord {
-  return {
-    name: c.key,
-    value: c.value,
-    domain: c.domain,
-    path: c.path,
-    secure: c.secure,
-    httpOnly: c.httpOnly,
-    ...(c.expires ? { expires: c.expires } : {}),
-  };
-}
-
-function inferDomainPath(url: string): { domain: string; path: string; secure: boolean } {
-  try {
-    const u = new URL(url);
-    return { domain: u.hostname, path: u.pathname || '/', secure: u.protocol === 'https:' };
-  } catch {
-    return { domain: '', path: '/', secure: false };
-  }
-}
-
-/**
- * Build a cookie adapter scoped to the supplied request URL. The
- * `forCurrentUrl` getter is what `pm.cookies.get(name)` / `pm.cookies.has(name)`
- * read; jar operations take an explicit URL.
- */
-export function makeCookieAdapter(currentUrl: string | undefined): PmCookieAdapter {
-  const store = useCookieStore;
-  return {
-    forCurrentUrl() {
-      if (!currentUrl) return [];
-      return store.getState().getCookiesForUrl(currentUrl).map(toPmRecord);
-    },
-    getForUrl(url) {
-      return store.getState().getCookiesForUrl(url).map(toPmRecord);
-    },
-    add(url, cookie) {
-      const inferred = inferDomainPath(url);
-      const record = {
-        id: `${cookie.domain ?? inferred.domain}|${cookie.path ?? inferred.path}|${cookie.name}`,
-        key: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain ?? inferred.domain,
-        path: cookie.path ?? inferred.path,
-        secure: cookie.secure ?? inferred.secure,
-        httpOnly: cookie.httpOnly ?? false,
-        ...(cookie.expires ? { expires: cookie.expires } : {}),
-      };
-      store.getState().addCookie(record);
-    },
-    unset(url, name) {
-      const matches = store
-        .getState()
-        .getCookiesForUrl(url)
-        .filter((c) => c.key === name);
-      const state = store.getState();
-      for (const m of matches) state.deleteCookie(m.id);
-    },
-    clear(url) {
-      const matches = store.getState().getCookiesForUrl(url);
-      const state = store.getState();
-      for (const m of matches) state.deleteCookie(m.id);
-    },
-  };
 }
