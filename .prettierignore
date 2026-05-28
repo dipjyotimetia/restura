@@ -34,7 +34,3 @@ docs/CAPABILITY_MATRIX.md
 .wrangler/
 .husky/_/
 *.tsbuildinfo
-
-# Changesets — managed by the changesets CLI, custom format
-.changeset/*.md
-!.changeset/README.md

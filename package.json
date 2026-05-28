@@ -39,9 +39,6 @@
     "capabilities:check": "node scripts/generate-capability-matrix.mjs --check",
     "validate": "npm run type-check && npm run lint && npm run verify:opencollection-types && npm run capabilities:check && npm run test:run",
     "size": "size-limit",
-    "changeset": "changeset",
-    "changeset:version": "changeset version",
-    "changeset:publish": "changeset publish",
     "prepare": "husky",
     "deploy": "cross-env VITE_WORKER_URL=https://api.restura.dev vite build && wrangler deploy --config dist/web/restura/wrangler.json && wrangler pages deploy dist/web/client --project-name=restura",
     "deploy:preview": "cross-env VITE_WORKER_URL=https://api.restura.dev vite build && wrangler versions upload --config dist/web/restura/wrangler.json && wrangler pages deploy dist/web/client --project-name=restura",
@@ -149,8 +146,6 @@
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.12.0",
-    "@changesets/changelog-github": "^0.5.0",
-    "@changesets/cli": "^2.27.9",
     "@cloudflare/vite-plugin": "^1.39.0",
     "@cloudflare/workers-types": "^4.20260527.1",
     "@commitlint/cli": "^19.6.0",
