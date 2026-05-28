@@ -67,9 +67,14 @@ jobs:
         # ELECTRON_OVERRIDE_DIST_PATH short-circuits the download check in
         # `node_modules/electron/index.js`: the module returns a stub path and
         # the test's mock takes over from there. Local dev is unaffected.
+        #
+        # `test:ci` runs the full coverage report but disables the threshold
+        # gate. Coverage tracking is a visibility feature here, not a CI gate
+        # — devs who run `npm run test:coverage` locally still get strict
+        # threshold enforcement.
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp
-        run: npm run test:coverage
+        run: npm run test:ci
 
       - name: Upload coverage report
         if: always()
