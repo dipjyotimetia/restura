@@ -66,13 +66,15 @@ export function formatLongTimestamp(timestamp: number): string {
   });
 }
 
-/** Short relative time ("3s ago" / "5m ago" / "2h ago"). */
+/** Short relative time ("3s ago" / "5m ago" / "2h ago" / "3d ago" / "2w ago"). */
 export function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   if (diff < 1000) return 'now';
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`;
+  return `${Math.floor(diff / 604_800_000)}w ago`;
 }
 
 /** Best-effort syntax highlighting hint for the response viewer. */

@@ -90,6 +90,18 @@ describe('formatRelativeTime', () => {
   it('returns Nh ago beyond an hour', () => {
     expect(formatRelativeTime(Date.now() - 5 * 3_600_000)).toMatch(/^\d+h ago$/);
   });
+
+  it('rolls over to Nd ago beyond a day', () => {
+    expect(formatRelativeTime(Date.now() - 3 * 86_400_000)).toBe('3d ago');
+    expect(formatRelativeTime(Date.now() - 6 * 86_400_000)).toBe('6d ago');
+  });
+
+  it('rolls over to Nw ago beyond a week', () => {
+    expect(formatRelativeTime(Date.now() - 14 * 86_400_000)).toBe('2w ago');
+    // The old formatter capped at hours and produced unreadable "254h ago"
+    // (≈10.6 days), now a tidy "1w ago".
+    expect(formatRelativeTime(Date.now() - 254 * 3_600_000)).toBe('1w ago');
+  });
 });
 
 describe('detectLanguage', () => {
