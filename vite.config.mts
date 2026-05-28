@@ -25,8 +25,14 @@ export default defineConfig({
       // ohm-js's ESM build (`module: dist/ohm.esm.js`) exports `ohm` as the
       // default export, so Vite's ESM interop hands back `{ default, extras }`
       // and `.grammar` is undefined. Pin to the CJS entry — Vite's CJS plugin
-      // unwraps `module.exports = ohm` correctly.
+      // unwraps `module.exports = ohm` correctly. See docs/BUILD_QUIRKS.md.
       'ohm-js': path.resolve(__dirname, './node_modules/ohm-js/index.js'),
+      // Vite (+ the Cloudflare plugin) externalises the bare `buffer` import
+      // because it's a Node built-in. swagger-parser needs the polyfill at
+      // runtime to dereference $refs. Force-resolve to the npm `buffer`
+      // package so `import { Buffer } from 'buffer'` works in the renderer.
+      // See docs/BUILD_QUIRKS.md.
+      buffer: path.resolve(__dirname, './node_modules/buffer/index.js'),
     },
   },
   server: {

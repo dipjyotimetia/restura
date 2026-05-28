@@ -75,17 +75,22 @@ const hoppEnvironment = z
   .object({
     v: z.union([z.string(), z.number()]).optional(),
     name: z.string(),
-    variables: z
-      .array(
-        z.object({
-          key: z.string(),
-          initialValue: z.string().optional(),
-          currentValue: z.string().optional(),
-          value: z.string().optional(),
-          secret: z.boolean().default(false),
-        })
-      )
-      .default([]),
+    // `variables` is REQUIRED (no `.default([])`). Real Hoppscotch env exports
+    // always emit the field — empty array when there are no vars. Requiring it
+    // is what structurally separates this schema from `hoppCollection`, whose
+    // top-level shape carries `requests`/`folders` but no `variables`. Without
+    // this distinction, any object with a `name` field passes the env schema
+    // and the import dialog mis-routes collections through
+    // `importHoppscotchEnvironment`, silently dropping every request.
+    variables: z.array(
+      z.object({
+        key: z.string(),
+        initialValue: z.string().optional(),
+        currentValue: z.string().optional(),
+        value: z.string().optional(),
+        secret: z.boolean().default(false),
+      })
+    ),
   })
   .passthrough();
 
@@ -94,13 +99,6 @@ const hoppEnvironment = z
 
 export function isHoppscotchEnvironment(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
-  // Collections have `requests` and/or `folders` at the top level; envs don't.
-  // Without this guard, the env schema (which only requires `name` and treats
-  // `variables` as optional via `.default([])`) accidentally accepts
-  // collections too, because they also have a `name` field — and the ImportDialog
-  // mis-routes them through `importHoppscotchEnvironment`, losing every request.
-  const d = data as Record<string, unknown>;
-  if (Array.isArray(d.requests) || Array.isArray(d.folders)) return false;
   return hoppEnvironment.safeParse(data).success;
 }
 

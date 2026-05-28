@@ -6,28 +6,9 @@ import { Check, Plus, Globe } from 'lucide-react';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { cn } from '@/lib/shared/utils';
 import { envColorFor } from '@/features/environments/lib/envColor';
+import { describeEnv } from '@/features/environments/lib/envHint';
 import type { Environment } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-
-/**
- * Detect a "host-like" variable to surface as the row subtitle. Falls back to
- * a vars count.
- */
-function describeEnv(env: Environment): string {
-  const host = env.variables.find((v) =>
-    ['host', 'base_url', 'baseurl', 'url', 'api_url', 'apiurl'].includes(v.key.toLowerCase())
-  );
-  if (host && host.value) {
-    try {
-      const u = new URL(host.value);
-      return u.host;
-    } catch {
-      return host.value.replace(/^https?:\/\//, '');
-    }
-  }
-  const n = env.variables.length;
-  return `${n} variable${n === 1 ? '' : 's'}`;
-}
 
 export interface EnvSwitcherProps {
   /** The element that opens the popover. Wrapped in Popover.Trigger via asChild. */

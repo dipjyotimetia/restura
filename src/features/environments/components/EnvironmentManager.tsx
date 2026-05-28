@@ -18,6 +18,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { envColorFor } from '@/features/environments/lib/envColor';
+import { envHostHint as hostHint } from '@/features/environments/lib/envHint';
 import { Floater } from '@/components/ui/spatial';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
@@ -41,21 +42,6 @@ function getStats(env: Environment | undefined): EnvStats {
     varCount: env.variables.length,
     secretCount: env.variables.filter((v) => v.secret).length,
   };
-}
-
-/** Surface a "host"-like variable so the list row + detail header can hint
- *  at what the env points at (api.example.com etc.). */
-function hostHint(env: Environment): string | null {
-  const known = new Set(['host', 'baseurl', 'base_url', 'apihost', 'api_host', 'url', 'api_url']);
-  const match = env.variables.find(
-    (v) => v.enabled && known.has(v.key.toLowerCase().replace(/-/g, '_'))
-  );
-  if (!match || !match.value) return null;
-  try {
-    return new URL(match.value).host;
-  } catch {
-    return match.value.replace(/^https?:\/\//i, '').replace(/\/$/, '');
-  }
 }
 
 interface EnvDot {

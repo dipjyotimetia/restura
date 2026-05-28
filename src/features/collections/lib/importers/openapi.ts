@@ -14,6 +14,19 @@ import type {
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * `swagger-parser` references the Node `Buffer` global while dereferencing
+ * `$ref`s. The renderer has no native Buffer, so the npm `buffer` polyfill
+ * is aliased into place by `vite.config.mts`. We attach it to `globalThis`
+ * here — dynamically — so the polyfill chunk never lands in the main bundle
+ * for users who don't import OpenAPI specs (~12 KB saved).
+ */
+async function ensureBufferPolyfill(): Promise<void> {
+  if (typeof globalThis !== 'undefined' && 'Buffer' in globalThis) return;
+  const mod = (await import('buffer')) as { Buffer: unknown };
+  (globalThis as unknown as { Buffer: unknown }).Buffer = mod.Buffer;
+}
+
 export async function importOpenAPICollection(openApiData: unknown): Promise<Collection> {
   if (!openApiData || typeof openApiData !== 'object') {
     throw new Error('Invalid OpenAPI document: expected an object');
@@ -30,6 +43,7 @@ export async function importOpenAPICollection(openApiData: unknown): Promise<Col
     throw new Error('Invalid OpenAPI document: missing paths object');
   }
 
+  await ensureBufferPolyfill();
   const { default: SwaggerParser } = await import('@apidevtools/swagger-parser');
 
   let api: OpenAPIDocument;
@@ -39,7 +53,9 @@ export async function importOpenAPICollection(openApiData: unknown): Promise<Col
       resolve: { external: false },
     })) as unknown as OpenAPIDocument;
   } catch (error) {
-    throw new Error(`Failed to parse OpenAPI document: ${error instanceof Error ? error.message : 'Unknown parsing error'}`);
+    throw new Error(
+      `Failed to parse OpenAPI document: ${error instanceof Error ? error.message : 'Unknown parsing error'}`
+    );
   }
 
   const isSwagger2 = 'swagger' in api && api.swagger;
@@ -71,9 +87,14 @@ export async function importOpenAPICollection(openApiData: unknown): Promise<Col
 
   for (const [path, pathItem] of Object.entries(api.paths)) {
     const methods: Array<[string, OpenAPIOperation | undefined]> = [
-      ['GET', pathItem.get], ['POST', pathItem.post], ['PUT', pathItem.put],
-      ['DELETE', pathItem.delete], ['PATCH', pathItem.patch], ['OPTIONS', pathItem.options],
-      ['HEAD', pathItem.head], ['TRACE', pathItem.trace],
+      ['GET', pathItem.get],
+      ['POST', pathItem.post],
+      ['PUT', pathItem.put],
+      ['DELETE', pathItem.delete],
+      ['PATCH', pathItem.patch],
+      ['OPTIONS', pathItem.options],
+      ['HEAD', pathItem.head],
+      ['TRACE', pathItem.trace],
     ];
 
     for (const [method, operation] of methods) {
@@ -81,7 +102,12 @@ export async function importOpenAPICollection(openApiData: unknown): Promise<Col
 
       const allParams = [...(pathItem.parameters || []), ...(operation.parameters || [])];
       const request = convertOpenAPIOperation(
-        path, method as HttpMethod, operation, allParams, baseUrl, securitySchemes,
+        path,
+        method as HttpMethod,
+        operation,
+        allParams,
+        baseUrl,
+        securitySchemes,
         isSwagger2 ? api.definitions : api.components?.schemas
       );
 
@@ -131,22 +157,35 @@ function convertOpenAPIOperation(
     const cookieValue = cookieParams
       .map((p) => {
         const value =
-          p.schema?.example?.toString() || p.example?.toString() ||
-          p.schema?.default?.toString() || p.default?.toString() || '';
+          p.schema?.example?.toString() ||
+          p.example?.toString() ||
+          p.schema?.default?.toString() ||
+          p.default?.toString() ||
+          '';
         return `${p.name}=${value}`;
       })
       .join('; ');
-    headers.push({ id: uuidv4(), key: 'Cookie', value: cookieValue, enabled: true, description: 'Cookie parameters' });
+    headers.push({
+      id: uuidv4(),
+      key: 'Cookie',
+      value: cookieValue,
+      enabled: true,
+      description: 'Cookie parameters',
+    });
   }
 
   const body = convertOpenAPIBody(operation, parameters, schemas);
 
   const contentTypeMap: Record<string, string> = {
-    json: 'application/json', xml: 'application/xml', text: 'text/plain',
-    'form-data': 'multipart/form-data', 'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
+    json: 'application/json',
+    xml: 'application/xml',
+    text: 'text/plain',
+    'form-data': 'multipart/form-data',
+    'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
     graphql: 'application/json',
   };
-  const contentType = body.type !== 'none' && body.type !== 'binary' ? contentTypeMap[body.type] : undefined;
+  const contentType =
+    body.type !== 'none' && body.type !== 'binary' ? contentTypeMap[body.type] : undefined;
   if (contentType && !headers.some((h) => h.key.toLowerCase() === 'content-type')) {
     headers.push({ id: uuidv4(), key: 'Content-Type', value: contentType, enabled: true });
   }
@@ -169,8 +208,11 @@ function convertOpenAPIParams(params: OpenAPIParameter[]): KeyValue[] {
     id: uuidv4(),
     key: param.name,
     value:
-      param.schema?.example?.toString() || param.example?.toString() ||
-      param.schema?.default?.toString() || param.default?.toString() || '',
+      param.schema?.example?.toString() ||
+      param.example?.toString() ||
+      param.schema?.default?.toString() ||
+      param.default?.toString() ||
+      '',
     enabled: true,
     description: param.description,
   }));
@@ -181,8 +223,11 @@ function convertOpenAPIHeaders(params: OpenAPIParameter[]): KeyValue[] {
     id: uuidv4(),
     key: param.name,
     value:
-      param.schema?.example?.toString() || param.example?.toString() ||
-      param.schema?.default?.toString() || param.default?.toString() || '',
+      param.schema?.example?.toString() ||
+      param.example?.toString() ||
+      param.schema?.default?.toString() ||
+      param.default?.toString() ||
+      '',
     enabled: true,
     description: param.description,
   }));
@@ -211,11 +256,17 @@ function convertOpenAPIBody(
     }
 
     if (content['multipart/form-data']) {
-      return { type: 'form-data', formData: generateFormDataFromSchema(content['multipart/form-data'].schema) };
+      return {
+        type: 'form-data',
+        formData: generateFormDataFromSchema(content['multipart/form-data'].schema),
+      };
     }
 
     if (content['application/x-www-form-urlencoded']) {
-      return { type: 'x-www-form-urlencoded', formData: generateFormDataFromSchema(content['application/x-www-form-urlencoded'].schema) };
+      return {
+        type: 'x-www-form-urlencoded',
+        formData: generateFormDataFromSchema(content['application/x-www-form-urlencoded'].schema),
+      };
     }
 
     if (content['text/plain']) {
@@ -292,7 +343,8 @@ function generateExampleFromSchema(
 
   if (schema.$ref && schemas) {
     const refName = schema.$ref.split('/').pop();
-    if (refName && schemas[refName]) return generateExampleFromSchema(schemas[refName], schemas, visited);
+    if (refName && schemas[refName])
+      return generateExampleFromSchema(schemas[refName], schemas, visited);
     return undefined;
   }
 
@@ -303,7 +355,8 @@ function generateExampleFromSchema(
     const merged: Record<string, unknown> = {};
     for (const subSchema of schema.allOf) {
       const result = generateExampleFromSchema(subSchema, schemas, visited);
-      if (result && typeof result === 'object' && !Array.isArray(result)) Object.assign(merged, result);
+      if (result && typeof result === 'object' && !Array.isArray(result))
+        Object.assign(merged, result);
     }
     return merged;
   }
@@ -364,14 +417,26 @@ function convertOpenAPISecurity(
 
   switch (scheme.type) {
     case 'http':
-      if (scheme.scheme === 'basic') return { type: 'basic', basic: { username: '', password: '' } };
+      if (scheme.scheme === 'basic')
+        return { type: 'basic', basic: { username: '', password: '' } };
       if (scheme.scheme === 'bearer') return { type: 'bearer', bearer: { token: '' } };
-      if (scheme.scheme === 'digest') return { type: 'digest', digest: { username: '', password: '' } };
+      if (scheme.scheme === 'digest')
+        return { type: 'digest', digest: { username: '', password: '' } };
       break;
     case 'apiKey':
-      return { type: 'api-key', apiKey: { key: scheme.name || '', value: '', in: scheme.in === 'query' ? 'query' : 'header' } };
+      return {
+        type: 'api-key',
+        apiKey: {
+          key: scheme.name || '',
+          value: '',
+          in: scheme.in === 'query' ? 'query' : 'header',
+        },
+      };
     case 'oauth2':
-      return { type: 'oauth2', oauth2: { accessToken: '', scopes: scopes?.length ? scopes : undefined } };
+      return {
+        type: 'oauth2',
+        oauth2: { accessToken: '', scopes: scopes?.length ? scopes : undefined },
+      };
     case 'basic':
       return { type: 'basic', basic: { username: '', password: '' } };
   }

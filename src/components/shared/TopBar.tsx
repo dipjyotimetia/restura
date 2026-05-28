@@ -5,6 +5,7 @@ import { Floater, Kbd } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getPlatform } from '@/lib/shared/platform';
 import { envColorFor } from '@/features/environments/lib/envColor';
+import { envHostHint } from '@/features/environments/lib/envHint';
 import type { RequestMode } from '@/types';
 
 // Re-exported so existing callers (`import { envColorFor } from '@/components/shared/TopBar'`)
@@ -16,25 +17,6 @@ export { envColorFor };
 type DragRegion = 'drag' | 'no-drag';
 const region = (value: DragRegion): React.CSSProperties =>
   ({ WebkitAppRegion: value }) as React.CSSProperties;
-
-/**
- * Attempt to extract a "host" hint from an environment so the chrome pill can
- * show `globe · api.example.com · production`. We look for a variable named
- * `host`, `baseUrl`, `base_url`, or `BASE_URL` (case-insensitive); fall back
- * to the env name if none match.
- */
-function envHostHint(
-  env: { variables: Array<{ key: string; value: string; enabled: boolean }> } | null
-): string | null {
-  if (!env) return null;
-  const known = new Set(['host', 'baseurl', 'base_url', 'api_host', 'apihost']);
-  const match = env.variables.find(
-    (v) => v.enabled && known.has(v.key.toLowerCase().replace(/-/g, '_'))
-  );
-  if (!match) return null;
-  // Strip protocol and trailing slash so the pill stays tight.
-  return match.value.replace(/^https?:\/\//i, '').replace(/\/$/, '');
-}
 
 interface WindowChromeProps {
   // Existing — preserved for the current Home orchestrator.
