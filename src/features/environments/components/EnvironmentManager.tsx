@@ -165,13 +165,13 @@ function EnvRow({ env, isSelected, isActive, onSelect, onDelete }: EnvRowProps) 
   );
 }
 
-interface SCAFFOLD {
+interface Scaffold {
   name: string;
   color: string;
   hint: string;
 }
 
-const SCAFFOLDS: SCAFFOLD[] = [
+const SCAFFOLDS: Scaffold[] = [
   { name: 'Local', color: '#4d9fff', hint: 'localhost · dev keys' },
   { name: 'Staging', color: '#f59e0b', hint: 'staging APIs' },
   { name: 'Production', color: '#22c55e', hint: 'live traffic' },
@@ -243,9 +243,10 @@ function UsageHints() {
     { id: 'secret', label: 'Secrets', icon: KeyRound },
   ];
 
+  const panelId = `usage-hints-${tab}`;
   return (
     <Floater radius="panel" elevation="inset" className="p-3">
-      <div className="flex items-center gap-1 mb-2.5">
+      <div role="tablist" aria-label="Variable syntax" className="flex items-center gap-1 mb-2.5">
         {TABS.map((t) => {
           const Icon = t.icon;
           const active = tab === t.id;
@@ -253,6 +254,9 @@ function UsageHints() {
             <button
               key={t.id}
               type="button"
+              role="tab"
+              aria-selected={active}
+              aria-controls={`usage-hints-${t.id}`}
               onClick={() => setTab(t.id)}
               className={cn(
                 'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-sp-btn transition-colors',
@@ -269,7 +273,12 @@ function UsageHints() {
           );
         })}
       </div>
-      <div className="text-sp-12 text-sp-muted leading-relaxed">
+      <div
+        role="tabpanel"
+        id={panelId}
+        aria-labelledby={panelId}
+        className="text-sp-12 text-sp-muted leading-relaxed"
+      >
         {tab === 'variable' && (
           <>
             Reference a variable from anywhere — URL, headers, body, scripts — with{' '}
@@ -330,6 +339,7 @@ function EnvDetailHeader({
   }, [editing]);
 
   const color = envColorFor(env);
+  const host = hostHint(env);
 
   const commit = () => {
     const next = draft.trim();
@@ -382,7 +392,7 @@ function EnvDetailHeader({
           {stats.varCount} variable{stats.varCount === 1 ? '' : 's'}
           {stats.secretCount > 0 &&
             ` · ${stats.secretCount} secret${stats.secretCount === 1 ? '' : 's'}`}
-          {hostHint(env) && ` · ${hostHint(env)}`}
+          {host && ` · ${host}`}
         </div>
       </div>
       {isActive && (

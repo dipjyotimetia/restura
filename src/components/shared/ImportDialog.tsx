@@ -245,7 +245,14 @@ function DropZone({ format, onFileUpload, onDrop }: DropZoneProps) {
         e.preventDefault();
         if (!isDragging) setIsDragging(true);
       }}
-      onDragLeave={() => setIsDragging(false)}
+      onDragLeave={(e) => {
+        // `dragLeave` fires on the parent whenever the cursor crosses into a
+        // child element (icon, heading, "Choose file" button). Only flip
+        // the state when the cursor actually leaves the drop zone itself.
+        const next = e.relatedTarget;
+        if (next instanceof Node && e.currentTarget.contains(next)) return;
+        setIsDragging(false);
+      }}
       className={cn(
         'relative rounded-sp-panel border-2 border-dashed p-8',
         'transition-all duration-150',

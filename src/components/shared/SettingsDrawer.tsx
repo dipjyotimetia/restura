@@ -323,8 +323,6 @@ interface FieldRowProps {
   label: React.ReactNode;
   hint?: React.ReactNode;
   control: React.ReactNode;
-  /** @deprecated last-row divider is owned by the parent FieldGroup */
-  last?: boolean;
 }
 
 function FieldRow({ label, hint, control }: FieldRowProps) {

@@ -37,8 +37,19 @@ export async function resetPersistedState(page: Page): Promise<void> {
           })
       )
     );
-    localStorage.clear();
-    sessionStorage.clear();
+    // localStorage / sessionStorage `.clear()` can throw under certain browser
+    // policies (private mode, storage partitioning, exhausted quota). The test
+    // doesn't care about the failure — best-effort cleanup is enough.
+    try {
+      localStorage.clear();
+    } catch {
+      /* ignored */
+    }
+    try {
+      sessionStorage.clear();
+    } catch {
+      /* ignored */
+    }
   });
   await page.reload();
   // Re-establish the post-onboarding workspace so the spec can interact

@@ -190,10 +190,10 @@ test.describe('Environment Manager', () => {
     // Default tab — {{variable}} — explains how variable references work.
     await expect(dialog(page).getByText(/Reference a variable from anywhere/)).toBeVisible();
 
-    await dialog(page).getByRole('button', { name: '{{$dynamic}}' }).click();
+    await dialog(page).getByRole('tab', { name: '{{$dynamic}}' }).click();
     await expect(dialog(page).getByText(/Built-in helpers expand at send time/)).toBeVisible();
 
-    await dialog(page).getByRole('button', { name: 'Secrets', exact: true }).click();
+    await dialog(page).getByRole('tab', { name: 'Secrets', exact: true }).click();
     await expect(dialog(page).getByText(/OS keychain/)).toBeVisible();
   });
 });
