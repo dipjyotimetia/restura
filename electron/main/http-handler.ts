@@ -6,13 +6,22 @@ import * as dns from 'dns';
 import * as diagnosticsChannel from 'node:diagnostics_channel';
 import { Readable } from 'node:stream';
 import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
-import { HttpRequestConfigSchema, createValidatedHandler, MAX_HTTP_BODY_BYTES } from './ipc-validators';
+import {
+  HttpRequestConfigSchema,
+  createValidatedHandler,
+  MAX_HTTP_BODY_BYTES,
+} from './ipc-validators';
 import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from './request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
-import type { Fetcher, FetcherRequest, FetcherResponse, ProtocolAuthConfig } from '@shared/protocol/types';
+import type {
+  Fetcher,
+  FetcherRequest,
+  FetcherResponse,
+  ProtocolAuthConfig,
+} from '@shared/protocol/types';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { unwrapSecretValueMain } from './secret-handle-store';
 import { applyNonSignAtWireAuth } from './auth-applier';
@@ -84,6 +93,15 @@ export interface HttpRequestConfig {
    * so the signature covers the exact bytes undici sends to the upstream.
    */
   auth?: ProtocolAuthConfig;
+  // Redirect / URL handling (cross-platform; threaded into shared/protocol).
+  followOriginalMethod?: boolean;
+  followAuthHeader?: boolean;
+  stripReferer?: boolean;
+  encodeUrlAutomatically?: boolean;
+  // TLS knobs (desktop-only enforcement).
+  serverCipherOrder?: boolean;
+  minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+  cipherSuites?: string;
 }
 
 export interface HttpResponse {
@@ -102,7 +120,10 @@ export interface HttpResponse {
 // Connection timeout (10 seconds) — operates below the shared core's request timeout.
 const CONNECTION_TIMEOUT = 10000;
 
-function createSecureLookup(hostname: string, allowLocalhost: boolean): NonNullable<http.RequestOptions['lookup']> {
+function createSecureLookup(
+  hostname: string,
+  allowLocalhost: boolean
+): NonNullable<http.RequestOptions['lookup']> {
   const allowPrivateLiteralHost = net.isIP(hostname) !== 0 && isPrivateAddress(hostname);
   return (lookupHostname, options, callback) => {
     dns.lookup(lookupHostname, options, (error, address, family) => {
@@ -113,7 +134,10 @@ function createSecureLookup(hostname: string, allowLocalhost: boolean): NonNulla
       const addresses = Array.isArray(address) ? address : [{ address, family }];
       try {
         for (const entry of addresses) {
-          assertResolvedAddressAllowed(hostname, entry.address, { allowLocalhost, allowPrivateLiteralHost });
+          assertResolvedAddressAllowed(hostname, entry.address, {
+            allowLocalhost,
+            allowPrivateLiteralHost,
+          });
         }
         callback(null, address as never, family as never);
       } catch (err) {
@@ -125,7 +149,11 @@ function createSecureLookup(hostname: string, allowLocalhost: boolean): NonNulla
 
 // Opens a raw TCP tunnel through a SOCKS4 or SOCKS5 proxy.
 // Returns a connected net.Socket pointed at (targetHost, targetPort).
-function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: number): Promise<net.Socket> {
+function openSocksSocket(
+  proxy: ProxyConfig,
+  targetHost: string,
+  targetPort: number
+): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({
       host: proxy.host,
@@ -143,9 +171,11 @@ function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: num
         portBuf.writeUInt16BE(targetPort, 0);
         const userId = Buffer.from((proxy.auth?.username ?? '') + '\0', 'ascii');
         const req = Buffer.concat([
-          Buffer.from([0x04, 0x01]), portBuf,
+          Buffer.from([0x04, 0x01]),
+          portBuf,
           Buffer.from([0x00, 0x00, 0x00, 0x01]), // fake IP — 0.0.0.x (x!=0) triggers SOCKS4a hostname lookup
-          userId, hostBuf,
+          userId,
+          hostBuf,
         ]);
         socket.write(req);
         socket.once('data', (data: Buffer) => {
@@ -161,7 +191,7 @@ function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: num
     } else {
       // SOCKS5
       socket.once('connect', () => {
-        const hasAuth = !!(proxy.auth?.username);
+        const hasAuth = !!proxy.auth?.username;
         const greeting = hasAuth
           ? Buffer.from([0x05, 0x02, 0x00, 0x02])
           : Buffer.from([0x05, 0x01, 0x00]);
@@ -180,7 +210,8 @@ function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: num
             portBuf.writeUInt16BE(targetPort, 0);
             const connectReq = Buffer.concat([
               Buffer.from([0x05, 0x01, 0x00, 0x03, hostBuf.length]),
-              hostBuf, portBuf,
+              hostBuf,
+              portBuf,
             ]);
             socket.write(connectReq);
             socket.once('data', (connectReply: Buffer) => {
@@ -199,8 +230,10 @@ function openSocksSocket(proxy: ProxyConfig, targetHost: string, targetPort: num
             const user = Buffer.from(proxy.auth.username, 'utf8');
             const pass = Buffer.from(proxy.auth.password, 'utf8');
             const authReq = Buffer.concat([
-              Buffer.from([0x01, user.length]), user,
-              Buffer.from([pass.length]), pass,
+              Buffer.from([0x01, user.length]),
+              user,
+              Buffer.from([pass.length]),
+              pass,
             ]);
             socket.write(authReq);
             socket.once('data', (authReply: Buffer) => {
@@ -331,6 +364,18 @@ function buildConnectOptions(
     if (electronConfig.caCert?.pem) {
       connectOpts.ca = electronConfig.caCert.pem;
     }
+    // Per-request TLS knobs (Insomnia parity). Honour cipher order, custom
+    // cipher list, and a minimum protocol floor. Forwarded by undici's
+    // connector to `tls.connect`, where these are first-class options.
+    if (electronConfig.serverCipherOrder) {
+      connectOpts.honorCipherOrder = true;
+    }
+    if (electronConfig.cipherSuites) {
+      connectOpts.ciphers = electronConfig.cipherSuites;
+    }
+    if (electronConfig.minTlsVersion) {
+      connectOpts.minVersion = electronConfig.minTlsVersion;
+    }
   }
 
   return connectOpts;
@@ -341,12 +386,19 @@ function buildConnectOptions(
  * Replaces the Node http.Agent / https.Agent subclass that overrode createConnection
  * in the previous implementation — same idea, expressed via undici's connect factory.
  */
+interface SocksTlsKnobs {
+  serverCipherOrder?: boolean;
+  cipherSuites?: string;
+  minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+}
+
 function createSocksDispatcher(
   socksSocket: net.Socket,
   targetUrl: URL,
   isHttps: boolean,
   verifySsl: boolean,
-  allowH2: boolean
+  allowH2: boolean,
+  tlsKnobs?: SocksTlsKnobs
 ): Agent {
   // undici's connector callback type is strictly [Error, null] | [null, Socket]; assert
   // through unknown so the TLSSocket / Socket variants are accepted.
@@ -356,16 +408,23 @@ function createSocksDispatcher(
     connect: ((_opts: unknown, cb: SocksCallback) => {
       try {
         if (isHttps) {
+          // Match the per-request TLS knobs honoured by buildConnectOptions so
+          // SOCKS-tunneled requests get the same hardening (cipher list, min
+          // protocol, server cipher order).
           const tlsSocket = tls.connect({
             socket: socksSocket,
             servername: targetUrl.hostname,
             rejectUnauthorized: verifySsl,
             ALPNProtocols: allowH2 ? ['h2', 'http/1.1'] : ['http/1.1'],
+            ...(tlsKnobs?.serverCipherOrder && { honorCipherOrder: true }),
+            ...(tlsKnobs?.cipherSuites && { ciphers: tlsKnobs.cipherSuites }),
+            ...(tlsKnobs?.minTlsVersion && { minVersion: tlsKnobs.minTlsVersion }),
           });
           tlsSocket.once('secureConnect', () => {
             // Snapshot the negotiated ALPN into the holder attached to the SOCKS socket
             // so the response builder can surface it in the response viewer.
-            const holder = (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder;
+            const holder = (socksSocket as unknown as { __alpnHolder?: { alpn?: string } })
+              .__alpnHolder;
             if (holder && tlsSocket.alpnProtocol) {
               holder.alpn = tlsSocket.alpnProtocol;
             }
@@ -442,16 +501,25 @@ function buildElectronFetcher(
         // diagnostics channel for the lifetime of this request and snapshot
         // alpnProtocol from the upstream TLS socket on the 'connected' event.
         if (captureAlpn) {
-          const upstreamPort = url.port
-            ? parseInt(url.port, 10)
-            : (isHttps ? 443 : 80);
+          const upstreamPort = url.port ? parseInt(url.port, 10) : isHttps ? 443 : 80;
           unsubscribeProxyAlpn = subscribeProxyAlpnCapture(url.hostname, upstreamPort, alpnHolder);
         }
       } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
-        dispatcher = createSocksDispatcher(socksSocket, url, isHttps, verifySsl, allowH2);
+        dispatcher = createSocksDispatcher(socksSocket, url, isHttps, verifySsl, allowH2, {
+          ...(electronConfig.serverCipherOrder !== undefined && {
+            serverCipherOrder: electronConfig.serverCipherOrder,
+          }),
+          ...(electronConfig.cipherSuites !== undefined && {
+            cipherSuites: electronConfig.cipherSuites,
+          }),
+          ...(electronConfig.minTlsVersion !== undefined && {
+            minTlsVersion: electronConfig.minTlsVersion,
+          }),
+        });
         // SOCKS path: TLS happens inside our custom connector — capture ALPN there.
         if (isHttps) {
-          (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder = alpnHolder;
+          (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder =
+            alpnHolder;
         }
       } else {
         dispatcher = new Agent({
@@ -484,11 +552,17 @@ function buildElectronFetcher(
       if (cleaned) return;
       cleaned = true;
       if (unsubscribeProxyAlpn) {
-        try { unsubscribeProxyAlpn(); } catch { /* ignore */ }
+        try {
+          unsubscribeProxyAlpn();
+        } catch {
+          /* ignore */
+        }
         unsubscribeProxyAlpn = null;
       }
       // Fire-and-forget — close() returns a Promise but we don't need to await.
-      void dispatcher.close().catch(() => { /* ignore */ });
+      void dispatcher.close().catch(() => {
+        /* ignore */
+      });
     };
 
     // Convert the FetcherRequest body (BodyInit | undefined) into something
@@ -562,7 +636,11 @@ function buildElectronFetcher(
       raw = (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder?.alpn;
     }
     if (raw === 'h2') negotiatedAlpn = 'h2';
-    else if (raw === 'http/1.1' || raw === 'http/1.0' || (typeof raw === 'string' && raw.startsWith('http/1'))) {
+    else if (
+      raw === 'http/1.1' ||
+      raw === 'http/1.0' ||
+      (typeof raw === 'string' && raw.startsWith('http/1'))
+    ) {
       negotiatedAlpn = 'h1.1';
     }
 
@@ -585,10 +663,15 @@ function buildElectronFetcher(
   };
 }
 
-async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
+async function makeHttpRequest(
+  config: HttpRequestConfig,
+  redirectCount = 0
+): Promise<HttpResponse> {
   // Check body size early, before opening any connection
   if (config.data && Buffer.byteLength(config.data, 'utf8') > MAX_HTTP_BODY_BYTES) {
-    throw new Error(`Request body size exceeds maximum limit of ${MAX_HTTP_BODY_BYTES / 1024 / 1024}MB`);
+    throw new Error(
+      `Request body size exceeds maximum limit of ${MAX_HTTP_BODY_BYTES / 1024 / 1024}MB`
+    );
   }
 
   // PAC proxy resolution (Electron-specific — uses Electron's session.resolveProxy)
@@ -643,7 +726,11 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       socksUrl.port || (socksUrl.protocol === 'https:' ? '443' : '80'),
       10
     );
-    socksSocket = await openSocksSocket(interceptedConfig.proxy, socksUrl.hostname, socksTargetPort);
+    socksSocket = await openSocksSocket(
+      interceptedConfig.proxy,
+      socksUrl.hostname,
+      socksTargetPort
+    );
   }
 
   let rawResult: HttpResponse;
@@ -661,6 +748,24 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
     };
 
     const fetcher = buildElectronFetcher(interceptedConfig, socksSocket);
+    const redirectPolicy: {
+      followOriginalMethod?: boolean;
+      followAuthHeader?: boolean;
+      stripReferer?: boolean;
+      maxRedirects?: number;
+    } = {};
+    if (interceptedConfig.followOriginalMethod !== undefined) {
+      redirectPolicy.followOriginalMethod = interceptedConfig.followOriginalMethod;
+    }
+    if (interceptedConfig.followAuthHeader !== undefined) {
+      redirectPolicy.followAuthHeader = interceptedConfig.followAuthHeader;
+    }
+    if (interceptedConfig.stripReferer !== undefined) {
+      redirectPolicy.stripReferer = interceptedConfig.stripReferer;
+    }
+    if (interceptedConfig.maxRedirects !== undefined) {
+      redirectPolicy.maxRedirects = interceptedConfig.maxRedirects;
+    }
     const result = await executeHttpProxy(
       {
         method: interceptedConfig.method ?? 'GET',
@@ -671,6 +776,10 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
         ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
         ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
         ...(interceptedConfig.auth ? { auth: interceptedConfig.auth } : {}),
+        ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
+        ...(interceptedConfig.encodeUrlAutomatically !== undefined
+          ? { encodeUrl: interceptedConfig.encodeUrlAutomatically }
+          : {}),
       },
       fetcher,
       {
@@ -708,7 +817,9 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       const locationHeader = rawResult.headers['location'];
       const maxRedirects = interceptedConfig.maxRedirects ?? 5;
       if (locationHeader && redirectCount < maxRedirects) {
-        const locationStr = Array.isArray(locationHeader) ? locationHeader[0] : (locationHeader as string);
+        const locationStr = Array.isArray(locationHeader)
+          ? locationHeader[0]
+          : (locationHeader as string);
         if (locationStr) {
           try {
             const redirectUrl = new URL(locationStr, interceptedConfig.url).href;
@@ -748,29 +859,33 @@ export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     IPC.http.request,
     rateLimited(
       httpRateLimiter,
-      createValidatedHandler(IPC.http.request, HttpRequestConfigSchema, async (config: HttpRequestConfig) => {
-        const startTime = Date.now();
-        let result: HttpResponse | undefined;
-        let thrownError: string | undefined;
-        try {
-          result = await makeHttpRequest(config);
-        } catch (err) {
-          thrownError = err instanceof Error ? err.message : String(err);
+      createValidatedHandler(
+        IPC.http.request,
+        HttpRequestConfigSchema,
+        async (config: HttpRequestConfig) => {
+          const startTime = Date.now();
+          let result: HttpResponse | undefined;
+          let thrownError: string | undefined;
+          try {
+            result = await makeHttpRequest(config);
+          } catch (err) {
+            thrownError = err instanceof Error ? err.message : String(err);
+          }
+          if (onComplete) {
+            onComplete({
+              ts: startTime,
+              method: config.method,
+              url: config.url,
+              status: result?.status ?? 0,
+              durationMs: Date.now() - startTime,
+              protocol: 'http',
+              error: thrownError,
+            });
+          }
+          if (thrownError !== undefined) throw new Error(thrownError);
+          return result as HttpResponse;
         }
-        if (onComplete) {
-          onComplete({
-            ts: startTime,
-            method: config.method,
-            url: config.url,
-            status: result?.status ?? 0,
-            durationMs: Date.now() - startTime,
-            protocol: 'http',
-            error: thrownError,
-          });
-        }
-        if (thrownError !== undefined) throw new Error(thrownError);
-        return result as HttpResponse;
-      })
+      )
     )
   );
 }

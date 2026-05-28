@@ -124,6 +124,15 @@ interface ElectronHttpRequestConfig {
   verifySsl?: boolean;
   clientCert?: ElectronHttpClientCert;
   caCert?: ElectronHttpCaCert;
+  // Redirect / URL handling (cross-platform)
+  followOriginalMethod?: boolean;
+  followAuthHeader?: boolean;
+  stripReferer?: boolean;
+  encodeUrlAutomatically?: boolean;
+  // TLS (desktop-only enforcement; mirrors HttpRequestConfigSchema)
+  serverCipherOrder?: boolean;
+  minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+  cipherSuites?: string;
 }
 
 interface ElectronHttpResponse {
@@ -337,7 +346,11 @@ interface ElectronNotificationAPI {
     silent?: boolean;
     urgency?: 'normal' | 'critical' | 'low';
   }) => Promise<{ success: boolean }>;
-  requestComplete: (data: { status: number; time: number; url: string }) => Promise<{ success: boolean }>;
+  requestComplete: (data: {
+    status: number;
+    time: number;
+    url: string;
+  }) => Promise<{ success: boolean }>;
   updateAvailable: (version: string) => Promise<{ success: boolean }>;
   error: (message: string) => Promise<{ success: boolean }>;
 }
@@ -355,9 +368,7 @@ interface ElectronStoreAPI {
  * are gated main-side by collection-manager's directory allowlist.
  */
 interface ElectronGitAPI {
-  status: (
-    directoryPath: string
-  ) => Promise<
+  status: (directoryPath: string) => Promise<
     | {
         ok: true;
         status: {
@@ -394,7 +405,10 @@ interface ElectronGitAPI {
   branchList: (
     directoryPath: string
   ) => Promise<
-    | { ok: true; branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }> }
+    | {
+        ok: true;
+        branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }>;
+      }
     | { ok: false; error: string }
   >;
   add: (
@@ -406,8 +420,7 @@ interface ElectronGitAPI {
     message: string,
     options?: { all?: boolean; paths?: string[] }
   ) => Promise<
-    | { ok: true; commit: { sha: string; abbreviatedSha: string } }
-    | { ok: false; error: string }
+    { ok: true; commit: { sha: string; abbreviatedSha: string } } | { ok: false; error: string }
   >;
   createBranch: (
     directoryPath: string,
@@ -487,13 +500,20 @@ interface FileChangedEvent {
 }
 
 interface ElectronCollectionsAPI {
-  loadFromDirectory: (path: string) => Promise<{ success: boolean; collection?: unknown; error?: string }>;
-  saveToDirectory: (collection: unknown, path: string) => Promise<{ success: boolean; error?: string }>;
+  loadFromDirectory: (
+    path: string
+  ) => Promise<{ success: boolean; collection?: unknown; error?: string }>;
+  saveToDirectory: (
+    collection: unknown,
+    path: string
+  ) => Promise<{ success: boolean; error?: string }>;
   watchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   unwatchDirectory: (path: string) => Promise<{ success: boolean }>;
   selectDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
   openInExplorer: (path: string) => Promise<{ success: boolean; error?: string }>;
-  getFileInfo: (filePath: string) => Promise<{ exists: boolean; lastModified?: number; size?: number }>;
+  getFileInfo: (
+    filePath: string
+  ) => Promise<{ exists: boolean; lastModified?: number; size?: number }>;
   onFileChanged: (callback: (event: FileChangedEvent) => void) => void;
   removeFileChangedListener: () => void;
 }
@@ -527,12 +547,10 @@ interface ElectronSecretsAPI {
   describe: (
     id: string
   ) => Promise<
-    | { ok: true; handle: ElectronSecretHandleDescriptor | null }
-    | { ok: false; error: string }
+    { ok: true; handle: ElectronSecretHandleDescriptor | null } | { ok: false; error: string }
   >;
   list: () => Promise<
-    | { ok: true; handles: ElectronSecretHandleSummary[] }
-    | { ok: false; error: string }
+    { ok: true; handles: ElectronSecretHandleSummary[] } | { ok: false; error: string }
   >;
 }
 
@@ -548,14 +566,16 @@ interface ElectronAiAPI {
     maxOutputTokens?: number;
     tools?: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
   }) => Promise<{ ok: true; streamId: string } | { ok: false; error: string }>;
-  cancel: (args: { streamId: string }) => Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }>;
+  cancel: (args: {
+    streamId: string;
+  }) => Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }>;
   onChunk: (
     streamId: string,
-    cb: (event: import('../../shared/protocol/ai/types').ChatStreamEvent) => void,
+    cb: (event: import('../../shared/protocol/ai/types').ChatStreamEvent) => void
   ) => () => void;
   onEnd: (
     streamId: string,
-    cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void,
+    cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void
   ) => () => void;
 }
 

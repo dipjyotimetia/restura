@@ -463,4 +463,50 @@ describe('proxy handler', () => {
       expect(text).toBe('chunk1');
     });
   });
+
+  describe('desktop-only TLS knobs', () => {
+    it('rejects serverCipherOrder=true with 400', async () => {
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/api',
+        serverCipherOrder: true,
+      });
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toMatch(/desktop-only/i);
+    });
+
+    it('rejects minTlsVersion with 400', async () => {
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/api',
+        minTlsVersion: 'TLSv1.2',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects cipherSuites with 400', async () => {
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/api',
+        cipherSuites: 'ECDHE-RSA-AES128-GCM-SHA256',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('empty cipherSuites string is treated as unset (not rejected)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValue(new Response('ok', { status: 200, statusText: 'OK', headers: {} }))
+      );
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/api',
+        cipherSuites: '',
+      });
+      expect(res.status).toBe(200);
+    });
+  });
 });

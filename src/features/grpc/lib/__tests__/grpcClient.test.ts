@@ -392,7 +392,8 @@ message PingRequest
   });
 
   describe('prepareGrpcRequest', () => {
-    const mockResolveVariables = (text: string) => text.replace('{{BASE_URL}}', 'https://api.example.com');
+    const mockResolveVariables = (text: string) =>
+      text.replace('{{BASE_URL}}', 'https://api.example.com');
 
     it('should prepare a basic request', () => {
       const request: GrpcRequest = {
@@ -412,7 +413,7 @@ message PingRequest
 
       expect(result.url).toBe('https://api.example.com');
       expect(result.path).toBe('/greet.v1.GreetService/SayHello');
-      expect(result.metadata).toEqual({});
+      expect(result.metadata).toEqual({ traceparent: expect.any(String) });
       expect(result.message).toEqual({ name: 'World' });
       expect(result.methodType).toBe('unary');
     });
@@ -763,12 +764,21 @@ message PingRequest
       });
 
       try {
-        const result = await makeElectronGrpcRequest(grpcReq, 'syntax = "proto3";', 'test.proto', (s) => s);
+        const result = await makeElectronGrpcRequest(
+          grpcReq,
+          'syntax = "proto3";',
+          'test.proto',
+          (s) => s
+        );
         expect(result.status).toBe(0);
         expect(result.grpcStatus).toBe(0);
         expect(mockElectron.grpc.request).toHaveBeenCalledOnce();
       } finally {
-        Object.defineProperty(window, 'electron', { value: undefined, writable: true, configurable: true });
+        Object.defineProperty(window, 'electron', {
+          value: undefined,
+          writable: true,
+          configurable: true,
+        });
       }
     });
 
@@ -804,11 +814,20 @@ message PingRequest
       });
 
       try {
-        const result = await makeElectronGrpcRequest(grpcReq, 'syntax = "proto3";', 'test.proto', (s) => s);
+        const result = await makeElectronGrpcRequest(
+          grpcReq,
+          'syntax = "proto3";',
+          'test.proto',
+          (s) => s
+        );
         expect(result.isStreaming).toBe(true);
         expect(result.messages).toHaveLength(2);
       } finally {
-        Object.defineProperty(window, 'electron', { value: undefined, writable: true, configurable: true });
+        Object.defineProperty(window, 'electron', {
+          value: undefined,
+          writable: true,
+          configurable: true,
+        });
       }
     });
 
@@ -834,10 +853,19 @@ message PingRequest
       });
 
       try {
-        const result = await makeElectronGrpcRequest(grpcReq, 'syntax = "proto3";', 'test.proto', (s) => s);
+        const result = await makeElectronGrpcRequest(
+          grpcReq,
+          'syntax = "proto3";',
+          'test.proto',
+          (s) => s
+        );
         expect(result.status).toBeGreaterThanOrEqual(0);
       } finally {
-        Object.defineProperty(window, 'electron', { value: undefined, writable: true, configurable: true });
+        Object.defineProperty(window, 'electron', {
+          value: undefined,
+          writable: true,
+          configurable: true,
+        });
       }
     });
   });
@@ -965,7 +993,14 @@ message PingRequest
       };
 
       const callbacks = { onData: vi.fn(), onError: vi.fn(), onStatus: vi.fn() };
-      const control = startElectronGrpcStream(request, '', 'test.proto', (t) => t, callbacks, 15000);
+      const control = startElectronGrpcStream(
+        request,
+        '',
+        'test.proto',
+        (t) => t,
+        callbacks,
+        15000
+      );
 
       expect(mockGrpc.startStream).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1011,12 +1046,16 @@ message PingRequest
         size: 100,
         trailers: {},
       };
-      vi.stubGlobal('fetch', vi.fn(async () =>
-        new Response(JSON.stringify(mockResponse), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-      ));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify(mockResponse), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            })
+        )
+      );
 
       const { makeProxyGrpcRequest } = await import('../grpcClient');
 
@@ -1039,7 +1078,12 @@ message PingRequest
     });
 
     it('returns error response when fetch throws', async () => {
-      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('Network error'); }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new Error('Network error');
+        })
+      );
 
       const { makeProxyGrpcRequest } = await import('../grpcClient');
 

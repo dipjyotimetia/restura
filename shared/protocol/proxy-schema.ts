@@ -99,7 +99,9 @@ export const ProtocolAuthConfigSchema = z.object({
  * no OS keychain available in a Worker runtime to resolve the handle against,
  * so the request would silently send empty credentials otherwise.
  */
-export function containsAuthHandle(auth: z.infer<typeof ProtocolAuthConfigSchema> | undefined): boolean {
+export function containsAuthHandle(
+  auth: z.infer<typeof ProtocolAuthConfigSchema> | undefined
+): boolean {
   if (!auth) return false;
   const aws = auth.awsSignature;
   if (aws && isProtocolSecretHandle(aws.secretKey)) return true;
@@ -136,6 +138,17 @@ export const UpstreamProxyConfigSchema = z.object({
  * allow-list filtering — that way the 400 message stays consistent with
  * pre-Zod behaviour.
  */
+/**
+ * Redirect policy passed alongside a request. Mirrors RedirectPolicy in
+ * shared/protocol/types.ts. All fields optional — absent means "default".
+ */
+export const RedirectPolicySchema = z.object({
+  followOriginalMethod: z.boolean().optional(),
+  followAuthHeader: z.boolean().optional(),
+  stripReferer: z.boolean().optional(),
+  maxRedirects: z.number().int().min(1).max(50).optional(),
+});
+
 export const ProxyRequestBodySchema = z.object({
   method: z.string().min(1),
   url: z.string().min(1).max(2048),
@@ -143,12 +156,27 @@ export const ProxyRequestBodySchema = z.object({
   params: z.record(z.string(), z.string()).optional(),
   bodyType: BodyTypeSchema.optional(),
   // 50 MB cap matches MAX_REQUEST_BODY_SIZE in http-proxy.ts.
-  data: z.string().max(50 * 1024 * 1024).optional(),
+  data: z
+    .string()
+    .max(50 * 1024 * 1024)
+    .optional(),
   formData: z.array(FormFieldSchema).optional(),
   timeout: z.number().int().min(0).max(300_000).optional(),
   upstreamProxy: UpstreamProxyConfigSchema.optional(),
   auth: ProtocolAuthConfigSchema.optional(),
   streamingMode: z.boolean().optional(),
+  // Per-request redirect + URL handling (cross-platform).
+  redirectPolicy: RedirectPolicySchema.optional(),
+  encodeUrl: z.boolean().optional(),
+  /**
+   * Desktop-only TLS fields. The Worker rejects requests carrying any of
+   * these with a 400 — they're inert at the Cloudflare runtime layer.
+   * Accepted by the schema so the renderer can ship one shape to both
+   * harnesses; the rejection happens in the handler.
+   */
+  serverCipherOrder: z.boolean().optional(),
+  minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
+  cipherSuites: z.string().optional(),
 });
 
 export type ProxyRequestBody = z.infer<typeof ProxyRequestBodySchema>;

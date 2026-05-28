@@ -17,6 +17,8 @@ export type CapabilityName =
   | 'http.customCa'
   | 'http.manualRedirect'
   | 'http.dnsPinning'
+  | 'http.tls.cipherSuite'
+  | 'http.tls.minVersion'
   | 'websocket.basic'
   | 'websocket.customHeaders'
   | 'websocket.viaWorkerProxy'
@@ -48,32 +50,95 @@ export interface CapabilityRow {
 }
 
 export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
-  'http.basic':            { label: 'HTTP / REST requests', web: true, desktop: true },
-  'http.proxy.socks':      { label: 'SOCKS5 proxy', web: false, desktop: true, notes: 'Browser fetch cannot route through SOCKS' },
-  'http.proxy.pac':        { label: 'PAC proxy script resolution', web: false, desktop: true },
-  'http.mtls':             { label: 'mTLS client certificates', web: false, desktop: true, notes: 'Web build inherits browser cert store; no per-request control' },
-  'http.customCa':         { label: 'Custom CA bundle', web: false, desktop: true },
-  'http.manualRedirect':   { label: 'Manual redirect handling', web: true, desktop: true },
-  'http.dnsPinning':       { label: 'DNS-pinning SSRF guard', web: false, desktop: true, notes: 'Browser fetch resolves DNS opaquely' },
-  'websocket.basic':       { label: 'WebSocket connect', web: true, desktop: true },
-  'websocket.customHeaders': { label: 'WebSocket custom request headers', web: true, desktop: true, notes: 'Web build proxies through /api/ws-ticket → /api/ws since browser WS API forbids headers' },
-  'websocket.viaWorkerProxy': { label: 'WS through Worker (SSRF gate, header policy)', web: true, desktop: false, notes: 'Desktop uses Node ws directly with the same guards' },
-  'sse.basic':             { label: 'Server-Sent Events', web: true, desktop: true },
-  'sse.customHeaders':     { label: 'SSE with custom headers', web: false, desktop: true, notes: 'EventSource API in browsers has no headers option' },
-  'mcp.basic':             { label: 'MCP streamable-http / http-sse', web: true, desktop: true },
+  'http.basic': { label: 'HTTP / REST requests', web: true, desktop: true },
+  'http.proxy.socks': {
+    label: 'SOCKS5 proxy',
+    web: false,
+    desktop: true,
+    notes: 'Browser fetch cannot route through SOCKS',
+  },
+  'http.proxy.pac': { label: 'PAC proxy script resolution', web: false, desktop: true },
+  'http.mtls': {
+    label: 'mTLS client certificates',
+    web: false,
+    desktop: true,
+    notes: 'Web build inherits browser cert store; no per-request control',
+  },
+  'http.customCa': { label: 'Custom CA bundle', web: false, desktop: true },
+  'http.manualRedirect': { label: 'Manual redirect handling', web: true, desktop: true },
+  'http.dnsPinning': {
+    label: 'DNS-pinning SSRF guard',
+    web: false,
+    desktop: true,
+    notes: 'Browser fetch resolves DNS opaquely',
+  },
+  'http.tls.cipherSuite': {
+    label: 'TLS cipher suite + server-order control',
+    web: false,
+    desktop: true,
+    notes: 'No per-request TLS handshake control in Cloudflare Workers / browsers',
+  },
+  'http.tls.minVersion': {
+    label: 'TLS minimum protocol version',
+    web: false,
+    desktop: true,
+    notes: "Web client uses the runtime's default TLS floor",
+  },
+  'websocket.basic': { label: 'WebSocket connect', web: true, desktop: true },
+  'websocket.customHeaders': {
+    label: 'WebSocket custom request headers',
+    web: true,
+    desktop: true,
+    notes:
+      'Web build proxies through /api/ws-ticket → /api/ws since browser WS API forbids headers',
+  },
+  'websocket.viaWorkerProxy': {
+    label: 'WS through Worker (SSRF gate, header policy)',
+    web: true,
+    desktop: false,
+    notes: 'Desktop uses Node ws directly with the same guards',
+  },
+  'sse.basic': { label: 'Server-Sent Events', web: true, desktop: true },
+  'sse.customHeaders': {
+    label: 'SSE with custom headers',
+    web: false,
+    desktop: true,
+    notes: 'EventSource API in browsers has no headers option',
+  },
+  'mcp.basic': { label: 'MCP streamable-http / http-sse', web: true, desktop: true },
   'mcp.stdioLocalProcess': { label: 'MCP stdio (local subprocess)', web: false, desktop: true },
-  'grpc.basic':            { label: 'gRPC unary + streaming', web: true, desktop: true, notes: 'Web uses Connect transport over HTTP/2' },
-  'grpc.reflection':       { label: 'gRPC reflection', web: true, desktop: true },
-  'kafka.basic':           { label: 'Kafka produce / consume', web: false, desktop: true, notes: 'Native broker protocol; no browser TCP' },
-  'socketio.basic':        { label: 'Socket.IO client', web: true, desktop: true },
-  'collections.file':      { label: 'Filesystem-backed collections', web: false, desktop: true },
-  'collections.git':       { label: 'Git operations on collections', web: false, desktop: true },
-  'mock.localServer':      { label: 'Local mock server', web: false, desktop: true, notes: 'Binds a localhost HTTP listener; no browser TCP' },
-  'storage.osKeychain':    { label: 'OS keychain (safeStorage) for secrets', web: false, desktop: true, notes: 'Web falls back to encrypted IndexedDB' },
+  'grpc.basic': {
+    label: 'gRPC unary + streaming',
+    web: true,
+    desktop: true,
+    notes: 'Web uses Connect transport over HTTP/2',
+  },
+  'grpc.reflection': { label: 'gRPC reflection', web: true, desktop: true },
+  'kafka.basic': {
+    label: 'Kafka produce / consume',
+    web: false,
+    desktop: true,
+    notes: 'Native broker protocol; no browser TCP',
+  },
+  'socketio.basic': { label: 'Socket.IO client', web: true, desktop: true },
+  'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
+  'collections.git': { label: 'Git operations on collections', web: false, desktop: true },
+  'mock.localServer': {
+    label: 'Local mock server',
+    web: false,
+    desktop: true,
+    notes: 'Binds a localhost HTTP listener; no browser TCP',
+  },
+  'storage.osKeychain': {
+    label: 'OS keychain (safeStorage) for secrets',
+    web: false,
+    desktop: true,
+    notes: 'Web falls back to encrypted IndexedDB',
+  },
   'storage.encryptedLocal': { label: 'Encrypted local storage', web: true, desktop: true },
-  'native.shell':          { label: 'Native shell.openExternal', web: false, desktop: true },
-  'native.notifications':  { label: 'Native OS notifications', web: false, desktop: true },
-  'native.tray':           { label: 'System tray icon', web: false, desktop: true },
+  'native.shell': { label: 'Native shell.openExternal', web: false, desktop: true },
+  'native.notifications': { label: 'Native OS notifications', web: false, desktop: true },
+  'native.tray': { label: 'System tray icon', web: false, desktop: true },
 };
 
 export function isCapableHere(name: CapabilityName, isElectron: boolean): boolean {

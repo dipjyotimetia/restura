@@ -17,7 +17,7 @@ const ProxyConfigSchema = z.object({
   type: z.enum(['http', 'https', 'socks4', 'socks5', 'pac']),
   host: z.string(),
   port: z.number().int().positive(),
-  pacUrl: z.string().url('Invalid PAC URL').optional(),
+  pacUrl: z.url('Invalid PAC URL').optional(),
   auth: z
     .object({
       username: z.string(),
@@ -27,9 +27,9 @@ const ProxyConfigSchema = z.object({
 });
 
 const ClientCertSchema = z.object({
-  pfx: z.string().optional(),        // base64-encoded PFX/PKCS12
-  cert: z.string().optional(),       // PEM certificate string
-  key: z.string().optional(),        // PEM private key string
+  pfx: z.string().optional(), // base64-encoded PFX/PKCS12
+  cert: z.string().optional(), // PEM certificate string
+  key: z.string().optional(), // PEM private key string
   passphrase: z.string().optional(), // passphrase for pfx or encrypted key
 });
 
@@ -140,7 +140,7 @@ const AuthConfigSchema = z.object({
 
 export const HttpRequestConfigSchema = z.object({
   method: z.string(),
-  url: z.string().url('Invalid URL format'),
+  url: z.url('Invalid URL format'),
   headers: z.record(z.string(), z.string()).optional(),
   params: z.record(z.string(), z.string()).optional(),
   data: z.string().max(MAX_HTTP_BODY_BYTES, 'Request body exceeds 50MB limit').optional(),
@@ -151,6 +151,15 @@ export const HttpRequestConfigSchema = z.object({
   clientCert: ClientCertSchema.optional(),
   caCert: CaCertSchema.optional(),
   auth: AuthConfigSchema.optional(),
+  // Redirect policy + URL handling (cross-platform; honoured in shared/protocol)
+  followOriginalMethod: z.boolean().optional(),
+  followAuthHeader: z.boolean().optional(),
+  stripReferer: z.boolean().optional(),
+  encodeUrlAutomatically: z.boolean().optional(),
+  // TLS knobs (desktop-only; honoured by buildConnectOptions / createSocksDispatcher)
+  serverCipherOrder: z.boolean().optional(),
+  minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
+  cipherSuites: z.string().optional(),
 });
 
 export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
@@ -165,13 +174,16 @@ export const GrpcRequestConfigSchema = z.object({
     .regex(/^[a-zA-Z0-9_-]+$/, 'id must be alphanumeric with dashes/underscores')
     .max(64, 'id too long')
     .optional(),
-  url: z.string().url('Invalid gRPC URL'),
+  url: z.url('Invalid gRPC URL'),
   service: z.string().min(1, 'Service name is required'),
   method: z.string().min(1, 'Method name is required'),
   methodType: z.enum(['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming']),
   metadata: z.record(z.string(), z.string()),
   message: z.unknown(),
-  protoContent: z.string().min(1, 'Proto content is required').max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit'),
+  protoContent: z
+    .string()
+    .min(1, 'Proto content is required')
+    .max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit'),
   protoFileName: z.string().min(1, 'Proto file name is required'),
   useCompression: z.boolean().optional(),
 });
@@ -194,9 +206,14 @@ export const DialogOptionsSchema = z.object({
   defaultPath: z.string().optional(),
 });
 
-export const FilePathSchema = z.string().min(1, 'File path is required').max(4096, 'File path too long');
+export const FilePathSchema = z
+  .string()
+  .min(1, 'File path is required')
+  .max(4096, 'File path too long');
 
-export const FileContentSchema = z.string().max(50 * 1024 * 1024, 'File content exceeds 50MB limit');
+export const FileContentSchema = z
+  .string()
+  .max(50 * 1024 * 1024, 'File content exceeds 50MB limit');
 
 // Schema for fs:writeFile which takes both filePath and content
 export const WriteFileSchema = z.tuple([FilePathSchema, FileContentSchema]);
@@ -222,10 +239,12 @@ export const AppPathNameSchema = z.enum([
 
 export const SAFE_OPEN_PROTOCOLS = ['http:', 'https:', 'mailto:'] as const;
 
-export const ShellUrlSchema = z.string().url('Invalid URL format').refine(
-  (url) => (SAFE_OPEN_PROTOCOLS as readonly string[]).includes(new URL(url).protocol),
-  { message: 'Only http, https, and mailto URLs are allowed' }
-);
+export const ShellUrlSchema = z
+  .string()
+  .url('Invalid URL format')
+  .refine((url) => (SAFE_OPEN_PROTOCOLS as readonly string[]).includes(new URL(url).protocol), {
+    message: 'Only http, https, and mailto URLs are allowed',
+  });
 
 // ===========================
 // Notification Schemas
@@ -239,14 +258,19 @@ export const NotificationOptionsSchema = z.object({
   urgency: z.enum(['normal', 'critical', 'low']).optional(),
 });
 
-export const NotificationVersionSchema = z.string().regex(/^\d+\.\d+\.\d+/, 'Invalid version format');
+export const NotificationVersionSchema = z
+  .string()
+  .regex(/^\d+\.\d+\.\d+/, 'Invalid version format');
 
-export const NotificationMessageSchema = z.string().min(1, 'Message is required').max(1024, 'Message too long');
+export const NotificationMessageSchema = z
+  .string()
+  .min(1, 'Message is required')
+  .max(1024, 'Message too long');
 
 export const NotificationRequestCompleteSchema = z.object({
   status: z.number().int(),
   time: z.number(),
-  url: z.string().url('Invalid URL format'),
+  url: z.url('Invalid URL format'),
 });
 
 // ===========================
@@ -254,7 +278,7 @@ export const NotificationRequestCompleteSchema = z.object({
 // ===========================
 
 export const ReflectionIpcConfigSchema = z.object({
-  url: z.string().url('Invalid URL format'),
+  url: z.url('Invalid URL format'),
   reflectionService: z.string().min(1, 'Reflection service name is required'),
   request: z.record(z.string(), z.unknown()),
   timeout: z.number().int().positive().optional(),
@@ -281,25 +305,40 @@ export const WsConnectionIdSchema = z
   .string()
   .min(1)
   .max(128)
-  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+  .regex(
+    /^[a-zA-Z0-9_-]+$/,
+    'Connection ID must contain only alphanumeric characters, underscores, or hyphens'
+  );
 
 // Hop-by-hop and sensitive headers that must not be forwarded to arbitrary WebSocket servers
 const WS_HEADER_DENYLIST = new Set([
-  'host', 'origin', 'sec-websocket-key', 'sec-websocket-version', 'upgrade',
-  'connection', 'transfer-encoding', 'te', 'proxy-authorization', 'proxy-connection',
+  'host',
+  'origin',
+  'sec-websocket-key',
+  'sec-websocket-version',
+  'upgrade',
+  'connection',
+  'transfer-encoding',
+  'te',
+  'proxy-authorization',
+  'proxy-connection',
 ]);
 
 export const WsConnectSchema = z.object({
   connectionId: WsConnectionIdSchema,
-  url: z.string().url('Invalid WebSocket URL').refine(
-    (url) => ['ws:', 'wss:'].includes(new URL(url).protocol),
-    { message: 'Only ws: and wss: WebSocket URLs are allowed' }
-  ),
+  url: z
+    .string()
+    .url('Invalid WebSocket URL')
+    .refine((url) => ['ws:', 'wss:'].includes(new URL(url).protocol), {
+      message: 'Only ws: and wss: WebSocket URLs are allowed',
+    }),
   headers: z
     .record(z.string(), z.string())
     .refine(
       (headers) => !Object.keys(headers).some((k) => WS_HEADER_DENYLIST.has(k.toLowerCase())),
-      { message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...WS_HEADER_DENYLIST].join(', ')}` }
+      {
+        message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...WS_HEADER_DENYLIST].join(', ')}`,
+      }
     )
     .optional(),
   protocols: z.array(z.string()).optional(),
@@ -326,24 +365,39 @@ export type WsDisconnectConfig = z.infer<typeof WsDisconnectSchema>;
 // Hop-by-hop and security-sensitive headers that must not be forwarded to
 // arbitrary Socket.IO servers via extraHeaders.
 const SOCKETIO_HEADER_DENYLIST = new Set([
-  'host', 'origin', 'connection', 'upgrade', 'transfer-encoding', 'te',
-  'proxy-authorization', 'proxy-connection',
-  'sec-websocket-key', 'sec-websocket-version',
+  'host',
+  'origin',
+  'connection',
+  'upgrade',
+  'transfer-encoding',
+  'te',
+  'proxy-authorization',
+  'proxy-connection',
+  'sec-websocket-key',
+  'sec-websocket-version',
 ]);
 
 export const SocketIoConnectionIdSchema = z
   .string()
   .min(1)
   .max(128)
-  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+  .regex(
+    /^[a-zA-Z0-9_-]+$/,
+    'Connection ID must contain only alphanumeric characters, underscores, or hyphens'
+  );
 
 export const SocketIoConnectSchema = z.object({
   connectionId: SocketIoConnectionIdSchema,
-  url: z.string().url('Invalid Socket.IO URL').refine(
-    (url) => ['http:', 'https:', 'ws:', 'wss:'].includes(new URL(url).protocol),
-    { message: 'Only http(s) and ws(s) Socket.IO URLs are allowed' }
-  ),
-  namespace: z.string().regex(/^\/[A-Za-z0-9/_-]*$/, 'Namespace must start with / and contain only safe characters').optional(),
+  url: z
+    .string()
+    .url('Invalid Socket.IO URL')
+    .refine((url) => ['http:', 'https:', 'ws:', 'wss:'].includes(new URL(url).protocol), {
+      message: 'Only http(s) and ws(s) Socket.IO URLs are allowed',
+    }),
+  namespace: z
+    .string()
+    .regex(/^\/[A-Za-z0-9/_-]*$/, 'Namespace must start with / and contain only safe characters')
+    .optional(),
   path: z.string().startsWith('/', 'Path must start with /').optional(),
   auth: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   query: z.record(z.string(), z.string()).optional(),
@@ -351,10 +405,15 @@ export const SocketIoConnectSchema = z.object({
     .record(z.string(), z.string())
     .refine(
       (headers) => !Object.keys(headers).some((k) => SOCKETIO_HEADER_DENYLIST.has(k.toLowerCase())),
-      { message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...SOCKETIO_HEADER_DENYLIST].join(', ')}` }
+      {
+        message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...SOCKETIO_HEADER_DENYLIST].join(', ')}`,
+      }
     )
     .optional(),
-  transports: z.array(z.enum(['websocket', 'polling'])).min(1).optional(),
+  transports: z
+    .array(z.enum(['websocket', 'polling']))
+    .min(1)
+    .optional(),
   reconnection: z.boolean().optional(),
   reconnectionAttempts: z.number().int().nonnegative().max(100).optional(),
   reconnectionDelay: z.number().int().nonnegative().max(60_000).optional(),
@@ -386,27 +445,42 @@ export type SocketIoDisconnectConfig = z.infer<typeof SocketIoDisconnectSchema>;
 // These are either hop-by-hop (forbidden by spec to forward) or sensitive
 // security context that the user shouldn't be able to inject.
 const STREAMING_HEADER_DENYLIST = new Set([
-  'host', 'origin', 'connection', 'upgrade', 'transfer-encoding', 'te',
-  'proxy-authorization', 'proxy-connection', 'cookie',
+  'host',
+  'origin',
+  'connection',
+  'upgrade',
+  'transfer-encoding',
+  'te',
+  'proxy-authorization',
+  'proxy-connection',
+  'cookie',
 ]);
 
 export const SseConnectionIdSchema = z
   .string()
   .min(1)
   .max(128)
-  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+  .regex(
+    /^[a-zA-Z0-9_-]+$/,
+    'Connection ID must contain only alphanumeric characters, underscores, or hyphens'
+  );
 
 export const SseConnectSchema = z.object({
   connectionId: SseConnectionIdSchema,
-  url: z.string().url('Invalid SSE URL').refine(
-    (url) => ['http:', 'https:'].includes(new URL(url).protocol),
-    { message: 'Only http: and https: URLs are allowed' }
-  ),
+  url: z
+    .string()
+    .url('Invalid SSE URL')
+    .refine((url) => ['http:', 'https:'].includes(new URL(url).protocol), {
+      message: 'Only http: and https: URLs are allowed',
+    }),
   headers: z
     .record(z.string(), z.string())
     .refine(
-      (headers) => !Object.keys(headers).some((k) => STREAMING_HEADER_DENYLIST.has(k.toLowerCase())),
-      { message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...STREAMING_HEADER_DENYLIST].join(', ')}` }
+      (headers) =>
+        !Object.keys(headers).some((k) => STREAMING_HEADER_DENYLIST.has(k.toLowerCase())),
+      {
+        message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...STREAMING_HEADER_DENYLIST].join(', ')}`,
+      }
     )
     .optional(),
 });
@@ -426,20 +500,28 @@ export const McpConnectionIdSchema = z
   .string()
   .min(1)
   .max(128)
-  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+  .regex(
+    /^[a-zA-Z0-9_-]+$/,
+    'Connection ID must contain only alphanumeric characters, underscores, or hyphens'
+  );
 
 export const McpConnectSchema = z.object({
   connectionId: McpConnectionIdSchema,
-  url: z.string().url('Invalid MCP server URL').refine(
-    (url) => ['http:', 'https:'].includes(new URL(url).protocol),
-    { message: 'Only http: and https: URLs are allowed' }
-  ),
+  url: z
+    .string()
+    .url('Invalid MCP server URL')
+    .refine((url) => ['http:', 'https:'].includes(new URL(url).protocol), {
+      message: 'Only http: and https: URLs are allowed',
+    }),
   transport: z.enum(['streamable-http', 'http-sse']),
   headers: z
     .record(z.string(), z.string())
     .refine(
-      (headers) => !Object.keys(headers).some((k) => STREAMING_HEADER_DENYLIST.has(k.toLowerCase())),
-      { message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...STREAMING_HEADER_DENYLIST].join(', ')}` }
+      (headers) =>
+        !Object.keys(headers).some((k) => STREAMING_HEADER_DENYLIST.has(k.toLowerCase())),
+      {
+        message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...STREAMING_HEADER_DENYLIST].join(', ')}`,
+      }
     )
     .optional(),
 });
@@ -471,7 +553,10 @@ export const KafkaConnectionIdSchema = z
   .string()
   .min(1)
   .max(128)
-  .regex(/^[a-zA-Z0-9_-]+$/, 'Connection ID must contain only alphanumeric characters, underscores, or hyphens');
+  .regex(
+    /^[a-zA-Z0-9_-]+$/,
+    'Connection ID must contain only alphanumeric characters, underscores, or hyphens'
+  );
 
 // host:port — loose syntactic check; real reachability is enforced by the
 // Kafka client when it dials the broker. We cap length and forbid junk so the
@@ -494,9 +579,18 @@ const KafkaSaslSchema = z.object({
 });
 
 const KafkaTlsSchema = z.object({
-  ca: z.string().max(64 * 1024).optional(),
-  cert: z.string().max(64 * 1024).optional(),
-  key: z.string().max(64 * 1024).optional(),
+  ca: z
+    .string()
+    .max(64 * 1024)
+    .optional(),
+  cert: z
+    .string()
+    .max(64 * 1024)
+    .optional(),
+  key: z
+    .string()
+    .max(64 * 1024)
+    .optional(),
   passphrase: z.string().max(1024).optional(),
   rejectUnauthorized: z.boolean().optional(),
 });
@@ -534,7 +628,10 @@ const KafkaTopicSchema = z
   .string()
   .min(1)
   .max(249)
-  .regex(/^[a-zA-Z0-9_][a-zA-Z0-9._-]*$/, 'Topic must start with [a-zA-Z0-9_] and contain only [a-zA-Z0-9._-]');
+  .regex(
+    /^[a-zA-Z0-9_][a-zA-Z0-9._-]*$/,
+    'Topic must start with [a-zA-Z0-9_] and contain only [a-zA-Z0-9._-]'
+  );
 
 // 10MB per-message ceiling — well above the typical Kafka 1MB default, but
 // callers can lower it via broker config. Stops a malformed renderer from
@@ -585,7 +682,10 @@ export const StoreKeySchema = z
   .string()
   .min(1, 'Key is required')
   .max(256, 'Key too long')
-  .regex(/^[a-zA-Z0-9._:-]+$/, 'Key must contain only alphanumeric characters, dots, underscores, colons, or hyphens');
+  .regex(
+    /^[a-zA-Z0-9._:-]+$/,
+    'Key must contain only alphanumeric characters, dots, underscores, colons, or hyphens'
+  );
 
 export const StoreValueSchema = z.string().max(1024 * 1024, 'Value exceeds 1MB limit');
 
@@ -654,7 +754,9 @@ export function validateIpcInput<T>(schema: z.ZodSchema<T>, data: unknown, chann
     return schema.parse(data);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errorMessages = error.issues.map((err) => `${err.path.join('.')}: ${err.message}`).join(', ');
+      const errorMessages = error.issues
+        .map((err) => `${err.path.join('.')}: ${err.message}`)
+        .join(', ');
 
       console.error(`[IPC Validation Error] Channel: ${channel}`, {
         issues: error.issues,
@@ -729,7 +831,7 @@ export const NoInputSchema = z.undefined();
 
 export const AiChatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant']),
-  content: z.string().max(200_000),  // ~50k tokens; over this is almost certainly a bug
+  content: z.string().max(200_000), // ~50k tokens; over this is almost certainly a bug
 });
 
 export const AiChatToolSchema = z.object({
@@ -739,17 +841,17 @@ export const AiChatToolSchema = z.object({
 });
 
 export const AiChatRequestSchema = z.object({
-  streamId: z.string().uuid(),
+  streamId: z.uuid(),
   provider: z.enum(['openai', 'anthropic', 'openrouter']),
   model: z.string().min(1).max(120),
   messages: z.array(AiChatMessageSchema).min(1).max(200),
-  apiKeyHandleId: z.string().uuid(),
-  baseUrlOverride: z.string().url().optional(),
+  apiKeyHandleId: z.uuid(),
+  baseUrlOverride: z.url().optional(),
   rawMode: z.boolean(),
   maxOutputTokens: z.number().int().positive().max(8192).optional(),
   tools: z.array(AiChatToolSchema).max(32).optional(),
 });
 
 export const AiChatCancelSchema = z.object({
-  streamId: z.string().uuid(),
+  streamId: z.uuid(),
 });

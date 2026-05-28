@@ -56,7 +56,13 @@ import {
   downloadText,
 } from '@/features/collections/lib/exporters';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import AuthConfigComponent from '@/features/auth/components/AuthConfig';
 import { cn } from '@/lib/shared/utils';
 import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
@@ -137,7 +143,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const [collectionToDelete, setCollectionToDelete] = useState<string | null>(null);
   const [settingsDialogCollection, setSettingsDialogCollection] = useState<Collection | null>(null);
   const [docsCollection, setDocsCollection] = useState<Collection | null>(null);
-  const [gitTarget, setGitTarget] = useState<{ collection: Collection; directoryPath: string } | null>(null);
+  const [gitTarget, setGitTarget] = useState<{
+    collection: Collection;
+    directoryPath: string;
+  } | null>(null);
   const [settingsDraftAuth, setSettingsDraftAuth] = useState<AuthConfig>({ type: 'none' });
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
@@ -277,7 +286,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
         // at export time rather than later when Bruno fails to run the request.
         if (exported.warnings.length > 0) {
           const first = exported.warnings[0]!;
-          const extra = exported.warnings.length > 1 ? ` (+${exported.warnings.length - 1} more)` : '';
+          const extra =
+            exported.warnings.length > 1 ? ` (+${exported.warnings.length - 1} more)` : '';
           toast.warning(`Bruno export: ${first.message}${extra}`);
         }
       } else {
@@ -726,7 +736,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <aside aria-label="Collections, history, and workflows" className="glass-2 glass-border-default flex flex-col h-full">
+      <aside
+        aria-label="Collections, history, and workflows"
+        className="glass-2 glass-border-default flex flex-col h-full"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2 border-b glass-border-subtle shrink-0">
           <span className="text-[10px] font-mono font-semibold tracking-widest text-muted-foreground uppercase">
@@ -767,7 +780,12 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                 icon-only with tooltips; the panel header above names the active
                 one. */}
             <TabsList className="w-full grid grid-cols-4">
-              <TabsTrigger value="collections" aria-label="Collections" title="Collections" className="relative">
+              <TabsTrigger
+                value="collections"
+                aria-label="Collections"
+                title="Collections"
+                className="relative"
+              >
                 <Folder className="h-4 w-4" />
                 {filteredCollections.length > 0 && (
                   <span className="absolute -top-0.5 right-1 text-[8px] leading-none bg-primary/15 text-primary px-1 py-0.5 rounded-full tabular-nums font-bold">
@@ -878,7 +896,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 opacity-0 group-hover:opacity-100 shrink-0"
-                              onClick={(e) => e.stopPropagation()}
+                              onPointerDown={(e) => e.stopPropagation()}
                               aria-label="Collection options"
                             >
                               <MoreVertical className="h-3.5 w-3.5" />
@@ -964,7 +982,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                                   onClick={() => handleToggleMock(collection.id)}
                                   className="text-xs"
                                 >
-                                  {mockStatus.running && mockStatus.collectionId === collection.id ? (
+                                  {mockStatus.running &&
+                                  mockStatus.collectionId === collection.id ? (
                                     <>
                                       <Square className="mr-2 h-3.5 w-3.5" />
                                       Stop mock server
@@ -981,8 +1000,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                                     <DropdownMenuItem
                                       onClick={() => {
                                         const dir =
-                                          useFileCollectionStore.getState().fileCollections[collection.id]
-                                            ?.directoryPath;
+                                          useFileCollectionStore.getState().fileCollections[
+                                            collection.id
+                                          ]?.directoryPath;
                                         if (dir) setGitTarget({ collection, directoryPath: dir });
                                       }}
                                       className="text-xs"
@@ -1040,7 +1060,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                       <div
                         className={cn(
                           'border-t border-border/60 px-2 py-1.5',
-                          dropTargetId === `root:${collection.id}` && 'bg-primary/5 ring-1 ring-inset ring-primary'
+                          dropTargetId === `root:${collection.id}` &&
+                            'bg-primary/5 ring-1 ring-inset ring-primary'
                         )}
                         onDragOver={(e) => {
                           if (!dragItemRef.current) return;
@@ -1299,7 +1320,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
         <ConfirmDialog
           open={itemToDelete !== null}
-          onOpenChange={(open) => { if (!open) setItemToDelete(null); }}
+          onOpenChange={(open) => {
+            if (!open) setItemToDelete(null);
+          }}
           title="Delete item"
           description="Delete this item and everything inside it? This action cannot be undone."
           confirmText="Delete"
@@ -1313,21 +1336,18 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
       <Dialog
         open={!!settingsDialogCollection}
-        onOpenChange={(open) => { if (!open) setSettingsDialogCollection(null); }}
+        onOpenChange={(open) => {
+          if (!open) setSettingsDialogCollection(null);
+        }}
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              Collection settings — {settingsDialogCollection?.name}
-            </DialogTitle>
+            <DialogTitle>Collection settings — {settingsDialogCollection?.name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
               <label className="text-sm font-medium mb-2 block">Default Auth</label>
-              <AuthConfigComponent
-                auth={settingsDraftAuth}
-                onChange={setSettingsDraftAuth}
-              />
+              <AuthConfigComponent auth={settingsDraftAuth} onChange={setSettingsDraftAuth} />
             </div>
           </div>
           <DialogFooter>

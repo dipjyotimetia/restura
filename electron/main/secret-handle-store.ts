@@ -111,7 +111,9 @@ export function deleteSecretHandle(id: string): void {
 }
 
 /** Read-only metadata about a handle. Plaintext is never returned. */
-export function describeSecretHandle(id: string): { label?: string; scope?: string; createdAt: number } | undefined {
+export function describeSecretHandle(
+  id: string
+): { label?: string; scope?: string; createdAt: number } | undefined {
   const record = getStore().get(id);
   if (!record) return undefined;
   return {
@@ -142,15 +144,18 @@ export function listSecretHandles(): Array<{
 // ---------------------------------------------------------------------------
 
 const StoreInputSchema = z.object({
-  value: z.string().min(1).max(64 * 1024),
+  value: z
+    .string()
+    .min(1)
+    .max(64 * 1024),
   label: z.string().max(256).optional(),
   scope: z.string().max(128).optional(),
   // Optional id allows the renderer to update an existing handle in place.
-  id: z.string().uuid().optional(),
+  id: z.uuid().optional(),
 });
 
 const HandleIdSchema = z.object({
-  id: z.string().uuid(),
+  id: z.uuid(),
 });
 
 /**

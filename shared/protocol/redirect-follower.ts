@@ -23,8 +23,12 @@ import type { Fetcher, FetcherRequest, FetcherResponse } from './types';
  * thrown error to its existing `{ ok: false, status: 400, payload }` envelope.
  */
 
-const MAX_REDIRECTS = 5;
-const STRIPPED_ON_CROSS_ORIGIN = ['authorization', 'cookie', 'proxy-authorization'];
+const DEFAULT_MAX_REDIRECTS = 5;
+const DEFAULT_STRIPPED_ON_CROSS_ORIGIN: ReadonlyArray<string> = [
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+];
 
 /**
  * Distinguishes a redirect-policy violation (blocked target, too many hops,
@@ -73,6 +77,27 @@ export interface FollowRedirectsOptions {
    * the DNS-rebind caveats.
    */
   allowPrivateIPs?: boolean;
+  /**
+   * If true, 301/302 redirects preserve the original method (RFC 9110
+   * compliant). Default: false (legacy: non-HEAD → GET on 301/302). 303
+   * always rewrites to GET regardless of this flag — that's universal HTTP
+   * semantics, not opt-in.
+   */
+  followOriginalMethod?: boolean;
+  /**
+   * If true, the Authorization header is preserved on cross-origin redirects.
+   * Cookie and Proxy-Authorization are always stripped cross-origin —
+   * preserving those would leak credentials to arbitrary upstreams.
+   * Default: false (Authorization stripped, matching curl's default).
+   */
+  followAuthHeader?: boolean;
+  /**
+   * If true, the Referer header is removed on every redirect hop (regardless
+   * of origin). Default: false.
+   */
+  stripReferer?: boolean;
+  /** Override the default redirect hop cap (5). Clamped to >= 1. */
+  maxRedirects?: number;
 }
 
 export async function followRedirects(
@@ -84,9 +109,16 @@ export async function followRedirects(
   let response = await fetcher(req);
   let hops = 0;
 
+  const maxHops = Math.max(1, options.maxRedirects ?? DEFAULT_MAX_REDIRECTS);
+  // Compute the cross-origin strip list per call so feature flags can opt out
+  // of the default Authorization strip (followAuthHeader).
+  const crossOriginStrip: ReadonlyArray<string> = options.followAuthHeader
+    ? DEFAULT_STRIPPED_ON_CROSS_ORIGIN.filter((h) => h !== 'authorization')
+    : DEFAULT_STRIPPED_ON_CROSS_ORIGIN;
+
   while (isRedirect(response.status)) {
-    if (hops >= MAX_REDIRECTS) {
-      throw new RedirectPolicyError(`Too many redirects (>${MAX_REDIRECTS})`);
+    if (hops >= maxHops) {
+      throw new RedirectPolicyError(`Too many redirects (>${maxHops})`);
     }
     const location = getLocationHeader(response.headers);
     if (!location) break;
@@ -112,18 +144,26 @@ export async function followRedirects(
     const toOrigin = new URL(nextUrl).origin;
     const headers = headersFromRequest(req);
     if (fromOrigin !== toOrigin) {
-      for (const h of STRIPPED_ON_CROSS_ORIGIN) headers.delete(h);
+      for (const h of crossOriginStrip) headers.delete(h);
+    }
+    if (options.stripReferer) {
+      headers.delete('referer');
     }
 
+    // 303 always rewrites to GET (universal HTTP semantics — POST/PUT result
+    // pointing to a GET-able resource). 301/302 historically downgrade
+    // non-HEAD to GET; followOriginalMethod opts into RFC-compliant
+    // preservation. 307/308 always preserve method.
     const nextMethod =
       response.status === 303
         ? 'GET'
-        : (response.status === 301 || response.status === 302) && req.method !== 'HEAD'
-        ? 'GET'
-        : req.method;
+        : (response.status === 301 || response.status === 302) &&
+            req.method !== 'HEAD' &&
+            !options.followOriginalMethod
+          ? 'GET'
+          : req.method;
 
-    // 307/308 preserve method; method-changing redirects (303 always, 301/302
-    // when source wasn't HEAD) drop the body.
+    // 307/308 preserve method; method-changing redirects drop the body.
     const preservesBody = nextMethod === req.method;
 
     const nextReq: FetcherRequest = {

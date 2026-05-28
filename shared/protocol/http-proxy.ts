@@ -3,12 +3,7 @@ import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy
 import { buildRequestBody } from './body-builder';
 import { applyAuth, type SecretResolver } from './auth-signer';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
-import {
-  isBinaryContentType,
-  getHeaderCI,
-  bytesToBase64,
-  readStreamToBytes,
-} from './binary';
+import { isBinaryContentType, getHeaderCI, bytesToBase64, readStreamToBytes } from './binary';
 import type { Fetcher, RequestSpec, ExecuteResult } from './types';
 
 export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
@@ -17,6 +12,34 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 function byteLength(s: string): number {
   return new Blob([s]).size;
+}
+
+/**
+ * Builds the URL that will go on the wire. When `spec.encodeUrl` is true (or
+ * absent — current default behaviour), the URL goes through `new URL()` + the
+ * `searchParams.append` path which percent-encodes both path and query. When
+ * false, emit `spec.url` raw plus any params concatenated without encoding.
+ *
+ * SSRF/host/scheme validation is unaffected — `validateURL(spec.url)` runs
+ * before this and parses through the WHATWG URL constructor regardless of
+ * this flag, so host smuggling is still caught. Only path/query bytes can
+ * legitimately differ between validator-view and wire-view.
+ */
+function buildTargetUrl(spec: RequestSpec): string {
+  if (spec.encodeUrl === false) {
+    const params = spec.params;
+    if (!params || Object.keys(params).length === 0) return spec.url;
+    const joiner = spec.url.includes('?') ? '&' : '?';
+    const tail = Object.entries(params)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('&');
+    return `${spec.url}${joiner}${tail}`;
+  }
+  const u = new URL(spec.url);
+  if (spec.params) {
+    for (const [k, v] of Object.entries(spec.params)) u.searchParams.append(k, v);
+  }
+  return u.toString();
 }
 
 export interface ExecuteHttpProxyOptions {
@@ -50,10 +73,7 @@ export async function executeHttpProxy(
     return { ok: false, status: 400, payload: { error: `Invalid URL: ${validation.error}` } };
   }
 
-  const targetUrl = new URL(spec.url);
-  if (spec.params) {
-    for (const [k, v] of Object.entries(spec.params)) targetUrl.searchParams.append(k, v);
-  }
+  const wireUrl = buildTargetUrl(spec);
 
   const headers = sanitizeRequestHeaders(spec.headers);
   const { body, contentType } = buildRequestBody({
@@ -80,7 +100,7 @@ export async function executeHttpProxy(
       try {
         const applied = await applyAuth(spec.auth, {
           method,
-          url: targetUrl.toString(),
+          url: wireUrl,
           headers,
           body: finalBody,
           ...(options.resolveSecret ? { resolveSecret: options.resolveSecret } : {}),
@@ -98,14 +118,29 @@ export async function executeHttpProxy(
 
     const response = await followRedirects(
       {
-        url: targetUrl.toString(),
+        url: wireUrl,
         method,
         headers,
         body: finalBody,
         signal: controller.signal,
       },
       fetcher,
-      { allowLocalhost: options.allowLocalhost, allowPrivateIPs: options.allowPrivateIPs === true }
+      {
+        allowLocalhost: options.allowLocalhost,
+        allowPrivateIPs: options.allowPrivateIPs === true,
+        ...(spec.redirectPolicy?.followOriginalMethod !== undefined && {
+          followOriginalMethod: spec.redirectPolicy.followOriginalMethod,
+        }),
+        ...(spec.redirectPolicy?.followAuthHeader !== undefined && {
+          followAuthHeader: spec.redirectPolicy.followAuthHeader,
+        }),
+        ...(spec.redirectPolicy?.stripReferer !== undefined && {
+          stripReferer: spec.redirectPolicy.stripReferer,
+        }),
+        ...(spec.redirectPolicy?.maxRedirects !== undefined && {
+          maxRedirects: spec.redirectPolicy.maxRedirects,
+        }),
+      }
     );
 
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
@@ -179,8 +214,7 @@ export async function executeHttpProxy(
       return { ok: false, status: 400, payload: { error: err.message } };
     }
     const isAbort =
-      controller.signal.aborted ||
-      (err instanceof Error && err.name === 'AbortError');
+      controller.signal.aborted || (err instanceof Error && err.name === 'AbortError');
     if (isAbort) {
       return {
         ok: false,
@@ -251,10 +285,7 @@ export async function executeHttpProxyStreaming(
     return { ok: false, status: 400, payload: { error: `Invalid URL: ${validation.error}` } };
   }
 
-  const targetUrl = new URL(spec.url);
-  if (spec.params) {
-    for (const [k, v] of Object.entries(spec.params)) targetUrl.searchParams.append(k, v);
-  }
+  const wireUrl = buildTargetUrl(spec);
 
   const headers = sanitizeRequestHeaders(spec.headers);
   const { body: requestBody, contentType } = buildRequestBody({
@@ -280,7 +311,7 @@ export async function executeHttpProxyStreaming(
       try {
         const applied = await applyAuth(spec.auth, {
           method,
-          url: targetUrl.toString(),
+          url: wireUrl,
           headers,
           body: finalBody,
           ...(options.resolveSecret ? { resolveSecret: options.resolveSecret } : {}),
@@ -298,14 +329,29 @@ export async function executeHttpProxyStreaming(
 
     const response = await followRedirects(
       {
-        url: targetUrl.toString(),
+        url: wireUrl,
         method,
         headers,
         body: finalBody,
         signal: controller.signal,
       },
       fetcher,
-      { allowLocalhost: options.allowLocalhost, allowPrivateIPs: options.allowPrivateIPs === true }
+      {
+        allowLocalhost: options.allowLocalhost,
+        allowPrivateIPs: options.allowPrivateIPs === true,
+        ...(spec.redirectPolicy?.followOriginalMethod !== undefined && {
+          followOriginalMethod: spec.redirectPolicy.followOriginalMethod,
+        }),
+        ...(spec.redirectPolicy?.followAuthHeader !== undefined && {
+          followAuthHeader: spec.redirectPolicy.followAuthHeader,
+        }),
+        ...(spec.redirectPolicy?.stripReferer !== undefined && {
+          stripReferer: spec.redirectPolicy.stripReferer,
+        }),
+        ...(spec.redirectPolicy?.maxRedirects !== undefined && {
+          maxRedirects: spec.redirectPolicy.maxRedirects,
+        }),
+      }
     );
 
     if (!response.body) {
@@ -332,8 +378,7 @@ export async function executeHttpProxyStreaming(
       return { ok: false, status: 400, payload: { error: err.message } };
     }
     const isAbort =
-      controller.signal.aborted ||
-      (err instanceof Error && err.name === 'AbortError');
+      controller.signal.aborted || (err instanceof Error && err.name === 'AbortError');
     if (isAbort) {
       return {
         ok: false,

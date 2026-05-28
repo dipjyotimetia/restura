@@ -72,6 +72,19 @@ export interface ProtocolAuthConfig {
   // Passing through unknown auth types is a no-op.
 }
 
+/**
+ * Per-request redirect policy. Mirrors RequestSettings fields in
+ * src/types/index.ts — duplicated here to keep `shared/protocol/` decoupled
+ * from the renderer's type tree (per CLAUDE.md). When the renderer's type
+ * changes, this must move in lockstep.
+ */
+export interface RedirectPolicy {
+  followOriginalMethod?: boolean;
+  followAuthHeader?: boolean;
+  stripReferer?: boolean;
+  maxRedirects?: number;
+}
+
 export interface RequestSpec {
   method: string;
   url: string;
@@ -81,6 +94,24 @@ export interface RequestSpec {
   data?: string;
   formData?: FormField[];
   timeout?: number;
+  /**
+   * Per-request redirect policy. Threaded into the shared redirect-follower.
+   * Absent means default behaviour (cross-origin strip Authorization/Cookie/
+   * Proxy-Authorization, downgrade 301/302 non-HEAD to GET, max 5 hops).
+   */
+  redirectPolicy?: RedirectPolicy;
+  /**
+   * If false, do NOT WHATWG-normalise the wire URL — emit `spec.url` raw and
+   * append params via a non-encoding concatenation. Validation still parses
+   * the URL (SSRF guards bind on the parsed host/scheme). Default true
+   * (current behaviour).
+   *
+   * The OFF case is a foot-gun: validator sees the canonicalised URL while
+   * the upstream sees the raw bytes. Only the path/query bytes can differ
+   * (host/scheme are caught by validation), so this is acceptable as an
+   * explicit opt-in for upstreams that reject %-encoded special chars.
+   */
+  encodeUrl?: boolean;
   /**
    * Auth that requires sign-at-wire fidelity (AWS SigV4 hashes the body bytes,
    * so the signature must be computed against the exact bytes the fetcher sends

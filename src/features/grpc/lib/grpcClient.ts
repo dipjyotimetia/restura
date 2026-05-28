@@ -8,13 +8,16 @@ import type {
   ProtoServiceDefinition,
   ProtoMessageDefinition,
 } from '@/types';
-import {
-  GrpcStatusCode,
-  GrpcStatusCodeName
-} from '@/types';
+import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import { getElectronAPI, isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
+import {
+  getElectronAPI,
+  isElectron,
+  workerAuthHeaders,
+  workerBaseUrl,
+} from '@/lib/shared/platform';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import { generateTraceparent } from '@/lib/shared/utils';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {
@@ -53,11 +56,15 @@ export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
     case 'digest':
       // Digest auth requires challenge-response, not directly applicable to gRPC metadata
       // This auth type is not supported for gRPC - use Basic or Bearer auth instead
-      console.warn('Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.');
+      console.warn(
+        'Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.'
+      );
       return {};
 
     case 'aws-signature':
-      console.warn('AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.');
+      console.warn(
+        'AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.'
+      );
       return {};
 
     default: {
@@ -386,6 +393,10 @@ export function prepareGrpcRequest(
       metadata[m.key.toLowerCase()] = resolveVariables(m.value);
     });
 
+  if (!metadata['traceparent']) {
+    metadata['traceparent'] = generateTraceparent();
+  }
+
   // Add auth metadata (may override user metadata)
   const authMetadata = buildAuthMetadata(request.auth);
   Object.assign(metadata, authMetadata);
@@ -477,7 +488,9 @@ export async function makeElectronGrpcRequest(
     const endTime = Date.now();
 
     const bodyStr = JSON.stringify(response.message || response.messages || {}, null, 2);
-    const messagesStrs = response.messages ? response.messages.map((m: unknown) => JSON.stringify(m)) : undefined;
+    const messagesStrs = response.messages
+      ? response.messages.map((m: unknown) => JSON.stringify(m))
+      : undefined;
 
     // Calculate total response size (body + messages if streaming)
     const bodySize = new Blob([bodyStr]).size;
@@ -571,7 +584,7 @@ export function startElectronGrpcStream(
       api.grpc.removeListener(dataChannel, callbacks.onData);
       api.grpc.removeListener(errorChannel, callbacks.onError);
       api.grpc.removeListener(statusChannel, callbacks.onStatus);
-    }
+    },
   };
 }
 

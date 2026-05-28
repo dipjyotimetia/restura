@@ -107,17 +107,14 @@ export function validateRequest(request: unknown): Request {
 
   throw new Error(
     `Request validation failed. No schema matched (http/grpc/sse/mcp). ` +
-    `Errors: ${JSON.stringify(errorDetails)}`
+      `Errors: ${JSON.stringify(errorDetails)}`
   );
 }
 
 /**
  * Validates partial request updates
  */
-export function validateRequestUpdate(
-  current: Request,
-  updates: Partial<Request>
-): Request {
+export function validateRequestUpdate(current: Request, updates: Partial<Request>): Request {
   const merged = { ...current, ...updates };
   return validateRequest(merged);
 }
@@ -196,7 +193,7 @@ export function safeParseJSON<T>(
 
 const SecretHandleRefSchema = z.object({
   kind: z.literal('handle'),
-  id: z.string().uuid(),
+  id: z.uuid(),
   label: z.string().optional(),
 });
 
@@ -206,7 +203,7 @@ const ProviderConfigSchema = z.object({
   provider: ProviderEnumSchema,
   defaultModel: z.string().min(1),
   apiKeyRef: SecretHandleRefSchema,
-  baseUrlOverride: z.string().url().optional(),
+  baseUrlOverride: z.url().optional(),
 });
 
 const ContextRefSchema = z.object({

@@ -30,7 +30,9 @@ describe('validateIpcInput', () => {
 
     it('invalid URL in HTTP config throws with message containing the channel name', () => {
       const input = { method: 'GET', url: 'not-a-url' };
-      expect(() => validateIpcInput(HttpRequestConfigSchema, input, 'http:request')).toThrow('http:request');
+      expect(() => validateIpcInput(HttpRequestConfigSchema, input, 'http:request')).toThrow(
+        'http:request'
+      );
     });
 
     it('HTTP body over 50MB throws', () => {
@@ -40,6 +42,32 @@ describe('validateIpcInput', () => {
         data: 'x'.repeat(MAX_HTTP_BODY_BYTES + 1),
       };
       expect(() => validateIpcInput(HttpRequestConfigSchema, input, 'http:request')).toThrow();
+    });
+
+    it('accepts the new redirect / URL / TLS fields', () => {
+      const input = {
+        method: 'GET',
+        url: 'https://example.com',
+        followOriginalMethod: true,
+        followAuthHeader: false,
+        stripReferer: true,
+        encodeUrlAutomatically: false,
+        serverCipherOrder: true,
+        minTlsVersion: 'TLSv1.2',
+        cipherSuites: 'ECDHE-RSA-AES128-GCM-SHA256',
+      };
+      expect(() => validateIpcInput(HttpRequestConfigSchema, input, 'http:request')).not.toThrow();
+    });
+
+    it('rejects an invalid minTlsVersion literal', () => {
+      const input = {
+        method: 'GET',
+        url: 'https://example.com',
+        minTlsVersion: 'SSLv2',
+      };
+      expect(() => validateIpcInput(HttpRequestConfigSchema, input, 'http:request')).toThrow(
+        'http:request'
+      );
     });
   });
 
@@ -56,7 +84,9 @@ describe('validateIpcInput', () => {
     };
 
     it('valid gRPC config passes', () => {
-      expect(() => validateIpcInput(GrpcRequestConfigSchema, validGrpc, 'grpc:invoke')).not.toThrow();
+      expect(() =>
+        validateIpcInput(GrpcRequestConfigSchema, validGrpc, 'grpc:invoke')
+      ).not.toThrow();
     });
 
     it('gRPC with empty service name throws', () => {
@@ -83,11 +113,15 @@ describe('validateIpcInput', () => {
 
   describe('ShellUrlSchema', () => {
     it('shell URL with file:// protocol throws', () => {
-      expect(() => validateIpcInput(ShellUrlSchema, 'file:///etc/passwd', 'shell:openExternal')).toThrow();
+      expect(() =>
+        validateIpcInput(ShellUrlSchema, 'file:///etc/passwd', 'shell:openExternal')
+      ).toThrow();
     });
 
     it('shell URL with http:// passes', () => {
-      expect(() => validateIpcInput(ShellUrlSchema, 'http://example.com', 'shell:openExternal')).not.toThrow();
+      expect(() =>
+        validateIpcInput(ShellUrlSchema, 'http://example.com', 'shell:openExternal')
+      ).not.toThrow();
     });
   });
 });
@@ -100,7 +134,8 @@ describe('GrpcRequestConfigSchema.id', () => {
     methodType: 'unary' as const,
     metadata: {},
     message: {},
-    protoContent: 'syntax = "proto3"; service Bar { rpc Baz (Empty) returns (Empty); } message Empty {}',
+    protoContent:
+      'syntax = "proto3"; service Bar { rpc Baz (Empty) returns (Empty); } message Empty {}',
     protoFileName: 'bar.proto',
   };
 
@@ -120,7 +155,10 @@ describe('GrpcRequestConfigSchema.id', () => {
   });
 
   it('accepts UUID-shaped id', () => {
-    const result = GrpcRequestConfigSchema.safeParse({ ...base, id: '550e8400-e29b-41d4-a716-446655440000' });
+    const result = GrpcRequestConfigSchema.safeParse({
+      ...base,
+      id: '550e8400-e29b-41d4-a716-446655440000',
+    });
     expect(result.success).toBe(true);
   });
 
@@ -201,9 +239,7 @@ describe('GrpcStreamRequestIdSchema', () => {
   });
 
   it('rejects an empty string request ID', () => {
-    expect(() =>
-      validateIpcInput(GrpcStreamRequestIdSchema, '', 'grpc:end-stream')
-    ).toThrow();
+    expect(() => validateIpcInput(GrpcStreamRequestIdSchema, '', 'grpc:end-stream')).toThrow();
   });
 });
 
@@ -218,9 +254,7 @@ describe('createValidatedHandler', () => {
   it('throws and does not call handler when invalid', async () => {
     const handler = vi.fn();
     const wrapped = createValidatedHandler('test:channel', ShellUrlSchema, handler);
-    await expect(
-      wrapped(trustedEvent, 'file:///etc/passwd')
-    ).rejects.toThrow('test:channel');
+    await expect(wrapped(trustedEvent, 'file:///etc/passwd')).rejects.toThrow('test:channel');
     expect(handler).not.toHaveBeenCalled();
   });
 

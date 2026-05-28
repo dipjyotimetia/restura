@@ -39,9 +39,7 @@ describe('AuthConfiguration — new auth variants', () => {
       expect(screen.getByText('Consumer Key')).toBeInTheDocument();
       expect(screen.getByText('Consumer Secret')).toBeInTheDocument();
       expect(screen.getByText('Signature Method')).toBeInTheDocument();
-      expect(
-        screen.getByText(/Include body params in signature/i)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Include body params in signature/i)).toBeInTheDocument();
     });
 
     it('persists consumer key edits via onChange with shape {type, oauth1}', async () => {
@@ -68,9 +66,7 @@ describe('AuthConfiguration — new auth variants', () => {
         ntlm: { username: '', password: '' },
       };
       render(<AuthConfiguration auth={ntlmAuth} onChange={vi.fn()} />);
-      expect(screen.getByTestId('ntlm-platform-badge')).toHaveTextContent(
-        'Desktop only'
-      );
+      expect(screen.getByTestId('ntlm-platform-badge')).toHaveTextContent('Desktop only');
     });
 
     it('shows the web-runtime warning when isElectron() is false', () => {
@@ -80,9 +76,7 @@ describe('AuthConfiguration — new auth variants', () => {
         ntlm: { username: '', password: '' },
       };
       render(<AuthConfiguration auth={ntlmAuth} onChange={vi.fn()} />);
-      expect(screen.getByTestId('ntlm-web-warning')).toHaveTextContent(
-        /Will not run in browser/i
-      );
+      expect(screen.getByTestId('ntlm-web-warning')).toHaveTextContent(/Will not run in browser/i);
     });
 
     it('hides the web-runtime warning when isElectron() is true', () => {
@@ -138,9 +132,7 @@ describe('AuthConfiguration — new auth variants', () => {
         wsse: { username: '', password: '', passwordType: 'PasswordDigest' },
       };
       render(<AuthConfiguration auth={wsseAuth} onChange={vi.fn()} />);
-      expect(
-        screen.queryByTestId('wsse-password-text-warning')
-      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId('wsse-password-text-warning')).not.toBeInTheDocument();
     });
 
     it('persists username edits via onChange with shape {type, wsse}', async () => {
@@ -159,12 +151,10 @@ describe('AuthConfiguration — new auth variants', () => {
     });
   });
 
-  describe('Auth-type dropdown', () => {
-    it('falls back to the empty-state when type is none', () => {
+  describe('Empty state', () => {
+    it('shows the no-authentication empty state when type is none', () => {
       render(<AuthConfiguration auth={noneAuth} onChange={vi.fn()} />);
-      expect(
-        screen.getByText('This request does not use any authentication.')
-      ).toBeInTheDocument();
+      expect(screen.getByText('No authentication')).toBeInTheDocument();
     });
   });
 });

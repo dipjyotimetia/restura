@@ -1,4 +1,10 @@
-import type { HttpRequest, Response as ApiResponse, RequestSettings, AppSettings, BodyType as RendererBodyType } from '@/types';
+import type {
+  HttpRequest,
+  Response as ApiResponse,
+  RequestSettings,
+  AppSettings,
+  BodyType as RendererBodyType,
+} from '@/types';
 import type { BodyType as ProxyBodyType } from '@shared/protocol/body-builder';
 import { v4 as uuidv4 } from 'uuid';
 import { Cookie } from 'tough-cookie';
@@ -6,9 +12,16 @@ import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
-import { applyAuthHeaders, applyApiKeyQueryParam, assertHandleSupported } from '@/features/auth/lib/applyAuthHeaders';
+import {
+  applyAuthHeaders,
+  applyApiKeyQueryParam,
+  assertHandleSupported,
+} from '@/features/auth/lib/applyAuthHeaders';
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
-import { readStreamingResponse, type StreamEvent } from '@/features/http/lib/streamingResponseReader';
+import {
+  readStreamingResponse,
+  type StreamEvent,
+} from '@/features/http/lib/streamingResponseReader';
 import {
   executeProxiedRequest,
   executeProxiedStreamingRequest,
@@ -95,12 +108,6 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
 
   Object.assign(params, applyApiKeyQueryParam(effectiveAuth, params));
 
-  const cookies = useCookieStore.getState().getCookiesForUrl(resolvedUrl);
-  if (cookies.length > 0) {
-    const cookieHeader = cookies.map((c) => `${c.key}=${c.value}`).join('; ');
-    headers['Cookie'] = cookieHeader;
-  }
-
   const effectiveSettings: RequestSettings = request.settings ?? {
     timeout: globalSettings.defaultTimeout,
     followRedirects: globalSettings.followRedirects,
@@ -108,6 +115,34 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     verifySsl: globalSettings.verifySsl,
     proxy: globalSettings.proxy,
   };
+
+  // Cookie jar bypass: if disabled per-request, skip cookie reads entirely so
+  // the request goes out with no Cookie header even if the jar has entries
+  // for this origin.
+  if (!effectiveSettings.disableCookieJar) {
+    const cookies = useCookieStore.getState().getCookiesForUrl(resolvedUrl);
+    if (cookies.length > 0) {
+      const cookieHeader = cookies.map((c) => `${c.key}=${c.value}`).join('; ');
+      headers['Cookie'] = cookieHeader;
+    }
+  }
+
+  // Per-request redirect policy is threaded into the proxy body. Only emit
+  // the field when at least one knob is set so the default-behaviour path
+  // stays a no-op on the wire.
+  const redirectPolicy: ProxyRequestBody['redirectPolicy'] = {};
+  if (effectiveSettings.followOriginalMethod !== undefined) {
+    redirectPolicy.followOriginalMethod = effectiveSettings.followOriginalMethod;
+  }
+  if (effectiveSettings.followAuthHeader !== undefined) {
+    redirectPolicy.followAuthHeader = effectiveSettings.followAuthHeader;
+  }
+  if (effectiveSettings.stripReferer !== undefined) {
+    redirectPolicy.stripReferer = effectiveSettings.stripReferer;
+  }
+  if (effectiveSettings.followRedirects && effectiveSettings.maxRedirects !== undefined) {
+    redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;
+  }
 
   const proxyBodyType = mapBodyType(request.body.type);
   const spec: ProxyRequestBody = {
@@ -121,6 +156,10 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       : {}),
     ...(effectiveSettings.timeout !== undefined ? { timeout: effectiveSettings.timeout } : {}),
     ...(effectiveAuth && effectiveAuth.type !== 'none' ? { auth: effectiveAuth } : {}),
+    ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
+    ...(effectiveSettings.encodeUrlAutomatically !== undefined
+      ? { encodeUrl: effectiveSettings.encodeUrlAutomatically }
+      : {}),
   };
 
   return { spec, sentHeaders: headers, effectiveAuth };
@@ -134,9 +173,7 @@ function persistResponseCookies(response: ProxyJsonResponse, resolvedUrl: string
     const parsed = Cookie.parse(cookieStr);
     if (!parsed) continue;
     const expires =
-      parsed.expires === 'Infinity' || !parsed.expires
-        ? undefined
-        : parsed.expires.toString();
+      parsed.expires === 'Infinity' || !parsed.expires ? undefined : parsed.expires.toString();
     useCookieStore.getState().addCookie({
       id: uuidv4(),
       key: parsed.key,
@@ -187,29 +224,25 @@ function normalizeBody(data: unknown): string {
   }
 }
 
-export async function executeRequest(options: RequestExecutorOptions): Promise<RequestExecutionResult> {
-  const { request, envVars } = options;
+export async function executeRequest(
+  options: RequestExecutorOptions
+): Promise<RequestExecutionResult> {
+  const { request, envVars, globalSettings } = options;
   const startTime = Date.now();
 
   let preRequestResult: ScriptResult | undefined;
   if (request.preRequestScript) {
     const executor = new ScriptExecutor(envVars, {});
-    preRequestResult = await executor.executeScript(
-      request.preRequestScript,
-      {
-        request: {
-          url: request.url,
-          method: request.method,
-          headers: request.headers
-            .filter((h) => h.enabled)
-            .reduce(
-              (acc, h) => ({ ...acc, [h.key]: h.value }),
-              {} as Record<string, string>
-            ),
-          body: request.body.raw,
-        },
-      }
-    );
+    preRequestResult = await executor.executeScript(request.preRequestScript, {
+      request: {
+        url: request.url,
+        method: request.method,
+        headers: request.headers
+          .filter((h) => h.enabled)
+          .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {} as Record<string, string>),
+        body: request.body.raw,
+      },
+    });
     if (preRequestResult.success && preRequestResult.variables) {
       Object.assign(envVars, preRequestResult.variables);
     }
@@ -217,10 +250,16 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
 
   const { spec, sentHeaders, effectiveAuth } = await buildProxyRequestSpec(options);
 
+  const cookieJarDisabled =
+    request.settings?.disableCookieJar === true ||
+    (request.settings === undefined && globalSettings.disableCookieJar === true);
+
   let responseData: ApiResponse;
   try {
     const proxyResponse = await executeProxiedRequest(spec);
-    persistResponseCookies(proxyResponse, spec.url);
+    if (!cookieJarDisabled) {
+      persistResponseCookies(proxyResponse, spec.url);
+    }
     const endTime = Date.now();
     const bodyString = normalizeBody(proxyResponse.data);
     responseData = {
@@ -265,10 +304,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
         method: request.method,
         headers: request.headers
           .filter((h) => h.enabled)
-          .reduce(
-            (acc, h) => ({ ...acc, [h.key]: h.value }),
-            {} as Record<string, string>
-          ),
+          .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {} as Record<string, string>),
         body: request.body.raw,
       },
       response: {
@@ -302,11 +338,7 @@ export async function executeRequest(options: RequestExecutorOptions): Promise<R
 // ============================================================================
 
 /** Accept-header content types that route through the streaming pipeline. */
-const STREAMING_ACCEPT_TYPES = [
-  'text/event-stream',
-  'application/x-ndjson',
-  'application/jsonl',
-];
+const STREAMING_ACCEPT_TYPES = ['text/event-stream', 'application/x-ndjson', 'application/jsonl'];
 
 /**
  * Returns true when the supplied request headers ask for a streaming

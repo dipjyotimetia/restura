@@ -18,6 +18,7 @@ rather than discover it experimentally.
 | Custom CA bundle | ❌ | ✅ |  |
 | Manual redirect handling | ✅ | ✅ |  |
 | DNS-pinning SSRF guard | ❌ | ✅ | Browser fetch resolves DNS opaquely |
+| TLS cipher suite + server-order control | ❌ | ✅ | No per-request TLS handshake control in Cloudflare Workers / browsers |
 | WebSocket connect | ✅ | ✅ |  |
 | WebSocket custom request headers | ✅ | ✅ | Web build proxies through /api/ws-ticket → /api/ws since browser WS API forbids headers |
 | WS through Worker (SSRF gate, header policy) | ✅ | ❌ | Desktop uses Node ws directly with the same guards |
