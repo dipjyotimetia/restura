@@ -97,15 +97,15 @@ jobs:
 
       - name: Generate CycloneDX SBOM
         run: |
-          # Production-only tree — devDeps don't ship.
-          # --ignore-scripts skips the root postinstall (electron-builder
-          # install-app-deps), which is a devDep and absent from this tree.
-          # We only need the resolved prod dep graph for the SBOM, not a
-          # runnable install.
-          npm ci --omit=dev --ignore-scripts
+          # --package-lock-only: read the dep graph from package-lock.json
+          # instead of node_modules, so no separate prod-only install is
+          # needed (and we sidestep the electron-builder postinstall issue).
+          # --omit dev: keep devDeps out of the production SBOM.
           npx --yes @cyclonedx/cyclonedx-npm@2 \
+            --package-lock-only --omit dev \
             --output-format JSON --output-file restura.cdx.json
           npx --yes @cyclonedx/cyclonedx-npm@2 \
+            --package-lock-only --omit dev \
             --output-format XML --output-file restura.cdx.xml
 
       - name: Create GitHub release
