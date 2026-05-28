@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { parseJsonBody } from '../validate-body';
 
 describe('parseJsonBody', () => {
-  const schema = z.object({ method: z.string(), url: z.string().url() });
+  const schema = z.object({ method: z.string(), url: z.url() });
 
   it('returns parsed value for valid input', async () => {
     const req = new Request('https://x/', {

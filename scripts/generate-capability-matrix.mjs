@@ -37,7 +37,12 @@ for (let i = bodyStart; i < source.length; i++) {
 if (bodyEnd === -1) throw new Error('Unable to find end of CAPABILITIES literal');
 const body = source.slice(bodyStart + 1, bodyEnd);
 
-const rowRegex = /['"]([\w.]+)['"]\s*:\s*\{\s*label:\s*['"]([^'"]+)['"]\s*,\s*web:\s*(true|false)\s*,\s*desktop:\s*(true|false)\s*(?:,\s*notes:\s*['"]([^'"]+)['"]\s*)?\}/g;
+// Multi-line tolerant — Prettier wraps rows that carry a `notes` field onto
+// 4–5 lines. The previous single-line regex silently dropped those rows.
+// `\s` already matches newlines, but the trailing comma after `notes` is
+// what Prettier inserts on wrap, so we accept an optional comma there too.
+const rowRegex =
+  /['"]([\w.]+)['"]\s*:\s*\{\s*label:\s*['"]([^'"]+)['"]\s*,\s*web:\s*(true|false)\s*,\s*desktop:\s*(true|false)\s*(?:,\s*notes:\s*['"]([^'"]+)['"]\s*,?\s*)?\}/g;
 const rows = [];
 let match;
 while ((match = rowRegex.exec(body)) !== null) {

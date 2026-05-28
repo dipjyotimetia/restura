@@ -24,7 +24,7 @@ interface PendingToolCall {
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
 function uuid(): string {
-  // streamId must satisfy z.string().uuid() at the IPC boundary. Electron's
+  // streamId must satisfy z.uuid() at the IPC boundary. Electron's
   // renderer is a secure context, so crypto.randomUUID is always available.
   return globalThis.crypto.randomUUID();
 }
@@ -40,7 +40,7 @@ export function ChatPanel({ onClose }: Props) {
   const messages = useAiChatStore((s) =>
     s.activeConversationId
       ? (s.conversations[s.activeConversationId]?.messages ?? EMPTY_MESSAGES)
-      : EMPTY_MESSAGES,
+      : EMPTY_MESSAGES
   );
   const activeProvider = useAiChatStore((s) => s.activeProvider);
   const providerConfig = useAiChatStore((s) => s.providerConfigs[s.activeProvider]);
@@ -105,7 +105,9 @@ export function ChatPanel({ onClose }: Props) {
     // a stale snapshot that omits the previous turn.
     const stateBefore = useAiChatStore.getState();
     const convIdBefore = stateBefore.activeConversationId;
-    const priorTurns = (convIdBefore ? (stateBefore.conversations[convIdBefore]?.messages ?? []) : [])
+    const priorTurns = (
+      convIdBefore ? (stateBefore.conversations[convIdBefore]?.messages ?? []) : []
+    )
       .slice(-20)
       .map((m) => ({ role: m.role, content: m.text }));
 
@@ -121,7 +123,9 @@ export function ChatPanel({ onClose }: Props) {
       model: providerConfig.defaultModel,
       messages,
       apiKeyHandleId: providerConfig.apiKeyRef.id,
-      ...(providerConfig.baseUrlOverride ? { baseUrlOverride: providerConfig.baseUrlOverride } : {}),
+      ...(providerConfig.baseUrlOverride
+        ? { baseUrlOverride: providerConfig.baseUrlOverride }
+        : {}),
       rawMode,
       // Advertise agent tools so the model can propose actions (create request,
       // write a test) — only when enabled. Proposals still require explicit
@@ -131,7 +135,9 @@ export function ChatPanel({ onClose }: Props) {
 
     const ai = getElectronAPI()?.ai;
     if (!ai) {
-      useAiChatStore.getState().setMessageError(assistantMsgId, 'AI not available (non-Electron build).');
+      useAiChatStore
+        .getState()
+        .setMessageError(assistantMsgId, 'AI not available (non-Electron build).');
       sendingRef.current = false;
       return;
     }
@@ -151,7 +157,9 @@ export function ChatPanel({ onClose }: Props) {
     const result = await ai.chat(spec);
     if (!result.ok) {
       await iterator.return?.(); // tear down the subscription we opened above
-      useAiChatStore.getState().setMessageError(assistantMsgId, 'error' in result ? result.error : 'Unknown error');
+      useAiChatStore
+        .getState()
+        .setMessageError(assistantMsgId, 'error' in result ? result.error : 'Unknown error');
       setStreamingId(null);
       cancelRef.current = null;
       flushBufferRef.current = null;
@@ -205,8 +213,7 @@ export function ChatPanel({ onClose }: Props) {
     else toast.error(res.error);
     setToolCalls((prev) => prev.filter((t) => t.id !== tc.id));
   };
-  const dismissToolCall = (id: string) =>
-    setToolCalls((prev) => prev.filter((t) => t.id !== id));
+  const dismissToolCall = (id: string) => setToolCalls((prev) => prev.filter((t) => t.id !== id));
   const prettyInput = (raw: string): string => {
     try {
       return JSON.stringify(JSON.parse(raw), null, 2);
@@ -216,16 +223,22 @@ export function ChatPanel({ onClose }: Props) {
   };
 
   return (
-    <aside className="glass-2 border-border/40 flex h-full flex-col border-l" style={{ width: panelWidth }}>
+    <aside
+      className="glass-2 border-border/40 flex h-full flex-col border-l"
+      style={{ width: panelWidth }}
+    >
       <header className="flex items-center justify-between border-b border-border/40 px-3 py-2">
         <div className="flex flex-col">
           <span className="text-xs font-medium">AI chat</span>
-          {messages.length > 0 && (() => {
-            const total = messages.reduce((sum, m) => sum + (m.usage?.estimatedCostUSD ?? 0), 0);
-            return total > 0 ? (
-              <span className="text-[10px] text-muted-foreground">Conversation cost: ${total.toFixed(4)}</span>
-            ) : null;
-          })()}
+          {messages.length > 0 &&
+            (() => {
+              const total = messages.reduce((sum, m) => sum + (m.usage?.estimatedCostUSD ?? 0), 0);
+              return total > 0 ? (
+                <span className="text-[10px] text-muted-foreground">
+                  Conversation cost: ${total.toFixed(4)}
+                </span>
+              ) : null;
+            })()}
         </div>
         <div className="flex items-center gap-1">
           <Button

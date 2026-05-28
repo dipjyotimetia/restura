@@ -17,7 +17,7 @@ const ProxyConfigSchema = z.object({
   type: z.enum(['http', 'https', 'socks4', 'socks5', 'pac']),
   host: z.string(),
   port: z.number().int().positive(),
-  pacUrl: z.string().url('Invalid PAC URL').optional(),
+  pacUrl: z.url('Invalid PAC URL').optional(),
   auth: z
     .object({
       username: z.string(),
@@ -140,7 +140,7 @@ const AuthConfigSchema = z.object({
 
 export const HttpRequestConfigSchema = z.object({
   method: z.string(),
-  url: z.string().url('Invalid URL format'),
+  url: z.url('Invalid URL format'),
   headers: z.record(z.string(), z.string()).optional(),
   params: z.record(z.string(), z.string()).optional(),
   data: z.string().max(MAX_HTTP_BODY_BYTES, 'Request body exceeds 50MB limit').optional(),
@@ -174,7 +174,7 @@ export const GrpcRequestConfigSchema = z.object({
     .regex(/^[a-zA-Z0-9_-]+$/, 'id must be alphanumeric with dashes/underscores')
     .max(64, 'id too long')
     .optional(),
-  url: z.string().url('Invalid gRPC URL'),
+  url: z.url('Invalid gRPC URL'),
   service: z.string().min(1, 'Service name is required'),
   method: z.string().min(1, 'Method name is required'),
   methodType: z.enum(['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming']),
@@ -270,7 +270,7 @@ export const NotificationMessageSchema = z
 export const NotificationRequestCompleteSchema = z.object({
   status: z.number().int(),
   time: z.number(),
-  url: z.string().url('Invalid URL format'),
+  url: z.url('Invalid URL format'),
 });
 
 // ===========================
@@ -278,7 +278,7 @@ export const NotificationRequestCompleteSchema = z.object({
 // ===========================
 
 export const ReflectionIpcConfigSchema = z.object({
-  url: z.string().url('Invalid URL format'),
+  url: z.url('Invalid URL format'),
   reflectionService: z.string().min(1, 'Reflection service name is required'),
   request: z.record(z.string(), z.unknown()),
   timeout: z.number().int().positive().optional(),
@@ -841,17 +841,17 @@ export const AiChatToolSchema = z.object({
 });
 
 export const AiChatRequestSchema = z.object({
-  streamId: z.string().uuid(),
+  streamId: z.uuid(),
   provider: z.enum(['openai', 'anthropic', 'openrouter']),
   model: z.string().min(1).max(120),
   messages: z.array(AiChatMessageSchema).min(1).max(200),
-  apiKeyHandleId: z.string().uuid(),
-  baseUrlOverride: z.string().url().optional(),
+  apiKeyHandleId: z.uuid(),
+  baseUrlOverride: z.url().optional(),
   rawMode: z.boolean(),
   maxOutputTokens: z.number().int().positive().max(8192).optional(),
   tools: z.array(AiChatToolSchema).max(32).optional(),
 });
 
 export const AiChatCancelSchema = z.object({
-  streamId: z.string().uuid(),
+  streamId: z.uuid(),
 });
