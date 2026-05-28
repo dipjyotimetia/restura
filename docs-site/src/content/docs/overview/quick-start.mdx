@@ -1,0 +1,73 @@
+---
+title: Quick start
+description: Send your first request, save it to a collection, and chain a workflow — in under five minutes.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+This walkthrough uses the web app at [restura.pages.dev](https://restura.pages.dev). The desktop app is identical.
+
+## Send your first request
+
+<Steps>
+
+1. **Open Restura.** A fresh HTTP request tab is already open.
+
+2. **Type a URL.** Try `https://echo.restura.dev/get?hello=world`. This is the public echo server bundled with Restura — useful for poking around.
+
+3. **Hit Send** (or `Cmd+Enter` / `Ctrl+Enter`). You'll see the response on the right: status, headers, timing, and a pretty-printed body.
+
+4. **Switch the method.** Click `GET` and pick `POST`. Open the **Body** tab, choose **JSON**, paste `{"hello":"world"}`, and send. The echo server reflects it back.
+
+</Steps>
+
+## Save it to a collection
+
+<Steps>
+
+1. Click the **Save** button (top right of the request).
+2. Pick **New collection**, name it `Playground`, then save.
+3. The request now appears in the **Collections** sidebar on the left.
+
+</Steps>
+
+You can drag requests between folders, duplicate them, or right-click for more options.
+
+## Add an environment
+
+Environments let you swap variables (like `{{base_url}}`) between staging and production with one click.
+
+<Steps>
+
+1. Click the environment selector (top right, says "No environment").
+2. **Manage environments** → **New environment** → name it `local`.
+3. Add a variable: name `base_url`, value `https://echo.restura.dev`.
+4. Back in the request, change the URL to `{{base_url}}/get`. Send.
+
+</Steps>
+
+The placeholder resolves at send time. Switch environments → same request, different upstream.
+
+## Try another protocol
+
+Click the protocol picker (left of the URL, says `HTTP`) and pick a different one:
+
+- **GraphQL** — try `https://echo.restura.dev/graphql` with the query `{ hello }`.
+- **gRPC** — needs a service supporting reflection or a `.proto` file. Try `https://echo.restura.dev` if your build includes Connect support.
+- **WebSocket** — connect to `wss://echo.restura.dev/ws`, send a frame, watch it echo back.
+- **SSE** — connect to `https://echo.restura.dev/sse` and watch the live stream.
+- **MCP** — point at any HTTP-based MCP server.
+
+Each protocol has its own [protocol guide](/protocols/http/) with the full feature list.
+
+## What's next
+
+<Aside type="tip" title="Tip">
+Press `Cmd+K` (`Ctrl+K` on Linux/Windows) to open the command palette. Press `Cmd+/` to see all keyboard shortcuts.
+</Aside>
+
+- [**Authentication**](/guides/auth/) — Bearer, OAuth 2.0, AWS SigV4, mTLS.
+- [**Workflows**](/guides/workflows/) — chain requests and extract variables.
+- [**Scripts**](/guides/scripts/) — pre-request and test scripts in QuickJS.
+- [**AI assistant**](/guides/ai-assistant/) — chat with OpenAI / Anthropic / OpenRouter, with the current request as context.
+- [**CLI**](/reference/cli/) — run your collections in CI.

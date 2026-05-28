@@ -1,0 +1,80 @@
+---
+title: Authentication
+description: Every supported auth scheme — Bearer, Basic, API Key, OAuth 2.0, OAuth 1.0a, AWS SigV4, Digest, NTLM, WSSE, and mTLS.
+---
+
+import { Badge, Aside } from '@astrojs/starlight/components';
+
+Auth lives on each request and inherits from the parent collection by default — set it once on the folder, every request below uses it. Auth signing happens **at the wire** (Cloudflare Worker on web, Electron main process on desktop), so the signature matches the exact bytes the upstream receives.
+
+## Supported schemes
+
+### Bearer
+
+The simplest case: `Authorization: Bearer <token>`. Reads variables: `{{token}}`.
+
+### Basic
+
+Username + password, base64-encoded. Stored as a `SecretRef` (handle, never plaintext in the renderer) on desktop.
+
+### API Key
+
+Choose where the key lives — header, query string, cookie — and what name (default `X-API-Key`).
+
+### OAuth 2.0
+
+Four grants supported, all with optional **PKCE**:
+
+- **Authorization code** — full browser-redirect flow. Restura opens the auth URL in a system browser and catches the callback.
+- **Client credentials** — service-to-service.
+- **Resource owner password** — when you must.
+- **Device code** — for CLIs and headless clients.
+
+Token refresh is automatic where supported. Issued tokens live in the encrypted secret store (desktop) or session memory (web).
+
+### OAuth 1.0a
+
+Full HMAC-SHA1 signing per request — useful for legacy APIs (Twitter v1, Magento, Etsy, Tumblr). Nonce and timestamp generated per send.
+
+### AWS Signature v4
+
+For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura computes the canonical request and signs at the wire. Works across HTTP, gRPC (Connect), and SSE.
+
+### Digest
+
+Two-step Digest auth: Restura sends the first request, reads the `WWW-Authenticate` challenge, and sends the signed second request automatically.
+
+### NTLM
+
+NTLM v2 handshake — three-way (negotiate → challenge → authenticate). Common for on-prem Microsoft stacks.
+
+### WSSE
+
+`PasswordDigest` and `PasswordText` variants. Common for SOAP-y APIs.
+
+### mTLS (client certificates) <Badge text="desktop only" variant="caution" />
+
+Upload a `.pem` / `.p12` / `.pfx` with passphrase; the cert is presented during the TLS handshake.
+
+## Secret handling
+
+Secret-bearing auth fields (tokens, passwords, client secrets, private keys) use a **handle-based pattern**: the encrypted value lives in the Electron main process keychain-protected store, and the renderer only sees a `SecretRef` handle. The plaintext is resolved at the wire, never touches the Zustand store, never lands in an exported collection, never appears in crash logs.
+
+<Aside title="See">
+[ADR 0007 — SecretRef pattern](/architecture/adrs/) for the design.
+</Aside>
+
+## Inheritance
+
+Auth on a collection cascades to every child folder and request unless overridden. Use the **Inherit auth from parent** option (default) on new requests.
+
+## Tips
+
+- Store API keys as **environment variables** rather than inline on the request — they survive auth-type changes and are easy to swap.
+- Use **OAuth 2.0 client credentials** for CI runs — paste the client ID / secret into the [CLI](/reference/cli/) and your collection runs without browser prompts.
+- For AWS endpoints, set `AWS_REGION` and the service name once on the collection and reuse across requests.
+
+## Related
+
+- [Architecture / Security](/architecture/security/) — wire-level signing rationale.
+- [Capability matrix](/reference/capability-matrix/) — mTLS is desktop-only.

@@ -1,0 +1,34 @@
+---
+title: GraphQL
+description: Query builder with schema introspection, variables, subscriptions, and persisted documents.
+---
+
+GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can introspect the endpoint, hint completions from the schema, and run subscriptions over both `multipart/mixed` and WebSocket transports.
+
+## What works
+
+- **Introspection** — point at any GraphQL endpoint; Restura fetches the schema and uses it for completion and validation.
+- **Query / Mutation / Subscription** — operation type detected from the document.
+- **Variables** — separate JSON editor; resolves environment placeholders (`{{userId}}`).
+- **Persisted queries** — send by hash if the server supports it.
+- **Authentication** — the same auth schemes as HTTP. Most teams ship a Bearer token here.
+- **Subscriptions** — depending on server support: `graphql-ws` (over WebSocket) or HTTP `multipart/mixed`. Live events stream into the response panel.
+
+## Editor features
+
+- Syntax highlighting + bracket matching.
+- Auto-format (`Cmd+Shift+F` / `Ctrl+Shift+F`).
+- Inline error markers when the document doesn't validate against the schema.
+- Quick switch between operations if the document defines multiple.
+
+## Tips
+
+- If the server gates introspection in production, paste the schema manually under **Schema** to keep completions working.
+- Subscriptions count as a long-lived response — see also [SSE](/protocols/sse/) and [WebSocket](/protocols/websocket/) for raw transport access.
+- For load-style testing, drive a GraphQL collection through the [CLI](/reference/cli/) — same wire format as HTTP, JUnit / HTML / JSON reporters included.
+
+## Related
+
+- [Authentication](/guides/auth/) — Bearer is most common.
+- [Workflows](/guides/workflows/) — chain a mutation and use the result in a query.
+- [Import & export](/guides/import-export/) — Restura imports `.graphql` schemas alongside Postman / Insomnia exports.

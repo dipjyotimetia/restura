@@ -1,0 +1,39 @@
+---
+title: Collections
+description: Organise requests into nested folders, share auth/headers/variables from a parent.
+---
+
+Collections are the unit of organisation in Restura: a tree of folders and requests, with auth and variables that cascade.
+
+## Structure
+
+- **Collection** — top-level folder. Can carry its own auth, base URL, headers, and variables.
+- **Folder** — nested inside a collection or another folder. Same shape — also carries auth / headers / variables.
+- **Request** — leaf node. Inherits from parents unless overridden.
+
+## Inheritance
+
+Anything you set on a folder cascades to every descendant unless that descendant explicitly overrides it. Concretely:
+
+- **Auth** — `Inherit from parent` is the default on new requests.
+- **Headers** — additive: parent headers + child headers; child wins on conflict.
+- **Variables** — visible to all descendants; useful for collection-scoped defaults (`base_url`, `team_id`).
+
+## Drag, duplicate, organise
+
+- **Drag** requests or folders between locations.
+- **Duplicate** with right-click → Duplicate (or `Cmd+D`).
+- **Rename** inline with double-click.
+- **Sort** by name or by drag order.
+
+## Sharing
+
+Restura imports and exports **OpenCollection** natively (see [reference](/reference/opencollection/)) and supports **Postman v2.1**, **Insomnia**, **Hoppscotch**, **Bruno**, and **OpenAPI / Swagger** import. Export your work to share with teammates or commit to your repo.
+
+On the desktop client, you can also point Restura at a **filesystem-backed workspace** and use git on the directory — see [workflows](/guides/workflows/) and the architecture notes.
+
+## Related
+
+- [Environments](/guides/environments/) — scope variables independently of collections.
+- [Import & export](/guides/import-export/) — formats supported.
+- [Authentication](/guides/auth/) — set once on the collection, inherit everywhere.

@@ -1,0 +1,42 @@
+---
+title: gRPC
+description: Unary and streaming RPCs over Connect and gRPC-Web — including server reflection, .proto upload, and W3C traceparent injection.
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+Restura speaks gRPC over **Connect** and **gRPC-Web** transports — both available on web and desktop without any local toolchain. JSON encoding is the default; binary protobuf is supported where the server allows.
+
+## Discovering the service
+
+- **Server reflection** — the fastest path. Hit the **Reflect** button and Restura lists available services and methods.
+- **Upload a `.proto`** — drag in your `.proto` file and Restura compiles it on the fly. Imports are resolved from the same directory.
+- **Paste a FileDescriptorSet** — for monorepos that already ship a compiled `*.binpb`.
+
+## Streaming
+
+- **Unary** — request-response.
+- **Server streaming** — single request, streamed responses. Live updates land in the response panel.
+- **Client streaming** — multiple requests, single response. <Badge text="desktop" variant="caution" /> for full HTTP/2 streaming; browser fetch limits client streaming on the web target.
+- **Bidirectional streaming** — same caveat as client streaming.
+
+## Authentication
+
+All the HTTP auth schemes apply (Bearer is the common one), plus:
+
+- **AWS SigV4** signed at the wire (Worker / Electron, not the renderer).
+- **Custom metadata** — gRPC uses metadata in place of HTTP headers; the same editor adds them.
+
+## Tracing
+
+Restura **auto-injects a W3C `traceparent`** header on every gRPC request by default — useful when your services participate in distributed tracing. Override or disable in the request settings.
+
+## Reflection over the web
+
+The Cloudflare Worker has a dedicated route `/api/grpc/reflection` that proxies reflection calls with the right wire framing — so the web app gets the same reflect-and-go experience as desktop.
+
+## Related
+
+- [Authentication](/guides/auth/) — Bearer / mTLS / SigV4.
+- [Workflows](/guides/workflows/) — chain RPCs and extract response fields.
+- [Architecture](/architecture/shared-protocol/) — how gRPC, HTTP, and MCP share one core.

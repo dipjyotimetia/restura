@@ -1,0 +1,753 @@
+/* =========================================================================
+   Restura Docs — Strata Glass Design System
+   Matches the main app's frosted glass aesthetic with deep-space backdrop +
+   violet/indigo gradient orbs. Three glass tiers, dark-mode aware.
+   ========================================================================= */
+
+:root {
+  /* Brand palette — space-separated RGB triplets (modern syntax) */
+  --restura-violet: 123 110 246; /* #7B6EF6 */
+  --restura-indigo: 79 70 229; /* #4F46E5 */
+  --restura-accent: 99 102 241; /* #6366F1 */
+  --restura-cyan: 34 211 238; /* #22D3EE */
+
+  /* Starlight accent overrides */
+  --sl-color-accent-low: rgb(30 27 75);
+  --sl-color-accent: rgb(var(--restura-violet));
+  --sl-color-accent-high: rgb(199 210 254);
+
+  /* Typography */
+  --sl-font: 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', Menlo, monospace;
+
+  /* Glass tier variables (light defaults) */
+  --glass-1-bg: rgb(255 255 255 / 0.65);
+  --glass-2-bg: rgb(255 255 255 / 0.55);
+  --glass-3-bg: rgb(255 255 255 / 0.45);
+  --glass-border: rgb(255 255 255 / 0.7);
+  --glass-border-subtle: rgb(15 23 42 / 0.08);
+  --glass-shadow:
+    0 1px 0 0 rgb(255 255 255 / 0.6) inset, 0 8px 24px -12px rgb(31 41 55 / 0.18),
+    0 2px 6px -2px rgb(31 41 55 / 0.08);
+
+  /* Backdrop (light) */
+  --backdrop-base: hsl(250 25% 97%);
+  --backdrop-orb-1: rgb(var(--restura-violet) / 0.18);
+  --backdrop-orb-2: rgb(var(--restura-indigo) / 0.12);
+}
+
+:root[data-theme='light'] {
+  --sl-color-bg: var(--backdrop-base);
+  --sl-color-bg-nav: rgb(255 255 255 / 0.5);
+  --sl-color-bg-sidebar: rgb(255 255 255 / 0.5);
+  --sl-color-hairline: rgb(15 23 42 / 0.08);
+  --sl-color-hairline-light: rgb(15 23 42 / 0.05);
+}
+
+:root[data-theme='dark'] {
+  --glass-1-bg: rgb(255 255 255 / 0.06);
+  --glass-2-bg: rgb(255 255 255 / 0.04);
+  --glass-3-bg: rgb(255 255 255 / 0.025);
+  --glass-border: rgb(255 255 255 / 0.12);
+  --glass-border-subtle: rgb(255 255 255 / 0.07);
+  --glass-shadow:
+    0 1px 0 0 rgb(255 255 255 / 0.06) inset, 0 8px 24px -8px rgb(0 0 0 / 0.45),
+    0 2px 6px -2px rgb(0 0 0 / 0.35);
+
+  --backdrop-base: hsl(240 20% 5%);
+  --backdrop-orb-1: rgb(var(--restura-violet) / 0.22);
+  --backdrop-orb-2: rgb(var(--restura-indigo) / 0.18);
+
+  --sl-color-bg: var(--backdrop-base);
+  --sl-color-bg-nav: rgb(15 23 42 / 0.55);
+  --sl-color-bg-sidebar: rgb(15 23 42 / 0.4);
+  --sl-color-accent-low: rgb(var(--restura-accent) / 0.22);
+  --sl-color-accent: rgb(149 137 255);
+  --sl-color-accent-high: rgb(224 231 255);
+  --sl-color-hairline: rgb(255 255 255 / 0.08);
+  --sl-color-hairline-light: rgb(255 255 255 / 0.05);
+}
+
+/* =========================================================================
+   Backdrop — deep space with gradient orbs
+   ========================================================================= */
+
+body {
+  background: var(--backdrop-base);
+  position: relative;
+  isolation: isolate;
+}
+
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+body::before {
+  background:
+    radial-gradient(60rem 60rem at 85% -10%, var(--backdrop-orb-1), transparent 55%),
+    radial-gradient(50rem 50rem at -10% 110%, var(--backdrop-orb-2), transparent 55%);
+  will-change: transform, opacity;
+}
+
+/* Backdrop drift — slow, breathing motion */
+@media (prefers-reduced-motion: no-preference) {
+  body::before {
+    animation: orb-drift 28s ease-in-out infinite alternate;
+  }
+}
+@keyframes orb-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translate3d(-2%, 1.5%, 0) scale(1.06);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(1.5%, -1%, 0) scale(1.02);
+    opacity: 1;
+  }
+}
+
+body::after {
+  background-image:
+    linear-gradient(rgb(120 120 160 / 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(120 120 160 / 0.04) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  opacity: 0.6;
+}
+
+:root[data-theme='dark'] body::after {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.025) 1px, transparent 1px);
+}
+
+/* =========================================================================
+   Starlight chrome — glass header & sidebar
+   ========================================================================= */
+
+header.header {
+  background: var(--sl-color-bg-nav) !important;
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--glass-border-subtle);
+}
+
+.sidebar-pane {
+  background: var(--sl-color-bg-sidebar) !important;
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-inline-end: 1px solid var(--glass-border-subtle);
+}
+
+.sidebar-content a {
+  border-radius: 0.5rem;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.sidebar-content a:hover {
+  background: var(--glass-1-bg);
+}
+.sidebar-content a[aria-current='page'] {
+  background: rgb(var(--restura-violet) / 0.12);
+  color: rgb(var(--restura-violet));
+  font-weight: 600;
+  position: relative;
+}
+:root[data-theme='dark'] .sidebar-content a[aria-current='page'] {
+  background: rgb(var(--restura-violet) / 0.2);
+  color: rgb(199 210 254);
+}
+.sidebar-content a[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: -0.5rem;
+  top: 0.4rem;
+  bottom: 0.4rem;
+  width: 2px;
+  border-radius: 1px;
+  background: rgb(var(--restura-violet));
+}
+
+/* =========================================================================
+   Splash hero
+   ========================================================================= */
+
+.hero {
+  position: relative;
+  padding: 4rem 1rem 5rem !important;
+  border-radius: 1.5rem;
+  background: linear-gradient(
+    135deg,
+    rgb(var(--restura-violet) / 0.08),
+    rgb(var(--restura-indigo) / 0.04) 60%,
+    transparent
+  );
+  border: 1px solid var(--glass-border-subtle);
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -30%;
+  right: -10%;
+  width: 32rem;
+  height: 32rem;
+  background: radial-gradient(circle, rgb(var(--restura-violet) / 0.35), transparent 60%);
+  filter: blur(40px);
+  pointer-events: none;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: -40%;
+  left: -10%;
+  width: 28rem;
+  height: 28rem;
+  background: radial-gradient(circle, rgb(var(--restura-cyan) / 0.18), transparent 60%);
+  filter: blur(48px);
+  pointer-events: none;
+}
+.hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hero h1 {
+  font-size: clamp(2.75rem, 6vw, 4.5rem) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+  background: linear-gradient(
+    135deg,
+    rgb(var(--restura-violet)) 0%,
+    rgb(var(--restura-indigo)) 30%,
+    rgb(var(--restura-cyan)) 60%,
+    rgb(var(--restura-indigo)) 85%,
+    rgb(var(--restura-violet)) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Hero gradient shimmer */
+@media (prefers-reduced-motion: no-preference) {
+  .hero h1 {
+    animation: hero-shimmer 12s ease-in-out infinite;
+  }
+}
+@keyframes hero-shimmer {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.hero .tagline {
+  font-size: 1.15rem !important;
+  color: var(--sl-color-gray-2);
+  max-width: 36rem;
+  line-height: 1.55;
+}
+
+.hero .actions {
+  margin-top: 2rem !important;
+  gap: 0.75rem !important;
+}
+
+.hero img {
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  background: var(--glass-2-bg);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  max-width: 14rem !important;
+}
+
+.hero a.action {
+  border-radius: 0.65rem !important;
+  font-weight: 600 !important;
+  padding: 0.65rem 1.15rem !important;
+  transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+.hero a.action.primary {
+  background: linear-gradient(
+    135deg,
+    rgb(var(--restura-violet)),
+    rgb(var(--restura-indigo))
+  ) !important;
+  color: white !important;
+  border: 1px solid rgb(var(--restura-violet) / 0.5) !important;
+  box-shadow:
+    0 8px 20px -6px rgb(var(--restura-violet) / 0.5),
+    inset 0 1px 0 rgb(255 255 255 / 0.2);
+}
+.hero a.action.primary:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 12px 28px -6px rgb(var(--restura-violet) / 0.6),
+    inset 0 1px 0 rgb(255 255 255 / 0.25);
+}
+.hero a.action.secondary,
+.hero a.action.minimal {
+  background: var(--glass-2-bg) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border) !important;
+  color: inherit !important;
+}
+.hero a.action.secondary:hover,
+.hero a.action.minimal:hover {
+  background: var(--glass-1-bg) !important;
+  transform: translateY(-1px);
+}
+
+/* =========================================================================
+   Protocol grid — glass cards with per-protocol accent
+   ========================================================================= */
+
+.protocol-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.protocol-grid a {
+  --pc: var(--restura-violet);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.25rem 1.15rem;
+  border-radius: 1rem;
+  text-decoration: none !important;
+  color: inherit;
+  background: var(--glass-2-bg);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border: 1px solid var(--glass-border-subtle);
+  box-shadow: var(--glass-shadow);
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.18s ease,
+    background-color 0.18s ease;
+}
+/* Shine highlight */
+.protocol-grid a::after {
+  content: '';
+  position: absolute;
+  inset-inline: 1rem;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.5) 50%, transparent);
+  pointer-events: none;
+}
+:root[data-theme='dark'] .protocol-grid a::after {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.18) 50%, transparent);
+}
+/* Hover glow */
+.protocol-grid a::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgb(var(--pc) / 0.16), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.protocol-grid a:hover {
+  transform: translateY(-3px);
+  border-color: rgb(var(--pc) / 0.4);
+}
+.protocol-grid a:hover::before {
+  opacity: 1;
+}
+
+/* Per-protocol accent — set --pc to a matching app palette color */
+.protocol-grid a[data-color='emerald'] {
+  --pc: 16 185 129;
+}
+.protocol-grid a[data-color='pink'] {
+  --pc: 236 72 153;
+}
+.protocol-grid a[data-color='cyan'] {
+  --pc: 34 211 238;
+}
+.protocol-grid a[data-color='violet'] {
+  --pc: 123 110 246;
+}
+.protocol-grid a[data-color='amber'] {
+  --pc: 245 158 11;
+}
+.protocol-grid a[data-color='rose'] {
+  --pc: 244 63 94;
+}
+.protocol-grid a[data-color='orange'] {
+  --pc: 249 115 22;
+}
+.protocol-grid a[data-color='blue'] {
+  --pc: 59 130 246;
+}
+
+.protocol-grid .label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  font-family: var(--sl-font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.22rem 0.6rem;
+  border-radius: 0.45rem;
+  background: rgb(var(--pc) / 0.16);
+  color: rgb(var(--pc));
+  border: 1px solid rgb(var(--pc) / 0.3);
+  text-transform: uppercase;
+}
+:root[data-theme='dark'] .protocol-grid .label {
+  background: rgb(var(--pc) / 0.22);
+  color: color-mix(in oklab, rgb(var(--pc)) 55%, white);
+  border-color: rgb(var(--pc) / 0.45);
+}
+.protocol-grid .name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 0.35rem;
+}
+.protocol-grid .desc {
+  font-size: 0.85rem;
+  color: var(--sl-color-gray-3);
+  line-height: 1.5;
+  margin-top: 0.1rem;
+}
+
+/* =========================================================================
+   Starlight Card / LinkCard / CardGrid — glass tile
+   ========================================================================= */
+
+.card,
+[class*='card_'] {
+  background: var(--glass-2-bg) !important;
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border: 1px solid var(--glass-border-subtle) !important;
+  box-shadow: var(--glass-shadow);
+  border-radius: 1rem !important;
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.18s ease;
+}
+.card:hover,
+[class*='card_']:hover {
+  transform: translateY(-2px);
+  border-color: rgb(var(--restura-violet) / 0.35) !important;
+}
+.card .icon,
+[class*='card_'] svg {
+  color: rgb(var(--restura-violet)) !important;
+}
+
+.sl-link-card {
+  background: var(--glass-2-bg) !important;
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border: 1px solid var(--glass-border-subtle) !important;
+  box-shadow: var(--glass-shadow);
+  border-radius: 1rem !important;
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.18s ease;
+}
+.sl-link-card:hover {
+  transform: translateY(-2px);
+  border-color: rgb(var(--restura-violet) / 0.4) !important;
+}
+
+/* =========================================================================
+   Tabs, Aside (callouts), FileTree
+   ========================================================================= */
+
+starlight-tabs {
+  background: var(--glass-3-bg);
+  backdrop-filter: saturate(180%) blur(10px);
+  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 0.9rem;
+  padding: 0.25rem 0.5rem 0.5rem;
+}
+
+.starlight-aside {
+  background: var(--glass-3-bg) !important;
+  backdrop-filter: saturate(180%) blur(10px);
+  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  border: 1px solid var(--glass-border-subtle) !important;
+  border-inline-start: 3px solid rgb(var(--restura-violet)) !important;
+  border-radius: 0.75rem !important;
+}
+.starlight-aside--tip {
+  border-inline-start-color: rgb(34 197 94) !important;
+}
+.starlight-aside--caution {
+  border-inline-start-color: rgb(245 158 11) !important;
+}
+.starlight-aside--danger {
+  border-inline-start-color: rgb(244 63 94) !important;
+}
+
+starlight-file-tree {
+  background: var(--glass-3-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+/* =========================================================================
+   Code blocks
+   ========================================================================= */
+
+.expressive-code .frame {
+  border-radius: 0.9rem !important;
+  border: 1px solid var(--glass-border-subtle) !important;
+  box-shadow: var(--glass-shadow);
+  overflow: hidden;
+}
+.expressive-code .frame pre {
+  background: rgb(15 17 32 / 0.85) !important;
+  backdrop-filter: blur(10px);
+}
+:root[data-theme='light'] .expressive-code .frame pre {
+  background: rgb(245 245 250 / 0.85) !important;
+}
+
+/* Inline code */
+:not(pre) > code {
+  background: rgb(var(--restura-violet) / 0.12) !important;
+  border: 1px solid rgb(var(--restura-violet) / 0.22);
+  color: rgb(var(--restura-violet)) !important;
+  padding: 0.15rem 0.45rem !important;
+  border-radius: 0.35rem !important;
+  font-size: 0.875em !important;
+}
+:root[data-theme='dark'] :not(pre) > code {
+  color: rgb(199 210 254) !important;
+  background: rgb(var(--restura-violet) / 0.22) !important;
+  border-color: rgb(var(--restura-violet) / 0.3);
+}
+
+/* =========================================================================
+   Tables
+   ========================================================================= */
+
+table {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  background: var(--glass-3-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+table th {
+  background: rgb(var(--restura-violet) / 0.08);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+table tr:not(:last-child) td,
+table th {
+  border-bottom: 1px solid var(--glass-border-subtle) !important;
+}
+
+/* =========================================================================
+   Search input + Badge component
+   ========================================================================= */
+
+site-search button[data-open-modal] {
+  background: var(--glass-2-bg) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border-subtle) !important;
+  border-radius: 0.6rem !important;
+}
+
+.sl-badge {
+  border-radius: 0.4rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.005em;
+  border: 1px solid currentColor !important;
+  background-color: transparent !important;
+  padding: 0.1rem 0.45rem !important;
+}
+.sl-badge.caution {
+  color: rgb(245 158 11);
+}
+.sl-badge.success {
+  color: rgb(34 197 94);
+}
+.sl-badge.note {
+  color: rgb(var(--restura-violet));
+}
+
+/* =========================================================================
+   Typography polish
+   ========================================================================= */
+
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3 {
+  letter-spacing: -0.02em;
+}
+.sl-markdown-content h1 {
+  font-weight: 800 !important;
+}
+.sl-markdown-content h2 {
+  font-weight: 700 !important;
+  margin-top: 2.5rem !important;
+}
+.sl-markdown-content h3 {
+  font-weight: 600 !important;
+}
+
+.sl-markdown-content > p:first-of-type {
+  font-size: 1.125rem;
+  color: var(--sl-color-gray-2);
+  line-height: 1.65;
+}
+
+.hero .tagline {
+  font-weight: 400;
+}
+
+@media (max-width: 50rem) {
+  .hero .actions {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+  .hero a.action {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}
+
+/* =========================================================================
+   Premium motion — scroll-reveal, live pulse, reading progress
+   All gated behind prefers-reduced-motion
+   ========================================================================= */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Scroll-reveal: cards fade-up the first time they enter the viewport */
+  .protocol-grid a,
+  .card,
+  [class*='card_'],
+  .sl-link-card {
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity 0.5s cubic-bezier(0.2, 0.8, 0.2, 1),
+      transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1),
+      border-color 0.18s ease,
+      background-color 0.18s ease;
+  }
+  .protocol-grid a.is-revealed,
+  .card.is-revealed,
+  [class*='card_'].is-revealed,
+  .sl-link-card.is-revealed {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  /* Stagger inside the protocol grid */
+  .protocol-grid a:nth-child(2) {
+    transition-delay: 0.04s;
+  }
+  .protocol-grid a:nth-child(3) {
+    transition-delay: 0.08s;
+  }
+  .protocol-grid a:nth-child(4) {
+    transition-delay: 0.12s;
+  }
+  .protocol-grid a:nth-child(5) {
+    transition-delay: 0.16s;
+  }
+  .protocol-grid a:nth-child(6) {
+    transition-delay: 0.2s;
+  }
+  .protocol-grid a:nth-child(7) {
+    transition-delay: 0.24s;
+  }
+  .protocol-grid a:nth-child(8) {
+    transition-delay: 0.28s;
+  }
+}
+
+/* "Live" pulse dot on real-time protocols (WS, SSE) */
+.protocol-grid a[data-live] .label {
+  position: relative;
+  padding-inline-end: 1.4rem;
+}
+.protocol-grid a[data-live] .label::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: 0.5rem;
+  top: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: -0.25rem;
+  border-radius: 50%;
+  background: rgb(var(--pc));
+  box-shadow: 0 0 0 0 rgb(var(--pc) / 0.6);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .protocol-grid a[data-live] .label::after {
+    animation: live-pulse 1.6s ease-out infinite;
+  }
+}
+@keyframes live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(var(--pc) / 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgb(var(--pc) / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--pc) / 0);
+  }
+}
+
+/* Mermaid fade-in: SVGs render after JS hydrates; soften the pop */
+.mermaid svg,
+[data-mermaid] svg {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.mermaid.is-rendered svg,
+[data-mermaid].is-rendered svg {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mermaid svg,
+  [data-mermaid] svg {
+    opacity: 1;
+  }
+}

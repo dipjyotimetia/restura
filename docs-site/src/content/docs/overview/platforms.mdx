@@ -1,0 +1,59 @@
+---
+title: Platforms
+description: One UI, three deployment targets — web, desktop, self-hosted — with explicit feature parity badges where they diverge.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Restura ships from a **single React renderer** to three targets. The user experience is identical; what differs is the network and storage capabilities the platform exposes.
+
+## The three targets
+
+| Target | How it runs | Where data lives |
+|---|---|---|
+| **Web** | SPA on Cloudflare Pages, requests proxied through a Cloudflare Worker on `api.restura.dev`. | IndexedDB (browser). |
+| **Desktop** | Electron app on macOS / Windows / Linux. Requests sent directly from the main process. | Encrypted electron-store, key wrapped by the OS keychain. |
+| **Self-hosted** | Single Node container that serves both the SPA and the API proxy on one port. | IndexedDB (browser); the server is stateless. |
+
+## Web vs desktop — the asymmetry
+
+The browser sandbox can't expose raw TCP, custom CAs, SOCKS, or PAC scripting. Restura surfaces this as **"Desktop only" badges** on UI fields whose underlying capability isn't available on the platform you're using.
+
+### Desktop-only features
+
+- **Kafka** (produce / consume — needs raw TCP + SASL).
+- **Socket.IO acks** (requires a long-lived non-HTTP transport).
+- **SSE custom headers** (the browser `EventSource` API doesn't expose headers).
+- **MCP stdio transport** (subprocesses can't run in a browser).
+- **mTLS client certificates** — sign with a client cert.
+- **SOCKS4 / SOCKS5** proxies.
+- **PAC script** resolution.
+- **Custom CA bundle** / disable TLS verification.
+- **Pre-flight DNS guard** against DNS-rebind (Electron `net.lookup` integration).
+- **Filesystem-backed collections** + git operations on a workspace.
+- **OS keychain** storage for encryption keys (via `safeStorage`).
+- **Local mock HTTP server**, system tray, native notifications.
+
+### Available on both web and desktop
+
+HTTP/REST, GraphQL, gRPC (unary + streaming over Connect / gRPC-Web), WebSocket, basic SSE, MCP over HTTP-SSE, Socket.IO basic emit/listen, collections, environments, workflows, scripts, encrypted local storage, the AI assistant, and the SSRF guard.
+
+<Aside type="note">
+The exact, machine-generated truth lives in [`src/lib/shared/capabilities.ts`](https://github.com/dipjyotimetia/restura/blob/main/src/lib/shared/capabilities.ts) and is published as the [capability matrix](/reference/capability-matrix/).
+</Aside>
+
+## How the network path differs
+
+On **web**, the SPA `fetch`es `/api/*` on the same origin, which hits a Cloudflare Worker that performs SSRF validation, applies the auth signing, and forwards to the upstream. This avoids CORS friction and gives a uniform fetch surface.
+
+On **desktop**, the renderer talks to the Electron main process over a context-isolated IPC bridge (`window.electron`), and the main process executes the request directly with Node's `http` / `https` / `net` / `tls` — so all the capabilities above are available.
+
+On **self-hosted**, the same Hono app that runs in the Worker runs in a Node process via `worker/node-entry.ts`. One process serves both the SPA and `/api/*` on one port.
+
+All three paths share the same protocol cores in `shared/protocol/` — see [Architecture / Shared protocol layer](/architecture/shared-protocol/).
+
+## Why pick which
+
+- **Just exploring an API?** Use the [web app](https://restura.pages.dev).
+- **Need Kafka, mTLS, custom CAs, SOCKS proxies, or proper DNS-rebind protection?** Download the [desktop app](/overview/install/).
+- **Want to run it inside your VPC behind your reverse proxy?** Use the [Docker image](/self-hosting/docker/).

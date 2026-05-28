@@ -1,0 +1,107 @@
+---
+title: Reverse proxy
+description: Putting Restura behind nginx, Caddy, or Traefik. WebSocket upgrades, headers, TLS.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+When you self-host Restura, put it behind your reverse proxy of choice for TLS termination, auth (via Cloudflare Access, OIDC, etc.), and rate limiting.
+
+The container needs the proxy to:
+
+- Forward `/api/ws` as a **WebSocket upgrade** (don't terminate the upgrade).
+- Pass through the `X-Worker-Token` header **or** the `Cf-Access-Authenticated-User-Email` header from your IdP.
+- Not strip the `Content-Encoding` header — streaming responses (SSE, chunked) depend on it.
+
+## Example configs
+
+<Tabs>
+
+<TabItem label="nginx">
+
+```nginx
+server {
+  listen 443 ssl http2;
+  server_name restura.example.com;
+
+  ssl_certificate     /etc/ssl/restura.crt;
+  ssl_certificate_key /etc/ssl/restura.key;
+
+  location / {
+    proxy_pass http://restura:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # WebSocket upgrade
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection $http_connection;
+
+    # Streaming endpoints
+    proxy_buffering off;
+    proxy_read_timeout 1h;
+  }
+}
+```
+
+</TabItem>
+
+<TabItem label="Caddy">
+
+```caddyfile
+restura.example.com {
+  reverse_proxy restura:3000 {
+    transport http {
+      versions h1 h2c
+      keepalive 30s
+    }
+    header_up Host {host}
+    header_up X-Real-IP {remote_host}
+  }
+}
+```
+
+Caddy handles WebSocket upgrades and SSE buffering correctly out of the box.
+
+</TabItem>
+
+<TabItem label="Traefik (Docker labels)">
+
+```yaml
+services:
+  restura:
+    image: ghcr.io/dipjyotimetia/restura:latest
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.restura.rule=Host(`restura.example.com`)
+      - traefik.http.routers.restura.entrypoints=websecure
+      - traefik.http.routers.restura.tls=true
+      - traefik.http.services.restura.loadbalancer.server.port=3000
+    environment:
+      WORKER_PROXY_TOKEN: ${WORKER_PROXY_TOKEN:?required}
+```
+
+</TabItem>
+
+</Tabs>
+
+## With Cloudflare Access (or any header-injecting IdP)
+
+1. Put Cloudflare Access in front of `restura.example.com` and configure your identity provider.
+2. In the Restura container, set `REQUIRE_CF_ACCESS=true`.
+3. The server reads the user identity from the `Cf-Access-Authenticated-User-Email` header (or your IdP's equivalent) and skips the shared-token check.
+
+Make sure the header your IdP injects matches what the server reads — see [Self-hosting / Docker](/self-hosting/docker/) for the env var names.
+
+## Multi-replica notes
+
+WebSocket tickets are per-replica in-memory (v1 constraint). Either use **sticky routing** on `/api/ws-ticket` and `/api/ws` paths, or stick to a single replica.
+
+Per-replica in-memory rate limiting means high-traffic deployments should put a rate limiter in the reverse proxy too.
+
+## Related
+
+- [Docker](/self-hosting/docker/) — env vars and the single-image setup.
+- [Security model](/architecture/security/).
