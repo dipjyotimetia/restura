@@ -128,7 +128,7 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
             onBlur={(e) => {
               onBlur?.(e);
               // Defer close so a click inside the popover registers first.
-              setTimeout(() => setOpen(false), 120);
+              setTimeout(() => setOpen(false), 150);
             }}
             onKeyDown={handleKeyDown}
             role="combobox"
@@ -145,10 +145,21 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
         <PopoverContent
           align="start"
           sideOffset={4}
-          className="w-[var(--radix-popover-trigger-width)] min-w-[220px] p-0 max-h-[280px] overflow-auto"
+          className="w-[var(--radix-popover-anchor-width)] min-w-[220px] p-0 max-h-[280px] overflow-auto"
           onOpenAutoFocus={(e) => {
             // Keep focus on the input — the popover is a passive listbox.
             e.preventDefault();
+          }}
+          onPointerDownOutside={(e) => {
+            // The anchor input carries role="combobox"; prevent Radix from
+            // dismissing the popover when the pointer-down is on the input
+            // itself — the blur timeout already handles the close.
+            const t = e.target as Element | null;
+            if (t?.closest('[role="combobox"]')) e.preventDefault();
+          }}
+          onInteractOutside={(e) => {
+            const t = e.target as Element | null;
+            if (t?.closest('[role="combobox"]')) e.preventDefault();
           }}
         >
           <ul id={listboxId} role="listbox" className="py-1">
