@@ -447,10 +447,10 @@ interface DropdownItemProps {
 function DropdownItem({ icon: Icon, destructive, onSelect, children }: DropdownItemProps) {
   return (
     <DropdownPrimitive.Item
-      onSelect={(e) => {
-        e.preventDefault();
-        onSelect();
-      }}
+      // No preventDefault — Radix auto-closes the menu after select. Rename
+      // works because the action sets editing=true *before* the close; the
+      // header re-renders with the input in edit mode after dismissal.
+      onSelect={() => onSelect()}
       className={cn(
         'flex items-center gap-2 h-8 px-2.5 rounded-sp-btn text-sp-12-5 cursor-pointer',
         'outline-none transition-colors',

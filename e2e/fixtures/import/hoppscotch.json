@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "name": "Hoppscotch Sample",
+  "folders": [],
+  "requests": [
+    {
+      "v": "1",
+      "name": "Get Hoppscotch Ping",
+      "method": "GET",
+      "endpoint": "https://hopp-sample.test/ping",
+      "headers": [],
+      "params": [],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": { "authType": "none", "authActive": true },
+      "body": { "contentType": null, "body": null }
+    }
+  ]
+}

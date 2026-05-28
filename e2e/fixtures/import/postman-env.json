@@ -1,0 +1,12 @@
+{
+  "id": "e2e-postman-env",
+  "name": "Postman Env Sample",
+  "_postman_variable_scope": "environment",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "https://postman-echo.com",
+      "enabled": true
+    }
+  ]
+}

@@ -21,6 +21,12 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@shared': path.resolve(__dirname, './shared'),
+      // `@usebruno/lang` does `const ohm = require('ohm-js'); ohm.grammar(...)`.
+      // ohm-js's ESM build (`module: dist/ohm.esm.js`) exports `ohm` as the
+      // default export, so Vite's ESM interop hands back `{ default, extras }`
+      // and `.grammar` is undefined. Pin to the CJS entry — Vite's CJS plugin
+      // unwraps `module.exports = ohm` correctly.
+      'ohm-js': path.resolve(__dirname, './node_modules/ohm-js/index.js'),
     },
   },
   server: {

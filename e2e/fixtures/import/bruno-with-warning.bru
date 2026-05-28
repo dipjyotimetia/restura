@@ -1,0 +1,11 @@
+meta {
+  name: Bruno Process Env Ref
+  type: http
+  seq: 1
+}
+
+get {
+  url: https://bruno-warn.test/{{process.env.SECRET}}
+  body: none
+  auth: none
+}

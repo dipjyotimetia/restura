@@ -68,7 +68,7 @@ const hoppCollection: z.ZodType<unknown> = z.lazy(() =>
       folders: z.array(hoppCollection).default([]),
       requests: z.array(hoppRequest).default([]),
     })
-    .passthrough(),
+    .passthrough()
 );
 
 const hoppEnvironment = z
@@ -83,7 +83,7 @@ const hoppEnvironment = z
           currentValue: z.string().optional(),
           value: z.string().optional(),
           secret: z.boolean().default(false),
-        }),
+        })
       )
       .default([]),
   })
@@ -94,6 +94,13 @@ const hoppEnvironment = z
 
 export function isHoppscotchEnvironment(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
+  // Collections have `requests` and/or `folders` at the top level; envs don't.
+  // Without this guard, the env schema (which only requires `name` and treats
+  // `variables` as optional via `.default([])`) accidentally accepts
+  // collections too, because they also have a `name` field — and the ImportDialog
+  // mis-routes them through `importHoppscotchEnvironment`, losing every request.
+  const d = data as Record<string, unknown>;
+  if (Array.isArray(d.requests) || Array.isArray(d.folders)) return false;
   return hoppEnvironment.safeParse(data).success;
 }
 
@@ -300,7 +307,7 @@ function hoppAuthToInternal(auth: any, name: string, warnings: ImportWarning[]):
 }
 
 function mapHoppGrant(
-  g: string,
+  g: string
 ): 'authorization_code' | 'client_credentials' | 'password' | 'device_code' | undefined {
   switch (g) {
     case 'AUTHORIZATION_CODE':
