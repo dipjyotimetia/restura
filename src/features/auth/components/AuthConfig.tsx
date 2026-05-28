@@ -2,11 +2,17 @@
 
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { AuthConfig, AuthType } from '@/types';
+import type { AuthConfig } from '@/types';
 import { Lock, Loader2, AlertTriangle } from 'lucide-react';
 import { isElectron } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
@@ -29,11 +35,10 @@ interface AuthConfigProps {
 export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
   const [tokenLoading, setTokenLoading] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
-  const [deviceCodeInfo, setDeviceCodeInfo] = useState<{ userCode: string; verificationUri: string } | null>(null);
-
-  const handleTypeChange = (type: AuthType) => {
-    onChange({ type });
-  };
+  const [deviceCodeInfo, setDeviceCodeInfo] = useState<{
+    userCode: string;
+    verificationUri: string;
+  } | null>(null);
 
   const handleGetToken = async () => {
     if (!auth.oauth2) return;
@@ -60,7 +65,9 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         tokenUrl: o.tokenUrl,
         ...(o.clientSecret !== undefined && { clientSecret: unwrapSecret(o.clientSecret) }),
         ...(o.authorizationUrl !== undefined && { authorizationUrl: o.authorizationUrl }),
-        ...(o.deviceAuthorizationUrl !== undefined && { deviceAuthorizationUrl: o.deviceAuthorizationUrl }),
+        ...(o.deviceAuthorizationUrl !== undefined && {
+          deviceAuthorizationUrl: o.deviceAuthorizationUrl,
+        }),
         ...(o.redirectUri !== undefined && { redirectUri: o.redirectUri }),
         ...(o.scope !== undefined && { scope: o.scope }),
         ...(o.username !== undefined && { username: o.username }),
@@ -91,7 +98,12 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
       } else if (o.grantType === 'device_code') {
         const device = await fetchDeviceCode(config);
         setDeviceCodeInfo({ userCode: device.user_code, verificationUri: device.verification_uri });
-        const res = await pollForDeviceToken(config, device.device_code, device.interval ?? 5, Math.ceil(device.expires_in / (device.interval ?? 5)));
+        const res = await pollForDeviceToken(
+          config,
+          device.device_code,
+          device.interval ?? 5,
+          Math.ceil(device.expires_in / (device.interval ?? 5))
+        );
         token = res.access_token;
         tokenType = res.token_type;
         setDeviceCodeInfo(null);
@@ -233,9 +245,13 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               <label className="text-sm font-medium mb-2 block">Grant Type</label>
               <Select
                 value={grantType}
-                onValueChange={(v) => onChange({ ...auth, oauth2: { ...o!, grantType: v as typeof grantType } })}
+                onValueChange={(v) =>
+                  onChange({ ...auth, oauth2: { ...o!, grantType: v as typeof grantType } })
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="authorization_code">Authorization Code (PKCE)</SelectItem>
                   <SelectItem value="client_credentials">Client Credentials</SelectItem>
@@ -246,7 +262,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Client ID</label>
-              <Input value={o?.clientId ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, clientId: e.target.value } })} placeholder="Enter client ID" />
+              <Input
+                value={o?.clientId ?? ''}
+                onChange={(e) => onChange({ ...auth, oauth2: { ...o!, clientId: e.target.value } })}
+                placeholder="Enter client ID"
+              />
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Client Secret</label>
@@ -260,34 +280,70 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             {grantType === 'authorization_code' && (
               <div>
                 <label className="text-sm font-medium mb-2 block">Authorization URL</label>
-                <Input value={o?.authorizationUrl ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, authorizationUrl: e.target.value } })} placeholder="https://auth.example.com/authorize" className="font-mono" />
+                <Input
+                  value={o?.authorizationUrl ?? ''}
+                  onChange={(e) =>
+                    onChange({ ...auth, oauth2: { ...o!, authorizationUrl: e.target.value } })
+                  }
+                  placeholder="https://auth.example.com/authorize"
+                  className="font-mono"
+                />
               </div>
             )}
             {grantType === 'device_code' && (
               <div>
                 <label className="text-sm font-medium mb-2 block">Device Authorization URL</label>
-                <Input value={o?.deviceAuthorizationUrl ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, deviceAuthorizationUrl: e.target.value } })} placeholder="https://auth.example.com/device_authorization" className="font-mono" />
+                <Input
+                  value={o?.deviceAuthorizationUrl ?? ''}
+                  onChange={(e) =>
+                    onChange({ ...auth, oauth2: { ...o!, deviceAuthorizationUrl: e.target.value } })
+                  }
+                  placeholder="https://auth.example.com/device_authorization"
+                  className="font-mono"
+                />
               </div>
             )}
             <div>
               <label className="text-sm font-medium mb-2 block">Token URL</label>
-              <Input value={o?.tokenUrl ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, tokenUrl: e.target.value } })} placeholder="https://auth.example.com/token" className="font-mono" />
+              <Input
+                value={o?.tokenUrl ?? ''}
+                onChange={(e) => onChange({ ...auth, oauth2: { ...o!, tokenUrl: e.target.value } })}
+                placeholder="https://auth.example.com/token"
+                className="font-mono"
+              />
             </div>
             {grantType === 'authorization_code' && (
               <div>
                 <label className="text-sm font-medium mb-2 block">Redirect URI</label>
-                <Input value={o?.redirectUri ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, redirectUri: e.target.value } })} placeholder="https://your-app.com/callback" className="font-mono" />
+                <Input
+                  value={o?.redirectUri ?? ''}
+                  onChange={(e) =>
+                    onChange({ ...auth, oauth2: { ...o!, redirectUri: e.target.value } })
+                  }
+                  placeholder="https://your-app.com/callback"
+                  className="font-mono"
+                />
               </div>
             )}
             <div>
               <label className="text-sm font-medium mb-2 block">Scope (optional)</label>
-              <Input value={o?.scope ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, scope: e.target.value } })} placeholder="openid email profile" />
+              <Input
+                value={o?.scope ?? ''}
+                onChange={(e) => onChange({ ...auth, oauth2: { ...o!, scope: e.target.value } })}
+                placeholder="openid email profile"
+              />
             </div>
             {grantType === 'password' && (
               <>
                 <div>
                   <label className="text-sm font-medium mb-2 block">Username</label>
-                  <Input value={o?.username ?? ''} onChange={(e) => onChange({ ...auth, oauth2: { ...o!, username: e.target.value } })} placeholder="Username" />
+                  <Input
+                    value={o?.username ?? ''}
+                    onChange={(e) =>
+                      onChange({ ...auth, oauth2: { ...o!, username: e.target.value } })
+                    }
+                    placeholder="Username"
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-2 block">Password</label>
@@ -300,19 +356,37 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 </div>
               </>
             )}
-            <Button variant="outline" size="sm" onClick={handleGetToken} disabled={tokenLoading} className="w-full">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleGetToken}
+              disabled={tokenLoading}
+              className="w-full"
+            >
               {tokenLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               {tokenLoading ? 'Getting Token...' : 'Get New Access Token'}
             </Button>
             {deviceCodeInfo && (
               <div className="p-3 rounded bg-amber-500/10 border border-amber-500/20 text-xs space-y-1">
                 <p className="font-medium">Device Authorization Required</p>
-                <p>Go to <span className="font-mono text-primary">{deviceCodeInfo.verificationUri}</span></p>
-                <p>Enter code: <span className="font-mono font-bold text-primary">{deviceCodeInfo.userCode}</span></p>
+                <p>
+                  Go to{' '}
+                  <span className="font-mono text-primary">{deviceCodeInfo.verificationUri}</span>
+                </p>
+                <p>
+                  Enter code:{' '}
+                  <span className="font-mono font-bold text-primary">
+                    {deviceCodeInfo.userCode}
+                  </span>
+                </p>
                 <p className="text-muted-foreground">Waiting for authorization...</p>
               </div>
             )}
-            {tokenError && <p role="alert" className="text-xs text-red-500">{tokenError}</p>}
+            {tokenError && (
+              <p role="alert" className="text-xs text-red-500">
+                {tokenError}
+              </p>
+            )}
             <div className="border-t border-border pt-4">
               <label className="text-sm font-medium mb-2 block">Access Token</label>
               <SecretInput
@@ -326,7 +400,9 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               <label className="text-sm font-medium mb-2 block">Token Type (optional)</label>
               <Input
                 value={o?.tokenType ?? ''}
-                onChange={(e) => onChange({ ...auth, oauth2: { ...o!, tokenType: e.target.value } })}
+                onChange={(e) =>
+                  onChange({ ...auth, oauth2: { ...o!, tokenType: e.target.value } })
+                }
                 placeholder="Bearer"
               />
             </div>
@@ -438,7 +514,10 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(e) =>
                   onChange({
                     ...auth,
-                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), consumerKey: e.target.value },
+                    oauth1: {
+                      ...(o ?? { consumerKey: '', consumerSecret: '' }),
+                      consumerKey: e.target.value,
+                    },
                   })
                 }
                 placeholder="Enter consumer key"
@@ -452,7 +531,10 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(next) =>
                   onChange({
                     ...auth,
-                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), consumerSecret: next },
+                    oauth1: {
+                      ...(o ?? { consumerKey: '', consumerSecret: '' }),
+                      consumerSecret: next,
+                    },
                   })
                 }
                 placeholder="Enter consumer secret"
@@ -466,7 +548,10 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(next) =>
                   onChange({
                     ...auth,
-                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), accessToken: next },
+                    oauth1: {
+                      ...(o ?? { consumerKey: '', consumerSecret: '' }),
+                      accessToken: next,
+                    },
                   })
                 }
                 placeholder="Enter access token"
@@ -474,13 +559,18 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Access Token Secret (optional)</label>
+              <label className="text-sm font-medium mb-2 block">
+                Access Token Secret (optional)
+              </label>
               <SecretInput
                 value={o?.accessTokenSecret}
                 onChange={(next) =>
                   onChange({
                     ...auth,
-                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), accessTokenSecret: next },
+                    oauth1: {
+                      ...(o ?? { consumerKey: '', consumerSecret: '' }),
+                      accessTokenSecret: next,
+                    },
                   })
                 }
                 placeholder="Enter access token secret"
@@ -518,7 +608,10 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(e) =>
                   onChange({
                     ...auth,
-                    oauth1: { ...(o ?? { consumerKey: '', consumerSecret: '' }), realm: e.target.value },
+                    oauth1: {
+                      ...(o ?? { consumerKey: '', consumerSecret: '' }),
+                      realm: e.target.value,
+                    },
                   })
                 }
                 placeholder="Enter realm"
@@ -539,7 +632,10 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                   })
                 }
               />
-              <label htmlFor="oauth1-add-params-to-body" className="text-sm font-medium cursor-pointer">
+              <label
+                htmlFor="oauth1-add-params-to-body"
+                className="text-sm font-medium cursor-pointer"
+              >
                 Include body params in signature (RFC 5849 §3.4.1.3.1)
               </label>
             </div>
@@ -557,7 +653,10 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 Desktop only
               </Badge>
               {!inElectron && (
-                <p className="text-xs text-amber-500 flex items-center gap-1" data-testid="ntlm-web-warning">
+                <p
+                  className="text-xs text-amber-500 flex items-center gap-1"
+                  data-testid="ntlm-web-warning"
+                >
                   <AlertTriangle className="h-3 w-3" />
                   Will not run in browser; use the desktop app.
                 </p>
@@ -695,39 +794,18 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
       case 'none':
       default:
         return (
-          <div className="text-center py-8 text-muted-foreground">
-            <Lock className="h-12 w-12 mx-auto mb-2 opacity-50" />
-            <p>This request does not use any authentication.</p>
-            <p className="text-sm mt-1">Select an auth type above to get started.</p>
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="mb-2 inline-flex items-center justify-center h-9 w-9 rounded-full bg-sp-surface-lo text-sp-dim">
+              <Lock size={16} />
+            </div>
+            <p className="text-sp-13 text-sp-muted font-medium">No authentication</p>
+            <p className="text-sp-11 text-sp-dim mt-1 max-w-[260px]">
+              Pick an auth method on the left to configure credentials for this request.
+            </p>
           </div>
         );
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <label className="text-sm font-medium mb-2 block">Auth Type</label>
-        <Select value={auth.type} onValueChange={(value) => handleTypeChange(value as AuthType)}>
-          <SelectTrigger className="bg-background border-border">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">No Auth</SelectItem>
-            <SelectItem value="basic">Basic Auth</SelectItem>
-            <SelectItem value="bearer">Bearer Token</SelectItem>
-            <SelectItem value="api-key">API Key</SelectItem>
-            <SelectItem value="oauth2">OAuth 2.0</SelectItem>
-            <SelectItem value="oauth1">OAuth 1.0</SelectItem>
-            <SelectItem value="digest">Digest Auth</SelectItem>
-            <SelectItem value="aws-signature">AWS Signature</SelectItem>
-            <SelectItem value="ntlm">NTLM</SelectItem>
-            <SelectItem value="wsse">WSSE</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {renderAuthFields()}
-    </div>
-  );
+  return <div className="space-y-5">{renderAuthFields()}</div>;
 }

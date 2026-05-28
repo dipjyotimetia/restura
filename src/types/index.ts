@@ -4,7 +4,11 @@ import type { SecretValue } from '@/lib/shared/secretRef';
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
 
 // gRPC Methods
-export type GrpcMethodType = 'unary' | 'server-streaming' | 'client-streaming' | 'bidirectional-streaming';
+export type GrpcMethodType =
+  | 'unary'
+  | 'server-streaming'
+  | 'client-streaming'
+  | 'bidirectional-streaming';
 
 // gRPC Status Codes (https://grpc.github.io/grpc/core/md_doc_statuscodes.html)
 export enum GrpcStatusCode {
@@ -54,10 +58,28 @@ export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';
 // Request Mode (used for UI mode switching)
 // Kafka is connection-based (no Request shape) and Electron-only — the picker
 // still surfaces it in the web build but the page renders a "Desktop only" panel.
-export type RequestMode = 'http' | 'grpc' | 'websocket' | 'graphql' | 'sse' | 'mcp' | 'kafka' | 'socketio';
+export type RequestMode =
+  | 'http'
+  | 'grpc'
+  | 'websocket'
+  | 'graphql'
+  | 'sse'
+  | 'mcp'
+  | 'kafka'
+  | 'socketio';
 
 // Body Types
-export type BodyType = 'none' | 'json' | 'xml' | 'form-data' | 'x-www-form-urlencoded' | 'binary' | 'protobuf' | 'graphql' | 'text' | 'multipart-mixed';
+export type BodyType =
+  | 'none'
+  | 'json'
+  | 'xml'
+  | 'form-data'
+  | 'x-www-form-urlencoded'
+  | 'binary'
+  | 'protobuf'
+  | 'graphql'
+  | 'text'
+  | 'multipart-mixed';
 
 // Multipart Mixed Part
 export interface MultipartPart {
@@ -651,14 +673,14 @@ export interface ScriptResult {
 // Certificate Configuration
 export interface ClientCert {
   format: 'pfx' | 'pem';
-  pfx?: string;       // base64-encoded .p12/.pfx content
-  cert?: string;      // PEM certificate string
-  key?: string;       // PEM private key string (encrypted at rest)
+  pfx?: string; // base64-encoded .p12/.pfx content
+  cert?: string; // PEM certificate string
+  key?: string; // PEM private key string (encrypted at rest)
   passphrase?: string;
 }
 
 export interface CaCert {
-  pem: string;        // PEM-encoded CA certificate chain
+  pem: string; // PEM-encoded CA certificate chain
 }
 
 // Proxy Configuration
@@ -677,6 +699,15 @@ export interface ProxyConfig {
 }
 
 // Request Settings (per-request configuration)
+/**
+ * Minimum TLS protocol floor (single value, not a multi-select).
+ * Maps directly to Node's `tls.connect` `minVersion` option. Disabling
+ * non-contiguous protocol versions (e.g. allow 1.0 + 1.2 but block 1.1) is
+ * not expressible cleanly via Node's API — a single floor covers ~95% of
+ * real-world need (enforce a minimum). Desktop-only (Electron).
+ */
+export type MinTlsVersion = 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+
 export interface RequestSettings {
   timeout: number; // in milliseconds
   followRedirects: boolean;
@@ -685,6 +716,30 @@ export interface RequestSettings {
   proxy?: ProxyConfig;
   clientCert?: ClientCert;
   caCert?: CaCert;
+
+  // --- redirect policy (cross-platform; honoured by shared/protocol/redirect-follower) ---
+  /** If true, 301/302 redirects preserve the original method (RFC-compliant). Default: false (legacy: downgrade non-HEAD to GET). */
+  followOriginalMethod?: boolean;
+  /** If true, the Authorization header is preserved on cross-origin redirects. Default: false (stripped). */
+  followAuthHeader?: boolean;
+  /** If true, the Referer header is removed on every redirect hop. Default: false (preserved unless cross-origin policy strips it). */
+  stripReferer?: boolean;
+
+  // --- URL handling (cross-platform) ---
+  /** If true (default behaviour), percent-encode path/query via WHATWG URL. If false, emit raw bytes — useful for upstreams that reject %-encoding. */
+  encodeUrlAutomatically?: boolean;
+
+  // --- Cookies (renderer-side; cross-platform) ---
+  /** If true, skip cookie-jar read/write for this request. Default: false. */
+  disableCookieJar?: boolean;
+
+  // --- TLS knobs (desktop-only; honoured by Electron undici / tls.connect) ---
+  /** If true, the server's cipher-suite order takes precedence (TLS honorCipherOrder). */
+  serverCipherOrder?: boolean;
+  /** Lower bound for TLS protocol. Omit to use Node's default. */
+  minTlsVersion?: MinTlsVersion;
+  /** OpenSSL-format cipher list, e.g. "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384". */
+  cipherSuites?: string;
 }
 
 // CORS Proxy Configuration (for browser mode)
@@ -713,6 +768,17 @@ export interface AppSettings {
   // Certificate settings
   clientCert?: ClientCert;
   caCert?: CaCert;
+  // Redirect policy defaults — mirrors RequestSettings; per-request settings still override these.
+  followOriginalMethod?: boolean;
+  followAuthHeader?: boolean;
+  stripReferer?: boolean;
+  // URL & cookie defaults
+  encodeUrlAutomatically?: boolean;
+  disableCookieJar?: boolean;
+  // TLS defaults (desktop-only enforcement)
+  serverCipherOrder?: boolean;
+  minTlsVersion?: MinTlsVersion;
+  cipherSuites?: string;
   // Telemetry opt-ins (Gap #2c). Both default false. Only renderer-side errors
   // and main-process JS-level failures are sent — never request payloads,
   // headers, or response bodies. Native crashes go to crashReporter.submitURL
@@ -724,13 +790,7 @@ export interface AppSettings {
   accent?: SpatialAccent;
 }
 
-export type SpatialAccent =
-  | '#4d9fff'
-  | '#7c5cff'
-  | '#22c55e'
-  | '#f59e0b'
-  | '#ef4444'
-  | '#06b6d4';
+export type SpatialAccent = '#4d9fff' | '#7c5cff' | '#22c55e' | '#f59e0b' | '#ef4444' | '#06b6d4';
 
 export const SPATIAL_ACCENT_PRESETS: ReadonlyArray<SpatialAccent> = [
   '#4d9fff',
@@ -1035,11 +1095,7 @@ export interface FlowNodePosition {
 }
 
 export type ParallelWaitMode = 'all' | 'any' | 'race';
-export type ParallelMergeStrategy =
-  | 'fail-on-conflict'
-  | 'pick-first'
-  | 'pick-last'
-  | 'merge-list';
+export type ParallelMergeStrategy = 'fail-on-conflict' | 'pick-first' | 'pick-last' | 'merge-list';
 
 /** What counts as failure for a request node. Drives surrounding try/catch. */
 export type RequestFailureMode = 'thrown-only' | 'http-status' | 'never';

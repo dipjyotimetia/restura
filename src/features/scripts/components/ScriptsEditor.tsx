@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ChevronDown, Code2, FileText, RotateCcw } from 'lucide-react';
+import { Segmented } from '@/components/ui/spatial';
 import { Button } from '@/components/ui/button';
-import { Play, RotateCcw } from 'lucide-react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { cn } from '@/lib/shared/utils';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
@@ -18,6 +19,8 @@ interface ScriptsEditorProps {
   onPreRequestScriptChange: (script: string) => void;
   onTestScriptChange: (script: string) => void;
 }
+
+type ScriptTab = 'pre-request' | 'test';
 
 const PRE_REQUEST_TEMPLATE = `// Pre-request Script
 // This script runs before the request is sent
@@ -56,138 +59,140 @@ pm.test("Response has required fields", function() {
 // pm.variables.set("userId", pm.response.json().data.id);
 `;
 
+const PRE_REQUEST_API: ReadonlyArray<{ code: string; desc: string }> = [
+  { code: 'pm.variables.get("key")', desc: 'Read a variable' },
+  { code: 'pm.variables.set("key", value)', desc: 'Write a variable' },
+  { code: 'pm.request.url', desc: 'Current request URL' },
+  { code: 'pm.request.headers', desc: 'Request headers map' },
+];
+
+const TEST_API: ReadonlyArray<{ code: string; desc: string }> = [
+  { code: 'pm.test("name", () => {...})', desc: 'Define a test case' },
+  { code: 'pm.expect(value).to.equal(x)', desc: 'Assertion' },
+  { code: 'pm.response.status', desc: 'HTTP status code' },
+  { code: 'pm.response.json()', desc: 'Parse JSON body' },
+  { code: 'pm.response.time', desc: 'Response time (ms)' },
+];
+
 export default function ScriptsEditor({
   preRequestScript,
   testScript,
   onPreRequestScriptChange,
   onTestScriptChange,
 }: ScriptsEditorProps) {
-  const [activeTab, setActiveTab] = useState<'pre-request' | 'test'>('pre-request');
+  const [activeTab, setActiveTab] = useState<ScriptTab>('pre-request');
+  const [refOpen, setRefOpen] = useState(false);
+
+  const isPre = activeTab === 'pre-request';
+  const script = isPre ? preRequestScript : testScript;
+  const setScript = isPre ? onPreRequestScriptChange : onTestScriptChange;
+  const apiRef = isPre ? PRE_REQUEST_API : TEST_API;
 
   const handleInsertTemplate = () => {
-    if (activeTab === 'pre-request') {
-      onPreRequestScriptChange(PRE_REQUEST_TEMPLATE);
-    } else {
-      onTestScriptChange(TEST_SCRIPT_TEMPLATE);
-    }
+    setScript(isPre ? PRE_REQUEST_TEMPLATE : TEST_SCRIPT_TEMPLATE);
   };
 
   const handleClearScript = () => {
-    if (activeTab === 'pre-request') {
-      onPreRequestScriptChange('');
-    } else {
-      onTestScriptChange('');
-    }
+    setScript('');
   };
 
   return (
-    <div className="space-y-4">
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'pre-request' | 'test')}>
-        <div className="flex items-center justify-between">
-          <TabsList className="bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/5">
-            <TabsTrigger
-              value="pre-request"
-              className="data-[state=active]:bg-white/10 dark:data-[state=active]:bg-white/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
-            >
-              Pre-request Script
-              {preRequestScript && (
-                <span className="ml-1.5 h-2 w-2 rounded-full bg-amber-500" />
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="test"
-              className="data-[state=active]:bg-white/10 dark:data-[state=active]:bg-white/10 data-[state=active]:text-slate-blue-700 dark:data-[state=active]:text-slate-blue-300"
-            >
-              Test Script
-              {testScript && (
-                <span className="ml-1.5 h-2 w-2 rounded-full bg-amber-500" />
-              )}
-            </TabsTrigger>
-          </TabsList>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <Segmented<ScriptTab>
+          options={[
+            {
+              value: 'pre-request',
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  Pre-request
+                  {preRequestScript && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-amber-400"
+                      aria-label="has script"
+                    />
+                  )}
+                </span>
+              ),
+            },
+            {
+              value: 'test',
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  Test
+                  {testScript && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-amber-400"
+                      aria-label="has script"
+                    />
+                  )}
+                </span>
+              ),
+            },
+          ]}
+          value={activeTab}
+          onChange={setActiveTab}
+          size="md"
+          ariaLabel="Script type"
+        />
 
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleInsertTemplate}
-              className="border-white/10 dark:border-white/5 hover:border-white/20 dark:hover:border-white/10 text-xs"
-            >
-              <Play className="mr-1.5 h-3 w-3" />
-              Insert Template
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleClearScript}
-              className="text-xs text-muted-foreground hover:text-destructive"
-            >
-              <RotateCcw className="mr-1.5 h-3 w-3" />
-              Clear
-            </Button>
-          </div>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleInsertTemplate}
+            className="h-7 text-xs"
+          >
+            <FileText className="mr-1.5 h-3 w-3" />
+            Insert template
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleClearScript}
+            disabled={!script}
+            className="h-7 text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
+          >
+            <RotateCcw className="mr-1.5 h-3 w-3" />
+            Clear
+          </Button>
         </div>
+      </div>
 
-        <TabsContent value="pre-request" className="space-y-2 mt-4">
-          <div className="rounded-lg bg-white/5 dark:bg-white/5 p-3 text-sm text-muted-foreground border border-white/10 dark:border-white/5">
-            <p className="font-medium mb-1">Pre-request Script</p>
-            <p className="text-xs">
-              Execute JavaScript code before sending the request. Access and modify variables using:
-            </p>
-            <ul className="text-xs mt-2 space-y-1 ml-4 list-disc">
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.variables.get(&quot;key&quot;)</code> - Get variable
+      <div className="rounded-sp-panel border border-sp-line bg-sp-surface-lo overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setRefOpen((v) => !v)}
+          aria-expanded={refOpen}
+          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sp-12 text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors"
+        >
+          <span className="inline-flex items-center gap-2">
+            <Code2 size={13} />
+            <span className="font-medium">{isPre ? 'Pre-request' : 'Test'} API reference</span>
+            <span className="text-sp-dim text-sp-11">· {apiRef.length} snippets</span>
+          </span>
+          <ChevronDown size={14} className={cn('transition-transform', refOpen && 'rotate-180')} />
+        </button>
+        {refOpen && (
+          <ul className="border-t border-sp-line divide-y divide-sp-line">
+            {apiRef.map((row) => (
+              <li
+                key={row.code}
+                className="flex items-center justify-between gap-3 px-3 py-1.5 text-sp-11"
+              >
+                <code className="font-mono text-sp-text/90 bg-sp-code px-1.5 py-0.5 rounded-sp-chip">
+                  {row.code}
+                </code>
+                <span className="text-sp-dim text-right">{row.desc}</span>
               </li>
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.variables.set(&quot;key&quot;, value)</code> - Set variable
-              </li>
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.request.url</code> - Access request URL
-              </li>
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.request.headers</code> - Access headers
-              </li>
-            </ul>
-          </div>
-          <CodeEditor
-            value={preRequestScript}
-            onChange={onPreRequestScriptChange}
-            language="javascript"
-            height="350px"
-          />
-        </TabsContent>
+            ))}
+          </ul>
+        )}
+      </div>
 
-        <TabsContent value="test" className="space-y-2 mt-4">
-          <div className="rounded-lg bg-white/5 dark:bg-white/5 p-3 text-sm text-muted-foreground border border-white/10 dark:border-white/5">
-            <p className="font-medium mb-1">Test Script</p>
-            <p className="text-xs">
-              Execute JavaScript code after receiving the response. Write assertions using:
-            </p>
-            <ul className="text-xs mt-2 space-y-1 ml-4 list-disc">
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.test(&quot;name&quot;, () =&gt; {'{...}'})</code> - Define test
-              </li>
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.expect(value).to.equal(expected)</code> - Assertions
-              </li>
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.response.status</code> - HTTP status code
-              </li>
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.response.json()</code> - Parse JSON body
-              </li>
-              <li>
-                <code className="bg-black/5 dark:bg-white/10 px-1 rounded">pm.response.time</code> - Response time (ms)
-              </li>
-            </ul>
-          </div>
-          <CodeEditor
-            value={testScript}
-            onChange={onTestScriptChange}
-            language="javascript"
-            height="350px"
-          />
-        </TabsContent>
-      </Tabs>
+      <div className="rounded-sp-panel border border-sp-line bg-sp-code overflow-hidden">
+        <CodeEditor value={script} onChange={setScript} language="javascript" height="350px" />
+      </div>
     </div>
   );
 }

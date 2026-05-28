@@ -13,9 +13,10 @@ export const httpMethodSchema = z.enum([
 ]);
 
 // URL Schema
-export const urlSchema = z.string().url({ message: 'Invalid URL format' }).or(
-  z.string().regex(/^https?:\/\//, { message: 'URL must start with http:// or https://' })
-);
+export const urlSchema = z
+  .string()
+  .url({ message: 'Invalid URL format' })
+  .or(z.string().regex(/^https?:\/\//, { message: 'URL must start with http:// or https://' }));
 
 // Key-Value Schema
 export const keyValueSchema = z.object({
@@ -32,12 +33,18 @@ export const proxyConfigSchema = z.object({
   type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']),
   host: z.string(),
   port: z.number(),
-  auth: z.object({
-    username: z.string(),
-    password: z.string(),
-  }).optional(),
+  auth: z
+    .object({
+      username: z.string(),
+      password: z.string(),
+    })
+    .optional(),
   bypassList: z.array(z.string()).optional(),
 });
+
+// Minimum TLS version literal — kept in sync with the MinTlsVersion type in
+// src/types/index.ts (Node tls.connect minVersion values).
+export const minTlsVersionSchema = z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']);
 
 // Request Settings Schema
 export const requestSettingsSchema = z.object({
@@ -46,6 +53,18 @@ export const requestSettingsSchema = z.object({
   maxRedirects: z.number(),
   verifySsl: z.boolean(),
   proxy: proxyConfigSchema.optional(),
+  // Redirect policy
+  followOriginalMethod: z.boolean().optional(),
+  followAuthHeader: z.boolean().optional(),
+  stripReferer: z.boolean().optional(),
+  // URL handling
+  encodeUrlAutomatically: z.boolean().optional(),
+  // Cookies
+  disableCookieJar: z.boolean().optional(),
+  // TLS (desktop-only enforcement, schema accepts on all platforms so workspace defaults persist consistently)
+  serverCipherOrder: z.boolean().optional(),
+  minTlsVersion: minTlsVersionSchema.optional(),
+  cipherSuites: z.string().optional(),
 });
 
 // Auth Schema
@@ -155,7 +174,18 @@ export const httpRequestSchema = z.object({
   headers: z.array(keyValueSchema),
   params: z.array(keyValueSchema),
   body: z.object({
-    type: z.enum(['none', 'json', 'xml', 'form-data', 'x-www-form-urlencoded', 'binary', 'text', 'graphql', 'protobuf', 'multipart-mixed']),
+    type: z.enum([
+      'none',
+      'json',
+      'xml',
+      'form-data',
+      'x-www-form-urlencoded',
+      'binary',
+      'text',
+      'graphql',
+      'protobuf',
+      'multipart-mixed',
+    ]),
     raw: z.string().optional(),
     formData: z.array(z.any()).optional(),
     binary: z.any().optional(),
@@ -238,7 +268,9 @@ export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
     id: z.string(),
     name: z.string(),
     type: z.enum(['folder', 'request']),
-    request: z.union([httpRequestSchema, grpcRequestSchema, sseRequestSchema, mcpRequestSchema]).optional(),
+    request: z
+      .union([httpRequestSchema, grpcRequestSchema, sseRequestSchema, mcpRequestSchema])
+      .optional(),
     items: z.array(collectionItemSchema).optional(),
   })
 );

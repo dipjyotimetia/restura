@@ -144,6 +144,24 @@ export function createProxyHandler(
       );
     }
 
+    // Desktop-only TLS knobs are inert on Cloudflare Workers (no per-request
+    // control over the TLS handshake). Reject early so the renderer can
+    // surface a clear "open in desktop app" message instead of silently
+    // dropping the setting. Mirrors the existing pattern for client certs.
+    if (
+      body.serverCipherOrder !== undefined ||
+      body.minTlsVersion !== undefined ||
+      (body.cipherSuites !== undefined && body.cipherSuites !== '')
+    ) {
+      return c.json(
+        {
+          error:
+            'TLS cipher / protocol controls are desktop-only — open this request in the Restura desktop app.',
+        },
+        400
+      );
+    }
+
     // Self-hosted enterprises with internal upstreams can opt into private-IP
     // access via ALLOW_PRIVATE_IPS=true. Distinct from `isDev` so that production
     // self-hosted deployments don't accidentally also relax other dev guards.
@@ -168,6 +186,8 @@ export function createProxyHandler(
           formData: body.formData,
           timeout: body.timeout,
           auth: body.auth,
+          ...(body.redirectPolicy !== undefined && { redirectPolicy: body.redirectPolicy }),
+          ...(body.encodeUrl !== undefined && { encodeUrl: body.encodeUrl }),
         },
         fetcher,
         { allowLocalhost: isDev, allowPrivateIPs }
@@ -203,6 +223,8 @@ export function createProxyHandler(
         formData: body.formData,
         timeout: body.timeout,
         auth: body.auth,
+        ...(body.redirectPolicy !== undefined && { redirectPolicy: body.redirectPolicy }),
+        ...(body.encodeUrl !== undefined && { encodeUrl: body.encodeUrl }),
       },
       fetcher,
       { allowLocalhost: isDev, allowPrivateIPs }

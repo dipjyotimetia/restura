@@ -41,7 +41,8 @@ export function SubTabBar<T extends string>({
               type="button"
               onClick={() => onChange(t.value)}
               className={cn(
-                'relative inline-flex items-center gap-1.5 h-9 px-3 text-sp-13 transition-colors',
+                'group relative inline-flex items-center gap-1.5 h-9 px-3 text-sp-13 transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40 rounded-t-sp-btn',
                 selected
                   ? 'text-sp-text font-semibold'
                   : 'text-sp-muted hover:text-sp-text font-medium'
@@ -51,28 +52,39 @@ export function SubTabBar<T extends string>({
               {typeof t.count === 'number' && (
                 <span
                   className={cn(
-                    'inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-[5px] text-sp-9 font-mono font-bold tabular-nums',
+                    'inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-[5px] text-sp-9 font-mono font-bold tabular-nums transition-colors',
                     selected
                       ? 'bg-[var(--sp-accent-glow-33)] text-sp-accent'
-                      : 'bg-sp-surface-lo text-sp-dim'
+                      : 'bg-sp-surface-lo text-sp-dim group-hover:text-sp-muted'
                   )}
                 >
                   {t.count}
                 </span>
               )}
               {t.badge && (
-                <span className="text-sp-dim text-sp-10 font-mono">{t.badge}</span>
-              )}
-              {selected && (
                 <span
-                  aria-hidden="true"
-                  className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full"
-                  style={{
-                    background: 'var(--sp-accent)',
-                    boxShadow: '0 0 8px var(--sp-accent-glow-88)',
-                  }}
-                />
+                  className={cn(
+                    'inline-flex items-center h-4 px-1.5 rounded-[5px] text-sp-9 font-mono font-semibold uppercase tracking-wider transition-colors',
+                    selected
+                      ? 'bg-[var(--sp-accent-glow-15)] text-sp-accent/90'
+                      : 'bg-sp-surface-lo text-sp-dim group-hover:text-sp-muted'
+                  )}
+                >
+                  {t.badge}
+                </span>
               )}
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'absolute left-2 right-2 -bottom-px h-0.5 rounded-full transition-all duration-200',
+                  selected ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-0'
+                )}
+                style={{
+                  background: 'var(--sp-accent)',
+                  boxShadow: '0 0 8px var(--sp-accent-glow-88)',
+                  transformOrigin: 'center',
+                }}
+              />
             </button>
           );
         })}

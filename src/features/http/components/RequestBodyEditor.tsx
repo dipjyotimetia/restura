@@ -1,6 +1,6 @@
 'use client';
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { FileText } from 'lucide-react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import type { RequestBody } from '@/types';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -10,7 +10,9 @@ const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
   <CodeEditorSkeleton className="h-[300px]" />
 );
-const GraphQLBodyEditor = lazyComponent(() => import('@/features/graphql/components/GraphQLBodyEditor'));
+const GraphQLBodyEditor = lazyComponent(
+  () => import('@/features/graphql/components/GraphQLBodyEditor')
+);
 
 interface RequestBodyEditorProps {
   body: RequestBody;
@@ -23,75 +25,44 @@ interface RequestBodyEditorProps {
 
 export default function RequestBodyEditor({
   body,
-  onBodyTypeChange,
   onBodyContentChange,
   url = '',
   graphqlVariables = '{}',
   onGraphQLVariablesChange,
 }: RequestBodyEditorProps) {
   const activeTabId = useActiveTab()?.id;
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-4">
-        <Select value={body.type} onValueChange={(value) => onBodyTypeChange(value as RequestBody['type'])}>
-          <SelectTrigger className="w-48 border-white/10 dark:border-white/5">
-            <SelectValue placeholder="Select body type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">None</SelectItem>
-            <SelectItem value="json">JSON</SelectItem>
-            <SelectItem value="xml">XML</SelectItem>
-            <SelectItem value="text">Text</SelectItem>
-            <SelectItem value="graphql">GraphQL</SelectItem>
-            <SelectItem value="form-data">Form Data</SelectItem>
-            <SelectItem value="x-www-form-urlencoded">x-www-form-urlencoded</SelectItem>
-          </SelectContent>
-        </Select>
-        {body.type !== 'none' && (
-          <span className="text-xs text-muted-foreground">
-            Content-Type will be set automatically based on body type
-          </span>
-        )}
-      </div>
 
-      {body.type === 'none' ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <p className="text-sm">No body content</p>
-          <p className="text-xs mt-1">Select a body type above to add request body</p>
+  if (body.type === 'none') {
+    return (
+      <div className="flex flex-col items-center justify-center py-14 text-center">
+        <div className="mb-3 inline-flex items-center justify-center h-10 w-10 rounded-full bg-sp-surface-lo text-sp-dim">
+          <FileText size={18} />
         </div>
-      ) : body.type === 'graphql' ? (
-        <GraphQLBodyEditor
-          query={body.raw || ''}
-          variables={graphqlVariables}
-          url={url}
-          onQueryChange={onBodyContentChange}
-          onVariablesChange={onGraphQLVariablesChange || (() => {})}
-        />
-      ) : (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">
-              {body.type === 'json' && 'JSON Body'}
-              {body.type === 'xml' && 'XML Body'}
-              {body.type === 'text' && 'Plain Text Body'}
-              {body.type === 'form-data' && 'Form Data (Raw)'}
-              {body.type === 'x-www-form-urlencoded' && 'URL Encoded Form Data'}
-            </span>
-            {body.raw && (
-              <span className="text-xs text-muted-foreground">
-                {new Blob([body.raw]).size} bytes
-              </span>
-            )}
-          </div>
-          <CodeEditor
-            value={body.raw || ''}
-            onChange={onBodyContentChange}
-            language={body.type === 'json' ? 'json' : body.type === 'xml' ? 'xml' : 'plaintext'}
-            height="300px"
-            {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
-          />
-        </div>
-      )}
-    </div>
+        <p className="text-sp-13 text-sp-muted font-medium">No body for this request</p>
+        <p className="text-sp-11 text-sp-dim mt-1">Pick a body type above to start composing.</p>
+      </div>
+    );
+  }
+
+  if (body.type === 'graphql') {
+    return (
+      <GraphQLBodyEditor
+        query={body.raw || ''}
+        variables={graphqlVariables}
+        url={url}
+        onQueryChange={onBodyContentChange}
+        onVariablesChange={onGraphQLVariablesChange || (() => {})}
+      />
+    );
+  }
+
+  return (
+    <CodeEditor
+      value={body.raw || ''}
+      onChange={onBodyContentChange}
+      language={body.type === 'json' ? 'json' : body.type === 'xml' ? 'xml' : 'plaintext'}
+      height="320px"
+      {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
+    />
   );
 }

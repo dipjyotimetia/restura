@@ -37,6 +37,10 @@ export function bodyTab(page: Page): Locator {
   return page.getByRole('tab', { name: 'Body', exact: true });
 }
 
+export function settingsTab(page: Page): Locator {
+  return page.getByRole('tab', { name: 'Settings', exact: true });
+}
+
 export async function setUrl(page: Page, url: string): Promise<void> {
   const field = page.getByRole('textbox', { name: 'Request URL' });
   await field.click();

@@ -37,6 +37,9 @@ export type { SubTabBarProps, SubTab } from './SubTabBar';
 export { ParamRow } from './ParamRow';
 export type { ParamRowProps, ParamRowData } from './ParamRow';
 
+export { ComboboxInput } from './ComboboxInput';
+export type { ComboboxInputProps, ComboboxSuggestion } from './ComboboxInput';
+
 export { WaterfallBar, makeSegments } from './WaterfallBar';
 export type { WaterfallBarProps, WaterfallSegment } from './WaterfallBar';
 
