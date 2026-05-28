@@ -1,0 +1,21 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_source": "restura.e2e",
+  "resources": [
+    {
+      "_id": "wrk_e2e_insomnia",
+      "_type": "workspace",
+      "name": "Insomnia Sample"
+    },
+    {
+      "_id": "req_e2e_insomnia",
+      "_type": "request",
+      "parentId": "wrk_e2e_insomnia",
+      "name": "Get Insomnia Ping",
+      "method": "GET",
+      "url": "https://example.test/insomnia",
+      "headers": []
+    }
+  ]
+}

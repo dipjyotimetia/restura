@@ -68,24 +68,29 @@ const hoppCollection: z.ZodType<unknown> = z.lazy(() =>
       folders: z.array(hoppCollection).default([]),
       requests: z.array(hoppRequest).default([]),
     })
-    .passthrough(),
+    .passthrough()
 );
 
 const hoppEnvironment = z
   .object({
     v: z.union([z.string(), z.number()]).optional(),
     name: z.string(),
-    variables: z
-      .array(
-        z.object({
-          key: z.string(),
-          initialValue: z.string().optional(),
-          currentValue: z.string().optional(),
-          value: z.string().optional(),
-          secret: z.boolean().default(false),
-        }),
-      )
-      .default([]),
+    // `variables` is REQUIRED (no `.default([])`). Real Hoppscotch env exports
+    // always emit the field — empty array when there are no vars. Requiring it
+    // is what structurally separates this schema from `hoppCollection`, whose
+    // top-level shape carries `requests`/`folders` but no `variables`. Without
+    // this distinction, any object with a `name` field passes the env schema
+    // and the import dialog mis-routes collections through
+    // `importHoppscotchEnvironment`, silently dropping every request.
+    variables: z.array(
+      z.object({
+        key: z.string(),
+        initialValue: z.string().optional(),
+        currentValue: z.string().optional(),
+        value: z.string().optional(),
+        secret: z.boolean().default(false),
+      })
+    ),
   })
   .passthrough();
 
@@ -300,7 +305,7 @@ function hoppAuthToInternal(auth: any, name: string, warnings: ImportWarning[]):
 }
 
 function mapHoppGrant(
-  g: string,
+  g: string
 ): 'authorization_code' | 'client_credentials' | 'password' | 'device_code' | undefined {
   switch (g) {
     case 'AUTHORIZATION_CODE':

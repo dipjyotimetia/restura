@@ -4,59 +4,19 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Floater, Kbd } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getPlatform } from '@/lib/shared/platform';
+import { envColorFor } from '@/features/environments/lib/envColor';
+import { envHostHint } from '@/features/environments/lib/envHint';
 import type { RequestMode } from '@/types';
+
+// Re-exported so existing callers (`import { envColorFor } from '@/components/shared/TopBar'`)
+// keep working; the canonical home is `@/features/environments/lib/envColor`.
+export { envColorFor };
 
 // CSS-in-JS region tag — Electron-only `WebkitAppRegion: 'drag'` / 'no-drag'.
 // React types don't include it natively; cast at usage site keeps it scoped.
 type DragRegion = 'drag' | 'no-drag';
 const region = (value: DragRegion): React.CSSProperties =>
-  ({ WebkitAppRegion: value } as React.CSSProperties);
-
-/**
- * Pick a stable color for an environment without storing one (Environment
- * type has no `color` field in our store). Same name → same color across
- * sidebar + chrome + status bar.
- */
-const ENV_COLOR_PALETTE = [
-  '#4d9fff', // accent blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#a78bfa', // violet
-  '#06b6d4', // cyan
-  '#e879a4', // pink
-  '#f472b6', // hot pink
-  '#94a3b8', // slate
-] as const;
-
-export function envColorFor(env: { id: string; name: string } | null | undefined): string {
-  if (!env) return '#94a3b8';
-  const source = `${env.id}:${env.name}`;
-  let hash = 0;
-  for (let i = 0; i < source.length; i++) {
-    hash = (hash * 31 + source.charCodeAt(i)) | 0;
-  }
-  const idx = Math.abs(hash) % ENV_COLOR_PALETTE.length;
-  return ENV_COLOR_PALETTE[idx] ?? '#4d9fff';
-}
-
-/**
- * Attempt to extract a "host" hint from an environment so the chrome pill can
- * show `globe · api.example.com · production`. We look for a variable named
- * `host`, `baseUrl`, `base_url`, or `BASE_URL` (case-insensitive); fall back
- * to the env name if none match.
- */
-function envHostHint(
-  env: { variables: Array<{ key: string; value: string; enabled: boolean }> } | null
-): string | null {
-  if (!env) return null;
-  const known = new Set(['host', 'baseurl', 'base_url', 'api_host', 'apihost']);
-  const match = env.variables.find(
-    (v) => v.enabled && known.has(v.key.toLowerCase().replace(/-/g, '_'))
-  );
-  if (!match) return null;
-  // Strip protocol and trailing slash so the pill stays tight.
-  return match.value.replace(/^https?:\/\//i, '').replace(/\/$/, '');
-}
+  ({ WebkitAppRegion: value }) as React.CSSProperties;
 
 interface WindowChromeProps {
   // Existing — preserved for the current Home orchestrator.
@@ -96,7 +56,7 @@ export function WindowChrome({
     }))
   );
   const activeEnv = activeEnvironmentId
-    ? environments.find((e) => e.id === activeEnvironmentId) ?? null
+    ? (environments.find((e) => e.id === activeEnvironmentId) ?? null)
     : null;
 
   const envName = activeEnv?.name ?? 'No environment';
@@ -158,7 +118,9 @@ export function WindowChrome({
           {envHost && (
             <>
               <span className="text-sp-text/80 truncate max-w-[220px]">{envHost}</span>
-              <span className="text-sp-dim" aria-hidden="true">·</span>
+              <span className="text-sp-dim" aria-hidden="true">
+                ·
+              </span>
             </>
           )}
           <span

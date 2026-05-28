@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "name": "Hoppscotch Env Sample",
+  "variables": [
+    {
+      "key": "baseUrl",
+      "value": "https://hopp-sample.test",
+      "secret": false
+    }
+  ]
+}

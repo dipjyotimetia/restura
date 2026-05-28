@@ -1,0 +1,17 @@
+{
+  "info": {
+    "_postman_id": "e2e-postman-fixture",
+    "name": "Postman Sample",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Postman Ping",
+      "request": {
+        "method": "GET",
+        "url": "https://postman-echo.com/get",
+        "header": []
+      }
+    }
+  ]
+}

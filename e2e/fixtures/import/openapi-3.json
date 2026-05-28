@@ -1,0 +1,19 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "OpenAPI 3 Sample",
+    "version": "1.0.0"
+  },
+  "servers": [{ "url": "https://api.openapi-sample.test" }],
+  "paths": {
+    "/ping": {
+      "get": {
+        "summary": "Get OpenAPI3 Ping",
+        "operationId": "getOpenapi3Ping",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    }
+  }
+}

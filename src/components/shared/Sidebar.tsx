@@ -3,6 +3,7 @@ import { Download } from 'lucide-react';
 import CollectionsSidebar from '@/features/collections/components/Sidebar';
 import { Floater } from '@/components/ui/spatial';
 import EnvSwitcher from '@/components/shared/EnvSwitcher';
+import { Logo } from '@/components/shared/Logo';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { cn } from '@/lib/shared/utils';
@@ -32,7 +33,12 @@ interface SidebarProps {
  * Doing it this way avoids re-wiring the heavy collection logic just to
  * restyle the frame — and keeps the diff scoped to one file.
  */
-export default function Sidebar({ activePanel, onClose, onOpenEnvironmentManager, onOpenImport }: SidebarProps) {
+export default function Sidebar({
+  activePanel,
+  onClose,
+  onOpenEnvironmentManager,
+  onOpenImport,
+}: SidebarProps) {
   const { environments, activeEnvironmentId } = useEnvironmentStore(
     useShallow((s) => ({
       environments: s.environments,
@@ -40,7 +46,7 @@ export default function Sidebar({ activePanel, onClose, onOpenEnvironmentManager
     }))
   );
   const activeEnv = activeEnvironmentId
-    ? environments.find((e) => e.id === activeEnvironmentId) ?? null
+    ? (environments.find((e) => e.id === activeEnvironmentId) ?? null)
     : null;
   const envColor = envColorFor(activeEnv);
   // Best-effort host hint — same logic as the chrome pill, but inlined to
@@ -72,14 +78,7 @@ export default function Sidebar({ activePanel, onClose, onOpenEnvironmentManager
           that the legacy chrome button is gone; the same action also lives in
           the command palette under "Actions". */}
       <div className="flex items-center gap-2.5 px-2 py-1.5 shrink-0">
-        <div
-          aria-hidden="true"
-          className="size-8 rounded-sp-btn shrink-0"
-          style={{
-            background: 'linear-gradient(135deg, var(--sp-accent), #a78bfa)',
-            boxShadow: '0 6px 18px var(--sp-accent-glow-55)',
-          }}
-        />
+        <Logo size={32} className="shrink-0" />
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-sp-12-5 font-medium text-sp-text leading-tight">Restura</span>
           <span className="text-sp-10-5 text-sp-muted leading-tight font-mono">Personal</span>
@@ -101,7 +100,9 @@ export default function Sidebar({ activePanel, onClose, onOpenEnvironmentManager
                   <Download className="size-4" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Import collection (Postman / Insomnia / OpenCollection)</TooltipContent>
+              <TooltipContent>
+                Import collection (Postman / Insomnia / OpenCollection)
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         )}
@@ -110,10 +111,7 @@ export default function Sidebar({ activePanel, onClose, onOpenEnvironmentManager
       {/* Inner sidebar — owns scrolling. `min-h-0` is load-bearing here:
           without it the flex child won't shrink and overflow goes nowhere. */}
       <div className="flex-1 min-h-0 overflow-hidden rounded-sp-btn">
-        <CollectionsSidebar
-          onClose={onClose}
-          {...(activePanel !== undefined && { activePanel })}
-        />
+        <CollectionsSidebar onClose={onClose} {...(activePanel !== undefined && { activePanel })} />
       </div>
 
       {/* Env footer — wraps the button in EnvSwitcher's popover so the

@@ -35,23 +35,10 @@ test.describe('Collections', () => {
   });
 });
 
-test.describe('Environments', () => {
-  test('opens environment manager and creates an environment', async ({ app: page }) => {
-    await page.getByRole('button', { name: /Environment: none/ }).click();
-    await page.getByRole('button', { name: 'New environment' }).click();
-
-    await expect(page.getByRole('dialog', { name: 'ENVIRONMENTS' })).toBeVisible();
-
-    await page.getByRole('button', { name: /New Environment/i }).click();
-
-    // The newly-created env appears in the left list. It is auto-named.
-    await expect(page.getByText(/New Environment/).first()).toBeVisible();
-
-    // Close via the Close button.
-    await page.getByRole('button', { name: 'Set Active & Close', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'ENVIRONMENTS' })).not.toBeVisible();
-  });
-});
+// Environments coverage has moved to `environment-manager.spec.ts`, which
+// drives the redesigned dialog end-to-end (selection vs. active, scaffolds,
+// rename/duplicate/delete, search). Keeping a redundant smoke here would
+// duplicate setup cost without adding signal.
 
 test.describe('Settings', () => {
   test('opens settings dialog', async ({ app: page }) => {

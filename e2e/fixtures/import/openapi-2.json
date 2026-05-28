@@ -1,0 +1,21 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Swagger 2 Sample",
+    "version": "1.0.0"
+  },
+  "host": "api.swagger2-sample.test",
+  "basePath": "/",
+  "schemes": ["https"],
+  "paths": {
+    "/ping": {
+      "get": {
+        "summary": "Get Swagger2 Ping",
+        "operationId": "getSwagger2Ping",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    }
+  }
+}
