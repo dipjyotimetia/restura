@@ -38,6 +38,18 @@ const DiskTab = lazyComponent(
   <div className="h-full flex items-center justify-center text-muted-foreground text-xs">Loading…</div>
 );
 
+// Vertical space reserved for app chrome (top bar, tab strip, status bar) plus
+// a minimum usable request/response workspace. The console may not grow past
+// (viewport − this), so expanding it never crushes the editor + response into
+// an unusable sliver — the failure mode where switching request tabs showed
+// nothing because the editor had collapsed to a few pixels.
+const WORKSPACE_RESERVE_PX = 500;
+const CONSOLE_MIN_PX = 120;
+
+function maxConsoleHeight(): number {
+  return Math.max(CONSOLE_MIN_PX, window.innerHeight - WORKSPACE_RESERVE_PX);
+}
+
 interface NetworkConsoleProps {
   scriptLogs?: ConsoleLog[];
   tests?: ConsoleTest[];
@@ -71,7 +83,7 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
       if (!containerRef.current) return;
       const containerBottom = containerRef.current.getBoundingClientRect().bottom;
       const newHeight = containerBottom - moveEvent.clientY;
-      const clampedHeight = Math.min(window.innerHeight * 0.6, Math.max(120, newHeight));
+      const clampedHeight = Math.min(maxConsoleHeight(), Math.max(CONSOLE_MIN_PX, newHeight));
       setPanelHeight(clampedHeight);
     };
 
@@ -97,6 +109,20 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setExpanded]);
+
+  // Keep the console within the space budget — clamps an over-large persisted
+  // height down on mount, and re-clamps when the window shrinks. Reads the live
+  // height via getState() so the effect doesn't re-run on every resize tick.
+  useEffect(() => {
+    if (!isExpanded) return;
+    const clamp = () => {
+      const max = maxConsoleHeight();
+      if (useConsoleStore.getState().panelHeight > max) setPanelHeight(max);
+    };
+    clamp();
+    window.addEventListener('resize', clamp);
+    return () => window.removeEventListener('resize', clamp);
+  }, [isExpanded, setPanelHeight]);
 
   const handleClear = () => {
     if (activeTab === 'network') {
@@ -151,10 +177,10 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
               const step = 20;
               if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                setPanelHeight(Math.min(window.innerHeight * 0.6, panelHeight + step));
+                setPanelHeight(Math.min(maxConsoleHeight(), panelHeight + step));
               } else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setPanelHeight(Math.max(120, panelHeight - step));
+                setPanelHeight(Math.max(CONSOLE_MIN_PX, panelHeight - step));
               }
             }}
             role="separator"

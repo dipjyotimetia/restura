@@ -36,8 +36,19 @@ import type { RequestMode, ActivePanel } from '@/types';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
 
+// Below this width the fixed-width sidebar leaves too little room for the
+// workspace (URL bar / response status clip), so it auto-collapses. Manual
+// toggling still works between crossings — see the crossing-detection effect.
+const SIDEBAR_AUTO_COLLAPSE_PX = 900;
+
+function isNarrow(): boolean {
+  return typeof window !== 'undefined' && window.innerWidth < SIDEBAR_AUTO_COLLAPSE_PX;
+}
+
 export default function Home() {
-  const [activePanel, setActivePanel] = useState<ActivePanel | null>('collections');
+  const [activePanel, setActivePanel] = useState<ActivePanel | null>(() =>
+    isNarrow() ? null : 'collections'
+  );
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<SectionId>('general');
@@ -98,6 +109,27 @@ export default function Home() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Auto-collapse / restore the sidebar on width crossings. Acting only on the
+  // crossing (not on every render) lets the user manually open the sidebar
+  // while narrow without it immediately snapping shut again.
+  const prevWidthRef = useRef(windowWidth);
+  const autoCollapsedRef = useRef(isNarrow());
+  useEffect(() => {
+    const prev = prevWidthRef.current;
+    prevWidthRef.current = windowWidth;
+    if (prev >= SIDEBAR_AUTO_COLLAPSE_PX && windowWidth < SIDEBAR_AUTO_COLLAPSE_PX) {
+      if (activePanel !== null) {
+        autoCollapsedRef.current = true;
+        setActivePanel(null);
+      }
+    } else if (prev < SIDEBAR_AUTO_COLLAPSE_PX && windowWidth >= SIDEBAR_AUTO_COLLAPSE_PX) {
+      if (autoCollapsedRef.current) {
+        autoCollapsedRef.current = false;
+        setActivePanel('collections');
+      }
+    }
+  }, [windowWidth, activePanel]);
 
   const allLogs = useMemo(() => [
     ...(scriptResult?.preRequest?.logs ?? []),

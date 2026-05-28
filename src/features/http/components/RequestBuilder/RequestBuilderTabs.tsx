@@ -59,6 +59,17 @@ const AUTH_BADGE: Partial<Record<AuthType, string>> = {
   wsse: 'WSSE',
 };
 
+// Short tab badge per configured body type — mirrors AUTH_BADGE so the Body
+// tab signals "a body is set" without opening it. 'none' intentionally omitted.
+const BODY_BADGE: Partial<Record<BodyType, string>> = {
+  json: 'JSON',
+  'form-data': 'Form',
+  'x-www-form-urlencoded': 'Form',
+  graphql: 'GQL',
+  text: 'Raw',
+  binary: 'Bin',
+};
+
 const BODY_OPTIONS: ReadonlyArray<{ value: BodyType; label: string }> = [
   { value: 'none', label: 'none' },
   { value: 'json', label: 'JSON' },
@@ -94,6 +105,7 @@ export function RequestBuilderTabs({
   const tabs = useMemo(
     () => {
       const authBadge = AUTH_BADGE[request.auth.type];
+      const bodyBadge = BODY_BADGE[request.body.type];
       const items: Array<{
         value: SubTabKey;
         label: string;
@@ -109,10 +121,11 @@ export function RequestBuilderTabs({
       ];
       if (paramsCount > 0) items[0]!.count = paramsCount;
       if (headersCount > 0) items[1]!.count = headersCount;
+      if (bodyBadge) items[2]!.badge = bodyBadge;
       if (authBadge) items[3]!.badge = authBadge;
       return items;
     },
-    [paramsCount, headersCount, request.auth.type]
+    [paramsCount, headersCount, request.auth.type, request.body.type]
   );
 
   const bodyBytes = useMemo(
