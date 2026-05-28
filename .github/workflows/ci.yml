@@ -28,6 +28,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Electron's postinstall (download binary → write path.txt) intermittently
+      # silently fails during `npm ci` on GitHub-hosted runners, leaving
+      # `node_modules/electron/path.txt` missing. Every `import 'electron'` in a
+      # test then throws ENOENT and the test suite fails — even though the
+      # tests themselves don't need the binary to actually run. Re-run install
+      # explicitly so the flake becomes deterministic.
+      - name: Ensure Electron binary postinstall completed
+        run: |
+          if [ ! -f node_modules/electron/path.txt ]; then
+            echo "Electron postinstall did not complete during npm ci; re-running install.js"
+            node node_modules/electron/install.js
+          fi
+
       - name: Type-check (renderer + Electron main)
         run: |
           npm run type-check
