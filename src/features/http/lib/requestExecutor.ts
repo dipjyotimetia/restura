@@ -13,7 +13,7 @@ import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
-import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter';
+import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
 import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
 import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import {
