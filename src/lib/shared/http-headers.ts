@@ -127,6 +127,11 @@ export const STANDARD_HTTP_HEADERS: ReadonlyArray<HttpHeaderDef> = [
   },
   { name: 'x-mock-match-request-headers', description: 'Postman mock-server match flag' },
   { name: 'x-mock-response-id', description: 'Postman mock-server response id' },
+  {
+    name: 'traceparent',
+    description: 'W3C distributed tracing context',
+    values: ['{{$traceparent}}'],
+  },
 ];
 
 /**

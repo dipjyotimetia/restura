@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 // to ~1 MB and is sufficient for Postman dynamic-var parity (all $random*
 // helpers we surface are locale-agnostic strings).
 import { faker } from '@faker-js/faker/locale/en';
+import { generateTraceparent } from '@/lib/shared/utils';
 
 const FIRST_NAMES = ['alice', 'bob', 'carol', 'dave', 'eve', 'frank', 'grace', 'henry'];
 const DOMAINS = ['example.com', 'test.io', 'sample.net', 'demo.dev'];
@@ -18,6 +19,7 @@ const HELPERS: Record<string, Generator> = {
   guid: () => uuidv4(),
   randomUUID: () => uuidv4(),
   randomAlphaNumeric: () => Math.random().toString(36).slice(2, 10),
+  traceparent: () => generateTraceparent(),
   // randomEmail keeps the legacy hand-rolled shape so existing tests still pass.
   // For richer Postman parity use $randomFullName + $randomEmailFaker, etc.
   randomEmail: () => {
@@ -107,7 +109,10 @@ export function applyDynamicVariables(text: string): string {
  * single `unknown-dynamic-var` warning per unique name.
  */
 export function getAndResetUnknownDynamicVarCounts(): Array<{ name: string; count: number }> {
-  const out = Array.from(unknownDynamicVarCounts.entries()).map(([name, count]) => ({ name, count }));
+  const out = Array.from(unknownDynamicVarCounts.entries()).map(([name, count]) => ({
+    name,
+    count,
+  }));
   unknownDynamicVarCounts.clear();
   return out;
 }
