@@ -28,19 +28,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Electron's postinstall (download binary → write path.txt) intermittently
-      # silently fails during `npm ci` on GitHub-hosted runners, leaving
-      # `node_modules/electron/path.txt` missing. Every `import 'electron'` in a
-      # test then throws ENOENT and the test suite fails — even though the
-      # tests themselves don't need the binary to actually run. Re-run install
-      # explicitly so the flake becomes deterministic.
-      - name: Ensure Electron binary postinstall completed
-        run: |
-          if [ ! -f node_modules/electron/path.txt ]; then
-            echo "Electron postinstall did not complete during npm ci; re-running install.js"
-            node node_modules/electron/install.js
-          fi
-
       - name: Type-check (renderer + Electron main)
         run: |
           npm run type-check
@@ -65,6 +52,17 @@ jobs:
         run: npm audit --audit-level=critical
 
       - name: Run tests
+        # `electron`'s package index.js calls `downloadElectron()` at
+        # module-load time when `path.txt` is missing. On GitHub-hosted runners
+        # the postinstall download intermittently exits 0 without writing
+        # `path.txt`, then EVERY test that `import 'electron'` (six suites)
+        # crashes on module load with ENOENT — even though those tests
+        # `vi.mock('electron')` and never touch the real binary. Setting
+        # ELECTRON_OVERRIDE_DIST_PATH short-circuits the download check in
+        # `node_modules/electron/index.js`: the module returns a stub path and
+        # the test's mock takes over from there. Local dev is unaffected.
+        env:
+          ELECTRON_OVERRIDE_DIST_PATH: /tmp
         run: npm run test:run
 
       - name: Build renderer
