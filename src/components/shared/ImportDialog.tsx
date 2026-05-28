@@ -1,9 +1,14 @@
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useState, type ChangeEvent, type DragEvent } from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { X, Upload, CheckCircle2, AlertCircle, Lock, Download, Check } from 'lucide-react';
+import YAML from 'yaml';
+import { Floater } from '@/components/ui/spatial';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { cn } from '@/lib/shared/utils';
+import { isElectron } from '@/lib/shared/platform';
+import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 import {
   importPostmanCollection,
   importPostmanEnvironment,
@@ -18,39 +23,70 @@ import {
   type ImportResult,
   type ImportWarning,
 } from '@/features/collections/lib/importers';
-import { FileJson, Upload, CheckCircle, AlertCircle, Lock } from 'lucide-react';
-import YAML from 'yaml';
-import { Checkbox } from '@/components/ui/checkbox';
-import { isElectron } from '@/lib/shared/platform';
-import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 
 type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection' | 'hoppscotch' | 'bruno';
 
-const TYPE_LABELS: Record<ImportType, string> = {
-  postman: 'Postman',
-  insomnia: 'Insomnia',
-  openapi: 'OpenAPI / Swagger',
-  opencollection: 'OpenCollection',
-  hoppscotch: 'Hoppscotch',
-  bruno: 'Bruno',
-};
+interface FormatMeta {
+  id: ImportType;
+  name: string;
+  tagline: string;
+  initials: string;
+  /** Brand-ish color used only for the letter badge. Active selection still
+   *  goes through the accent variable so themes stay coherent. */
+  color: string;
+  accept: string;
+}
 
-/**
- * Every importer returns the unified ImportResult shape. Legacy importers
- * (postman, openapi) that still return a bare Collection get adapted here
- * with empty warnings. Insomnia and OpenCollection return ImportResult
- * directly — multi-environment + script extraction surface through that path.
- */
-const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  postman: async (data) => ({ collection: await importPostmanCollection(data as any), warnings: [] }),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  insomnia: async (data) => importInsomniaCollection(data as any),
-  openapi: async (data) => ({ collection: await importOpenAPICollection(data), warnings: [] }),
-  opencollection: async (data) => importOpenCollection(data),
-  hoppscotch: async (data) => importHoppscotchCollection(data),
-  bruno: async (data) => importBrunoCollection({ kind: 'single', content: typeof data === 'string' ? data : JSON.stringify(data) }),
-};
+const FORMATS: FormatMeta[] = [
+  {
+    id: 'postman',
+    name: 'Postman',
+    tagline: 'v2.1 collections & environments',
+    initials: 'PM',
+    color: '#ff6c37',
+    accept: '.json,.yaml,.yml',
+  },
+  {
+    id: 'insomnia',
+    name: 'Insomnia',
+    tagline: 'Workspaces & request groups',
+    initials: 'IN',
+    color: '#7e5cef',
+    accept: '.json,.yaml,.yml',
+  },
+  {
+    id: 'openapi',
+    name: 'OpenAPI',
+    tagline: 'OpenAPI 3.x · Swagger 2.0',
+    initials: 'OA',
+    color: '#6ba539',
+    accept: '.json,.yaml,.yml',
+  },
+  {
+    id: 'opencollection',
+    name: 'OpenCollection',
+    tagline: 'Bruno 3.1+ bundled format',
+    initials: 'OC',
+    color: '#4d9fff',
+    accept: '.json,.yaml,.yml',
+  },
+  {
+    id: 'hoppscotch',
+    name: 'Hoppscotch',
+    tagline: 'Collections & environments',
+    initials: 'HP',
+    color: '#22c55e',
+    accept: '.json,.yaml,.yml',
+  },
+  {
+    id: 'bruno',
+    name: 'Bruno',
+    tagline: 'Legacy .bru text DSL',
+    initials: 'BR',
+    color: '#f06b00',
+    accept: '.bru',
+  },
+];
 
 const FEATURE_LISTS: Record<ImportType, string[]> = {
   postman: [
@@ -58,7 +94,7 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
     'HTTP requests (all methods)',
     'Query parameters and headers',
     'Request body (JSON, form-data, etc.)',
-    'Authentication (Basic, Bearer, API Key, OAuth2, AWS Signature)',
+    'Auth (Basic, Bearer, API Key, OAuth2, AWS Sig)',
     'Pre-request and test scripts',
     'Environment variables',
   ],
@@ -67,83 +103,60 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
     'HTTP requests',
     'Headers and parameters',
     'Request body',
-    'Authentication (Basic, Bearer, API Key, OAuth2)',
+    'Auth (Basic, Bearer, API Key, OAuth2)',
   ],
   openapi: [
-    'OpenAPI 3.x and Swagger 2.0 specifications',
-    'Paths and operations (all HTTP methods)',
+    'OpenAPI 3.x and Swagger 2.0',
+    'Paths and operations (all methods)',
     'Query, header, and path parameters',
     'Request bodies with example generation',
-    'Tag-based folder organization',
-    'Security schemes (Basic, Bearer, API Key, OAuth2)',
+    'Tag-based folder organisation',
+    'Security schemes',
     'Server URL configuration',
   ],
   opencollection: [
-    'OpenCollection v1.0.0 (compatible with Bruno 3.1+)',
-    'HTTP, gRPC, GraphQL, WebSocket requests',
+    'OpenCollection v1.0.0 (Bruno 3.1+)',
+    'HTTP, gRPC, GraphQL, WebSocket',
     'SSE and MCP via x-restura-* extensions',
-    'Authentication (Basic, Bearer, API Key, Digest, OAuth2, AWS SigV4)',
-    'Environment variables and secret variables',
-    'Folder hierarchy and request metadata',
-    'Bundled (single file) format',
+    'Auth (Basic, Bearer, API Key, Digest, OAuth2, AWS SigV4)',
+    'Environment + secret variables',
+    'Folder hierarchy & metadata',
   ],
   hoppscotch: [
-    'Hoppscotch JSON exports (collections + environments)',
-    'Folders and nested requests with full hierarchy',
-    'Pre-request and test scripts (collection AND request level)',
-    'Authentication (Basic, Bearer, API Key, OAuth2, AWS SigV4, Digest)',
+    'Hoppscotch JSON exports',
+    'Folders with full hierarchy',
+    'Pre-request & test scripts',
+    'Auth (Basic, Bearer, API Key, OAuth2, AWS SigV4, Digest)',
     'Environment variables with secret flag',
-    'pw.* and hopp.* script API aliases (mapped to pm.*)',
+    'pw.* / hopp.* script aliases',
   ],
   bruno: [
     'Bruno legacy .bru files (text DSL)',
-    'For Bruno 3.1+ collections, use the OpenCollection tab instead',
-    'Single .bru file: drop or paste the file contents',
-    'Authentication (Basic, Bearer, API Key, Digest, OAuth2, OAuth1, NTLM, WSSE, AWS SigV4)',
-    'Pre-request scripts, test scripts, and assertions',
-    'Variables: pre-request and post-response',
-    'Bruno-specific syntax ({{process.env.X}}, response chaining) emits warnings',
+    'For Bruno 3.1+, use OpenCollection',
+    'Single .bru: drop or paste the file',
+    'Auth (Basic, Bearer, API Key, Digest, OAuth2, OAuth1, NTLM, WSSE, AWS SigV4)',
+    'Pre-request, test scripts, assertions',
+    'Pre-request and post-response variables',
   ],
 };
 
-interface DropZoneProps {
-  type: ImportType;
-  onFileUpload: (event: React.ChangeEvent<HTMLInputElement>, type: ImportType) => void;
-  onDrop: (event: React.DragEvent<HTMLDivElement>, type: ImportType) => void;
-}
-
-function DropZone({ type, onFileUpload, onDrop }: DropZoneProps) {
-  return (
-    <div
-      onDrop={(e) => onDrop(e, type)}
-      onDragOver={(e) => e.preventDefault()}
-      className="border border-dashed border-border rounded-lg p-10 text-center hover:border-primary/50 hover:bg-foreground/5 transition-colors cursor-pointer"
-    >
-      <input
-        type="file"
-        accept={type === 'bruno' ? '.bru' : '.json,.yaml,.yml'}
-        onChange={(e) => onFileUpload(e, type)}
-        className="hidden"
-        id={`file-upload-${type}`}
-      />
-      <label htmlFor={`file-upload-${type}`} className="cursor-pointer block">
-        <div className="flex flex-col items-center gap-3">
-          <FileJson className="h-10 w-10 text-muted-foreground/40" />
-          <div>
-            <p className="text-sm font-mono text-muted-foreground">
-              Drop {TYPE_LABELS[type]} collection here
-            </p>
-            <p className="text-xs text-muted-foreground/50 font-mono mt-1">or click to browse</p>
-          </div>
-          <Button variant="outline" size="sm" type="button" className="font-mono text-xs pointer-events-none">
-            <Upload className="mr-2 h-3.5 w-3.5" />
-            Choose File
-          </Button>
-        </div>
-      </label>
-    </div>
-  );
-}
+const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  postman: async (data) => ({
+    collection: await importPostmanCollection(data as any),
+    warnings: [],
+  }),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  insomnia: async (data) => importInsomniaCollection(data as any),
+  openapi: async (data) => ({ collection: await importOpenAPICollection(data), warnings: [] }),
+  opencollection: async (data) => importOpenCollection(data),
+  hoppscotch: async (data) => importHoppscotchCollection(data),
+  bruno: async (data) =>
+    importBrunoCollection({
+      kind: 'single',
+      content: typeof data === 'string' ? data : JSON.stringify(data),
+    }),
+};
 
 function describeWarning(w: ImportWarning): string {
   switch (w.kind) {
@@ -166,6 +179,139 @@ function describeWarning(w: ImportWarning): string {
   }
 }
 
+interface FormatCardProps {
+  format: FormatMeta;
+  active: boolean;
+  onClick: () => void;
+}
+
+function FormatCard({ format, active, onClick }: FormatCardProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'relative flex items-center gap-2.5 p-3 rounded-sp-btn text-left',
+        'border transition-all duration-150',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+        active
+          ? 'border-sp-accent bg-sp-active'
+          : 'border-sp-line bg-sp-surface-lo hover:bg-sp-hover hover:border-sp-line-strong'
+      )}
+      style={
+        active
+          ? { boxShadow: '0 0 0 1px var(--sp-accent), 0 8px 20px var(--sp-accent-glow-33)' }
+          : undefined
+      }
+    >
+      <span
+        aria-hidden="true"
+        className="flex items-center justify-center size-9 rounded-sp-btn shrink-0 text-sp-11 font-bold text-white tracking-wide"
+        style={{
+          background: format.color,
+          boxShadow: `0 4px 10px ${format.color}55, inset 0 1px 0 rgba(255,255,255,0.2)`,
+        }}
+      >
+        {format.initials}
+      </span>
+      <span className="flex flex-col min-w-0 flex-1">
+        <span className="text-sp-13 font-semibold text-sp-text leading-tight">{format.name}</span>
+        <span className="text-sp-11 text-sp-muted leading-tight mt-0.5 truncate">
+          {format.tagline}
+        </span>
+      </span>
+      {active && <Check size={14} className="text-sp-accent shrink-0" aria-hidden="true" />}
+    </button>
+  );
+}
+
+interface DropZoneProps {
+  format: FormatMeta;
+  onFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+}
+
+function DropZone({ format, onFileUpload, onDrop }: DropZoneProps) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  return (
+    <div
+      onDrop={(e) => {
+        setIsDragging(false);
+        onDrop(e);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!isDragging) setIsDragging(true);
+      }}
+      onDragLeave={() => setIsDragging(false)}
+      className={cn(
+        'relative rounded-sp-panel border-2 border-dashed p-8',
+        'transition-all duration-150',
+        isDragging
+          ? 'border-sp-accent bg-sp-active'
+          : 'border-sp-line bg-sp-surface-lo hover:border-sp-line-strong hover:bg-sp-hover'
+      )}
+      style={isDragging ? { boxShadow: '0 0 0 4px var(--sp-accent-glow-33)' } : undefined}
+    >
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 pointer-events-none rounded-sp-panel"
+        style={{
+          background: isDragging
+            ? 'radial-gradient(circle at 50% 0%, var(--sp-accent-glow-33), transparent 70%)'
+            : undefined,
+        }}
+      />
+      <input
+        type="file"
+        accept={format.accept}
+        onChange={onFileUpload}
+        className="hidden"
+        id={`file-upload-${format.id}`}
+      />
+      <label
+        htmlFor={`file-upload-${format.id}`}
+        className="relative flex flex-col items-center gap-3 cursor-pointer text-center"
+      >
+        <div
+          className="flex items-center justify-center size-14 rounded-full"
+          style={{
+            background: 'var(--sp-surface)',
+            border: '1px solid var(--sp-line)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+          }}
+        >
+          <Download
+            size={22}
+            className={cn('transition-colors', isDragging ? 'text-sp-accent' : 'text-sp-muted')}
+          />
+        </div>
+        <div>
+          <p className="text-sp-14 font-semibold text-sp-text">
+            {isDragging ? `Release to import ${format.name}` : `Drop your ${format.name} file here`}
+          </p>
+          <p className="text-sp-12 text-sp-muted mt-0.5">
+            or click to browse · accepts{' '}
+            <code className="font-mono text-sp-11-5 text-sp-text/80">{format.accept}</code>
+          </p>
+        </div>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn pointer-events-none',
+            'bg-sp-surface border border-sp-line-strong text-sp-text text-sp-12 font-medium',
+            'shadow-sm'
+          )}
+        >
+          <Upload size={12} aria-hidden="true" />
+          Choose file
+        </span>
+      </label>
+    </div>
+  );
+}
+
 interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -177,60 +323,44 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [warnings, setWarnings] = useState<ImportResult['warnings']>([]);
-  const [activeTab, setActiveTab] = useState<ImportType>('postman');
-  // Set when the user dropped a Postman environment file (not a collection).
-  // Surfaces a tailored success label so the user knows nothing went wrong
-  // even though no collection appeared.
+  const [activeFormat, setActiveFormat] = useState<ImportType>('postman');
   const [environmentOnlyName, setEnvironmentOnlyName] = useState<string | null>(null);
-  // Desktop-only: convert imported plaintext secrets into OS-keychain handles
-  // before persisting. Hidden on web (no keychain).
   const [storeSecretsAsHandles, setStoreSecretsAsHandles] = useState(false);
+
+  const format = FORMATS.find((f) => f.id === activeFormat) ?? FORMATS[0]!;
+  const features = FEATURE_LISTS[activeFormat];
 
   const parseFileContent = (text: string, fileName: string): unknown => {
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
       return YAML.parse(text);
     }
     if (fileName.endsWith('.bru')) {
-      // Bruno files are not JSON or YAML — return raw text; the importer parses it.
       return text;
     }
     return JSON.parse(text);
   };
 
-  /**
-   * `processImportFile` returns either a normal ImportResult or a special
-   * `{ kind: 'environment-only', name }` marker when the dropped file is a
-   * Postman or Hoppscotch environment export. The marker lets the success
-   * handler skip the addCollection() call and surface a tailored success
-   * message.
-   */
   type ProcessOutcome = ImportResult | { kind: 'environment-only'; environmentName: string };
 
   const processImportFile = async (file: File, type: ImportType): Promise<ProcessOutcome> => {
     const text = await file.text();
     const data = parseFileContent(text, file.name);
-    // Postman environment files are auto-detected regardless of selected tab —
-    // they look nothing like a collection, so the inferred behaviour is safe.
     if (type === 'postman' && isPostmanEnvironment(data)) {
       const env = importPostmanEnvironment(data);
       addEnvironment(env);
       return { kind: 'environment-only', environmentName: env.name };
     }
-    // Hoppscotch environment files: same auto-detect pattern.
     if (type === 'hoppscotch' && isHoppscotchEnvironment(data)) {
       const env = importHoppscotchEnvironment(data);
       addEnvironment(env);
       return { kind: 'environment-only', environmentName: env.name };
     }
-    // Bruno: parseFileContent passes .bru text through unparsed; the IMPORTERS
-    // entry wraps it in BrunoSource. No special case needed here.
     return IMPORTERS[type](data);
   };
 
   const handleImportSuccess = async (outcome: ProcessOutcome) => {
     if ('kind' in outcome) {
       setImportStatus('success');
-      // Skip the [] -> [] re-render if warnings was already empty.
       setWarnings((prev) => (prev.length === 0 ? prev : []));
       setEnvironmentOnlyName(outcome.environmentName);
       setTimeout(() => {
@@ -240,9 +370,10 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
       }, 1500);
       return;
     }
-    const collection = storeSecretsAsHandles && isElectron()
-      ? await convertCollectionSecretsToHandles(outcome.collection)
-      : outcome.collection;
+    const collection =
+      storeSecretsAsHandles && isElectron()
+        ? await convertCollectionSecretsToHandles(outcome.collection)
+        : outcome.collection;
     addCollection(collection);
     for (const env of outcome.environments ?? []) {
       addEnvironment(env);
@@ -251,13 +382,11 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     setWarnings(outcome.warnings);
     setEnvironmentOnlyName(null);
     if (outcome.warnings.length === 0) {
-      // No issues — auto-close after the success flash
       setTimeout(() => {
         onOpenChange(false);
         setImportStatus('idle');
       }, 1500);
     }
-    // With warnings: stay open until user dismisses
   };
 
   const handleImportError = (error: unknown) => {
@@ -267,27 +396,24 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     setTimeout(() => setImportStatus('idle'), 3000);
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, type: ImportType) => {
+  const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     try {
-      const outcome = await processImportFile(file, type);
+      const outcome = await processImportFile(file, activeFormat);
       await handleImportSuccess(outcome);
     } catch (error: unknown) {
       handleImportError(error);
     }
-
     event.target.value = '';
   };
 
-  const handleDrop = async (event: React.DragEvent<HTMLDivElement>, type: ImportType) => {
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
-
     try {
-      const outcome = await processImportFile(file, type);
+      const outcome = await processImportFile(file, activeFormat);
       await handleImportSuccess(outcome);
     } catch (error: unknown) {
       handleImportError(error);
@@ -295,144 +421,257 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="font-mono text-sm tracking-wide">IMPORT COLLECTION</DialogTitle>
-          <DialogDescription className="font-mono text-xs">
-            Import from Postman, Insomnia, OpenAPI/Swagger, OpenCollection, Hoppscotch, or Bruno
-          </DialogDescription>
-        </DialogHeader>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay
+          className={cn(
+            'fixed inset-0 z-50',
+            'data-[state=open]:animate-in data-[state=closed]:animate-out',
+            'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
+          )}
+          style={{
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+          }}
+        />
+        <DialogPrimitive.Content
+          aria-label="Import collection"
+          className={cn(
+            'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
+            'w-[860px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-32px)]',
+            'flex flex-col rounded-sp-window border border-sp-line-strong outline-none',
+            'data-[state=open]:animate-in data-[state=closed]:animate-out',
+            'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+            'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95'
+          )}
+          style={{
+            background: 'var(--sp-surface-hi)',
+            boxShadow: '0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+          }}
+        >
+          <DialogPrimitive.Title className="sr-only">Import collection</DialogPrimitive.Title>
+          <DialogPrimitive.Description className="sr-only">
+            Import requests and environments from another API client
+          </DialogPrimitive.Description>
 
-        {importStatus === 'success' && warnings.length === 0 && (
-          <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400 text-xs font-mono">
-            <CheckCircle className="h-4 w-4 shrink-0" />
-            <span>
-              {environmentOnlyName
-                ? `Imported environment: ${environmentOnlyName}`
-                : 'Collection imported successfully!'}
-            </span>
-          </div>
-        )}
-
-        {importStatus === 'success' && warnings.length > 0 && (
-          <div className="space-y-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded text-xs font-mono">
-            <div className="flex items-center gap-2 text-amber-400">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span className="font-medium">Imported with {warnings.length} warning{warnings.length === 1 ? '' : 's'}</span>
-            </div>
-            <ul className="space-y-1 text-muted-foreground max-h-40 overflow-y-auto">
-              {warnings.slice(0, 20).map((w: ImportWarning, i: number) => (
-                <li key={i} className="flex gap-2">
-                  <span className="text-amber-400/60">›</span>
-                  <span>{describeWarning(w)}</span>
-                </li>
-              ))}
-              {warnings.length > 20 && (
-                <li className="text-muted-foreground/60 italic">… and {warnings.length - 20} more</li>
-              )}
-            </ul>
-            <div className="flex gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="font-mono text-xs"
-                onClick={() => {
-                  onOpenChange(false);
-                  setImportStatus('idle');
-                  setWarnings([]);
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 border-b border-sp-line shrink-0">
+            <div className="flex items-start gap-3">
+              <div
+                aria-hidden="true"
+                className="shrink-0 flex items-center justify-center size-10 rounded-sp-btn border border-sp-line"
+                style={{
+                  background:
+                    'linear-gradient(135deg, var(--sp-accent-glow-33), transparent 70%), var(--sp-surface-lo)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
                 }}
               >
-                Dismiss
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {importStatus === 'error' && (
-          <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded text-destructive text-xs font-mono">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-medium">Import failed</span>
-              <p className="mt-1 opacity-80">{errorMessage}</p>
-            </div>
-          </div>
-        )}
-
-        {isElectron() && (
-          <label className="flex items-start gap-2 px-1 py-1 text-xs font-mono cursor-pointer">
-            <Checkbox
-              checked={storeSecretsAsHandles}
-              onCheckedChange={(checked) => setStoreSecretsAsHandles(checked === true)}
-              className="mt-0.5"
-            />
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <Lock className="h-3 w-3" aria-hidden />
-              Store imported secrets in the OS keychain (recommended)
-            </span>
-          </label>
-        )}
-
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ImportType)} className="w-full">
-          <TabsList className="w-full justify-start border-b border-border rounded-none h-9 bg-transparent p-0">
-            <TabsTrigger
-              value="postman"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              Postman
-            </TabsTrigger>
-            <TabsTrigger
-              value="insomnia"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              Insomnia
-            </TabsTrigger>
-            <TabsTrigger
-              value="openapi"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              OpenAPI
-            </TabsTrigger>
-            <TabsTrigger
-              value="opencollection"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              OpenCollection
-            </TabsTrigger>
-            <TabsTrigger
-              value="hoppscotch"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              Hoppscotch
-            </TabsTrigger>
-            <TabsTrigger
-              value="bruno"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-9 px-4 font-mono text-xs"
-            >
-              Bruno
-            </TabsTrigger>
-          </TabsList>
-
-          {(['postman', 'insomnia', 'openapi', 'opencollection', 'hoppscotch', 'bruno'] as const).map((type) => (
-            <TabsContent key={type} value={type} className="space-y-4 mt-4">
-              <DropZone type={type} onFileUpload={handleFileUpload} onDrop={handleDrop} />
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                  Supported Features
+                <Download size={18} className="text-sp-accent" />
+              </div>
+              <div className="flex flex-col leading-tight">
+                <h1 className="text-sp-18 font-bold text-sp-text">Import collection</h1>
+                <p className="text-sp-12-5 text-sp-muted mt-0.5">
+                  Bring requests, environments, and scripts from another API client.
                 </p>
-                <ul className="space-y-1">
-                  {FEATURE_LISTS[type].map((feature) => (
-                    <li key={feature} className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                      <span className="text-primary/40">›</span>
-                      {feature}
+              </div>
+            </div>
+            <DialogPrimitive.Close
+              aria-label="Close import dialog"
+              className={cn(
+                'inline-flex items-center justify-center w-9 h-9 rounded-sp-btn shrink-0',
+                'bg-sp-surface-lo border border-sp-line text-sp-muted',
+                'hover:text-sp-text hover:bg-sp-hover hover:border-sp-line-strong',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+                'transition-colors'
+              )}
+            >
+              <X size={14} />
+            </DialogPrimitive.Close>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
+            <StatusBanner
+              status={importStatus}
+              warnings={warnings}
+              environmentOnlyName={environmentOnlyName}
+              errorMessage={errorMessage}
+              onDismiss={() => {
+                onOpenChange(false);
+                setImportStatus('idle');
+                setWarnings([]);
+              }}
+            />
+
+            {/* Format grid */}
+            <section>
+              <div className="sp-label mb-2">Choose a source</div>
+              <div className="grid grid-cols-3 gap-2.5">
+                {FORMATS.map((f) => (
+                  <FormatCard
+                    key={f.id}
+                    format={f}
+                    active={f.id === activeFormat}
+                    onClick={() => setActiveFormat(f.id)}
+                  />
+                ))}
+              </div>
+            </section>
+
+            {/* Drop zone */}
+            <section>
+              <DropZone format={format} onFileUpload={handleFileUpload} onDrop={handleDrop} />
+            </section>
+
+            {/* Supported features */}
+            <section>
+              <div className="sp-label mb-2">What gets imported</div>
+              <Floater radius="panel" elevation="inset" className="p-4">
+                <ul className="grid grid-cols-2 gap-x-5 gap-y-2">
+                  {features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2 text-sp-12-5 text-sp-text">
+                      <span
+                        aria-hidden="true"
+                        className="flex items-center justify-center size-4 rounded-full shrink-0 mt-0.5"
+                        style={{
+                          background: 'var(--sp-accent-glow-33)',
+                          color: 'var(--sp-accent)',
+                        }}
+                      >
+                        <Check size={10} strokeWidth={3} />
+                      </span>
+                      <span className="leading-snug">{feature}</span>
                     </li>
                   ))}
                 </ul>
-              </div>
-            </TabsContent>
+              </Floater>
+            </section>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between gap-4 px-6 py-4 border-t border-sp-line shrink-0">
+            {isElectron() ? (
+              <label className="inline-flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={storeSecretsAsHandles}
+                  onCheckedChange={(checked) => setStoreSecretsAsHandles(checked === true)}
+                />
+                <span className="inline-flex items-center gap-1.5 text-sp-12 text-sp-muted">
+                  <Lock size={12} aria-hidden="true" />
+                  Store imported secrets in the OS keychain
+                </span>
+              </label>
+            ) : (
+              <span />
+            )}
+            <DialogPrimitive.Close
+              className={cn(
+                'inline-flex items-center justify-center h-8 px-4 rounded-sp-btn',
+                'bg-sp-surface border border-sp-line text-sp-text text-sp-12 font-medium',
+                'hover:bg-sp-hover hover:border-sp-line-strong transition-colors',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+              )}
+            >
+              Close
+            </DialogPrimitive.Close>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+interface StatusBannerProps {
+  status: 'idle' | 'success' | 'error';
+  warnings: ImportWarning[];
+  environmentOnlyName: string | null;
+  errorMessage: string;
+  onDismiss: () => void;
+}
+
+function StatusBanner({
+  status,
+  warnings,
+  environmentOnlyName,
+  errorMessage,
+  onDismiss,
+}: StatusBannerProps) {
+  if (status === 'idle') return null;
+
+  if (status === 'success' && warnings.length === 0) {
+    return (
+      <Floater
+        radius="panel"
+        elevation="inset"
+        className="p-3.5 flex items-center gap-2.5 border border-emerald-500/30"
+        style={{ background: 'rgba(16,185,129,0.08)' }}
+      >
+        <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+        <span className="text-sp-13 text-emerald-300 font-medium">
+          {environmentOnlyName
+            ? `Imported environment: ${environmentOnlyName}`
+            : 'Collection imported successfully'}
+        </span>
+      </Floater>
+    );
+  }
+
+  if (status === 'success' && warnings.length > 0) {
+    return (
+      <Floater
+        radius="panel"
+        elevation="inset"
+        className="p-3.5 border border-amber-500/30"
+        style={{ background: 'rgba(245,158,11,0.08)' }}
+      >
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-center gap-2 text-amber-300 font-medium text-sp-13">
+            <AlertCircle size={16} className="shrink-0" />
+            <span>
+              Imported with {warnings.length} warning{warnings.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className={cn(
+              'inline-flex items-center h-7 px-3 rounded-sp-btn',
+              'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
+              'hover:bg-sp-hover transition-colors'
+            )}
+          >
+            Dismiss
+          </button>
+        </div>
+        <ul className="space-y-1 text-sp-12 text-sp-muted max-h-40 overflow-y-auto pr-1">
+          {warnings.slice(0, 20).map((w, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="text-amber-400/70 shrink-0">›</span>
+              <span>{describeWarning(w)}</span>
+            </li>
           ))}
-        </Tabs>
-      </DialogContent>
-    </Dialog>
+          {warnings.length > 20 && (
+            <li className="text-sp-muted italic">… and {warnings.length - 20} more</li>
+          )}
+        </ul>
+      </Floater>
+    );
+  }
+
+  // error
+  return (
+    <Floater
+      radius="panel"
+      elevation="inset"
+      className="p-3.5 flex items-start gap-2.5 border border-rose-500/30"
+      style={{ background: 'rgba(244,63,94,0.08)' }}
+    >
+      <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
+      <div className="min-w-0">
+        <div className="text-sp-13 text-rose-300 font-medium">Import failed</div>
+        <p className="text-sp-12 text-rose-300/80 mt-0.5 break-words">{errorMessage}</p>
+      </div>
+    </Floater>
   );
 }
