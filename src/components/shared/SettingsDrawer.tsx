@@ -170,14 +170,23 @@ export default function SettingsDrawer({
           </DialogPrimitive.Description>
 
           {/* Header */}
-          <div className="flex items-center justify-between px-5 h-14 border-b border-sp-line">
-            <div className="flex items-center gap-2.5">
-              <Logo size={22} />
-              <span className="text-sp-16 font-bold text-sp-text">Settings</span>
+          <div className="flex items-center justify-between px-5 h-16 border-b border-sp-line shrink-0">
+            <div className="flex items-center gap-3">
+              <Logo size={26} />
+              <div className="flex flex-col leading-tight">
+                <span className="text-sp-15 font-bold text-sp-text">Settings</span>
+                <span className="text-sp-11 text-sp-muted">Tune Restura to match how you work</span>
+              </div>
             </div>
             <DialogPrimitive.Close
               aria-label="Close settings"
-              className="inline-flex items-center justify-center w-[30px] h-[30px] rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors"
+              className={cn(
+                'inline-flex items-center justify-center w-9 h-9 rounded-sp-btn',
+                'bg-sp-surface-lo border border-sp-line text-sp-muted',
+                'hover:text-sp-text hover:bg-sp-hover hover:border-sp-line-strong',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+                'transition-colors'
+              )}
             >
               <X size={14} />
             </DialogPrimitive.Close>
@@ -188,7 +197,7 @@ export default function SettingsDrawer({
             {/* Nav rail */}
             <nav
               aria-label="Settings sections"
-              className="w-[220px] shrink-0 border-r border-sp-line py-3 px-2 overflow-y-auto"
+              className="w-[220px] shrink-0 border-r border-sp-line py-4 px-2 overflow-y-auto flex flex-col gap-0.5"
             >
               {SECTIONS.map((s) => {
                 const Icon = s.icon;
@@ -198,17 +207,32 @@ export default function SettingsDrawer({
                     key={s.id}
                     type="button"
                     onClick={() => setActiveSection(s.id)}
+                    aria-current={isActive ? 'page' : undefined}
                     className={cn(
-                      'flex items-center gap-2.5 w-full text-left rounded-sp-btn',
-                      'text-sp-13 transition-colors',
+                      'relative flex items-center gap-2.5 w-full text-left rounded-sp-btn',
+                      'text-sp-13 transition-all duration-150',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
                       isActive
-                        ? 'bg-sp-active text-sp-text'
+                        ? 'bg-sp-active text-sp-text font-semibold'
                         : 'text-sp-muted hover:text-sp-text hover:bg-sp-hover'
                     )}
-                    style={{ padding: '8px 10px' }}
+                    style={{ padding: '9px 12px 9px 14px' }}
                   >
-                    <Icon size={14} className={isActive ? 'text-sp-accent' : ''} />
-                    <span className="font-medium">{s.label}</span>
+                    {isActive && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-sp-accent"
+                        style={{ boxShadow: '0 0 8px var(--sp-accent-glow-55)' }}
+                      />
+                    )}
+                    <Icon
+                      size={14}
+                      className={cn(
+                        'transition-colors',
+                        isActive ? 'text-sp-accent' : 'text-sp-muted'
+                      )}
+                    />
+                    <span>{s.label}</span>
                   </button>
                 );
               })}
@@ -242,29 +266,70 @@ export default function SettingsDrawer({
 /*  Section helpers                                                            */
 /* -------------------------------------------------------------------------- */
 
-function H1({ children }: { children: React.ReactNode }) {
-  return <h1 className="text-sp-22 font-bold text-sp-text mb-1">{children}</h1>;
+interface SectionHeaderProps {
+  icon: LucideIcon;
+  title: string;
+  description: React.ReactNode;
+}
+
+function SectionHeader({ icon: Icon, title, description }: SectionHeaderProps) {
+  return (
+    <div className="flex items-start gap-3 mb-6">
+      <div
+        aria-hidden="true"
+        className="shrink-0 flex items-center justify-center size-9 rounded-sp-btn border border-sp-line"
+        style={{
+          background:
+            'linear-gradient(135deg, var(--sp-accent-glow-33), transparent 70%), var(--sp-surface-lo)',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+        }}
+      >
+        <Icon size={16} className="text-sp-accent" />
+      </div>
+      <div className="min-w-0">
+        <h1 className="text-sp-22 font-bold text-sp-text leading-tight">{title}</h1>
+        <p className="text-sp-13 text-sp-muted mt-0.5">{description}</p>
+      </div>
+    </div>
+  );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="sp-label mt-6 mb-2">{children}</div>;
 }
 
+interface FieldGroupProps {
+  label: React.ReactNode;
+  children: React.ReactNode;
+}
+
+/**
+ * Frames a labelled cluster of FieldRows in a Floater so the eye reads each
+ * settings group as one card. Removes the visual noise of free-floating
+ * border-bottom dividers between unrelated rows.
+ */
+function FieldGroup({ label, children }: FieldGroupProps) {
+  return (
+    <section className="mt-5 first:mt-0">
+      <SectionLabel>{label}</SectionLabel>
+      <Floater radius="panel" elevation="inset" className="px-4 divide-y divide-sp-line">
+        {children}
+      </Floater>
+    </section>
+  );
+}
+
 interface FieldRowProps {
   label: React.ReactNode;
   hint?: React.ReactNode;
   control: React.ReactNode;
+  /** @deprecated last-row divider is owned by the parent FieldGroup */
   last?: boolean;
 }
 
-function FieldRow({ label, hint, control, last }: FieldRowProps) {
+function FieldRow({ label, hint, control }: FieldRowProps) {
   return (
-    <div
-      className={cn(
-        'grid grid-cols-[1fr_auto] items-center gap-4 py-3',
-        !last && 'border-b border-sp-line'
-      )}
-    >
+    <div className="grid grid-cols-[1fr_auto] items-center gap-4 py-3">
       <div className="min-w-0">
         <div className="text-sp-13 font-semibold text-sp-text">{label}</div>
         {hint && <div className="text-sp-11-5 text-sp-muted mt-0.5">{hint}</div>}
@@ -287,56 +352,60 @@ function GeneralSection() {
 
   return (
     <>
-      <H1>General</H1>
-      <p className="text-sp-13 text-sp-muted">Workspace defaults that apply to every request.</p>
-
-      <SectionLabel>Appearance</SectionLabel>
-      <FieldRow
-        label="Theme"
-        hint="Choose how Restura looks. System follows your OS preference."
-        control={
-          <Segmented<'light' | 'dark' | 'system'>
-            value={currentTheme}
-            onChange={(v) => {
-              setTheme(v);
-              updateSettings({ theme: v });
-            }}
-            options={[
-              { value: 'light', label: 'Light' },
-              { value: 'dark', label: 'Dark' },
-              { value: 'system', label: 'System' },
-            ]}
-          />
-        }
-      />
-      <FieldRow
-        label="Layout orientation"
-        hint="Side-by-side or stacked request/response."
-        control={
-          <Segmented<'vertical' | 'horizontal'>
-            value={settings.layoutOrientation ?? 'vertical'}
-            onChange={(v) => updateSettings({ layoutOrientation: v })}
-            options={[
-              { value: 'horizontal', label: 'Horizontal' },
-              { value: 'vertical', label: 'Vertical' },
-            ]}
-          />
-        }
+      <SectionHeader
+        icon={Sliders}
+        title="General"
+        description="Workspace defaults that apply to every request."
       />
 
-      <SectionLabel>History</SectionLabel>
-      <FieldRow
-        label="Auto-save history"
-        hint="Automatically record every executed request."
-        control={
-          <ToggleField
-            checked={settings.autoSaveHistory ?? true}
-            onChange={(v) => updateSettings({ autoSaveHistory: v })}
-            ariaLabel="Auto-save history"
-          />
-        }
-        last
-      />
+      <FieldGroup label="Appearance">
+        <FieldRow
+          label="Theme"
+          hint="Choose how Restura looks. System follows your OS preference."
+          control={
+            <Segmented<'light' | 'dark' | 'system'>
+              value={currentTheme}
+              onChange={(v) => {
+                setTheme(v);
+                updateSettings({ theme: v });
+              }}
+              options={[
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+                { value: 'system', label: 'System' },
+              ]}
+            />
+          }
+        />
+        <FieldRow
+          label="Layout orientation"
+          hint="Side-by-side or stacked request/response."
+          control={
+            <Segmented<'vertical' | 'horizontal'>
+              value={settings.layoutOrientation ?? 'vertical'}
+              onChange={(v) => updateSettings({ layoutOrientation: v })}
+              options={[
+                { value: 'horizontal', label: 'Horizontal' },
+                { value: 'vertical', label: 'Vertical' },
+              ]}
+            />
+          }
+        />
+      </FieldGroup>
+
+      <FieldGroup label="History">
+        <FieldRow
+          label="Auto-save history"
+          hint="Automatically record every executed request."
+          control={
+            <ToggleField
+              checked={settings.autoSaveHistory ?? true}
+              onChange={(v) => updateSettings({ autoSaveHistory: v })}
+              ariaLabel="Auto-save history"
+            />
+          }
+        />
+      </FieldGroup>
     </>
   );
 }
@@ -353,61 +422,67 @@ function AppearanceSection() {
 
   return (
     <>
-      <H1>Appearance</H1>
-      <p className="text-sp-13 text-sp-muted">Pick your accent color and theme.</p>
-
-      <SectionLabel>Accent</SectionLabel>
-      <div className="py-3 border-b border-sp-line">
-        <div className="text-sp-13 font-semibold text-sp-text mb-1">Accent color</div>
-        <div className="text-sp-11-5 text-sp-muted mb-4">
-          Used for active highlights, focus rings, and the Send button.
-        </div>
-        <div className="flex items-center gap-3">
-          {SPATIAL_ACCENT_PRESETS.map((preset) => {
-            const isActive = preset === accent;
-            return (
-              <button
-                key={preset}
-                type="button"
-                aria-label={`Accent ${preset}`}
-                aria-pressed={isActive}
-                onClick={() => updateSettings({ accent: preset as SpatialAccent })}
-                className={cn(
-                  'relative inline-flex items-center justify-center',
-                  'w-8 h-8 rounded-full border border-sp-line transition-all',
-                  isActive && 'scale-110'
-                )}
-                style={{
-                  background: preset,
-                  boxShadow: isActive
-                    ? `0 0 0 2px var(--sp-surface-hi), 0 0 0 4px ${preset}, 0 0 16px ${preset}66`
-                    : 'inset 0 1px 0 rgba(255,255,255,0.2)',
-                }}
-              >
-                {isActive && <Check size={14} className="text-white drop-shadow" />}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <SectionLabel>Theme</SectionLabel>
-      <FieldRow
-        label="Color scheme"
-        hint="Dark mode applies the full Spatial Depth glass palette."
-        control={
-          <Segmented<'light' | 'dark' | 'system'>
-            value={currentTheme}
-            onChange={(v) => setTheme(v)}
-            options={[
-              { value: 'light', label: 'Light' },
-              { value: 'dark', label: 'Dark' },
-              { value: 'system', label: 'System' },
-            ]}
-          />
-        }
-        last
+      <SectionHeader
+        icon={Palette}
+        title="Appearance"
+        description="Pick your accent color and theme."
       />
+
+      <section className="mt-5 first:mt-0">
+        <SectionLabel>Accent</SectionLabel>
+        <Floater radius="panel" elevation="inset" className="p-4">
+          <div className="text-sp-13 font-semibold text-sp-text mb-1">Accent color</div>
+          <div className="text-sp-11-5 text-sp-muted mb-4">
+            Used for active highlights, focus rings, and the Send button.
+          </div>
+          <div className="flex items-center gap-3">
+            {SPATIAL_ACCENT_PRESETS.map((preset) => {
+              const isActive = preset === accent;
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  aria-label={`Accent ${preset}`}
+                  aria-pressed={isActive}
+                  onClick={() => updateSettings({ accent: preset as SpatialAccent })}
+                  className={cn(
+                    'relative inline-flex items-center justify-center',
+                    'w-8 h-8 rounded-full border border-sp-line transition-all',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+                    isActive && 'scale-110'
+                  )}
+                  style={{
+                    background: preset,
+                    boxShadow: isActive
+                      ? `0 0 0 2px var(--sp-surface-hi), 0 0 0 4px ${preset}, 0 0 16px ${preset}66`
+                      : 'inset 0 1px 0 rgba(255,255,255,0.2)',
+                  }}
+                >
+                  {isActive && <Check size={14} className="text-white drop-shadow" />}
+                </button>
+              );
+            })}
+          </div>
+        </Floater>
+      </section>
+
+      <FieldGroup label="Theme">
+        <FieldRow
+          label="Color scheme"
+          hint="Dark mode applies the full Spatial Depth glass palette."
+          control={
+            <Segmented<'light' | 'dark' | 'system'>
+              value={currentTheme}
+              onChange={(v) => setTheme(v)}
+              options={[
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+                { value: 'system', label: 'System' },
+              ]}
+            />
+          }
+        />
+      </FieldGroup>
     </>
   );
 }
@@ -422,79 +497,84 @@ function RequestsSection() {
 
   return (
     <>
-      <H1>Requests</H1>
-      <p className="text-sp-13 text-sp-muted">Defaults for new requests and execution behavior.</p>
-
-      <SectionLabel>Timeouts</SectionLabel>
-      <FieldRow
-        label="Default timeout"
-        hint="Abort requests that don't respond within this window."
-        control={
-          <Stepper
-            value={Math.round((settings.defaultTimeout ?? 30000) / 1000)}
-            onChange={(v) => updateSettings({ defaultTimeout: Math.max(1, v) * 1000 })}
-            min={1}
-            max={600}
-            step={5}
-            unit="s"
-            ariaLabel="Default timeout in seconds"
-          />
-        }
+      <SectionHeader
+        icon={Send}
+        title="Requests"
+        description="Defaults for new requests and execution behavior."
       />
 
-      <SectionLabel>Redirects & TLS</SectionLabel>
-      <FieldRow
-        label="Follow redirects"
-        hint="Automatically follow HTTP 3xx responses."
-        control={
-          <ToggleField
-            checked={settings.followRedirects ?? true}
-            onChange={(v) => updateSettings({ followRedirects: v })}
-            ariaLabel="Follow redirects"
-          />
-        }
-      />
-      <FieldRow
-        label="Max redirects"
-        hint="Hard cap on redirect chain length."
-        control={
-          <Stepper
-            value={settings.maxRedirects ?? 10}
-            onChange={(v) => updateSettings({ maxRedirects: v })}
-            min={0}
-            max={50}
-            ariaLabel="Max redirects"
-          />
-        }
-      />
-      <FieldRow
-        label="Verify SSL certificates"
-        hint="Disable only for trusted development hosts."
-        control={
-          <ToggleField
-            checked={settings.verifySsl ?? true}
-            onChange={(v) => updateSettings({ verifySsl: v })}
-            ariaLabel="Verify SSL"
-          />
-        }
-      />
+      <FieldGroup label="Timeouts">
+        <FieldRow
+          label="Default timeout"
+          hint="Abort requests that don't respond within this window."
+          control={
+            <Stepper
+              value={Math.round((settings.defaultTimeout ?? 30000) / 1000)}
+              onChange={(v) => updateSettings({ defaultTimeout: Math.max(1, v) * 1000 })}
+              min={1}
+              max={600}
+              step={5}
+              unit="s"
+              ariaLabel="Default timeout in seconds"
+            />
+          }
+        />
+      </FieldGroup>
 
-      <SectionLabel>History</SectionLabel>
-      <FieldRow
-        label="Max history items"
-        hint="Older entries are evicted once this cap is reached."
-        control={
-          <Stepper
-            value={settings.maxHistoryItems ?? 100}
-            onChange={(v) => updateSettings({ maxHistoryItems: v })}
-            min={10}
-            max={5000}
-            step={10}
-            ariaLabel="Max history items"
-          />
-        }
-        last
-      />
+      <FieldGroup label="Redirects & TLS">
+        <FieldRow
+          label="Follow redirects"
+          hint="Automatically follow HTTP 3xx responses."
+          control={
+            <ToggleField
+              checked={settings.followRedirects ?? true}
+              onChange={(v) => updateSettings({ followRedirects: v })}
+              ariaLabel="Follow redirects"
+            />
+          }
+        />
+        <FieldRow
+          label="Max redirects"
+          hint="Hard cap on redirect chain length."
+          control={
+            <Stepper
+              value={settings.maxRedirects ?? 10}
+              onChange={(v) => updateSettings({ maxRedirects: v })}
+              min={0}
+              max={50}
+              ariaLabel="Max redirects"
+            />
+          }
+        />
+        <FieldRow
+          label="Verify SSL certificates"
+          hint="Disable only for trusted development hosts."
+          control={
+            <ToggleField
+              checked={settings.verifySsl ?? true}
+              onChange={(v) => updateSettings({ verifySsl: v })}
+              ariaLabel="Verify SSL"
+            />
+          }
+        />
+      </FieldGroup>
+
+      <FieldGroup label="History">
+        <FieldRow
+          label="Max history items"
+          hint="Older entries are evicted once this cap is reached."
+          control={
+            <Stepper
+              value={settings.maxHistoryItems ?? 100}
+              onChange={(v) => updateSettings({ maxHistoryItems: v })}
+              min={10}
+              max={5000}
+              step={10}
+              ariaLabel="Max history items"
+            />
+          }
+        />
+      </FieldGroup>
     </>
   );
 }
@@ -510,49 +590,50 @@ function ProxySection() {
 
   return (
     <>
-      <H1>Proxy</H1>
-      <p className="text-sp-13 text-sp-muted">
-        Route outgoing requests through an HTTP(S) or SOCKS proxy.
-      </p>
+      <SectionHeader
+        icon={Network}
+        title="Proxy"
+        description="Route outgoing requests through an HTTP(S) or SOCKS proxy."
+      />
 
-      <SectionLabel>Outbound proxy</SectionLabel>
-      <FieldRow
-        label="Enable proxy"
-        hint="When off, requests go directly to the upstream host."
-        control={
-          <ToggleField
-            checked={settings.proxy.enabled}
-            onChange={setProxyEnabled}
-            ariaLabel="Enable proxy"
-          />
-        }
-      />
-      <FieldRow
-        label="Host"
-        control={
-          <TextField
-            mono
-            placeholder="proxy.example.com"
-            value={settings.proxy.host}
-            onChange={(e) => updateProxy({ host: e.target.value })}
-            disabled={!settings.proxy.enabled}
-            className="w-[260px]"
-          />
-        }
-      />
-      <FieldRow
-        label="Port"
-        control={
-          <Stepper
-            value={settings.proxy.port}
-            onChange={(v) => updateProxy({ port: v })}
-            min={1}
-            max={65535}
-            ariaLabel="Proxy port"
-          />
-        }
-        last
-      />
+      <FieldGroup label="Outbound proxy">
+        <FieldRow
+          label="Enable proxy"
+          hint="When off, requests go directly to the upstream host."
+          control={
+            <ToggleField
+              checked={settings.proxy.enabled}
+              onChange={setProxyEnabled}
+              ariaLabel="Enable proxy"
+            />
+          }
+        />
+        <FieldRow
+          label="Host"
+          control={
+            <TextField
+              mono
+              placeholder="proxy.example.com"
+              value={settings.proxy.host}
+              onChange={(e) => updateProxy({ host: e.target.value })}
+              disabled={!settings.proxy.enabled}
+              className="w-[260px]"
+            />
+          }
+        />
+        <FieldRow
+          label="Port"
+          control={
+            <Stepper
+              value={settings.proxy.port}
+              onChange={(v) => updateProxy({ port: v })}
+              min={1}
+              max={65535}
+              ariaLabel="Proxy port"
+            />
+          }
+        />
+      </FieldGroup>
     </>
   );
 }
@@ -605,11 +686,16 @@ function CertificatesSection() {
 
   return (
     <>
-      <H1>Certificates</H1>
-      <p className="text-sp-13 text-sp-muted">
-        Configure client certificates and custom CA bundles.
-        <DesktopOnlyBadge title="Browsers can't present client certificates or override the system trust store. Certificates only take effect in the Restura desktop app." />
-      </p>
+      <SectionHeader
+        icon={ShieldCheck}
+        title="Certificates"
+        description={
+          <>
+            Configure client certificates and custom CA bundles.
+            <DesktopOnlyBadge title="Browsers can't present client certificates or override the system trust store. Certificates only take effect in the Restura desktop app." />
+          </>
+        }
+      />
 
       <SectionLabel>Client certificate (mTLS)</SectionLabel>
       <Floater radius="panel" elevation="inset" className="p-4">
@@ -739,23 +825,26 @@ function SecretsSection() {
 
   if (!electron) {
     return (
-      <>
-        <H1>Secrets</H1>
-        <p className="text-sp-13 text-sp-muted">
-          Tokens and keys referenced from your collections.
-          <DesktopOnlyBadge title="Secret storage requires the Restura desktop app — the browser has no OS keychain." />
-        </p>
-      </>
+      <SectionHeader
+        icon={KeyRound}
+        title="Secrets"
+        description={
+          <>
+            Tokens and keys referenced from your collections.
+            <DesktopOnlyBadge title="Secret storage requires the Restura desktop app — the browser has no OS keychain." />
+          </>
+        }
+      />
     );
   }
 
   return (
     <>
-      <H1>Secrets</H1>
-      <p className="text-sp-13 text-sp-muted">
-        Plaintext for these handles lives in the OS keychain. Restura never reads them in the
-        renderer; the main process resolves them at the wire boundary only when a request is sent.
-      </p>
+      <SectionHeader
+        icon={KeyRound}
+        title="Secrets"
+        description="Plaintext for these handles lives in the OS keychain. Restura never reads them in the renderer; the main process resolves them at the wire boundary only when a request is sent."
+      />
 
       <SectionLabel>Stored handles</SectionLabel>
       {loading ? (
@@ -815,30 +904,47 @@ function SecretsSection() {
 function ShortcutsSection() {
   return (
     <>
-      <H1>Shortcuts</H1>
-      <p className="text-sp-13 text-sp-muted">Keyboard bindings available across the app.</p>
+      <SectionHeader
+        icon={KeyboardIcon}
+        title="Shortcuts"
+        description="Keyboard bindings available across the app."
+      />
 
       {SHORTCUT_GROUPS.map((group) => (
-        <div key={group.title}>
+        <section key={group.title} className="mt-5 first:mt-0">
           <SectionLabel>{group.title}</SectionLabel>
-          <div className="grid grid-cols-2 gap-x-8">
-            {group.shortcuts.map((s) => (
-              <div
-                key={s.description}
-                className="flex items-center justify-between py-2 border-b border-sp-line"
+          <Floater
+            radius="panel"
+            elevation="inset"
+            className="px-4 grid grid-cols-2 gap-x-6 divide-x divide-sp-line"
+          >
+            {[0, 1].map((col) => (
+              <ul
+                key={col}
+                className="divide-y divide-sp-line"
+                style={{ paddingLeft: col === 1 ? '1.5rem' : 0 }}
               >
-                <span className="text-sp-13 text-sp-muted">{s.description}</span>
-                <span className="inline-flex items-center gap-1">
-                  {s.keys.map((k, i) => (
-                    <Kbd key={i} size="xs">
-                      {k}
-                    </Kbd>
+                {group.shortcuts
+                  .filter((_, i) => i % 2 === col)
+                  .map((s) => (
+                    <li
+                      key={s.description}
+                      className="flex items-center justify-between gap-3 py-2.5"
+                    >
+                      <span className="text-sp-12-5 text-sp-text">{s.description}</span>
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        {s.keys.map((k, i) => (
+                          <Kbd key={i} size="xs">
+                            {k}
+                          </Kbd>
+                        ))}
+                      </span>
+                    </li>
                   ))}
-                </span>
-              </div>
+              </ul>
             ))}
-          </div>
-        </div>
+          </Floater>
+        </section>
       ))}
     </>
   );
@@ -847,6 +953,43 @@ function ShortcutsSection() {
 /* -------------------------------------------------------------------------- */
 /*  About                                                                      */
 /* -------------------------------------------------------------------------- */
+
+interface AuthorAvatarProps {
+  username: string;
+  initials: string;
+  alt: string;
+}
+
+/**
+ * GitHub avatar with graceful fallback. The initials/gradient render as the
+ * background, so even before the image loads (or if the fetch fails) the
+ * row stays visually anchored. On error we hide the img and let the
+ * background show through.
+ */
+function AuthorAvatar({ username, initials, alt }: AuthorAvatarProps) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div
+      className="relative flex items-center justify-center size-10 rounded-full overflow-hidden shrink-0 text-sp-13 font-bold text-white"
+      style={{
+        background: 'linear-gradient(135deg, var(--sp-accent), #a78bfa)',
+        boxShadow: '0 4px 12px var(--sp-accent-glow-55)',
+      }}
+    >
+      <span aria-hidden={!failed}>{initials}</span>
+      {!failed && (
+        <img
+          src={`https://github.com/${username}.png?size=80`}
+          alt={alt}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+          className="absolute inset-0 size-full object-cover"
+        />
+      )}
+    </div>
+  );
+}
 
 function GithubMark({ size = 14 }: { size?: number }) {
   return (
@@ -861,48 +1004,119 @@ function AboutSection() {
 
   return (
     <>
-      <H1>About</H1>
-      <p className="text-sp-13 text-sp-muted">Restura — a multi-protocol API client.</p>
+      <SectionHeader
+        icon={Info}
+        title="About"
+        description="Build details, author, and project links."
+      />
 
-      <SectionLabel>Version</SectionLabel>
-      <div className="py-3 border-b border-sp-line">
-        <div className="text-sp-13 text-sp-text font-mono">v{version}</div>
-        <div className="text-sp-11-5 text-sp-muted mt-1">Spatial Depth design system</div>
-      </div>
+      {/* Hero card — large logo + brand + version pill + tagline. Anchors
+          the About page so it doesn't read as a settings list. */}
+      <Floater radius="panel" elevation="inset" className="p-6 mt-2 relative overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(circle at 0% 0%, var(--sp-accent-glow-33), transparent 55%)',
+          }}
+        />
+        <div className="relative flex items-center gap-5">
+          <Logo size={64} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="text-sp-22 font-bold text-sp-text leading-none">Restura</span>
+              <span
+                className="inline-flex items-center px-2 h-5 rounded-sp-pill text-sp-11 font-mono font-semibold text-sp-accent border border-sp-line"
+                style={{ background: 'var(--sp-accent-glow-33)' }}
+              >
+                v{version}
+              </span>
+            </div>
+            <p className="text-sp-13 text-sp-muted mt-1.5">
+              A modern multi-protocol API client for HTTP, GraphQL, gRPC, WebSocket, and more.
+            </p>
+            <p className="text-sp-11 text-sp-dim mt-1 font-mono">Spatial Depth design system</p>
+          </div>
+        </div>
+      </Floater>
 
-      <SectionLabel>Author</SectionLabel>
-      <div className="py-3 border-b border-sp-line">
-        <div className="text-sp-13 text-sp-text">Dipjyoti Metia</div>
-        <a
-          href="https://github.com/dipjyotimetia"
-          target="_blank"
-          rel="noreferrer noopener"
-          className="mt-1 inline-flex items-center gap-1.5 text-sp-11-5 text-sp-muted hover:text-sp-accent transition-colors"
-        >
-          <GithubMark size={12} />
-          <span className="font-mono">github.com/dipjyotimetia</span>
-        </a>
-      </div>
+      <FieldGroup label="Author">
+        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-4 py-3">
+          <AuthorAvatar username="dipjyotimetia" initials="DM" alt="Dipjyoti Metia" />
+          <div className="min-w-0">
+            <div className="text-sp-13 font-semibold text-sp-text">Dipjyoti Metia</div>
+            <div className="text-sp-11-5 text-sp-muted">Creator &amp; maintainer</div>
+          </div>
+          <a
+            href="https://github.com/dipjyotimetia"
+            target="_blank"
+            rel="noreferrer noopener"
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn shrink-0',
+              'bg-sp-surface border border-sp-line text-sp-text text-sp-12 font-medium',
+              'hover:bg-sp-hover hover:border-sp-line-strong transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+            )}
+          >
+            <GithubMark size={13} />
+            <span>Follow</span>
+          </a>
+        </div>
+      </FieldGroup>
 
-      <SectionLabel>Links</SectionLabel>
-      <div className="py-3 flex flex-col gap-2 text-sp-13">
-        <a
-          href="https://github.com/dipjyotimetia/restura"
-          target="_blank"
-          rel="noreferrer noopener"
-          className="text-sp-accent hover:underline"
-        >
-          GitHub repository
-        </a>
-        <a
-          href="https://restura.dev"
-          target="_blank"
-          rel="noreferrer noopener"
-          className="text-sp-accent hover:underline"
-        >
-          Documentation
-        </a>
-      </div>
+      <section className="mt-5">
+        <SectionLabel>Resources</SectionLabel>
+        <div className="grid grid-cols-2 gap-2.5">
+          <LinkCard
+            icon={<GithubMark size={16} />}
+            label="GitHub repository"
+            hint="Source code & issues"
+            href="https://github.com/dipjyotimetia/restura"
+          />
+          <LinkCard
+            icon={<Info size={16} />}
+            label="Documentation"
+            hint="restura.dev"
+            href="https://restura.dev"
+          />
+        </div>
+      </section>
     </>
+  );
+}
+
+interface LinkCardProps {
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  href: string;
+}
+
+function LinkCard({ icon, label, hint, href }: LinkCardProps) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={cn(
+        'group flex items-center gap-3 p-3 rounded-sp-btn',
+        'bg-sp-surface-lo border border-sp-line',
+        'hover:border-sp-accent hover:bg-sp-hover transition-colors',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+      )}
+    >
+      <div
+        aria-hidden="true"
+        className="flex items-center justify-center size-9 rounded-sp-btn shrink-0 text-sp-muted group-hover:text-sp-accent transition-colors"
+        style={{ background: 'var(--sp-surface)' }}
+      >
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sp-13 font-semibold text-sp-text">{label}</div>
+        <div className="text-sp-11-5 text-sp-muted font-mono truncate">{hint}</div>
+      </div>
+    </a>
   );
 }
