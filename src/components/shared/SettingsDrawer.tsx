@@ -5,7 +5,6 @@ import { useEffect, useState, useCallback } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   X,
-  Settings as SettingsIcon,
   Palette,
   Send,
   Network,
@@ -23,14 +22,7 @@ import {
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import {
-  ToggleField,
-  Segmented,
-  Stepper,
-  TextField,
-  Kbd,
-  Floater,
-} from '@/components/ui/spatial';
+import { ToggleField, Segmented, Stepper, TextField, Kbd, Floater } from '@/components/ui/spatial';
 import { SPATIAL_ACCENT_PRESETS, type SpatialAccent } from '@/types';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
@@ -38,14 +30,13 @@ import { readFileAsText } from '@/lib/shared/file-utils';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import { Logo } from '@/components/shared/Logo';
 
-const ProviderSettings = lazyComponent(
-  async () => {
-    const m = await import('@/features/ai/components/ProviderSettings');
-    const Comp: React.ComponentType<object> = m.ProviderSettings;
-    return { default: Comp };
-  },
-);
+const ProviderSettings = lazyComponent(async () => {
+  const m = await import('@/features/ai/components/ProviderSettings');
+  const Comp: React.ComponentType<object> = m.ProviderSettings;
+  return { default: Comp };
+});
 
 export type SectionId =
   | 'general'
@@ -180,8 +171,8 @@ export default function SettingsDrawer({
 
           {/* Header */}
           <div className="flex items-center justify-between px-5 h-14 border-b border-sp-line">
-            <div className="flex items-center gap-2">
-              <SettingsIcon size={16} className="text-sp-accent" />
+            <div className="flex items-center gap-2.5">
+              <Logo size={22} />
               <span className="text-sp-16 font-bold text-sp-text">Settings</span>
             </div>
             <DialogPrimitive.Close
@@ -520,7 +511,9 @@ function ProxySection() {
   return (
     <>
       <H1>Proxy</H1>
-      <p className="text-sp-13 text-sp-muted">Route outgoing requests through an HTTP(S) or SOCKS proxy.</p>
+      <p className="text-sp-13 text-sp-muted">
+        Route outgoing requests through an HTTP(S) or SOCKS proxy.
+      </p>
 
       <SectionLabel>Outbound proxy</SectionLabel>
       <FieldRow
@@ -619,15 +612,8 @@ function CertificatesSection() {
       </p>
 
       <SectionLabel>Client certificate (mTLS)</SectionLabel>
-      <Floater
-        radius="panel"
-        elevation="inset"
-        className="p-4"
-      >
-        <CertificateOverride
-          clientCert={settings.clientCert}
-          onCertChange={setClientCert}
-        />
+      <Floater radius="panel" elevation="inset" className="p-4">
+        <CertificateOverride clientCert={settings.clientCert} onCertChange={setClientCert} />
       </Floater>
 
       <SectionLabel>Custom CA certificate</SectionLabel>
@@ -673,10 +659,7 @@ function CertificatesSection() {
           )}
         </div>
         <div>
-          <label
-            htmlFor="ca-pem-paste"
-            className="text-sp-11-5 text-sp-muted block mb-1"
-          >
+          <label htmlFor="ca-pem-paste" className="text-sp-11-5 text-sp-muted block mb-1">
             …or paste a PEM bundle
           </label>
           <textarea
@@ -696,8 +679,8 @@ function CertificatesSection() {
         <p className="text-sp-11 text-amber-500 dark:text-amber-400 flex items-start gap-1.5">
           <Info size={12} className="shrink-0 mt-0.5" aria-hidden="true" />
           <span>
-            A custom CA replaces the system trust store for Restura's outbound
-            requests. Only add a CA you trust.
+            A custom CA replaces the system trust store for Restura's outbound requests. Only add a
+            CA you trust.
           </span>
         </p>
       </Floater>
@@ -770,9 +753,8 @@ function SecretsSection() {
     <>
       <H1>Secrets</H1>
       <p className="text-sp-13 text-sp-muted">
-        Plaintext for these handles lives in the OS keychain. Restura never reads them
-        in the renderer; the main process resolves them at the wire boundary only
-        when a request is sent.
+        Plaintext for these handles lives in the OS keychain. Restura never reads them in the
+        renderer; the main process resolves them at the wire boundary only when a request is sent.
       </p>
 
       <SectionLabel>Stored handles</SectionLabel>
@@ -783,8 +765,8 @@ function SecretsSection() {
       ) : handles.length === 0 ? (
         <Floater radius="panel" elevation="inset" className="p-5">
           <p className="text-sp-13 text-sp-muted">
-            No stored secrets yet. Use the &ldquo;Store&rdquo; button next to a password
-            field in any auth configuration to create a handle.
+            No stored secrets yet. Use the &ldquo;Store&rdquo; button next to a password field in
+            any auth configuration to create a handle.
           </p>
         </Floater>
       ) : (
@@ -866,7 +848,17 @@ function ShortcutsSection() {
 /*  About                                                                      */
 /* -------------------------------------------------------------------------- */
 
+function GithubMark({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.29 9.4 7.86 10.93.58.1.79-.25.79-.56v-2.16c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.68-1.28-1.68-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.3-.51-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.62 1.59.23 2.76.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.05.78 2.12v3.14c0 .31.21.67.8.55C20.21 21.4 23.5 17.09 23.5 12 23.5 5.65 18.35.5 12 .5Z" />
+    </svg>
+  );
+}
+
 function AboutSection() {
+  const version = import.meta.env.VITE_APP_VERSION || '0.0.0';
+
   return (
     <>
       <H1>About</H1>
@@ -874,8 +866,22 @@ function AboutSection() {
 
       <SectionLabel>Version</SectionLabel>
       <div className="py-3 border-b border-sp-line">
-        <div className="text-sp-13 text-sp-text font-mono">v1.4.2</div>
+        <div className="text-sp-13 text-sp-text font-mono">v{version}</div>
         <div className="text-sp-11-5 text-sp-muted mt-1">Spatial Depth design system</div>
+      </div>
+
+      <SectionLabel>Author</SectionLabel>
+      <div className="py-3 border-b border-sp-line">
+        <div className="text-sp-13 text-sp-text">Dipjyoti Metia</div>
+        <a
+          href="https://github.com/dipjyotimetia"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="mt-1 inline-flex items-center gap-1.5 text-sp-11-5 text-sp-muted hover:text-sp-accent transition-colors"
+        >
+          <GithubMark size={12} />
+          <span className="font-mono">github.com/dipjyotimetia</span>
+        </a>
       </div>
 
       <SectionLabel>Links</SectionLabel>
@@ -900,4 +906,3 @@ function AboutSection() {
     </>
   );
 }
-
