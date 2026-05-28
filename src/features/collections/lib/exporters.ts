@@ -1,10 +1,43 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Collection, CollectionItem, HttpRequest, AuthConfig, PostmanCollection, PostmanItem, PostmanAuth, InsomniaResource } from '@/types';
+import type {
+  Collection,
+  CollectionItem,
+  HttpRequest,
+  AuthConfig,
+  PostmanCollection,
+  PostmanItem,
+  PostmanAuth,
+  InsomniaResource,
+} from '@/types';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
+import { migrateScriptRsToPm } from '@/features/scripts/lib/scriptMigrations';
+
+// Build a Postman `event[]` array from native rs.* scripts, reverse-migrating
+// them back to pm.* so the exported collection runs in Postman itself.
+function buildPostmanScriptEvents(
+  preRequestScript?: string,
+  testScript?: string
+): PostmanItem['event'] {
+  const events: NonNullable<PostmanItem['event']> = [];
+  if (preRequestScript) {
+    events.push({
+      listen: 'prerequest',
+      script: { type: 'text/javascript', exec: migrateScriptRsToPm(preRequestScript).split('\n') },
+    });
+  }
+  if (testScript) {
+    events.push({
+      listen: 'test',
+      script: { type: 'text/javascript', exec: migrateScriptRsToPm(testScript).split('\n') },
+    });
+  }
+  return events.length > 0 ? events : undefined;
+}
 
 // Export to Postman Format
 export function exportToPostman(collection: Collection): PostmanCollection {
+  const event = buildPostmanScriptEvents(collection.preRequestScript, collection.testScript);
   return {
     info: {
       name: collection.name,
@@ -14,14 +47,17 @@ export function exportToPostman(collection: Collection): PostmanCollection {
     item: collection.items.map(convertToPostmanItem),
     auth: collection.auth ? convertAuthToPostman(collection.auth) : undefined,
     variable: [],
+    ...(event ? { event } : {}),
   };
 }
 
 function convertToPostmanItem(item: CollectionItem): PostmanItem {
   if (item.type === 'folder') {
+    const event = buildPostmanScriptEvents(item.preRequestScript, item.testScript);
     return {
       name: item.name,
       item: (item.items || []).map(convertToPostmanItem),
+      ...(event ? { event } : {}),
     };
   }
 
@@ -62,43 +98,23 @@ function convertToPostmanItem(item: CollectionItem): PostmanItem {
       body: convertBodyToPostman(request.body),
       auth: request.auth.type !== 'none' ? convertAuthToPostman(request.auth) : undefined,
     },
-    event: [
-      ...(request.preRequestScript
-        ? [
-            {
-              listen: 'prerequest' as const,
-              script: {
-                type: 'text/javascript' as const,
-                exec: request.preRequestScript.split('\n'),
-              },
-            },
-          ]
-        : []),
-      ...(request.testScript
-        ? [
-            {
-              listen: 'test' as const,
-              script: {
-                type: 'text/javascript' as const,
-                exec: request.testScript.split('\n'),
-              },
-            },
-          ]
-        : []),
-    ],
+    // Reverse-migrate native rs.* back to pm.* so scripts run in Postman.
+    event: buildPostmanScriptEvents(request.preRequestScript, request.testScript) ?? [],
   };
 }
 
-function convertBodyToPostman(body: HttpRequest['body']): { mode: string; raw?: string; options?: unknown } | undefined {
+function convertBodyToPostman(
+  body: HttpRequest['body']
+): { mode: string; raw?: string; options?: unknown } | undefined {
   if (body.type === 'none') return undefined;
 
   const modeMap: Record<string, string> = {
-    'json': 'raw',
-    'xml': 'raw',
-    'text': 'raw',
+    json: 'raw',
+    xml: 'raw',
+    text: 'raw',
     'form-data': 'formdata',
     'x-www-form-urlencoded': 'urlencoded',
-    'binary': 'file',
+    binary: 'file',
   };
 
   return {
@@ -148,14 +164,24 @@ function convertAuthToPostman(auth: AuthConfig): PostmanAuth | undefined {
     case 'oauth2':
       return {
         type: 'oauth2',
-        oauth2: [{ key: 'accessToken', value: exportSecretValue(auth.oauth2?.accessToken), type: 'string' }],
+        oauth2: [
+          {
+            key: 'accessToken',
+            value: exportSecretValue(auth.oauth2?.accessToken),
+            type: 'string',
+          },
+        ],
       };
     case 'aws-signature':
       return {
         type: 'awsv4',
         awsv4: [
           { key: 'accessKey', value: auth.awsSignature?.accessKey || '', type: 'string' },
-          { key: 'secretKey', value: exportSecretValue(auth.awsSignature?.secretKey), type: 'string' },
+          {
+            key: 'secretKey',
+            value: exportSecretValue(auth.awsSignature?.secretKey),
+            type: 'string',
+          },
           { key: 'region', value: auth.awsSignature?.region || '', type: 'string' },
           { key: 'service', value: auth.awsSignature?.service || '', type: 'string' },
         ],
@@ -251,9 +277,9 @@ function convertBodyToInsomnia(body: HttpRequest['body']): { mimeType: string; t
   if (body.type === 'none') return { mimeType: 'text/plain', text: '' };
 
   const mimeTypeMap: Record<string, string> = {
-    'json': 'application/json',
-    'xml': 'application/xml',
-    'text': 'text/plain',
+    json: 'application/json',
+    xml: 'application/xml',
+    text: 'text/plain',
     'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
     'form-data': 'multipart/form-data',
   };
@@ -319,7 +345,9 @@ export function exportToHAR(collection: Collection): object {
 
         let fullUrl = req.url;
         if (queryString.length > 0) {
-          const qs = queryString.map((q) => `${encodeURIComponent(q.name)}=${encodeURIComponent(q.value)}`).join('&');
+          const qs = queryString
+            .map((q) => `${encodeURIComponent(q.name)}=${encodeURIComponent(q.value)}`)
+            .join('&');
           fullUrl += (req.url.includes('?') ? '&' : '?') + qs;
         }
 
@@ -513,7 +541,10 @@ export function exportToOpenAPI(collection: Collection): object {
       description: collection.description || '',
       version: '1.0.0',
     },
-    servers: urls.size > 0 ? Array.from(urls).map((url) => ({ url })) : [{ url: 'https://api.example.com' }],
+    servers:
+      urls.size > 0
+        ? Array.from(urls).map((url) => ({ url }))
+        : [{ url: 'https://api.example.com' }],
     paths,
   };
 }

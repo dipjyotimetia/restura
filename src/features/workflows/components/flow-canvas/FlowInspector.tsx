@@ -92,9 +92,7 @@ export function FlowInspector({
   const node = useMemo(() => {
     if (!selectedNodeId || !workflow.graph) return null;
     const slice =
-      subgraphPath.length === 0
-        ? workflow.graph
-        : selectAtPath(workflow.graph, subgraphPath);
+      subgraphPath.length === 0 ? workflow.graph : selectAtPath(workflow.graph, subgraphPath);
     return slice?.nodes.find((n) => n.id === selectedNodeId) ?? null;
   }, [selectedNodeId, workflow.graph, subgraphPath]);
 
@@ -218,8 +216,8 @@ function RequestInspector({
   if (!wr) {
     return (
       <div className="text-xs text-destructive">
-        Linked WorkflowRequest is missing. Delete this node and re-drop the saved
-        request from the sidebar.
+        Linked WorkflowRequest is missing. Delete this node and re-drop the saved request from the
+        sidebar.
       </div>
     );
   }
@@ -438,7 +436,10 @@ function SetVariableInspector({
       </div>
       <div className="space-y-2">
         {node.data.assignments.map((a, i) => (
-          <div key={i} className="space-y-1 p-2 rounded-md border border-[hsl(var(--foreground)/var(--border-subtle))]">
+          <div
+            key={i}
+            className="space-y-1 p-2 rounded-md border border-[hsl(var(--foreground)/var(--border-subtle))]"
+          >
             <div className="flex items-center gap-1">
               <Input
                 className="h-6 text-xs"
@@ -538,7 +539,7 @@ function TransformInspector({
       <Textarea
         className="mt-1 font-mono text-xs"
         rows={10}
-        placeholder='pm.variables.set("foo", "bar");'
+        placeholder='rs.variables.set("foo", "bar");'
         value={node.data.script}
         onChange={(e) =>
           updateNode(node.id, (n) => ({
@@ -548,7 +549,7 @@ function TransformInspector({
         }
       />
       <p className="text-[10px] text-muted-foreground mt-1">
-        Variables set via <code>pm.variables.set</code> propagate downstream.
+        Variables set via <code>rs.variables.set</code> propagate downstream.
       </p>
     </div>
   );
@@ -645,7 +646,7 @@ function ForEachInspector({
         <Textarea
           className="mt-1 font-mono text-xs"
           rows={3}
-          placeholder="return JSON.parse(pm.variables.get('items'));"
+          placeholder="return JSON.parse(rs.variables.get('items'));"
           value={node.data.collectionExpression}
           onChange={(e) => update((d) => ({ ...d, collectionExpression: e.target.value }))}
         />
@@ -713,7 +714,9 @@ function TryCatchInspector({
         <Label className="text-xs">Try branch</Label>
         <div className="mt-1 flex items-center justify-between gap-2">
           <span className="text-[10px] text-muted-foreground">
-            {tryCount === 0 ? 'empty — click to start' : `${tryCount} node${tryCount === 1 ? '' : 's'}`}
+            {tryCount === 0
+              ? 'empty — click to start'
+              : `${tryCount} node${tryCount === 1 ? '' : 's'}`}
           </span>
           <Button
             size="sm"
@@ -746,8 +749,8 @@ function TryCatchInspector({
         </div>
       </div>
       <div className="text-[10px] text-muted-foreground italic">
-        Inside catch, variables <code>error</code> and <code>errorNode</code> hold the
-        failure context.
+        Inside catch, variables <code>error</code> and <code>errorNode</code> hold the failure
+        context.
       </div>
     </>
   );
@@ -821,15 +824,15 @@ function CompletionPolicyEditor({
       )}
       {policy.kind === 'eventMatch' && (
         <div>
-          <Label className="text-xs">Predicate (JS — receives <code>event</code>)</Label>
+          <Label className="text-xs">
+            Predicate (JS — receives <code>event</code>)
+          </Label>
           <Textarea
             className="mt-1 font-mono text-xs"
             rows={3}
             placeholder='return event.data && JSON.parse(event.data).type === "complete";'
             value={policy.expression}
-            onChange={(e) =>
-              onChange({ kind: 'eventMatch', expression: e.target.value })
-            }
+            onChange={(e) => onChange({ kind: 'eventMatch', expression: e.target.value })}
           />
         </div>
       )}
@@ -926,9 +929,7 @@ function SseSubscribeInspector({
           onChange={(e) => {
             const v = parseInt(e.target.value);
             update((d) =>
-              Number.isFinite(v) && v > 0
-                ? { ...d, maxEvents: v }
-                : { ...d, maxEvents: undefined }
+              Number.isFinite(v) && v > 0 ? { ...d, maxEvents: v } : { ...d, maxEvents: undefined }
             );
           }}
         />
@@ -987,7 +988,9 @@ function WsExchangeInspector({
         />
       </div>
       <div>
-        <Label className="text-xs">Match predicate (JS — receives <code>event</code>)</Label>
+        <Label className="text-xs">
+          Match predicate (JS — receives <code>event</code>)
+        </Label>
         <Textarea
           className="mt-1 font-mono text-xs"
           rows={3}
@@ -1083,9 +1086,7 @@ function McpCallInspector({
           rows={4}
           placeholder='return { name: "myTool", arguments: { foo: "bar" } };'
           value={node.data.paramsExpression ?? ''}
-          onChange={(e) =>
-            update((d) => ({ ...d, paramsExpression: e.target.value || undefined }))
-          }
+          onChange={(e) => update((d) => ({ ...d, paramsExpression: e.target.value || undefined }))}
         />
       </div>
       <div>
@@ -1122,10 +1123,8 @@ function SubWorkflowInspector({
       data: mutate((n as SubWorkflowFlowNode).data),
     }));
 
-  const setMap = (
-    field: 'inputVarMap' | 'outputVarMap',
-    next: Record<string, string>
-  ) => update((d) => ({ ...d, [field]: next }));
+  const setMap = (field: 'inputVarMap' | 'outputVarMap', next: Record<string, string>) =>
+    update((d) => ({ ...d, [field]: next }));
 
   const renderMap = (
     field: 'inputVarMap' | 'outputVarMap',

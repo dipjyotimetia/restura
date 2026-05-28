@@ -1321,10 +1321,13 @@ class ScriptExecutor {
 
     // Put pm on the global BEFORE we eval any code that references it
     // (the pm.info default and PM_EXPECT_BOOTSTRAP both expect `pm` to exist).
-    // Dispose the local handle here — the QuickJS GC keeps the underlying
-    // object alive via the global.pm reference. Subsequent `pm.<anything> = …`
-    // assignments inside eval'd setup blocks mutate the same JS object.
+    // `rs` is the native Restura namespace; `pm` is bound as a live alias to
+    // the SAME object, so every later `pm.<anything> = …` / `rs.<anything>`
+    // sees identical state — no dual-assignment needed at the call sites.
+    // Dispose the local handle only after BOTH globals reference it — the
+    // QuickJS GC keeps the underlying object alive via those references.
     vm.setProp(vm.global, 'pm', pmObj);
+    vm.setProp(vm.global, 'rs', pmObj);
     pmObj.dispose();
 
     // pm.info — default empty; per-eval bindRequestResponse() overwrites with

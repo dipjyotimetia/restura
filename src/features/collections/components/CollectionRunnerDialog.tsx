@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
@@ -72,7 +78,10 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
   // The ordered, selectable run list. Rebuilt whenever the scope changes.
   const allRunnables = useMemo(() => {
     if (!collection) return [];
-    return flattenRunnables(collection.items, scope?.folderId);
+    return flattenRunnables(collection.items, scope?.folderId, {
+      preRequestScript: collection.preRequestScript,
+      testScript: collection.testScript,
+    });
   }, [collection, scope?.folderId]);
 
   const [order, setOrder] = useState<string[]>([]);
@@ -95,7 +104,8 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
 
   const scopeName = useMemo(() => {
     if (!collection) return '';
-    if (scope?.folderId) return findFolder(collection.items, scope.folderId)?.name ?? collection.name;
+    if (scope?.folderId)
+      return findFolder(collection.items, scope.folderId)?.name ?? collection.name;
     return collection.name;
   }, [collection, scope?.folderId]);
 
@@ -157,7 +167,12 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
   const isOpen = scope !== null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !running) onClose(); }}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !running) onClose();
+      }}
+    >
       <DialogContent className="max-w-4xl h-[82vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -178,7 +193,9 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
                 <SelectContent>
                   <SelectItem value="none">No environment</SelectItem>
                   {environments.map((env) => (
-                    <SelectItem key={env.id} value={env.id}>{env.name}</SelectItem>
+                    <SelectItem key={env.id} value={env.id}>
+                      {env.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -186,7 +203,10 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium">
-                Iterations {dataRows.length > 0 && <span className="text-muted-foreground">(data file overrides)</span>}
+                Iterations{' '}
+                {dataRows.length > 0 && (
+                  <span className="text-muted-foreground">(data file overrides)</span>
+                )}
               </label>
               <Input
                 type="number"
@@ -225,7 +245,11 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
                     variant="ghost"
                     size="icon-sm"
                     className="h-8 w-8"
-                    onClick={() => { setDataRows([]); setDataFileName(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                    onClick={() => {
+                      setDataRows([]);
+                      setDataFileName(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
                     disabled={running}
                     aria-label="Clear data file"
                   >
@@ -233,7 +257,9 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
                   </Button>
                 )}
               </div>
-              {dataFileName && <p className="text-[10px] text-muted-foreground truncate">{dataFileName}</p>}
+              {dataFileName && (
+                <p className="text-[10px] text-muted-foreground truncate">{dataFileName}</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -273,7 +299,8 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
             )}
             {!running && (
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Stop finishes the in-flight request, then halts. SSE / WebSocket / MCP requests are skipped.
+                Stop finishes the in-flight request, then halts. SSE / WebSocket / MCP requests are
+                skipped.
               </p>
             )}
           </div>
@@ -291,7 +318,9 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
                           ? 'Done'
                           : 'Starting…'}
                     </span>
-                    <span className="font-mono tabular-nums">{results.length} / {total}</span>
+                    <span className="font-mono tabular-nums">
+                      {results.length} / {total}
+                    </span>
                   </div>
                   <Progress value={(results.length / Math.max(total, 1)) * 100} />
                   {progress?.done && <RunSummary results={results} />}
@@ -299,7 +328,10 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
                 <ScrollArea className="flex-1 border rounded-md">
                   <div className="divide-y divide-border/40">
                     {results.map((r, i) => (
-                      <div key={`${r.itemId}-${r.iteration}-${i}`} className="flex items-center gap-2 px-3 py-2 text-xs">
+                      <div
+                        key={`${r.itemId}-${r.iteration}-${i}`}
+                        className="flex items-center gap-2 px-3 py-2 text-xs"
+                      >
                         <StatusIcon status={r.status} />
                         <ProtocolBadge protocol={r.protocol} />
                         <span className="flex-1 truncate">{r.itemName}</span>
@@ -309,10 +341,16 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
                           </span>
                         )}
                         {showIteration ? (
-                          <span className="text-[10px] text-muted-foreground">#{r.iteration + 1}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            #{r.iteration + 1}
+                          </span>
                         ) : null}
                         <span className="w-16 text-right font-mono text-[10px] text-muted-foreground tabular-nums">
-                          {r.durationMs != null ? `${r.durationMs}ms` : r.skippedReason ? 'skip' : '-'}
+                          {r.durationMs != null
+                            ? `${r.durationMs}ms`
+                            : r.skippedReason
+                              ? 'skip'
+                              : '-'}
                         </span>
                         <span className="w-10 text-right">
                           {r.httpStatus != null ? (
@@ -408,11 +446,18 @@ function RunList({
       <div className="divide-y divide-border/40">
         {runnables.map((r, idx) => {
           const isHttp = r.request.type === 'http';
-          const label = isHttp ? (r.request.method ?? 'GET') : PROTOCOL_LABELS[r.request.type] ?? r.request.type.toUpperCase();
-          const color = isHttp ? METHOD_COLORS[r.request.method ?? 'GET'] : PROTOCOL_COLORS[r.request.type];
+          const label = isHttp
+            ? (r.request.method ?? 'GET')
+            : (PROTOCOL_LABELS[r.request.type] ?? r.request.type.toUpperCase());
+          const color = isHttp
+            ? METHOD_COLORS[r.request.method ?? 'GET']
+            : PROTOCOL_COLORS[r.request.type];
           return (
             <div key={r.itemId} className="group flex items-center gap-2 px-3 py-1.5 text-xs">
-              <Checkbox checked={selected.has(r.itemId)} onCheckedChange={() => onToggle(r.itemId)} />
+              <Checkbox
+                checked={selected.has(r.itemId)}
+                onCheckedChange={() => onToggle(r.itemId)}
+              />
               <span
                 className={cn(
                   'shrink-0 rounded px-1 py-0.5 text-[9px] font-mono font-medium leading-none',

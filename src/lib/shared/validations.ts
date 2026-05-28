@@ -259,6 +259,8 @@ export const collectionSchema: z.ZodType<any> = z.lazy(() =>
     description: z.string().optional(),
     items: z.array(collectionItemSchema),
     auth: authConfigSchema.optional(),
+    preRequestScript: z.string().optional(),
+    testScript: z.string().optional(),
   })
 );
 
@@ -272,6 +274,8 @@ export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
       .union([httpRequestSchema, grpcRequestSchema, sseRequestSchema, mcpRequestSchema])
       .optional(),
     items: z.array(collectionItemSchema).optional(),
+    preRequestScript: z.string().optional(),
+    testScript: z.string().optional(),
   })
 );
 

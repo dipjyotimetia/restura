@@ -10,6 +10,7 @@ import type {
   KeyValue,
   RequestBody,
 } from '@/types';
+import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
 import type { ImportResult, ImportWarning } from './types';
 import { formatZodIssues } from '@/lib/shared/validations';
 
@@ -179,8 +180,9 @@ function requestToInternal(rq: any, parent: any, warnings: ImportWarning[]): Htt
     params: (rq.params ?? []).map(toKv),
     body: hoppBodyToInternal(rq.body, rq.name, warnings),
     auth: hoppAuthToInternal(rq.auth, rq.name, warnings),
-    ...(combinedPre ? { preRequestScript: combinedPre } : {}),
-    ...(combinedTest ? { testScript: combinedTest } : {}),
+    // Hoppscotch uses Postman's pm.* namespace; normalize to native rs.* on import.
+    ...(combinedPre ? { preRequestScript: migrateScriptPmToRs(combinedPre) } : {}),
+    ...(combinedTest ? { testScript: migrateScriptPmToRs(combinedTest) } : {}),
   };
 }
 

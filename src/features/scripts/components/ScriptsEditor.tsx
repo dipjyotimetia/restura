@@ -26,52 +26,52 @@ const PRE_REQUEST_TEMPLATE = `// Pre-request Script
 // This script runs before the request is sent
 
 // Set environment variables
-// pm.variables.set("timestamp", Date.now());
+// rs.variables.set("timestamp", Date.now());
 
 // Log to console
-// console.log("Request:", pm.request.url);
+// console.log("Request:", rs.request.url);
 
 // Example: Generate auth token
 // const token = generateToken();
-// pm.variables.set("authToken", token);
+// rs.variables.set("authToken", token);
 `;
 
 const TEST_SCRIPT_TEMPLATE = `// Test Script
 // This script runs after the response is received
 
 // Basic status check
-pm.test("Status code is 200", function() {
-  pm.expect(pm.response.status).to.equal(200);
+rs.test("Status code is 200", function() {
+  rs.expect(rs.response.status).to.equal(200);
 });
 
 // Check response time
-pm.test("Response time is acceptable", function() {
-  pm.expect(pm.response.time).to.be.below(1000);
+rs.test("Response time is acceptable", function() {
+  rs.expect(rs.response.time).to.be.below(1000);
 });
 
 // Validate response structure
-pm.test("Response has required fields", function() {
-  const json = pm.response.json();
-  pm.expect(json).to.have.property("data");
+rs.test("Response has required fields", function() {
+  const json = rs.response.json();
+  rs.expect(json).to.have.property("data");
 });
 
 // Store response data in variables
-// pm.variables.set("userId", pm.response.json().data.id);
+// rs.variables.set("userId", rs.response.json().data.id);
 `;
 
 const PRE_REQUEST_API: ReadonlyArray<{ code: string; desc: string }> = [
-  { code: 'pm.variables.get("key")', desc: 'Read a variable' },
-  { code: 'pm.variables.set("key", value)', desc: 'Write a variable' },
-  { code: 'pm.request.url', desc: 'Current request URL' },
-  { code: 'pm.request.headers', desc: 'Request headers map' },
+  { code: 'rs.variables.get("key")', desc: 'Read a variable' },
+  { code: 'rs.variables.set("key", value)', desc: 'Write a variable' },
+  { code: 'rs.request.url', desc: 'Current request URL' },
+  { code: 'rs.request.headers', desc: 'Request headers map' },
 ];
 
 const TEST_API: ReadonlyArray<{ code: string; desc: string }> = [
-  { code: 'pm.test("name", () => {...})', desc: 'Define a test case' },
-  { code: 'pm.expect(value).to.equal(x)', desc: 'Assertion' },
-  { code: 'pm.response.status', desc: 'HTTP status code' },
-  { code: 'pm.response.json()', desc: 'Parse JSON body' },
-  { code: 'pm.response.time', desc: 'Response time (ms)' },
+  { code: 'rs.test("name", () => {...})', desc: 'Define a test case' },
+  { code: 'rs.expect(value).to.equal(x)', desc: 'Assertion' },
+  { code: 'rs.response.status', desc: 'HTTP status code' },
+  { code: 'rs.response.json()', desc: 'Parse JSON body' },
+  { code: 'rs.response.time', desc: 'Response time (ms)' },
 ];
 
 export default function ScriptsEditor({
