@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
 import { executeWorkflow } from '../lib/workflowExecutor';
 import { executeDag } from '../lib/dagExecutor';
@@ -38,17 +39,21 @@ export function useWorkflowExecution(
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
-  const getActiveEnvironmentVars = useEnvironmentStore((s) => {
-    const activeId = s.activeEnvironmentId;
-    const env = s.environments.find((e) => e.id === activeId);
-    if (!env) return {};
-    return env.variables
-      .filter((v) => v.enabled)
-      .reduce(
-        (acc, v) => ({ ...acc, [v.key]: v.value }),
-        {} as Record<string, string>
-      );
-  });
+  // `useShallow` memoises the reduced object so successive selector calls
+  // return the same reference when the underlying variables haven't changed.
+  // Without it, the fresh `{}` allocation on every call destabilises
+  // `useSyncExternalStore`'s snapshot and triggers an infinite re-render
+  // ("Maximum update depth exceeded").
+  const getActiveEnvironmentVars = useEnvironmentStore(
+    useShallow((s) => {
+      const activeId = s.activeEnvironmentId;
+      const env = s.environments.find((e) => e.id === activeId);
+      if (!env) return {} as Record<string, string>;
+      return env.variables
+        .filter((v) => v.enabled)
+        .reduce<Record<string, string>>((acc, v) => ({ ...acc, [v.key]: v.value }), {});
+    })
+  );
   const globalSettings = useSettingsStore((s) => s.settings);
   const collections = useCollectionStore((s) => s.collections);
   const saveExecution = useWorkflowStore((s) => s.saveExecution);
@@ -120,8 +125,7 @@ export function useWorkflowExecution(
               >[2] = {};
               if (step.error) meta.error = step.error;
               if (step.duration !== undefined) meta.duration = step.duration;
-              if (step.extractedVariables)
-                meta.extractedVariables = step.extractedVariables;
+              if (step.extractedVariables) meta.extractedVariables = step.extractedVariables;
               useFlowRunStore.getState().markNodeComplete(step.nodeId, status, meta);
               if (step.extractedVariables) {
                 useFlowRunStore.getState().mergeVariables(step.extractedVariables);
@@ -132,9 +136,7 @@ export function useWorkflowExecution(
         const onLog = (message: string, level: 'info' | 'warn' | 'error') => {
           setLogs((prev) => [...prev, { timestamp: Date.now(), message, level }]);
           if (isGraphRun) {
-            useFlowRunStore
-              .getState()
-              .appendLog({ timestamp: Date.now(), level, message });
+            useFlowRunStore.getState().appendLog({ timestamp: Date.now(), level, message });
           }
         };
 
@@ -165,9 +167,9 @@ export function useWorkflowExecution(
         saveExecution(result);
         if (isGraphRun) {
           useFlowRunStore.getState().setVariables(result.finalVariables);
-          useFlowRunStore.getState().finishRun(
-            result.status === 'running' ? 'success' : result.status
-          );
+          useFlowRunStore
+            .getState()
+            .finishRun(result.status === 'running' ? 'success' : result.status);
         }
         onComplete?.(result);
 
@@ -210,4 +212,3 @@ export function useWorkflowExecution(
     stop,
   };
 }
-
