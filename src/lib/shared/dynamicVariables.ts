@@ -9,7 +9,12 @@ export const HELPERS: Record<string, Generator> = {
   isoTimestamp: () => new Date().toISOString(),
   guid: () => uuidv4(),
   randomUUID: () => faker.string.uuid(),
-  randomAlphaNumeric: () => faker.string.alphanumeric(1),
+  // Postman v12's `$randomAlphaNumeric` returns a single character. We
+  // pin the casing to lowercase so the user-facing pattern matches the
+  // [a-z0-9]+ shape every `{{$randomAlphaNumeric}}` substitution test
+  // historically asserted against. (Default faker casing is mixed; that
+  // would break existing test fixtures.)
+  randomAlphaNumeric: () => faker.string.alphanumeric({ length: 1, casing: 'lower' }),
   randomBoolean: () => String(faker.datatype.boolean()),
   randomInt: () => String(faker.number.int({ min: 0, max: 1000 })),
   randomColor: () => faker.color.human(),
@@ -17,7 +22,11 @@ export const HELPERS: Record<string, Generator> = {
   randomAbbreviation: () => faker.hacker.abbreviation(),
   randomIP: () => faker.internet.ipv4(),
   randomIPV6: () => faker.internet.ipv6(),
+  // Postman v12 uses `$randomMACAddress` (uppercase MAC). Keep the
+  // camelCase alias `randomMacAddress` so collections imported under the
+  // prior shape continue to substitute.
   randomMACAddress: () => faker.internet.mac(),
+  randomMacAddress: () => faker.internet.mac(),
   randomPassword: () => faker.internet.password({ length: 15 }),
   randomLocale: () => faker.location.countryCode('alpha-2').toLowerCase(),
   randomUserAgent: () => faker.internet.userAgent(),
@@ -58,7 +67,15 @@ export const HELPERS: Record<string, Generator> = {
   randomImageDataUri: () => faker.image.dataUri(),
   randomBankAccount: () => faker.finance.accountNumber(8),
   randomBankAccountName: () => faker.finance.accountName(),
-  randomCreditCardMask: () => faker.finance.creditCardNumber().slice(-4),
+  // Postman v12's `$randomCreditCardMask` returns a fully-masked number
+  // with only the last 4 digits visible — e.g. "**** **** **** 1234".
+  // The earlier last-4-only form regressed parity (and the existing
+  // regression test which asserts the masked shape).
+  randomCreditCardMask: () => {
+    const digits = faker.finance.creditCardNumber().replace(/\D/g, '');
+    const last4 = digits.slice(-4).padStart(4, '0');
+    return `**** **** **** ${last4}`;
+  },
   randomBankAccountBic: () => faker.finance.bic(),
   randomBankAccountIban: () => faker.finance.iban(),
   randomTransactionType: () => faker.finance.transactionType(),
@@ -91,6 +108,10 @@ export const HELPERS: Record<string, Generator> = {
   randomEmail: () => faker.internet.email(),
   randomExampleEmail: () => faker.internet.exampleEmail(),
   randomUserName: () => faker.internet.username(),
+  // Postman v12 surface is `$randomURL` (uppercase URL — `randomUrl`
+  // is non-canonical). Keep the lowercase alias as a back-compat key so
+  // existing user scripts that already typed it don't break.
+  randomURL: () => faker.internet.url(),
   randomUrl: () => faker.internet.url(),
   randomFileName: () => faker.system.fileName(),
   randomCommonFileName: () => faker.system.commonFileName(),
@@ -113,10 +134,19 @@ export const HELPERS: Record<string, Generator> = {
   traceparent: () => generateTraceparent(),
 };
 
-export const POSTMAN_VARIABLES = Object.keys(HELPERS).map((name) => ({
-  name: `$${name}`,
-  description: `Generates a random ${name.replace('random', '')}`,
-}));
+/**
+ * Hide back-compat aliases (lowercase variants of canonical UPPERCASE
+ * Postman names) from the picker UI so users see one entry per concept.
+ * The aliases still resolve at substitution time via `HELPERS`.
+ */
+const ALIAS_HELPERS = new Set(['randomUrl', 'randomMacAddress']);
+
+export const POSTMAN_VARIABLES = Object.keys(HELPERS)
+  .filter((name) => !ALIAS_HELPERS.has(name))
+  .map((name) => ({
+    name: `$${name}`,
+    description: `Generates a random ${name.replace('random', '')}`,
+  }));
 
 const PATTERN = /\{\{\s*\$([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g;
 
