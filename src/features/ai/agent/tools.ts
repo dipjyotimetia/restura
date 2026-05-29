@@ -22,7 +22,10 @@ export interface AgentTool {
   run(rawInput: string): ToolResult;
 }
 
-function parseInput<T>(schema: z.ZodType<T>, raw: string): { ok: true; value: T } | { ok: false; error: string } {
+function parseInput<T>(
+  schema: z.ZodType<T>,
+  raw: string
+): { ok: true; value: T } | { ok: false; error: string } {
   let json: unknown;
   try {
     json = JSON.parse(raw);
@@ -100,7 +103,7 @@ const setTestScript: AgentTool = {
   def: {
     name: 'set_test_script',
     description:
-      "Set the test script (pm.test assertions) on the active HTTP request. Use Postman-style pm.* assertions.",
+      "Set the test script (rs.test assertions) on the active HTTP request. Use Restura's native rs.* assertions (Postman-compatible; pm.* also works as an alias).",
     inputSchema: {
       type: 'object',
       required: ['script'],

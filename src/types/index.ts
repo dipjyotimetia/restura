@@ -588,6 +588,15 @@ export interface CollectionItem {
    * descendant requests.
    */
   contractSpec?: ContractSpecSource;
+  /**
+   * Folder-level pre-request / test scripts (only meaningful when
+   * type === 'folder'). In a collection run they execute for every descendant
+   * request, after the collection-level script and before the request's own,
+   * mirroring Postman's parent-to-child execution order. Stored in the native
+   * `rs.*` namespace (Postman `pm.*` is migrated on import).
+   */
+  preRequestScript?: string;
+  testScript?: string;
 }
 
 /**
@@ -622,6 +631,14 @@ export interface Collection {
    * Folders can override via their own `contractSpec` on `CollectionItem`.
    */
   contractSpec?: ContractSpecSource;
+  /**
+   * Collection-level pre-request / test scripts. In a collection run they
+   * execute for every request: first in the parent-to-child chain
+   * (collection -> folder -> request). Stored in the native `rs.*` namespace
+   * (Postman `pm.*` is migrated on import).
+   */
+  preRequestScript?: string;
+  testScript?: string;
 }
 
 // History Item
@@ -880,6 +897,14 @@ export interface PostmanCollection {
   item: PostmanItem[];
   auth?: PostmanAuth;
   variable?: PostmanVariable[];
+  /** Collection-level pre-request / test event scripts. */
+  event?: Array<{
+    listen: string;
+    script: {
+      type: string;
+      exec: string[];
+    };
+  }>;
 }
 
 // Insomnia Collection Format (simplified)

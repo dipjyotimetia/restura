@@ -108,7 +108,8 @@ describe('importHoppscotchCollection', () => {
     // The "Get user" request is inside the Users folder (which has empty scripts),
     // so only the request's own scripts come through — folder is the immediate parent.
     expect(httpReq.preRequestScript).toBe("console.log('req pre');");
-    expect(httpReq.testScript).toBe("pm.test('status', () => pm.response.to.have.status(200));");
+    // Hoppscotch uses pm.*; Restura normalizes to its native rs.* namespace on import.
+    expect(httpReq.testScript).toBe("rs.test('status', () => rs.response.to.have.status(200));");
 
     // Root-level request — its parent IS the root collection, so collection-level
     // scripts are inherited as a header comment.
@@ -117,7 +118,7 @@ describe('importHoppscotchCollection', () => {
     expect(rootHttp.preRequestScript).toContain('inherited from collection');
     expect(rootHttp.preRequestScript).toContain("console.log('collection pre');");
     expect(rootHttp.testScript).toContain('inherited from collection');
-    expect(rootHttp.testScript).toContain("pm.test('collection test'");
+    expect(rootHttp.testScript).toContain("rs.test('collection test'");
 
     expect(result.warnings).toEqual([]);
   });
@@ -155,12 +156,10 @@ describe('importHoppscotchCollection', () => {
 
   it('rejects garbage input with a readable error', () => {
     expect(() => importHoppscotchCollection({ totally: 'wrong' })).toThrow(
-      /Invalid Hoppscotch collection/,
+      /Invalid Hoppscotch collection/
     );
     expect(() => importHoppscotchCollection(null)).toThrow(/Invalid Hoppscotch collection/);
-    expect(() => importHoppscotchCollection({ name: 42 })).toThrow(
-      /Invalid Hoppscotch collection/,
-    );
+    expect(() => importHoppscotchCollection({ name: 42 })).toThrow(/Invalid Hoppscotch collection/);
   });
 
   it('maps OAuth2 auth correctly', () => {
@@ -295,7 +294,7 @@ describe('isHoppscotchCollection / isHoppscotchEnvironment', () => {
         name: 'Test',
         folders: [],
         requests: [],
-      }),
+      })
     ).toBe(true);
   });
 
@@ -311,7 +310,7 @@ describe('isHoppscotchCollection / isHoppscotchEnvironment', () => {
         v: 2,
         name: 'env',
         variables: [],
-      }),
+      })
     ).toBe(true);
   });
 

@@ -1,4 +1,13 @@
-import type { AuthConfig, Collection, CollectionItem, FormDataItem, HttpRequest, KeyValue, PostmanCollection } from '@/types';
+import type {
+  AuthConfig,
+  Collection,
+  CollectionItem,
+  FormDataItem,
+  HttpRequest,
+  KeyValue,
+  PostmanCollection,
+} from '@/types';
+import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   FormParam,
@@ -12,7 +21,9 @@ import type {
   Variable,
 } from 'postman-collection';
 
-function getDescriptionContent(desc: string | { content?: string } | undefined): string | undefined {
+function getDescriptionContent(
+  desc: string | { content?: string } | undefined
+): string | undefined {
   if (!desc) return undefined;
   if (typeof desc === 'string') return desc;
   return desc.content;
@@ -43,6 +54,9 @@ export async function importPostmanCollection(postmanData: PostmanCollection): P
     items: [],
     auth: sdkCollection.auth ? convertPostmanSDKAuth(sdkCollection.auth) : undefined,
     variables: variables.length > 0 ? variables : undefined,
+    // Collection-level pre-request / test events (run for every request).
+    preRequestScript: extractScript(sdkCollection.events, 'prerequest'),
+    testScript: extractScript(sdkCollection.events, 'test'),
   };
 
   sdkCollection.items.each((item) => {
@@ -55,7 +69,11 @@ export async function importPostmanCollection(postmanData: PostmanCollection): P
 
 type ItemGroupCtor = { isItemGroup(obj: unknown): boolean };
 
-function convertPostmanSDKItem(item: Item | ItemGroup<Item>, parentAuth: AuthConfig | undefined, ItemGroupCtor: ItemGroupCtor): CollectionItem | null {
+function convertPostmanSDKItem(
+  item: Item | ItemGroup<Item>,
+  parentAuth: AuthConfig | undefined,
+  ItemGroupCtor: ItemGroupCtor
+): CollectionItem | null {
   if (ItemGroupCtor.isItemGroup(item)) {
     const group = item as ItemGroup<Item>;
     const items: CollectionItem[] = [];
@@ -63,7 +81,15 @@ function convertPostmanSDKItem(item: Item | ItemGroup<Item>, parentAuth: AuthCon
       const converted = convertPostmanSDKItem(subItem, parentAuth, ItemGroupCtor);
       if (converted) items.push(converted);
     });
-    return { id: uuidv4(), name: group.name || 'Unnamed Folder', type: 'folder', items };
+    return {
+      id: uuidv4(),
+      name: group.name || 'Unnamed Folder',
+      type: 'folder',
+      items,
+      // Folder-level pre-request / test events (run for every descendant request).
+      preRequestScript: extractScript(group.events, 'prerequest'),
+      testScript: extractScript(group.events, 'test'),
+    };
   }
 
   const requestItem = item as Item;
@@ -79,12 +105,17 @@ function convertPostmanSDKItem(item: Item | ItemGroup<Item>, parentAuth: AuthCon
     headers: convertPostmanSDKHeaders(request.headers),
     params: convertPostmanSDKParams(request.url?.query),
     body: convertPostmanSDKBody(request.body),
-    auth: request.auth ? convertPostmanSDKAuth(request.auth) : (parentAuth || { type: 'none' }),
+    auth: request.auth ? convertPostmanSDKAuth(request.auth) : parentAuth || { type: 'none' },
     preRequestScript: extractScript(requestItem.events, 'prerequest'),
     testScript: extractScript(requestItem.events, 'test'),
   };
 
-  return { id: uuidv4(), name: requestItem.name || 'Unnamed Request', type: 'request', request: httpRequest };
+  return {
+    id: uuidv4(),
+    name: requestItem.name || 'Unnamed Request',
+    type: 'request',
+    request: httpRequest,
+  };
 }
 
 function extractScript(events: Item['events'], listen: string): string | undefined {
@@ -96,7 +127,8 @@ function extractScript(events: Item['events'], listen: string): string | undefin
       script = Array.isArray(exec) ? exec.join('\n') : typeof exec === 'string' ? exec : undefined;
     }
   });
-  return script;
+  // Auto-migrate Postman's `pm.*` namespace to Restura's native `rs.*` on import.
+  return script === undefined ? undefined : migrateScriptPmToRs(script);
 }
 
 function convertPostmanSDKHeaders(headers: Request['headers']): KeyValue[] {
@@ -155,7 +187,7 @@ function convertPostmanSDKBody(body: RequestBody | undefined): HttpRequest['body
         formData.push({
           id: uuidv4(),
           key: param.key || '',
-          value: isFile ? (paramAny.src || '') : (param.value || ''),
+          value: isFile ? paramAny.src || '' : param.value || '',
           enabled: !param.disabled,
           description: getDescriptionContent(param.description),
           type: isFile ? 'file' : 'text',
@@ -222,13 +254,20 @@ function convertPostmanSDKAuth(auth: RequestAuth): AuthConfig {
 
   switch (type) {
     case 'basic':
-      return { type: 'basic', basic: { username: getParam('username'), password: getParam('password') } };
+      return {
+        type: 'basic',
+        basic: { username: getParam('username'), password: getParam('password') },
+      };
     case 'bearer':
       return { type: 'bearer', bearer: { token: getParam('token') } };
     case 'apikey':
       return {
         type: 'api-key',
-        apiKey: { key: getParam('key'), value: getParam('value'), in: getParam('in') === 'query' ? 'query' : 'header' },
+        apiKey: {
+          key: getParam('key'),
+          value: getParam('value'),
+          in: getParam('in') === 'query' ? 'query' : 'header',
+        },
       };
     case 'oauth2': {
       // Postman exposes oauth2 with many flow fields. Pull every field we model
@@ -253,7 +292,10 @@ function convertPostmanSDKAuth(auth: RequestAuth): AuthConfig {
       return { type: 'oauth2', oauth2 };
     }
     case 'digest':
-      return { type: 'digest', digest: { username: getParam('username'), password: getParam('password') } };
+      return {
+        type: 'digest',
+        digest: { username: getParam('username'), password: getParam('password') },
+      };
     case 'awsv4':
       return {
         type: 'aws-signature',
@@ -276,7 +318,9 @@ function convertPostmanSDKAuth(auth: RequestAuth): AuthConfig {
  * (PKCE params live in the redirect/scope flow regardless). Implicit isn't
  * modeled — return undefined and let the runtime fall back to the default.
  */
-function mapPostmanGrantType(p: string | undefined): NonNullable<AuthConfig['oauth2']>['grantType'] {
+function mapPostmanGrantType(
+  p: string | undefined
+): NonNullable<AuthConfig['oauth2']>['grantType'] {
   switch (p) {
     case 'authorization_code':
     case 'authorization_code_with_pkce':

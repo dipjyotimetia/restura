@@ -282,7 +282,8 @@ describe('Bruno exporter — round trip', () => {
     expect(req?.type).toBe('http');
     if (req?.type !== 'http') return;
     expect(req.preRequestScript).toContain("console.log('before')");
-    expect(req.testScript).toContain("pm.test('ok'");
+    // Bruno re-import normalizes the Postman pm.* namespace to native rs.*.
+    expect(req.testScript).toContain("rs.test('ok'");
   });
 
   it('preserves environments', async () => {

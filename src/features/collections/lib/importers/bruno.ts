@@ -10,8 +10,8 @@ import type {
   KeyValue,
   RequestBody,
 } from '@/types';
+import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
 import type { ImportResult, ImportWarning } from './types';
-
 
 /**
  * Source for a Bruno legacy `.bru` import.
@@ -253,9 +253,7 @@ function bruToHttpRequest(
     }
   }
   const headerValues = Array.isArray(bru.headers)
-    ? bru.headers
-        .filter(isRecord)
-        .map((h) => (typeof h.value === 'string' ? h.value : ''))
+    ? bru.headers.filter(isRecord).map((h) => (typeof h.value === 'string' ? h.value : ''))
     : [];
   const haystacks = [url, ...headerValues, ...bodyStrings];
   const seenLabels = new Set<string>();
@@ -311,9 +309,7 @@ function bruToHttpRequest(
     (s): s is string => typeof s === 'string' && s.length > 0
   );
   const testScript =
-    testScriptParts.length > 0
-      ? testScriptParts.join('\n\n// --- tests block ---\n\n')
-      : undefined;
+    testScriptParts.length > 0 ? testScriptParts.join('\n\n// --- tests block ---\n\n') : undefined;
 
   return {
     id: uuid(),
@@ -325,8 +321,9 @@ function bruToHttpRequest(
     params,
     body: bruBodyToInternal(bru.body),
     auth: bruAuthToInternal(authBlocks, declaredAuthType, name, warnings),
-    ...(preReqScript ? { preRequestScript: preReqScript } : {}),
-    ...(testScript ? { testScript } : {}),
+    // Bruno uses Postman's pm.* namespace; normalize to native rs.* on import.
+    ...(preReqScript ? { preRequestScript: migrateScriptPmToRs(preReqScript) } : {}),
+    ...(testScript ? { testScript: migrateScriptPmToRs(testScript) } : {}),
   };
 }
 
@@ -348,17 +345,15 @@ function bruBodyToInternal(body: unknown): RequestBody {
     return { type: 'graphql', raw: envelope };
   }
   if (Array.isArray(body.formUrlEncoded)) {
-    const formData: FormDataItem[] = body.formUrlEncoded
-      .filter(isRecord)
-      .map(
-        (p): FormDataItem => ({
-          id: uuid(),
-          key: typeof p.name === 'string' ? p.name : '',
-          value: typeof p.value === 'string' ? p.value : '',
-          enabled: p.enabled !== false,
-          type: 'text',
-        })
-      );
+    const formData: FormDataItem[] = body.formUrlEncoded.filter(isRecord).map(
+      (p): FormDataItem => ({
+        id: uuid(),
+        key: typeof p.name === 'string' ? p.name : '',
+        value: typeof p.value === 'string' ? p.value : '',
+        enabled: p.enabled !== false,
+        type: 'text',
+      })
+    );
     return { type: 'x-www-form-urlencoded', formData };
   }
   if (Array.isArray(body.multipartForm)) {
@@ -366,7 +361,8 @@ function bruBodyToInternal(body: unknown): RequestBody {
       const isFile = p.type === 'file';
       let value = '';
       if (typeof p.value === 'string') value = p.value;
-      else if (Array.isArray(p.value)) value = p.value.filter((v) => typeof v === 'string').join(',');
+      else if (Array.isArray(p.value))
+        value = p.value.filter((v) => typeof v === 'string').join(',');
       return {
         id: uuid(),
         key: typeof p.name === 'string' ? p.name : '',
@@ -390,7 +386,9 @@ function bruAuthToInternal(
   if (!declaredType || declaredType === 'none' || declaredType === 'inherit') {
     return { type: 'none' };
   }
-  const block = isRecord(authBlocks?.[declaredType]) ? (authBlocks?.[declaredType] as Record<string, unknown>) : {};
+  const block = isRecord(authBlocks?.[declaredType])
+    ? (authBlocks?.[declaredType] as Record<string, unknown>)
+    : {};
   const str = (k: string): string => (typeof block[k] === 'string' ? (block[k] as string) : '');
 
   switch (declaredType) {
@@ -490,7 +488,8 @@ function bruEnvToEnvironment(name: string, parsed: Record<string, unknown>): Env
       variables.push({
         id: uuid(),
         key: typeof v.name === 'string' ? v.name : '',
-        value: typeof v.value === 'string' ? v.value : v.value == null ? '' : JSON.stringify(v.value),
+        value:
+          typeof v.value === 'string' ? v.value : v.value == null ? '' : JSON.stringify(v.value),
         enabled: v.enabled !== false,
         ...(v.secret === true ? { secret: true } : {}),
       });

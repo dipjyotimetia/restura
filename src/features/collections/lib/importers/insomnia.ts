@@ -10,6 +10,7 @@ import type {
   KeyValue,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
 import type { ImportResult } from './types';
 
 /**
@@ -129,17 +130,20 @@ function convertRequest(req: InsomniaResource): HttpRequest {
 
   // Insomnia 8+ scripts. Only attach if non-empty — empty strings would
   // otherwise round-trip into the editor as "empty file".
+  // Insomnia uses Postman's pm.* namespace; normalize to native rs.* on import.
   if (req.preRequestScript && req.preRequestScript.trim() !== '') {
-    httpRequest.preRequestScript = req.preRequestScript;
+    httpRequest.preRequestScript = migrateScriptPmToRs(req.preRequestScript);
   }
   if (req.afterResponseScript && req.afterResponseScript.trim() !== '') {
-    httpRequest.testScript = req.afterResponseScript;
+    httpRequest.testScript = migrateScriptPmToRs(req.afterResponseScript);
   }
 
   return httpRequest;
 }
 
-function convertInsomniaHeaders(headers: Array<{ name: string; value: string; disabled?: boolean }>): KeyValue[] {
+function convertInsomniaHeaders(
+  headers: Array<{ name: string; value: string; disabled?: boolean }>
+): KeyValue[] {
   return headers.map((header) => ({
     id: uuidv4(),
     key: header.name,
@@ -148,7 +152,9 @@ function convertInsomniaHeaders(headers: Array<{ name: string; value: string; di
   }));
 }
 
-function convertInsomniaParams(params: Array<{ name: string; value: string; disabled?: boolean }>): KeyValue[] {
+function convertInsomniaParams(
+  params: Array<{ name: string; value: string; disabled?: boolean }>
+): KeyValue[] {
   return params.map((param) => ({
     id: uuidv4(),
     key: param.name,
@@ -158,7 +164,13 @@ function convertInsomniaParams(params: Array<{ name: string; value: string; disa
 }
 
 function convertInsomniaBody(
-  body: { mimeType?: string; text?: string; params?: Array<{ name: string; value: string; disabled?: boolean }> } | undefined
+  body:
+    | {
+        mimeType?: string;
+        text?: string;
+        params?: Array<{ name: string; value: string; disabled?: boolean }>;
+      }
+    | undefined
 ): HttpRequest['body'] {
   if (!body) return { type: 'none' };
 

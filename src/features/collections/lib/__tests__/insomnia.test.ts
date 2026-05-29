@@ -29,7 +29,7 @@ describe('importInsomniaCollection', () => {
           url: 'https://example.com',
           parentId: 'wrk_1',
         },
-      ]),
+      ])
     );
 
     expect(result.collection.name).toBe('My Workspace');
@@ -52,7 +52,7 @@ describe('importInsomniaCollection', () => {
           preRequestScript: 'pm.environment.set("nonce", Date.now())',
           afterResponseScript: 'pm.test("ok", () => pm.response.to.have.status(200))',
         },
-      ]),
+      ])
     );
 
     const item = result.collection.items[0]!;
@@ -60,8 +60,9 @@ describe('importInsomniaCollection', () => {
     const req = item.request!;
     expect(req.type).toBe('http');
     if (req.type !== 'http') throw new Error('expected http');
-    expect(req.preRequestScript).toBe('pm.environment.set("nonce", Date.now())');
-    expect(req.testScript).toBe('pm.test("ok", () => pm.response.to.have.status(200))');
+    // Insomnia uses pm.*; Restura normalizes to its native rs.* namespace on import.
+    expect(req.preRequestScript).toBe('rs.environment.set("nonce", Date.now())');
+    expect(req.testScript).toBe('rs.test("ok", () => rs.response.to.have.status(200))');
   });
 
   it('omits script fields when the source string is empty or whitespace-only', () => {
@@ -78,7 +79,7 @@ describe('importInsomniaCollection', () => {
           preRequestScript: '',
           afterResponseScript: '   \n  ',
         },
-      ]),
+      ])
     );
 
     const req = result.collection.items[0]!.request!;
@@ -112,7 +113,7 @@ describe('importInsomniaCollection', () => {
           parentId: 'env_base',
           data: { baseUrl: 'https://prod.example.com' },
         },
-      ]),
+      ])
     );
 
     // Base env -> collection.variables (back-compat)
@@ -141,7 +142,7 @@ describe('importInsomniaCollection', () => {
           parentId: 'wrk_1',
           data: { foo: 'bar' },
         },
-      ]),
+      ])
     );
     expect(result.collection.variables?.[0]?.key).toBe('foo');
     expect(result.environments).toBeUndefined();
@@ -170,7 +171,7 @@ describe('importInsomniaCollection', () => {
             accessToken: 'cached-token',
           },
         },
-      ]),
+      ])
     );
 
     const req = result.collection.items[0]!.request!;
@@ -207,7 +208,7 @@ describe('importInsomniaCollection', () => {
             password: 'p4ssw0rd',
           },
         },
-      ]),
+      ])
     );
 
     const req = result.collection.items[0]!.request!;
@@ -258,7 +259,7 @@ describe('importInsomniaCollection', () => {
           parentId: 'wrk_1',
           authentication: { type: 'digest', username: 'u', password: 'p' },
         },
-      ]),
+      ])
     );
 
     const auths = result.collection.items.map((i) => i.request!.auth);
