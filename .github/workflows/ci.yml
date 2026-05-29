@@ -17,6 +17,11 @@ jobs:
   validate:
     name: Type-check, lint, test, build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Needed by the test-result publisher to post the PR comment + check run.
+      checks: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v6
 
@@ -72,9 +77,26 @@ jobs:
         # gate. Coverage tracking is a visibility feature here, not a CI gate
         # — devs who run `npm run test:coverage` locally still get strict
         # threshold enforcement.
+        id: tests
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp
-        run: npm run test:ci
+        # Emit JUnit XML (unit + integration — vitest's `include` already covers
+        # tests/contract + tests/security) alongside the console reporter so the
+        # next step can summarize results on the PR.
+        run: npm run test:ci -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+
+      - name: Publish test results to PR
+        # Posts/updates a comment with the unit + integration test summary.
+        # `steps.tests.outcome` is success|failure only when the step actually
+        # ran, so the JUnit file exists; comment on both pass and fail. PR-only
+        # (skipped on push); on forked PRs the read-only token makes the action
+        # warn and skip rather than fail.
+        if: ${{ github.event_name == 'pull_request' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          check_name: Unit & integration tests
+          files: test-results/junit.xml
+          comment_mode: always
 
       - name: Upload coverage report
         if: always()
