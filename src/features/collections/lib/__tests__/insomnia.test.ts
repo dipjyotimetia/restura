@@ -352,7 +352,9 @@ describe('importInsomniaCollection — v5', () => {
 
     expect(folderA?.type).toBe('folder');
     expect(folderA?.items).toHaveLength(2);
-    expect(folderA?.items?.[0]?.request?.method).toBe('POST');
+    const nested = folderA?.items?.[0]?.request;
+    if (nested?.type !== 'http') throw new Error('expected http request');
+    expect(nested.method).toBe('POST');
 
     const folderB = folderA?.items?.[1];
     expect(folderB?.type).toBe('folder');
@@ -397,16 +399,17 @@ describe('importInsomniaCollection — v5', () => {
     );
 
     const req = result.collection.items[0]?.request;
-    expect(req?.method).toBe('POST');
-    expect(req?.headers[0]).toMatchObject({ key: 'Content-Type', value: 'application/json' });
-    expect(req?.params[0]).toMatchObject({ key: 'q', value: 'search' });
-    expect(req?.body.type).toBe('json');
-    expect(req?.body.raw).toBe('{"a":1}');
-    expect(req?.auth.type).toBe('bearer');
-    expect(req?.auth.bearer?.token).toBe('tok-123');
+    if (req?.type !== 'http') throw new Error('expected http request');
+    expect(req.method).toBe('POST');
+    expect(req.headers[0]).toMatchObject({ key: 'Content-Type', value: 'application/json' });
+    expect(req.params[0]).toMatchObject({ key: 'q', value: 'search' });
+    expect(req.body.type).toBe('json');
+    expect(req.body.raw).toBe('{"a":1}');
+    expect(req.auth.type).toBe('bearer');
+    expect(req.auth.bearer?.token).toBe('tok-123');
     // pm.* migrated to rs.*
-    expect(req?.preRequestScript).toContain('rs.');
-    expect(req?.testScript).toContain('rs.');
+    expect(req.preRequestScript).toContain('rs.');
+    expect(req.testScript).toContain('rs.');
   });
 
   it('warns on unsupported v5 auth', () => {
