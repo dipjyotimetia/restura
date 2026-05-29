@@ -1,5 +1,5 @@
 import yaml from 'js-yaml';
-import { openCollectionSchema, type OpenCollection } from './schemas';
+import { assertBoundedDocument, openCollectionSchema, type OpenCollection } from './schemas';
 
 export function parseOpenCollectionYAML(raw: string): OpenCollection {
   let doc: unknown;
@@ -8,6 +8,8 @@ export function parseOpenCollectionYAML(raw: string): OpenCollection {
   } catch (err) {
     throw new Error(`Invalid YAML: ${(err as Error).message}`);
   }
+  // Guard depth before the recursive schema validates the tree (see schemas.ts).
+  assertBoundedDocument(doc);
   const result = openCollectionSchema.safeParse(doc);
   if (!result.success) {
     throw new Error(`Invalid OpenCollection: ${JSON.stringify(result.error.issues, null, 2)}`);

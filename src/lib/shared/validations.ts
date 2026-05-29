@@ -271,7 +271,14 @@ export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
     name: z.string(),
     type: z.enum(['folder', 'request']),
     request: z
-      .union([httpRequestSchema, grpcRequestSchema, sseRequestSchema, mcpRequestSchema])
+      // Discriminated on `type` so a malformed request reports the real
+      // mismatch (and validates in one pass) instead of trying all four arms.
+      .discriminatedUnion('type', [
+        httpRequestSchema,
+        grpcRequestSchema,
+        sseRequestSchema,
+        mcpRequestSchema,
+      ])
       .optional(),
     items: z.array(collectionItemSchema).optional(),
     preRequestScript: z.string().optional(),

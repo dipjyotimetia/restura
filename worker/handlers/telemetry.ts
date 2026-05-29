@@ -22,7 +22,10 @@ const TelemetryErrorSchema = z.object({
 });
 
 export async function telemetryError(c: Context<{ Bindings: Env }>): Promise<Response> {
-  const parsed = await parseJsonBody(c.req.raw, TelemetryErrorSchema);
+  // No-auth endpoint — cap the body well above the schema's own field limits
+  // (~14 KB total) so an attacker can't stream a huge payload into memory
+  // before validation rejects it.
+  const parsed = await parseJsonBody(c.req.raw, TelemetryErrorSchema, { maxBytes: 64 * 1024 });
   if (!parsed.ok) return c.json({ error: parsed.error }, parsed.status);
   const requestId = c.var.requestId;
   // Single-line JSON so `wrangler tail` and downstream log shippers can parse.

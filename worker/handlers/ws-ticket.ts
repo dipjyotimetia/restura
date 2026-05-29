@@ -44,12 +44,19 @@ function gcTickets(now: number): void {
 
 const TicketRequestSchema = z.object({
   target: z.string().min(1).max(2048),
-  headers: z.record(z.string(), z.string().max(8192)).optional(),
+  // Bound key length and total count — z.record has no native count cap, so
+  // refine guards against a payload with a huge number of header keys.
+  headers: z
+    .record(z.string().max(256), z.string().max(8192))
+    .refine((h) => Object.keys(h).length <= 64, { message: 'Too many headers (max 64)' })
+    .optional(),
   protocols: z.array(z.string().max(64)).max(8).optional(),
 });
 
 export async function wsTicket(c: Context<{ Bindings: Env }>): Promise<Response> {
-  const parsed = await parseJsonBody(c.req.raw, TicketRequestSchema);
+  // Small request shape; cap the body so a giant payload can't be buffered
+  // before validation. 256 KB leaves headroom for max headers/protocols.
+  const parsed = await parseJsonBody(c.req.raw, TicketRequestSchema, { maxBytes: 256 * 1024 });
   if (!parsed.ok) return c.json({ error: parsed.error }, parsed.status);
   const validation = validateWsUrl(parsed.value.target, {
     allowLocalhost: isLocalDevBypass(c.env),

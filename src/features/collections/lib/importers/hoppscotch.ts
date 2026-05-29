@@ -13,6 +13,7 @@ import type {
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
 import type { ImportResult, ImportWarning } from './types';
 import { formatZodIssues } from '@/lib/shared/validations';
+import { assertBoundedDocument } from '@/lib/opencollection';
 
 /**
  * Hoppscotch collection importer.
@@ -124,6 +125,8 @@ export function importHoppscotchEnvironment(data: unknown): Environment {
 }
 
 export function importHoppscotchCollection(data: unknown): ImportResult {
+  // Guard depth before the recursive schema validates the tree (see schemas.ts).
+  assertBoundedDocument(data);
   const r = hoppCollection.safeParse(data);
   if (!r.success) {
     throw new Error(`Invalid Hoppscotch collection: ${formatZodIssues(r.error)}`);
