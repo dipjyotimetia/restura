@@ -216,15 +216,16 @@ jobs:
         run: npx electron-builder --dir --publish never
 
       - name: Verify renderer is bundled into the app
-        # Guards against the dist/web layout / files-glob drift that would
-        # otherwise ship an app that launches to a blank window. Uses
-        # @electron/asar (already pulled in by electron-builder) — no extra deps.
+        # Guards against dist/web layout / files-glob drift that would otherwise
+        # ship an app that launches to a blank window. The verifier normalizes
+        # path separators so it works on Windows (listPackage returns backslash
+        # paths there). See scripts/verify-asar-renderer.mjs.
         shell: bash
         run: |
           set -euo pipefail
           asar=$(find dist/installers -name app.asar -print -quit)
           if [ -z "$asar" ]; then echo "::error::app.asar not found"; exit 1; fi
-          node -e "const {listPackage}=require('@electron/asar'); if(!listPackage(process.argv[1]).includes('/dist/web/index.html')){console.error('::error::renderer (dist/web/index.html) missing from app.asar');process.exit(1)} console.log('OK: renderer bundled at dist/web/index.html')" "$asar"
+          node scripts/verify-asar-renderer.mjs "$asar"
 
   e2e:
     if: github.event_name == 'pull_request'
