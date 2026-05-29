@@ -7,16 +7,23 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import type {
   Workflow,
   FlowNode,
   RequestFlowNode,
   ConditionFlowNode,
+  SwitchFlowNode,
   SetVariableFlowNode,
   DelayFlowNode,
   TransformFlowNode,
+  TemplateFlowNode,
+  DisplayFlowNode,
+  DisplayMode,
   ParallelFlowNode,
   ForEachFlowNode,
+  LoopFlowNode,
+  LoopMode,
   TryCatchFlowNode,
   SubWorkflowFlowNode,
   SseSubscribeFlowNode,
@@ -160,17 +167,32 @@ function InspectorBody({ workflow, subgraphPath, node, onDrillInto }: BodyProps)
       return <RequestInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
     case 'condition':
       return <ConditionInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
+    case 'switch':
+      return <SwitchInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
     case 'setVariable':
       return <SetVariableInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
     case 'delay':
       return <DelayInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
     case 'transform':
       return <TransformInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
+    case 'template':
+      return <TemplateInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
+    case 'display':
+      return <DisplayInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
     case 'parallel':
       return <ParallelInspector workflow={workflow} subgraphPath={subgraphPath} node={node} />;
     case 'forEach':
       return (
         <ForEachInspector
+          workflow={workflow}
+          subgraphPath={subgraphPath}
+          node={node}
+          onDrillInto={onDrillInto}
+        />
+      );
+    case 'loop':
+      return (
+        <LoopInspector
           workflow={workflow}
           subgraphPath={subgraphPath}
           node={node}
@@ -400,6 +422,112 @@ function ConditionInspector({
   );
 }
 
+function SwitchInspector({
+  workflow,
+  subgraphPath,
+  node,
+}: {
+  workflow: Workflow;
+  subgraphPath: SubgraphPath;
+  node: SwitchFlowNode;
+}) {
+  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const update = (mutate: (data: SwitchFlowNode['data']) => SwitchFlowNode['data']) =>
+    updateNode(node.id, (n) => ({
+      ...(n as SwitchFlowNode),
+      data: mutate((n as SwitchFlowNode).data),
+    }));
+  const patchCase = (i: number, patch: { label?: string; expression?: string }) =>
+    update((d) => ({
+      ...d,
+      cases: d.cases.map((x, xi) => (xi === i ? { ...x, ...patch } : x)),
+    }));
+
+  return (
+    <>
+      <div>
+        <Label className="text-xs">Description (optional)</Label>
+        <Input
+          className="mt-1 h-7 text-xs"
+          placeholder="What does this switch decide?"
+          value={node.data.description ?? ''}
+          onChange={(e) => update((d) => ({ ...d, description: e.target.value }))}
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <Label className="text-xs">Cases</Label>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 px-2 text-xs"
+          onClick={() =>
+            update((d) => ({
+              ...d,
+              cases: [
+                ...d.cases,
+                {
+                  id: uuidv4(),
+                  label: `case ${d.cases.length + 1}`,
+                  expression: 'return false;',
+                },
+              ],
+            }))
+          }
+        >
+          <Plus className="h-3 w-3 mr-1" /> Add
+        </Button>
+      </div>
+      <div className="space-y-2">
+        {node.data.cases.length === 0 ? (
+          <div className="text-[10px] text-muted-foreground italic">
+            No cases — everything routes to the default handle.
+          </div>
+        ) : (
+          node.data.cases.map((c, i) => (
+            <div
+              key={c.id}
+              className="space-y-1 border border-[hsl(var(--foreground)/var(--border-subtle))] rounded-md p-2"
+            >
+              <div className="flex items-center gap-1">
+                <Input
+                  className="h-7 text-xs"
+                  placeholder={`case ${i + 1}`}
+                  value={c.label ?? ''}
+                  onChange={(e) => patchCase(i, { label: e.target.value })}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0 flex-shrink-0"
+                  onClick={() =>
+                    update((d) => ({
+                      ...d,
+                      cases: d.cases.filter((_, xi) => xi !== i),
+                    }))
+                  }
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+              <Textarea
+                className="font-mono text-xs"
+                rows={2}
+                placeholder="return response.status === 404;"
+                value={c.expression}
+                onChange={(e) => patchCase(i, { expression: e.target.value })}
+              />
+            </div>
+          ))
+        )}
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        The first case returning a truthy value wins. If none match, the <code>default</code> handle
+        is taken.
+      </p>
+    </>
+  );
+}
+
 function SetVariableInspector({
   workflow,
   subgraphPath,
@@ -555,6 +683,108 @@ function TransformInspector({
   );
 }
 
+function TemplateInspector({
+  workflow,
+  subgraphPath,
+  node,
+}: {
+  workflow: Workflow;
+  subgraphPath: SubgraphPath;
+  node: TemplateFlowNode;
+}) {
+  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const update = (mutate: (d: TemplateFlowNode['data']) => TemplateFlowNode['data']) =>
+    updateNode(node.id, (n) => ({
+      ...(n as TemplateFlowNode),
+      data: mutate((n as TemplateFlowNode).data),
+    }));
+  return (
+    <>
+      <div>
+        <Label className="text-xs">Template</Label>
+        <Textarea
+          className="mt-1 font-mono text-xs"
+          rows={6}
+          placeholder={'Hello {{name}} — token is {{token}}'}
+          value={node.data.template}
+          onChange={(e) => update((d) => ({ ...d, template: e.target.value }))}
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          <code>{'{{var}}'}</code> tokens are replaced with workflow variables.
+        </p>
+      </div>
+      <div>
+        <Label className="text-xs">Result variable</Label>
+        <Input
+          className="mt-1 h-7 text-xs font-mono"
+          placeholder="rendered"
+          value={node.data.resultVar}
+          onChange={(e) => update((d) => ({ ...d, resultVar: e.target.value }))}
+        />
+      </div>
+    </>
+  );
+}
+
+function DisplayInspector({
+  workflow,
+  subgraphPath,
+  node,
+}: {
+  workflow: Workflow;
+  subgraphPath: SubgraphPath;
+  node: DisplayFlowNode;
+}) {
+  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const update = (mutate: (d: DisplayFlowNode['data']) => DisplayFlowNode['data']) =>
+    updateNode(node.id, (n) => ({
+      ...(n as DisplayFlowNode),
+      data: mutate((n as DisplayFlowNode).data),
+    }));
+  return (
+    <>
+      <div>
+        <Label className="text-xs">Label (optional)</Label>
+        <Input
+          className="mt-1 h-7 text-xs"
+          placeholder="Response body"
+          value={node.data.label ?? ''}
+          onChange={(e) => update((d) => ({ ...d, label: e.target.value }))}
+        />
+      </div>
+      <div>
+        <Label className="text-xs">Value expression (JS)</Label>
+        <Textarea
+          className="mt-1 font-mono text-xs"
+          rows={4}
+          placeholder='return JSON.parse(pm.variables.get("response"));'
+          value={node.data.valueExpression}
+          onChange={(e) => update((d) => ({ ...d, valueExpression: e.target.value }))}
+        />
+      </div>
+      <div>
+        <Label className="text-xs">Render as</Label>
+        <Select
+          value={node.data.mode}
+          onValueChange={(v) => update((d) => ({ ...d, mode: v as DisplayMode }))}
+        >
+          <SelectTrigger className="mt-1 h-7 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="json">JSON (pretty)</SelectItem>
+            <SelectItem value="table">Table (array of objects)</SelectItem>
+            <SelectItem value="raw">Raw text</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          The captured value appears in the run monitor for this node.
+        </p>
+      </div>
+    </>
+  );
+}
+
 function ParallelInspector({
   workflow,
   subgraphPath,
@@ -693,6 +923,101 @@ function ForEachInspector({
           </Button>
         </div>
       </div>
+    </>
+  );
+}
+
+function LoopInspector({
+  workflow,
+  subgraphPath,
+  node,
+  onDrillInto,
+}: {
+  workflow: Workflow;
+  subgraphPath: SubgraphPath;
+  node: LoopFlowNode;
+  onDrillInto: (segment: SubgraphPath[number]) => void;
+}) {
+  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const data = node.data;
+  const update = (mutate: (d: LoopFlowNode['data']) => LoopFlowNode['data']) =>
+    updateNode(node.id, (n) => ({
+      ...(n as LoopFlowNode),
+      data: mutate((n as LoopFlowNode).data),
+    }));
+  const bodyCount = node.data.subgraph?.nodes?.length ?? 0;
+  return (
+    <>
+      <div>
+        <Label className="text-xs">Condition (JS, returns boolean)</Label>
+        <Textarea
+          className="mt-1 font-mono text-xs"
+          rows={3}
+          placeholder="return response.body.status !== 'done';"
+          value={data.conditionExpression}
+          onChange={(e) => update((d) => ({ ...d, conditionExpression: e.target.value }))}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-xs">Mode</Label>
+          <Select
+            value={data.mode}
+            onValueChange={(v) => update((d) => ({ ...d, mode: v as LoopMode }))}
+          >
+            <SelectTrigger className="mt-1 h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="while">While (run while true)</SelectItem>
+              <SelectItem value="until">Until (run until true)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Max iterations</Label>
+          <Input
+            type="number"
+            min={1}
+            max={100000}
+            className="mt-1 h-7 text-xs"
+            value={data.maxIterations}
+            onChange={(e) =>
+              update((d) => ({
+                ...d,
+                maxIterations: Math.max(1, Math.min(100000, parseInt(e.target.value) || 1)),
+              }))
+            }
+          />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs">Delay between iterations (ms)</Label>
+        <Input
+          type="number"
+          min={0}
+          className="mt-1 h-7 text-xs"
+          value={data.delayMs ?? 0}
+          onChange={(e) =>
+            update((d) => ({
+              ...d,
+              delayMs: Math.max(0, parseInt(e.target.value) || 0),
+            }))
+          }
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <Label className="text-xs">Loop body</Label>
+        <span className="text-[10px] text-muted-foreground">{bodyCount} nodes</span>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full h-7 text-xs"
+        onClick={() => onDrillInto({ parentNodeId: node.id, key: 'subgraph' })}
+      >
+        <ArrowRight className="h-3 w-3 mr-1" /> Edit body
+      </Button>
     </>
   );
 }

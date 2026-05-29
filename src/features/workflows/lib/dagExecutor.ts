@@ -25,15 +25,9 @@ import type {
   McpCallFlowNode,
 } from '@/types';
 import { protocolRegistry } from '@/features/registry/registry';
-import type {
-  RunContext,
-  ProtocolStreamHandle,
-} from '@/features/registry/types';
+import type { RunContext, ProtocolStreamHandle } from '@/features/registry/types';
 import type { McpClient } from '@/features/mcp/lib/mcpClient';
-import type {
-  McpClientPool,
-  McpRunJsonRpcOptions,
-} from '@/features/mcp/protocol';
+import type { McpClientPool, McpRunJsonRpcOptions } from '@/features/mcp/protocol';
 import { extractVariables } from './variableExtractor';
 import { injectString } from './variableHelpers';
 import { executeWithRetry, sleepWithAbort, isAbortError } from './retryHelpers';
@@ -45,11 +39,7 @@ import {
   createPooledScriptEvaluator,
   type PooledEvaluator,
 } from './scriptHelpers';
-import {
-  findStartNode,
-  getOutgoingEdges,
-  getNodeById,
-} from './flowTypes';
+import { findStartNode, getOutgoingEdges, getNodeById } from './flowTypes';
 import { validateWorkflowGraph } from './flowValidators';
 
 export interface DagExecutorOptions {
@@ -69,16 +59,8 @@ export interface DagExecutorOptions {
 
 type Logger = (message: string, level?: 'info' | 'warn' | 'error') => void;
 
-export async function executeDag(
-  options: DagExecutorOptions
-): Promise<WorkflowExecution> {
-  const {
-    workflow,
-    abortSignal,
-    onStepStart,
-    onStepComplete,
-    onLog,
-  } = options;
+export async function executeDag(options: DagExecutorOptions): Promise<WorkflowExecution> {
+  const { workflow, abortSignal, onStepStart, onStepComplete, onLog } = options;
 
   if (!workflow.graph) {
     throw new Error('executeDag called with no graph on workflow');
@@ -124,10 +106,7 @@ export async function executeDag(
   if (callStack.includes(workflow.id)) {
     execution.status = 'failed';
     execution.completedAt = Date.now();
-    log(
-      `Sub-workflow cycle detected: ${[...callStack, workflow.id].join(' -> ')}`,
-      'error'
-    );
+    log(`Sub-workflow cycle detected: ${[...callStack, workflow.id].join(' -> ')}`, 'error');
     return execution;
   }
 
@@ -147,8 +126,7 @@ export async function executeDag(
       onStepStart,
       onStepComplete,
     });
-    execution.status =
-      execution.status === 'running' ? 'success' : execution.status;
+    execution.status = execution.status === 'running' ? 'success' : execution.status;
   } catch (err) {
     if (isAbortError(err)) {
       execution.status = 'stopped';
@@ -162,9 +140,7 @@ export async function executeDag(
     // Tear down pooled MCP clients in parallel — we don't await
     // sequentially since a slow disconnect shouldn't block the others.
     await Promise.all(
-      Array.from(mcpClientPool.values()).map((c) =>
-        c.disconnect().catch(() => undefined)
-      )
+      Array.from(mcpClientPool.values()).map((c) => c.disconnect().catch(() => undefined))
     );
     mcpClientPool.clear();
     execution.completedAt = Date.now();
@@ -216,11 +192,7 @@ async function runGraph(args: RunGraphArgs): Promise<void> {
  * patterns (`a -> {b, c} -> d` doesn't wait at d). Users wanting a sync
  * point use a `parallel` node.
  */
-async function walkFrom(
-  node: FlowNode,
-  args: RunGraphArgs,
-  visited: Set<string>
-): Promise<void> {
+async function walkFrom(node: FlowNode, args: RunGraphArgs, visited: Set<string>): Promise<void> {
   if (args.abortSignal?.aborted) {
     throw new DOMException('Aborted', 'AbortError');
   }
@@ -249,13 +221,22 @@ async function walkOutgoing(
 ): Promise<void> {
   const out = getOutgoingEdges(args.graph, node.id);
 
-  if (node.kind === 'condition') {
-    // condition's outgoing edge was picked inside executeNode and stored
-    // on the node's transient result; we re-evaluate here so the walker
-    // stays stateless.
-    const branch = args.variables['__restura_condition_' + node.id];
-    delete args.variables['__restura_condition_' + node.id];
-    const edge = out.find((e) => e.sourceHandle === branch);
+  // condition + switch route to exactly one outgoing edge, chosen by the
+  // handle stashed on a transient variable in executeNode (keeps the walker
+  // stateless). switch additionally falls back to the 'default' handle.
+  const routing =
+    node.kind === 'condition'
+      ? { key: '__restura_condition_' + node.id, fallback: undefined }
+      : node.kind === 'switch'
+        ? { key: '__restura_switch_' + node.id, fallback: 'default' }
+        : null;
+
+  if (routing) {
+    const branch = args.variables[routing.key];
+    delete args.variables[routing.key];
+    const edge =
+      out.find((e) => e.sourceHandle === branch) ??
+      (routing.fallback ? out.find((e) => e.sourceHandle === routing.fallback) : undefined);
     if (!edge) return;
     const next = getNodeById(args.graph, edge.target);
     if (next) await walkFrom(next, args, visited);
@@ -295,6 +276,29 @@ async function executeNode(node: FlowNode, args: RunGraphArgs): Promise<void> {
       });
       return;
     }
+    case 'switch': {
+      // First case whose expression is truthy wins; else 'default'.
+      let matched = 'default';
+      for (const c of node.data.cases) {
+        const hit = await evalScriptBoolean(c.expression, {
+          variables: args.variables,
+        });
+        if (hit) {
+          matched = c.id;
+          break;
+        }
+      }
+      log(`Switch ${node.id}: ${matched}`);
+      args.variables['__restura_switch_' + node.id] = matched;
+      pushStep(args, {
+        nodeId: node.id,
+        nodeKind: 'switch',
+        requestName: 'switch',
+        status: 'success',
+        timestamp: Date.now(),
+      });
+      return;
+    }
     case 'setVariable': {
       const step: WorkflowExecutionStep = {
         nodeId: node.id,
@@ -316,9 +320,7 @@ async function executeNode(node: FlowNode, args: RunGraphArgs): Promise<void> {
           throw new Error(step.error);
         }
         const stringified =
-          typeof result.value === 'string'
-            ? result.value
-            : JSON.stringify(result.value);
+          typeof result.value === 'string' ? result.value : JSON.stringify(result.value);
         args.variables[a.key] = stringified;
         extracted[a.key] = stringified;
       }
@@ -369,8 +371,56 @@ async function executeNode(node: FlowNode, args: RunGraphArgs): Promise<void> {
       finishStep(args, step);
       return;
     }
+    case 'template': {
+      const step: WorkflowExecutionStep = {
+        nodeId: node.id,
+        nodeKind: 'template',
+        requestName: 'template',
+        status: 'running',
+        timestamp: Date.now(),
+      };
+      args.onStepStart?.(step);
+      const rendered = injectString(node.data.template, args.variables);
+      args.variables[node.data.resultVar] = rendered;
+      step.extractedVariables = { [node.data.resultVar]: rendered };
+      step.status = 'success';
+      step.duration = Date.now() - step.timestamp;
+      finishStep(args, step);
+      return;
+    }
+    case 'display': {
+      const step: WorkflowExecutionStep = {
+        nodeId: node.id,
+        nodeKind: 'display',
+        requestName: 'display',
+        status: 'running',
+        timestamp: Date.now(),
+      };
+      args.onStepStart?.(step);
+      const result = await evalScriptValue(`return ${node.data.valueExpression};`, {
+        variables: args.variables,
+      });
+      if (!result.ok) {
+        step.status = 'failed';
+        step.error = `display eval failed: ${result.error}`;
+        finishStep(args, step);
+        throw new Error(step.error);
+      }
+      const text = typeof result.value === 'string' ? result.value : JSON.stringify(result.value);
+      const label = node.data.label || 'value';
+      // Surface in the run monitor (extractedVariables) without polluting
+      // the downstream scope beyond a namespaced handle.
+      step.extractedVariables = { [label]: text };
+      args.variables[`${node.id}.display`] = text;
+      step.status = 'success';
+      step.duration = Date.now() - step.timestamp;
+      finishStep(args, step);
+      return;
+    }
     case 'forEach':
       return runForEach(node, args);
+    case 'loop':
+      return runLoop(node, args);
     case 'tryCatch':
       return runTryCatch(node, args);
     case 'subWorkflow':
@@ -394,9 +444,7 @@ async function runRequestNode(
   args: RunGraphArgs
 ): Promise<void> {
   const { workflow, log } = args;
-  const workflowRequest = workflow.requests.find(
-    (r) => r.id === node.data.workflowRequestId
-  );
+  const workflowRequest = workflow.requests.find((r) => r.id === node.data.workflowRequestId);
   if (!workflowRequest) {
     throw new Error(
       `Request node "${node.id}" points at missing WorkflowRequest "${node.data.workflowRequestId}"`
@@ -460,10 +508,7 @@ async function runRequestNode(
         policy: workflowRequest.retryPolicy ?? { maxAttempts: 1, delayMs: 0 },
         ...(args.abortSignal ? { signal: args.abortSignal } : {}),
         onRetry: (attempt, delay) => {
-          log(
-            `Retry ${attempt} for "${workflowRequest.name}" in ${delay}ms`,
-            'warn'
-          );
+          log(`Retry ${attempt} for "${workflowRequest.name}" in ${delay}ms`, 'warn');
         },
       }
     );
@@ -478,10 +523,7 @@ async function runRequestNode(
     }
 
     const failureMode: RequestFailureMode = node.data.failureMode ?? 'thrown-only';
-    if (
-      failureMode === 'http-status' &&
-      (response.status < 200 || response.status >= 300)
-    ) {
+    if (failureMode === 'http-status' && (response.status < 200 || response.status >= 300)) {
       step.status = 'failed';
       step.error = `HTTP ${response.status}: ${response.statusText}`;
       finishStep(args, step);
@@ -526,13 +568,12 @@ async function runParallel(
   args.onStepStart?.(step);
 
   const outgoing = getOutgoingEdges(args.graph, node.id);
-  const branches: Array<Promise<Record<string, string>>> = outgoing.map(
-    (edge) => runBranch(edge, args, visited)
+  const branches: Array<Promise<Record<string, string>>> = outgoing.map((edge) =>
+    runBranch(edge, args, visited)
   );
 
   const waitMode: ParallelWaitMode = node.data.waitMode;
-  const mergeStrategy: ParallelMergeStrategy =
-    node.data.mergeStrategy ?? 'fail-on-conflict';
+  const mergeStrategy: ParallelMergeStrategy = node.data.mergeStrategy ?? 'fail-on-conflict';
 
   try {
     let branchResults: Array<Record<string, string>>;
@@ -626,10 +667,9 @@ async function runForEach(
   };
   args.onStepStart?.(step);
 
-  const collectionResult = await evalScriptValue(
-    `return ${node.data.collectionExpression};`,
-    { variables: args.variables }
-  );
+  const collectionResult = await evalScriptValue(`return ${node.data.collectionExpression};`, {
+    variables: args.variables,
+  });
   if (!collectionResult.ok) {
     step.status = 'failed';
     step.error = `forEach collection eval failed: ${collectionResult.error}`;
@@ -688,6 +728,53 @@ async function runForEach(
   }
 }
 
+async function runLoop(
+  node: Extract<FlowNode, { kind: 'loop' }>,
+  args: RunGraphArgs
+): Promise<void> {
+  const step: WorkflowExecutionStep = {
+    nodeId: node.id,
+    nodeKind: 'loop',
+    requestName: 'loop',
+    status: 'running',
+    timestamp: Date.now(),
+  };
+  args.onStepStart?.(step);
+
+  // Hard cap mirrors the Zod ceiling — defends against a runaway condition.
+  const max = Math.max(1, Math.min(node.data.maxIterations, 100_000));
+  let iterations = 0;
+  try {
+    while (iterations < max) {
+      if (args.abortSignal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      const cond = await evalScriptBoolean(node.data.conditionExpression, {
+        variables: args.variables,
+      });
+      // 'while' runs while truthy; 'until' runs until truthy (i.e. while falsy).
+      const shouldRun = node.data.mode === 'while' ? cond : !cond;
+      if (!shouldRun) break;
+      // Share the parent scope so body mutations affect the next condition.
+      await runGraph({ ...args, graph: node.data.subgraph });
+      iterations++;
+      if (node.data.delayMs && node.data.delayMs > 0) {
+        await sleepWithAbort(node.data.delayMs, args.abortSignal);
+      }
+    }
+    args.variables[`${node.id}.iterations`] = String(iterations);
+    step.status = 'success';
+    step.duration = Date.now() - step.timestamp;
+    finishStep(args, step);
+  } catch (err) {
+    step.status = 'failed';
+    step.error = err instanceof Error ? err.message : String(err);
+    step.duration = Date.now() - step.timestamp;
+    finishStep(args, step);
+    throw err;
+  }
+}
+
 async function runTryCatch(
   node: Extract<FlowNode, { kind: 'tryCatch' }>,
   args: RunGraphArgs
@@ -723,8 +810,7 @@ async function runTryCatch(
     args.log(`tryCatch caught: ${msg}`, 'warn');
     const catchVars: Record<string, string> = { ...args.variables };
     catchVars.error = msg;
-    catchVars.errorNode =
-      err instanceof RequestNodeFailure ? String(err.status) : '';
+    catchVars.errorNode = err instanceof RequestNodeFailure ? String(err.status) : '';
     try {
       await runGraph({
         ...args,
@@ -737,8 +823,7 @@ async function runTryCatch(
       finishStep(args, step);
     } catch (catchErr) {
       step.status = 'failed';
-      step.error =
-        catchErr instanceof Error ? catchErr.message : String(catchErr);
+      step.error = catchErr instanceof Error ? catchErr.message : String(catchErr);
       step.duration = Date.now() - step.timestamp;
       finishStep(args, step);
       throw catchErr;
@@ -994,10 +1079,7 @@ async function consumeWithPolicy(
   }
 }
 
-async function runSseSubscribe(
-  node: SseSubscribeFlowNode,
-  args: RunGraphArgs
-): Promise<void> {
+async function runSseSubscribe(node: SseSubscribeFlowNode, args: RunGraphArgs): Promise<void> {
   const stepInit = {
     nodeId: node.id,
     nodeKind: 'sseSubscribe' as const,
@@ -1005,9 +1087,7 @@ async function runSseSubscribe(
   };
 
   // ---- Setup (fail-fast, not failureMode-aware) ----
-  const workflowRequest = args.workflow.requests.find(
-    (r) => r.id === node.data.workflowRequestId
-  );
+  const workflowRequest = args.workflow.requests.find((r) => r.id === node.data.workflowRequestId);
   if (!workflowRequest) {
     throw fatalStep(
       args,
@@ -1021,11 +1101,7 @@ async function runSseSubscribe(
   }
   const protocol = protocolRegistry.get('sse');
   if (!protocol?.startStream) {
-    throw fatalStep(
-      args,
-      stepInit,
-      'sseSubscribe: SSE protocol has no startStream implementation'
-    );
+    throw fatalStep(args, stepInit, 'sseSubscribe: SSE protocol has no startStream implementation');
   }
 
   const injected = protocol.injectVariables
@@ -1067,10 +1143,7 @@ async function runSseSubscribe(
   });
 }
 
-async function runWsExchange(
-  node: WsExchangeFlowNode,
-  args: RunGraphArgs
-): Promise<void> {
+async function runWsExchange(node: WsExchangeFlowNode, args: RunGraphArgs): Promise<void> {
   const stepInit = {
     nodeId: node.id,
     nodeKind: 'wsExchange' as const,
@@ -1109,9 +1182,7 @@ async function runWsExchange(
       throw new Error(`wsExchange: sendExpression failed: ${sendResult.error}`);
     }
     const payload =
-      typeof sendResult.value === 'string'
-        ? sendResult.value
-        : JSON.stringify(sendResult.value);
+      typeof sendResult.value === 'string' ? sendResult.value : JSON.stringify(sendResult.value);
     // The WebSocket protocol exposes `.send` as a structural extension
     // on the handle — see websocketProtocol's start-stream impl.
     const sendable = handle as ProtocolStreamHandle & {
@@ -1120,14 +1191,9 @@ async function runWsExchange(
     sendable.send?.(payload);
 
     let matched: unknown = null;
-    await consumeWithPolicy(
-      handle,
-      node.data.completion,
-      ctx.signal,
-      (event, isMatch) => {
-        if (isMatch) matched = event;
-      }
-    );
+    await consumeWithPolicy(handle, node.data.completion, ctx.signal, (event, isMatch) => {
+      if (isMatch) matched = event;
+    });
 
     const varName = node.data.resultVar || `${node.id}.reply`;
     args.variables[varName] = matched === null ? '' : JSON.stringify(matched);
@@ -1137,10 +1203,7 @@ async function runWsExchange(
   });
 }
 
-async function runMcpCall(
-  node: McpCallFlowNode,
-  args: RunGraphArgs
-): Promise<void> {
+async function runMcpCall(node: McpCallFlowNode, args: RunGraphArgs): Promise<void> {
   const stepInit = {
     nodeId: node.id,
     nodeKind: 'mcpCall' as const,
@@ -1148,9 +1211,7 @@ async function runMcpCall(
   };
 
   // ---- Setup ----
-  const workflowRequest = args.workflow.requests.find(
-    (r) => r.id === node.data.workflowRequestId
-  );
+  const workflowRequest = args.workflow.requests.find((r) => r.id === node.data.workflowRequestId);
   if (!workflowRequest) {
     throw fatalStep(
       args,
@@ -1177,11 +1238,7 @@ async function runMcpCall(
       })
     | undefined;
   if (!protocol?.runJsonRpc) {
-    throw fatalStep(
-      args,
-      stepInit,
-      'mcpCall: MCP protocol has no runJsonRpc implementation'
-    );
+    throw fatalStep(args, stepInit, 'mcpCall: MCP protocol has no runJsonRpc implementation');
   }
 
   const injected = protocol.injectVariables
@@ -1194,11 +1251,7 @@ async function runMcpCall(
       variables: args.variables,
     });
     if (!evald.ok) {
-      throw fatalStep(
-        args,
-        stepInit,
-        `mcpCall: paramsExpression failed: ${evald.error}`
-      );
+      throw fatalStep(args, stepInit, `mcpCall: paramsExpression failed: ${evald.error}`);
     }
     params = evald.value;
   }
@@ -1231,9 +1284,7 @@ async function runMcpCall(
     }
     const varName = node.data.resultVar || `${node.id}.result`;
     args.variables[varName] =
-      typeof result.result === 'string'
-        ? result.result
-        : JSON.stringify(result.result ?? null);
+      typeof result.result === 'string' ? result.result : JSON.stringify(result.result ?? null);
     step.extractedVariables = { [varName]: '<mcp result>' };
   });
 }

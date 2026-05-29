@@ -56,9 +56,7 @@ export function isTryCatchNode(node: FlowNode): node is TryCatchFlowNode {
   return node.kind === 'tryCatch';
 }
 
-export function isSubWorkflowNode(
-  node: FlowNode
-): node is SubWorkflowFlowNode {
+export function isSubWorkflowNode(node: FlowNode): node is SubWorkflowFlowNode {
   return node.kind === 'subWorkflow';
 }
 
@@ -70,24 +68,15 @@ export function findEndNodes(graph: WorkflowGraph): FlowNode[] {
   return graph.nodes.filter((n) => n.kind === 'end');
 }
 
-export function getOutgoingEdges(
-  graph: WorkflowGraph,
-  nodeId: string
-): FlowEdge[] {
+export function getOutgoingEdges(graph: WorkflowGraph, nodeId: string): FlowEdge[] {
   return graph.edges.filter((e) => e.source === nodeId);
 }
 
-export function getIncomingEdges(
-  graph: WorkflowGraph,
-  nodeId: string
-): FlowEdge[] {
+export function getIncomingEdges(graph: WorkflowGraph, nodeId: string): FlowEdge[] {
   return graph.edges.filter((e) => e.target === nodeId);
 }
 
-export function getNodeById(
-  graph: WorkflowGraph,
-  nodeId: string
-): FlowNode | undefined {
+export function getNodeById(graph: WorkflowGraph, nodeId: string): FlowNode | undefined {
   return graph.nodes.find((n) => n.id === nodeId);
 }
 
@@ -96,12 +85,10 @@ export function getNodeById(
  * subgraphs (forEach / tryCatch). Used by the cycle detector and the
  * recursive Zod validator.
  */
-export function* allSubgraphs(
-  graph: WorkflowGraph
-): Generator<WorkflowGraph> {
+export function* allSubgraphs(graph: WorkflowGraph): Generator<WorkflowGraph> {
   yield graph;
   for (const node of graph.nodes) {
-    if (node.kind === 'forEach') {
+    if (node.kind === 'forEach' || node.kind === 'loop') {
       yield* allSubgraphs(node.data.subgraph);
     } else if (node.kind === 'tryCatch') {
       yield* allSubgraphs(node.data.trySubgraph);
@@ -119,16 +106,13 @@ export function* allSubgraphs(
  *
  * `path === []` returns `root` unchanged — top-level slice.
  */
-export function selectAtPath(
-  root: WorkflowGraph,
-  path: SubgraphPath
-): WorkflowGraph | null {
+export function selectAtPath(root: WorkflowGraph, path: SubgraphPath): WorkflowGraph | null {
   if (path.length === 0) return root;
   const [head, ...rest] = path;
   if (!head) return null;
   const parent = root.nodes.find((n) => n.id === head.parentNodeId);
   if (!parent) return null;
-  if (parent.kind === 'forEach' && head.key === 'subgraph') {
+  if ((parent.kind === 'forEach' || parent.kind === 'loop') && head.key === 'subgraph') {
     return selectAtPath(parent.data.subgraph, rest);
   }
   if (parent.kind === 'tryCatch') {
@@ -162,7 +146,11 @@ export function setAtPath(
   let touched = false;
   const nextNodes = root.nodes.map((node) => {
     if (node.id !== head.parentNodeId) return node;
-    if (node.kind === 'forEach' && head.key === 'subgraph') {
+    // forEach and loop both carry a single `data.subgraph` slot (matches the
+    // combined check in selectAtPath / allSubgraphs). The cast is needed
+    // because narrowing to the union widens `data` past what TS will
+    // re-assign to a single FlowNode member when the object is rebuilt.
+    if ((node.kind === 'forEach' || node.kind === 'loop') && head.key === 'subgraph') {
       touched = true;
       return {
         ...node,
@@ -170,7 +158,7 @@ export function setAtPath(
           ...node.data,
           subgraph: setAtPath(node.data.subgraph, rest, replacement),
         },
-      };
+      } as FlowNode;
     }
     if (node.kind === 'tryCatch' && head.key === 'trySubgraph') {
       touched = true;

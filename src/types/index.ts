@@ -1158,11 +1158,15 @@ export type FlowNodeKind =
   | 'end'
   | 'request'
   | 'condition'
+  | 'switch'
   | 'setVariable'
   | 'delay'
   | 'transform'
+  | 'template'
+  | 'display'
   | 'parallel'
   | 'forEach'
+  | 'loop'
   | 'tryCatch'
   | 'subWorkflow'
   | 'sseSubscribe'
@@ -1202,6 +1206,45 @@ export interface ConditionFlowNode extends FlowNodeBase {
   };
 }
 
+/** One branch of a switch node. The first case whose expression returns
+ *  truthy wins; if none match, the `'default'` source handle is taken. */
+export interface SwitchCase {
+  /** Stable id, used as the React Flow source-handle id for this branch. */
+  id: string;
+  label?: string;
+  /** QuickJS expression — coerced to boolean, evaluated in declared order. */
+  expression: string;
+}
+
+export interface SwitchFlowNode extends FlowNodeBase {
+  kind: 'switch';
+  data: {
+    cases: SwitchCase[];
+    description?: string;
+  };
+}
+
+export type LoopMode = 'while' | 'until';
+
+/** Condition-driven loop (polling). Unlike forEach it shares the parent
+ *  variable scope so body mutations affect the next condition check. */
+export interface LoopFlowNode extends FlowNodeBase {
+  kind: 'loop';
+  data: {
+    /** QuickJS expression evaluated before each pass — coerced to boolean. */
+    conditionExpression: string;
+    /** 'while' runs the body while the condition is truthy; 'until' runs
+     *  until the condition becomes truthy. */
+    mode: LoopMode;
+    /** Hard cap on iterations — prevents a runaway loop. */
+    maxIterations: number;
+    /** Optional pause between iterations (ms). */
+    delayMs?: number;
+    /** Body executed each iteration. */
+    subgraph: WorkflowGraph;
+  };
+}
+
 export interface SetVariableAssignment {
   key: string;
   /** QuickJS expression evaluated to a string. */
@@ -1227,6 +1270,34 @@ export interface TransformFlowNode extends FlowNodeBase {
   data: {
     /** QuickJS script. Variables set via `pm.variables.set` propagate. */
     script: string;
+  };
+}
+
+/** Render a {{var}}-interpolated string into a single variable. The
+ *  declarative counterpart to a transform script. */
+export interface TemplateFlowNode extends FlowNodeBase {
+  kind: 'template';
+  data: {
+    /** Text with {{varName}} tokens substituted from workflow variables. */
+    template: string;
+    /** Variable name receiving the rendered string. */
+    resultVar: string;
+  };
+}
+
+export type DisplayMode = 'json' | 'table' | 'raw';
+
+/** Capture a value for inspection in the run monitor. Side-effect only —
+ *  does not mutate downstream variables beyond `<nodeId>.display`. */
+export interface DisplayFlowNode extends FlowNodeBase {
+  kind: 'display';
+  data: {
+    /** QuickJS expression evaluated to the value to display. */
+    valueExpression: string;
+    /** How the run monitor renders the captured value. */
+    mode: DisplayMode;
+    /** Optional label shown beside the value. */
+    label?: string;
   };
 }
 
@@ -1334,11 +1405,15 @@ export type FlowNode =
   | EndFlowNode
   | RequestFlowNode
   | ConditionFlowNode
+  | SwitchFlowNode
   | SetVariableFlowNode
   | DelayFlowNode
   | TransformFlowNode
+  | TemplateFlowNode
+  | DisplayFlowNode
   | ParallelFlowNode
   | ForEachFlowNode
+  | LoopFlowNode
   | TryCatchFlowNode
   | SubWorkflowFlowNode
   | SseSubscribeFlowNode
@@ -1364,7 +1439,7 @@ export interface FlowEdge {
  * slots to descend into.
  *
  *   []                                                    -> workflow.graph
- *   [{parentNodeId: 'fe', key: 'subgraph'}]               -> forEach's body
+ *   [{parentNodeId: 'fe', key: 'subgraph'}]               -> forEach's / loop's body
  *   [{parentNodeId: 'tc', key: 'trySubgraph'}, ...]       -> tryCatch's try-branch, then drill deeper
  */
 export type SubgraphPath = ReadonlyArray<{

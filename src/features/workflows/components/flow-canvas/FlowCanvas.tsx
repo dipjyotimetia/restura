@@ -43,11 +43,15 @@ import { RequestNode } from './nodes/RequestNode';
 import { StartNode } from './nodes/StartNode';
 import { EndNode } from './nodes/EndNode';
 import { ConditionNode } from './nodes/ConditionNode';
+import { SwitchNode } from './nodes/SwitchNode';
 import { SetVariableNode } from './nodes/SetVariableNode';
 import { DelayNode } from './nodes/DelayNode';
 import { TransformNode } from './nodes/TransformNode';
+import { TemplateNode } from './nodes/TemplateNode';
+import { DisplayNode } from './nodes/DisplayNode';
 import { ParallelNode } from './nodes/ParallelNode';
 import { ForEachNode } from './nodes/ForEachNode';
+import { LoopNode } from './nodes/LoopNode';
 import { TryCatchNode } from './nodes/TryCatchNode';
 import { SubWorkflowNode } from './nodes/SubWorkflowNode';
 import { SseSubscribeNode } from './nodes/SseSubscribeNode';
@@ -61,11 +65,15 @@ const nodeTypes: NodeTypes = {
   end: EndNode,
   request: RequestNode,
   condition: ConditionNode,
+  switch: SwitchNode,
   setVariable: SetVariableNode,
   delay: DelayNode,
   transform: TransformNode,
+  template: TemplateNode,
+  display: DisplayNode,
   parallel: ParallelNode,
   forEach: ForEachNode,
+  loop: LoopNode,
   tryCatch: TryCatchNode,
   subWorkflow: SubWorkflowNode,
   sseSubscribe: SseSubscribeNode,
@@ -113,10 +121,11 @@ function flowEdgeToRf(edge: FlowEdge): Edge {
 }
 
 function rfNodeToFlow(rfNode: Node): FlowNode {
-  const { workflowId: _wf, status: _status, ...rest } = rfNode.data as Record<
-    string,
-    unknown
-  > & { workflowId?: string; status?: string };
+  const {
+    workflowId: _wf,
+    status: _status,
+    ...rest
+  } = rfNode.data as Record<string, unknown> & { workflowId?: string; status?: string };
   return {
     id: rfNode.id,
     kind: rfNode.type as FlowNodeKind,
@@ -147,12 +156,20 @@ function defaultNodeData(kind: FlowNodeKind): unknown {
   switch (kind) {
     case 'condition':
       return { expression: 'return true;' };
+    case 'switch':
+      return {
+        cases: [{ id: uuidv4(), label: 'case 1', expression: 'return false;' }],
+      };
     case 'setVariable':
       return { assignments: [] };
     case 'delay':
       return { ms: 1000 };
     case 'transform':
       return { script: '// edit me\n' };
+    case 'template':
+      return { template: '', resultVar: 'rendered' };
+    case 'display':
+      return { valueExpression: 'return {};', mode: 'json' };
     case 'parallel':
       return { waitMode: 'all', mergeStrategy: 'fail-on-conflict' };
     case 'forEach':
@@ -160,6 +177,14 @@ function defaultNodeData(kind: FlowNodeKind): unknown {
         collectionExpression: 'return [];',
         iteratorVar: 'item',
         concurrency: 8,
+        subgraph: { version: 1, nodes: [], edges: [] },
+      };
+    case 'loop':
+      return {
+        conditionExpression: 'return false;',
+        mode: 'while',
+        maxIterations: 10,
+        delayMs: 0,
         subgraph: { version: 1, nodes: [], edges: [] },
       };
     case 'tryCatch':
@@ -209,10 +234,7 @@ export default function FlowCanvas({
     () => graph.nodes.map((n) => flowNodeToRf(n, workflow.id)),
     [graph.nodes, workflow.id]
   );
-  const initialEdges = useMemo(
-    () => graph.edges.map(flowEdgeToRf),
-    [graph.edges]
-  );
+  const initialEdges = useMemo(() => graph.edges.map(flowEdgeToRf), [graph.edges]);
 
   const [nodes, setNodes, _onNodesChangeRf] = useNodesState<Node>(initialNodes);
   const [edges, setEdges, _onEdgesChangeRf] = useEdgesState<Edge>(initialEdges);
@@ -247,9 +269,7 @@ export default function FlowCanvas({
       setNodes((curr) => {
         const next = applyNodeChanges(changes, curr);
         const settled = changes.some(
-          (c) =>
-            c.type === 'remove' ||
-            (c.type === 'position' && c.dragging === false)
+          (c) => c.type === 'remove' || (c.type === 'position' && c.dragging === false)
         );
         if (settled) {
           setEdges((edgesCurr) => {
@@ -331,19 +351,8 @@ export default function FlowCanvas({
           // mcpCall, everything else (http, grpc, graphql) stays a
           // generic `request` node.
           const nodeKind: 'request' | 'sseSubscribe' | 'mcpCall' =
-            parsed.kind === 'sse'
-              ? 'sseSubscribe'
-              : parsed.kind === 'mcp'
-                ? 'mcpCall'
-                : 'request';
-          addRequestNode(
-            workflow.id,
-            parsed.id,
-            parsed.name,
-            flowPosition,
-            subgraphPath,
-            nodeKind
-          );
+            parsed.kind === 'sse' ? 'sseSubscribe' : parsed.kind === 'mcp' ? 'mcpCall' : 'request';
+          addRequestNode(workflow.id, parsed.id, parsed.name, flowPosition, subgraphPath, nodeKind);
         } catch {
           /* ignore malformed drop */
         }
@@ -421,12 +430,7 @@ export default function FlowCanvas({
   );
 
   return (
-    <div
-      className="restura-flow-canvas"
-      ref={wrapperRef}
-      onDrop={onDrop}
-      onDragOver={onDragOver}
-    >
+    <div className="restura-flow-canvas" ref={wrapperRef} onDrop={onDrop} onDragOver={onDragOver}>
       <ReactFlow
         nodes={displayedNodes}
         edges={animatedEdges}

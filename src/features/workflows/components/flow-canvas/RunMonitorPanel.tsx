@@ -6,12 +6,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -57,7 +52,9 @@ export function RunMonitorPanel() {
           Run Monitor
         </div>
         {isRunning ? (
-          <Badge variant="info" className="h-4 px-1.5 text-[10px]">Running…</Badge>
+          <Badge variant="info" className="h-4 px-1.5 text-[10px]">
+            Running…
+          </Badge>
         ) : finalStatus ? (
           <Badge
             variant={
@@ -114,15 +111,22 @@ export function RunMonitorPanel() {
   );
 }
 
+/** Pretty-print a captured value: compact re-formatted JSON, else raw. */
+function prettyValue(v: string): string {
+  let out: string;
+  try {
+    out = JSON.stringify(JSON.parse(v));
+  } catch {
+    out = v;
+  }
+  return out.length > 80 ? `${out.slice(0, 77)}…` : out;
+}
+
 function StepsTab() {
   const nodeStates = useFlowRunStore((s) => s.nodeStates);
   const entries = Object.entries(nodeStates);
   if (entries.length === 0) {
-    return (
-      <div className="text-xs text-muted-foreground italic p-3">
-        No steps executed yet.
-      </div>
-    );
+    return <div className="text-xs text-muted-foreground italic p-3">No steps executed yet.</div>;
   }
   return (
     <ScrollArea className="h-full">
@@ -147,13 +151,20 @@ function StepsTab() {
               </span>
             )}
             {state.error && (
-              <span
-                className="text-red-400 truncate flex-1 text-[11px]"
-                title={state.error}
-              >
+              <span className="text-red-400 truncate flex-1 text-[11px]" title={state.error}>
                 {state.error}
               </span>
             )}
+            {state.extractedVariables &&
+              Object.entries(state.extractedVariables).map(([k, v]) => (
+                <span
+                  key={k}
+                  className="font-mono text-[10px] text-muted-foreground/80 truncate max-w-[45%]"
+                  title={`${k}: ${v}`}
+                >
+                  {k}={prettyValue(v)}
+                </span>
+              ))}
           </div>
         ))}
       </div>
@@ -165,11 +176,7 @@ function VariablesTab() {
   const variables = useFlowRunStore((s) => s.variables);
   const entries = Object.entries(variables);
   if (entries.length === 0) {
-    return (
-      <div className="text-xs text-muted-foreground italic p-3">
-        No variables yet.
-      </div>
-    );
+    return <div className="text-xs text-muted-foreground italic p-3">No variables yet.</div>;
   }
   return (
     <ScrollArea className="h-full">
@@ -183,10 +190,7 @@ function VariablesTab() {
               {k}
             </span>
             <span className="text-muted-foreground">=</span>
-            <span
-              className="font-mono text-[11px] text-muted-foreground break-all"
-              title={v}
-            >
+            <span className="font-mono text-[11px] text-muted-foreground break-all" title={v}>
               {v.length > 120 ? `${v.slice(0, 117)}…` : v}
             </span>
           </div>
@@ -199,11 +203,7 @@ function VariablesTab() {
 function LogsTab() {
   const logs = useFlowRunStore((s) => s.logs);
   if (logs.length === 0) {
-    return (
-      <div className="text-xs text-muted-foreground italic p-3">
-        No logs yet.
-      </div>
-    );
+    return <div className="text-xs text-muted-foreground italic p-3">No logs yet.</div>;
   }
   return (
     <ScrollArea className="h-full">

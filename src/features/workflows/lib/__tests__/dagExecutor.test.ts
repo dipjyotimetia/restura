@@ -1,25 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type {
-  Workflow,
-  WorkflowGraph,
-  HttpRequest,
-  Response as ApiResponse,
-} from '@/types';
+import type { Workflow, WorkflowGraph, HttpRequest, Response as ApiResponse } from '@/types';
 import { executeWorkflow } from '../workflowExecutor';
 
 // Mock the protocol registry. dagExecutor and the refactored workflowExecutor
 // both reach for protocolRegistry.get(...) — we intercept here so tests stay
 // in-process with deterministic responses.
 const httpRunRequest = vi.fn();
-const httpInjectVariables = vi.fn(
-  (req: HttpRequest, vars: Record<string, string>) => {
-    let url = req.url;
-    for (const [k, v] of Object.entries(vars)) {
-      url = url.replace(new RegExp(`{{${k}}}`, 'g'), v);
-    }
-    return { ...req, url };
+const httpInjectVariables = vi.fn((req: HttpRequest, vars: Record<string, string>) => {
+  let url = req.url;
+  for (const [k, v] of Object.entries(vars)) {
+    url = url.replace(new RegExp(`{{${k}}}`, 'g'), v);
   }
-);
+  return { ...req, url };
+});
 vi.mock('@/features/registry/registry', () => ({
   protocolRegistry: {
     get: (id: string) => {
@@ -99,7 +92,12 @@ describe('dagExecutor — happy path', () => {
         version: 1,
         nodes: [
           { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
-          { id: 'req', kind: 'request', position: { x: 0, y: 0 }, data: { workflowRequestId: 'wr1' } },
+          {
+            id: 'req',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr1' },
+          },
           { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
         ],
         edges: [
@@ -138,23 +136,21 @@ describe('dagExecutor — graph validation', () => {
   });
 
   it('fails when the graph has a cycle', async () => {
-    const workflow = makeGraphWorkflow(
-      {
-        version: 1,
-        nodes: [
-          { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
-          { id: 'a', kind: 'delay', position: { x: 0, y: 0 }, data: { ms: 0 } },
-          { id: 'b', kind: 'delay', position: { x: 0, y: 0 }, data: { ms: 0 } },
-          { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
-        ],
-        edges: [
-          { id: 'e1', source: 'start', target: 'a' },
-          { id: 'e2', source: 'a', target: 'b' },
-          { id: 'e3', source: 'b', target: 'a' }, // cycle
-          { id: 'e4', source: 'a', target: 'end' },
-        ],
-      }
-    );
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        { id: 'a', kind: 'delay', position: { x: 0, y: 0 }, data: { ms: 0 } },
+        { id: 'b', kind: 'delay', position: { x: 0, y: 0 }, data: { ms: 0 } },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'a' },
+        { id: 'e2', source: 'a', target: 'b' },
+        { id: 'e3', source: 'b', target: 'a' }, // cycle
+        { id: 'e4', source: 'a', target: 'end' },
+      ],
+    });
     const result = await executeDag({
       workflow,
       getRequestById: () => undefined,
@@ -169,7 +165,12 @@ describe('dagExecutor — graph validation', () => {
       version: 1,
       nodes: [
         { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
-        { id: 'c', kind: 'condition', position: { x: 0, y: 0 }, data: { expression: 'return true;' } },
+        {
+          id: 'c',
+          kind: 'condition',
+          position: { x: 0, y: 0 },
+          data: { expression: 'return true;' },
+        },
         { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
       ],
       edges: [
@@ -195,9 +196,24 @@ describe('dagExecutor — condition routing', () => {
         version: 1,
         nodes: [
           { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
-          { id: 'c', kind: 'condition', position: { x: 0, y: 0 }, data: { expression: 'return true;' } },
-          { id: 't', kind: 'request', position: { x: 0, y: 0 }, data: { workflowRequestId: 'wr1' } },
-          { id: 'f', kind: 'request', position: { x: 0, y: 0 }, data: { workflowRequestId: 'wr1' } },
+          {
+            id: 'c',
+            kind: 'condition',
+            position: { x: 0, y: 0 },
+            data: { expression: 'return true;' },
+          },
+          {
+            id: 't',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr1' },
+          },
+          {
+            id: 'f',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr1' },
+          },
           { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
         ],
         edges: [
@@ -229,9 +245,24 @@ describe('dagExecutor — condition routing', () => {
         version: 1,
         nodes: [
           { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
-          { id: 'c', kind: 'condition', position: { x: 0, y: 0 }, data: { expression: 'return false;' } },
-          { id: 't', kind: 'request', position: { x: 0, y: 0 }, data: { workflowRequestId: 'wr1' } },
-          { id: 'f', kind: 'request', position: { x: 0, y: 0 }, data: { workflowRequestId: 'wr1' } },
+          {
+            id: 'c',
+            kind: 'condition',
+            position: { x: 0, y: 0 },
+            data: { expression: 'return false;' },
+          },
+          {
+            id: 't',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr1' },
+          },
+          {
+            id: 'f',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr1' },
+          },
           { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
         ],
         edges: [
@@ -257,9 +288,11 @@ describe('dagExecutor — condition routing', () => {
 
 describe('dagExecutor — setVariable / delay / transform', () => {
   it('setVariable assigns variables that downstream nodes can read', async () => {
-    httpRunRequest.mockImplementation(async (req: HttpRequest) => okResponse({
-      headers: { 'x-saw-url': req.url } as Record<string, string>,
-    }));
+    httpRunRequest.mockImplementation(async (req: HttpRequest) =>
+      okResponse({
+        headers: { 'x-saw-url': req.url } as Record<string, string>,
+      })
+    );
 
     const workflow = makeGraphWorkflow(
       {
@@ -399,7 +432,9 @@ describe('dagExecutor — parallel', () => {
       envVars: {},
     });
     expect(result.status).toBe('failed');
-    expect(result.executionLog.some((l) => l.message.toLowerCase().includes('conflict'))).toBe(true);
+    expect(result.executionLog.some((l) => l.message.toLowerCase().includes('conflict'))).toBe(
+      true
+    );
   });
 
   it('pick-first resolves to the first branch value', async () => {
@@ -442,7 +477,12 @@ describe('dagExecutor — parallel', () => {
         version: 1,
         nodes: [
           { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
-          { id: 'p', kind: 'parallel', position: { x: 0, y: 0 }, data: { waitMode: 'all', mergeStrategy: 'merge-list' } },
+          {
+            id: 'p',
+            kind: 'parallel',
+            position: { x: 0, y: 0 },
+            data: { waitMode: 'all', mergeStrategy: 'merge-list' },
+          },
           {
             id: 'a',
             kind: 'transform',
@@ -583,7 +623,12 @@ describe('dagExecutor — tryCatch + failureMode', () => {
                 version: 1,
                 nodes: [
                   { id: 's', kind: 'start', position: { x: 0, y: 0 } },
-                  { id: 'r', kind: 'request', position: { x: 0, y: 0 }, data: { workflowRequestId: 'wr1' } },
+                  {
+                    id: 'r',
+                    kind: 'request',
+                    position: { x: 0, y: 0 },
+                    data: { workflowRequestId: 'wr1' },
+                  },
                   { id: 'e', kind: 'end', position: { x: 0, y: 0 } },
                 ],
                 edges: [
@@ -798,16 +843,17 @@ describe('dagExecutor — abort propagation', () => {
     // Protocol implementations honour ctx.signal — the mock simulates that
     // so the abort flows through executeWithRetry and into the executor's
     // top-level catch.
-    httpRunRequest.mockImplementation((_req: HttpRequest, ctx: { signal: AbortSignal }) =>
-      new Promise<ApiResponse>((_resolve, reject) => {
-        if (ctx.signal.aborted) {
-          reject(new DOMException('Aborted', 'AbortError'));
-          return;
-        }
-        ctx.signal.addEventListener('abort', () =>
-          reject(new DOMException('Aborted', 'AbortError'))
-        );
-      })
+    httpRunRequest.mockImplementation(
+      (_req: HttpRequest, ctx: { signal: AbortSignal }) =>
+        new Promise<ApiResponse>((_resolve, reject) => {
+          if (ctx.signal.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+          }
+          ctx.signal.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError'))
+          );
+        })
     );
     const controller = new AbortController();
     const workflow = makeGraphWorkflow(
@@ -815,7 +861,12 @@ describe('dagExecutor — abort propagation', () => {
         version: 1,
         nodes: [
           { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
-          { id: 'r', kind: 'request', position: { x: 0, y: 0 }, data: { workflowRequestId: 'wr1' } },
+          {
+            id: 'r',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr1' },
+          },
           { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
         ],
         edges: [
@@ -856,5 +907,255 @@ describe('legacy workflowExecutor — refuses graph workflows', () => {
         resolveVariables: (t) => t,
       })
     ).rejects.toThrow(/graph-authored/);
+  });
+});
+
+describe('dagExecutor — switch / loop / template / display', () => {
+  it('switch routes to the first matching case', async () => {
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'sw',
+          kind: 'switch',
+          position: { x: 0, y: 0 },
+          data: {
+            cases: [
+              { id: 'a', expression: 'return false;' },
+              { id: 'b', expression: 'return true;' },
+            ],
+          },
+        },
+        {
+          id: 'setA',
+          kind: 'setVariable',
+          position: { x: 0, y: 0 },
+          data: { assignments: [{ key: 'hit', valueExpression: '"a"' }] },
+        },
+        {
+          id: 'setB',
+          kind: 'setVariable',
+          position: { x: 0, y: 0 },
+          data: { assignments: [{ key: 'hit', valueExpression: '"b"' }] },
+        },
+        {
+          id: 'setD',
+          kind: 'setVariable',
+          position: { x: 0, y: 0 },
+          data: { assignments: [{ key: 'hit', valueExpression: '"d"' }] },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'sw' },
+        { id: 'e2', source: 'sw', target: 'setA', sourceHandle: 'a' },
+        { id: 'e3', source: 'sw', target: 'setB', sourceHandle: 'b' },
+        { id: 'e4', source: 'sw', target: 'setD', sourceHandle: 'default' },
+        { id: 'e5', source: 'setA', target: 'end' },
+        { id: 'e6', source: 'setB', target: 'end' },
+        { id: 'e7', source: 'setD', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    expect(result.status).toBe('success');
+    expect(result.finalVariables.hit).toBe('b');
+  });
+
+  it('switch falls back to the default handle when no case matches', async () => {
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'sw',
+          kind: 'switch',
+          position: { x: 0, y: 0 },
+          data: { cases: [{ id: 'a', expression: 'return false;' }] },
+        },
+        {
+          id: 'setD',
+          kind: 'setVariable',
+          position: { x: 0, y: 0 },
+          data: { assignments: [{ key: 'hit', valueExpression: '"d"' }] },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'sw' },
+        { id: 'e2', source: 'sw', target: 'setD', sourceHandle: 'default' },
+        { id: 'e3', source: 'setD', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    expect(result.status).toBe('success');
+    expect(result.finalVariables.hit).toBe('d');
+  });
+
+  it('loop runs until the while-condition becomes false', async () => {
+    const bodyGraph: WorkflowGraph = {
+      version: 1,
+      nodes: [
+        { id: 'bs', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'inc',
+          kind: 'setVariable',
+          position: { x: 0, y: 0 },
+          data: {
+            assignments: [
+              {
+                key: 'i',
+                valueExpression: "String(Number(pm.variables.get('i') || '0') + 1)",
+              },
+            ],
+          },
+        },
+        { id: 'be', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'be1', source: 'bs', target: 'inc' },
+        { id: 'be2', source: 'inc', target: 'be' },
+      ],
+    };
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'lp',
+          kind: 'loop',
+          position: { x: 0, y: 0 },
+          data: {
+            conditionExpression: "return Number(pm.variables.get('i') || '0') < 3;",
+            mode: 'while',
+            maxIterations: 100,
+            subgraph: bodyGraph,
+          },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'lp' },
+        { id: 'e2', source: 'lp', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    expect(result.status).toBe('success');
+    expect(result.finalVariables.i).toBe('3');
+    expect(result.finalVariables['lp.iterations']).toBe('3');
+  });
+
+  it('loop honours the maxIterations cap', async () => {
+    const bodyGraph: WorkflowGraph = {
+      version: 1,
+      nodes: [
+        { id: 'bs', kind: 'start', position: { x: 0, y: 0 } },
+        { id: 'be', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [{ id: 'be1', source: 'bs', target: 'be' }],
+    };
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'lp',
+          kind: 'loop',
+          position: { x: 0, y: 0 },
+          data: {
+            conditionExpression: 'return true;',
+            mode: 'while',
+            maxIterations: 5,
+            subgraph: bodyGraph,
+          },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'lp' },
+        { id: 'e2', source: 'lp', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    expect(result.status).toBe('success');
+    expect(result.finalVariables['lp.iterations']).toBe('5');
+  });
+
+  it('template renders {{vars}} into the result variable', async () => {
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'sv',
+          kind: 'setVariable',
+          position: { x: 0, y: 0 },
+          data: { assignments: [{ key: 'name', valueExpression: '"world"' }] },
+        },
+        {
+          id: 'tpl',
+          kind: 'template',
+          position: { x: 0, y: 0 },
+          data: { template: 'Hello {{name}}!', resultVar: 'greeting' },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'sv' },
+        { id: 'e2', source: 'sv', target: 'tpl' },
+        { id: 'e3', source: 'tpl', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    expect(result.status).toBe('success');
+    expect(result.finalVariables.greeting).toBe('Hello world!');
+  });
+
+  it('display captures a value into the run step', async () => {
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'disp',
+          kind: 'display',
+          position: { x: 0, y: 0 },
+          data: { valueExpression: '({ a: 1 })', mode: 'json', label: 'out' },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'disp' },
+        { id: 'e2', source: 'disp', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    expect(result.status).toBe('success');
+    const step = result.steps.find((s) => s.nodeId === 'disp');
+    expect(step?.extractedVariables?.out).toBe('{"a":1}');
   });
 });
