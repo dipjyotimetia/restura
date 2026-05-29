@@ -37,6 +37,7 @@
 import { execFile } from 'child_process';
 import { ipcMain } from 'electron';
 import { IPC } from '../shared/channels';
+import { assertTrustedSender } from './ipc-validators';
 import { promisify } from 'util';
 import * as path from 'path';
 import { z } from 'zod';
@@ -273,7 +274,10 @@ function withLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export class GitError extends Error {
-  constructor(message: string, public readonly code: string = 'error') {
+  constructor(
+    message: string,
+    public readonly code: string = 'error'
+  ) {
     super(message);
     this.name = 'GitError';
   }
@@ -346,12 +350,7 @@ export async function gitBranchList(directoryPath: string): Promise<GitBranch[]>
   return withLock(dir, async () => {
     const [current, list] = await Promise.all([
       runGit(dir, ['branch', '--show-current']).then((s) => s.trim() || null),
-      runGit(dir, [
-        'branch',
-        '--list',
-        '--all',
-        '--format=%(refname:short)\t%(upstream:short)',
-      ]),
+      runGit(dir, ['branch', '--list', '--all', '--format=%(refname:short)\t%(upstream:short)']),
     ]);
     return parseBranchList(list, current);
   });
@@ -442,8 +441,11 @@ function ipcCommand<T, R>(
   schema: z.ZodType<T>,
   resultKey: string,
   run: (data: T) => Promise<R>
-): (_e: unknown, payload: unknown) => Promise<Record<string, unknown>> {
-  return async (_e, payload) => {
+): (e: Electron.IpcMainInvokeEvent, payload: unknown) => Promise<Record<string, unknown>> {
+  return async (e, payload) => {
+    // Defense-in-depth: reject IPC from any frame that isn't the trusted
+    // renderer entry point before touching the filesystem / git.
+    assertTrustedSender('git', e);
     const parsed = schema.safeParse(payload);
     if (!parsed.success) return { ok: false, error: parsed.error.message };
     try {

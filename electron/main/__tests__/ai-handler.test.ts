@@ -42,9 +42,22 @@ describe('ai-handler', () => {
   it('rejects invalid input', async () => {
     const aiChatCall = mockHandle.mock.calls.find((c) => c[0] === 'ai:chat');
     const handler = aiChatCall?.[1] as (e: unknown, p: unknown) => Promise<unknown>;
-    const fakeEvent = { sender: { id: 1, isDestroyed: () => false } };
+    const fakeEvent = {
+      sender: { id: 1, isDestroyed: () => false },
+      senderFrame: { url: 'file:///app/dist/web/index.html' },
+    };
     const result = (await handler(fakeEvent, { not: 'valid' })) as { ok?: boolean };
     expect(result.ok).toBe(false);
+  });
+
+  it('rejects calls from an untrusted frame', async () => {
+    const aiChatCall = mockHandle.mock.calls.find((c) => c[0] === 'ai:chat');
+    const handler = aiChatCall?.[1] as (e: unknown, p: unknown) => Promise<unknown>;
+    const untrusted = {
+      sender: { id: 1, isDestroyed: () => false },
+      senderFrame: { url: 'https://attacker.example' },
+    };
+    await expect(handler(untrusted, { not: 'valid' })).rejects.toThrow(/untrusted frame/);
   });
 
   it('resolveSecretFn returns plaintext from handle store', async () => {

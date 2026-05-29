@@ -9,6 +9,7 @@ import {
   McpDisconnectSchema,
   validateIpcInput,
   createValidatedHandler,
+  assertTrustedSender,
 } from './ipc-validators';
 import { SseParser, type ParsedSseEvent } from './sse-parser';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
@@ -51,11 +52,14 @@ interface HttpSseSession extends SessionBase {
   /** POST endpoint advertised by the server's `endpoint` SSE event */
   postEndpoint?: string;
   /** Pending JSON-RPC requests awaiting matching response by id */
-  pending: Map<string | number, {
-    resolve: (value: unknown) => void;
-    reject: (err: Error) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }>;
+  pending: Map<
+    string | number,
+    {
+      resolve: (value: unknown) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >;
 }
 
 type Session = StreamableHttpSession | HttpSseSession;
@@ -85,7 +89,9 @@ async function readSseStream(
   body: ReadableStream<Uint8Array> | null
 ): Promise<void> {
   if (!body) {
-    emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.error, session.connectionId), { message: 'No SSE body' });
+    emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.error, session.connectionId), {
+      message: 'No SSE body',
+    });
     teardownSession(session.connectionId);
     return;
   }
@@ -117,14 +123,20 @@ async function readSseStream(
           clearTimeout(pending.timer);
           session.pending.delete(parsed.id);
           if (parsed.error) {
-            pending.reject(new Error(`JSON-RPC error ${parsed.error.code}: ${parsed.error.message}`));
+            pending.reject(
+              new Error(`JSON-RPC error ${parsed.error.code}: ${parsed.error.message}`)
+            );
           } else {
             pending.resolve(parsed.result);
           }
           return;
         }
         // Unmatched message — treat as a server-initiated notification
-        emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.notification, session.connectionId), parsed);
+        emitTo(
+          session.webContentsId,
+          eventChannel(EVENT_PREFIX.mcp.notification, session.connectionId),
+          parsed
+        );
       } catch (err) {
         emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.error, session.connectionId), {
           message: `Failed to parse SSE message: ${err instanceof Error ? err.message : 'unknown'}`,
@@ -148,7 +160,9 @@ async function readSseStream(
     }
   } finally {
     if (sessions.get(session.connectionId) === session) {
-      emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.close, session.connectionId), { reason: 'stream ended' });
+      emitTo(session.webContentsId, eventChannel(EVENT_PREFIX.mcp.close, session.connectionId), {
+        reason: 'stream ended',
+      });
       teardownSession(session.connectionId);
     }
   }
@@ -162,7 +176,11 @@ async function readStreamableHttpResponse(
 ): Promise<{ result?: unknown; error?: { code: number; message: string; data?: unknown } }> {
   const ct = response.headers.get('content-type') ?? '';
   if (ct.includes('application/json')) {
-    const body = await response.json() as { id?: string | number; result?: unknown; error?: { code: number; message: string; data?: unknown } };
+    const body = (await response.json()) as {
+      id?: string | number;
+      result?: unknown;
+      error?: { code: number; message: string; data?: unknown };
+    };
     return body.error ? { error: body.error } : { result: body.result };
   }
   if (ct.includes('text/event-stream')) {
@@ -170,11 +188,17 @@ async function readStreamableHttpResponse(
     const decoder = new TextDecoder();
     const parser = new SseParser();
     const reader = response.body.getReader();
-    let resolved: { result?: unknown; error?: { code: number; message: string; data?: unknown } } | undefined;
+    let resolved:
+      | { result?: unknown; error?: { code: number; message: string; data?: unknown } }
+      | undefined;
     const onEvent = (e: ParsedSseEvent) => {
       if (resolved) return;
       try {
-        const parsed = JSON.parse(e.data) as { id?: string | number; result?: unknown; error?: { code: number; message: string; data?: unknown } };
+        const parsed = JSON.parse(e.data) as {
+          id?: string | number;
+          result?: unknown;
+          error?: { code: number; message: string; data?: unknown };
+        };
         if (parsed.id === expectedId) {
           resolved = parsed.error ? { error: parsed.error } : { result: parsed.result };
         }
@@ -194,7 +218,11 @@ async function readStreamableHttpResponse(
     } finally {
       // Cancel as soon as the matching reply is found (or the stream errors) so we
       // don't keep draining bytes from the upstream after we have what we need.
-      try { await reader.cancel(); } catch { /* already done */ }
+      try {
+        await reader.cancel();
+      } catch {
+        /* already done */
+      }
     }
   }
   throw new Error(`Unsupported MCP response Content-Type: ${ct || '(none)'}`);
@@ -202,6 +230,7 @@ async function readStreamableHttpResponse(
 
 export function registerMcpHandlerIPC(): void {
   ipcMain.handle(IPC.mcp.connect, async (event, rawConfig: unknown) => {
+    assertTrustedSender(IPC.mcp.connect, event);
     const config = validateIpcInput(McpConnectSchema, rawConfig, IPC.mcp.connect);
     const webContentsId = event.sender.id;
 
@@ -217,7 +246,10 @@ export function registerMcpHandlerIPC(): void {
     try {
       await assertUrlHostnameSafe(config.url, { allowLocalhost: true });
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'URL rejected by SSRF policy' };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+      };
     }
 
     bindRendererCleanup(sessions, event.sender, (deadId) => {
@@ -313,7 +345,8 @@ export function registerMcpHandlerIPC(): void {
           return { success: false, error: 'Not connected' };
         }
 
-        const requestId = config.requestId ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const requestId =
+          config.requestId ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
         const body = JSON.stringify({
           jsonrpc: '2.0',
@@ -383,13 +416,19 @@ export function registerMcpHandlerIPC(): void {
               clearTimeout(p.timer);
               session.pending.delete(requestId);
             }
-            return { success: false, error: `HTTP ${postResponse.status} ${postResponse.statusText}` };
+            return {
+              success: false,
+              error: `HTTP ${postResponse.status} ${postResponse.statusText}`,
+            };
           }
 
           const result = await pendingPromise;
           return { success: true, result };
         } catch (err) {
-          return { success: false, error: err instanceof Error ? err.message : 'MCP request failed' };
+          return {
+            success: false,
+            error: err instanceof Error ? err.message : 'MCP request failed',
+          };
         }
       })
     )

@@ -80,7 +80,10 @@ export function loadWindowState(): WindowState {
       }
       const result = WindowStateSchema.safeParse(parsed);
       if (!result.success) {
-        console.error('[window-manager] window-state schema validation failed:', result.error.issues);
+        console.error(
+          '[window-manager] window-state schema validation failed:',
+          result.error.issues
+        );
         return defaultWindowState;
       }
       return { ...defaultWindowState, ...result.data };
@@ -176,7 +179,12 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    const indexPath = path.join(__dirname, '../../dist/web/client/index.html');
+    // Compiled main lives at dist/electron/electron/main/main.js; the Electron
+    // renderer build (Cloudflare plugin skipped) emits the SPA to dist/web/.
+    // electron-builder mirrors the project-relative tree into the asar, so the
+    // renderer is three levels up from __dirname. (No `client/` subdir — that
+    // only exists for the Cloudflare web build.)
+    const indexPath = path.join(__dirname, '../../../web/index.html');
     mainWindow.loadFile(indexPath);
   }
 
@@ -186,7 +194,9 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       if ((SAFE_OPEN_PROTOCOLS as readonly string[]).includes(protocol)) {
         shell.openExternal(url);
       }
-    } catch { /* ignore malformed URLs */ }
+    } catch {
+      /* ignore malformed URLs */
+    }
     return { action: 'deny' };
   });
 

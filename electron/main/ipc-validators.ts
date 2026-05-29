@@ -739,7 +739,7 @@ function isTrustedFrameUrl(url: string | undefined): boolean {
  * frame, redirected webContents, or a popup window calling into the main
  * process.
  */
-function assertTrustedSender(
+export function assertTrustedSender(
   channel: string,
   event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent
 ): void {

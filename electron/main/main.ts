@@ -20,7 +20,7 @@ import {
   isRegisteredCollectionDirectory,
 } from './collection-manager';
 import { registerStoreHandlerIPC } from './store-handler';
-import { registerSecretHandleIPC } from './secret-handle-store';
+import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './secret-handle-store';
 import { registerVaultHandlers, unregisterVaultHandlers } from './vault-handler';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
@@ -146,7 +146,7 @@ const IPC_MODULES: IpcModule[] = [
     dispose: () => cleanupCollectionWatchers(),
   },
   { register: () => registerStoreHandlerIPC() },
-  { register: () => registerSecretHandleIPC() },
+  { register: () => registerSecretHandleIPC(), dispose: () => unregisterSecretHandleIPC() },
   { register: () => registerVaultHandlers(), dispose: () => unregisterVaultHandlers() },
   { register: () => registerKeychainStatusIPC() },
   {

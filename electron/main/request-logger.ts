@@ -2,7 +2,7 @@ import { app, ipcMain } from 'electron';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { z } from 'zod';
-import { LogHistoryLimitSchema, validateIpcInput } from './ipc-validators';
+import { LogHistoryLimitSchema, validateIpcInput, assertTrustedSender } from './ipc-validators';
 import { IPC } from '../shared/channels';
 
 /**
@@ -79,7 +79,8 @@ export function logRequest(entry: LogEntry): void {
 }
 
 export function registerRequestLoggerIPC(): void {
-  ipcMain.handle(IPC.log.getHistory, async (_event, rawLimit?: unknown) => {
+  ipcMain.handle(IPC.log.getHistory, async (event, rawLimit?: unknown) => {
+    assertTrustedSender(IPC.log.getHistory, event);
     const limit = validateIpcInput(LogHistoryLimitSchema, rawLimit, IPC.log.getHistory);
     try {
       const filePath = await getLogFilePath();
@@ -109,7 +110,8 @@ export function registerRequestLoggerIPC(): void {
     }
   });
 
-  ipcMain.handle(IPC.log.clear, async () => {
+  ipcMain.handle(IPC.log.clear, async (event) => {
+    assertTrustedSender(IPC.log.clear, event);
     try {
       await fsp.writeFile(await getLogFilePath(), '');
     } catch {
