@@ -1,9 +1,11 @@
 import { ipcMain } from 'electron';
+import { Agent as HttpAgent } from 'node:http';
+import { Agent as HttpsAgent } from 'node:https';
 import { io as ioClient, type Socket } from 'socket.io-client';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
-import { assertUrlHostnameSafe } from './dns-guard';
+import { resolveSafeAddress, createPinnedLookup } from './safe-connect';
 import {
   SocketIoConnectSchema,
   SocketIoEmitSchema,
@@ -28,6 +30,25 @@ interface ActiveSocketIO {
   webContentsId: number;
   explicitlyClosed: boolean;
   pendingAcks: Map<string, NodeJS.Timeout>;
+  /** Pinned-DNS agent backing every transport for this connection; destroyed on teardown. */
+  agent: HttpAgent | HttpsAgent;
+}
+
+/** Tear down a connection's transport + timers + pinned agent. */
+function disposeSocketIo(entry: ActiveSocketIO): void {
+  entry.explicitlyClosed = true;
+  for (const t of entry.pendingAcks.values()) clearTimeout(t);
+  entry.pendingAcks.clear();
+  try {
+    entry.socket.disconnect();
+  } catch {
+    /* ignore */
+  }
+  try {
+    entry.agent.destroy();
+  } catch {
+    /* ignore */
+  }
 }
 
 const activeConnections = new Map<string, ActiveSocketIO>();
@@ -67,24 +88,35 @@ export function registerSocketIoHandlerIPC(): void {
     // Close existing connection with the same id
     const existing = activeConnections.get(connectionId);
     if (existing) {
-      existing.explicitlyClosed = true;
-      for (const t of existing.pendingAcks.values()) clearTimeout(t);
-      existing.pendingAcks.clear();
-      try { existing.socket.disconnect(); } catch { /* ignore */ }
+      disposeSocketIo(existing);
       activeConnections.delete(connectionId);
     }
 
+    // Resolve + validate once, then PIN every transport to that IP. socket.io
+    // re-resolves DNS on connect (and on each reconnect), so a one-shot
+    // pre-flight check leaves a rebind/TOCTOU window open — matching the WS and
+    // gRPC handlers, we close it. engine.io-client forwards `agent` to both the
+    // `ws` (websocket) and `xmlhttprequest-ssl` (polling) transports, so a single
+    // agent carrying a pinned `lookup` covers both. The URL keeps the original
+    // hostname so SNI + Host header stay correct.
+    let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
     try {
-      await assertUrlHostnameSafe(config.url, {
+      pinned = await resolveSafeAddress(config.url, {
         allowLocalhost: true,
         allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
       });
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'URL rejected by SSRF policy' };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+      };
     }
 
     try {
       const connectUrl = buildConnectUrl(config.url, config.namespace);
+      const secure = /^(https|wss):/i.test(config.url);
+      const lookup = createPinnedLookup(pinned.host, pinned.ip);
+      const agent = secure ? new HttpsAgent({ lookup }) : new HttpAgent({ lookup });
 
       const socket = ioClient(connectUrl, {
         path: config.path ?? '/socket.io',
@@ -98,6 +130,10 @@ export function registerSocketIoHandlerIPC(): void {
         timeout: config.timeout ?? 20_000,
         forceNew: config.forceNew ?? false,
         autoConnect: true,
+        // engine.io types `agent` as string|boolean for historical reasons, but
+        // at runtime it forwards the value straight to ws / http(s).request,
+        // both of which accept an http(s).Agent. Cast at the boundary.
+        agent: agent as unknown as boolean,
       });
 
       const entry: ActiveSocketIO = {
@@ -108,6 +144,7 @@ export function registerSocketIoHandlerIPC(): void {
         webContentsId,
         explicitlyClosed: false,
         pendingAcks: new Map(),
+        agent,
       };
 
       socket.on('connect', () => {
@@ -144,12 +181,7 @@ export function registerSocketIoHandlerIPC(): void {
       activeConnections.set(connectionId, entry);
 
       bindRendererCleanup(activeConnections, event.sender, (deadId) => {
-        disposeByOwner(activeConnections, deadId, (e) => {
-          e.explicitlyClosed = true;
-          for (const t of e.pendingAcks.values()) clearTimeout(t);
-          e.pendingAcks.clear();
-          try { e.socket.disconnect(); } catch { /* ignore */ }
-        });
+        disposeByOwner(activeConnections, deadId, disposeSocketIo);
       });
 
       return { success: true };
@@ -215,10 +247,7 @@ export function registerSocketIoHandlerIPC(): void {
     createValidatedHandler(IPC.socketio.disconnect, SocketIoDisconnectSchema, async (config) => {
       const entry = activeConnections.get(config.connectionId);
       if (entry) {
-        entry.explicitlyClosed = true;
-        for (const t of entry.pendingAcks.values()) clearTimeout(t);
-        entry.pendingAcks.clear();
-        try { entry.socket.disconnect(); } catch { /* ignore */ }
+        disposeSocketIo(entry);
         activeConnections.delete(config.connectionId);
       }
       return { success: true };
@@ -228,12 +257,7 @@ export function registerSocketIoHandlerIPC(): void {
 
 export function stopSocketIoCleanup(): void {
   for (const [, entry] of activeConnections) {
-    try {
-      entry.explicitlyClosed = true;
-      for (const t of entry.pendingAcks.values()) clearTimeout(t);
-      entry.pendingAcks.clear();
-      entry.socket.disconnect();
-    } catch { /* ignore */ }
+    disposeSocketIo(entry);
   }
   activeConnections.clear();
 }

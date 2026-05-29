@@ -14,6 +14,7 @@ import type {
   ProducerOptions,
 } from '@platformatic/kafka';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
+import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { emitTo } from './ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
 import { IPC } from '../shared/channels';
@@ -91,8 +92,7 @@ function buildClientOptions(cfg: KafkaConnectConfig): KafkaClientOptions {
     bootstrapBrokers: cfg.bootstrapBrokers,
   };
 
-  const useTls =
-    cfg.auth.securityProtocol === 'SSL' || cfg.auth.securityProtocol === 'SASL_SSL';
+  const useTls = cfg.auth.securityProtocol === 'SSL' || cfg.auth.securityProtocol === 'SASL_SSL';
 
   if (cfg.auth.securityProtocol !== 'PLAINTEXT' && 'sasl' in cfg.auth && cfg.auth.sasl) {
     opts.sasl = {
@@ -263,16 +263,18 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
       // Tear the connection down if the renderer dies without disconnecting.
       // Otherwise the producer/consumer keep their broker sockets open until
-      // the Electron process exits — a real leak under hot-reload.
-      wc?.once('destroyed', () => {
-        const e = activeConnections.get(connectionId);
-        if (e === entry) {
-          activeConnections.delete(connectionId);
-          void closeConnection(entry);
-        }
+      // the Electron process exits — a real leak under hot-reload. Shared
+      // helper dedupes the destroyed-listener across reconnects and centralises
+      // the owner→dispose walk used by every streaming handler (ADR-0006).
+      bindRendererCleanup(activeConnections, event.sender, (deadId) => {
+        disposeByOwner(activeConnections, deadId, (e) => {
+          void closeConnection(e);
+        });
       });
 
-      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), { timestamp: Date.now() });
+      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), {
+        timestamp: Date.now(),
+      });
       logEntry(0);
       return { success: true };
     } catch (err) {
@@ -320,7 +322,12 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           if (!first) {
             return {
               success: true,
-              ack: { topic: cfg.topic, partition: cfg.partition ?? -1, offset: '-1', timestamp: Date.now() },
+              ack: {
+                topic: cfg.topic,
+                partition: cfg.partition ?? -1,
+                offset: '-1',
+                timestamp: Date.now(),
+              },
             };
           }
           return {
@@ -357,10 +364,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         } as unknown as ConsumerOptions<string, string, string, string>;
         const consumer = new Consumer<string, string, string, string>(consumerOptions);
 
-        const stream = (await (consumer.consume({
+        const stream = await (consumer.consume({
           topics: cfg.topics,
           mode: cfg.fromBeginning ? MessagesStreamModes.EARLIEST : MessagesStreamModes.LATEST,
-        }) as Promise<StringStream>));
+        }) as Promise<StringStream>);
 
         bindStreamListeners(entry, stream);
         entry.consumer = consumer;

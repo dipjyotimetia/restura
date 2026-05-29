@@ -15,7 +15,9 @@ import {
   getSuggestedAction,
   getMethodTypeDescription,
   makeElectronGrpcRequest,
+  makeProxyGrpcRequest,
   startElectronGrpcStream,
+  grpcAuthNeedsMainSideApply,
   GrpcClientError,
 } from '../grpcClient';
 import type { GrpcRequest, AuthConfig } from '@/types';
@@ -1102,6 +1104,136 @@ message PingRequest
 
       const result = await makeProxyGrpcRequest(grpcReq, (s) => s);
       expect(result.status).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('SecretRef handle auth (ADR-0007)', () => {
+    const handleAuth: AuthConfig = {
+      type: 'bearer',
+      bearer: { token: { kind: 'handle', id: 'h-grpc-1' } },
+    };
+    const inlineAuth: AuthConfig = {
+      type: 'bearer',
+      bearer: { token: { kind: 'inline', value: 'tok-123' } },
+    };
+
+    it('grpcAuthNeedsMainSideApply is true for a handle, false for inline/none', () => {
+      expect(grpcAuthNeedsMainSideApply(handleAuth)).toBe(true);
+      expect(grpcAuthNeedsMainSideApply(inlineAuth)).toBe(false);
+      expect(grpcAuthNeedsMainSideApply({ type: 'none' })).toBe(false);
+    });
+
+    it('buildAuthMetadata drops the handle (renderer cannot read plaintext)', () => {
+      expect(buildAuthMetadata(handleAuth)).toEqual({});
+      // Inline is applied in-renderer as usual.
+      expect(buildAuthMetadata(inlineAuth)).toEqual({ authorization: 'Bearer tok-123' });
+    });
+
+    it('makeElectronGrpcRequest threads the auth descriptor through IPC for a handle', async () => {
+      const requestMock = vi.fn().mockResolvedValue({
+        status: 0,
+        statusText: 'OK',
+        headers: {},
+        trailers: {},
+        message: {},
+        size: 0,
+      });
+      Object.defineProperty(window, 'electron', {
+        value: { isElectron: true, grpc: { request: requestMock } },
+        writable: true,
+        configurable: true,
+      });
+      try {
+        const req: GrpcRequest = {
+          id: 'req-handle-1',
+          name: 'T',
+          type: 'grpc',
+          methodType: 'unary',
+          url: 'https://api.example.com',
+          service: 'pkg.Svc',
+          method: 'Get',
+          metadata: [],
+          message: '{}',
+          auth: handleAuth,
+        };
+        await makeElectronGrpcRequest(req, 'syntax = "proto3";', 'test.proto', (s) => s);
+        const payload = requestMock.mock.calls[0]![0] as {
+          auth?: AuthConfig;
+          metadata: Record<string, string>;
+        };
+        expect(payload.auth).toEqual(handleAuth);
+        // The handle is NOT pre-applied into metadata on the renderer side.
+        expect(payload.metadata['authorization']).toBeUndefined();
+      } finally {
+        Object.defineProperty(window, 'electron', {
+          value: undefined,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+
+    it('makeElectronGrpcRequest omits the auth descriptor for inline creds', async () => {
+      const requestMock = vi.fn().mockResolvedValue({
+        status: 0,
+        statusText: 'OK',
+        headers: {},
+        trailers: {},
+        message: {},
+        size: 0,
+      });
+      Object.defineProperty(window, 'electron', {
+        value: { isElectron: true, grpc: { request: requestMock } },
+        writable: true,
+        configurable: true,
+      });
+      try {
+        const req: GrpcRequest = {
+          id: 'req-inline-1',
+          name: 'T',
+          type: 'grpc',
+          methodType: 'unary',
+          url: 'https://api.example.com',
+          service: 'pkg.Svc',
+          method: 'Get',
+          metadata: [],
+          message: '{}',
+          auth: inlineAuth,
+        };
+        await makeElectronGrpcRequest(req, 'syntax = "proto3";', 'test.proto', (s) => s);
+        const payload = requestMock.mock.calls[0]![0] as {
+          auth?: AuthConfig;
+          metadata: Record<string, string>;
+        };
+        expect(payload.auth).toBeUndefined();
+        expect(payload.metadata['authorization']).toBe('Bearer tok-123');
+      } finally {
+        Object.defineProperty(window, 'electron', {
+          value: undefined,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+
+    it('makeProxyGrpcRequest (web) rejects a handle with UNAUTHENTICATED instead of sending it', async () => {
+      const req: GrpcRequest = {
+        id: 'req-web-handle',
+        name: 'T',
+        type: 'grpc',
+        methodType: 'unary',
+        url: 'https://api.example.com',
+        service: 'pkg.Svc',
+        method: 'Get',
+        metadata: [],
+        message: '{}',
+        auth: handleAuth,
+      };
+      // A synthesized UNAUTHENTICATED GrpcClientError is produced only by the
+      // pre-fetch guard; the network path derives its status from the upstream
+      // response. So this result proves no request was sent.
+      const result = await makeProxyGrpcRequest(req, (s) => s);
+      expect(result.grpcStatus).toBe(GrpcStatusCode.UNAUTHENTICATED);
     });
   });
 });

@@ -72,18 +72,26 @@ export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
         headerCase: 'lower',
         basicRequiresPassword: true,
       });
-      if (credential.requiresMainSideApply) {
-        // gRPC IPC handler does not yet thread auth descriptors through for
-        // main-side handle resolution. Until that lands, log so the
-        // 401-from-upstream root cause is visible in the console.
-        console.warn(
-          'gRPC auth uses a SecretRef handle, but gRPC main-side handle resolution is not yet implemented. ' +
-            'Switch this credential to inline storage or use an HTTP request to consume the handle.'
-        );
-      }
+      // SecretRef-handle credentials resolve to empty headers here (the renderer
+      // can't read handle plaintext). On Electron they're resolved main-side by
+      // the gRPC IPC handler — see `grpcAuthNeedsMainSideApply` / the `auth`
+      // field threaded into the startStream/request payloads. The web path
+      // rejects them up front (handles are desktop-only).
       return { ...credential.headers };
     }
   }
+}
+
+/**
+ * True when this auth descriptor carries a SecretRef handle the renderer cannot
+ * resolve (ADR-0007). Electron threads the descriptor through IPC so the main
+ * process resolves it via the OS keychain; web rejects it.
+ */
+export function grpcAuthNeedsMainSideApply(auth: AuthConfig): boolean {
+  return (
+    buildAuthCredential(auth, { headerCase: 'lower', basicRequiresPassword: true })
+      .requiresMainSideApply === true
+  );
 }
 
 // Create gRPC Interceptor for metadata injection
@@ -483,6 +491,9 @@ export async function makeElectronGrpcRequest(
       protoFileName,
       timeoutMs,
       useCompression,
+      // Hand the descriptor to the main process only when it holds a handle the
+      // renderer couldn't resolve; inline/plain creds are already in `metadata`.
+      ...(grpcAuthNeedsMainSideApply(request.auth) ? { auth: request.auth } : {}),
     });
 
     const endTime = Date.now();
@@ -570,6 +581,7 @@ export function startElectronGrpcStream(
     protoFileName,
     timeoutMs,
     useCompression,
+    ...(grpcAuthNeedsMainSideApply(request.auth) ? { auth: request.auth } : {}),
   });
 
   return {
@@ -730,6 +742,21 @@ export async function makeProxyGrpcRequest(
   resolveVariables: (text: string) => string,
   timeoutMs: number = 30000
 ): Promise<GrpcResponse> {
+  // Handle-backed secrets can only be resolved in the Electron main process
+  // (OS keychain); the Worker proxy has no access. Fail fast with a clear cause
+  // instead of silently sending an unauthenticated request that 401s upstream.
+  if (grpcAuthNeedsMainSideApply(request.auth)) {
+    return createErrorResponse(
+      request.id,
+      new GrpcClientError(
+        'This credential uses a stored secret handle, which is only available in the Restura desktop app. ' +
+          'Switch the credential to an inline value to use it on the web.',
+        GrpcStatusCode.UNAUTHENTICATED
+      ),
+      Date.now()
+    );
+  }
+
   const prepared = prepareGrpcRequest(request, resolveVariables);
   const startTime = Date.now();
 

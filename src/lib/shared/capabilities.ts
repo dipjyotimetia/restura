@@ -11,6 +11,7 @@
 
 export type CapabilityName =
   | 'http.basic'
+  | 'graphql.basic'
   | 'http.proxy.socks'
   | 'http.proxy.pac'
   | 'http.mtls'
@@ -30,6 +31,7 @@ export type CapabilityName =
   | 'grpc.reflection'
   | 'kafka.basic'
   | 'socketio.basic'
+  | 'ai.basic'
   | 'collections.file'
   | 'collections.git'
   | 'mock.localServer'
@@ -57,6 +59,12 @@ export interface CapabilityRow {
 
 export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'http.basic': { label: 'HTTP / REST requests', web: true, desktop: true },
+  'graphql.basic': {
+    label: 'GraphQL query / mutation',
+    web: true,
+    desktop: true,
+    notes: 'Rides the HTTP proxy (POST { query, variables, operationName })',
+  },
   'http.proxy.socks': {
     label: 'SOCKS5 proxy',
     web: false,
@@ -127,6 +135,12 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     notes: 'Native broker protocol; no browser TCP',
   },
   'socketio.basic': { label: 'Socket.IO client', web: true, desktop: true },
+  'ai.basic': {
+    label: 'AI assistant (chat)',
+    web: false,
+    desktop: true,
+    notes: 'Electron-first; streams via IPC. No Worker /api/ai route',
+  },
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git': { label: 'Git operations on collections', web: false, desktop: true },
   'mock.localServer': {

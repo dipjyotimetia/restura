@@ -26,6 +26,7 @@ import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
   buildAuthMetadata,
+  grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
   validateGrpcUrl,
   validateServiceName,
@@ -122,11 +123,14 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     headers.set(k, v);
   }
 
-  if (args.request.methodType === 'client-streaming' || args.request.methodType === 'bidirectional-streaming') {
+  if (
+    args.request.methodType === 'client-streaming' ||
+    args.request.methodType === 'bidirectional-streaming'
+  ) {
     if (!isElectron()) {
       throw new Error(
         `${args.request.methodType} is currently available in the desktop app only. ` +
-        `Use the Electron desktop app to send and receive client or bidirectional streams.`
+          `Use the Electron desktop app to send and receive client or bidirectional streams.`
       );
     }
     return startElectronInteractiveStream<TIn, TOut>(args) as GrpcStreamingHandle<TIn, TOut>;
@@ -134,6 +138,18 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   if (args.request.methodType !== 'server-streaming') {
     throw new Error(
       `startGrpcStream only supports streaming method types; got '${args.request.methodType}'.`
+    );
+  }
+
+  // Server-streaming runs as a renderer-side connect-web fetch on both
+  // platforms, so a stored secret handle can't be resolved at the wire (unlike
+  // unary + client/bidi, which go through the Electron IPC handler that resolves
+  // handles main-side). Reject clearly instead of sending an unauthenticated
+  // stream that 401s upstream.
+  if (grpcAuthNeedsMainSideApply(args.request.auth)) {
+    throw new Error(
+      'This credential uses a stored secret handle. Server-streaming uses a direct ' +
+        'connection that cannot read it — switch the credential to an inline value.'
     );
   }
 
@@ -386,6 +402,7 @@ function startElectronInteractiveStream<TIn, TOut>(
       message: prepared.message,
       protoContent: args.protoContent ?? '',
       protoFileName: args.protoFileName ?? 'request.proto',
+      ...(grpcAuthNeedsMainSideApply(args.request.auth) ? { auth: args.request.auth } : {}),
     });
   } catch (err) {
     cleanup();
@@ -454,7 +471,12 @@ export function createInteractiveGrpcStreamForTest<TIn = unknown, TOut = unknown
     },
     cancel() {
       queue.close();
-      doneResolve({ headers: {}, trailers: {}, status: GrpcStatusCode.CANCELLED, statusMessage: 'cancelled' });
+      doneResolve({
+        headers: {},
+        trailers: {},
+        status: GrpcStatusCode.CANCELLED,
+        statusMessage: 'cancelled',
+      });
     },
     done,
   };
@@ -514,19 +536,13 @@ export class EnvelopeStreamDecoder {
     const out: DecodedEnvelope[] = [];
     while (this.writeOffset - this.cursor >= 5) {
       const flags = this.buffer[this.cursor]!;
-      const view = new DataView(
-        this.buffer.buffer,
-        this.buffer.byteOffset + this.cursor + 1,
-        4
-      );
+      const view = new DataView(this.buffer.buffer, this.buffer.byteOffset + this.cursor + 1, 4);
       const length = view.getUint32(0, false); // big-endian
       const totalLen = 5 + length;
       if (this.writeOffset - this.cursor < totalLen) break;
       // Copy the payload — consumers may retain it past the next feed (which
       // could compact the buffer and invalidate a subarray reference).
-      const data = new Uint8Array(
-        this.buffer.subarray(this.cursor + 5, this.cursor + totalLen)
-      );
+      const data = new Uint8Array(this.buffer.subarray(this.cursor + 5, this.cursor + totalLen));
       out.push({ flags, data });
       this.cursor += totalLen;
     }
