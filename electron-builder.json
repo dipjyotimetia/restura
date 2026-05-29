@@ -111,6 +111,15 @@
   },
   "asar": true,
   "asarUnpack": ["node_modules/@grpc/reflection/build/proto/**"],
+  "electronFuses": {
+    "runAsNode": false,
+    "enableCookieEncryption": true,
+    "enableNodeOptionsEnvironmentVariable": false,
+    "enableNodeCliInspectArguments": false,
+    "enableEmbeddedAsarIntegrityValidation": true,
+    "onlyLoadAppFromAsar": true,
+    "resetAdHocDarwinSignature": true
+  },
   "compression": "maximum",
   "removePackageScripts": true,
   "electronDownload": {

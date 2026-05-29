@@ -216,6 +216,12 @@ function setupSecurityMeasures(): void {
       // event means something is trying to leave the app bundle; block it.
       event.preventDefault();
     });
+
+    // The app never embeds <webview>. Deny attachment so a compromised renderer
+    // can't smuggle in a tag that loads remote content outside the sandbox.
+    contents.on('will-attach-webview', (event) => {
+      event.preventDefault();
+    });
   });
 }
 
