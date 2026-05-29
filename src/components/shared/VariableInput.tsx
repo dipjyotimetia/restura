@@ -142,7 +142,7 @@ export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputPro
                   <CommandItem
                     key={v.name}
                     value={v.name}
-                    onSelect={() => insertVariable(v.name.replace('$', '$'))}
+                    onSelect={() => insertVariable(v.name)}
                     className="flex justify-between items-center"
                   >
                     <div className="flex items-center gap-2 overflow-hidden">
