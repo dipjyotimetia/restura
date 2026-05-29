@@ -106,6 +106,14 @@ export function isHoppscotchEnvironment(data: unknown): boolean {
 
 export function isHoppscotchCollection(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
+  // Guard the recursive parse so format-detection on an absurdly deep blob
+  // can't be turned into a stack-overflow vector (see assertBoundedDocument).
+  // A bound violation simply means "not a valid importable collection".
+  try {
+    assertBoundedDocument(data);
+  } catch {
+    return false;
+  }
   return hoppCollection.safeParse(data).success;
 }
 
