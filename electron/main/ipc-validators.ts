@@ -186,6 +186,11 @@ export const GrpcRequestConfigSchema = z.object({
     .max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit'),
   protoFileName: z.string().min(1, 'Proto file name is required'),
   useCompression: z.boolean().optional(),
+  // Present only when a credential carries a SecretRef handle the renderer
+  // cannot resolve (ADR-0007). The handler resolves it main-side via the OS
+  // keychain and merges it into the metadata. Inline/plain creds are already
+  // in `metadata`, so `auth` is omitted for them.
+  auth: AuthConfigSchema.optional(),
 });
 
 export type GrpcRequestConfig = z.infer<typeof GrpcRequestConfigSchema>;

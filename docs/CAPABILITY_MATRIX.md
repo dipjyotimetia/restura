@@ -12,6 +12,7 @@ rather than discover it experimentally.
 | Capability | Web | Desktop | Notes |
 | --- | :-: | :-: | --- |
 | HTTP / REST requests | ✅ | ✅ |  |
+| GraphQL query / mutation | ✅ | ✅ | Rides the HTTP proxy (POST { query, variables, operationName }) |
 | SOCKS5 proxy | ❌ | ✅ | Browser fetch cannot route through SOCKS |
 | PAC proxy script resolution | ❌ | ✅ |  |
 | mTLS client certificates | ❌ | ✅ | Web build inherits browser cert store; no per-request control |
@@ -30,6 +31,7 @@ rather than discover it experimentally.
 | gRPC reflection | ✅ | ✅ |  |
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
 | Socket.IO client | ✅ | ✅ |  |
+| AI assistant (chat) | ❌ | ✅ | Electron-first; streams via IPC. No Worker /api/ai route |
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ |  |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |

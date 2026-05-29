@@ -6,17 +6,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import type {
-  GrpcRequestConfig} from './ipc-validators';
+import type { GrpcRequestConfig } from './ipc-validators';
 import {
   GrpcRequestConfigSchema,
   GrpcStreamRequestIdSchema,
   GrpcSendMessageSchema,
   createValidatedHandler,
-  createValidatedListener
+  createValidatedListener,
 } from './ipc-validators';
 import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+import { applyNonSignAtWireAuth } from './auth-applier';
 import { resolveUrlHostnameSafe } from './dns-guard';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
@@ -63,7 +63,8 @@ export function computeGrpcDial(
 ): { target: string; useTls: boolean; channelOptions: grpc.ChannelOptions } {
   const host = new URL(url).hostname;
   const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
-  const target = pinned.family === 6 ? `[${pinned.ip}]:${pinned.port}` : `${pinned.ip}:${pinned.port}`;
+  const target =
+    pinned.family === 6 ? `[${pinned.ip}]:${pinned.port}` : `${pinned.ip}:${pinned.port}`;
   const channelOptions: grpc.ChannelOptions = {
     'grpc.default_authority': host,
     ...(useTls ? { 'grpc.ssl_target_name_override': host } : {}),
@@ -156,11 +157,7 @@ type GrpcCall = {
  * readable stream, writable stream, duplex stream); callers narrow with a
  * type guard before binding event listeners.
  */
-export function invokeGrpcMethod(
-  client: grpc.Client,
-  method: string,
-  args: unknown[]
-): unknown {
+export function invokeGrpcMethod(client: grpc.Client, method: string, args: unknown[]): unknown {
   const fn = (client as unknown as Record<string, unknown>)[method];
   if (typeof fn !== 'function') {
     throw new Error(`gRPC client has no method "${method}"`);
@@ -194,9 +191,7 @@ interface GrpcError {
 
 function isGrpcError(err: unknown): err is GrpcError {
   return (
-    typeof err === 'object' &&
-    err !== null &&
-    ('code' in err || 'message' in err || 'name' in err)
+    typeof err === 'object' && err !== null && ('code' in err || 'message' in err || 'name' in err)
   );
 }
 
@@ -267,15 +262,18 @@ export function stopStreamCleanup(): void {
     cleanupInterval = null;
   }
   // Cancel all active streams so we don't block process exit
-  activeCalls.forEach((call) => { try { call.cancel(); } catch { /* ignore */ } });
+  activeCalls.forEach((call) => {
+    try {
+      call.cancel();
+    } catch {
+      /* ignore */
+    }
+  });
   activeCalls.clear();
 }
 
 // Safe method to add a stream with collision detection
-const addActiveCall = (
-  id: string,
-  call: Omit<ActiveCall, 'createdAt' | 'requestId'>
-): boolean => {
+const addActiveCall = (id: string, call: Omit<ActiveCall, 'createdAt' | 'requestId'>): boolean => {
   if (activeCalls.has(id)) {
     console.warn(`Stream with ID ${id} already exists, rejecting duplicate`);
     return false;
@@ -371,16 +369,16 @@ function buildGrpcClient(
     if (!obj) throw new Error(`Service "${serviceName}" not found in proto`);
   }
   if (typeof obj !== 'function') {
-    throw new Error(`"${serviceName}" resolved to a non-constructor — check the service name in your proto`);
+    throw new Error(
+      `"${serviceName}" resolved to a non-constructor — check the service name in your proto`
+    );
   }
   const ServiceClient = obj as unknown as typeof grpc.Client;
   // Dial the pre-validated IP literal (not the hostname) so grpc-js's C++
   // resolver can't be rebound between our check and the connect. Authority +
   // SSL target name stay on the original hostname (see computeGrpcDial).
   const { target, useTls, channelOptions: authorityOptions } = computeGrpcDial(url, pinned);
-  const credentials = useTls
-    ? grpc.credentials.createSsl()
-    : grpc.credentials.createInsecure();
+  const credentials = useTls ? grpc.credentials.createSsl() : grpc.credentials.createInsecure();
   const channelOptions: grpc.ChannelOptions = {
     ...authorityOptions,
     ...(useCompression
@@ -394,6 +392,25 @@ function buildMetadata(map: Record<string, string> = {}): grpc.Metadata {
   const md = new grpc.Metadata();
   Object.entries(map).forEach(([k, v]) => md.add(k, v));
   return md;
+}
+
+/**
+ * Merge handle-backed auth resolved main-side into the gRPC metadata record.
+ * The renderer drops SecretRef-handle credentials (it can't read plaintext);
+ * when `auth` is present we resolve it here via the OS keychain and add the
+ * resulting header(s) as lowercase metadata keys (gRPC's canonical form).
+ * api-key `in:'query'` placement has no meaning for gRPC, so params are dropped.
+ */
+export function mergeMainSideAuth(
+  metadata: Record<string, string>,
+  auth: GrpcRequestConfig['auth']
+): Record<string, string> {
+  if (!auth) return metadata;
+  const { headers } = applyNonSignAtWireAuth(auth as Parameters<typeof applyNonSignAtWireAuth>[0]);
+  if (Object.keys(headers).length === 0) return metadata;
+  const merged = { ...metadata };
+  for (const [k, v] of Object.entries(headers)) merged[k.toLowerCase()] = v;
+  return merged;
 }
 
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
@@ -425,8 +442,14 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
 
   try {
     const protoDef = loadProto(config, tempDir);
-    const grpcClient = buildGrpcClient(protoDef, config.service, config.url, grpcDial, !!config.useCompression);
-    const metadata = buildMetadata(config.metadata);
+    const grpcClient = buildGrpcClient(
+      protoDef,
+      config.service,
+      config.url,
+      grpcDial,
+      !!config.useCompression
+    );
+    const metadata = buildMetadata(mergeMainSideAuth(config.metadata, config.auth));
     const method = config.method;
 
     if (config.methodType === 'unary') {
@@ -435,13 +458,24 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
           const call = invokeGrpcMethod(grpcClient, method, [
             config.message,
             metadata,
-            (err: grpc.ServiceError | null, res: unknown) => { if (err) reject(err); else resolve(res); },
+            (err: grpc.ServiceError | null, res: unknown) => {
+              if (err) reject(err);
+              else resolve(res);
+            },
           ]) as grpc.ClientUnaryCall;
           call.on('metadata', (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap()));
-          call.on('status', (st: grpc.StatusObject) => Object.assign(capturedTrailers, st.metadata.getMap()));
+          call.on('status', (st: grpc.StatusObject) =>
+            Object.assign(capturedTrailers, st.metadata.getMap())
+          );
         });
         cleanupTemp(tempDir);
-        return { status: 0, statusText: 'OK', headers: capturedHeaders, trailers: capturedTrailers, message: response };
+        return {
+          status: 0,
+          statusText: 'OK',
+          headers: capturedHeaders,
+          trailers: capturedTrailers,
+          message: response,
+        };
       } catch (err: unknown) {
         cleanupTemp(tempDir);
         const error = toGrpcError(err);
@@ -467,17 +501,29 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
             accumulatedSize += estimateSize(msg);
             if (accumulatedSize > MAX_RESPONSE_SIZE) {
               call.cancel();
-              reject(new Error(`Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`));
+              reject(
+                new Error(
+                  `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
+                )
+              );
               return;
             }
             messages.push(msg);
           });
-          call.on('status', (st: grpc.StatusObject) => Object.assign(capturedTrailers, st.metadata.getMap()));
+          call.on('status', (st: grpc.StatusObject) =>
+            Object.assign(capturedTrailers, st.metadata.getMap())
+          );
           call.on('error', (err: Error) => reject(err));
           call.on('end', () => resolve());
         });
         cleanupTemp(tempDir);
-        return { status: 0, statusText: 'OK', headers: capturedHeaders, trailers: capturedTrailers, messages };
+        return {
+          status: 0,
+          statusText: 'OK',
+          headers: capturedHeaders,
+          trailers: capturedTrailers,
+          messages,
+        };
       } catch (err: unknown) {
         cleanupTemp(tempDir);
         const error = toGrpcError(err);
@@ -494,7 +540,6 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       cleanupTemp(tempDir);
       throw new Error(`Method type ${config.methodType} not supported in synchronous mode`);
     }
-
   } catch (err: unknown) {
     cleanupTemp(tempDir);
     const error = err instanceof Error ? err : new Error(String(err));
@@ -508,8 +553,6 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
   }
 }
 
-
-
 export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   // Initialize and clean up old temp directories on startup
   initializeGrpcTempDir();
@@ -521,271 +564,298 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     'grpc:request',
     rateLimited(
       grpcRateLimiter,
-      createValidatedHandler(IPC.grpc.request, GrpcRequestConfigSchema, async (config: GrpcRequestConfig) => {
-        const startTime = Date.now();
-        const result = await makeGrpcRequest(config);
-        if (onComplete) {
-          onComplete({
-            ts: startTime,
-            method: `${config.service}/${config.method}`,
-            url: config.url,
-            status: result.status,
-            durationMs: Date.now() - startTime,
-            protocol: 'grpc',
-            error: result.error,
-          });
+      createValidatedHandler(
+        IPC.grpc.request,
+        GrpcRequestConfigSchema,
+        async (config: GrpcRequestConfig) => {
+          const startTime = Date.now();
+          const result = await makeGrpcRequest(config);
+          if (onComplete) {
+            onComplete({
+              ts: startTime,
+              method: `${config.service}/${config.method}`,
+              url: config.url,
+              status: result.status,
+              durationMs: Date.now() - startTime,
+              protocol: 'grpc',
+              error: result.error,
+            });
+          }
+          return result;
         }
-        return result;
-      })
+      )
     )
   );
 
   ipcMain.on(
     'grpc:start-stream',
-    createValidatedListener(IPC.grpc.startStream, GrpcRequestConfigSchema, async (event, config: GrpcRequestConfig) => {
-      const requestId = config.id;
-      if (!requestId || !SAFE_GRPC_ID_RE.test(requestId)) return;
+    createValidatedListener(
+      IPC.grpc.startStream,
+      GrpcRequestConfigSchema,
+      async (event, config: GrpcRequestConfig) => {
+        const requestId = config.id;
+        if (!requestId || !SAFE_GRPC_ID_RE.test(requestId)) return;
 
-      // Helper: never send to a destroyed renderer. The handler became async
-      // for the SSRF pre-flight (DNS lookup), so `event.sender` may have been
-      // destroyed by the time we try to report an error. Without this guard
-      // the send throws, the rejection escapes `createValidatedListener`'s
-      // sync try/catch, and we surface as an unhandled rejection.
-      const safeSend = (channel: string, payload: unknown): void => {
-        if (event.sender.isDestroyed()) return;
+        // Helper: never send to a destroyed renderer. The handler became async
+        // for the SSRF pre-flight (DNS lookup), so `event.sender` may have been
+        // destroyed by the time we try to report an error. Without this guard
+        // the send throws, the rejection escapes `createValidatedListener`'s
+        // sync try/catch, and we surface as an unhandled rejection.
+        const safeSend = (channel: string, payload: unknown): void => {
+          if (event.sender.isDestroyed()) return;
+          try {
+            event.sender.send(channel, payload);
+          } catch {
+            // Sender went away mid-send; nothing more to do.
+          }
+        };
+
+        if (!grpcRateLimiter.check(event.sender.id)) {
+          safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+            status: 14,
+            details: 'Rate limit exceeded',
+          });
+          return;
+        }
+
+        // SSRF guard before any cleanup binding or disk I/O so a rejected URL
+        // doesn't leave a temp dir or a renderer-destroy listener behind. Resolve
+        // + validate + pin the address here (closes the rebind window).
+        let grpcDial: GrpcDialAddress;
         try {
-          event.sender.send(channel, payload);
-        } catch {
-          // Sender went away mid-send; nothing more to do.
-        }
-      };
-
-      if (!grpcRateLimiter.check(event.sender.id)) {
-        safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-          status: 14,
-          details: 'Rate limit exceeded'
-        });
-        return;
-      }
-
-      // SSRF guard before any cleanup binding or disk I/O so a rejected URL
-      // doesn't leave a temp dir or a renderer-destroy listener behind. Resolve
-      // + validate + pin the address here (closes the rebind window).
-      let grpcDial: GrpcDialAddress;
-      try {
-        grpcDial = await resolveGrpcDialAddress(config.url);
-      } catch (err) {
-        safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-          status: 3,
-          details: '[URL policy] ' + sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
-        });
-        return;
-      }
-
-      // Renderer may have been destroyed during the DNS lookup; bail out
-      // before allocating cleanup listeners and temp directories.
-      if (event.sender.isDestroyed()) return;
-
-      bindRendererCleanup(activeCalls, event.sender, (deadId) => {
-        disposeByOwner(activeCalls, deadId, (c) => c.cancel());
-      });
-
-    const streamStartTime = Date.now();
-    const tempDir = path.join(GRPC_TEMP_BASE, requestId);
-    fs.mkdirSync(tempDir, { recursive: true });
-
-    try {
-      const protoDef = loadProto(config, tempDir);
-      const grpcClient = buildGrpcClient(protoDef, config.service, config.url, grpcDial, !!config.useCompression);
-      const metadata = buildMetadata(config.metadata);
-      const method = config.method;
-      let accumulatedSize = 0;
-
-      const handleData = (data: unknown) => {
-        const dataSize = estimateSize(data);
-        accumulatedSize += dataSize;
-
-        if (accumulatedSize > MAX_RESPONSE_SIZE) {
-          activeCalls.get(requestId)?.cancel();
-          event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-            status: 8, // RESOURCE_EXHAUSTED
-            details: `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
+          grpcDial = await resolveGrpcDialAddress(config.url);
+        } catch (err) {
+          safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+            status: 3,
+            details:
+              '[URL policy] ' +
+              sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
           });
           return;
         }
 
-        event.sender.send(eventChannel(EVENT_PREFIX.grpc.data, requestId), data);
-      };
+        // Renderer may have been destroyed during the DNS lookup; bail out
+        // before allocating cleanup listeners and temp directories.
+        if (event.sender.isDestroyed()) return;
 
-      const handleError = (err: unknown) => {
-        const error = toGrpcError(err);
-        if (error.name === 'AbortError' || error.code === grpc.status.CANCELLED) {
-          cleanup();
-          return;
-        }
-        event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-          status: error.code || 2,
-          details: sanitizeErrorMessage(error.message)
-        });
-        if (onComplete) {
-          onComplete({
-            ts: streamStartTime,
-            method: `${config.service}/${config.method}`,
-            url: config.url,
-            status: error.code || 2,
-            durationMs: Date.now() - streamStartTime,
-            protocol: 'grpc',
-            error: sanitizeErrorMessage(error.message),
-          });
-        }
-        cleanup();
-      };
-
-      const handleEnd = () => {
-        event.sender.send(eventChannel(EVENT_PREFIX.grpc.status, requestId), {
-          status: 0,
-          details: 'OK'
-        });
-        if (onComplete) {
-          onComplete({
-            ts: streamStartTime,
-            method: `${config.service}/${config.method}`,
-            url: config.url,
-            status: 0,
-            durationMs: Date.now() - streamStartTime,
-            protocol: 'grpc',
-          });
-        }
-        cleanup();
-      };
-
-      const cleanup = () => {
-        removeActiveCall(requestId);
-        cleanupTemp(tempDir);
-      };
-
-      if (config.methodType === 'server-streaming') {
-        const ssCallRaw = invokeGrpcMethod(grpcClient, method, [config.message, metadata]);
-        assertGrpcCall(ssCallRaw, method);
-        const ssCall = ssCallRaw as grpc.ClientReadableStream<unknown>;
-        ssCall.on('data', handleData);
-        ssCall.on('error', handleError);
-        ssCall.on('end', handleEnd);
-
-        const added = addActiveCall(requestId, {
-          cancel: () => ssCall.cancel(),
-          write: () => {},
-          end: () => {},
-          webContentsId: event.sender.id,
+        bindRendererCleanup(activeCalls, event.sender, (deadId) => {
+          disposeByOwner(activeCalls, deadId, (c) => c.cancel());
         });
 
-        if (!added) {
-          ssCall.cancel();
-          event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-            status: 13,
-            details: `Stream with ID ${requestId} already exists`
-          });
-          return;
-        }
+        const streamStartTime = Date.now();
+        const tempDir = path.join(GRPC_TEMP_BASE, requestId);
+        fs.mkdirSync(tempDir, { recursive: true });
 
-      } else if (config.methodType === 'client-streaming') {
-        const csCall = invokeGrpcMethod(grpcClient, method, [
-          metadata,
-          (err: grpc.ServiceError | null, res: unknown) => {
-            if (err) {
-              handleError(err);
-            } else {
-              handleData(res);
-              handleEnd();
+        try {
+          const protoDef = loadProto(config, tempDir);
+          const grpcClient = buildGrpcClient(
+            protoDef,
+            config.service,
+            config.url,
+            grpcDial,
+            !!config.useCompression
+          );
+          const metadata = buildMetadata(mergeMainSideAuth(config.metadata, config.auth));
+          const method = config.method;
+          let accumulatedSize = 0;
+
+          const handleData = (data: unknown) => {
+            const dataSize = estimateSize(data);
+            accumulatedSize += dataSize;
+
+            if (accumulatedSize > MAX_RESPONSE_SIZE) {
+              activeCalls.get(requestId)?.cancel();
+              event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+                status: 8, // RESOURCE_EXHAUSTED
+                details: `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`,
+              });
+              return;
             }
-          },
-        ]) as grpc.ClientWritableStream<unknown>;
 
-        const csAdded = addActiveCall(requestId, {
-          cancel: () => csCall.cancel(),
-          write: (msg: unknown) => {
-            if (csCall.writableNeedDrain) {
-              console.warn('[gRPC] Client stream write buffer is full; message queued by kernel — consider slowing the sender');
+            event.sender.send(eventChannel(EVENT_PREFIX.grpc.data, requestId), data);
+          };
+
+          const handleError = (err: unknown) => {
+            const error = toGrpcError(err);
+            if (error.name === 'AbortError' || error.code === grpc.status.CANCELLED) {
+              cleanup();
+              return;
             }
-            csCall.write(msg);
-          },
-          end: () => csCall.end(),
-          webContentsId: event.sender.id,
-        });
+            event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+              status: error.code || 2,
+              details: sanitizeErrorMessage(error.message),
+            });
+            if (onComplete) {
+              onComplete({
+                ts: streamStartTime,
+                method: `${config.service}/${config.method}`,
+                url: config.url,
+                status: error.code || 2,
+                durationMs: Date.now() - streamStartTime,
+                protocol: 'grpc',
+                error: sanitizeErrorMessage(error.message),
+              });
+            }
+            cleanup();
+          };
 
-        if (!csAdded) {
-          csCall.cancel();
+          const handleEnd = () => {
+            event.sender.send(eventChannel(EVENT_PREFIX.grpc.status, requestId), {
+              status: 0,
+              details: 'OK',
+            });
+            if (onComplete) {
+              onComplete({
+                ts: streamStartTime,
+                method: `${config.service}/${config.method}`,
+                url: config.url,
+                status: 0,
+                durationMs: Date.now() - streamStartTime,
+                protocol: 'grpc',
+              });
+            }
+            cleanup();
+          };
+
+          const cleanup = () => {
+            removeActiveCall(requestId);
+            cleanupTemp(tempDir);
+          };
+
+          if (config.methodType === 'server-streaming') {
+            const ssCallRaw = invokeGrpcMethod(grpcClient, method, [config.message, metadata]);
+            assertGrpcCall(ssCallRaw, method);
+            const ssCall = ssCallRaw as grpc.ClientReadableStream<unknown>;
+            ssCall.on('data', handleData);
+            ssCall.on('error', handleError);
+            ssCall.on('end', handleEnd);
+
+            const added = addActiveCall(requestId, {
+              cancel: () => ssCall.cancel(),
+              write: () => {},
+              end: () => {},
+              webContentsId: event.sender.id,
+            });
+
+            if (!added) {
+              ssCall.cancel();
+              event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+                status: 13,
+                details: `Stream with ID ${requestId} already exists`,
+              });
+              return;
+            }
+          } else if (config.methodType === 'client-streaming') {
+            const csCall = invokeGrpcMethod(grpcClient, method, [
+              metadata,
+              (err: grpc.ServiceError | null, res: unknown) => {
+                if (err) {
+                  handleError(err);
+                } else {
+                  handleData(res);
+                  handleEnd();
+                }
+              },
+            ]) as grpc.ClientWritableStream<unknown>;
+
+            const csAdded = addActiveCall(requestId, {
+              cancel: () => csCall.cancel(),
+              write: (msg: unknown) => {
+                if (csCall.writableNeedDrain) {
+                  console.warn(
+                    '[gRPC] Client stream write buffer is full; message queued by kernel — consider slowing the sender'
+                  );
+                }
+                csCall.write(msg);
+              },
+              end: () => csCall.end(),
+              webContentsId: event.sender.id,
+            });
+
+            if (!csAdded) {
+              csCall.cancel();
+              event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+                status: 13,
+                details: `Stream with ID ${requestId} already exists`,
+              });
+              return;
+            }
+          } else if (config.methodType === 'bidirectional-streaming') {
+            const bidiCallRaw = invokeGrpcMethod(grpcClient, method, [metadata]);
+            assertGrpcCall(bidiCallRaw, method);
+            const bidiCall = bidiCallRaw as grpc.ClientDuplexStream<unknown, unknown>;
+            bidiCall.on('data', handleData);
+            bidiCall.on('error', handleError);
+            bidiCall.on('end', handleEnd);
+
+            const bidiAdded = addActiveCall(requestId, {
+              cancel: () => bidiCall.cancel(),
+              write: (msg: unknown) => bidiCall.write(msg as object),
+              end: () => bidiCall.end(),
+              webContentsId: event.sender.id,
+            });
+
+            if (!bidiAdded) {
+              bidiCall.cancel();
+              event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+                status: 13,
+                details: `Stream with ID ${requestId} already exists`,
+              });
+              return;
+            }
+          }
+        } catch (err: unknown) {
+          const error = err instanceof Error ? err : new Error(String(err));
           event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-            status: 13,
-            details: `Stream with ID ${requestId} already exists`
+            status: 2,
+            details: sanitizeErrorMessage(error.message),
           });
-          return;
-        }
-
-      } else if (config.methodType === 'bidirectional-streaming') {
-        const bidiCallRaw = invokeGrpcMethod(grpcClient, method, [metadata]);
-        assertGrpcCall(bidiCallRaw, method);
-        const bidiCall = bidiCallRaw as grpc.ClientDuplexStream<unknown, unknown>;
-        bidiCall.on('data', handleData);
-        bidiCall.on('error', handleError);
-        bidiCall.on('end', handleEnd);
-
-        const bidiAdded = addActiveCall(requestId, {
-          cancel: () => bidiCall.cancel(),
-          write: (msg: unknown) => bidiCall.write(msg as object),
-          end: () => bidiCall.end(),
-          webContentsId: event.sender.id,
-        });
-
-        if (!bidiAdded) {
-          bidiCall.cancel();
-          event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-            status: 13,
-            details: `Stream with ID ${requestId} already exists`
-          });
-          return;
+          cleanupTemp(tempDir);
         }
       }
-
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-        status: 2,
-        details: sanitizeErrorMessage(error.message)
-      });
-      cleanupTemp(tempDir);
-    }
-    })
+    )
   );
 
   ipcMain.on(
     'grpc:send-message',
-    createValidatedListener(IPC.grpc.sendMessage, GrpcSendMessageSchema, (_event, [requestId, message]) => {
-      const call = activeCalls.get(requestId);
-      if (call) {
-        call.write(message);
+    createValidatedListener(
+      IPC.grpc.sendMessage,
+      GrpcSendMessageSchema,
+      (_event, [requestId, message]) => {
+        const call = activeCalls.get(requestId);
+        if (call) {
+          call.write(message);
+        }
       }
-    })
+    )
   );
 
   ipcMain.on(
     'grpc:end-stream',
-    createValidatedListener(IPC.grpc.endStream, GrpcStreamRequestIdSchema, (_event, requestId: string) => {
-      const call = activeCalls.get(requestId);
-      if (call) {
-        call.end();
+    createValidatedListener(
+      IPC.grpc.endStream,
+      GrpcStreamRequestIdSchema,
+      (_event, requestId: string) => {
+        const call = activeCalls.get(requestId);
+        if (call) {
+          call.end();
+        }
       }
-    })
+    )
   );
 
   ipcMain.on(
     'grpc:cancel-stream',
-    createValidatedListener(IPC.grpc.cancelStream, GrpcStreamRequestIdSchema, (_event, requestId: string) => {
-      const call = activeCalls.get(requestId);
-      if (call) {
-        call.cancel();
-        removeActiveCall(requestId); // cleanup immediately; handleError AbortError path also calls cleanup but Map.delete is idempotent
+    createValidatedListener(
+      IPC.grpc.cancelStream,
+      GrpcStreamRequestIdSchema,
+      (_event, requestId: string) => {
+        const call = activeCalls.get(requestId);
+        if (call) {
+          call.cancel();
+          removeActiveCall(requestId); // cleanup immediately; handleError AbortError path also calls cleanup but Map.delete is idempotent
+        }
       }
-    })
+    )
   );
 }
