@@ -171,17 +171,21 @@ jobs:
           # electron-builder uploads to the GitHub release matching the tag.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ---- Code signing (optional) ----
-          # Set these repo secrets to ship signed + notarized builds:
+          # Set repo secrets to ship signed + notarized builds; absent → unsigned.
+          # Signing is scoped PER OS: a macOS Developer ID cert is not a valid
+          # Windows Authenticode cert, so CSC_LINK must NOT leak onto the Windows
+          # leg (it would make signtool fail). macOS uses CSC_LINK; Windows uses
+          # a separate WIN_CSC_LINK. CSC_IDENTITY_AUTO_DISCOVERY is forced off
+          # when this OS has no cert so electron-builder doesn't probe a keychain.
           #   macOS  : CSC_LINK (base64 .p12), CSC_KEY_PASSWORD,
           #            APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
-          #   Windows: CSC_LINK / CSC_KEY_PASSWORD (reused) or WIN_CSC_LINK
-          # Absent → unsigned builds. CSC_IDENTITY_AUTO_DISCOVERY is forced off
-          # when no cert is provided so electron-builder doesn't probe the
-          # keychain; an unsigned app also skips notarization (no failure).
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          #   Windows: WIN_CSC_LINK (base64 .pfx), WIN_CSC_KEY_PASSWORD
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
+          WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.CSC_LINK != '') || (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
         run: npm run electron:publish
