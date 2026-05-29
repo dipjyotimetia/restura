@@ -7,24 +7,67 @@ import type {
   HttpRequest,
   InsomniaCollection,
   InsomniaResource,
+  InsomniaV5Document,
+  InsomniaV5Item,
   KeyValue,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { assertBoundedDocument } from '@/lib/opencollection';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
-import type { ImportResult } from './types';
+import type { ImportResult, ImportWarning } from './types';
 
 /**
- * Import an Insomnia v4 export (with Insomnia 8+ extensions for scripts and
- * sub-environments) and convert to Restura's internal Collection +
- * Environment shapes.
+ * Import an Insomnia export and convert to Restura's internal Collection +
+ * Environment shapes. Supports BOTH export formats through one entry point:
  *
- * The first environment whose `parentId` matches the workspace becomes the
- * Collection's inline `variables` (preserves the original 1-environment
- * behavior). Every other `_type === 'environment'` resource is surfaced as a
- * standalone Environment in the unified ImportResult so the renderer can push
- * them into `useEnvironmentStore`.
+ *  - **v4** — flat `resources[]` linked by `parentId`; `_type` discriminates
+ *    workspace / request_group (folder) / request / environment.
+ *  - **v5** (Insomnia 2024+) — nested `collection[]` where a node with
+ *    `children` is a folder; environments live under a top-level
+ *    `environments` object (`data` + `subEnvironments[]`).
+ *
+ * Request-level fields (auth/body/headers/params/scripts) are shared between
+ * the two versions, so the conversion helpers are version-agnostic.
  */
-export function importInsomniaCollection(insomniaData: InsomniaCollection): ImportResult {
+export function importInsomniaCollection(data: unknown): ImportResult {
+  // Guard depth/size before traversing — v5 collections are recursive, and a
+  // maliciously deep export would otherwise overflow the stack (see schemas.ts).
+  assertBoundedDocument(data);
+
+  const warnings: ImportWarning[] = [];
+  switch (getInsomniaVersion(data)) {
+    case 4:
+      return importInsomniaV4(data as InsomniaCollection, warnings);
+    case 5:
+      return importInsomniaV5(data as InsomniaV5Document, warnings);
+    default:
+      throw new Error(
+        'Unrecognized Insomnia export — expected v4 (__export_format) or v5 (collection.insomnia.rest/5.0)'
+      );
+  }
+}
+
+/** Detect the Insomnia export format. */
+export function getInsomniaVersion(data: unknown): 4 | 5 | null {
+  if (!data || typeof data !== 'object') return null;
+  const obj = data as Record<string, unknown>;
+  if (obj._type === 'export' && typeof obj.__export_format === 'number') return 4;
+  if (typeof obj.type === 'string' && /^collection\.insomnia\.rest\/5/.test(obj.type)) return 5;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// v4 — flat resources[] + parentId
+// ---------------------------------------------------------------------------
+
+function importInsomniaV4(
+  insomniaData: InsomniaCollection,
+  warnings: ImportWarning[]
+): ImportResult {
+  if (!Array.isArray(insomniaData.resources)) {
+    throw new Error('Invalid Insomnia v4 export: missing "resources" array');
+  }
+
   const workspaces = insomniaData.resources.filter((r) => r._type === 'workspace');
   const requests = insomniaData.resources.filter((r) => r._type === 'request');
   const folders = insomniaData.resources.filter((r) => r._type === 'request_group');
@@ -38,12 +81,8 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Impo
     (env) => !env.parentId || (workspace && env.parentId === workspace._id)
   );
 
-  const baseVariables: KeyValue[] = [];
-  if (baseEnv?.data && typeof baseEnv.data === 'object') {
-    for (const [key, value] of Object.entries(baseEnv.data)) {
-      baseVariables.push({ id: uuidv4(), key, value: String(value ?? ''), enabled: true });
-    }
-  }
+  const baseVariables: KeyValue[] =
+    baseEnv?.data && typeof baseEnv.data === 'object' ? objectToKeyValues(baseEnv.data) : [];
 
   const collection: Collection = {
     id: uuidv4(),
@@ -69,7 +108,7 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Impo
   });
 
   requests.forEach((req) => {
-    const request = convertRequest(req);
+    const request = convertRequest(req, warnings);
     const item: CollectionItem = {
       id: req._id,
       name: req.name || 'Unnamed Request',
@@ -97,45 +136,132 @@ export function importInsomniaCollection(insomniaData: InsomniaCollection): Impo
   return {
     collection,
     environments: standaloneEnvs.length > 0 ? standaloneEnvs : undefined,
-    warnings: [],
+    warnings,
   };
 }
 
 function convertEnvironment(env: InsomniaResource): Environment {
-  const variables: KeyValue[] = [];
-  if (env.data && typeof env.data === 'object') {
-    for (const [key, value] of Object.entries(env.data)) {
-      variables.push({ id: uuidv4(), key, value: String(value ?? ''), enabled: true });
-    }
-  }
   return {
     id: uuidv4(),
     name: env.name || 'Imported Environment',
-    variables,
+    variables: env.data && typeof env.data === 'object' ? objectToKeyValues(env.data) : [],
   };
 }
 
-function convertRequest(req: InsomniaResource): HttpRequest {
-  const httpRequest: HttpRequest = {
+// ---------------------------------------------------------------------------
+// v5 — nested collection[] + children; environments{data, subEnvironments}
+// ---------------------------------------------------------------------------
+
+function importInsomniaV5(doc: InsomniaV5Document, warnings: ImportWarning[]): ImportResult {
+  const items = (doc.collection ?? []).map((node) => mapV5Item(node, warnings));
+
+  const collection: Collection = {
     id: uuidv4(),
-    name: req.name || 'Unnamed Request',
-    type: 'http',
-    method: (req.method as HttpRequest['method']) || 'GET',
-    url: req.url || '',
-    headers: convertInsomniaHeaders(req.headers || []),
-    params: convertInsomniaParams(req.parameters || []),
-    body: convertInsomniaBody(req.body),
-    auth: convertInsomniaAuth(req.authentication),
+    name: doc.name || 'Imported Collection',
+    items,
+    variables: undefined,
   };
 
-  // Insomnia 8+ scripts. Only attach if non-empty — empty strings would
-  // otherwise round-trip into the editor as "empty file".
-  // Insomnia uses Postman's pm.* namespace; normalize to native rs.* on import.
-  if (req.preRequestScript && req.preRequestScript.trim() !== '') {
-    httpRequest.preRequestScript = migrateScriptPmToRs(req.preRequestScript);
+  const standaloneEnvs: Environment[] = [];
+  const env = doc.environments;
+  if (env) {
+    if (env.data && typeof env.data === 'object') {
+      const baseVars = objectToKeyValues(env.data);
+      if (baseVars.length > 0) collection.variables = baseVars;
+    }
+    for (const sub of env.subEnvironments ?? []) {
+      standaloneEnvs.push({
+        id: uuidv4(),
+        name: sub.name || 'Imported Environment',
+        variables: sub.data && typeof sub.data === 'object' ? objectToKeyValues(sub.data) : [],
+      });
+    }
   }
-  if (req.afterResponseScript && req.afterResponseScript.trim() !== '') {
-    httpRequest.testScript = migrateScriptPmToRs(req.afterResponseScript);
+
+  return {
+    collection,
+    environments: standaloneEnvs.length > 0 ? standaloneEnvs : undefined,
+    warnings,
+  };
+}
+
+function mapV5Item(node: InsomniaV5Item, warnings: ImportWarning[]): CollectionItem {
+  // A node with a `children` array is a folder; anything else is a request.
+  if (Array.isArray(node.children)) {
+    return {
+      id: uuidv4(),
+      name: node.name || 'Unnamed Folder',
+      type: 'folder',
+      items: node.children.map((child) => mapV5Item(child, warnings)),
+    };
+  }
+  return {
+    id: uuidv4(),
+    name: node.name || 'Unnamed Request',
+    type: 'request',
+    request: convertRequest(node, warnings),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shared request conversion (v4 InsomniaResource and v5 InsomniaV5Item are
+// structurally compatible at the request level).
+// ---------------------------------------------------------------------------
+
+/** The request-level fields shared by v4 (`InsomniaResource`) and v5 items. */
+interface InsomniaRequestLike {
+  name?: string;
+  method?: string;
+  url?: string;
+  headers?: Array<{ name: string; value: string; disabled?: boolean }>;
+  parameters?: Array<{ name: string; value: string; disabled?: boolean }>;
+  body?: {
+    mimeType?: string;
+    text?: string;
+    params?: Array<{ name: string; value: string; disabled?: boolean }>;
+  };
+  authentication?: { type?: string; [key: string]: unknown };
+  // v4 scripts
+  preRequestScript?: string;
+  afterResponseScript?: string;
+  // v5 scripts
+  scripts?: { preRequest?: string; afterResponse?: string };
+}
+
+function objectToKeyValues(data: Record<string, unknown>): KeyValue[] {
+  return Object.entries(data).map(([key, value]) => ({
+    id: uuidv4(),
+    key,
+    value: String(value ?? ''),
+    enabled: true,
+  }));
+}
+
+function convertRequest(raw: InsomniaRequestLike, warnings: ImportWarning[]): HttpRequest {
+  const name = raw.name || 'Unnamed Request';
+  const httpRequest: HttpRequest = {
+    id: uuidv4(),
+    name,
+    type: 'http',
+    method: (raw.method as HttpRequest['method']) || 'GET',
+    url: raw.url || '',
+    headers: convertInsomniaHeaders(raw.headers || []),
+    params: convertInsomniaParams(raw.parameters || []),
+    body: convertInsomniaBody(raw.body),
+    auth: convertInsomniaAuth(raw.authentication, name, warnings),
+  };
+
+  // Scripts: Insomnia uses Postman's pm.* namespace; normalize to native rs.*.
+  // v4 stores `preRequestScript`/`afterResponseScript`; v5 uses
+  // `scripts.{preRequest,afterResponse}`. Only attach non-empty scripts —
+  // empty strings would otherwise round-trip into the editor as "empty file".
+  const preRequest = raw.scripts?.preRequest ?? raw.preRequestScript;
+  const afterResponse = raw.scripts?.afterResponse ?? raw.afterResponseScript;
+  if (preRequest && preRequest.trim() !== '') {
+    httpRequest.preRequestScript = migrateScriptPmToRs(preRequest);
+  }
+  if (afterResponse && afterResponse.trim() !== '') {
+    httpRequest.testScript = migrateScriptPmToRs(afterResponse);
   }
 
   return httpRequest;
@@ -215,7 +341,9 @@ function convertInsomniaAuth(
         type?: string;
         [key: string]: unknown;
       }
-    | undefined
+    | undefined,
+  requestName: string,
+  warnings: ImportWarning[]
 ): AuthConfig {
   if (!auth || !auth.type) return { type: 'none' };
 
@@ -281,6 +409,9 @@ function convertInsomniaAuth(
         },
       };
     default:
+      // Unsupported auth (oauth1, ntlm, awsv4, hawk, …) — surface as a warning
+      // rather than silently dropping it.
+      warnings.push({ kind: 'unsupported-auth', authType: auth.type, requestName });
       return { type: 'none' };
   }
 }

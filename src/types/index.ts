@@ -949,6 +949,45 @@ export interface InsomniaCollection {
   resources: InsomniaResource[];
 }
 
+// Insomnia v5 format (Insomnia 2024+). YAML/JSON, nested instead of the flat
+// v4 `resources[]`+`parentId` graph: folders carry `children`, environments
+// live under a top-level `environments` object. Request-level fields mirror v4.
+export interface InsomniaV5Item {
+  name?: string;
+  meta?: Record<string, unknown>;
+  // Request fields (absent on folders)
+  url?: string;
+  method?: string;
+  headers?: Array<{ name: string; value: string; disabled?: boolean }>;
+  parameters?: Array<{ name: string; value: string; disabled?: boolean }>;
+  body?: {
+    mimeType?: string;
+    text?: string;
+    params?: Array<{ name: string; value: string; disabled?: boolean }>;
+  };
+  authentication?: {
+    type?: string;
+    [key: string]: unknown;
+  };
+  scripts?: { preRequest?: string; afterResponse?: string };
+  // Folder field (presence ⇒ folder)
+  children?: InsomniaV5Item[];
+}
+
+export interface InsomniaV5Environments {
+  name?: string;
+  data?: Record<string, unknown>;
+  subEnvironments?: Array<{ name?: string; data?: Record<string, unknown> }>;
+}
+
+export interface InsomniaV5Document {
+  type: string; // e.g. "collection.insomnia.rest/5.0"
+  name?: string;
+  meta?: Record<string, unknown>;
+  collection?: InsomniaV5Item[];
+  environments?: InsomniaV5Environments;
+}
+
 // OpenAPI/Swagger Types
 export interface OpenAPIDocument {
   openapi?: string; // OpenAPI 3.x
