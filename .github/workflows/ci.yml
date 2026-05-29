@@ -17,6 +17,10 @@ jobs:
   validate:
     name: Type-check, lint, test, build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Needed to post/update the test-results comment on the PR.
+      pull-requests: write
     steps:
       - uses: actions/checkout@v6
 
@@ -72,9 +76,85 @@ jobs:
         # gate. Coverage tracking is a visibility feature here, not a CI gate
         # — devs who run `npm run test:coverage` locally still get strict
         # threshold enforcement.
+        id: tests
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp
-        run: npm run test:ci
+        # Emit JUnit XML (unit + integration — vitest's `include` already covers
+        # tests/contract + tests/security) alongside the console reporter so the
+        # next step can summarize results on the PR.
+        run: npm run test:ci -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+
+      - name: Comment test results on PR
+        # Parses the JUnit report and upserts a single PR comment with separate
+        # Unit vs Integration totals (suites under tests/** are integration —
+        # contract + security; everything else is unit). Runs on both pass and
+        # fail, only when the test step actually executed (so the file exists).
+        # Reads only our own report — no untrusted input flows into the script.
+        if: ${{ github.event_name == 'pull_request' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- restura-test-results -->';
+            let xml;
+            try {
+              xml = fs.readFileSync('test-results/junit.xml', 'utf8');
+            } catch {
+              core.warning('No JUnit report found; skipping test-results comment.');
+              return;
+            }
+            const cats = {
+              unit: { tests: 0, failures: 0, errors: 0, skipped: 0, time: 0 },
+              integration: { tests: 0, failures: 0, errors: 0, skipped: 0, time: 0 },
+            };
+            const attr = (tag, name) => {
+              const m = tag.match(new RegExp(`${name}="([^"]*)"`));
+              return m ? Number(m[1]) || 0 : 0;
+            };
+            // <testsuite> elements don't nest in JUnit, so each opening tag is one suite.
+            for (const tag of xml.match(/<testsuite\b[^>]*>/g) || []) {
+              const name = (tag.match(/name="([^"]*)"/) || [])[1] || '';
+              const cat = name.startsWith('tests/') ? cats.integration : cats.unit;
+              cat.tests += attr(tag, 'tests');
+              cat.failures += attr(tag, 'failures');
+              cat.errors += attr(tag, 'errors');
+              cat.skipped += attr(tag, 'skipped');
+              cat.time += attr(tag, 'time');
+            }
+            const total = {};
+            for (const k of ['tests', 'failures', 'errors', 'skipped', 'time']) {
+              total[k] = cats.unit[k] + cats.integration[k];
+            }
+            const row = (label, c) => {
+              const passed = c.tests - c.failures - c.errors - c.skipped;
+              return `| ${label} | ${passed} | ${c.failures + c.errors} | ${c.skipped} | ${c.tests} | ${c.time.toFixed(1)}s |`;
+            };
+            const failed = total.failures + total.errors > 0;
+            const body = [
+              MARKER,
+              `## ${failed ? '❌' : '✅'} Test results`,
+              '',
+              '| Category | ✅ Passed | ❌ Failed | ⏭️ Skipped | Total | Time |',
+              '| --- | ---: | ---: | ---: | ---: | ---: |',
+              row('Unit', cats.unit),
+              row('Integration', cats.integration),
+              row('**Total**', total),
+              '',
+              `<sub>Commit ${context.sha.slice(0, 7)} · integration = tests/ (contract + security), unit = all other suites</sub>`,
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(MARKER));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
 
       - name: Upload coverage report
         if: always()
@@ -100,7 +180,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
@@ -113,6 +193,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Generate icons
+        # Produces icon.ico (Windows) / icon.icns / PNGs from icon.svg. The .ico
+        # is referenced by electron-builder.json and isn't committed, so the
+        # Windows pack needs this step.
+        run: npm run electron:icons
 
       - name: Compile Electron main
         run: npm run electron:compile
@@ -128,6 +214,18 @@ jobs:
           # without needing certs in CI.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder --dir --publish never
+
+      - name: Verify renderer is bundled into the app
+        # Guards against dist/web layout / files-glob drift that would otherwise
+        # ship an app that launches to a blank window. The verifier normalizes
+        # path separators so it works on Windows (listPackage returns backslash
+        # paths there). See scripts/verify-asar-renderer.mjs.
+        shell: bash
+        run: |
+          set -euo pipefail
+          asar=$(find dist/installers -name app.asar -print -quit)
+          if [ -z "$asar" ]; then echo "::error::app.asar not found"; exit 1; fi
+          node scripts/verify-asar-renderer.mjs "$asar"
 
   e2e:
     if: github.event_name == 'pull_request'

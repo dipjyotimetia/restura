@@ -125,6 +125,15 @@ test.describe('Import Collection', () => {
     await expect(page.getByText('Get Insomnia Ping').first()).toBeVisible({ timeout: 8_000 });
   });
 
+  test('imports an Insomnia v5 (YAML) export', async ({ app: page }) => {
+    await openImport(page);
+    await selectFormat(page, 'Insomnia');
+    await uploadFile(page, 'insomnia', `${FIXTURES_DIR}/insomnia-v5.yaml`);
+
+    await expect(page.getByText('Insomnia v5 Sample').first()).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText('Get Insomnia v5 Ping').first()).toBeVisible({ timeout: 8_000 });
+  });
+
   test('imports an OpenAPI 3.0 spec', async ({ app: page }) => {
     await openImport(page);
     await selectFormat(page, 'OpenAPI');

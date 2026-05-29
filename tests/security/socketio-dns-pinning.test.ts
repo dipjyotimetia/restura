@@ -42,6 +42,7 @@ vi.mock('../../electron/main/ipc-rate-limiter', () => ({
 vi.mock('../../electron/main/ipc-validators', () => ({
   // Pass the payload straight through — schema validation isn't under test here.
   validateIpcInput: (_schema: unknown, raw: unknown) => raw,
+  assertTrustedSender: () => {},
   createValidatedHandler:
     (_ch: unknown, _schema: unknown, fn: (c: unknown) => unknown) => (_e: unknown, c: unknown) =>
       fn(c),

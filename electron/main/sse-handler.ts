@@ -8,6 +8,7 @@ import {
   SseDisconnectSchema,
   validateIpcInput,
   createValidatedHandler,
+  assertTrustedSender,
 } from './ipc-validators';
 import { SseParser, type ParsedSseEvent } from './sse-parser';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
@@ -36,8 +37,12 @@ async function readStream(
   body: ReadableStream<Uint8Array> | null
 ): Promise<void> {
   if (!body) {
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.error, entry.connectionId), { message: 'No response body' });
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.close, entry.connectionId), { reason: 'no body' });
+    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.error, entry.connectionId), {
+      message: 'No response body',
+    });
+    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.close, entry.connectionId), {
+      reason: 'no body',
+    });
     activeConnections.delete(entry.connectionId);
     return;
   }
@@ -66,10 +71,16 @@ async function readStream(
   } finally {
     // Releasing the reader lets the underlying socket be closed promptly instead
     // of waiting for GC — important under the per-connection cap.
-    try { await reader.cancel(); } catch { /* already done */ }
+    try {
+      await reader.cancel();
+    } catch {
+      /* already done */
+    }
     activeConnections.delete(entry.connectionId);
     if (!entry.explicitlyClosed) {
-      emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.close, entry.connectionId), { reason: 'stream ended' });
+      emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.close, entry.connectionId), {
+        reason: 'stream ended',
+      });
     }
   }
 }
@@ -77,6 +88,7 @@ async function readStream(
 export function registerSseHandlerIPC(): void {
   // sse:connect is registered manually so we can capture event.sender.id for targeted IPC.
   ipcMain.handle(IPC.sse.connect, async (event, rawConfig: unknown) => {
+    assertTrustedSender(IPC.sse.connect, event);
     const config = validateIpcInput(SseConnectSchema, rawConfig, IPC.sse.connect);
     const { connectionId } = config;
     const webContentsId = event.sender.id;
@@ -103,7 +115,10 @@ export function registerSseHandlerIPC(): void {
     try {
       pinned = await resolveSafeAddress(config.url, { allowLocalhost: true });
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'URL rejected by SSRF policy' };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+      };
     }
 
     const abortController = new AbortController();
@@ -122,7 +137,11 @@ export function registerSseHandlerIPC(): void {
     bindRendererCleanup(activeConnections, event.sender, (deadId) => {
       disposeByOwner(activeConnections, deadId, (e) => {
         e.explicitlyClosed = true;
-        try { e.abortController.abort(); } catch { /* ignore */ }
+        try {
+          e.abortController.abort();
+        } catch {
+          /* ignore */
+        }
       });
     });
 
@@ -154,8 +173,12 @@ export function registerSseHandlerIPC(): void {
       clearTimeout(timeoutId);
 
       if (!result.ok) {
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.error, connectionId), { message: result.payload.error });
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.close, connectionId), { reason: result.payload.error });
+        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.error, connectionId), {
+          message: result.payload.error,
+        });
+        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.close, connectionId), {
+          reason: result.payload.error,
+        });
         activeConnections.delete(connectionId);
         return { success: false, error: result.payload.error };
       }
@@ -165,7 +188,9 @@ export function registerSseHandlerIPC(): void {
         emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.error, connectionId), {
           message: `HTTP ${response.status} ${response.statusText}`,
         });
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.close, connectionId), { reason: `HTTP ${response.status}` });
+        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.close, connectionId), {
+          reason: `HTTP ${response.status}`,
+        });
         activeConnections.delete(connectionId);
         return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
       }

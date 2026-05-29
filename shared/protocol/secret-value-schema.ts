@@ -13,10 +13,20 @@ import type { ProtocolSecretValue } from './types';
  * Under `exactOptionalPropertyTypes: true` those are distinct, so we let
  * inference speak and consumers cast at the boundary if needed.
  */
+// Length caps: 64 KB comfortably covers the largest real secrets (PEM keys,
+// long JWTs) while bounding memory; handle ids are UUIDs (~36 chars) so 128 is
+// generous. These bound every auth descriptor that carries a secret, since all
+// of them consume this single schema.
+const SECRET_MAX_LEN = 64 * 1024;
+
 export const protocolSecretValueSchema = z.union([
-  z.string(),
-  z.object({ kind: z.literal('inline'), value: z.string() }),
-  z.object({ kind: z.literal('handle'), id: z.string(), label: z.string().optional() }),
+  z.string().max(SECRET_MAX_LEN),
+  z.object({ kind: z.literal('inline'), value: z.string().max(SECRET_MAX_LEN) }),
+  z.object({
+    kind: z.literal('handle'),
+    id: z.string().max(128),
+    label: z.string().max(256).optional(),
+  }),
 ]);
 
 /** True iff the value is a handle reference — the only form Worker cannot resolve. */

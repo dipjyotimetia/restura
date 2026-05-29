@@ -139,9 +139,7 @@ const grpcRequest = z.object({
     url: z.string(),
     service: z.string(),
     method: z.string(),
-    methodType: z
-      .enum(['unary', 'serverStreaming', 'clientStreaming', 'bidirectional'])
-      .optional(),
+    methodType: z.enum(['unary', 'serverStreaming', 'clientStreaming', 'bidirectional']).optional(),
     message: z.union([z.string(), z.array(z.unknown())]).optional(),
     metadata: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
     auth: auth.optional(),
@@ -208,6 +206,43 @@ export const openCollectionSchema = z.object({
 });
 
 export type OpenCollection = z.infer<typeof openCollectionSchema>;
+
+/**
+ * Reject a maliciously deep/large parsed document *before* handing it to the
+ * recursive (`z.lazy`) collection schema. Zod validates the tree recursively,
+ * so a deeply-nested import (thousands of folders deep) would overflow the
+ * stack inside `safeParse` itself — earlier than any field bound can fire.
+ *
+ * This is an iterative (non-recursive) walk over the already-JSON-parsed plain
+ * object, so it can't itself overflow. Shape-agnostic: it counts every nested
+ * object/array level, so it works for both OpenCollection (`items`/`folders`)
+ * and other importers (e.g. Hoppscotch `folders`). Throws on violation.
+ */
+export function assertBoundedDocument(
+  root: unknown,
+  opts: { maxDepth?: number; maxNodes?: number } = {}
+): void {
+  const maxDepth = opts.maxDepth ?? 100;
+  const maxNodes = opts.maxNodes ?? 1_000_000;
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
+  let nodes = 0;
+  while (stack.length > 0) {
+    const { value, depth } = stack.pop()!;
+    if (value === null || typeof value !== 'object') continue;
+    if (depth > maxDepth) {
+      throw new Error(`Document nesting exceeds the maximum depth of ${maxDepth}`);
+    }
+    if (++nodes > maxNodes) {
+      throw new Error(`Document exceeds the maximum of ${maxNodes} nodes`);
+    }
+    const children = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>);
+    for (const child of children) {
+      if (child !== null && typeof child === 'object') {
+        stack.push({ value: child, depth: depth + 1 });
+      }
+    }
+  }
+}
 export const httpRequestSchema = httpRequest;
 export const grpcRequestSchema = grpcRequest;
 export const graphqlRequestSchema = graphqlRequest;

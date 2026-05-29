@@ -28,6 +28,7 @@ import {
   KafkaDisconnectSchema,
   validateIpcInput,
   createValidatedHandler,
+  assertTrustedSender,
   type KafkaConnectConfig,
   type KafkaProduceConfig,
 } from './ipc-validators';
@@ -179,6 +180,7 @@ function bindStreamListeners(entry: ActiveKafka, stream: StringStream): void {
 
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   ipcMain.handle(IPC.kafka.connect, async (event, rawConfig: unknown) => {
+    assertTrustedSender(IPC.kafka.connect, event);
     const cfg = validateIpcInput(KafkaConnectSchema, rawConfig, IPC.kafka.connect);
     const { connectionId } = cfg;
     const webContentsId = event.sender.id;

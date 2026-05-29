@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import type { Collection, Environment } from '@/types';
 import {
   openCollectionSchema,
+  assertBoundedDocument,
   ocToInternal,
   getAndResetUnrecognizedBodyCount,
   getAndResetUnrecognizedScripts,
@@ -29,6 +30,8 @@ export interface OpenCollectionImportResult {
  * by the renderer's drop-zone uploader.
  */
 export function importOpenCollection(data: unknown): ImportResult {
+  // Guard depth before the recursive schema validates the tree (see schemas.ts).
+  assertBoundedDocument(data);
   const result = openCollectionSchema.safeParse(data);
   if (!result.success) {
     throw new Error(`Invalid OpenCollection document: ${formatZodIssues(result.error)}`);
@@ -43,7 +46,11 @@ export function importOpenCollection(data: unknown): ImportResult {
     warnings.push({ kind: 'unrecognized-body', requestName: `(${bodyCount} requests)` });
   }
   for (const s of getAndResetUnrecognizedScripts()) {
-    warnings.push({ kind: 'unrecognized-script-type', scriptType: s.type, requestName: s.requestName });
+    warnings.push({
+      kind: 'unrecognized-script-type',
+      scriptType: s.type,
+      requestName: s.requestName,
+    });
   }
 
   return { collection, environments, warnings };

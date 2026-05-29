@@ -10,6 +10,7 @@ import {
   WsDisconnectSchema,
   validateIpcInput,
   createValidatedHandler,
+  assertTrustedSender,
 } from './ipc-validators';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 
@@ -36,6 +37,7 @@ export function registerWebSocketHandlerIPC(): void {
   // ws:connect is handled manually (not via createValidatedHandler) so we can capture
   // event.sender.id and target IPC emissions to the originating renderer window.
   ipcMain.handle(IPC.ws.connect, async (event, rawConfig: unknown) => {
+    assertTrustedSender(IPC.ws.connect, event);
     const config = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
     const connectionId = config.connectionId;
     const webContentsId = event.sender.id;
@@ -66,7 +68,10 @@ export function registerWebSocketHandlerIPC(): void {
         allowedSchemes: ['ws:', 'wss:'],
       });
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'URL rejected by SSRF policy' };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+      };
     }
 
     try {
@@ -100,31 +105,48 @@ export function registerWebSocketHandlerIPC(): void {
           const b64 = Buffer.isBuffer(data)
             ? data.toString('base64')
             : Buffer.from(data as ArrayBuffer).toString('base64');
-          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.message, connectionId), { type: 'binary', data: b64 });
+          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.message, connectionId), {
+            type: 'binary',
+            data: b64,
+          });
         } else {
-          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.message, connectionId), { type: 'text', data: data.toString() });
+          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.message, connectionId), {
+            type: 'text',
+            data: data.toString(),
+          });
         }
       });
 
       ws.on('error', (err: Error) => {
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.error, connectionId), { message: err.message });
+        emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.error, connectionId), {
+          message: err.message,
+        });
       });
 
       ws.on('close', (code: number, reason: Buffer) => {
         activeConnections.delete(connectionId);
         // Only forward unexpected closes; explicit ws:disconnect is already acked to the renderer
         if (!explicitlyClosed) {
-          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.close, connectionId), { code, reason: reason.toString() });
+          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.close, connectionId), {
+            code,
+            reason: reason.toString(),
+          });
         }
       });
 
-      entry.setExplicitlyClosed = () => { explicitlyClosed = true; };
+      entry.setExplicitlyClosed = () => {
+        explicitlyClosed = true;
+      };
       activeConnections.set(connectionId, entry);
 
       bindRendererCleanup(activeConnections, event.sender, (deadId) => {
         disposeByOwner(activeConnections, deadId, (e) => {
           e.setExplicitlyClosed?.();
-          try { e.ws.terminate(); } catch { /* ignore */ }
+          try {
+            e.ws.terminate();
+          } catch {
+            /* ignore */
+          }
         });
       });
 
@@ -182,7 +204,11 @@ export function registerWebSocketHandlerIPC(): void {
 
 export function stopWebSocketCleanup(): void {
   for (const [, entry] of activeConnections) {
-    try { entry.ws.terminate(); } catch { /* ignore */ }
+    try {
+      entry.ws.terminate();
+    } catch {
+      /* ignore */
+    }
   }
   activeConnections.clear();
 }

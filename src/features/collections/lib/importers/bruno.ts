@@ -114,6 +114,9 @@ function safeJsonParse(s: string): unknown {
   }
 }
 
+/** Max folder nesting for a Bruno directory import (guards tree recursion). */
+const MAX_FOLDER_DEPTH = 100;
+
 function buildItemsFromEntries(
   entries: Array<{ relativePath: string; content: string }>,
   bruToJsonV2: (s: string) => unknown,
@@ -137,6 +140,12 @@ function buildItemsFromEntries(
     const parts = e.relativePath.split('/');
     const fileName = parts.pop();
     if (!fileName) continue;
+
+    // `parts` is the folder chain; `treeToItems` recurses one level per folder,
+    // so bound it to keep a maliciously deep directory from overflowing the stack.
+    if (parts.length > MAX_FOLDER_DEPTH) {
+      throw new Error(`Bruno collection nesting exceeds the maximum depth of ${MAX_FOLDER_DEPTH}`);
+    }
 
     let node = root;
     for (const part of parts) {

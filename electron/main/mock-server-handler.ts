@@ -9,6 +9,7 @@ import http from 'node:http';
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../shared/channels';
+import { assertTrustedSender } from './ipc-validators';
 
 export interface MockRoute {
   method: string;
@@ -183,27 +184,38 @@ export function getMockStatus(): MockServerStatus {
 // ---------------------------------------------------------------------------
 
 export function registerMockServerIPC(): void {
-  ipcMain.handle(IPC.mock.start, async (_e, payload) => {
+  ipcMain.handle(IPC.mock.start, async (event, payload) => {
+    assertTrustedSender(IPC.mock.start, event);
     const parsed = StartSchema.safeParse(payload);
     if (!parsed.success) return { ok: false, error: parsed.error.message };
     try {
       const status = await startMockServer(parsed.data);
       return { ok: true, status };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'Failed to start mock server' };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to start mock server',
+      };
     }
   });
 
-  ipcMain.handle(IPC.mock.stop, async () => {
+  ipcMain.handle(IPC.mock.stop, async (event) => {
+    assertTrustedSender(IPC.mock.stop, event);
     try {
       const status = await stopMockServer();
       return { ok: true, status };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'Failed to stop mock server' };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to stop mock server',
+      };
     }
   });
 
-  ipcMain.handle(IPC.mock.status, () => ({ ok: true, status: getMockStatus() }));
+  ipcMain.handle(IPC.mock.status, (event) => {
+    assertTrustedSender(IPC.mock.status, event);
+    return { ok: true, status: getMockStatus() };
+  });
 }
 
 export function unregisterMockServerIPC(): void {

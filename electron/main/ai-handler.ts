@@ -19,7 +19,7 @@ import { emitTo } from './ipc-utils';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { assertUrlHostnameSafe } from './dns-guard';
 import { resolveSecretHandle } from './secret-handle-store';
-import { AiChatRequestSchema, AiChatCancelSchema } from './ipc-validators';
+import { AiChatRequestSchema, AiChatCancelSchema, assertTrustedSender } from './ipc-validators';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import type { ChatRequestSpec } from '@shared/protocol/ai/types';
@@ -75,6 +75,7 @@ async function runChat(
 
 export function registerAiHandlers(): void {
   ipcMain.handle(IPC.ai.chat, async (event, raw: unknown) => {
+    assertTrustedSender(IPC.ai.chat, event);
     const parsed = AiChatRequestSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
 
@@ -124,14 +125,17 @@ export function registerAiHandlers(): void {
     return { ok: true as const, streamId: data.streamId };
   });
 
-  ipcMain.handle(IPC.ai.chatCancel, async (_event, raw: unknown) => {
+  ipcMain.handle(IPC.ai.chatCancel, async (event, raw: unknown) => {
+    assertTrustedSender(IPC.ai.chatCancel, event);
     const parsed = AiChatCancelSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const entry = active.get(parsed.data.streamId);
     if (!entry) return { ok: true as const, alreadyDone: true };
     entry.abort.abort();
     active.delete(parsed.data.streamId);
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.ai.end, parsed.data.streamId), { reason: 'cancelled' });
+    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.ai.end, parsed.data.streamId), {
+      reason: 'cancelled',
+    });
     return { ok: true as const };
   });
 }

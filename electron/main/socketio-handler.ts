@@ -12,6 +12,7 @@ import {
   SocketIoDisconnectSchema,
   validateIpcInput,
   createValidatedHandler,
+  assertTrustedSender,
 } from './ipc-validators';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 import { IPC } from '../shared/channels';
@@ -73,6 +74,7 @@ export function registerSocketIoHandlerIPC(): void {
   // socketio:connect is handled manually so we can capture event.sender.id
   // and target IPC emissions to the originating renderer window.
   ipcMain.handle(IPC.socketio.connect, async (event, rawConfig: unknown) => {
+    assertTrustedSender(IPC.socketio.connect, event);
     const config = validateIpcInput(SocketIoConnectSchema, rawConfig, IPC.socketio.connect);
     const connectionId = config.connectionId;
     const webContentsId = event.sender.id;

@@ -1,0 +1,15 @@
+type: collection.insomnia.rest/5.0
+name: Insomnia v5 Sample
+meta:
+  id: wrk_e2e_insomnia_v5
+collection:
+  - name: Get Insomnia v5 Ping
+    meta:
+      id: req_e2e_v5
+    method: GET
+    url: https://example.test/insomnia-v5
+    headers: []
+environments:
+  name: Base Environment
+  data:
+    base_url: https://example.test

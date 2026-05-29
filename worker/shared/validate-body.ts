@@ -10,7 +10,20 @@ import type { z } from 'zod';
  */
 export type ParseResult<T> =
   | { ok: true; value: T }
-  | { ok: false; status: 400; error: string };
+  | { ok: false; status: 400 | 413; error: string };
+
+/** Options for {@link parseJsonBody}. */
+export interface ParseJsonBodyOptions {
+  /**
+   * Reject the request with 413 if its `Content-Length` exceeds this many
+   * bytes, *before* the body is read into memory. Opt-in per call so the
+   * proxy endpoint (50 MB request bodies) is unaffected; small public
+   * endpoints (telemetry, ws-ticket) pass a tight cap. Best-effort: a request
+   * without a `Content-Length` header (e.g. chunked) skips the pre-check and
+   * is still bounded by the schema's own field `.max()`s after parse.
+   */
+  maxBytes?: number;
+}
 
 /**
  * Read a JSON request body and validate it against a Zod schema. Handles
@@ -28,8 +41,15 @@ export type ParseResult<T> =
  */
 export async function parseJsonBody<T>(
   req: Request,
-  schema: z.ZodType<T>
+  schema: z.ZodType<T>,
+  options?: ParseJsonBodyOptions
 ): Promise<ParseResult<T>> {
+  if (options?.maxBytes !== undefined) {
+    const declared = Number(req.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > options.maxBytes) {
+      return { ok: false, status: 413, error: 'Request body too large' };
+    }
+  }
   let raw: unknown;
   try {
     raw = await req.json();

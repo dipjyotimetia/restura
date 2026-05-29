@@ -49,7 +49,7 @@ const FORMATS: FormatMeta[] = [
   {
     id: 'insomnia',
     name: 'Insomnia',
-    tagline: 'Workspaces & request groups',
+    tagline: 'v4 & v5 workspaces',
     initials: 'IN',
     color: '#7e5cef',
     accept: '.json,.yaml,.yml',
@@ -146,8 +146,7 @@ const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = 
     collection: await importPostmanCollection(data as any),
     warnings: [],
   }),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  insomnia: async (data) => importInsomniaCollection(data as any),
+  insomnia: async (data) => importInsomniaCollection(data),
   openapi: async (data) => ({ collection: await importOpenAPICollection(data), warnings: [] }),
   opencollection: async (data) => importOpenCollection(data),
   hoppscotch: async (data) => importHoppscotchCollection(data),

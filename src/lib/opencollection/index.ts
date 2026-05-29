@@ -1,5 +1,6 @@
 export {
   openCollectionSchema,
+  assertBoundedDocument,
   authSchema,
   environmentSchema,
   folderSchema,

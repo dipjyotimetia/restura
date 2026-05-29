@@ -34,6 +34,10 @@ jobs:
     if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      # Consumed by the `desktop` job so it checks out the freshly-tagged commit
+      # (post version-bump) and electron-builder publishes to the matching release.
+      new_tag: ${{ steps.bump.outputs.new_tag }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -127,3 +131,61 @@ jobs:
           files: |
             restura.cdx.json
             restura.cdx.xml
+
+  desktop:
+    name: Desktop installers (${{ matrix.os }})
+    needs: [release]
+    # `needs` already gates on `release`; if that job is skipped (a
+    # chore(release): commit), this is skipped too — no orphan build.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      # One platform failing (e.g. a flaky notarization) shouldn't discard
+      # installers that built cleanly on the others.
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The freshly-pushed version-bump commit, by tag, so package.json's
+          # version matches the release electron-builder publishes into.
+          ref: ${{ needs.release.outputs.new_tag }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # electron-builder's rpm target shells out to `rpmbuild`, which isn't on
+      # the ubuntu-latest image by default. AppImage/deb need no extra packages.
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: Build + publish installers
+        env:
+          # electron-builder uploads to the GitHub release matching the tag.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ---- Code signing (optional) ----
+          # Set repo secrets to ship signed + notarized builds; absent → unsigned.
+          # Signing is scoped PER OS: a macOS Developer ID cert is not a valid
+          # Windows Authenticode cert, so CSC_LINK must NOT leak onto the Windows
+          # leg (it would make signtool fail). macOS uses CSC_LINK; Windows uses
+          # a separate WIN_CSC_LINK. CSC_IDENTITY_AUTO_DISCOVERY is forced off
+          # when this OS has no cert so electron-builder doesn't probe a keychain.
+          #   macOS  : CSC_LINK (base64 .p12), CSC_KEY_PASSWORD,
+          #            APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+          #   Windows: WIN_CSC_LINK (base64 .pfx), WIN_CSC_KEY_PASSWORD
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.CSC_LINK != '') || (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
+        run: npm run electron:publish
