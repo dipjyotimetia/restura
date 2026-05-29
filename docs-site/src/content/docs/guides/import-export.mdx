@@ -1,0 +1,53 @@
+---
+title: Import & export
+description: Move collections in and out of Restura. Postman, Insomnia, OpenAPI, Hoppscotch, Bruno, OpenCollection.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Restura imports from the major API client formats and exports to **OpenCollection** — the open, vendor-neutral collection spec — as well as back to Postman v2.1.
+
+## Import
+
+<CardGrid>
+  <Card title="Postman v2.1" icon="seti:json">
+    Collections and environments. Scripts (`pm.*`) carry over thanks to the QuickJS sandbox supporting the Postman API. See [Postman compatibility](/reference/postman-compat/).
+  </Card>
+  <Card title="Insomnia" icon="seti:json">
+    Workspaces, requests, folders, environments. Bring your `insomnia.json` straight in.
+  </Card>
+  <Card title="OpenAPI / Swagger" icon="open-book">
+    Schema-driven import. Every operation in the spec becomes a request; example bodies pre-fill where available.
+  </Card>
+  <Card title="Hoppscotch" icon="seti:json">
+    Native Hoppscotch JSON.
+  </Card>
+  <Card title="Bruno (3.1+)" icon="seti:folder">
+    Bruno `.bru` files in a directory. Restura reads the whole tree.
+  </Card>
+  <Card title="OpenCollection" icon="open-book">
+    Native format — both the bundled JSON layout and the directory layout. Lossless round-trip.
+  </Card>
+</CardGrid>
+
+## Export
+
+- **OpenCollection** (bundled JSON) — the canonical export format. Lossless.
+- **OpenCollection** (directory layout) — one file per request, friendly for `git`.
+- **Postman v2.1** — for sharing with Postman users.
+
+Auth schemes that exist in Restura but not in the target format are persisted via the OpenCollection `extensions` field so they round-trip.
+
+## Secret redaction on export
+
+Exports run through a redactor that strips inline secret values, replacing them with environment placeholders where possible (`{{api_token}}`). `SecretRef` handles, by definition, never carry plaintext, so they export safely. Always re-check an export before committing it to a public repo.
+
+## OpenCollection — why it exists
+
+Postman locked their format and Insomnia did too. **OpenCollection** is an open spec for API collections — see the [reference](/reference/opencollection/) — designed for portability between tools, version control, and CI.
+
+## Related
+
+- [Collections](/guides/collections/) — how collections are organised.
+- [Postman compatibility](/reference/postman-compat/) — script-level compatibility details.
+- [OpenCollection](/reference/opencollection/) — the format spec.

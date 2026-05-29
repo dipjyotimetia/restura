@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { VariableInput } from '@/components/shared/VariableInput';
 import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, ListPlus, Eye, EyeOff, Lock } from 'lucide-react';
 import type { KeyValue } from '@/types';
@@ -56,7 +56,7 @@ export default function KeyValueEditor({
   };
   return (
     <TooltipProvider delayDuration={300}>
-    <div className="space-y-3">
+      <div className="space-y-3">
         {items.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground/50 glass-3 rounded-xl border glass-border-subtle mx-1">
             <ListPlus className="h-5 w-5 text-primary/40" />
@@ -64,134 +64,139 @@ export default function KeyValueEditor({
           </div>
         )}
         <Stagger show={items.length > 0}>
-        {items.map((item) => (
-          <StaggerItem
-            key={item.id}
-            className="flex items-center gap-2 group py-1.5 px-2 rounded border border-transparent hover:bg-foreground/5 hover:glass-border-subtle transition-colors"
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div>
-                  <Switch
-                    checked={item.enabled}
-                    onCheckedChange={(checked) => onUpdate(item.id, { enabled: checked })}
-                    className="data-[state=checked]:bg-primary"
-                    aria-label={item.enabled ? `Disable ${itemType}` : `Enable ${itemType}`}
-                  />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{item.enabled ? `Disable ${itemType}` : `Enable ${itemType}`}</p>
-              </TooltipContent>
-            </Tooltip>
-            <Input
-              value={item.key}
-              onChange={(e) => onUpdate(item.id, { key: e.target.value })}
-              placeholder={keyPlaceholder}
-              className="flex-1 font-mono text-xs"
-              aria-label={`${itemType} key`}
-            />
-            <div className="flex-1 flex items-center gap-1">
-              <Input
-                value={item.value}
-                onChange={(e) => onUpdate(item.id, { value: e.target.value })}
-                placeholder={valuePlaceholder}
-                type={enableSecrets && item.secret && !revealedIds.has(item.id) ? 'password' : 'text'}
+          {items.map((item) => (
+            <StaggerItem
+              key={item.id}
+              className="flex items-center gap-2 group py-1.5 px-2 rounded border border-transparent hover:bg-foreground/5 hover:glass-border-subtle transition-colors"
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Switch
+                      checked={item.enabled}
+                      onCheckedChange={(checked) => onUpdate(item.id, { enabled: checked })}
+                      className="data-[state=checked]:bg-primary"
+                      aria-label={item.enabled ? `Disable ${itemType}` : `Enable ${itemType}`}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{item.enabled ? `Disable ${itemType}` : `Enable ${itemType}`}</p>
+                </TooltipContent>
+              </Tooltip>
+              <VariableInput
+                value={item.key}
+                onValueChange={(val) => onUpdate(item.id, { key: val })}
+                placeholder={keyPlaceholder}
                 className="flex-1 font-mono text-xs"
-                aria-label={`${itemType} value`}
+                aria-label={`${itemType} key`}
               />
-              {enableSecrets && (
-                <div className="flex items-center gap-0.5">
-                  {item.secret && (
+              <div className="flex-1 flex items-center gap-1">
+                <VariableInput
+                  value={item.value}
+                  onValueChange={(val) => onUpdate(item.id, { value: val })}
+                  placeholder={valuePlaceholder}
+                  type={
+                    enableSecrets && item.secret && !revealedIds.has(item.id) ? 'password' : 'text'
+                  }
+                  className="flex-1 font-mono text-xs"
+                  aria-label={`${itemType} value`}
+                />
+                {enableSecrets && (
+                  <div className="flex items-center gap-0.5">
+                    {item.secret && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground"
+                            onClick={() => toggleReveal(item.id)}
+                            aria-label={revealedIds.has(item.id) ? 'Hide value' : 'Reveal value'}
+                          >
+                            {revealedIds.has(item.id) ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{revealedIds.has(item.id) ? 'Hide value' : 'Reveal value'}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6 text-muted-foreground"
-                          onClick={() => toggleReveal(item.id)}
-                          aria-label={revealedIds.has(item.id) ? 'Hide value' : 'Reveal value'}
+                          className={`h-6 w-6 transition-colors ${item.secret ? 'text-amber-500' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
+                          onClick={() => {
+                            onUpdate(item.id, { secret: !item.secret });
+                            if (item.secret)
+                              setRevealedIds((prev) => {
+                                const n = new Set(prev);
+                                n.delete(item.id);
+                                return n;
+                              });
+                          }}
+                          aria-label={item.secret ? 'Unmark as secret' : 'Mark as secret'}
                         >
-                          {revealedIds.has(item.id) ? (
-                            <EyeOff className="h-3.5 w-3.5" />
-                          ) : (
-                            <Eye className="h-3.5 w-3.5" />
-                          )}
+                          <Lock className="h-3.5 w-3.5" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>{revealedIds.has(item.id) ? 'Hide value' : 'Reveal value'}</p>
+                        <p>{item.secret ? 'Unmark as secret' : 'Mark as secret'}</p>
                       </TooltipContent>
                     </Tooltip>
-                  )}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                  </div>
+                )}
+              </div>
+              <AlertDialog>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <AlertDialogTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className={`h-6 w-6 transition-colors ${item.secret ? 'text-amber-500' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
-                        onClick={() => {
-                          onUpdate(item.id, { secret: !item.secret });
-                          if (item.secret) setRevealedIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
-                        }}
-                        aria-label={item.secret ? 'Unmark as secret' : 'Mark as secret'}
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                        aria-label={`Delete ${itemType}`}
                       >
-                        <Lock className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{item.secret ? 'Unmark as secret' : 'Mark as secret'}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              )}
-            </div>
-            <AlertDialog>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                      aria-label={`Delete ${itemType}`}
+                    </AlertDialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Delete {itemType}</p>
+                  </TooltipContent>
+                </Tooltip>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Delete {itemType.charAt(0).toUpperCase() + itemType.slice(1)}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to delete this {itemType}? This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => onDelete(item.id)}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Delete {itemType}</p>
-                </TooltipContent>
-              </Tooltip>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete {itemType.charAt(0).toUpperCase() + itemType.slice(1)}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Are you sure you want to delete this {itemType}? This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => onDelete(item.id)}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </StaggerItem>
-        ))}
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </StaggerItem>
+          ))}
         </Stagger>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button
-              onClick={onAdd}
-              variant="outline"
-              size="sm"
-            >
+            <Button onClick={onAdd} variant="outline" size="sm">
               <Plus className="mr-2 h-4 w-4" />
               {addButtonText}
             </Button>
@@ -200,7 +205,7 @@ export default function KeyValueEditor({
             <p>Add new {itemType}</p>
           </TooltipContent>
         </Tooltip>
-    </div>
+      </div>
     </TooltipProvider>
   );
 }

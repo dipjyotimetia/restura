@@ -1,0 +1,48 @@
+---
+title: Workflows
+description: Chain requests, extract variables, retry with backoff. Run in the UI or in CI.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A **workflow** is an ordered series of requests that run together, with variable extraction between steps and retry policies on each step.
+
+## What you can do
+
+- **Sequence** requests — A then B then C.
+- **Extract** values from a response and feed them into the next step.
+- **Condition** a step on a previous step's result.
+- **Retry** failing steps with exponential backoff.
+- **Time out** a step.
+
+## Extraction
+
+Pull values out of a response using any of:
+
+- **JSONPath** — `$.data.user.id`.
+- **Regex** — match against the body or a header.
+- **Header lookup** — by name.
+
+Extracted values land in a chosen scope (environment, collection, or workflow) and become available to later steps as normal `{{placeholders}}`.
+
+## Retries
+
+Each step has its own retry policy: max attempts, backoff base and ceiling, jitter on/off. The status panel shows the attempt count.
+
+## In CI
+
+The [`@restura/cli`](/reference/cli/) runs workflows in CI with structured output:
+
+- Exit code `0` = pass, `1` = test failure, `2` = error.
+- Reporters: live coloured progress, JSON, JUnit XML (for CI dashboards), self-contained HTML report (for sharing).
+- Per-row **data-driven** runs from a CSV or JSON file.
+
+<Aside title="See">
+The full workflow spec is documented in [`docs/workflows.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/workflows.md). When you import a workflow from a `.json` or OpenCollection bundle, that's the same shape on disk.
+</Aside>
+
+## Related
+
+- [Scripts](/guides/scripts/) — assertions and pre/post hooks at each step.
+- [CLI](/reference/cli/) — run workflows headlessly.
+- [Environments](/guides/environments/) — workflow output can target an environment.

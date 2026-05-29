@@ -1,0 +1,93 @@
+---
+title: Security model
+description: Asymmetric capabilities, wire-level signing, sandboxed scripts, OS-keychain secret storage.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Restura's security posture is **asymmetric** between platforms by virtue of capability gaps. The UI surfaces "Desktop only" badges on fields whose underlying capability isn't available in the browser. Here's the model.
+
+## At rest
+
+### Desktop
+
+- Encryption keys are persisted via Electron's `safeStorage`, which wraps them with the **OS keychain** — macOS Keychain, Windows Credential Manager, Linux libsecret.
+- Stored data (collections, history, environments, secrets) is encrypted with **AES-256-GCM** using a key derived from the keychain-wrapped key.
+- Secret-bearing auth fields use the **`SecretRef` handle pattern** (ADR 0007): the plaintext lives in `electron/main/secret-handle-store.ts` and the renderer only ever sees a handle (`{ kind: 'handle', id, label? }`). Plaintext is resolved only at wire-signing time in the main process — never enters the Zustand store, persistence layer, or exported collections.
+
+### Web
+
+- Default: **in-memory ephemeral** encryption key, regenerated per session — strictly better than persisting the key alongside the ciphertext. Encrypted data does not survive a reload.
+- Future: an opt-in passphrase prompt that derives a stable session key via PBKDF2.
+- mTLS, custom CA, SOCKS, and "Verify SSL = off" are **not** available — the browser sandbox doesn't expose them.
+
+## In transit
+
+### SSRF guards on both Worker and Electron paths
+
+Every outbound URL passes through `shared/protocol/url-validation.ts`, which blocks:
+
+- RFC 1918 (private networks).
+- RFC 6598 (CGNAT, `100.64.0.0/10`).
+- Link-local `169.254/16` — covers the cloud-metadata endpoint.
+- Loopback and IPv6 loopback.
+- IPv6 unique-local (`fc00::/7`).
+- IPv4-mapped IPv6.
+
+The guard is the **single source of truth** — before the shared-protocol refactor it had drifted between backends.
+
+### DNS-rebind guard (desktop)
+
+The Electron main process additionally enforces a **pre-flight DNS guard**: hostnames are resolved before connecting, and `assertResolvedAddressAllowed` is called against every record returned. Note: this is *pre-flight only* — it does not mitigate a true DNS-rebind that swaps records at TTL=0 between resolve and connect.
+
+### Wire-level auth signing
+
+AWS SigV4, OAuth 1.0a, and WSSE are all signed in the **Worker / Electron main process**, not the renderer. The signature matches the exact bytes the upstream receives — proxying through a layer that re-encodes the body would silently invalidate it.
+
+### Hop-by-hop header sanitisation
+
+`shared/protocol/header-policy.ts` strips hop-by-hop headers (`Connection`, `Keep-Alive`, `Proxy-Authenticate`, `Transfer-Encoding`, `TE`, `Trailers`, `Upgrade`) from both directions and rejects header names with control characters.
+
+## Scripts
+
+Pre-request and test scripts run in a **QuickJS WASM sandbox** (`src/features/scripts/lib/scriptExecutor.ts`):
+
+- No DOM.
+- No filesystem.
+- No network escape — `fetch` and `XMLHttpRequest` are absent.
+- Memory cap (10 MB by default).
+- Execution time cap (5 seconds).
+
+This matters because shared collections might carry scripts from anywhere; the sandbox guarantees they can't exfiltrate or pivot.
+
+## AI assistant — prompt redaction
+
+Before any prompt goes to a provider, `shared/protocol/ai/redaction.ts` scrubs sensitive material from the context snapshot:
+
+- Sensitive header names (`Authorization`, `Cookie`, `X-Api-Key`).
+- Absolute URLs (host replaced with `[REDACTED_HOST]`; path retained).
+- Inline secret values where they're identifiable.
+
+## MCP server mode
+
+When Restura acts as an MCP server, every tool response is run through a redactor (`electron/main/collection-export-redactor.ts`) that strips secrets by name. `SecretRef` handles are never resolved for the MCP surface — agents see metadata, not plaintext.
+
+## Worker auth gate
+
+The deployed Cloudflare Worker requires one of:
+
+- `WORKER_PROXY_TOKEN` set as a secret, sent by the client as `X-Worker-Token`.
+- `REQUIRE_CF_ACCESS=true` and a Cloudflare Access policy in front of the Worker.
+
+Local dev bypasses auth only when Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. **Never put `DEV_BYPASS_AUTH` in `wrangler.jsonc`** (the deployed config).
+
+<Aside title="Read the source">
+- [`docs/security.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/security.md) — at-rest encryption details.
+- [ADR 0004 — Security hardening](/architecture/adrs/)
+- [ADR 0006 — Electron connection + DNS hardening](/architecture/adrs/)
+- [ADR 0007 — SecretRef pattern](/architecture/adrs/)
+</Aside>
+
+## Reporting
+
+Report security issues privately via [GitHub security advisories](https://github.com/dipjyotimetia/restura/security/advisories/new). See [`SECURITY.md`](https://github.com/dipjyotimetia/restura/blob/main/SECURITY.md).

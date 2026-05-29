@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/shared/utils';
+import { VariableInput } from '@/components/shared/VariableInput';
 
 export interface ComboboxSuggestion {
   value: string;
@@ -113,11 +114,12 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
     return (
       <Popover open={isOpen} onOpenChange={setOpen}>
         <PopoverAnchor asChild>
-          <input
+          <VariableInput
+            rawInput
             ref={ref}
             value={value}
-            onChange={(e) => {
-              onChange(e.target.value);
+            onValueChange={(val) => {
+              onChange(val);
               setOpen(true);
               setActiveIdx(0);
             }}

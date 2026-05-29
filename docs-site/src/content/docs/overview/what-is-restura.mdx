@@ -1,0 +1,44 @@
+---
+title: What is Restura?
+description: A multi-protocol API client for developers — HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MCP — that runs in the browser, on your desktop, or self-hosted.
+---
+
+Restura is an API client for developers who are tired of switching tools. You can test HTTP endpoints, debug gRPC services, send WebSocket frames, watch SSE streams, produce to Kafka topics, and call MCP servers — all from one interface.
+
+It ships from a single React renderer to three deployment targets:
+
+- **Web app** on Cloudflare Pages — open it and start sending requests.
+- **Desktop app** built with Electron for macOS, Windows, and Linux — gets capabilities the browser sandbox can't offer (mTLS, SOCKS, Kafka, custom CAs).
+- **Self-hosted** via a single Docker image you can drop behind your own reverse proxy.
+
+## What it can do
+
+- **Eight protocols out of the box** — HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events, Kafka, and Model Context Protocol.
+- **Auth covered** — Bearer, Basic, API Key, OAuth 2.0 (auth code / client credentials / password / device with PKCE), OAuth 1.0, AWS SigV4, Digest, NTLM, WSSE, and mTLS on desktop.
+- **Collections & environments** — Group requests, share folders, scope variables, swap between staging and production in a click.
+- **Workflows** — Chain requests, extract variables with JSONPath / regex / headers, run with exponential-backoff retries, in the app or in CI.
+- **Scripts** — Pre-request and test scripts in an isolated QuickJS WASM sandbox; Postman `pm.*` API compatible.
+- **AI assistant** — Chat to OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets and URLs redacted at the wire.
+- **Restura *as* an MCP server** — Expose your collections, environments, and history to an agent like Claude. Per-tool consent gates and secret redaction built in.
+- **Import / export** — Postman v2.1, Insomnia, OpenAPI / Swagger, Hoppscotch, Bruno, OpenCollection.
+- **CLI runner** — `@restura/cli` runs OpenCollection and legacy-format collections in CI with JUnit / HTML / JSON reporters.
+
+## What it doesn't do
+
+- No accounts. No cloud sync. No telemetry. No team workspaces.
+- The web app, the desktop app, and the self-hosted Docker image are all free, forever.
+
+## Who it's for
+
+- Backend engineers debugging a service.
+- Frontend engineers exploring an API.
+- SREs verifying staging vs. production.
+- Anyone running an MCP server who needs a quick way to poke at it.
+- Teams who want a Postman-shaped tool but don't want their requests living on someone else's server.
+
+## Next
+
+- [Install](/overview/install/) — pick a platform.
+- [Quick start](/overview/quick-start/) — send your first request.
+- [Platforms](/overview/platforms/) — what differs between web and desktop.
+- [vs other API clients](/overview/comparison/) — honest comparison with Postman, Hoppscotch, Bruno, Insomnia, and more.

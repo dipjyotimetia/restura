@@ -1,0 +1,40 @@
+---
+title: Model Context Protocol (MCP)
+description: Restura is both an MCP client and an MCP server.
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+MCP — the [Model Context Protocol](https://modelcontextprotocol.io/) — is the open standard for letting AI agents talk to tools and data sources. Restura plays both sides.
+
+## As an MCP client
+
+Point Restura at any MCP server and explore it like any other request target.
+
+- **`streamable-http`** transport — the modern wire shape.
+- **`http-sse`** transport — older shape, also supported.
+- **`stdio`** subprocess transport — <Badge text="desktop only" variant="caution" /> (requires spawning a child process).
+- **List tools** — see the server's exposed tool catalogue with schemas.
+- **Invoke a tool** — fill in the JSON schema, send, watch the streamed result.
+- **List prompts / list resources** — for servers that expose them.
+
+## As an MCP server
+
+Restura can *be* an MCP server, exposing your saved data to an agent like Claude.
+
+The desktop app exposes these tools:
+
+- `list_collections` — enumerate your collections.
+- `list_requests` — browse requests inside a collection (filterable by folder).
+- `list_environments` — list environments and their currently active variables.
+- `get_environment` — fetch one environment's details, with secrets auto-redacted.
+- `get_history` — query past request executions with filters and a limit.
+
+Every tool is **consent-gated** (the user approves the connecting agent) and every response is **redacted** so secrets, tokens, and auth headers don't leak into agent context.
+
+See the [MCP server mode guide](/guides/mcp-server-mode/) for setup.
+
+## Related
+
+- [AI assistant](/guides/ai-assistant/) — Restura's built-in chat with OpenAI / Anthropic / OpenRouter, which can use request context and tools.
+- [MCP server mode](/guides/mcp-server-mode/) — set up Restura as an MCP server in your agent.

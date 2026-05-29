@@ -1,0 +1,50 @@
+---
+title: Capability matrix
+description: What works on web vs desktop. Auto-generated from src/lib/shared/capabilities.ts; this page links to the canonical version.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Restura's capability matrix is **data-driven**: there's a single source of truth at [`src/lib/shared/capabilities.ts`](https://github.com/dipjyotimetia/restura/blob/main/src/lib/shared/capabilities.ts) and a CI gate (`npm run capabilities:check`) that fails if the published doc drifts from the code.
+
+## Quick summary
+
+### Available on both web and desktop
+
+- HTTP / REST (all methods, body types).
+- GraphQL — queries, mutations, subscriptions over `multipart/mixed` and WebSocket.
+- gRPC unary + server streaming (via Connect / gRPC-Web).
+- WebSocket — connect, send/receive, full history.
+- Server-Sent Events — basic stream viewer with reconnection.
+- MCP — HTTP-SSE and streamable-HTTP transports.
+- Socket.IO — basic emit/listen.
+- Collections, environments, workflows, scripts.
+- Encrypted local storage.
+- SSRF guard on all upstream requests.
+- AI assistant (where wired through to the provider).
+
+### Desktop only
+
+- **Kafka** — produce / consume / SASL / TLS (needs raw TCP).
+- **Socket.IO acks** — needs a direct socket session.
+- **SSE custom headers** — browser `EventSource` doesn't allow them.
+- **MCP `stdio` transport** — needs subprocess spawning.
+- **mTLS** client certificates.
+- **SOCKS4 / SOCKS5** proxies.
+- **PAC script** resolution.
+- **Custom CA bundle**, disable TLS verification.
+- **Pre-flight DNS guard** against DNS-rebind.
+- **Filesystem-backed collections** + git operations.
+- **OS keychain** storage (via `safeStorage`).
+- **Native shell / notifications / tray**.
+- **Local mock HTTP server**.
+
+<Aside title="Canonical reference">
+The full, auto-generated matrix lives at [`docs/CAPABILITY_MATRIX.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CAPABILITY_MATRIX.md). Run `npm run capabilities:matrix` to regenerate after updating `capabilities.ts`.
+</Aside>
+
+## Self-hosted
+
+Self-hosted (Docker) inherits the **web** capability profile — the SPA runs in a browser, just from your own server. Kafka, SOCKS, mTLS, etc. remain desktop-only because they require Node-level networking that the browser doesn't expose.
+
+If you need both self-hosted *and* the desktop-only capabilities, run the desktop app locally and point it at your self-hosted gateway as a normal upstream.

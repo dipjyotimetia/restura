@@ -253,6 +253,25 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist/web/client --project-name=restura --branch=main
 
+      - name: Install docs-site dependencies
+        run: npm --prefix docs-site ci
+
+      - name: Build docs site
+        run: npm --prefix docs-site run build
+
+      - name: Ensure docs Pages project exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages project create restura-docs --production-branch=main || true
+
+      - name: Deploy docs site to Cloudflare Pages (docs.restura.dev)
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs-site/dist --project-name=restura-docs --branch=main
+
   deploy-preview:
     name: Deploy preview
     needs: [validate, e2e]
@@ -327,6 +346,26 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist/web/client --project-name=restura --branch=${{ steps.branch.outputs.slug }}
+
+      - name: Install docs-site dependencies
+        run: npm --prefix docs-site ci
+
+      - name: Build docs site
+        run: npm --prefix docs-site run build
+
+      - name: Ensure docs Pages project exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages project create restura-docs --production-branch=main || true
+
+      - name: Deploy docs site preview to Cloudflare Pages
+        id: docs-preview
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs-site/dist --project-name=restura-docs --branch=${{ steps.branch.outputs.slug }}
 
       - name: Comment preview URL on PR
         uses: actions/github-script@v9

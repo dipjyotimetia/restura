@@ -1,0 +1,49 @@
+---
+title: Environments
+description: Scope variables to environments and swap between staging and production with one click.
+---
+
+An environment is a named set of variables. Pick one in the top-right selector and every `{{placeholder}}` in your request resolves against it.
+
+## What you can put in a variable
+
+- **Plain strings** — `base_url`, `team_id`, `version`.
+- **Secrets** — `api_token`, `client_secret`. On desktop, secrets are stored as `SecretRef` handles in the encrypted main-process store and never appear in the renderer or in exports.
+- **Environment-scoped overrides** — a variable in the active environment beats the same name in the collection-scope variable table.
+
+## Variable resolution order
+
+When `{{base_url}}` is encountered, Restura looks in this order, picking the first match:
+
+1. **Request-scope variables** — set inline on the request itself or by a pre-request script (`pm.variables.set('base_url', ...)`).
+2. **Active environment** — the selected environment's variable table.
+3. **Collection-scope variables** — defined on the parent collection.
+4. **Globals** — workspace-wide values.
+
+If none match, the placeholder is left as-is so you can spot the typo.
+
+## Switching environments
+
+- Top-right environment selector switches in one click.
+- Workflows can override the environment at run-time.
+- The [CLI](/reference/cli/) accepts `--env <name>` to pick an environment for a CI run.
+
+## Built-in helpers
+
+Postman-compatible helpers work in any `{{...}}` placeholder:
+
+- `{{$randomUUID}}` — fresh UUID per request.
+- `{{$timestamp}}` — current epoch seconds.
+- `{{$isoTimestamp}}` — ISO 8601 timestamp.
+- `{{$guid}}` — alias for `$randomUUID`.
+
+## Tips
+
+- Keep secrets out of collection-scope variables — anyone you share an exported collection with sees those values (unless you redact on export, which is wise).
+- Use the **environment diff** view (when staging vs production are open side by side) to spot drift.
+
+## Related
+
+- [Authentication](/guides/auth/) — tokens stored as `SecretRef`.
+- [Workflows](/guides/workflows/) — extract values from responses and stash them as environment variables.
+- [Scripts](/guides/scripts/) — `pm.environment.set(...)`, `pm.environment.get(...)`.

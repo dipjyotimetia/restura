@@ -1,0 +1,43 @@
+---
+title: WebSocket
+description: Connect, send text or binary frames, watch the full message history, auto-reconnect.
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+Restura's WebSocket client gives you a full session viewer: every frame sent and received, with timestamps, payload type, and a search bar over the transcript.
+
+## What works
+
+- **Connect** to `ws://` and `wss://` URLs.
+- **Custom headers** during the upgrade — routed through the Worker on web, sent natively on desktop.
+- **Send text frames** with the editor; auto-detects JSON for pretty printing.
+- **Send binary frames** — paste hex, upload a file, or use a script.
+- **Auto-reconnect** — backoff with jitter, configurable per session.
+- **Auth on connect** — Bearer, Basic, API Key, OAuth 2.0 (all on the upgrade), and ticket-based auth via the Worker on web.
+- **Ping / pong** — visible in the transcript so you can verify keepalives.
+
+## Web-specific path
+
+The browser `WebSocket` API can't set custom headers on the upgrade. Restura's web build solves this by minting a short-lived ticket through the Worker (`/api/ws-ticket`) and connecting via the Worker's WebSocket proxy. From your point of view it just works.
+
+## Desktop-specific path
+
+The Electron main process opens the socket directly via `ws` over Node `net` / `tls`, so:
+
+- Custom headers go on the upgrade frame.
+- **mTLS** is supported. <Badge text="desktop only" variant="caution" />
+- **Custom CAs / disabled TLS verification** are honoured. <Badge text="desktop only" variant="caution" />
+- **SOCKS** and **PAC** proxies work. <Badge text="desktop only" variant="caution" />
+
+## Tips
+
+- Save a session: every send/receive is stored in history, replayable later.
+- Combine with [scripts](/guides/scripts/) for assertions on incoming frames.
+- For Socket.IO (which is *not* a plain WebSocket), use the [Socket.IO protocol](/protocols/socket-io/).
+
+## Related
+
+- [Authentication](/guides/auth/)
+- [Socket.IO](/protocols/socket-io/) — emit/ack pattern on top of long-polling + WebSocket.
+- [SSE](/protocols/sse/) — server-push without a duplex channel.
