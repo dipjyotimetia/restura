@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useRef, useState, useMemo } from 'react';
+import { toast } from 'sonner';
 import type { Workflow } from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
+import { exportWorkflow, parseWorkflowImport } from '../lib/workflowIO';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -34,6 +36,8 @@ import {
   Play,
   Pencil,
   Trash2,
+  Download,
+  Upload,
   GitBranch,
 } from 'lucide-react';
 
@@ -71,6 +75,31 @@ export function WorkflowManager({
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
   const [deletingWorkflow, setDeletingWorkflow] = useState<Workflow | null>(null);
   const [workflowName, setWorkflowName] = useState('');
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = (workflow: Workflow) => {
+    const blob = new Blob([exportWorkflow(workflow)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${workflow.name.replace(/[^a-z0-9-_]+/gi, '_')}.workflow.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportFile = async (file: File) => {
+    const text = await file.text();
+    const result = parseWorkflowImport(text, collectionId);
+    if (!result.ok) {
+      toast.error(`Import failed — ${result.error}`);
+      return;
+    }
+    addWorkflow(result.workflow);
+    toast.success(`Imported "${result.workflow.name}"`);
+    onSelectWorkflow(result.workflow);
+  };
 
   const handleCreate = () => {
     if (!workflowName.trim()) return;
@@ -111,14 +140,37 @@ export function WorkflowManager({
       {/* Header */}
       <div className="flex items-center justify-between px-2">
         <h3 className="text-sm font-medium text-muted-foreground">Workflows</h3>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          onClick={() => setShowNewDialog(true)}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleImportFile(file);
+              e.target.value = '';
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => importInputRef.current?.click()}
+            title="Import workflow from JSON"
+          >
+            <Upload className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => setShowNewDialog(true)}
+            title="New workflow"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Workflow List */}
@@ -126,12 +178,7 @@ export function WorkflowManager({
         <div className="text-center py-8 text-sm text-muted-foreground">
           <GitBranch className="h-8 w-8 mx-auto mb-2 opacity-50" />
           <p>No workflows yet</p>
-          <Button
-            variant="link"
-            size="sm"
-            className="mt-1"
-            onClick={() => setShowNewDialog(true)}
-          >
+          <Button variant="link" size="sm" className="mt-1" onClick={() => setShowNewDialog(true)}>
             Create your first workflow
           </Button>
         </div>
@@ -203,6 +250,15 @@ export function WorkflowManager({
                       >
                         <Pencil className="h-4 w-4 mr-2" />
                         Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExport(workflow);
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Export
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"

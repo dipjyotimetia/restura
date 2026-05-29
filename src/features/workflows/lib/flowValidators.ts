@@ -16,11 +16,7 @@
  *     (when given a `getReferencedWorkflow` resolver)
  */
 import { z } from 'zod';
-import type {
-  FlowEdge,
-  FlowNode,
-  WorkflowGraph,
-} from '@/types';
+import type { FlowEdge, FlowNode, WorkflowGraph } from '@/types';
 import { allSubgraphs, getOutgoingEdges } from './flowTypes';
 
 const flowPositionSchema = z.object({
@@ -65,9 +61,7 @@ const requestNodeSchema = z.object({
   kind: z.literal('request'),
   data: z.object({
     workflowRequestId: z.string().min(1),
-    failureMode: z
-      .enum(['thrown-only', 'http-status', 'never'])
-      .optional(),
+    failureMode: z.enum(['thrown-only', 'http-status', 'never']).optional(),
   }),
 });
 
@@ -76,6 +70,21 @@ const conditionNodeSchema = z.object({
   kind: z.literal('condition'),
   data: z.object({
     expression: z.string().min(1),
+    description: z.string().optional(),
+  }),
+});
+
+const switchNodeSchema = z.object({
+  ...baseNode,
+  kind: z.literal('switch'),
+  data: z.object({
+    cases: z.array(
+      z.object({
+        id: z.string().min(1),
+        label: z.string().optional(),
+        expression: z.string().min(1),
+      })
+    ),
     description: z.string().optional(),
   }),
 });
@@ -109,14 +118,31 @@ const transformNodeSchema = z.object({
   }),
 });
 
+const templateNodeSchema = z.object({
+  ...baseNode,
+  kind: z.literal('template'),
+  data: z.object({
+    template: z.string(),
+    resultVar: z.string().min(1),
+  }),
+});
+
+const displayNodeSchema = z.object({
+  ...baseNode,
+  kind: z.literal('display'),
+  data: z.object({
+    valueExpression: z.string().min(1),
+    mode: z.enum(['json', 'table', 'raw']),
+    label: z.string().optional(),
+  }),
+});
+
 const parallelNodeSchema = z.object({
   ...baseNode,
   kind: z.literal('parallel'),
   data: z.object({
     waitMode: z.enum(['all', 'any', 'race']),
-    mergeStrategy: z
-      .enum(['fail-on-conflict', 'pick-first', 'pick-last', 'merge-list'])
-      .optional(),
+    mergeStrategy: z.enum(['fail-on-conflict', 'pick-first', 'pick-last', 'merge-list']).optional(),
   }),
 });
 
@@ -128,6 +154,18 @@ const forEachNodeSchema = z.object({
     iteratorVar: z.string().min(1),
     subgraph: workflowGraphSchemaInner,
     concurrency: z.number().int().min(1).max(64).optional(),
+  }),
+});
+
+const loopNodeSchema = z.object({
+  ...baseNode,
+  kind: z.literal('loop'),
+  data: z.object({
+    conditionExpression: z.string().min(1),
+    mode: z.enum(['while', 'until']),
+    maxIterations: z.number().int().min(1).max(100_000),
+    delayMs: z.number().int().min(0).max(3_600_000).optional(),
+    subgraph: workflowGraphSchemaInner,
   }),
 });
 
@@ -202,11 +240,15 @@ export const flowNodeSchema = z.discriminatedUnion('kind', [
   endNodeSchema,
   requestNodeSchema,
   conditionNodeSchema,
+  switchNodeSchema,
   setVariableNodeSchema,
   delayNodeSchema,
   transformNodeSchema,
+  templateNodeSchema,
+  displayNodeSchema,
   parallelNodeSchema,
   forEachNodeSchema,
+  loopNodeSchema,
   tryCatchNodeSchema,
   subWorkflowNodeSchema,
   sseSubscribeNodeSchema,
@@ -232,10 +274,12 @@ export interface ValidationIssue {
   message: string;
 }
 
-export function validateWorkflowGraph(graph: unknown): {
-  ok: true;
-  graph: WorkflowGraph;
-} | { ok: false; issues: ValidationIssue[] } {
+export function validateWorkflowGraph(graph: unknown):
+  | {
+      ok: true;
+      graph: WorkflowGraph;
+    }
+  | { ok: false; issues: ValidationIssue[] } {
   const parsed = workflowGraphSchema.safeParse(graph);
   if (!parsed.success) {
     return {
