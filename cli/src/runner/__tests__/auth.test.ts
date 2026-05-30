@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCollection } from '../runner';
-import type { Reporter, RunResult } from '../../reporters/types';
+import type { Reporter } from '../../reporters/types';
 
 // ---------------------------------------------------------------------------
 // Local HTTP server captures the wire-level Authorization / X-Amz-* / etc.
@@ -43,21 +43,21 @@ afterAll(async () => {
 });
 
 class NoopReporter implements Reporter {
-  onEnd(_r: RunResult): void {}
+  onEnd(): void {}
 }
 
 function lastCapture(): CapturedRequest {
   return captured[captured.length - 1]!;
 }
 
-function authCollection(requestYaml: string): string {
+function authCollection(requestYaml: string, filename = 'a.http.yaml'): string {
   const dir = mkdtempSync(join(tmpdir(), 'restura-auth-'));
   writeFileSync(
     join(dir, '_collection.yaml'),
     `name: AuthTests\nvariables:\n  - { key: BASE, value: ${baseUrl}, enabled: true }\n`,
     'utf-8'
   );
-  writeFileSync(join(dir, 'a.http.yaml'), requestYaml, 'utf-8');
+  writeFileSync(join(dir, filename), requestYaml, 'utf-8');
   return dir;
 }
 
@@ -121,9 +121,73 @@ describe('CLI auth signing — wire-level shapes', () => {
       new NoopReporter()
     );
     const authz = lastCapture().headers.authorization;
-    expect(String(authz)).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE\/\d{8}\/us-east-1\/s3\/aws4_request/);
+    expect(String(authz)).toMatch(
+      /^AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE\/\d{8}\/us-east-1\/s3\/aws4_request/
+    );
     expect(String(authz)).toContain('Signature=');
     // Date header is mandatory for SigV4
     expect(lastCapture().headers['x-amz-date']).toMatch(/^\d{8}T\d{6}Z$/);
+  });
+
+  it('gRPC requests carry Bearer auth as metadata', async () => {
+    const dir = authCollection(
+      `name: GrpcAuth\nmethodType: unary\nurl: '{{BASE}}'\nservice: My.Service\nmethod: Echo\n` +
+        `auth:\n  type: bearer\n  bearer:\n    token: 'grpc-tok'\n`,
+      'a.grpc.yaml'
+    );
+    await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    expect(lastCapture().headers.authorization).toBe('Bearer grpc-tok');
+  });
+
+  it('SSE requests carry Basic auth as a header', async () => {
+    const dir = authCollection(
+      `name: SseAuth\nurl: '{{BASE}}/stream'\n` +
+        `auth:\n  type: basic\n  basic:\n    username: u\n    password: p\n`,
+      'a.sse.yaml'
+    );
+    await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true, sseDurationMs: 500 },
+      new NoopReporter()
+    );
+    expect(lastCapture().headers.authorization).toBe(
+      `Basic ${Buffer.from('u:p').toString('base64')}`
+    );
+  });
+
+  it('MCP requests carry API-key auth as a header', async () => {
+    const dir = authCollection(
+      `name: McpAuth\nurl: '{{BASE}}/mcp'\ntransport: streamable-http\n` +
+        `auth:\n  type: api-key\n  apiKey:\n    key: X-Mcp-Key\n    value: mcp-secret\n    in: header\n`,
+      'a.mcp.yaml'
+    );
+    await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    expect(lastCapture().headers['x-mcp-key']).toBe('mcp-secret');
+  });
+
+  it('an unresolvable secret-handle ref errors the request instead of sending it unauthenticated', async () => {
+    const before = captured.length;
+    const dir = authCollection(
+      `name: Handle\nmethod: GET\nurl: '{{BASE}}/x'\n` +
+        `auth:\n  type: bearer\n  bearer:\n    token: { kind: handle, id: 'abc-123' }\n`
+    );
+    const result = await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    // The request must NOT have reached the server.
+    expect(captured.length).toBe(before);
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.requests[0]?.errorMessage).toMatch(/secret handle/i);
+    expect(result.summary.errored).toBe(1);
   });
 });

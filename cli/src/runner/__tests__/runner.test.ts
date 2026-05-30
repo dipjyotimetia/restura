@@ -184,7 +184,9 @@ describe('runCollection', () => {
     expect(result.summary.total).toBe(1);
     expect(result.requests).toHaveLength(1);
     expect(result.requests[0]?.request.request.name).toBe('Bad');
-    expect(reporter.events.some((e) => e.kind === 'requestStart' && e.name === 'Skipped')).toBe(false);
+    expect(reporter.events.some((e) => e.kind === 'requestStart' && e.name === 'Skipped')).toBe(
+      false
+    );
   });
 
   it('captures network errors as errored results', async () => {
@@ -208,6 +210,33 @@ describe('runCollection', () => {
     expect(result.summary.passed).toBe(0);
     expect(result.requests[0]?.passed).toBe(false);
     expect(result.requests[0]?.errorMessage).toBeDefined();
+  });
+
+  it('does not let a response-independent passing assertion mask a transport error', async () => {
+    // Regression: a request that fails at the transport layer (dead port) but
+    // whose test script contains an assertion that passes regardless of the
+    // response must NOT be reported as passed. Before the fix, the passing
+    // assertion overrode the transport failure and the run exited 0.
+    const dir = makeCollection('MaskedError', [
+      {
+        filename: 'a-dead.http.yaml',
+        body:
+          `name: Dead\nmethod: GET\nurl: 'http://127.0.0.1:1/ping'\n` +
+          `testScript: |\n  pm.test('always true', () => pm.expect(1).to.equal(1));\n`,
+      },
+    ]);
+    const reporter = new RecordingReporter();
+    const result = await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      reporter
+    );
+
+    expect(result.summary.total).toBe(1);
+    expect(result.requests[0]?.errorMessage).toBeDefined();
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.summary.passed).toBe(0);
+    expect(result.summary.errored).toBe(1);
   });
 
   it('routes gRPC requests through the gRPC executor and surfaces gRPC status', async () => {

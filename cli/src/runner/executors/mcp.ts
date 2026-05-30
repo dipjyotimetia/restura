@@ -5,6 +5,7 @@ import type { McpRequest } from '@/types';
 import { resolveVarsDeep } from '../varResolver';
 import type { LoadedRequest } from '../collectionLoader';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
+import { applyAuthHeaders } from './auth';
 
 /**
  * MCP (Model Context Protocol) executor. Fires a one-shot JSON-RPC POST and
@@ -34,6 +35,19 @@ export async function executeMcp(
   for (const h of req.headers ?? []) {
     if (h.enabled && h.key) headers[h.key] = resolveVarsDeep(h.value, opts.vars);
   }
+  // Header-based auth (Bearer / Basic / API-key / OAuth2). MCP has no query
+  // channel, so api-key `in: query` is unsupported here. A handle ref throws.
+  try {
+    applyAuthHeaders(req.auth, headers, {});
+  } catch (err) {
+    return {
+      status: 0,
+      passed: false,
+      durationMs: 0,
+      bodyBytes: 0,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+  }
 
   // Build a JSON-RPC envelope from defaultMethod/defaultParams. Real MCP usage
   // would walk a script-driven dialog; the CLI's contract is "send one call".
@@ -53,6 +67,10 @@ export async function executeMcp(
     {
       url,
       transport: req.transport,
+      // The CLI fires a single JSON-RPC POST. For the http-sse transport the
+      // shared validator requires an explicit POST endpoint (it otherwise only
+      // has the SSE GET url); for a one-shot call that endpoint is the url.
+      ...(req.transport === 'http-sse' ? { postEndpoint: url } : {}),
       headers,
       jsonRpc: { method, params, id },
       timeout: opts.timeoutMs,
