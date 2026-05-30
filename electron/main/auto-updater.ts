@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron';
-import { BrowserWindow as BrowserWindowCtor, ipcMain } from 'electron';
+import { app, BrowserWindow as BrowserWindowCtor, ipcMain } from 'electron';
 import type { UpdateCheckResult, UpdateInfo } from 'electron-updater';
 import { autoUpdater, CancellationToken } from 'electron-updater';
 import {
@@ -174,9 +174,11 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
     }
     try {
       const result: UpdateCheckResult | null = await autoUpdater.checkForUpdates();
+      const latestVersion = result?.updateInfo?.version;
+      const updateAvailable = latestVersion != null && latestVersion !== app.getVersion();
       return {
-        updateAvailable: result?.updateInfo != null,
-        version: result?.updateInfo?.version,
+        updateAvailable,
+        version: latestVersion,
       };
     } catch (error) {
       return { updateAvailable: false, error: String(error) };
