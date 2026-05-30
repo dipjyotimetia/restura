@@ -68,26 +68,23 @@ describe('WindowChrome', () => {
 
   it('does NOT render an "Open AI assistant" / Sparkles button (regression guard)', () => {
     render(<WindowChrome />);
-    expect(
-      screen.queryByRole('button', { name: /assistant/i })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /assistant/i })).not.toBeInTheDocument();
   });
 
-  it('hides traffic-light placeholders outside macOS Electron', () => {
+  it('reserves no traffic-light slot outside macOS Electron', () => {
     vi.mocked(isElectron).mockReturnValue(false);
     vi.mocked(getPlatform).mockReturnValue('darwin');
-    const { container } = render(<WindowChrome />);
-    // Traffic lights live in a `div` with `aria-hidden="true"` immediately after the banner start.
-    // Their absence is sufficient — the brand label still renders.
-    const dots = container.querySelectorAll('span.block.size-3.rounded-full');
-    expect(dots).toHaveLength(0);
+    render(<WindowChrome />);
+    expect(screen.queryByTestId('traffic-light-spacer')).toBeNull();
   });
 
-  it('renders traffic-light placeholders on macOS Electron', () => {
+  it('reserves space for the OS traffic lights on macOS Electron without drawing its own', () => {
     vi.mocked(isElectron).mockReturnValue(true);
     vi.mocked(getPlatform).mockReturnValue('darwin');
     const { container } = render(<WindowChrome />);
+    // The OS paints the real controls — we only reserve space, never our own dots.
+    expect(screen.getByTestId('traffic-light-spacer')).toBeInTheDocument();
     const dots = container.querySelectorAll('span.block.size-3.rounded-full');
-    expect(dots).toHaveLength(3);
+    expect(dots).toHaveLength(0);
   });
 });

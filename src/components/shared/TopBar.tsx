@@ -34,9 +34,9 @@ interface WindowChromeProps {
 /**
  * The application window chrome — 44px tall, edge-to-edge along the top.
  *
- * On macOS Electron we leave space for traffic lights (rendered as
- * non-functional placeholders; the OS draws the real controls over our
- * window when `frame:false` is set). Elsewhere the leftmost slot is empty.
+ * On macOS Electron we reserve horizontal space for the traffic lights; the
+ * OS draws the real controls over our window via `titleBarStyle: 'hiddenInset'`.
+ * Elsewhere the leftmost slot is empty.
  *
  * The component intentionally exposes the legacy `setEnvManagerOpen`,
  * `onOpenImport`, etc. props so existing call sites keep compiling — the
@@ -63,8 +63,8 @@ export function WindowChrome({
   const envHost = envHostHint(activeEnv);
   const envColor = envColorFor(activeEnv);
 
-  // The traffic-light placeholders are only visible to communicate "this is a
-  // window" — real controls come from the OS when `frame:false` is configured.
+  // macOS Electron draws real traffic lights over the window; we only reserve
+  // space so the brand label doesn't sit underneath them.
   const showTrafficLights = isElectron() && getPlatform() === 'darwin';
 
   // Legacy callbacks fall back gracefully — if the orchestrator hasn't
@@ -82,14 +82,18 @@ export function WindowChrome({
         'bg-sp-surface border-b border-sp-line text-sp-text'
       )}
     >
-      {/* Left: traffic-light slot + brand */}
+      {/* Left: reserved slot for the OS-drawn traffic lights + brand.
+          On macOS Electron (`titleBarStyle: 'hiddenInset'`) the system paints
+          the real window controls at `trafficLightPosition`. We must NOT draw
+          our own — only reserve horizontal space so the brand clears them. */}
       <div className="flex items-center gap-3">
         {showTrafficLights ? (
-          <div className="flex items-center gap-2" aria-hidden="true">
-            <span className="block size-3 rounded-full" style={{ background: '#ff5f57' }} />
-            <span className="block size-3 rounded-full" style={{ background: '#febc2e' }} />
-            <span className="block size-3 rounded-full" style={{ background: '#28c840' }} />
-          </div>
+          <span
+            data-testid="traffic-light-spacer"
+            className="block"
+            style={{ width: 56 }}
+            aria-hidden="true"
+          />
         ) : (
           <span className="block w-1" aria-hidden="true" />
         )}
