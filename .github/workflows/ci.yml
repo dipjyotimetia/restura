@@ -47,7 +47,7 @@ jobs:
         run: npx tsc --noEmit -p echo/tsconfig.json
 
       - name: Type-check (CLI workspace)
-        run: npm run --workspace @restura/cli type-check
+        run: npm run --workspace cli type-check
 
       - name: Lint
         run: npm run lint

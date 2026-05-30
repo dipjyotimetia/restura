@@ -11,6 +11,12 @@ name: Release
 #   5. Generate a CycloneDX SBOM for the production dep tree.
 #   6. Cut a GitHub release with auto-generated notes + the SBOM attached.
 #
+# Two downstream jobs fan out from `release`, each checking out the freshly
+# tagged (post-bump) commit so their package.json version matches the release:
+#   - `desktop`     — build + publish the Electron installers.
+#   - `publish-cli` — publish `restura-cli` to the npm registry (needs the
+#                     NPM_TOKEN secret; skips cleanly if it's absent).
+#
 # Loop safety: the bump commit + tag are pushed with the default GITHUB_TOKEN,
 # which by design does NOT re-trigger workflows. The `chore(release):` prefix
 # guard is belt-and-suspenders in case anyone swaps in a PAT later.
@@ -193,3 +199,57 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.CSC_LINK != '') || (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
         run: npm run electron:publish
+
+  publish-cli:
+    name: Publish restura-cli to npm
+    needs: [release]
+    # Skipped automatically on `chore(release):` commits (the `release` job it
+    # depends on is skipped there too).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Required for npm publish --provenance (signed build attestation). Only
+      # works on a public repo publishing to the public npm registry — both true
+      # here. Drop this and the --provenance flag below if either changes.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The freshly-pushed version-bump commit, by tag, so cli/package.json's
+          # version matches the GitHub release this run cut.
+          ref: ${{ needs.release.outputs.new_tag }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          # Writes an .npmrc that reads the token from NODE_AUTH_TOKEN at publish.
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI
+        # The `cli` workspace (by dir path, so it survives a package rename).
+        # Runs the workspace's prebuild (sandbox libs) + tsup bundle → cli/dist.
+        run: npm run build -w cli
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN secret not set — skipping CLI publish."
+            exit 0
+          fi
+          NAME="$(node -p "require('./cli/package.json').name")"
+          VERSION="$(node -p "require('./cli/package.json').version")"
+          # Idempotent: a re-run of an already-published version is a no-op rather
+          # than a hard failure (npm view exits non-zero when the version is new).
+          if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${NAME}@${VERSION} already on npm — skipping."
+            exit 0
+          fi
+          npm publish -w cli --provenance
