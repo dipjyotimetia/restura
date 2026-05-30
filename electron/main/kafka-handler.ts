@@ -8,14 +8,6 @@ import type {
   Producer,
   ProducerOptions,
 } from '@platformatic/kafka';
-
-// @platformatic/kafka is heavy to evaluate and most sessions never open a Kafka
-// connection. Load it lazily on first use rather than at module load (which ran
-// before app.whenReady via main.ts, delaying window creation). The named types
-// above are erased at compile time, so importing them type-only costs nothing.
-let _kafka: typeof import('@platformatic/kafka') | undefined;
-const getKafka = (): typeof import('@platformatic/kafka') =>
-  (_kafka ??= require('@platformatic/kafka'));
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { emitTo } from './ipc-utils';
@@ -35,6 +27,15 @@ import {
   type KafkaConnectConfig,
   type KafkaProduceConfig,
 } from './ipc-validators';
+
+// @platformatic/kafka is heavy to evaluate and most sessions never open a Kafka
+// connection. Load it lazily on first use rather than at module load (which ran
+// before app.whenReady via main.ts, delaying window creation). The named types
+// imported above are erased at compile time, so importing them type-only costs
+// nothing.
+let _kafka: typeof import('@platformatic/kafka') | undefined;
+const getKafka = (): typeof import('@platformatic/kafka') =>
+  (_kafka ??= require('@platformatic/kafka'));
 
 export const kafkaRateLimiter = createKeyedRateLimiter(120, 60_000);
 

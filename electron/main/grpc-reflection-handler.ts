@@ -9,19 +9,11 @@ import {
 } from './ipc-validators';
 import { assertUrlHostnameSafe } from './dns-guard';
 import { IPC } from '../shared/channels';
+import { getGrpc, getProtoLoader } from './grpc-lazy';
 
 // gRPC schemes accepted by the SSRF guard. Reflection URLs are routinely
 // passed as grpc:// or grpcs:// in addition to http(s)://.
 const GRPC_REFLECTION_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
-
-// @grpc/grpc-js and @grpc/proto-loader are loaded lazily on first reflection
-// use so they don't evaluate at app boot (the static imports ran before
-// app.whenReady, delaying window creation). Memoized getters.
-let _grpc: typeof import('@grpc/grpc-js') | undefined;
-let _protoLoader: typeof import('@grpc/proto-loader') | undefined;
-const getGrpc = (): typeof import('@grpc/grpc-js') => (_grpc ??= require('@grpc/grpc-js'));
-const getProtoLoader = (): typeof import('@grpc/proto-loader') =>
-  (_protoLoader ??= require('@grpc/proto-loader'));
 
 // In production, @grpc/reflection proto files are unpacked from the asar archive via asarUnpack.
 // require.resolve() still points inside the asar, so we must redirect to the unpacked location.

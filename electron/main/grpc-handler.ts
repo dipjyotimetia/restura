@@ -19,18 +19,7 @@ import { applyNonSignAtWireAuth } from './auth-applier';
 import { resolveUrlHostnameSafe } from './dns-guard';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-
-// @grpc/grpc-js and @grpc/proto-loader are heavy modules to evaluate. The
-// static `import` used to run as part of this module's load (pulled in by
-// main.ts before app.whenReady), so it delayed window creation even for users
-// who never touch gRPC. Load them lazily on the first gRPC operation instead.
-// The getters are memoized and safe to call from the unit tests that exercise
-// these helpers directly — require() resolves the module on demand.
-let _grpc: typeof import('@grpc/grpc-js') | undefined;
-let _protoLoader: typeof import('@grpc/proto-loader') | undefined;
-const getGrpc = (): typeof import('@grpc/grpc-js') => (_grpc ??= require('@grpc/grpc-js'));
-const getProtoLoader = (): typeof import('@grpc/proto-loader') =>
-  (_protoLoader ??= require('@grpc/proto-loader'));
+import { getGrpc, getProtoLoader } from './grpc-lazy';
 
 // gRPC schemes the SSRF guard must accept; `validateURL` defaults to http/https,
 // but the reflection handler and the renderer both also produce grpc:// URLs.
