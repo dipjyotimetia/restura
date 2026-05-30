@@ -7,8 +7,8 @@
 @import '@fontsource/fira-code/400.css';
 @import '@fontsource/fira-code/500.css';
 
-@config "../../tailwind.config.ts";
-@import "tailwindcss";
+@config "../../tailwind.config.mts";
+@import 'tailwindcss';
 
 @layer base {
   :root {
@@ -48,9 +48,8 @@
     /* ───── Spatial Depth — light theme ───── */
     --sp-bg: #eef2fa;
     --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.10), transparent 50%),
-      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.08), transparent 50%),
-      #eef2fa;
+      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.1), transparent 50%),
+      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.08), transparent 50%), #eef2fa;
     --sp-surface: #ffffff;
     --sp-surface-hi: #fafbfd;
     --sp-surface-lo: #f3f5f9;
@@ -62,12 +61,12 @@
     --sp-accent: #4d9fff;
     --sp-accent-glow-88: rgba(77, 159, 255, 0.53);
     --sp-accent-glow-55: rgba(77, 159, 255, 0.33);
-    --sp-accent-glow-33: rgba(77, 159, 255, 0.20);
+    --sp-accent-glow-33: rgba(77, 159, 255, 0.2);
     --sp-accent-glow-26: rgba(77, 159, 255, 0.15);
     --sp-accent-glow-15: rgba(77, 159, 255, 0.08);
     --sp-code: #f6f8fc;
     --sp-hover-bg: rgba(14, 19, 32, 0.04);
-    --sp-active-bg: rgba(77, 159, 255, 0.10);
+    --sp-active-bg: rgba(77, 159, 255, 0.1);
   }
 
   .dark {
@@ -107,8 +106,7 @@
     --sp-bg: #06080f;
     --sp-bg-glow:
       radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.18), transparent 55%),
-      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.14), transparent 55%),
-      #06080f;
+      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.14), transparent 55%), #06080f;
     --sp-surface: rgba(20, 24, 34, 0.85);
     --sp-surface-hi: rgba(28, 33, 45, 0.9);
     --sp-surface-lo: rgba(14, 17, 24, 0.7);
@@ -130,10 +128,17 @@
   body {
     background: var(--sp-bg-glow);
     color: var(--sp-text);
-    font-family: 'Geist Variable', 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family:
+      'Geist Variable',
+      'Geist',
+      -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: 'liga' 1, 'calt' 1;
+    font-feature-settings:
+      'liga' 1,
+      'calt' 1;
   }
 }
 
@@ -246,9 +251,15 @@
     opacity: 0.03;
   }
 
-  .contain-layout { contain: layout; }
-  .contain-paint { contain: paint; }
-  .contain-strict { contain: strict; }
+  .contain-layout {
+    contain: layout;
+  }
+  .contain-paint {
+    contain: paint;
+  }
+  .contain-strict {
+    contain: strict;
+  }
 
   /* Legacy Strata Glass aliases — aliased to Spatial Depth surfaces.
    * Kept for one phase so legacy components still render. Removed in Phase 11.
@@ -268,10 +279,18 @@
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
   }
-  .glass-border-subtle  { border-color: var(--sp-line); }
-  .glass-border-default { border-color: var(--sp-line); }
-  .dark .glass-border-subtle  { border-color: var(--sp-line); }
-  .dark .glass-border-default { border-color: var(--sp-line-strong); }
+  .glass-border-subtle {
+    border-color: var(--sp-line);
+  }
+  .glass-border-default {
+    border-color: var(--sp-line);
+  }
+  .dark .glass-border-subtle {
+    border-color: var(--sp-line);
+  }
+  .dark .glass-border-default {
+    border-color: var(--sp-line-strong);
+  }
 
   .gradient-border-animated {
     position: relative;
@@ -292,7 +311,9 @@
     );
     background-size: 200% 100%;
     animation: gradient-border 3s ease infinite;
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events: none;
@@ -301,63 +322,114 @@
 
 /* Smooth animations */
 @keyframes slideIn {
-  from { transform: translateX(-100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes slideUp {
-  from { transform: translateY(10px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* SSE cursor blink (Spatial Depth) */
 @keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 /* Settings drawer slide-in (Spatial Depth) */
 @keyframes sp-drawer-in {
-  from { transform: translateX(40px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
 }
-::-webkit-scrollbar-track { background-color: transparent; }
+::-webkit-scrollbar-track {
+  background-color: transparent;
+}
 ::-webkit-scrollbar-thumb {
   background-color: var(--sp-accent);
   opacity: 0.25;
   border-radius: 10px;
 }
-::-webkit-scrollbar-thumb:hover { opacity: 0.5; }
+::-webkit-scrollbar-thumb:hover {
+  opacity: 0.5;
+}
 
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--sp-accent) transparent;
 }
 
-button, a, input, select, textarea {
+button,
+a,
+input,
+select,
+textarea {
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes status-appear {
-  from { opacity: 0; transform: scale(0.8) translateY(-4px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from {
+    opacity: 0;
+    transform: scale(0.8) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 .animate-shimmer {
@@ -372,7 +444,9 @@ button, a, input, select, textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-shimmer { animation: none !important; }
+  .animate-shimmer {
+    animation: none !important;
+  }
   * {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
@@ -403,16 +477,27 @@ button, a, input, select, textarea {
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
-.dark .button-noise::before { opacity: 0.04; }
+.dark .button-noise::before {
+  opacity: 0.04;
+}
 
 @keyframes button-glow {
-  0%, 100% { box-shadow: 0 0 20px hsl(var(--primary) / 0.3); }
-  50% { box-shadow: 0 0 30px hsl(var(--primary) / 0.5); }
+  0%,
+  100% {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px hsl(var(--primary) / 0.5);
+  }
 }
-.animate-button-glow { animation: button-glow 2s ease-in-out infinite; }
+.animate-button-glow {
+  animation: button-glow 2s ease-in-out infinite;
+}
 
 .status-dot {
-  transition: background-color 200ms ease, box-shadow 200ms ease;
+  transition:
+    background-color 200ms ease,
+    box-shadow 200ms ease;
 }
 
 .sr-only {
