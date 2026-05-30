@@ -134,7 +134,8 @@ interface ElectronHttpProxyConfig {
   pacUrl?: string;
   auth?: {
     username: string;
-    password: string;
+    // SecretValue (ADR-0007) — resolved to plaintext in the main process.
+    password: ProtocolSecretValue;
   };
 }
 
@@ -143,7 +144,7 @@ interface ElectronHttpClientCert {
   pfx?: string;
   cert?: string;
   key?: string;
-  passphrase?: string;
+  passphrase?: ProtocolSecretValue;
 }
 
 interface ElectronHttpCaCert {

@@ -707,7 +707,9 @@ export interface ClientCert {
   pfx?: string; // base64-encoded .p12/.pfx content
   cert?: string; // PEM certificate string
   key?: string; // PEM private key string (encrypted at rest)
-  passphrase?: string;
+  // SecretValue per ADR-0007: plain string (legacy/inline) or a keychain
+  // handle resolved in the Electron main process at wire-signing time.
+  passphrase?: SecretValue;
 }
 
 export interface CaCert {
@@ -748,7 +750,9 @@ export interface ProxyConfig {
   port: number;
   auth?: {
     username: string;
-    password: string;
+    // SecretValue per ADR-0007: plain string (legacy/inline) or a keychain
+    // handle resolved in the Electron main process at wire-signing time.
+    password: SecretValue;
   };
   bypassList?: string[]; // List of hosts to bypass proxy
 }

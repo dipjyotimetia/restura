@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ElectronAPI, UpdaterStatus } from '../types/electron-api';
+import type { ProtocolSecretValue } from '@shared/protocol/types';
 import {
   IPC,
   EVENT,
@@ -140,7 +141,7 @@ const electronAPI = {
         port: number;
         auth?: {
           username: string;
-          password: string;
+          password: ProtocolSecretValue;
         };
       };
       verifySsl?: boolean;
@@ -149,7 +150,7 @@ const electronAPI = {
         pfx?: string;
         cert?: string;
         key?: string;
-        passphrase?: string;
+        passphrase?: ProtocolSecretValue;
       };
       caCert?: {
         pem: string;

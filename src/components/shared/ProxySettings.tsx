@@ -6,19 +6,33 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ProxyType } from '@/types';
-import { Plus, Trash2, Shield, Globe, Zap, Eye, EyeOff } from 'lucide-react';
+import { Plus, Trash2, Shield, Globe, Zap } from 'lucide-react';
 import { isWeb } from '@/lib/shared/platform';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import SecretInput from '@/features/auth/components/SecretInput';
 
 export default function ProxySettings() {
-  const { settings, updateProxy, setProxyAuth, clearProxyAuth, addBypassHost, removeBypassHost, setCorsProxyEnabled } = useSettingsStore();
+  const {
+    settings,
+    updateProxy,
+    setProxyAuth,
+    clearProxyAuth,
+    addBypassHost,
+    removeBypassHost,
+    setCorsProxyEnabled,
+  } = useSettingsStore();
   const { proxy, corsProxy } = settings;
 
-  const [showPassword, setShowPassword] = useState(false);
   const [newBypassHost, setNewBypassHost] = useState('');
   const [inBrowser, setInBrowser] = useState(false);
 
@@ -41,23 +55,27 @@ export default function ProxySettings() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Zap className="h-4 w-4 text-primary" />
-              <Label htmlFor="cors-proxy-toggle" className="text-base font-medium">CORS Bypass Proxy</Label>
-              <Badge variant="secondary" className="text-xs">Web Only</Badge>
+              <Label htmlFor="cors-proxy-toggle" className="text-base font-medium">
+                CORS Bypass Proxy
+              </Label>
+              <Badge variant="secondary" className="text-xs">
+                Web Only
+              </Badge>
             </div>
             <Button
               id="cors-proxy-toggle"
-              variant={corsProxy?.enabled ? "default" : "outline"}
+              variant={corsProxy?.enabled ? 'default' : 'outline'}
               size="sm"
               onClick={() => setCorsProxyEnabled(!corsProxy?.enabled)}
               aria-pressed={corsProxy?.enabled}
               aria-describedby="cors-proxy-desc"
             >
-              {corsProxy?.enabled ? "Enabled" : "Disabled"}
+              {corsProxy?.enabled ? 'Enabled' : 'Disabled'}
             </Button>
           </div>
           <p id="cors-proxy-desc" className="text-sm text-muted-foreground">
-            Route browser requests through the server to bypass CORS restrictions.
-            This is required for most external API calls in browser mode.
+            Route browser requests through the server to bypass CORS restrictions. This is required
+            for most external API calls in browser mode.
           </p>
         </div>
       )}
@@ -65,7 +83,9 @@ export default function ProxySettings() {
       {/* Enable Proxy */}
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
-          <Label htmlFor="enable-proxy" className="text-base font-medium">Enable Proxy</Label>
+          <Label htmlFor="enable-proxy" className="text-base font-medium">
+            Enable Proxy
+          </Label>
           <p id="enable-proxy-desc" className="text-sm text-muted-foreground">
             Route requests through a proxy server
           </p>
@@ -122,9 +142,7 @@ export default function ProxySettings() {
               </Select>
               {inBrowser && (proxy.type === 'socks4' || proxy.type === 'socks5') && (
                 <div className="flex items-center gap-1.5">
-                  <DesktopOnlyBadge
-                    title="Browsers can't open raw TCP, so SOCKS proxies aren't available in the web client. Use the Electron desktop app to tunnel through SOCKS4 / SOCKS5."
-                  />
+                  <DesktopOnlyBadge title="Browsers can't open raw TCP, so SOCKS proxies aren't available in the web client. Use the Electron desktop app to tunnel through SOCKS4 / SOCKS5." />
                   <p className="text-xs text-muted-foreground">
                     SOCKS proxies require the desktop app — the web client will fall back to HTTP.
                   </p>
@@ -176,7 +194,9 @@ export default function ProxySettings() {
               </div>
 
               <div className="flex items-center justify-between">
-                <Label htmlFor="requires-auth" className="text-sm">Requires Authentication</Label>
+                <Label htmlFor="requires-auth" className="text-sm">
+                  Requires Authentication
+                </Label>
                 <Switch
                   id="requires-auth"
                   checked={!!proxy.auth}
@@ -211,31 +231,12 @@ export default function ProxySettings() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="proxy-password">Password</Label>
-                      <div className="relative">
-                        <Input
-                          id="proxy-password"
-                          type={showPassword ? 'text' : 'password'}
-                          value={proxy.auth.password}
-                          onChange={(e) => setProxyAuth(proxy.auth?.username || '', e.target.value)}
-                          placeholder="proxy-password"
-                          autoComplete="current-password"
-                          className="pr-10"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          type="button"
-                          className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                          onClick={() => setShowPassword(!showPassword)}
-                          aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        >
-                          {showPassword ? (
-                            <EyeOff className="h-4 w-4" />
-                          ) : (
-                            <Eye className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
+                      <SecretInput
+                        value={proxy.auth.password}
+                        onChange={(next) => setProxyAuth(proxy.auth?.username || '', next)}
+                        placeholder="proxy-password"
+                        storageLabel="Proxy password"
+                      />
                     </div>
                   </motion.div>
                 )}
@@ -246,7 +247,9 @@ export default function ProxySettings() {
             <div className="space-y-4 rounded-lg border p-4">
               <div className="flex items-center gap-2">
                 <Globe className="h-4 w-4 text-primary" />
-                <Label htmlFor="bypass-host-input" className="text-base font-medium">Bypass List</Label>
+                <Label htmlFor="bypass-host-input" className="text-base font-medium">
+                  Bypass List
+                </Label>
               </div>
               <p id="bypass-list-desc" className="text-sm text-muted-foreground">
                 Hosts that should bypass the proxy (supports wildcards like *.example.com)

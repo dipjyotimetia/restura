@@ -9,6 +9,8 @@ import type {
   HostClientCert,
   HostCaCert,
 } from '@/types';
+import type { SecretValue } from '@/lib/shared/secretRef';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
@@ -21,7 +23,7 @@ interface SettingsState {
   updateProxy: (updates: Partial<ProxyConfig>) => void;
   resetSettings: () => void;
   setProxyEnabled: (enabled: boolean) => void;
-  setProxyAuth: (username: string, password: string) => void;
+  setProxyAuth: (username: string, password: SecretValue) => void;
   clearProxyAuth: () => void;
   addBypassHost: (host: string) => void;
   removeBypassHost: (host: string) => void;

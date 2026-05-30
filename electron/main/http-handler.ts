@@ -21,6 +21,7 @@ import type {
   FetcherRequest,
   FetcherResponse,
   ProtocolAuthConfig,
+  ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { unwrapSecretValueMain } from './secret-handle-store';
@@ -62,7 +63,9 @@ export interface ProxyConfig {
   pacUrl?: string;
   auth?: {
     username: string;
-    password: string;
+    // SecretValue per ADR-0007 — resolved to plaintext main-side via
+    // unwrapSecretValueMain just before the proxy auth header / SOCKS5 handshake.
+    password: SecretValue;
   };
 }
 
@@ -70,7 +73,8 @@ interface ClientCert {
   pfx?: string;
   cert?: string;
   key?: string;
-  passphrase?: string;
+  // SecretValue per ADR-0007 — resolved main-side in buildConnectOptions.
+  passphrase?: SecretValue;
 }
 
 interface CaCert {
@@ -225,11 +229,12 @@ function openSocksSocket(
             });
           };
 
+          const socksPassword = unwrapSecretValueMain(proxy.auth?.password);
           if (method === 0x00) {
             sendConnect();
-          } else if (method === 0x02 && proxy.auth?.username && proxy.auth?.password) {
+          } else if (method === 0x02 && proxy.auth?.username && socksPassword) {
             const user = Buffer.from(proxy.auth.username, 'utf8');
-            const pass = Buffer.from(proxy.auth.password, 'utf8');
+            const pass = Buffer.from(socksPassword, 'utf8');
             const authReq = Buffer.concat([
               Buffer.from([0x01, user.length]),
               user,
@@ -349,16 +354,19 @@ function buildConnectOptions(
   if (isHttps) {
     connectOpts.rejectUnauthorized = verifySsl;
     if (electronConfig.clientCert) {
+      // Resolve the passphrase SecretValue to plaintext main-side (ADR-0007);
+      // a handle never crosses back to the renderer.
+      const passphrase = unwrapSecretValueMain(electronConfig.clientCert.passphrase);
       if (electronConfig.clientCert.pfx) {
         connectOpts.pfx = Buffer.from(electronConfig.clientCert.pfx, 'base64');
-        if (electronConfig.clientCert.passphrase) {
-          connectOpts.passphrase = electronConfig.clientCert.passphrase;
+        if (passphrase) {
+          connectOpts.passphrase = passphrase;
         }
       } else if (electronConfig.clientCert.cert && electronConfig.clientCert.key) {
         connectOpts.cert = electronConfig.clientCert.cert;
         connectOpts.key = electronConfig.clientCert.key;
-        if (electronConfig.clientCert.passphrase) {
-          connectOpts.passphrase = electronConfig.clientCert.passphrase;
+        if (passphrase) {
+          connectOpts.passphrase = passphrase;
         }
       }
     }
@@ -495,9 +503,10 @@ function buildElectronFetcher(
           // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
           requestTls: { ...connectOpts } as ProxyAgent.Options['requestTls'],
         };
-        if (electronConfig.proxy.auth?.username && electronConfig.proxy.auth?.password) {
+        const proxyPassword = unwrapSecretValueMain(electronConfig.proxy.auth?.password);
+        if (electronConfig.proxy.auth?.username && proxyPassword) {
           const auth = Buffer.from(
-            `${electronConfig.proxy.auth.username}:${electronConfig.proxy.auth.password}`
+            `${electronConfig.proxy.auth.username}:${proxyPassword}`
           ).toString('base64');
           proxyOpts.token = `Basic ${auth}`;
         }
