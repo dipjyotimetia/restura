@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import type { ElectronAPI } from '../types/electron-api';
+import type { ElectronAPI, UpdaterStatus } from '../types/electron-api';
 import {
   IPC,
   EVENT,
@@ -82,6 +82,32 @@ const electronAPI = {
       message?: string;
       error?: string;
     }> => ipcRenderer.invoke(IPC.app.checkForUpdates),
+  },
+
+  // Auto-updater: actions invoke main; status is a main→renderer push stream
+  // subscribed via onStatus (returns an unsubscribe fn, like ai.onChunk).
+  updater: {
+    check: (): Promise<{
+      updateAvailable: boolean;
+      version?: string;
+      message?: string;
+      error?: string;
+    }> => ipcRenderer.invoke(IPC.updater.check),
+    download: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.updater.download),
+    cancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.updater.cancel),
+    restart: (): Promise<void> => ipcRenderer.invoke(IPC.updater.restart),
+    setConfig: (config: { autoDownload: boolean; channel: 'stable' | 'beta' }): Promise<void> =>
+      ipcRenderer.invoke(IPC.updater.setConfig, config),
+    onStatus: (callback: (status: UpdaterStatus) => void): (() => void) => {
+      const listener = (_event: unknown, status: UpdaterStatus) => callback(status);
+      ipcRenderer.on(EVENT.updaterStatus, listener as Parameters<typeof ipcRenderer.on>[1]);
+      return () =>
+        ipcRenderer.removeListener(
+          EVENT.updaterStatus,
+          listener as Parameters<typeof ipcRenderer.on>[1]
+        );
+    },
   },
 
   // Shell operations

@@ -59,6 +59,8 @@ const defaultSettings: AppSettings = {
   telemetry: { errorsEnabled: false },
   // Spatial Depth default accent — cobalt blue
   accent: '#4d9fff',
+  // Desktop auto-updater: download in the background on the stable channel.
+  autoUpdate: { autoDownload: true, channel: 'stable' },
   // clientCert and caCert intentionally omitted (optional under EOPT)
 };
 
@@ -80,8 +82,7 @@ export const useSettingsStore = create<SettingsState>()(
           },
         })),
 
-      resetSettings: () =>
-        set({ settings: defaultSettings }),
+      resetSettings: () => set({ settings: defaultSettings }),
 
       setProxyEnabled: (enabled) =>
         set((state) => ({
@@ -138,9 +139,7 @@ export const useSettingsStore = create<SettingsState>()(
             ...state.settings,
             proxy: {
               ...state.settings.proxy,
-              bypassList: (state.settings.proxy.bypassList || []).filter(
-                (h) => h !== host
-              ),
+              bypassList: (state.settings.proxy.bypassList || []).filter((h) => h !== host),
             },
           },
         })),
@@ -183,7 +182,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'app-settings-storage',
-      version: 2, // Bumped for Dexie migration
+      version: 3, // Bumped for autoUpdate setting
       storage: dexieStorageAdapters.settings(),
       migrate: (persistedState, _version) => {
         const looksEmpty =
@@ -191,9 +190,7 @@ export const useSettingsStore = create<SettingsState>()(
           (typeof persistedState === 'object' &&
             Object.keys(persistedState as object).length === 0);
         if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<SettingsState>>(
-            'app-settings-storage'
-          );
+          const legacy = migrateLegacyLocalStorage<Partial<SettingsState>>('app-settings-storage');
           if (legacy) return legacy as SettingsState;
         }
         return persistedState as SettingsState;

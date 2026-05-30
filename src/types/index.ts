@@ -819,6 +819,12 @@ export interface AppSettings {
   };
   // Spatial Depth accent preset; drives --sp-accent CSS variable
   accent?: SpatialAccent;
+  // Desktop auto-updater preferences (Electron only). Synced to the main
+  // process via window.electron.updater.setConfig. `beta` maps to prerelease.
+  autoUpdate?: {
+    autoDownload: boolean;
+    channel: 'stable' | 'beta';
+  };
 }
 
 export type SpatialAccent = '#4d9fff' | '#7c5cff' | '#22c55e' | '#f59e0b' | '#ef4444' | '#06b6d4';

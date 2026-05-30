@@ -81,6 +81,44 @@ interface ElectronShellAPI {
   openExternal: (url: string) => Promise<void>;
 }
 
+/**
+ * Auto-updater state pushed main→renderer over EVENT.updaterStatus. Single
+ * discriminated shape keyed on `state` — maps to one renderer state machine.
+ */
+interface UpdaterStatus {
+  state:
+    | 'idle'
+    | 'checking'
+    | 'not-available'
+    | 'available'
+    | 'downloading'
+    | 'downloaded'
+    | 'error';
+  /** Present for `available` / `downloaded`. */
+  version?: string;
+  /** Download completion 0–100, present for `downloading`. */
+  percent?: number;
+  /** Normalized release notes (string), present for `available` / `downloaded`. */
+  releaseNotes?: string;
+  /** Human-readable detail for `error` / `not-available`. */
+  message?: string;
+}
+
+interface ElectronUpdaterAPI {
+  check: () => Promise<{
+    updateAvailable: boolean;
+    version?: string;
+    message?: string;
+    error?: string;
+  }>;
+  download: () => Promise<{ ok: boolean; error?: string }>;
+  cancel: () => Promise<{ ok: boolean }>;
+  restart: () => Promise<void>;
+  setConfig: (config: { autoDownload: boolean; channel: 'stable' | 'beta' }) => Promise<void>;
+  /** Subscribe to status pushes; returns an unsubscribe fn (mirrors ai.onChunk). */
+  onStatus: (callback: (status: UpdaterStatus) => void) => () => void;
+}
+
 interface ElectronWindowAPI {
   minimize: () => void;
   maximize: () => void;
@@ -589,6 +627,7 @@ interface ElectronAPI {
   dialog: ElectronDialogAPI;
   fs: ElectronFSAPI;
   app: ElectronAppAPI;
+  updater: ElectronUpdaterAPI;
   shell: ElectronShellAPI;
   window: ElectronWindowAPI;
   http: ElectronHttpAPI;
@@ -626,6 +665,8 @@ export type {
   ElectronFSAPI,
   ElectronAppAPI,
   ElectronShellAPI,
+  ElectronUpdaterAPI,
+  UpdaterStatus,
   ElectronWindowAPI,
   ElectronNotificationAPI,
   ElectronGitAPI,

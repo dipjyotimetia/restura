@@ -279,6 +279,17 @@ export const NotificationRequestCompleteSchema = z.object({
 });
 
 // ===========================
+// Auto-updater Schemas
+// ===========================
+
+export const UpdaterConfigSchema = z.object({
+  autoDownload: z.boolean(),
+  channel: z.enum(['stable', 'beta']),
+});
+
+export type UpdaterConfig = z.infer<typeof UpdaterConfigSchema>;
+
+// ===========================
 // gRPC Reflection Schemas
 // ===========================
 
