@@ -18,6 +18,13 @@ export const IPC = {
     getPath: 'app:getPath',
     getVersion: 'app:getVersion',
   },
+  updater: {
+    check: 'updater:check',
+    download: 'updater:download',
+    cancel: 'updater:cancel',
+    restart: 'updater:restart',
+    setConfig: 'updater:setConfig',
+  },
   dialog: {
     openFile: 'dialog:openFile',
     saveFile: 'dialog:saveFile',
@@ -142,6 +149,7 @@ export const IPC = {
 /** Static main→renderer push channels (not per-connection). */
 export const EVENT = {
   collectionFileChanged: 'collection:file-changed',
+  updaterStatus: 'updater:status',
 } as const;
 
 /**
@@ -217,6 +225,7 @@ export const VALID_EVENT_CHANNELS = [
   'menu:export',
   'menu:new-request',
   'app:focus',
+  'app:check-updates',
   'deep-link',
 ] as const;
 

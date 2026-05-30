@@ -1,15 +1,38 @@
-import type { BrowserWindow} from 'electron';
-import { dialog, ipcMain } from 'electron';
-import type { UpdateCheckResult } from 'electron-updater';
-import { autoUpdater } from 'electron-updater';
-import { createValidatedHandler, NoInputSchema } from './ipc-validators';
-import { IPC } from '../shared/channels';
+import type { BrowserWindow } from 'electron';
+import { BrowserWindow as BrowserWindowCtor, ipcMain } from 'electron';
+import type { UpdateCheckResult, UpdateInfo } from 'electron-updater';
+import { autoUpdater, CancellationToken } from 'electron-updater';
+import {
+  createValidatedHandler,
+  NoInputSchema,
+  UpdaterConfigSchema,
+  type UpdaterConfig,
+} from './ipc-validators';
+import { showNativeNotification } from './notifications';
+import { EVENT, IPC } from '../shared/channels';
+import type { UpdaterStatus } from '../types/electron-api';
 
 interface UpdateCheckResponse {
   updateAvailable: boolean;
   version?: string;
   message?: string;
   error?: string;
+}
+
+// Module-level state shared between setupAutoUpdater (listeners + lifecycle)
+// and registerAutoUpdaterIPC (renderer-driven actions), which are wired at
+// different points in main.ts. A fresh CancellationToken backs each download so
+// the renderer's Cancel button can abort it; lastUpdateInfo lets us re-broadcast
+// the "available" state after a cancel without re-running the check.
+let cancellationToken: CancellationToken | null = null;
+let lastUpdateInfo: UpdateInfo | null = null;
+let recheckInterval: ReturnType<typeof setInterval> | null = null;
+
+const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+/** Updates are off in dev and when an operator opts out for air-gapped deploys. */
+function updatesDisabled(isDev: boolean): boolean {
+  return isDev || process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true';
 }
 
 // Resolves the active BrowserWindow lazily on every event firing. The
@@ -21,18 +44,44 @@ function withWindow(getWindow: () => BrowserWindow | null, fn: (w: BrowserWindow
   if (w && !w.isDestroyed()) fn(w);
 }
 
-export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: boolean): void {
-  // Enterprise opt-out: skip all update-check side effects when the
-  // operator sets RESTURA_DISABLE_AUTO_UPDATE=true. Distinct from `isDev`
-  // because enterprise production deploys still set NODE_ENV=production
-  // but want air-gapped behaviour (no GitHub release pings).
-  if (process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true') {
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
-    return;
+/** Push a status update to every live renderer (multi-window safe). */
+function broadcast(status: UpdaterStatus): void {
+  for (const w of BrowserWindowCtor.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send(EVENT.updaterStatus, status);
   }
+}
 
-  if (isDev) {
+/**
+ * electron-updater's `releaseNotes` is `string | Array<{version, note}>` (the
+ * array form when `fullChangelog` is on). Collapse both to a single string the
+ * renderer can render verbatim.
+ */
+function normalizeReleaseNotes(info: UpdateInfo): string | undefined {
+  const notes = info.releaseNotes;
+  if (!notes) return undefined;
+  if (typeof notes === 'string') return notes;
+  return notes
+    .map((n) => (n.version ? `## ${n.version}\n${n.note ?? ''}` : (n.note ?? '')))
+    .join('\n\n')
+    .trim();
+}
+
+/**
+ * Apply the user's update preferences to the live autoUpdater. `channel: beta`
+ * maps to `allowPrerelease` (the GitHub-provider lever); `channel` is also set
+ * for providers that key off the channel name. Persisted/synced from the
+ * renderer via `updater:setConfig`.
+ */
+export function applyUpdaterConfig(config: UpdaterConfig): void {
+  autoUpdater.autoDownload = config.autoDownload;
+  autoUpdater.allowPrerelease = config.channel === 'beta';
+  autoUpdater.channel = config.channel === 'beta' ? 'beta' : 'latest';
+}
+
+export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: boolean): void {
+  // Enterprise opt-out / dev: skip all update-check side effects. Distinct
+  // from one another but both mean "never ping GitHub releases".
+  if (updatesDisabled(isDev)) {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
     return;
@@ -43,86 +92,169 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
   autoUpdater.allowDowngrade = false;
 
   autoUpdater.on('checking-for-update', () => {
-    console.log('Checking for updates...');
+    broadcast({ state: 'checking' });
   });
 
   autoUpdater.on('update-available', (info) => {
-    console.log('Update available:', info.version);
-    withWindow(getWindow, (w) => {
-      dialog.showMessageBox(w, {
-        type: 'info',
-        title: 'Update Available',
-        message: `A new version (${info.version}) is available. It will be downloaded in the background.`,
-        buttons: ['OK'],
-      });
+    lastUpdateInfo = info;
+    broadcast({
+      state: 'available',
+      version: info.version,
+      releaseNotes: normalizeReleaseNotes(info),
     });
+    // If the window is backgrounded the user won't see the in-app banner, so
+    // also fire a native OS notification (wires the previously-dead
+    // notification:updateAvailable path).
+    const focused = BrowserWindowCtor.getAllWindows().some(
+      (w) => !w.isDestroyed() && w.isFocused()
+    );
+    if (!focused) {
+      showNativeNotification(
+        {
+          title: '🚀 Update Available',
+          body: `Version ${info.version} is available.`,
+          urgency: 'normal',
+        },
+        getWindow(),
+        isDev
+      );
+    }
   });
 
   autoUpdater.on('update-not-available', () => {
-    console.log('No updates available');
+    broadcast({ state: 'not-available' });
   });
 
   autoUpdater.on('download-progress', (progress) => {
-    console.log(`Download progress: ${progress.percent.toFixed(2)}%`);
+    broadcast({ state: 'downloading', percent: progress.percent });
     withWindow(getWindow, (w) => w.setProgressBar(progress.percent / 100));
   });
 
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('Update downloaded:', info.version);
-    withWindow(getWindow, (w) => {
-      w.setProgressBar(-1);
-      dialog
-        .showMessageBox(w, {
-          type: 'info',
-          title: 'Update Ready',
-          message: `Version ${info.version} has been downloaded. Restart the app to apply the update.`,
-          buttons: ['Restart Now', 'Later'],
-          defaultId: 0,
-        })
-        .then((result) => {
-          if (result.response === 0) {
-            autoUpdater.quitAndInstall(false, true);
-          }
-        });
+    lastUpdateInfo = info;
+    withWindow(getWindow, (w) => w.setProgressBar(-1));
+    broadcast({
+      state: 'downloaded',
+      version: info.version,
+      releaseNotes: normalizeReleaseNotes(info),
     });
   });
 
   autoUpdater.on('error', (err) => {
-    console.error('Auto-updater error:', err);
+    withWindow(getWindow, (w) => w.setProgressBar(-1));
+    broadcast({ state: 'error', message: String(err) });
   });
 
+  // First check shortly after launch, then poll every 6h so a long-running
+  // desktop session still discovers releases without a restart.
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
       console.error('Failed to check for updates:', err);
     });
   }, 3000);
+
+  if (!recheckInterval) {
+    recheckInterval = setInterval(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.error('Periodic update check failed:', err);
+      });
+    }, SIX_HOURS_MS);
+  }
 }
 
 export function registerAutoUpdaterIPC(isDev: boolean): void {
+  // Legacy single-shot check (kept for backwards compatibility; superseded by
+  // IPC.updater.check which shares the same response shape).
+  const handleCheck = async (): Promise<UpdateCheckResponse> => {
+    if (process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true') {
+      return { updateAvailable: false, message: 'Updates disabled by RESTURA_DISABLE_AUTO_UPDATE' };
+    }
+    if (isDev) {
+      return { updateAvailable: false, message: 'Updates disabled in development' };
+    }
+    try {
+      const result: UpdateCheckResult | null = await autoUpdater.checkForUpdates();
+      return {
+        updateAvailable: result?.updateInfo != null,
+        version: result?.updateInfo?.version,
+      };
+    } catch (error) {
+      return { updateAvailable: false, error: String(error) };
+    }
+  };
+
   // Wrapped in createValidatedHandler — input is empty but the wrapper still
   // enforces assertTrustedSender, keeping the "every channel routes through
   // one validator" invariant grep-auditable.
   ipcMain.handle(
     IPC.app.checkForUpdates,
+    createValidatedHandler(IPC.app.checkForUpdates, NoInputSchema, handleCheck)
+  );
+
+  ipcMain.handle(
+    IPC.updater.check,
+    createValidatedHandler(IPC.updater.check, NoInputSchema, handleCheck)
+  );
+
+  ipcMain.handle(
+    IPC.updater.download,
     createValidatedHandler(
-      IPC.app.checkForUpdates,
+      IPC.updater.download,
       NoInputSchema,
-      async (): Promise<UpdateCheckResponse> => {
-        if (process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true') {
-          return { updateAvailable: false, message: 'Updates disabled by RESTURA_DISABLE_AUTO_UPDATE' };
-        }
-        if (isDev) {
-          return { updateAvailable: false, message: 'Updates disabled in development' };
-        }
+      async (): Promise<{ ok: boolean; error?: string }> => {
+        if (updatesDisabled(isDev)) return { ok: false, error: 'Updates disabled' };
+        cancellationToken = new CancellationToken();
         try {
-          const result: UpdateCheckResult | null = await autoUpdater.checkForUpdates();
-          return {
-            updateAvailable: result?.updateInfo != null,
-            version: result?.updateInfo?.version,
-          };
+          await autoUpdater.downloadUpdate(cancellationToken);
+          return { ok: true };
         } catch (error) {
-          return { updateAvailable: false, error: String(error) };
+          // A user-initiated cancel rejects this promise — surface the
+          // "available" state again rather than an error. Anything else is a
+          // genuine failure.
+          if (cancellationToken?.cancelled) {
+            if (lastUpdateInfo) {
+              broadcast({
+                state: 'available',
+                version: lastUpdateInfo.version,
+                releaseNotes: normalizeReleaseNotes(lastUpdateInfo),
+              });
+            }
+            return { ok: false, error: 'cancelled' };
+          }
+          return { ok: false, error: String(error) };
         }
+      }
+    )
+  );
+
+  ipcMain.handle(
+    IPC.updater.cancel,
+    createValidatedHandler(
+      IPC.updater.cancel,
+      NoInputSchema,
+      async (): Promise<{ ok: boolean }> => {
+        cancellationToken?.cancel();
+        return { ok: true };
+      }
+    )
+  );
+
+  ipcMain.handle(
+    IPC.updater.restart,
+    createValidatedHandler(IPC.updater.restart, NoInputSchema, async (): Promise<void> => {
+      if (updatesDisabled(isDev)) return;
+      autoUpdater.quitAndInstall(false, true);
+    })
+  );
+
+  ipcMain.handle(
+    IPC.updater.setConfig,
+    createValidatedHandler(
+      IPC.updater.setConfig,
+      UpdaterConfigSchema,
+      async (config: UpdaterConfig): Promise<void> => {
+        if (updatesDisabled(isDev)) return;
+        applyUpdaterConfig(config);
       }
     )
   );

@@ -6,6 +6,7 @@ import { AccentProvider } from '@/components/providers/AccentProvider';
 import { PlatformProvider } from '@/components/providers/PlatformProvider';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeychainStatusBanner } from '@/components/shared/KeychainStatusBanner';
+import { UpdateNotification } from '@/components/shared/UpdateNotification';
 import AriaLiveAnnouncerProvider from '@/components/shared/AriaLiveAnnouncer';
 import Home from '@/routes/index';
 import NotFound from '@/routes/not-found';
@@ -36,16 +37,12 @@ export default function App() {
   return (
     <>
       <div className="noise-texture fixed inset-0 pointer-events-none z-[-1]" />
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        enableSystem
-        disableTransitionOnChange
-      >
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
         <ErrorBoundary>
           <AccentProvider>
             <AriaLiveAnnouncerProvider>
               <PlatformProvider>
+                <UpdateNotification />
                 <KeychainStatusBanner />
                 <RouterProvider router={router} />
               </PlatformProvider>
