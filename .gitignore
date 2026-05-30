@@ -64,6 +64,8 @@ yarn-error.log*
 
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
+# Claude Code transient runtime lock (session id + pid; not source)
+.claude/scheduled_tasks.lock
 
 # IDE
 .idea/
