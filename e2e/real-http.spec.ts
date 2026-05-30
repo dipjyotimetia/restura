@@ -53,14 +53,14 @@ test.describe('Real HTTP server', () => {
     await setUrl(page, `${servers.http.url}/echo`);
 
     await paramsTab(page).click();
-    await page.getByRole('button', { name: /Add parameter/i }).click();
+    await page.getByRole('button', { name: /Add row/i }).click();
     await page.getByPlaceholder('key').first().fill('q');
     await page.getByPlaceholder('value').first().fill('hello world');
 
     await headersTab(page).click();
-    await page.getByRole('button', { name: /Add header/i }).click();
-    await page.getByPlaceholder('key').last().fill('X-Test');
-    await page.getByPlaceholder('value').last().fill('yes');
+    await page.getByRole('button', { name: /Add row/i }).click();
+    await page.getByPlaceholder('key').first().fill('X-Test');
+    await page.getByPlaceholder('value').first().fill('yes');
 
     await sendButton(page).click();
     await expect(page.getByText('200', { exact: true }).first()).toBeVisible();

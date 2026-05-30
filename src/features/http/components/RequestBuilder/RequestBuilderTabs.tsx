@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
-import { ParamRow, Segmented, SubTabBar } from '@/components/ui/spatial';
+import { ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/components/ui/spatial';
 import RequestBodyEditor from '@/features/http/components/RequestBodyEditor';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
@@ -202,8 +202,7 @@ export function RequestBuilderTabs({
               })
             }
             onRowRemove={(id) => handlers.removeParam(id)}
-            onAdd={() => handlers.addParam()}
-            addLabel="Add parameter"
+            onAdd={(data) => handlers.addParam(data)}
           />
         )}
 
@@ -219,8 +218,7 @@ export function RequestBuilderTabs({
               })
             }
             onRowRemove={(id) => handlers.removeHeader(id)}
-            onAdd={() => handlers.addHeader()}
-            addLabel="Add header"
+            onAdd={(data) => handlers.addHeader(data)}
             keySuggestions={HEADER_KEY_SUGGESTIONS}
             valueSuggestionsFor={headerValueSuggestionsFor}
           />
@@ -349,79 +347,158 @@ interface ParamHeaderTableProps {
   rows: ParamRowData[];
   onRowChange: (row: ParamRowData) => void;
   onRowRemove: (id: string) => void;
-  onAdd: () => void;
-  addLabel: string;
+  onAdd: (overrides?: Partial<Pick<ParamRowData, 'key' | 'value' | 'description'>>) => void;
   keySuggestions?: ReadonlyArray<ComboboxSuggestion>;
   valueSuggestionsFor?: (key: string) => ReadonlyArray<string> | undefined;
 }
+
+const GHOST_FIELDS = [
+  { label: 'Key', field: 'key' as const, extraClass: '' },
+  { label: 'Value', field: 'value' as const, extraClass: '' },
+  { label: 'Description', field: 'desc' as const, extraClass: 'text-sp-11-5 text-sp-muted' },
+] as const;
+
+const COLUMN_LABELS = ['KEY', 'VALUE', 'DESCRIPTION'] as const;
 
 function ParamHeaderTable({
   rows,
   onRowChange,
   onRowRemove,
   onAdd,
-  addLabel,
   keySuggestions,
   valueSuggestionsFor,
 }: ParamHeaderTableProps) {
+  const [draft, setDraft] = useState({ key: '', value: '', desc: '' });
+  const newRowRef = useRef<HTMLInputElement>(null);
+  // Set when a commit should pull focus into the freshly-added row (Enter only,
+  // never blur — a blur commit means the user is leaving, so stealing focus
+  // would hijack wherever they clicked).
+  const focusNewRow = useRef(false);
+  const prevRowCount = useRef(rows.length);
   const activeCount = rows.filter((r) => r.enabled && r.key.trim()).length;
+
+  // Focus the appended row's key input once it has actually rendered. Keyed on
+  // the row count growing rather than a single requestAnimationFrame, so it
+  // survives deferred store updates and concurrent rendering.
+  useEffect(() => {
+    if (rows.length > prevRowCount.current && focusNewRow.current) {
+      newRowRef.current?.focus();
+    }
+    focusNewRow.current = false;
+    prevRowCount.current = rows.length;
+  }, [rows.length]);
+
+  function commitDraft(refocus: boolean) {
+    if (!draft.key.trim() && !draft.value.trim()) return;
+    focusNewRow.current = refocus;
+    onAdd({
+      key: draft.key,
+      value: draft.value,
+      ...(draft.desc ? { description: draft.desc } : {}),
+    });
+    setDraft({ key: '', value: '', desc: '' });
+  }
+
+  function handleGhostKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitDraft(true);
+    }
+  }
+
+  function handleGhostBlur(e: React.FocusEvent<HTMLDivElement>) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      commitDraft(false);
+    }
+  }
+
+  const ghostInput =
+    'bg-transparent outline-none placeholder:text-sp-dim/50 font-mono text-sp-12 w-full px-2 py-1.5 focus:bg-sp-hover/50 transition-colors';
+
   return (
-    <div className="p-3">
+    <div className="flex flex-col h-full min-h-0">
+      {/* Column header — pinned */}
       <div
-        className="grid items-center gap-2 px-2 py-1.5 border-b border-sp-line"
-        style={{ gridTemplateColumns: '28px 1fr 1.5fr 1fr 22px' }}
+        className="grid items-center border-b border-sp-line bg-sp-surface-lo/30 flex-none"
+        style={{ gridTemplateColumns: PARAM_GRID }}
       >
         <span aria-hidden="true" />
-        <span className="sp-label">Key</span>
-        <span className="sp-label">Value</span>
-        <span className="sp-label">Description</span>
+        {COLUMN_LABELS.map((col) => (
+          <span
+            key={col}
+            className="sp-label uppercase tracking-wider text-[10px] px-2 py-2 border-l border-sp-line/40"
+          >
+            {col}
+          </span>
+        ))}
         <span aria-hidden="true" />
       </div>
 
-      <div role="rowgroup">
-        {rows.length === 0 ? (
-          <div className="px-2 py-10 text-center">
-            <div className="mx-auto mb-2 inline-flex items-center justify-center h-8 w-8 rounded-full bg-sp-surface-lo text-sp-dim">
-              <Plus size={16} />
-            </div>
-            <p className="text-sp-12 text-sp-muted">No entries yet</p>
-            <p className="text-sp-11 text-sp-dim mt-0.5">
-              Click <span className="text-sp-muted font-medium">{addLabel}</span> below to start.
-            </p>
-          </div>
-        ) : (
-          rows.map((row) => (
+      {/* Scrollable rows + ghost row — only this region scrolls, so the header
+          and footer stay pinned and never clip against the panel edge. */}
+      <div className="flex-1 overflow-auto min-h-0">
+        <div role="rowgroup">
+          {rows.map((row, i) => (
             <ParamRow
               key={row.id}
               row={row}
               onChange={onRowChange}
               onRemove={onRowRemove}
               showVariableHighlight
+              {...(i === rows.length - 1 && { inputRef: newRowRef })}
               {...(keySuggestions && { keySuggestions })}
               {...(valueSuggestionsFor && { valueSuggestionsFor })}
             />
-          ))
-        )}
+          ))}
+        </div>
+
+        {/*
+          Ghost row — always-visible add affordance. Uses plain <input> rather
+          than VariableInput/ComboboxInput by design: a draft has no variable
+          highlighting or key autocomplete. Those features apply the moment it's
+          committed and becomes a real ParamRow above.
+        */}
+        <div
+          className="grid items-stretch border-b border-sp-line/50 opacity-40 focus-within:opacity-75 transition-opacity"
+          style={{ gridTemplateColumns: PARAM_GRID }}
+          onBlur={handleGhostBlur}
+          onKeyDown={handleGhostKeyDown}
+        >
+          <div className="flex items-center justify-center">
+            <span aria-hidden="true" className="h-3 w-3 rounded-full border border-sp-line/60" />
+          </div>
+          {GHOST_FIELDS.map(({ label, field, extraClass }) => (
+            <div key={field} className="border-l border-sp-line/40 min-w-0">
+              <input
+                value={draft[field]}
+                onChange={(e) => setDraft((d) => ({ ...d, [field]: e.target.value }))}
+                placeholder={label}
+                className={cn(ghostInput, extraClass)}
+                aria-label={`New entry ${label.toLowerCase()}`}
+              />
+            </div>
+          ))}
+          <div />
+        </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2">
+      {/* Footer — pinned */}
+      <div className="flex items-center justify-between px-3 py-2 border-t border-sp-line/50 flex-none">
         <button
           type="button"
-          onClick={onAdd}
+          onClick={() => onAdd()}
           className={cn(
-            'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-sp-btn',
-            'border border-dashed border-sp-line-strong text-sp-muted',
-            'hover:text-sp-text hover:border-sp-accent hover:bg-sp-hover transition-colors',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40',
-            'text-sp-12 font-medium'
+            'inline-flex items-center gap-1 text-sp-11 text-sp-dim',
+            'hover:text-sp-accent transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40 rounded-sp-chip'
           )}
         >
-          <Plus size={14} />
-          <span>{addLabel}</span>
+          <Plus size={11} />
+          <span>Add row</span>
         </button>
         {rows.length > 0 && (
           <span className="text-sp-11 text-sp-dim font-mono tabular-nums">
-            {activeCount} active · {rows.length} total
+            {activeCount} of {rows.length} active
           </span>
         )}
       </div>
