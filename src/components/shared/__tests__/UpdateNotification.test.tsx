@@ -5,9 +5,11 @@ import { UpdateNotification } from '../UpdateNotification';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { UpdaterStatus } from '../../../../electron/types/electron-api';
 
-// sonner — the App-level <Toaster> isn't mounted here; stub toast so error-state
-// renders don't depend on it.
-vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
+// sonner — the App-level <Toaster> isn't mounted here; stub the toast surface
+// the component uses (transient feedback for checks / download failures).
+// vi.hoisted so the mock is initialized before the hoisted vi.mock factory runs.
+const toastMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), promise: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toastMock }));
 
 // Capture the status callback the component subscribes with so tests can drive
 // each updater state through it.
@@ -109,9 +111,34 @@ describe('UpdateNotification', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('surfaces an error state', () => {
+  it('stays silent (no banner, no toast) on an automatic background check failure', () => {
     render(<UpdateNotification />);
     emit({ state: 'error', message: 'network down' });
-    expect(screen.getByText(/update failed/i)).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it('toasts only when a failure interrupts an in-progress download', () => {
+    render(<UpdateNotification />);
+    emit({ state: 'downloading', version: '2.1.0', percent: 50 });
+    emit({ state: 'error', message: 'connection reset' });
+    expect(toastMock.error).toHaveBeenCalledWith(
+      'Update download failed',
+      expect.objectContaining({ description: 'connection reset' })
+    );
+    // and no sticky error banner remains
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('gives the tray "Check for Updates" action transient toast feedback', () => {
+    render(<UpdateNotification />);
+    // The component registers a listener for the tray channel; invoke it.
+    const call = api.on.mock.calls.find(([ch]) => ch === 'app:check-updates');
+    expect(call).toBeDefined();
+    act(() => {
+      (call![1] as () => void)();
+    });
+    expect(updater.check).toHaveBeenCalledOnce();
+    expect(toastMock.promise).toHaveBeenCalledOnce();
   });
 });

@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
-import { Download, RefreshCw, RotateCw, X } from 'lucide-react';
+import { Download, RefreshCw, RotateCw } from 'lucide-react';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
@@ -16,6 +16,7 @@ import type { UpdaterStatus } from '../../../electron/types/electron-api';
 export function UpdateNotification(): ReactElement | null {
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
   const [dismissed, setDismissed] = useState(false);
+  const prevState = useRef<UpdaterStatus['state']>('idle');
   const autoUpdate = useSettingsStore((s) => s.settings.autoUpdate) ?? DEFAULT_AUTO_UPDATE_SETTINGS;
 
   // Subscribe to status pushes + wire the tray menu's check action.
@@ -24,13 +25,32 @@ export function UpdateNotification(): ReactElement | null {
     const api = getElectronAPI();
     if (!api) return;
     const unsubscribe = api.updater.onStatus((next) => {
+      // A failed *automatic* check (offline at startup / on the 6h tick) is
+      // noise — stay silent. Only a failure that interrupts an in-progress
+      // download the user is watching is worth surfacing; user-initiated
+      // checks get their own feedback via the tray toast below.
+      const wasDownloading = prevState.current === 'downloading';
+      prevState.current = next.state;
       setStatus(next);
       setDismissed(false); // a fresh push is worth showing again
-      if (next.state === 'error') {
-        toast.error('Update failed', { description: next.message });
+      if (next.state === 'error' && wasDownloading) {
+        toast.error('Update download failed', { description: next.message });
       }
     });
-    const onTrayCheck = () => void api.updater.check();
+    // Tray "Check for Updates" is a user action, so give it transient feedback
+    // (Checking… → up-to-date / available) rather than dropping the result.
+    const onTrayCheck = () => {
+      void toast.promise(api.updater.check(), {
+        loading: 'Checking for updates…',
+        success: (res) =>
+          res.error
+            ? `Update check failed`
+            : res.updateAvailable
+              ? `Update available${res.version ? ` — v${res.version}` : ''}`
+              : "You're up to date",
+        error: 'Update check failed',
+      });
+    };
     api.on('app:check-updates', onTrayCheck);
     return () => {
       unsubscribe();
@@ -51,8 +71,14 @@ export function UpdateNotification(): ReactElement | null {
   const api = getElectronAPI();
   if (!api) return null;
 
-  // States that don't warrant a persistent banner.
-  if (status.state === 'idle' || status.state === 'checking' || status.state === 'not-available') {
+  // Only the actionable positive states get a persistent banner. checking /
+  // not-available are transient and silent; errors surface as toasts (above),
+  // never a sticky bar the user must dismiss every background check.
+  if (
+    status.state !== 'available' &&
+    status.state !== 'downloading' &&
+    status.state !== 'downloaded'
+  ) {
     return null;
   }
 
@@ -141,26 +167,6 @@ export function UpdateNotification(): ReactElement | null {
             >
               <RotateCw className="h-3 w-3" aria-hidden />
               Restart now
-            </button>
-          </>
-        )}
-
-        {status.state === 'error' && (
-          <>
-            <X className="h-4 w-4 shrink-0 text-amber-400" aria-hidden />
-            <div className="flex-1 min-w-0 truncate">
-              <span className="font-medium text-amber-100">Update failed.</span>
-              {status.message && (
-                <span className="ml-1 truncate text-xs text-amber-200/80">{status.message}</span>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setDismissed(true)}
-              className="rounded-md p-1 text-amber-200/80 transition hover:bg-amber-400/10"
-              aria-label="Dismiss"
-            >
-              <X className="h-3.5 w-3.5" aria-hidden />
             </button>
           </>
         )}
