@@ -104,6 +104,95 @@ describe('renderJUnitXml', () => {
     expect(xml).toContain('&quot;name&quot; with &lt;tags&gt;');
   });
 
+  it('disambiguates data-driven iterations in testcase names', () => {
+    const result: RunResult = {
+      meta: { collectionName: 'Data', collectionDir: '/x', startedAt: 1 },
+      durationMs: 10,
+      requests: [
+        {
+          request: fakeReq('Get'),
+          status: 200,
+          passed: true,
+          durationMs: 5,
+          bodyBytes: 0,
+          iteration: 0,
+        } as RequestRunResult,
+        {
+          request: fakeReq('Get'),
+          status: 200,
+          passed: true,
+          durationMs: 5,
+          bodyBytes: 0,
+          iteration: 1,
+        } as RequestRunResult,
+      ],
+      summary: { total: 2, passed: 2, failed: 0, errored: 0 },
+    };
+    const xml = renderJUnitXml(result);
+    expect(xml).toContain('name="Get [iter 0]"');
+    expect(xml).toContain('name="Get [iter 1]"');
+  });
+
+  it('includes failed-assertion detail in the failure body', () => {
+    const result: RunResult = {
+      meta: { collectionName: 'Asserts', collectionDir: '/x', startedAt: 1 },
+      durationMs: 10,
+      requests: [
+        {
+          request: fakeReq('Check'),
+          status: 200,
+          passed: false,
+          durationMs: 5,
+          bodyBytes: 0,
+          assertions: [
+            { name: 'status is 200', passed: true },
+            { name: 'has name field', passed: false, error: 'expected undefined to exist' },
+          ],
+        } as RequestRunResult,
+      ],
+      summary: { total: 1, passed: 0, failed: 1, errored: 0 },
+    };
+    const xml = renderJUnitXml(result);
+    // status is 2xx but an assertion failed — message must reflect the assertion,
+    // not a misleading "HTTP 200".
+    expect(xml).toContain('<failure message="1 assertion(s) failed"');
+    expect(xml).toContain('has name field: expected undefined to exist');
+    expect(xml).not.toContain('HTTP 200');
+  });
+
+  it('strips XML-illegal control characters from messages', () => {
+    const result: RunResult = {
+      meta: { collectionName: 'Ctrl', collectionDir: '/x', startedAt: 1 },
+      durationMs: 0,
+      requests: [
+        {
+          request: fakeReq('Boom'),
+          status: 0,
+          passed: false,
+          durationMs: 0,
+          bodyBytes: 0,
+          errorMessage: 'bad\x00byte\x07here',
+        } as RequestRunResult,
+      ],
+      summary: { total: 1, passed: 0, failed: 0, errored: 1 },
+    };
+    const xml = renderJUnitXml(result);
+    expect(xml).toContain('message="badbytehere"');
+    // eslint-disable-next-line no-control-regex -- asserting control chars were stripped
+    expect(xml).not.toMatch(/[\x00-\x08]/);
+  });
+
+  it('emits a testsuite timestamp from startedAt', () => {
+    const result: RunResult = {
+      meta: { collectionName: 'Ts', collectionDir: '/x', startedAt: 1700000000000 },
+      durationMs: 0,
+      requests: [],
+      summary: { total: 0, passed: 0, failed: 0, errored: 0 },
+    };
+    const xml = renderJUnitXml(result);
+    expect(xml).toContain(`timestamp="${new Date(1700000000000).toISOString()}"`);
+  });
+
   it('reports aggregate counts in <testsuites> and <testsuite>', () => {
     const result: RunResult = {
       meta: { collectionName: 'agg', collectionDir: '/x', startedAt: 1 },

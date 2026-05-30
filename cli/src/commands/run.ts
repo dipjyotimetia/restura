@@ -64,16 +64,15 @@ export function registerRunCommand(program: Command): void {
     )
     .option('--bail', 'Stop on first failure', false)
     .option('--timeout <ms>', 'Per-request timeout', '30000')
-    .option(
-      '--allow-localhost',
-      'Permit localhost / 127.0.0.1 targets (off by default)',
-      false
-    )
+    .option('--allow-localhost', 'Permit localhost / 127.0.0.1 targets (off by default)', false)
     .option('--folder <path>', 'Only run requests under this folder path')
     .option('--include <pattern...>', 'Include requests matching pattern (repeatable)')
     .option('--exclude <pattern...>', 'Exclude requests matching pattern (repeatable)')
     .option('--data <file>', 'CSV or JSON file driving iterations (one row per iteration)')
-    .option('--max-iterations <n>', 'Cap the number of iterations (safety against large data files)')
+    .option(
+      '--max-iterations <n>',
+      'Cap the number of iterations (safety against large data files)'
+    )
     .option('--retry <n>', 'Number of retry attempts on failure', '0')
     .option(
       '--retry-on <list>',
@@ -95,7 +94,7 @@ export function registerRunCommand(program: Command): void {
           {
             envVars,
             bail: Boolean(opts.bail),
-            timeoutMs: Number(opts.timeout),
+            timeoutMs: numericFlag('--timeout', opts.timeout, { min: 1 }),
             allowLocalhost: Boolean(opts.allowLocalhost),
             filter: {
               ...(opts.folder ? { folder: opts.folder } : {}),
@@ -103,21 +102,33 @@ export function registerRunCommand(program: Command): void {
               ...(opts.exclude ? { exclude: opts.exclude } : {}),
             },
             iterations,
-            ...(opts.maxIterations ? { maxIterations: Number(opts.maxIterations) } : {}),
+            ...(opts.maxIterations !== undefined
+              ? { maxIterations: numericFlag('--max-iterations', opts.maxIterations, { min: 1 }) }
+              : {}),
             retry: {
-              retries: Number(opts.retry) || 0,
+              retries: numericFlag('--retry', opts.retry, { min: 0 }),
               retryOn: parseRetryOn(opts.retryOn),
             },
-            ...(opts.sseDuration ? { sseDurationMs: Number(opts.sseDuration) } : {}),
-            ...(opts.sseEvents ? { sseMaxEvents: Number(opts.sseEvents) } : {}),
-            ...(opts.wsDuration ? { wsDurationMs: Number(opts.wsDuration) } : {}),
-            ...(opts.wsMessages ? { wsMaxMessages: Number(opts.wsMessages) } : {}),
+            ...(opts.sseDuration !== undefined
+              ? { sseDurationMs: numericFlag('--sse-duration', opts.sseDuration, { min: 0 }) }
+              : {}),
+            ...(opts.sseEvents !== undefined
+              ? { sseMaxEvents: numericFlag('--sse-events', opts.sseEvents, { min: 1 }) }
+              : {}),
+            ...(opts.wsDuration !== undefined
+              ? { wsDurationMs: numericFlag('--ws-duration', opts.wsDuration, { min: 0 }) }
+              : {}),
+            ...(opts.wsMessages !== undefined
+              ? { wsMaxMessages: numericFlag('--ws-messages', opts.wsMessages, { min: 1 }) }
+              : {}),
           },
           reporter
         );
 
         const ok =
-          result.summary.passed === result.summary.total && result.summary.total > 0;
+          result.summary.passed === result.summary.total &&
+          result.summary.errored === 0 &&
+          result.summary.total > 0;
         process.exit(ok ? 0 : 1);
       } catch (err) {
         console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
@@ -133,12 +144,31 @@ export function registerRunCommand(program: Command): void {
  *   2. `--output <path>` (legacy single-reporter shorthand)
  */
 function buildReporters(opts: RunOpts): Reporter {
-  const names = opts.reporter.split(',').map((s) => s.trim()).filter(Boolean);
+  const names = opts.reporter
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (names.length === 0) throw new Error('At least one reporter must be specified');
 
   const outputs = parseReporterOutputs(opts.reporterOutput);
   const reporters = names.map((name) => buildOne(name, outputs[name] ?? opts.output));
   return reporters.length === 1 ? reporters[0]! : new CompositeReporter(reporters);
+}
+
+/**
+ * Parse a numeric CLI flag, throwing a clear error (→ exit 2) on a non-finite
+ * or out-of-range value instead of silently coercing to NaN. NaN would
+ * otherwise disable a cap (`NaN >= 0` is false) or a timeout with no warning.
+ */
+function numericFlag(name: string, value: string, opts: { min: number }): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw new Error(`${name} expects a number, got: ${value}`);
+  }
+  if (n < opts.min) {
+    throw new Error(`${name} must be >= ${opts.min}, got: ${value}`);
+  }
+  return n;
 }
 
 function parseReporterOutputs(pairs: string[] | undefined): Record<string, string> {
@@ -159,13 +189,16 @@ function buildOne(name: string, outputPath: string | undefined): Reporter {
     case 'live':
       return new LiveReporter();
     case 'json':
-      if (!outputPath) throw new Error('--reporter json requires --output or --reporter-output json=<path>');
+      if (!outputPath)
+        throw new Error('--reporter json requires --output or --reporter-output json=<path>');
       return new JsonReporter(outputPath);
     case 'junit':
-      if (!outputPath) throw new Error('--reporter junit requires --output or --reporter-output junit=<path>');
+      if (!outputPath)
+        throw new Error('--reporter junit requires --output or --reporter-output junit=<path>');
       return new JUnitReporter(outputPath);
     case 'html':
-      if (!outputPath) throw new Error('--reporter html requires --output or --reporter-output html=<path>');
+      if (!outputPath)
+        throw new Error('--reporter html requires --output or --reporter-output html=<path>');
       return new HtmlReporter(outputPath);
     case 'stats':
       return new StatsReporter();

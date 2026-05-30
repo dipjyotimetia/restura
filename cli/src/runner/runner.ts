@@ -4,12 +4,7 @@ import { runPreRequestScript, runTestScript } from './scriptRunner.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
 import type { IterationRow } from './dataLoader.js';
-import type {
-  Reporter,
-  RunResult,
-  RequestRunResult,
-  RunMeta,
-} from '../reporters/types.js';
+import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
 
 export interface RunOptions {
   envVars: Record<string, string>;
@@ -118,10 +113,14 @@ export async function runCollection(
             vars: perRequestVars,
             timeoutMs: options.timeoutMs,
             allowLocalhost: options.allowLocalhost,
-            ...(options.sseDurationMs !== undefined ? { sseDurationMs: options.sseDurationMs } : {}),
+            ...(options.sseDurationMs !== undefined
+              ? { sseDurationMs: options.sseDurationMs }
+              : {}),
             ...(options.sseMaxEvents !== undefined ? { sseMaxEvents: options.sseMaxEvents } : {}),
             ...(options.wsDurationMs !== undefined ? { wsDurationMs: options.wsDurationMs } : {}),
-            ...(options.wsMaxMessages !== undefined ? { wsMaxMessages: options.wsMaxMessages } : {}),
+            ...(options.wsMaxMessages !== undefined
+              ? { wsMaxMessages: options.wsMaxMessages }
+              : {}),
           }),
         retry
       );
@@ -144,6 +143,9 @@ export async function runCollection(
       let passed = outcome.passed;
       if (allAssertions.length > 0) passed = allAssertions.every((a) => a.passed);
       if (scriptError) passed = false;
+      // A transport-level failure can never be a pass, even if the test script
+      // happens to contain a response-independent assertion that passed.
+      if (outcome.errorMessage !== undefined) passed = false;
 
       const result: RequestRunResult = {
         request: item,
@@ -153,7 +155,11 @@ export async function runCollection(
         bodyBytes: outcome.bodyBytes,
         ...(outcome.responseHeaders ? { responseHeaders: outcome.responseHeaders } : {}),
         ...(outcome.errorMessage !== undefined
-          ? { errorMessage: scriptError ? `${outcome.errorMessage}; ${scriptError}` : outcome.errorMessage }
+          ? {
+              errorMessage: scriptError
+                ? `${outcome.errorMessage}; ${scriptError}`
+                : outcome.errorMessage,
+            }
           : scriptError !== undefined
             ? { errorMessage: scriptError }
             : {}),

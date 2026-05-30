@@ -1,11 +1,12 @@
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { BodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
-import type { HttpRequest, BodyType, AuthConfig } from '@/types';
-import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
+import type { FormField } from '@shared/protocol/body-builder';
+import type { HttpRequest, BodyType, FormDataItem } from '@/types';
 import { undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import type { LoadedRequest } from '../collectionLoader';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
+import { applyAuthHeaders, toProtocolAuth } from './auth';
 
 /**
  * HTTP + GraphQL executor. GraphQL is represented internally as an HttpRequest
@@ -34,16 +35,17 @@ export async function executeHttp(
     if (p.enabled && p.key) params[p.key] = resolveVarsDeep(p.value, opts.vars);
   }
 
-  // Auth that the renderer normally applies before hitting the proxy. Bearer
-  // / Basic / API-key / OAuth2 are header-only and trivial to apply here; we
-  // do not refresh OAuth2 tokens (no UI/keychain in CI).
-  applyAuthHeaders(req.auth, headers, params);
-
   const built = buildBody(req.body, opts.vars);
-  const proxyAuth = toProtocolAuth(req.auth);
 
   const start = Date.now();
   try {
+    // Auth that the renderer normally applies before hitting the proxy. Bearer
+    // / Basic / API-key / OAuth2 are header-only; AWS SigV4 / OAuth1 / WSSE are
+    // signed at the wire by executeHttpProxy. Resolved here (inside the try) so
+    // an unresolvable secret-handle ref surfaces as an errored outcome.
+    applyAuthHeaders(req.auth, headers, params);
+    const proxyAuth = toProtocolAuth(req.auth);
+
     const result = await executeHttpProxy(
       {
         method: req.method,
@@ -52,6 +54,7 @@ export async function executeHttp(
         params,
         ...(built.bodyType !== 'none' ? { bodyType: built.bodyType } : {}),
         ...(built.data !== undefined ? { data: built.data } : {}),
+        ...(built.formData !== undefined ? { formData: built.formData } : {}),
         timeout: opts.timeoutMs,
         ...(proxyAuth ? { auth: proxyAuth } : {}),
       },
@@ -102,12 +105,10 @@ function errorOutcome(msg: string): ExecuteOutcome {
 interface BuiltBody {
   bodyType: ProtocolBodyType | 'none';
   data?: string;
+  formData?: FormField[];
 }
 
-function buildBody(
-  body: HttpRequest['body'] | undefined,
-  vars: Record<string, string>
-): BuiltBody {
+function buildBody(body: HttpRequest['body'] | undefined, vars: Record<string, string>): BuiltBody {
   if (!body || body.type === 'none') return { bodyType: 'none' };
   const raw = body.raw !== undefined ? resolveVarsDeep(body.raw, vars) : undefined;
 
@@ -128,121 +129,39 @@ function buildBody(
       // 'raw' bodyType emits with no content-type. The header layer should set
       // application/xml if the caller wants it; we don't force it here.
       return { bodyType: 'raw', ...(raw !== undefined ? { data: raw } : {}) };
-    case 'x-www-form-urlencoded':
+    case 'x-www-form-urlencoded': {
+      // OpenCollection exports carry urlencoded forms as a structured field
+      // array (no `raw`); legacy collections may carry a pre-encoded `raw`.
+      const fields = mapFormFields(body.formData, vars);
+      if (fields.length > 0) return { bodyType: 'form-urlencoded', formData: fields };
       return { bodyType: 'form-urlencoded', ...(raw !== undefined ? { data: raw } : {}) };
+    }
     case 'binary':
       // body.raw is expected to be base64-encoded payload.
       return { bodyType: 'binary', ...(raw !== undefined ? { data: raw } : {}) };
     case 'form-data':
     case 'multipart-mixed':
     case 'protobuf':
-      // Not supported in CLI v0.2 — fall back to raw if present, otherwise none.
-      return raw !== undefined
-        ? { bodyType: 'raw', data: raw }
-        : { bodyType: 'none' };
+      // multipart/protobuf bodies are not supported by the CLI fetcher yet —
+      // fall back to raw if present, otherwise none.
+      return raw !== undefined ? { bodyType: 'raw', data: raw } : { bodyType: 'none' };
   }
 }
 
-function applyAuthHeaders(
-  auth: AuthConfig | undefined,
-  headers: Record<string, string>,
-  params: Record<string, string>
-): void {
-  if (!auth || auth.type === 'none') return;
-  switch (auth.type) {
-    case 'bearer': {
-      const token = secretString(auth.bearer?.token);
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      return;
-    }
-    case 'basic': {
-      const username = auth.basic?.username ?? '';
-      const password = secretString(auth.basic?.password) ?? '';
-      const encoded = Buffer.from(`${username}:${password}`).toString('base64');
-      headers['Authorization'] = `Basic ${encoded}`;
-      return;
-    }
-    case 'api-key': {
-      const key = auth.apiKey?.key;
-      const value = secretString(auth.apiKey?.value);
-      if (!key || !value) return;
-      if (auth.apiKey?.in === 'query') params[key] = value;
-      else headers[key] = value;
-      return;
-    }
-    case 'oauth2': {
-      const token = secretString(auth.oauth2?.accessToken);
-      if (token) {
-        const tokenType = auth.oauth2?.tokenType ?? 'Bearer';
-        headers['Authorization'] = `${tokenType} ${token}`;
-      }
-      return;
-    }
-    // aws-signature, oauth1, ntlm, wsse are sign-at-wire — handled by toProtocolAuth.
-  }
-}
-
-function secretString(v: unknown): string | undefined {
-  if (typeof v === 'string') return v;
-  if (v && typeof v === 'object') {
-    const r = v as { kind?: string; value?: string };
-    if (r.kind === 'inline' && typeof r.value === 'string') return r.value;
-    // 'handle' refs are desktop-only — not resolvable in CLI; warn via stderr.
-    if (r.kind === 'handle') {
-      process.stderr.write(
-        '[restura] WARNING: a secret handle ref is unresolvable in CLI; ignoring.\n'
-      );
-    }
-  }
-  return undefined;
-}
-
-function toProtocolAuth(auth: AuthConfig | undefined): ProtocolAuthConfig | undefined {
-  if (!auth) return undefined;
-  const wireTypes: ProtocolAuthType[] = ['aws-signature', 'oauth1', 'ntlm', 'wsse'];
-  if (!wireTypes.includes(auth.type as ProtocolAuthType)) return undefined;
-  const out: ProtocolAuthConfig = { type: auth.type as ProtocolAuthType };
-  if (auth.awsSignature) {
-    out.awsSignature = {
-      accessKey: auth.awsSignature.accessKey,
-      secretKey: secretString(auth.awsSignature.secretKey) ?? '',
-      region: auth.awsSignature.region,
-      service: auth.awsSignature.service,
-    };
-  }
-  if (auth.oauth1) {
-    out.oauth1 = {
-      consumerKey: auth.oauth1.consumerKey,
-      consumerSecret: secretString(auth.oauth1.consumerSecret) ?? '',
-      ...(auth.oauth1.accessToken !== undefined
-        ? { accessToken: secretString(auth.oauth1.accessToken) ?? '' }
-        : {}),
-      ...(auth.oauth1.accessTokenSecret !== undefined
-        ? { accessTokenSecret: secretString(auth.oauth1.accessTokenSecret) ?? '' }
-        : {}),
-      ...(auth.oauth1.signatureMethod ? { signatureMethod: auth.oauth1.signatureMethod } : {}),
-      ...(auth.oauth1.realm ? { realm: auth.oauth1.realm } : {}),
-      ...(auth.oauth1.nonce ? { nonce: auth.oauth1.nonce } : {}),
-      ...(auth.oauth1.timestamp ? { timestamp: auth.oauth1.timestamp } : {}),
-      ...(auth.oauth1.addParamsToBody !== undefined
-        ? { addParamsToBody: auth.oauth1.addParamsToBody }
-        : {}),
-    };
-  }
-  if (auth.ntlm) {
-    out.ntlm = {
-      username: auth.ntlm.username,
-      password: secretString(auth.ntlm.password) ?? '',
-      ...(auth.ntlm.domain ? { domain: auth.ntlm.domain } : {}),
-      ...(auth.ntlm.workstation ? { workstation: auth.ntlm.workstation } : {}),
-    };
-  }
-  if (auth.wsse) {
-    out.wsse = {
-      username: auth.wsse.username,
-      password: secretString(auth.wsse.password) ?? '',
-      ...(auth.wsse.passwordType ? { passwordType: auth.wsse.passwordType } : {}),
-    };
+/** Map internal text form fields → shared `FormField[]`, resolving vars and
+ *  dropping disabled / file parts (the CLI fetcher can't read files). */
+function mapFormFields(
+  items: FormDataItem[] | undefined,
+  vars: Record<string, string>
+): FormField[] {
+  if (!items) return [];
+  const out: FormField[] = [];
+  for (const item of items) {
+    if (item.enabled === false || !item.key || item.type === 'file') continue;
+    out.push({
+      name: resolveVarsDeep(item.key, vars),
+      value: resolveVarsDeep(item.value, vars),
+    });
   }
   return out;
 }

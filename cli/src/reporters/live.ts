@@ -1,10 +1,18 @@
 import type { Reporter, RunResult, RequestRunResult, RunMeta } from './types.js';
 
-const GREEN = '\x1b[32m';
-const RED = '\x1b[31m';
-const YELLOW = '\x1b[33m';
-const RESET = '\x1b[0m';
-const DIM = '\x1b[2m';
+// Honour the NO_COLOR convention (https://no-color.org) and suppress ANSI when
+// stdout is not a TTY (piped to a file / CI log) so reports don't carry raw
+// escape codes. FORCE_COLOR overrides both.
+const useColor =
+  process.env.FORCE_COLOR !== undefined && process.env.FORCE_COLOR !== '0'
+    ? true
+    : Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined;
+
+const GREEN = useColor ? '\x1b[32m' : '';
+const RED = useColor ? '\x1b[31m' : '';
+const YELLOW = useColor ? '\x1b[33m' : '';
+const RESET = useColor ? '\x1b[0m' : '';
+const DIM = useColor ? '\x1b[2m' : '';
 
 /**
  * Default reporter for interactive runs. Prints per-request progress to stdout

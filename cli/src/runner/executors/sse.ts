@@ -5,6 +5,7 @@ import type { SseRequest } from '@/types';
 import { resolveVarsDeep } from '../varResolver';
 import type { LoadedRequest } from '../collectionLoader';
 import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
+import { applyAuthHeaders } from './auth';
 
 const DEFAULT_DURATION_MS = 5000;
 
@@ -55,7 +56,6 @@ export async function executeSse(
   for (const p of req.params ?? []) {
     if (p.enabled && p.key) params[p.key] = resolveVarsDeep(p.value, opts.vars);
   }
-  const finalUrl = appendQuery(url, params);
 
   const durationMs = opts.sseDurationMs ?? DEFAULT_DURATION_MS;
   const maxEvents = opts.sseMaxEvents;
@@ -72,6 +72,10 @@ export async function executeSse(
   const timer = setTimeout(() => controller.abort(), durationMs);
 
   try {
+    // Header-based auth (Bearer / Basic / API-key / OAuth2). Applied here so an
+    // unresolvable secret-handle ref surfaces as an errored outcome below.
+    applyAuthHeaders(req.auth, headers, params);
+    const finalUrl = appendQuery(url, params);
     const response = await undiciRequest(finalUrl, {
       method: 'GET',
       headers,
