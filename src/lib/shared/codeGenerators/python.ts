@@ -1,4 +1,5 @@
 import { escapeJson, type GenerateOptions } from './types';
+import { unwrapSecret } from '@/lib/shared/secretRef';
 
 export const generatePython = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings } = options;
@@ -33,8 +34,9 @@ export const generatePython = (options: GenerateOptions): string => {
   const proxyConfig = settings?.proxy;
   if (proxyConfig?.enabled && proxyConfig.host) {
     let proxyUrl = `${proxyConfig.type}://`;
-    if (proxyConfig.auth?.username && proxyConfig.auth?.password) {
-      proxyUrl += `${proxyConfig.auth.username}:${proxyConfig.auth.password}@`;
+    const proxyPassword = proxyConfig.auth ? unwrapSecret(proxyConfig.auth.password) : '';
+    if (proxyConfig.auth?.username && proxyPassword) {
+      proxyUrl += `${proxyConfig.auth.username}:${proxyPassword}@`;
     }
     proxyUrl += `${proxyConfig.host}:${proxyConfig.port}`;
     python += `proxies = {\n`;

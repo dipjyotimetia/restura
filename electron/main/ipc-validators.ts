@@ -21,7 +21,9 @@ const ProxyConfigSchema = z.object({
   auth: z
     .object({
       username: z.string(),
-      password: z.string(),
+      // SecretValue per ADR-0007 — accepts a plain string (legacy / inline),
+      // an inline SecretRef, or a handle resolved main-side at wire time.
+      password: protocolSecretValueSchema,
     })
     .optional(),
 });
@@ -30,7 +32,8 @@ const ClientCertSchema = z.object({
   pfx: z.string().optional(), // base64-encoded PFX/PKCS12
   cert: z.string().optional(), // PEM certificate string
   key: z.string().optional(), // PEM private key string
-  passphrase: z.string().optional(), // passphrase for pfx or encrypted key
+  // passphrase for pfx or encrypted key — SecretValue per ADR-0007.
+  passphrase: protocolSecretValueSchema.optional(),
 });
 
 const CaCertSchema = z.object({

@@ -7,12 +7,8 @@
  */
 import axios, { type AxiosError } from 'axios';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
-import {
-  isElectron,
-  getElectronAPI,
-  workerAuthHeaders,
-  workerBaseUrl,
-} from './platform';
+import type { ProxyConfig, ClientCert, CaCert, MinTlsVersion } from '@/types';
+import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from './platform';
 
 /** Buffered JSON response shape returned by the Worker's `/api/proxy`. */
 export interface ProxyJsonResponse {
@@ -32,6 +28,25 @@ export interface ProxyTransportOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Desktop-only transport configuration: proxy, mTLS client cert, custom CA,
+ * SSL-verify toggle, and TLS handshake knobs. These are deliberately NOT part
+ * of `ProxyRequestBody` because that shape is POSTed to the Cloudflare Worker
+ * on the web path — cert private keys must never leave the machine. They are
+ * carried as a separate argument that is merged into the Electron IPC config
+ * and ignored entirely on the web path (the Worker has no per-request TLS
+ * control anyway).
+ */
+export interface DesktopTransportConfig {
+  proxy?: ProxyConfig;
+  verifySsl?: boolean;
+  clientCert?: ClientCert;
+  caCert?: CaCert;
+  serverCipherOrder?: boolean;
+  minTlsVersion?: MinTlsVersion;
+  cipherSuites?: string;
+}
+
 export class ProxyTransportError extends Error {
   readonly status: number | undefined;
   constructor(message: string, status?: number) {
@@ -43,11 +58,15 @@ export class ProxyTransportError extends Error {
 
 export async function executeProxiedRequest(
   spec: ProxyRequestBody,
-  options: ProxyTransportOptions = {}
+  options: ProxyTransportOptions = {},
+  desktop?: DesktopTransportConfig
 ): Promise<ProxyJsonResponse> {
   if (isElectron()) {
-    return executeViaElectronIpc(spec);
+    return executeViaElectronIpc(spec, desktop);
   }
+  // Web path: `desktop` (proxy / mTLS / CA / TLS knobs) is intentionally
+  // dropped — the Worker has no per-request TLS control and cert material
+  // must never leave the machine.
   return executeViaWorker(spec, options.signal);
 }
 
@@ -111,9 +130,7 @@ function mapAxiosError(err: unknown): ProxyTransportError {
         : axiosErr.message) || 'Proxy request failed';
     return new ProxyTransportError(message, axiosErr.response.status);
   }
-  return new ProxyTransportError(
-    err instanceof Error ? err.message : 'Proxy request failed'
-  );
+  return new ProxyTransportError(err instanceof Error ? err.message : 'Proxy request failed');
 }
 
 // Electron's `http:request` IPC schema is narrower than ProxyRequestBody:
@@ -122,7 +139,10 @@ function mapAxiosError(err: unknown): ProxyTransportError {
 // Content-Type header carries the format). Also: the .d.ts type omits
 // `auth` even though the runtime Zod schema accepts it — passed through
 // via a typed intersection until the .d.ts is regenerated.
-async function executeViaElectronIpc(spec: ProxyRequestBody): Promise<ProxyJsonResponse> {
+async function executeViaElectronIpc(
+  spec: ProxyRequestBody,
+  desktop?: DesktopTransportConfig
+): Promise<ProxyJsonResponse> {
   const api = getElectronAPI();
   if (!api?.http) {
     throw new ProxyTransportError('Electron HTTP IPC is not available in this context.');
@@ -131,6 +151,18 @@ async function executeViaElectronIpc(spec: ProxyRequestBody): Promise<ProxyJsonR
   type IpcConfig = Parameters<typeof api.http.request>[0] & {
     auth?: ProxyRequestBody['auth'];
   };
+  // The IPC proxy type excludes 'none' (the renderer's ProxyConfig allows it
+  // as a "disabled" sentinel). Only forward an actually-enabled, real proxy.
+  const ipcProxy: IpcConfig['proxy'] | undefined =
+    desktop?.proxy && desktop.proxy.enabled && desktop.proxy.type !== 'none'
+      ? {
+          enabled: true,
+          type: desktop.proxy.type,
+          host: desktop.proxy.host,
+          port: desktop.proxy.port,
+          ...(desktop.proxy.auth ? { auth: desktop.proxy.auth } : {}),
+        }
+      : undefined;
   const config: IpcConfig = {
     method: spec.method,
     url: spec.url,
@@ -139,6 +171,19 @@ async function executeViaElectronIpc(spec: ProxyRequestBody): Promise<ProxyJsonR
     ...(spec.data !== undefined ? { data: spec.data } : {}),
     ...(spec.timeout !== undefined ? { timeout: spec.timeout } : {}),
     ...(spec.auth ? { auth: spec.auth } : {}),
+    // Desktop-only transport config (proxy / mTLS / CA / verifySsl / TLS knobs).
+    // The IPC schema (HttpRequestConfigSchema) and buildConnectOptions already
+    // accept these; they were previously dropped here, so global proxy + certs
+    // silently had no effect on the desktop send path.
+    ...(ipcProxy ? { proxy: ipcProxy } : {}),
+    ...(desktop?.verifySsl !== undefined ? { verifySsl: desktop.verifySsl } : {}),
+    ...(desktop?.clientCert ? { clientCert: desktop.clientCert } : {}),
+    ...(desktop?.caCert ? { caCert: desktop.caCert } : {}),
+    ...(desktop?.serverCipherOrder !== undefined
+      ? { serverCipherOrder: desktop.serverCipherOrder }
+      : {}),
+    ...(desktop?.minTlsVersion !== undefined ? { minTlsVersion: desktop.minTlsVersion } : {}),
+    ...(desktop?.cipherSuites !== undefined ? { cipherSuites: desktop.cipherSuites } : {}),
   };
 
   const result = await api.http.request(config);
@@ -150,8 +195,6 @@ async function executeViaElectronIpc(spec: ProxyRequestBody): Promise<ProxyJsonR
     data: result.data,
     ...(result.size !== undefined ? { size: result.size } : {}),
     ...(result.bodyEncoding !== undefined ? { bodyEncoding: result.bodyEncoding } : {}),
-    ...(result.negotiatedAlpn !== undefined
-      ? { negotiatedAlpn: result.negotiatedAlpn }
-      : {}),
+    ...(result.negotiatedAlpn !== undefined ? { negotiatedAlpn: result.negotiatedAlpn } : {}),
   };
 }

@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
 import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
 import type { ClientCert } from '@/types';
 import { readFileAsBase64, readFileAsText } from '@/lib/shared/file-utils';
+import { unwrapSecret, type SecretValue } from '@/lib/shared/secretRef';
+import SecretInput from '@/features/auth/components/SecretInput';
 
 interface CertificateOverrideProps {
   clientCert: ClientCert | undefined;
@@ -12,9 +13,7 @@ interface CertificateOverrideProps {
 }
 
 export function CertificateOverride({ clientCert, onCertChange }: CertificateOverrideProps) {
-  const [certFormat, setCertFormat] = useState<'pfx' | 'pem'>(
-    clientCert?.format ?? 'pfx'
-  );
+  const [certFormat, setCertFormat] = useState<'pfx' | 'pem'>(clientCert?.format ?? 'pfx');
   const [pfxFileName, setPfxFileName] = useState('');
   const [pemCertFileName, setPemCertFileName] = useState('');
   const [pemKeyFileName, setPemKeyFileName] = useState('');
@@ -63,9 +62,11 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
     e.target.value = '';
   };
 
-  const handlePassphraseChange = (passphrase: string) => {
+  const handlePassphraseChange = (passphrase: SecretValue) => {
     const current = clientCert ?? { format: certFormat };
-    if (passphrase) {
+    // A handle resolves to the masked placeholder (non-empty), so it's kept;
+    // only a genuinely empty inline value clears the passphrase.
+    if (unwrapSecret(passphrase)) {
       onCertChange({ ...current, passphrase });
     } else {
       // Clear passphrase by omitting the key (EOPT-friendly)
@@ -145,13 +146,11 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
             <Label htmlFor="req-pfx-passphrase" className="text-xs font-mono">
               Passphrase (optional)
             </Label>
-            <Input
-              id="req-pfx-passphrase"
-              type="password"
-              value={clientCert?.passphrase ?? ''}
-              onChange={(e) => handlePassphraseChange(e.target.value)}
+            <SecretInput
+              value={clientCert?.passphrase}
+              onChange={handlePassphraseChange}
               placeholder="Certificate passphrase"
-              className="h-8 text-xs font-mono bg-background border-border w-56"
+              storageLabel="Client certificate passphrase"
             />
           </div>
         </div>
@@ -209,13 +208,11 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
             <Label htmlFor="req-pem-passphrase" className="text-xs font-mono">
               Passphrase (optional)
             </Label>
-            <Input
-              id="req-pem-passphrase"
-              type="password"
-              value={clientCert?.passphrase ?? ''}
-              onChange={(e) => handlePassphraseChange(e.target.value)}
+            <SecretInput
+              value={clientCert?.passphrase}
+              onChange={handlePassphraseChange}
               placeholder="Key passphrase"
-              className="h-8 text-xs font-mono bg-background border-border w-56"
+              storageLabel="Client certificate passphrase"
             />
           </div>
         </div>

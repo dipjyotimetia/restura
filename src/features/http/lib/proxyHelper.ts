@@ -1,5 +1,6 @@
 import type { ProxyConfig, RequestSettings, AppSettings } from '@/types';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { unwrapSecret } from '@/lib/shared/secretRef';
 
 /**
  * Build proxy URL from ProxyConfig
@@ -11,8 +12,11 @@ export function buildProxyUrl(proxy: ProxyConfig): string {
 
   let url = `${proxy.type}://`;
 
-  if (proxy.auth?.username && proxy.auth?.password) {
-    url += `${encodeURIComponent(proxy.auth.username)}:${encodeURIComponent(proxy.auth.password)}@`;
+  // Renderer-side display/codegen only — a handle SecretValue resolves to the
+  // masked placeholder here; the real value is applied main-side at the wire.
+  const password = proxy.auth ? unwrapSecret(proxy.auth.password) : '';
+  if (proxy.auth?.username && password) {
+    url += `${encodeURIComponent(proxy.auth.username)}:${encodeURIComponent(password)}@`;
   }
 
   url += `${proxy.host}:${proxy.port}`;
@@ -82,10 +86,11 @@ export function toAxiosProxyConfig(proxy: ProxyConfig): AxiosProxyConfig | undef
     protocol: proxy.type,
   };
 
-  if (proxy.auth?.username && proxy.auth?.password) {
+  const password = proxy.auth ? unwrapSecret(proxy.auth.password) : '';
+  if (proxy.auth?.username && password) {
     config.auth = {
       username: proxy.auth.username,
-      password: proxy.auth.password,
+      password,
     };
   }
 
@@ -118,18 +123,20 @@ export async function makeElectronProxyRequest(config: {
   }
 
   // Use IPC to make request in main process with Node.js HTTP agent
-  const result = await (window as unknown as {
-    electron: {
-      http: {
-        request: (config: unknown) => Promise<{
-          status: number;
-          statusText: string;
-          headers: Record<string, string>;
-          data: unknown;
-        }>;
+  const result = await (
+    window as unknown as {
+      electron: {
+        http: {
+          request: (config: unknown) => Promise<{
+            status: number;
+            statusText: string;
+            headers: Record<string, string>;
+            data: unknown;
+          }>;
+        };
       };
-    };
-  }).electron.http.request(config);
+    }
+  ).electron.http.request(config);
 
   return result;
 }
@@ -173,10 +180,7 @@ export function getEffectiveProxy(
  * Create proxy-aware fetch options (for native fetch API)
  * Note: Native fetch doesn't support proxy in browsers
  */
-export function createProxyFetchOptions(
-  proxy: ProxyConfig,
-  url: string
-): RequestInit {
+export function createProxyFetchOptions(proxy: ProxyConfig, url: string): RequestInit {
   // Check bypass list
   if (shouldBypassProxy(url, proxy.bypassList)) {
     return {};
@@ -184,7 +188,9 @@ export function createProxyFetchOptions(
 
   // In browser environment, fetch doesn't support proxy directly
   // This would need a CORS proxy service
-  console.warn('Proxy not directly supported in browser fetch. Consider using a CORS proxy service.');
+  console.warn(
+    'Proxy not directly supported in browser fetch. Consider using a CORS proxy service.'
+  );
 
   return {};
 }

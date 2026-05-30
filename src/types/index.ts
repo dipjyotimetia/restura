@@ -707,11 +707,37 @@ export interface ClientCert {
   pfx?: string; // base64-encoded .p12/.pfx content
   cert?: string; // PEM certificate string
   key?: string; // PEM private key string (encrypted at rest)
-  passphrase?: string;
+  // SecretValue per ADR-0007: plain string (legacy/inline) or a keychain
+  // handle resolved in the Electron main process at wire-signing time.
+  passphrase?: SecretValue;
 }
 
 export interface CaCert {
   pem: string; // PEM-encoded CA certificate chain
+}
+
+// Per-domain certificate entries (Postman / Insomnia parity). Each is scoped
+// to a host pattern (`api.example.com`, `*.example.com`, `.example.com`) with
+// an optional port. Selection is most-specific-wins; see
+// `src/features/http/lib/certMatcher.ts`. Desktop-only (mTLS / custom CA need
+// Node TLS — the web build never applies these).
+export interface HostClientCert {
+  /** Stable id for list editing. */
+  id: string;
+  /** Host pattern. Exact, `*.sub` wildcard, or `.suffix`. */
+  host: string;
+  /** Optional port qualifier. Unset = any port. */
+  port?: number;
+  /** The mTLS client certificate material applied for matching requests. */
+  cert: ClientCert;
+}
+
+export interface HostCaCert {
+  id: string;
+  host: string;
+  port?: number;
+  /** PEM-encoded CA certificate chain trusted for matching requests. */
+  pem: string;
 }
 
 // Proxy Configuration
@@ -724,7 +750,9 @@ export interface ProxyConfig {
   port: number;
   auth?: {
     username: string;
-    password: string;
+    // SecretValue per ADR-0007: plain string (legacy/inline) or a keychain
+    // handle resolved in the Electron main process at wire-signing time.
+    password: SecretValue;
   };
   bypassList?: string[]; // List of hosts to bypass proxy
 }
@@ -796,9 +824,14 @@ export interface AppSettings {
   allowPrivateIPs?: boolean;
   // CORS proxy settings (web-only)
   corsProxy: CorsProxyConfig;
-  // Certificate settings
+  // Certificate settings (global — applied to every HTTPS request)
   clientCert?: ClientCert;
   caCert?: CaCert;
+  // Per-domain certificates (desktop-only). Matched most-specific-first by
+  // `certMatcher.selectCertForUrl`; a match takes precedence over the global
+  // clientCert/caCert above for that host.
+  clientCertificates?: HostClientCert[];
+  caCertificates?: HostCaCert[];
   // Redirect policy defaults — mirrors RequestSettings; per-request settings still override these.
   followOriginalMethod?: boolean;
   followAuthHeader?: boolean;

@@ -14,6 +14,7 @@ import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { toast } from 'sonner';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
+import { unwrapSecret } from '@/lib/shared/secretRef';
 
 /**
  * Capture the headers the request actually went out with for the Console.
@@ -174,7 +175,10 @@ export function useHttpRequestPage() {
           ...(effectiveSettings.proxy.auth && {
             auth: {
               username: effectiveSettings.proxy.auth.username,
-              password: effectiveSettings.proxy.auth.password,
+              // Web axios path: inline secrets resolve to plaintext; a handle
+              // (desktop-only) resolves to the masked placeholder, which never
+              // matters here because handles aren't usable on the web build.
+              password: unwrapSecret(effectiveSettings.proxy.auth.password),
             },
           }),
         };
