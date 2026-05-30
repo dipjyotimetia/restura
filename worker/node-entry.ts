@@ -8,6 +8,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { Hono } from 'hono';
+import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATIC_ROOT = process.env.RESTURA_STATIC_ROOT ?? path.resolve(__dirname, '..', 'web');
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? '0.0.0.0';
+
+// Honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY for the direct-upstream fetch path.
+// The proxy handler's no-explicit-proxy branch uses global `fetch` (undici), so
+// installing the env proxy agent as the global dispatcher routes those requests
+// through the operator's proxy with NO_PROXY bypass. The explicit per-request
+// `upstreamProxy` path frames its own CONNECT/HTTP via node:net and bypasses
+// global fetch entirely, so it keeps precedence. No-op when neither var is set.
+if (
+  process.env.HTTP_PROXY ||
+  process.env.http_proxy ||
+  process.env.HTTPS_PROXY ||
+  process.env.https_proxy
+) {
+  setGlobalDispatcher(new EnvHttpProxyAgent());
+}
 
 const app = new Hono<{ Bindings: Env }>();
 

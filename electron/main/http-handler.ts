@@ -25,6 +25,7 @@ import type {
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { unwrapSecretValueMain } from './secret-handle-store';
 import { applyNonSignAtWireAuth } from './auth-applier';
+import { resolveEnvProxy } from './env-proxy';
 import { IPC } from '../shared/channels';
 
 // =============================================================================
@@ -478,6 +479,11 @@ function buildElectronFetcher(
     // leaking the listener across requests.
     let unsubscribeProxyAlpn: (() => void) | null = null;
 
+    // Env-var proxy fallback (HTTP_PROXY / HTTPS_PROXY / NO_PROXY), consulted
+    // only when the user has not configured an explicit proxy. resolveEnvProxy
+    // honours NO_PROXY and returns undefined when the target should go direct.
+    const envProxy = electronConfig.proxy?.enabled ? undefined : resolveEnvProxy(url);
+
     if (electronConfig.proxy?.enabled && electronConfig.proxy.host) {
       const proxyType = electronConfig.proxy.type;
       if (proxyType === 'http' || proxyType === 'https') {
@@ -526,6 +532,29 @@ function buildElectronFetcher(
           allowH2,
           connect: connectOpts as Parameters<typeof buildConnector>[0],
         });
+      }
+    } else if (envProxy) {
+      // No explicit proxy configured — fall back to HTTP_PROXY / HTTPS_PROXY
+      // (NO_PROXY already applied by resolveEnvProxy). Routed through undici's
+      // ProxyAgent exactly like an explicit HTTP/HTTPS proxy so the upstream
+      // TLS handshake (requestTls → mTLS / custom CA) and ALPN capture keep
+      // working through the env proxy.
+      const proxyUri = `${envProxy.type}://${envProxy.host}:${envProxy.port}`;
+      const proxyOpts: ProxyAgent.Options = {
+        uri: proxyUri,
+        allowH2,
+        requestTls: { ...connectOpts } as ProxyAgent.Options['requestTls'],
+      };
+      if (envProxy.auth) {
+        const auth = Buffer.from(`${envProxy.auth.username}:${envProxy.auth.password}`).toString(
+          'base64'
+        );
+        proxyOpts.token = `Basic ${auth}`;
+      }
+      dispatcher = new ProxyAgent(proxyOpts);
+      if (captureAlpn) {
+        const upstreamPort = url.port ? parseInt(url.port, 10) : isHttps ? 443 : 80;
+        unsubscribeProxyAlpn = subscribeProxyAlpnCapture(url.hostname, upstreamPort, alpnHolder);
       }
     } else {
       // Direct connection. Wrap the default connector to capture ALPN.
