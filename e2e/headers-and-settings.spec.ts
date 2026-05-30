@@ -16,7 +16,7 @@ test.describe('Headers autocomplete', () => {
     await headersTab(page).click();
 
     // Headers tab starts empty — add a row, then focus the KEY combobox.
-    await page.getByRole('button', { name: /Add header/i }).click();
+    await page.getByRole('button', { name: /Add row/i }).click();
     const keyInput = page.getByRole('combobox', { name: 'key' }).first();
     await keyInput.click();
     await keyInput.fill('con');
@@ -35,7 +35,7 @@ test.describe('Headers autocomplete', () => {
   test('Authorization suggests "Bearer " as the default', async ({ app: page }) => {
     await setUrl(page, 'https://api.example.com/with-auth');
     await headersTab(page).click();
-    await page.getByRole('button', { name: /Add header/i }).click();
+    await page.getByRole('button', { name: /Add row/i }).click();
 
     const keyInput = page.getByRole('combobox', { name: 'key' }).first();
     await keyInput.click();
@@ -52,7 +52,7 @@ test.describe('Headers autocomplete', () => {
     await setUrl(page, 'https://api.example.com/no-combobox-on-params');
     // Add a Params row, then confirm its key field is a plain <input>, not a
     // combobox — Params explicitly do NOT receive the header-name catalog.
-    await page.getByRole('button', { name: /Add parameter/i }).click();
+    await page.getByRole('button', { name: /Add row/i }).click();
     const comboboxes = page.getByRole('combobox', { name: 'key' });
     await expect(comboboxes).toHaveCount(0);
   });
@@ -60,7 +60,7 @@ test.describe('Headers autocomplete', () => {
   test('typing a non-standard header name is accepted as free-form', async ({ app: page }) => {
     await setUrl(page, 'https://api.example.com/custom-header');
     await headersTab(page).click();
-    await page.getByRole('button', { name: /Add header/i }).click();
+    await page.getByRole('button', { name: /Add row/i }).click();
 
     const keyInput = page.getByRole('combobox', { name: 'key' }).first();
     await keyInput.click();

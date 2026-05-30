@@ -73,14 +73,14 @@ test.describe('HTTP request flow', () => {
     await setUrl(page, 'https://api.example.com/ping');
 
     await paramsTab(page).click();
-    await page.getByRole('button', { name: /Add parameter/i }).click();
+    await page.getByRole('button', { name: /Add row/i }).click();
     await page.getByPlaceholder('key').first().fill('q');
     await page.getByPlaceholder('value').first().fill('hello world');
 
     await headersTab(page).click();
-    await page.getByRole('button', { name: /Add header/i }).click();
-    await page.getByPlaceholder('key').last().fill('X-Test');
-    await page.getByPlaceholder('value').last().fill('yes');
+    await page.getByRole('button', { name: /Add row/i }).click();
+    await page.getByPlaceholder('key').first().fill('X-Test');
+    await page.getByPlaceholder('value').first().fill('yes');
 
     await sendButton(page).click();
 
