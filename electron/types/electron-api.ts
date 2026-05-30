@@ -11,6 +11,11 @@
 // `npm run electron:compile` (which runs in CI). Keep this file the canonical
 // definition — do not reintroduce a parallel `typeof electronAPI` type.
 
+// SecretValue (ADR-0007) for the proxy password / cert passphrase IPC fields.
+// Inline import matches this file's convention (see ChatStreamEvent below);
+// the renderer tsconfig that includes this file resolves the relative path.
+type ProtocolSecretValue = import('../../shared/protocol/types').ProtocolSecretValue;
+
 interface ElectronDialogAPI {
   openFile: (options?: {
     title?: string;

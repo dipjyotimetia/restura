@@ -10,7 +10,6 @@ import type {
   HostCaCert,
 } from '@/types';
 import type { SecretValue } from '@/lib/shared/secretRef';
-import type { SecretValue } from '@/lib/shared/secretRef';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
