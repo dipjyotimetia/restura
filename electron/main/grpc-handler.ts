@@ -20,6 +20,9 @@ import { resolveUrlHostnameSafe } from './dns-guard';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { getGrpc, getProtoLoader } from './grpc-lazy';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('grpc');
 
 // gRPC schemes the SSRF guard must accept; `validateURL` defaults to http/https,
 // but the reflection handler and the renderer both also produce grpc:// URLs.
@@ -237,14 +240,17 @@ const cleanupStaleStreams = () => {
       try {
         call.cancel();
       } catch (error) {
-        console.error(`Error canceling stale stream ${id}:`, error);
+        log.error('error canceling stale stream', {
+          streamId: id,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   });
 
   staleIds.forEach((id) => {
     activeCalls.delete(id);
-    console.log(`Cleaned up stale stream: ${id}`);
+    log.info('cleaned up stale stream', { streamId: id });
   });
 };
 
@@ -275,7 +281,7 @@ export function stopStreamCleanup(): void {
 // Safe method to add a stream with collision detection
 const addActiveCall = (id: string, call: Omit<ActiveCall, 'createdAt' | 'requestId'>): boolean => {
   if (activeCalls.has(id)) {
-    console.warn(`Stream with ID ${id} already exists, rejecting duplicate`);
+    log.warn('duplicate stream rejected', { streamId: id });
     return false;
   }
   activeCalls.set(id, {
@@ -296,7 +302,9 @@ const cleanupTemp = (dir: string) => {
   try {
     fs.rmSync(dir, { recursive: true, force: true });
   } catch (e) {
-    console.error('Failed to cleanup temp dir:', e);
+    log.error('failed to cleanup temp dir', {
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 };
 
@@ -313,7 +321,9 @@ export function initializeGrpcTempDir(): void {
       }
     }
   } catch (e) {
-    console.error('Failed to initialize gRPC temp directory:', e);
+    log.error('failed to initialize temp directory', {
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 
@@ -765,8 +775,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               cancel: () => csCall.cancel(),
               write: (msg: unknown) => {
                 if (csCall.writableNeedDrain) {
-                  console.warn(
-                    '[gRPC] Client stream write buffer is full; message queued by kernel — consider slowing the sender'
+                  log.warn(
+                    'client stream write buffer is full; message queued by kernel — consider slowing the sender',
+                    { requestId }
                   );
                 }
                 csCall.write(msg);

@@ -2,6 +2,9 @@ import type { BrowserWindow } from 'electron';
 import { app } from 'electron';
 import * as path from 'path';
 import { validateURL } from '@shared/protocol/url-validation';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('deep-link');
 
 export function registerDeepLinkHandler(getWindow: () => BrowserWindow | null): void {
   // In development mode with process.defaultApp, set protocol client with explicit execPath
@@ -33,7 +36,13 @@ export function registerDeepLinkHandler(getWindow: () => BrowserWindow | null): 
 }
 
 // Known routes the renderer handles via deep-link
-const VALID_DEEP_LINK_HOSTS = new Set(['import', 'environment', 'collection', 'request', 'settings']);
+const VALID_DEEP_LINK_HOSTS = new Set([
+  'import',
+  'environment',
+  'collection',
+  'request',
+  'settings',
+]);
 
 // Param keys whose values are URLs and must pass validateURL before forwarding.
 const URL_PARAM_KEYS = new Set(['url', 'href', 'src', 'callback']);
@@ -54,7 +63,7 @@ function handleDeepLink(url: string, getWindow: () => BrowserWindow | null): voi
       if (URL_PARAM_KEYS.has(key.toLowerCase())) {
         const v = validateURL(truncated, { allowPrivateIPs: false, allowLocalhost: false });
         if (!v.valid) {
-          console.warn(`[deep-link] dropped unsafe ${key}=${truncated}: ${v.error}`);
+          log.warn('dropped unsafe deep-link param', { key, value: truncated, reason: v.error });
           continue;
         }
       }

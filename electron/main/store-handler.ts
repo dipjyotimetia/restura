@@ -12,6 +12,9 @@ import {
   validateIpcInput,
 } from './ipc-validators';
 import { getOrCreateEncryptedKey } from './encrypted-key';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('store');
 
 // electron-store v9+ is ESM-only; require() returns the module namespace in Node 22+
 const Store = require('electron-store').default;
@@ -60,14 +63,21 @@ function getStoreInstance(): ElectronStoreInstance {
 export function registerStoreHandlerIPC(): void {
   ipcMain.handle(
     IPC.store.get,
-    createValidatedHandler(IPC.store.get, StoreKeySchema, async (key): Promise<string | undefined> => {
-      try {
-        return getStoreInstance().get(key) as string | undefined;
-      } catch (error) {
-        console.error(`Failed to get store value for key ${key}:`, error);
-        return undefined;
+    createValidatedHandler(
+      IPC.store.get,
+      StoreKeySchema,
+      async (key): Promise<string | undefined> => {
+        try {
+          return getStoreInstance().get(key) as string | undefined;
+        } catch (error) {
+          log.error('store get failed', {
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return undefined;
+        }
       }
-    })
+    )
   );
 
   // store:set takes two args: key and value — validate both
@@ -77,7 +87,10 @@ export function registerStoreHandlerIPC(): void {
     try {
       getStoreInstance().set(validKey, validValue);
     } catch (error) {
-      console.error(`Failed to set store value for key ${validKey}:`, error);
+      log.error('store set failed', {
+        key: validKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   });
@@ -88,7 +101,10 @@ export function registerStoreHandlerIPC(): void {
       try {
         getStoreInstance().delete(key);
       } catch (error) {
-        console.error(`Failed to delete store value for key ${key}:`, error);
+        log.error('store delete failed', {
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     })
@@ -98,7 +114,9 @@ export function registerStoreHandlerIPC(): void {
     try {
       getStoreInstance().clear();
     } catch (error) {
-      console.error('Failed to clear store:', error);
+      log.error('store clear failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   });
@@ -109,7 +127,10 @@ export function registerStoreHandlerIPC(): void {
       try {
         return getStoreInstance().has(key);
       } catch (error) {
-        console.error(`Failed to check if store has key ${key}:`, error);
+        log.error('store has-check failed', {
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        });
         return false;
       }
     })

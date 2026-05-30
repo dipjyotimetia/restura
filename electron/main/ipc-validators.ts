@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('ipc');
 
 // ===========================
 // Shared Size Constants
@@ -759,7 +762,7 @@ export function assertTrustedSender(
 ): void {
   const url = event.senderFrame?.url;
   if (!isTrustedFrameUrl(url)) {
-    console.error(`[IPC Frame Reject] channel=${channel} senderFrame=${url ?? '(undefined)'}`);
+    log.error('IPC frame rejected', { channel, senderFrame: url ?? '(undefined)' });
     throw new Error(`IPC ${channel} rejected: untrusted frame`);
   }
 }
@@ -777,7 +780,8 @@ export function validateIpcInput<T>(schema: z.ZodSchema<T>, data: unknown, chann
         .map((err) => `${err.path.join('.')}: ${err.message}`)
         .join(', ');
 
-      console.error(`[IPC Validation Error] Channel: ${channel}`, {
+      log.error('IPC validation error', {
+        channel,
         issues: error.issues,
         receivedData: data,
       });
@@ -829,7 +833,10 @@ export function createValidatedListener<TInput>(
       const validated = validateIpcInput(schema, input, channel);
       handler(event, validated as TInput);
     } catch (error) {
-      console.error(`[IPC Listener Error] Channel: ${channel}`, error);
+      log.error('IPC listener error', {
+        channel,
+        error: error instanceof Error ? error.message : String(error),
+      });
       // For .on() handlers, we can't return errors, so we just log
     }
   };

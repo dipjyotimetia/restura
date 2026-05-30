@@ -1,4 +1,4 @@
-import type { BrowserWindow, MenuItemConstructorOptions} from 'electron';
+import type { BrowserWindow, MenuItemConstructorOptions } from 'electron';
 import { app, dialog, Menu, shell } from 'electron';
 
 export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
@@ -72,7 +72,11 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
               { role: 'delete' as const },
               { role: 'selectAll' as const },
             ]
-          : [{ role: 'delete' as const }, { type: 'separator' as const }, { role: 'selectAll' as const }]),
+          : [
+              { role: 'delete' as const },
+              { type: 'separator' as const },
+              { role: 'selectAll' as const },
+            ]),
       ],
     },
 
@@ -99,7 +103,12 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
         { role: 'minimize' as const },
         { role: 'zoom' as const },
         ...(isMac
-          ? [{ type: 'separator' as const }, { role: 'front' as const }, { type: 'separator' as const }, { role: 'window' as const }]
+          ? [
+              { type: 'separator' as const },
+              { role: 'front' as const },
+              { type: 'separator' as const },
+              { role: 'window' as const },
+            ]
           : [{ role: 'close' as const }]),
       ],
     },
@@ -118,6 +127,12 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
           label: 'Report Issue',
           click: async () => {
             await shell.openExternal('https://github.com/dipjyotimetia/restura/issues');
+          },
+        },
+        {
+          label: 'Open Logs',
+          click: () => {
+            void shell.openPath(app.getPath('logs'));
           },
         },
         { type: 'separator' },

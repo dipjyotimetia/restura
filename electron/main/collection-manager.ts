@@ -17,6 +17,9 @@ import { createValidatedHandler, FilePathSchema, NoInputSchema } from './ipc-val
 import { IPC, EVENT } from '../shared/channels';
 import { isPathSafe } from './file-operations';
 import { redactAuthForExport, authHasPlaintextSecret } from './collection-export-redactor';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('collections');
 
 /**
  * Walks the collection tree and emits a single warning to main-process stdout
@@ -30,7 +33,11 @@ function warnIfPlaintextSecretsWillBeDropped(collection: FileCollection): void {
   if (authHasPlaintextSecret(collection.auth)) offenders.push('<collection>');
   const visit = (items: FileCollectionItem[]): void => {
     for (const item of items) {
-      if (item.type === 'request' && item.request && authHasPlaintextSecret((item.request as Record<string, unknown>).auth)) {
+      if (
+        item.type === 'request' &&
+        item.request &&
+        authHasPlaintextSecret((item.request as Record<string, unknown>).auth)
+      ) {
         offenders.push(item.name);
       }
       if (item.items?.length) visit(item.items);
@@ -38,9 +45,9 @@ function warnIfPlaintextSecretsWillBeDropped(collection: FileCollection): void {
   };
   visit(collection.items);
   if (offenders.length > 0) {
-    console.warn(
-      `[collection-export] plaintext auth secrets redacted from: ${offenders.join(', ')} — re-enter after import`
-    );
+    log.warn('plaintext auth secrets redacted on export — re-enter after import', {
+      offenders,
+    });
   }
 }
 import {
@@ -106,8 +113,13 @@ const FILE_CHANGE_DEBOUNCE_MS = 250;
 const debouncedSenders = new Map<string, (payload: unknown) => void>();
 
 function sendFileChange(
-  payload: { type: 'modified' | 'added' | 'deleted'; filePath: string; directoryPath: string; lastModified?: number },
-  getMainWindow: () => BrowserWindow | null,
+  payload: {
+    type: 'modified' | 'added' | 'deleted';
+    filePath: string;
+    directoryPath: string;
+    lastModified?: number;
+  },
+  getMainWindow: () => BrowserWindow | null
 ): void {
   const key = `${payload.directoryPath}::${payload.type}::${payload.filePath}`;
   let sender = debouncedSenders.get(key);
@@ -140,7 +152,9 @@ function addIdsToKeyValues(items: unknown) {
 }
 
 // Strip IDs from key-value items for file storage
-function stripIdsFromKeyValues(items?: Array<{ id: string; key: string; value: string; enabled?: boolean; description?: string }>) {
+function stripIdsFromKeyValues(
+  items?: Array<{ id: string; key: string; value: string; enabled?: boolean; description?: string }>
+) {
   if (!items) return undefined;
   return items.map(({ key, value, enabled, description }) => ({
     key,
@@ -183,7 +197,9 @@ async function saveYamlFile(filePath: string, data: unknown): Promise<void> {
 }
 
 // stat that returns null on ENOENT/EACCES instead of throwing.
-async function statOrNull(p: string): Promise<{ mtimeMs: number; size: number; isDirectory: boolean } | null> {
+async function statOrNull(
+  p: string
+): Promise<{ mtimeMs: number; size: number; isDirectory: boolean } | null> {
   try {
     const s = await fsp.stat(p);
     return { mtimeMs: s.mtimeMs, size: s.size, isDirectory: s.isDirectory() };
@@ -305,7 +321,10 @@ async function loadDirectoryItems(directoryPath: string): Promise<unknown[]> {
           _filePath: entryPath,
         };
       } catch (error) {
-        console.error(`Failed to load request file ${entryPath}:`, error);
+        log.error('failed to load request file', {
+          path: entryPath,
+          error: error instanceof Error ? error.message : String(error),
+        });
         return null;
       }
     })
@@ -336,7 +355,9 @@ async function saveCollectionToDirectory(
       name: collection.name,
       ...(collection.description ? { description: collection.description } : {}),
       ...(collection.auth ? { auth: redactAuthForExport(collection.auth) } : {}),
-      ...(collection.variables?.length ? { variables: stripIdsFromKeyValues(collection.variables) } : {}),
+      ...(collection.variables?.length
+        ? { variables: stripIdsFromKeyValues(collection.variables) }
+        : {}),
     };
 
     await saveYamlFile(path.join(directoryPath, FILE_EXTENSIONS.COLLECTION_META), meta);
@@ -352,46 +373,52 @@ async function saveCollectionToDirectory(
 
 // Save items to directory (recursive). Siblings at each level write
 // concurrently so large collection exports don't serialise per-file I/O.
-async function saveDirectoryItems(items: FileCollectionItem[], directoryPath: string): Promise<void> {
-  await Promise.all(items.map(async (item) => {
-    if (item.type === 'folder') {
-      const folderPath = path.join(directoryPath, sanitizeFilename(item.name));
-      await fsp.mkdir(folderPath, { recursive: true });
+async function saveDirectoryItems(
+  items: FileCollectionItem[],
+  directoryPath: string
+): Promise<void> {
+  await Promise.all(
+    items.map(async (item) => {
+      if (item.type === 'folder') {
+        const folderPath = path.join(directoryPath, sanitizeFilename(item.name));
+        await fsp.mkdir(folderPath, { recursive: true });
 
-      const folderMeta = {
-        name: item.name,
-        ...(item.description ? { description: item.description } : {}),
-      };
-      await saveYamlFile(path.join(folderPath, FILE_EXTENSIONS.FOLDER_META), folderMeta);
+        const folderMeta = {
+          name: item.name,
+          ...(item.description ? { description: item.description } : {}),
+        };
+        await saveYamlFile(path.join(folderPath, FILE_EXTENSIONS.FOLDER_META), folderMeta);
 
-      if (item.items?.length) {
-        await saveDirectoryItems(item.items, folderPath);
+        if (item.items?.length) {
+          await saveDirectoryItems(item.items, folderPath);
+        }
+        return;
       }
-      return;
-    }
 
-    if (item.type !== 'request' || !item.request) return;
-    const req = item.request;
-    // Strip id and type before writing to disk; type is used to pick the extension.
-    const { id: _id, type, ...requestData } = req;
-    const extension = type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
-    const filename = `${sanitizeFilename(item.name)}${extension}`;
-    const filePath = path.join(directoryPath, filename);
-    const fileData: Record<string, unknown> = {
-      ...requestData,
-      headers: stripIdsFromKeyValues(requestData.headers),
-      params: stripIdsFromKeyValues(requestData.params),
-      metadata: stripIdsFromKeyValues(requestData.metadata),
-      // Redact secret-bearing auth fields. See collection-export-redactor.ts.
-      ...(requestData.auth ? { auth: redactAuthForExport(requestData.auth) } : {}),
-    };
+      if (item.type !== 'request' || !item.request) return;
+      const req = item.request;
+      // Strip id and type before writing to disk; type is used to pick the extension.
+      const { id: _id, type, ...requestData } = req;
+      const extension =
+        type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
+      const filename = `${sanitizeFilename(item.name)}${extension}`;
+      const filePath = path.join(directoryPath, filename);
+      const fileData: Record<string, unknown> = {
+        ...requestData,
+        headers: stripIdsFromKeyValues(requestData.headers),
+        params: stripIdsFromKeyValues(requestData.params),
+        metadata: stripIdsFromKeyValues(requestData.metadata),
+        // Redact secret-bearing auth fields. See collection-export-redactor.ts.
+        ...(requestData.auth ? { auth: redactAuthForExport(requestData.auth) } : {}),
+      };
 
-    Object.keys(fileData).forEach((key) => {
-      if (fileData[key] === undefined) delete fileData[key];
-    });
+      Object.keys(fileData).forEach((key) => {
+        if (fileData[key] === undefined) delete fileData[key];
+      });
 
-    await saveYamlFile(filePath, fileData);
-  }));
+      await saveYamlFile(filePath, fileData);
+    })
+  );
 }
 
 // Start watching a collection directory
@@ -436,7 +463,7 @@ function watchCollectionDirectory(
                 directoryPath,
                 lastModified: currentMod,
               },
-              getMainWindow,
+              getMainWindow
             );
           }
           fileModTimes.set(filePath, currentMod);
@@ -450,7 +477,9 @@ function watchCollectionDirectory(
         fileModTimes.delete(filePath);
       })
       .on('error', (error) => {
-        console.error('File watcher error:', error);
+        log.error('file watcher error', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
 
     activeWatchers.set(directoryPath, watcher);
@@ -487,9 +516,13 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
   // Load collection from directory
   ipcMain.handle(
     IPC.collection.loadDirectory,
-    createValidatedHandler(IPC.collection.loadDirectory, FilePathSchema, async (directoryPath: string) => {
-      return loadCollectionFromDirectory(directoryPath);
-    })
+    createValidatedHandler(
+      IPC.collection.loadDirectory,
+      FilePathSchema,
+      async (directoryPath: string) => {
+        return loadCollectionFromDirectory(directoryPath);
+      }
+    )
   );
 
   // Save collection to directory
@@ -523,13 +556,17 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
   // Open directory in file manager
   ipcMain.handle(
     IPC.collection.openInExplorer,
-    createValidatedHandler(IPC.collection.openInExplorer, FilePathSchema, async (directoryPath: string) => {
-      if (!isPathSafe(directoryPath)) {
-        return { success: false, error: 'Access denied' };
+    createValidatedHandler(
+      IPC.collection.openInExplorer,
+      FilePathSchema,
+      async (directoryPath: string) => {
+        if (!isPathSafe(directoryPath)) {
+          return { success: false, error: 'Access denied' };
+        }
+        await shell.openPath(directoryPath);
+        return { success: true };
       }
-      await shell.openPath(directoryPath);
-      return { success: true };
-    })
+    )
   );
 
   // Select directory dialog. Wrapped in createValidatedHandler so the channel
@@ -537,21 +574,17 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
   // enforces the trust check.
   ipcMain.handle(
     IPC.collection.selectDirectory,
-    createValidatedHandler(
-      IPC.collection.selectDirectory,
-      NoInputSchema,
-      async () => {
-        const mainWindow = getMainWindow();
-        if (!mainWindow) return { canceled: true };
+    createValidatedHandler(IPC.collection.selectDirectory, NoInputSchema, async () => {
+      const mainWindow = getMainWindow();
+      if (!mainWindow) return { canceled: true };
 
-        const result = await dialog.showOpenDialog(mainWindow, {
-          properties: ['openDirectory', 'createDirectory'],
-          title: 'Select Collection Directory',
-        });
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory', 'createDirectory'],
+        title: 'Select Collection Directory',
+      });
 
-        return result;
-      }
-    )
+      return result;
+    })
   );
 
   // Get file info for conflict detection

@@ -34,6 +34,13 @@ import { registerDeepLinkHandler } from './deep-link-handler';
 import { startStdioMcpServer } from './mcp-server-handler';
 import { loadMcpDispatchContext } from './mcp-context-loader';
 import { createLogger } from '../../src/lib/shared/logger';
+import { initLogging } from './logging';
+
+const isDev = process.env.NODE_ENV === 'development';
+
+// Wire the shared logger to electron-log before anything logs, so module-init
+// warnings and the global error handlers below are persisted from line one.
+initLogging(isDev);
 
 const log = createLogger('main');
 
@@ -78,8 +85,6 @@ process.on('unhandledRejection', (reason) => {
 if (require('electron-squirrel-startup')) {
   app.quit();
 }
-
-const isDev = process.env.NODE_ENV === 'development';
 
 /**
  * Headless MCP-server mode: when invoked as `restura --mcp-server`, we don't
@@ -239,7 +244,10 @@ app.whenReady().then(async () => {
         void handle.stop();
       });
     } catch (err) {
-      console.error('[restura] MCP server failed to start:', err);
+      log.error('mcp-server start failed', {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
       app.quit();
     }
     return;

@@ -14,6 +14,9 @@ import { sseRateLimiter } from './sse-handler';
 import { mcpRateLimiter } from './mcp-handler';
 import { kafkaRateLimiter } from './kafka-handler';
 import { notificationRateLimiter } from './notifications';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('window-manager');
 
 export interface WindowState {
   width: number;
@@ -75,21 +78,20 @@ export function loadWindowState(): WindowState {
       try {
         parsed = JSON.parse(data);
       } catch (err) {
-        console.error('[window-manager] window-state JSON parse failed:', err);
+        log.error('window-state JSON parse failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
         return defaultWindowState;
       }
       const result = WindowStateSchema.safeParse(parsed);
       if (!result.success) {
-        console.error(
-          '[window-manager] window-state schema validation failed:',
-          result.error.issues
-        );
+        log.error('window-state schema validation failed', { issues: result.error.issues });
         return defaultWindowState;
       }
       return { ...defaultWindowState, ...result.data };
     }
   } catch {
-    console.error('Failed to load window state');
+    log.error('failed to load window state');
   }
   return defaultWindowState;
 }
@@ -106,7 +108,7 @@ export function saveWindowState(win: BrowserWindow): void {
     };
     fs.writeFileSync(getWindowStatePath(), JSON.stringify(state, null, 2));
   } catch {
-    console.error('Failed to save window state');
+    log.error('failed to save window state');
   }
 }
 
