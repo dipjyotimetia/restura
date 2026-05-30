@@ -14,6 +14,7 @@ import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { toast } from 'sonner';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
+import { unwrapSecret } from '@/lib/shared/secretRef';
 
 /**
  * Capture the headers the request actually went out with for the Console.
