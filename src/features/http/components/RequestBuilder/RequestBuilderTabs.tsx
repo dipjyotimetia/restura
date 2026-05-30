@@ -443,7 +443,7 @@ function ParamHeaderTable({
             onChange={onRowChange}
             onRemove={onRowRemove}
             showVariableHighlight
-            inputRef={i === rows.length - 1 ? newRowRef : undefined}
+            {...(i === rows.length - 1 && { inputRef: newRowRef })}
             {...(keySuggestions && { keySuggestions })}
             {...(valueSuggestionsFor && { valueSuggestionsFor })}
           />
