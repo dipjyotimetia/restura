@@ -79,8 +79,11 @@ interface BuiltSpec {
  *
  * Returns undefined when nothing desktop-specific applies, so the web path
  * stays a pure no-op.
+ *
+ * Exported for unit testing — this is the precedence logic (per-request >
+ * per-domain match > global) that the type system can't verify end-to-end.
  */
-function buildDesktopTransportConfig(
+export function buildDesktopTransportConfig(
   effectiveSettings: RequestSettings,
   globalSettings: AppSettings,
   resolvedUrl: string
