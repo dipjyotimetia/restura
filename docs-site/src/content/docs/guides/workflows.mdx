@@ -5,15 +5,17 @@ description: Chain requests, extract variables, retry with backoff. Run in the U
 
 import { Aside } from '@astrojs/starlight/components';
 
-A **workflow** is an ordered series of requests that run together, with variable extraction between steps and retry policies on each step.
+A **workflow** is a graph of steps that run together — requests chained with variable extraction between them, plus branching, looping, and parallelism. Simple workflows are a straight line (A → B → C); the full model is a directed acyclic graph from a **start** node to one or more **end** nodes.
 
 ## What you can do
 
 - **Sequence** requests — A then B then C.
 - **Extract** values from a response and feed them into the next step.
-- **Condition** a step on a previous step's result.
-- **Retry** failing steps with exponential backoff.
-- **Time out** a step.
+- **Branch** on a condition or a multi-way switch.
+- **Loop** over a collection or while a condition holds.
+- **Run steps in parallel** and merge their results.
+- **Retry** failing steps with exponential backoff, and **time out** a step.
+- **Generate a workflow from a prompt** with AI graph generation.
 
 ## Extraction
 
@@ -24,6 +26,32 @@ Pull values out of a response using any of:
 - **Header lookup** — by name.
 
 Extracted values land in a chosen scope (environment, collection, or workflow) and become available to later steps as normal `{{placeholders}}`.
+
+## Control flow
+
+Beyond a straight sequence, a workflow graph supports these node kinds:
+
+| Node | What it does |
+|---|---|
+| **Request** | Run a saved request. |
+| **Condition** | Evaluate a JS expression; branch down the `true` or `false` edge. |
+| **Switch** | Multi-way branch — each case has an expression; an unmatched value takes the `default` edge. |
+| **Set variable** | Assign one or more variables from JS expressions. |
+| **Template** | Interpolate `{{vars}}` into a string and store the result in a variable. |
+| **Transform** | Run JS (`pm.variables.get/set`) to reshape data between steps. |
+| **Delay** | Wait a fixed number of milliseconds. |
+| **For-each** | Iterate a collection, running a nested subgraph per item — with optional concurrency. |
+| **Loop** | Repeat a subgraph `while` / `until` a condition, capped by `maxIterations` and an optional delay. |
+| **Parallel** | Fan out branches concurrently; wait for `all` / `any` / `race` and merge results. |
+| **Try / catch** | Run a subgraph; on error, run the catch subgraph. |
+| **Sub-workflow** | Call another workflow, mapping variables in and out. |
+| **Display** | Surface a value (as `json`, `table`, or `raw`) in the run monitor. |
+
+For-each, loop, and try/catch nodes nest a full subgraph (its own start/end), so workflows compose to any depth.
+
+## AI graph generation
+
+Describe what you want in plain language and Restura generates the workflow graph for you — picking the right nodes, wiring the edges, and leaving placeholders where a saved request belongs. Review and tweak the generated graph before running it. Useful for scaffolding a multi-step flow you'd otherwise wire by hand.
 
 ## Retries
 

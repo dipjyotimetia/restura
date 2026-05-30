@@ -1,66 +1,101 @@
 ---
 title: Scripts
-description: Pre-request and test scripts run in a sandboxed QuickJS WASM runtime. Postman pm.* API compatible.
+description: Pre-request and test scripts run in a sandboxed QuickJS WASM runtime. Native rs.* namespace, fully Postman pm.* compatible.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Badge } from '@astrojs/starlight/components';
 
 Every request can carry two kinds of script:
 
 - **Pre-request script** — runs before the request goes out. Mutate variables, sign a payload, decide a header.
 - **Test script** — runs after the response lands. Assert, extract, set environment variables.
 
-Both run in an **isolated QuickJS WASM sandbox**. No DOM. No filesystem. No network escape. Memory and execution time are capped.
+Both run in an **isolated QuickJS WASM sandbox**. No DOM. No filesystem. No arbitrary network. Memory and execution time are capped.
+
+## `rs.*` and `pm.*` — the same API
+
+Scripts use the native **`rs.*`** namespace. For drop-in Postman compatibility, **`pm`** is a live alias of the *same* object — `rs.expect(...)` and `pm.expect(...)` are identical, so existing Postman scripts run unchanged.
+
+When you **import** a Postman collection, its `pm.*` calls are normalized to `rs.*` automatically; on **export**, they're rewritten back to `pm.*` so the output still runs in Postman. (The rewrite only touches real `pm.`/`rs.` identifiers — strings, comments, and regex literals are left intact.)
+
+<Aside type="tip" title="Editor IntelliSense">
+The script editors are Monaco with full type definitions registered for the API — you get autocomplete, member completion (`rs.`, `rs.response.`), hover docs, and signature help as you type.
+</Aside>
 
 ## What's available
 
-- The **Postman `pm.*` API** — `pm.request`, `pm.response`, `pm.environment`, `pm.collectionVariables`, `pm.variables`, `pm.test`, `pm.expect`.
-- **`chai`-style assertions** — `pm.expect(response.json().name).to.equal('alice')`.
-- **JSON helpers** — `pm.response.json()`, `pm.response.text()`.
-- **Header / status helpers** — `pm.response.headers.get('content-type')`, `pm.response.status`.
-- **Crypto helpers** — `crypto-js` style for HMAC / hash / base64.
+- **The API object** — `rs.request`, `rs.response`, `rs.environment`, `rs.globals`, `rs.collectionVariables`, `rs.variables`, `rs.test`, `rs.expect`, `rs.info`, `rs.iterationData`.
+- **`chai`-style assertions** — `rs.expect(rs.response.json().name).to.equal('alice')`.
+- **JSON / text helpers** — `rs.response.json()`, `rs.response.text()`, `rs.response.code`, `rs.response.responseTime`.
+- **`rs.sendRequest(...)`** — fire an ad-hoc HTTP request from inside a script (routes through the same SSRF-guarded proxy as a normal request).
+- **`rs.vault`** — read/write an encrypted secret vault (`await rs.vault.get('token')`), so secrets stay out of variables and exports.
+- **`rs.cookies`** — read the cookie jar, plus an async `rs.cookies.jar()` for get/set/clear.
+- **`rs.execution`** — runner flow control: `setNextRequest(name)`, `skipRequest()`.
+- **`rs.visualizer.set(template, data)`** — render a custom HTML view of the response.
+- **`require(name)`** — a curated library set is bundled (see below).
 - **Console** — `console.log` writes to the script output panel.
+
+### Bundled libraries (`require`)
+
+Full Postman v12 sandbox parity ships a fixed library set you can `require` — no arbitrary npm, but the common ones are there:
+
+`ajv` · `chai` · `cheerio` · `crypto-js` · `csv-parse/sync` · `lodash` · `moment` · `postman-collection` · `tv4` · `uuid` · `xml2js`
+
+```js
+const CryptoJS = require('crypto-js');
+const sig = CryptoJS.HmacSHA256(rs.request.body, rs.environment.get('secret')).toString();
+rs.variables.set('signature', sig);
+```
 
 ## What's not available
 
-- `fetch` / `XMLHttpRequest` — no network from inside scripts (yet; see roadmap).
-- `require` / `import` — no module loading.
-- DOM globals, timers beyond `setTimeout`, the filesystem.
+- Raw `fetch` / `XMLHttpRequest` — there's no bare network primitive; use `rs.sendRequest(...)` instead.
+- Arbitrary `require` / `import` — only the bundled library set above loads; no reaching into npm or your machine.
+- DOM globals and the filesystem.
 
-These limitations are deliberate: collections are often shared, and a script in a downloaded collection should never be able to exfiltrate data or reach into your machine.
-
-## Postman compat
-
-Most Postman scripts copy over without modification. The full mapping — `pm.sendRequest`, `pm.cookies`, `pm.iterationData`, etc. — lives in the [Postman compatibility reference](/reference/postman-compat/).
-
-<Aside type="caution" title="Watch out">
-Postman scripts that call `pm.sendRequest` won't work in Restura's sandbox yet — `fetch` is disabled. Use a [workflow](/guides/workflows/) to chain requests instead.
-</Aside>
+These limits are deliberate: collections are often shared, and a script in a downloaded collection should never be able to exfiltrate data or reach into your machine. Memory and execution-time caps mean a runaway loop can't take down the app.
 
 ## Example: a test script
 
 ```js
-pm.test('status is 200', () => {
-  pm.expect(pm.response.status).to.equal(200);
+rs.test('status is 200', () => {
+  rs.expect(rs.response.code).to.equal(200);
 });
 
-const body = pm.response.json();
-pm.test('returns a user id', () => {
-  pm.expect(body.id).to.be.a('string');
+const body = rs.response.json();
+rs.test('returns a user id', () => {
+  rs.expect(body.id).to.be.a('string');
 });
 
 // stash the id for the next request in this collection
-pm.environment.set('user_id', body.id);
+rs.environment.set('user_id', body.id);
 ```
 
 ## Example: a pre-request script
 
 ```js
 const ts = Math.floor(Date.now() / 1000);
-pm.variables.set('signed_at', ts.toString());
+rs.variables.set('signed_at', ts.toString());
 ```
+
+## Example: chaining with `rs.sendRequest`
+
+```js
+// fetch a token first, then attach it
+const res = await rs.sendRequest({
+  url: 'https://api.example.com/login',
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: { user: 'demo', pass: rs.environment.get('pass') },
+});
+rs.environment.set('token', res.body.token);
+```
+
+<Aside title="Scripting vs. workflows">
+For multi-step orchestration with branching, retries, and parallelism, a [workflow](/guides/workflows/) is usually clearer than chaining `rs.sendRequest` calls in one script.
+</Aside>
 
 ## Related
 
-- [Workflows](/guides/workflows/) — chain requests; extracts can be done declaratively too.
-- [Postman compatibility reference](/reference/postman-compat/) — full API surface.
+- [Workflows](/guides/workflows/) — chain requests declaratively, with branching and retries.
+- [Postman compatibility reference](/reference/postman-compat/) — the full `pm.*` ↔ `rs.*` mapping.

@@ -751,3 +751,64 @@ site-search button[data-open-modal] {
     opacity: 1;
   }
 }
+
+/* =========================================================================
+   Mobile / small-screen responsiveness
+   Starlight handles the chrome (header, sidebar, content padding); these
+   rules tame the custom Strata-Glass additions — oversized gradient orbs,
+   wide tables, the splash hero, the protocol grid — so phones never scroll
+   horizontally. Desktop appearance above these breakpoints is unchanged.
+   ========================================================================= */
+
+/* Diagrams never overflow their column (any width). */
+.mermaid svg,
+[data-mermaid] svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Wide tables (comparison, capability matrix, protocol pages) scroll inside
+   their own box instead of forcing the whole page to scroll. Overrides the
+   base `table { overflow: hidden }` only at tablet/phone widths so the glass
+   rounded corners are preserved on desktop. */
+@media (max-width: 48rem) {
+  .sl-markdown-content table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 30rem) {
+  /* Shrink the fixed-size backdrop orbs so phones don't paint giant
+     off-screen gradients (these are 60rem/50rem at desktop). */
+  body::before {
+    background:
+      radial-gradient(28rem 28rem at 90% -10%, var(--backdrop-orb-1), transparent 55%),
+      radial-gradient(24rem 24rem at -10% 110%, var(--backdrop-orb-2), transparent 55%);
+  }
+
+  /* Splash hero: tighten padding and tame the blur orbs + screenshot so
+     nothing crowds a 320px viewport. */
+  .hero {
+    padding: 2.5rem 1rem 3rem !important;
+  }
+  .hero::before {
+    width: 18rem;
+    height: 18rem;
+  }
+  .hero::after {
+    width: 16rem;
+    height: 16rem;
+  }
+  .hero img {
+    max-width: 10rem !important;
+  }
+
+  /* Protocol grid: a single comfortable column on small phones (the 220px
+     minmax can otherwise squeeze cards below ~360px). */
+  .protocol-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -135,4 +135,13 @@ import Default from '@astrojs/starlight/components/Footer.astro';
   .restura-gh svg {
     vertical-align: -0.125em;
   }
+  /* Stack brand + meta on small phones so `space-between` doesn't stretch
+     them to opposite edges with a wide gap. */
+  @media (max-width: 30rem) {
+    .restura-footer-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+  }
 </style>
