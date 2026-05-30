@@ -199,7 +199,7 @@
     "eslint": "^9.0.0",
     "eslint-plugin-react": "^7.37.0",
     "eslint-plugin-react-hooks": "^5.0.0",
-    "globals": "^15.14.0",
+    "globals": "^17.6.0",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "json-schema-to-typescript": "^15.0.4",
