@@ -31,7 +31,9 @@ import {
   executeProxiedStreamingRequest,
   ProxyTransportError,
   type ProxyJsonResponse,
+  type DesktopTransportConfig,
 } from '@/lib/shared/transport';
+import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 
 export interface RequestExecutionResult {
@@ -57,6 +59,63 @@ interface BuiltSpec {
   /** Sent headers post-cookie-merge, returned to callers for the response panel. */
   sentHeaders: Record<string, string>;
   effectiveAuth: HttpRequest['auth'];
+  /**
+   * Desktop-only transport config (proxy / mTLS client cert / custom CA /
+   * verifySsl / TLS knobs). Carried alongside the spec — NOT inside it —
+   * because cert material must never reach the Cloudflare Worker on the web
+   * path. `executeProxiedRequest` forwards it over IPC only and drops it on
+   * web. Undefined when nothing desktop-specific is configured.
+   */
+  desktop?: DesktopTransportConfig;
+}
+
+/**
+ * Assemble the desktop-only transport config from per-request settings,
+ * falling back to global settings. Proxy precedence follows
+ * `getEffectiveProxy` (per-request overrides global); a proxy whose host is
+ * on its own bypass list is dropped for this URL. Cert / verifySsl / TLS
+ * knobs prefer the per-request value and fall back to the global one.
+ *
+ * Returns undefined when nothing desktop-specific applies, so the web path
+ * stays a pure no-op.
+ */
+function buildDesktopTransportConfig(
+  effectiveSettings: RequestSettings,
+  globalSettings: AppSettings,
+  resolvedUrl: string
+): DesktopTransportConfig | undefined {
+  const out: DesktopTransportConfig = {};
+
+  const proxy = getEffectiveProxy(effectiveSettings, globalSettings.proxy);
+  if (
+    proxy &&
+    proxy.enabled &&
+    proxy.type !== 'none' &&
+    proxy.host &&
+    !shouldBypassProxy(resolvedUrl, proxy.bypassList)
+  ) {
+    out.proxy = proxy;
+  }
+
+  const verifySsl = effectiveSettings.verifySsl ?? globalSettings.verifySsl;
+  if (verifySsl !== undefined) out.verifySsl = verifySsl;
+
+  const clientCert = effectiveSettings.clientCert ?? globalSettings.clientCert;
+  if (clientCert) out.clientCert = clientCert;
+
+  const caCert = effectiveSettings.caCert ?? globalSettings.caCert;
+  if (caCert) out.caCert = caCert;
+
+  const serverCipherOrder = effectiveSettings.serverCipherOrder ?? globalSettings.serverCipherOrder;
+  if (serverCipherOrder !== undefined) out.serverCipherOrder = serverCipherOrder;
+
+  const minTlsVersion = effectiveSettings.minTlsVersion ?? globalSettings.minTlsVersion;
+  if (minTlsVersion !== undefined) out.minTlsVersion = minTlsVersion;
+
+  const cipherSuites = effectiveSettings.cipherSuites ?? globalSettings.cipherSuites;
+  if (cipherSuites !== undefined) out.cipherSuites = cipherSuites;
+
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 // Sign-at-wire auth (SigV4 / OAuth1 / WSSE) is intentionally NOT applied
@@ -166,7 +225,9 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       : {}),
   };
 
-  return { spec, sentHeaders: headers, effectiveAuth };
+  const desktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, resolvedUrl);
+
+  return { spec, sentHeaders: headers, effectiveAuth, ...(desktop ? { desktop } : {}) };
 }
 
 function persistResponseCookies(response: ProxyJsonResponse, resolvedUrl: string): void {
@@ -275,7 +336,7 @@ export async function executeRequest(
     }
   }
 
-  const { spec, sentHeaders, effectiveAuth } = await buildProxyRequestSpec(options);
+  const { spec, sentHeaders, effectiveAuth, desktop } = await buildProxyRequestSpec(options);
 
   const cookieJarDisabled =
     request.settings?.disableCookieJar === true ||
@@ -283,7 +344,7 @@ export async function executeRequest(
 
   let responseData: ApiResponse;
   try {
-    const proxyResponse = await executeProxiedRequest(spec);
+    const proxyResponse = await executeProxiedRequest(spec, {}, desktop);
     if (!cookieJarDisabled) {
       persistResponseCookies(proxyResponse, spec.url);
     }
