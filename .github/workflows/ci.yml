@@ -156,6 +156,13 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
 
+      - name: Vitest Coverage Report
+        if: ${{ github.event_name == 'pull_request' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v7
