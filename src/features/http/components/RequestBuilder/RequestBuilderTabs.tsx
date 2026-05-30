@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 import { ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/components/ui/spatial';
@@ -370,29 +370,45 @@ function ParamHeaderTable({
 }: ParamHeaderTableProps) {
   const [draft, setDraft] = useState({ key: '', value: '', desc: '' });
   const newRowRef = useRef<HTMLInputElement>(null);
+  // Set when a commit should pull focus into the freshly-added row (Enter only,
+  // never blur — a blur commit means the user is leaving, so stealing focus
+  // would hijack wherever they clicked).
+  const focusNewRow = useRef(false);
+  const prevRowCount = useRef(rows.length);
   const activeCount = rows.filter((r) => r.enabled && r.key.trim()).length;
 
-  function commitDraft() {
+  // Focus the appended row's key input once it has actually rendered. Keyed on
+  // the row count growing rather than a single requestAnimationFrame, so it
+  // survives deferred store updates and concurrent rendering.
+  useEffect(() => {
+    if (rows.length > prevRowCount.current && focusNewRow.current) {
+      newRowRef.current?.focus();
+    }
+    focusNewRow.current = false;
+    prevRowCount.current = rows.length;
+  }, [rows.length]);
+
+  function commitDraft(refocus: boolean) {
     if (!draft.key.trim() && !draft.value.trim()) return;
+    focusNewRow.current = refocus;
     onAdd({
       key: draft.key,
       value: draft.value,
       ...(draft.desc ? { description: draft.desc } : {}),
     });
     setDraft({ key: '', value: '', desc: '' });
-    requestAnimationFrame(() => newRowRef.current?.focus());
   }
 
   function handleGhostKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      commitDraft();
+      commitDraft(true);
     }
   }
 
   function handleGhostBlur(e: React.FocusEvent<HTMLDivElement>) {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-      commitDraft();
+      commitDraft(false);
     }
   }
 
@@ -434,7 +450,12 @@ function ParamHeaderTable({
         ))}
       </div>
 
-      {/* Ghost row — always-visible add affordance */}
+      {/*
+        Ghost row — always-visible add affordance. Uses plain <input> rather
+        than VariableInput/ComboboxInput by design: a draft has no variable
+        highlighting or key autocomplete. Those features apply the moment it's
+        committed and becomes a real ParamRow above.
+      */}
       <div
         className="grid items-stretch border-b border-sp-line/50 opacity-40 focus-within:opacity-75 transition-opacity"
         style={{ gridTemplateColumns: PARAM_GRID }}
