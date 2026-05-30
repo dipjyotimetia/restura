@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettings, ProxyConfig, CorsProxyConfig, ClientCert, CaCert } from '@/types';
+import type {
+  AppSettings,
+  ProxyConfig,
+  CorsProxyConfig,
+  ClientCert,
+  CaCert,
+  HostClientCert,
+  HostCaCert,
+} from '@/types';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
@@ -23,6 +31,11 @@ interface SettingsState {
   // Certificate actions
   setClientCert: (cert: ClientCert | undefined) => void;
   setCaCert: (ca: CaCert | undefined) => void;
+  // Per-domain certificate actions (desktop-only)
+  upsertHostClientCert: (entry: HostClientCert) => void;
+  removeHostClientCert: (id: string) => void;
+  upsertHostCaCert: (entry: HostCaCert) => void;
+  removeHostCaCert: (id: string) => void;
 }
 
 // EOPT: omit optional fields rather than initialising them to undefined.
@@ -180,6 +193,40 @@ export const useSettingsStore = create<SettingsState>()(
             settings: ca === undefined ? rest : { ...rest, caCert: ca },
           };
         }),
+
+      upsertHostClientCert: (entry) =>
+        set((s) => {
+          const list = s.settings.clientCertificates ?? [];
+          const idx = list.findIndex((c) => c.id === entry.id);
+          const next =
+            idx >= 0 ? list.map((c) => (c.id === entry.id ? entry : c)) : [...list, entry];
+          return { settings: { ...s.settings, clientCertificates: next } };
+        }),
+
+      removeHostClientCert: (id) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            clientCertificates: (s.settings.clientCertificates ?? []).filter((c) => c.id !== id),
+          },
+        })),
+
+      upsertHostCaCert: (entry) =>
+        set((s) => {
+          const list = s.settings.caCertificates ?? [];
+          const idx = list.findIndex((c) => c.id === entry.id);
+          const next =
+            idx >= 0 ? list.map((c) => (c.id === entry.id ? entry : c)) : [...list, entry];
+          return { settings: { ...s.settings, caCertificates: next } };
+        }),
+
+      removeHostCaCert: (id) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            caCertificates: (s.settings.caCertificates ?? []).filter((c) => c.id !== id),
+          },
+        })),
     }),
     {
       name: 'app-settings-storage',

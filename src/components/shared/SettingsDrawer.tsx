@@ -33,6 +33,7 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Logo } from '@/components/shared/Logo';
+import type { ClientCert } from '@/types';
 
 const ProviderSettings = lazyComponent(async () => {
   const m = await import('@/features/ai/components/ProviderSettings');
@@ -773,8 +774,210 @@ function CertificatesSection() {
           </span>
         </p>
       </Floater>
+
+      <PerDomainCertificates />
     </>
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Per-domain certificates                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** Host[:port] input shared by both per-domain editors. */
+function HostScopeFields({
+  host,
+  port,
+  onHostChange,
+  onPortChange,
+}: {
+  host: string;
+  port: number | undefined;
+  onHostChange: (v: string) => void;
+  onPortChange: (v: number | undefined) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        value={host}
+        onChange={(e) => onHostChange(e.target.value)}
+        placeholder="api.example.com or *.example.com"
+        spellCheck={false}
+        className={cn(
+          'flex-1 h-8 px-2 rounded-sp-btn bg-sp-surface border border-sp-line',
+          'font-mono text-sp-11-5 text-sp-text placeholder:text-sp-dim',
+          'focus:outline-none focus:border-sp-line-strong focus:ring-2 focus:ring-[var(--sp-accent-glow-33)]'
+        )}
+      />
+      <input
+        value={port ?? ''}
+        onChange={(e) => {
+          const v = e.target.value.trim();
+          onPortChange(v === '' ? undefined : Number(v));
+        }}
+        inputMode="numeric"
+        placeholder="port"
+        spellCheck={false}
+        className={cn(
+          'w-20 h-8 px-2 rounded-sp-btn bg-sp-surface border border-sp-line',
+          'font-mono text-sp-11-5 text-sp-text placeholder:text-sp-dim',
+          'focus:outline-none focus:border-sp-line-strong focus:ring-2 focus:ring-[var(--sp-accent-glow-33)]'
+        )}
+      />
+    </div>
+  );
+}
+
+function PerDomainCertificates() {
+  const settings = useSettingsStore((s) => s.settings);
+  const upsertHostClientCert = useSettingsStore((s) => s.upsertHostClientCert);
+  const removeHostClientCert = useSettingsStore((s) => s.removeHostClientCert);
+  const upsertHostCaCert = useSettingsStore((s) => s.upsertHostCaCert);
+  const removeHostCaCert = useSettingsStore((s) => s.removeHostCaCert);
+
+  const clientCerts = settings.clientCertificates ?? [];
+  const caCerts = settings.caCertificates ?? [];
+
+  const newId = () => {
+    // crypto.randomUUID is available in the renderer (secure context) and in
+    // Electron; fall back to a timestamp-free random for non-secure dev.
+    try {
+      return crypto.randomUUID();
+    } catch {
+      return `cert-${Math.random().toString(36).slice(2)}`;
+    }
+  };
+
+  const addClientCert = () =>
+    upsertHostClientCert({ id: newId(), host: '', cert: { format: 'pfx' } });
+  const addCaCert = () => upsertHostCaCert({ id: newId(), host: '', pem: '' });
+
+  return (
+    <>
+      <SectionLabel>Per-domain client certificates</SectionLabel>
+      <Floater radius="panel" elevation="inset" className="p-4 space-y-3">
+        <p className="text-sp-11 text-sp-muted">
+          Present a different mTLS certificate per host. The most specific matching entry wins;
+          exact host beats <span className="font-mono">*.wildcard</span>. A match takes precedence
+          over the global client certificate above.
+        </p>
+        {clientCerts.map((entry) => (
+          <div key={entry.id} className="rounded-sp-btn border border-sp-line p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <HostScopeFields
+                  host={entry.host}
+                  port={entry.port}
+                  onHostChange={(host) => upsertHostClientCert({ ...entry, host })}
+                  onPortChange={(port) =>
+                    upsertHostClientCert(port === undefined ? stripPort(entry) : { ...entry, port })
+                  }
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => removeHostClientCert(entry.id)}
+                aria-label="Remove certificate"
+                className={cn(
+                  'inline-flex items-center justify-center w-7 h-7 rounded-sp-btn shrink-0',
+                  'text-sp-muted hover:text-rose-400 hover:bg-sp-hover transition-colors',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                )}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+            <CertificateOverride
+              clientCert={entry.cert}
+              onCertChange={(cert: ClientCert | undefined) =>
+                upsertHostClientCert({ ...entry, cert: cert ?? { format: 'pfx' } })
+              }
+            />
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addClientCert}
+          className={cn(
+            'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-sp-btn',
+            'bg-sp-surface border border-sp-line text-sp-text font-mono text-sp-12',
+            'hover:bg-sp-hover transition-colors',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+          )}
+        >
+          <Upload size={12} aria-hidden="true" />
+          Add client certificate
+        </button>
+      </Floater>
+
+      <SectionLabel>Per-domain CA certificates</SectionLabel>
+      <Floater radius="panel" elevation="inset" className="p-4 space-y-3">
+        <p className="text-sp-11 text-sp-muted">
+          Trust a custom CA only for specific hosts (instead of replacing the whole trust store).
+        </p>
+        {caCerts.map((entry) => (
+          <div key={entry.id} className="rounded-sp-btn border border-sp-line p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <HostScopeFields
+                  host={entry.host}
+                  port={entry.port}
+                  onHostChange={(host) => upsertHostCaCert({ ...entry, host })}
+                  onPortChange={(port) =>
+                    upsertHostCaCert(port === undefined ? stripPort(entry) : { ...entry, port })
+                  }
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => removeHostCaCert(entry.id)}
+                aria-label="Remove CA certificate"
+                className={cn(
+                  'inline-flex items-center justify-center w-7 h-7 rounded-sp-btn shrink-0',
+                  'text-sp-muted hover:text-rose-400 hover:bg-sp-hover transition-colors',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                )}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+            <textarea
+              value={entry.pem}
+              onChange={(e) => upsertHostCaCert({ ...entry, pem: e.target.value })}
+              placeholder="-----BEGIN CERTIFICATE-----&#10;..."
+              spellCheck={false}
+              className={cn(
+                'w-full min-h-[90px] rounded-sp-btn bg-sp-surface border border-sp-line',
+                'p-2 font-mono text-sp-11-5 text-sp-text placeholder:text-sp-dim',
+                'focus:outline-none focus:border-sp-line-strong focus:ring-2 focus:ring-[var(--sp-accent-glow-33)]',
+                'transition-colors resize-y'
+              )}
+            />
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addCaCert}
+          className={cn(
+            'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-sp-btn',
+            'bg-sp-surface border border-sp-line text-sp-text font-mono text-sp-12',
+            'hover:bg-sp-hover transition-colors',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+          )}
+        >
+          <Upload size={12} aria-hidden="true" />
+          Add CA certificate
+        </button>
+      </Floater>
+    </>
+  );
+}
+
+/** Return a copy of a host-scoped entry with `port` omitted (EOPT-friendly). */
+function stripPort<T extends { port?: number }>(entry: T): T {
+  const { port: _omit, ...rest } = entry;
+  void _omit;
+  return rest as T;
 }
 
 /* -------------------------------------------------------------------------- */

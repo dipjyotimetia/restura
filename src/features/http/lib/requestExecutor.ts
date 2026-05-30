@@ -34,6 +34,7 @@ import {
   type DesktopTransportConfig,
 } from '@/lib/shared/transport';
 import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
+import { selectCertForUrl } from '@/features/http/lib/certMatcher';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 
 export interface RequestExecutionResult {
@@ -100,10 +101,18 @@ function buildDesktopTransportConfig(
   const verifySsl = effectiveSettings.verifySsl ?? globalSettings.verifySsl;
   if (verifySsl !== undefined) out.verifySsl = verifySsl;
 
-  const clientCert = effectiveSettings.clientCert ?? globalSettings.clientCert;
+  // Cert precedence: explicit per-request override > per-domain match >
+  // global cert. The per-domain lists are matched most-specific-first.
+  const matchedClientCert = selectCertForUrl(resolvedUrl, globalSettings.clientCertificates);
+  const clientCert =
+    effectiveSettings.clientCert ?? matchedClientCert?.cert ?? globalSettings.clientCert;
   if (clientCert) out.clientCert = clientCert;
 
-  const caCert = effectiveSettings.caCert ?? globalSettings.caCert;
+  const matchedCaCert = selectCertForUrl(resolvedUrl, globalSettings.caCertificates);
+  const caCert =
+    effectiveSettings.caCert ??
+    (matchedCaCert ? { pem: matchedCaCert.pem } : undefined) ??
+    globalSettings.caCert;
   if (caCert) out.caCert = caCert;
 
   const serverCipherOrder = effectiveSettings.serverCipherOrder ?? globalSettings.serverCipherOrder;

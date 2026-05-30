@@ -714,6 +714,30 @@ export interface CaCert {
   pem: string; // PEM-encoded CA certificate chain
 }
 
+// Per-domain certificate entries (Postman / Insomnia parity). Each is scoped
+// to a host pattern (`api.example.com`, `*.example.com`, `.example.com`) with
+// an optional port. Selection is most-specific-wins; see
+// `src/features/http/lib/certMatcher.ts`. Desktop-only (mTLS / custom CA need
+// Node TLS — the web build never applies these).
+export interface HostClientCert {
+  /** Stable id for list editing. */
+  id: string;
+  /** Host pattern. Exact, `*.sub` wildcard, or `.suffix`. */
+  host: string;
+  /** Optional port qualifier. Unset = any port. */
+  port?: number;
+  /** The mTLS client certificate material applied for matching requests. */
+  cert: ClientCert;
+}
+
+export interface HostCaCert {
+  id: string;
+  host: string;
+  port?: number;
+  /** PEM-encoded CA certificate chain trusted for matching requests. */
+  pem: string;
+}
+
 // Proxy Configuration
 export type ProxyType = 'none' | 'http' | 'https' | 'socks4' | 'socks5';
 
@@ -796,9 +820,14 @@ export interface AppSettings {
   allowPrivateIPs?: boolean;
   // CORS proxy settings (web-only)
   corsProxy: CorsProxyConfig;
-  // Certificate settings
+  // Certificate settings (global — applied to every HTTPS request)
   clientCert?: ClientCert;
   caCert?: CaCert;
+  // Per-domain certificates (desktop-only). Matched most-specific-first by
+  // `certMatcher.selectCertForUrl`; a match takes precedence over the global
+  // clientCert/caCert above for that host.
+  clientCertificates?: HostClientCert[];
+  caCertificates?: HostCaCert[];
   // Redirect policy defaults — mirrors RequestSettings; per-request settings still override these.
   followOriginalMethod?: boolean;
   followAuthHeader?: boolean;
