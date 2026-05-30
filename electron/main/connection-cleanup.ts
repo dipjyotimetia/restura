@@ -1,4 +1,7 @@
 import type { WebContents } from 'electron';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('connection-cleanup');
 
 // Per-handler dedupe of webContents ids that already have a `destroyed`
 // listener — without it, every reconnect from the same renderer stacks a
@@ -32,7 +35,7 @@ export function bindRendererCleanup(
     try {
       teardown(id);
     } catch (err) {
-      console.error('[connection-cleanup] teardown failed:', err);
+      log.error('teardown failed', { error: err instanceof Error ? err.message : String(err) });
     }
   });
 }
@@ -49,7 +52,11 @@ export function disposeByOwner<V extends { webContentsId: number }>(
 ): void {
   for (const [id, entry] of map) {
     if (entry.webContentsId !== deadId) continue;
-    try { dispose(entry); } catch { /* swallow — best-effort cleanup */ }
+    try {
+      dispose(entry);
+    } catch {
+      /* swallow — best-effort cleanup */
+    }
     map.delete(id);
   }
 }

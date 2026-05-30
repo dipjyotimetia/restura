@@ -41,6 +41,9 @@ import { assertTrustedSender } from './ipc-validators';
 import { promisify } from 'util';
 import * as path from 'path';
 import { z } from 'zod';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('git');
 
 const execFileAsync = promisify(execFile);
 
@@ -198,7 +201,7 @@ export function parsePorcelainV2(raw: string): GitStatus {
  * subjects, making this resilient to commit-message punctuation.
  *
  * Malformed lines are skipped, but the count of skipped lines is emitted as
- * a single `console.warn` so anyone debugging git-native collections can see
+ * a single `log.warn` so anyone debugging git-native collections can see
  * whether the parser is silently dropping data.
  */
 export function parseCommitLog(raw: string): GitCommit[] {
@@ -221,9 +224,9 @@ export function parseCommitLog(raw: string): GitCommit[] {
     });
   }
   if (skipped > 0) {
-    console.warn(
-      `[restura] parseCommitLog: skipped ${skipped} malformed line(s) — git log format may have changed.`
-    );
+    log.warn('parseCommitLog skipped malformed lines — git log format may have changed', {
+      skipped,
+    });
   }
   return out;
 }

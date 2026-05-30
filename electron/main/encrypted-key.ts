@@ -12,6 +12,9 @@ import { app, safeStorage } from 'electron';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('keystore');
 
 export interface EncryptedKeyOptions {
   /** File name (without path) for the persisted key blob. */
@@ -33,7 +36,11 @@ export interface KeyStoreStatus {
 
 const keyStoreState = new Map<string, { mode: KeyStoreMode; reason?: KeyStoreReason }>();
 
-function recordKeyStoreState(storeLabel: string, mode: KeyStoreMode, reason?: KeyStoreReason): void {
+function recordKeyStoreState(
+  storeLabel: string,
+  mode: KeyStoreMode,
+  reason?: KeyStoreReason
+): void {
   keyStoreState.set(storeLabel, reason !== undefined ? { mode, reason } : { mode });
 }
 
@@ -44,7 +51,9 @@ function recordKeyStoreState(storeLabel: string, mode: KeyStoreMode, reason?: Ke
  * the `keychain:status` IPC channel.
  */
 export function getKeyStoreStatus(): KeyStoreStatus {
-  const plaintextEntries = Array.from(keyStoreState.entries()).filter(([, s]) => s.mode === 'plaintext');
+  const plaintextEntries = Array.from(keyStoreState.entries()).filter(
+    ([, s]) => s.mode === 'plaintext'
+  );
   if (plaintextEntries.length === 0) {
     return { mode: 'safeStorage', plaintextStores: [], lastChecked: new Date().toISOString() };
   }
@@ -58,17 +67,17 @@ export function getKeyStoreStatus(): KeyStoreStatus {
 }
 
 function emitFallbackWarning(storeLabel: string, reason: 'no-keyring' | 'decrypt-failed'): void {
-  const banner = '='.repeat(72);
   const detail =
     reason === 'no-keyring'
       ? 'Electron safeStorage reports no OS keychain backend (libsecret on Linux, Keychain on macOS, DPAPI on Windows).'
       : 'Existing safeStorage-encrypted key failed to decrypt; rotating to a plaintext fallback.';
-  console.warn(`\n${banner}`);
-  console.warn(`[restura] SECURITY WARNING — ${storeLabel} key is unprotected`);
-  console.warn(`[restura] ${detail}`);
-  console.warn('[restura] The key is stored *plaintext* in the userData directory.');
-  console.warn('[restura] On Linux, install gnome-keyring / KWallet / libsecret to restore protection.');
-  console.warn(`${banner}\n`);
+  log.warn('SECURITY WARNING: store key is unprotected (stored plaintext in userData)', {
+    storeLabel,
+    reason,
+    detail,
+    remediation:
+      'On Linux, install gnome-keyring / KWallet / libsecret to restore OS-keychain protection.',
+  });
 }
 
 function tightenKeyFileMode(keyFile: string): void {
@@ -99,7 +108,10 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
     // Other errors (EACCES, EISDIR, etc.) also fall through — the write
     // attempt below will surface a more actionable error.
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn(`[restura] could not read ${opts.storeLabel} key file:`, err);
+      log.warn('could not read key file', {
+        storeLabel: opts.storeLabel,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -133,7 +145,10 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
     }
     tightenKeyFileMode(keyFile);
   } catch (err) {
-    console.error(`[restura] failed to write ${opts.storeLabel} key:`, err);
+    log.error('failed to write key', {
+      storeLabel: opts.storeLabel,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
   return newKey;
 }

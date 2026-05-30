@@ -2,6 +2,9 @@ import type { BrowserWindow } from 'electron';
 import { Tray, Menu, nativeImage } from 'electron';
 import * as fs from 'fs';
 import { getResourcePath } from './window-manager';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('tray');
 
 let tray: Tray | null = null;
 
@@ -15,11 +18,14 @@ function getTrayIconPath(isDev: boolean): string {
   return '';
 }
 
-export function createSystemTray(getMainWindow: () => BrowserWindow | null, isDev: boolean): Tray | null {
+export function createSystemTray(
+  getMainWindow: () => BrowserWindow | null,
+  isDev: boolean
+): Tray | null {
   const iconPath = getTrayIconPath(isDev);
 
   if (!iconPath) {
-    console.warn('Tray icon not found, skipping system tray creation');
+    log.warn('tray icon not found, skipping system tray creation');
     return null;
   }
 
@@ -37,22 +43,38 @@ export function createSystemTray(getMainWindow: () => BrowserWindow | null, isDe
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Show Restura',
-      click: () => withWindow((w) => { w.show(); w.focus(); }),
+      click: () =>
+        withWindow((w) => {
+          w.show();
+          w.focus();
+        }),
     },
     { type: 'separator' },
     {
       label: 'New Request',
       accelerator: 'CmdOrCtrl+N',
-      click: () => withWindow((w) => { w.show(); w.webContents.send('menu:new-request'); }),
+      click: () =>
+        withWindow((w) => {
+          w.show();
+          w.webContents.send('menu:new-request');
+        }),
     },
     {
       label: 'Import Collection',
-      click: () => withWindow((w) => { w.show(); w.webContents.send('menu:import'); }),
+      click: () =>
+        withWindow((w) => {
+          w.show();
+          w.webContents.send('menu:import');
+        }),
     },
     { type: 'separator' },
     {
       label: 'Check for Updates',
-      click: () => withWindow((w) => { w.show(); w.webContents.send('app:check-updates'); }),
+      click: () =>
+        withWindow((w) => {
+          w.show();
+          w.webContents.send('app:check-updates');
+        }),
     },
     { type: 'separator' },
     { label: 'Quit Restura', role: 'quit' },
@@ -61,11 +83,22 @@ export function createSystemTray(getMainWindow: () => BrowserWindow | null, isDe
   tray.setToolTip('Restura - API Testing Tool');
   tray.setContextMenu(contextMenu);
 
-  tray.on('click', () => withWindow((w) => {
-    if (w.isVisible()) { w.focus(); } else { w.show(); }
-  }));
+  tray.on('click', () =>
+    withWindow((w) => {
+      if (w.isVisible()) {
+        w.focus();
+      } else {
+        w.show();
+      }
+    })
+  );
 
-  tray.on('double-click', () => withWindow((w) => { w.show(); w.focus(); }));
+  tray.on('double-click', () =>
+    withWindow((w) => {
+      w.show();
+      w.focus();
+    })
+  );
 
   return tray;
 }

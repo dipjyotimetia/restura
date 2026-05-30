@@ -28,6 +28,9 @@ import { unwrapSecretValueMain } from './secret-handle-store';
 import { applyNonSignAtWireAuth } from './auth-applier';
 import { resolveEnvProxy } from './env-proxy';
 import { IPC } from '../shared/channels';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('http');
 
 // =============================================================================
 // Migration map (Plan 4 / Task 9): node:http/https → undici
@@ -467,7 +470,7 @@ function buildElectronFetcher(
     const isHttps = url.protocol === 'https:';
     const verifySsl = electronConfig.verifySsl !== false;
     if (!verifySsl) {
-      console.warn('SSL certificate verification disabled for this Electron HTTP request.');
+      log.warn('SSL certificate verification disabled for this request');
     }
 
     const connectOpts = buildConnectOptions(electronConfig, url, isHttps, verifySsl);
@@ -879,7 +882,9 @@ async function makeHttpRequest(
             return makeHttpRequest(next, redirectCount + 1);
           } catch (err) {
             // If redirect URL is invalid, fall through and return current response.
-            console.error('Invalid redirect URL:', err);
+            log.error('invalid redirect URL', {
+              error: err instanceof Error ? err.message : String(err),
+            });
           }
         }
       }

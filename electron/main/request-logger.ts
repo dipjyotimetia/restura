@@ -4,6 +4,9 @@ import * as path from 'path';
 import { z } from 'zod';
 import { LogHistoryLimitSchema, validateIpcInput, assertTrustedSender } from './ipc-validators';
 import { IPC } from '../shared/channels';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('request-logger');
 
 /**
  * Set of protocols the request logger knows how to record. Streaming
@@ -93,12 +96,14 @@ export function registerRequestLoggerIPC(): void {
         try {
           parsed = JSON.parse(line);
         } catch (err) {
-          console.warn('[request-logger] skipping unparseable log line:', err);
+          log.warn('skipping unparseable log line', {
+            error: err instanceof Error ? err.message : String(err),
+          });
           continue;
         }
         const result = LogEntrySchema.safeParse(parsed);
         if (!result.success) {
-          console.warn('[request-logger] skipping invalid log entry:', result.error.issues);
+          log.warn('skipping invalid log entry', { issues: result.error.issues });
           continue;
         }
         entries.push(result.data);

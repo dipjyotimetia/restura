@@ -11,6 +11,10 @@ import {
 import { showNativeNotification } from './notifications';
 import { EVENT, IPC } from '../shared/channels';
 import type { UpdaterStatus } from '../types/electron-api';
+import electronLog from 'electron-log/main';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('updater');
 
 interface UpdateCheckResponse {
   updateAvailable: boolean;
@@ -91,6 +95,10 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowDowngrade = false;
 
+  // Persist the full update lifecycle (check/available/progress/downloaded/
+  // error) to the log file — the canonical electron-updater integration.
+  autoUpdater.logger = electronLog;
+
   autoUpdater.on('checking-for-update', () => {
     broadcast({ state: 'checking' });
   });
@@ -149,14 +157,16 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
   // desktop session still discovers releases without a restart.
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
-      console.error('Failed to check for updates:', err);
+      log.error('update check failed', { error: err instanceof Error ? err.message : String(err) });
     });
   }, 3000);
 
   if (!recheckInterval) {
     recheckInterval = setInterval(() => {
       autoUpdater.checkForUpdates().catch((err) => {
-        console.error('Periodic update check failed:', err);
+        log.error('periodic update check failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
     }, SIX_HOURS_MS);
   }
