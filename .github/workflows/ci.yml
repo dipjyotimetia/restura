@@ -17,6 +17,7 @@ jobs:
   validate:
     name: Type-check, lint, test, build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       # Needed to post/update the test-results comment on the PR.
@@ -58,8 +59,10 @@ jobs:
       - name: Verify capability matrix is up-to-date
         run: npm run capabilities:check
 
-      - name: Security audit
-        run: npm audit --audit-level=critical
+      # Dependency auditing moved to the scheduled, non-blocking security-audit
+      # workflow. A newly-disclosed transitive critical advisory used to fail
+      # `validate` on every unrelated PR (blocking all merges until patched);
+      # dependabot security PRs remain the remediation path.
 
       - name: Run tests with coverage
         # `electron`'s package index.js calls `downloadElectron()` at
@@ -90,7 +93,10 @@ jobs:
         # contract + security; everything else is unit). Runs on both pass and
         # fail, only when the test step actually executed (so the file exists).
         # Reads only our own report — no untrusted input flows into the script.
-        if: ${{ github.event_name == 'pull_request' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        # Same-repo only: forked PRs get a read-only GITHUB_TOKEN (the job's
+        # `pull-requests: write` is silently ignored), so createComment would 403
+        # and fail an otherwise-green run. External PRs simply skip the comment.
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: actions/github-script@v9
         with:
           script: |
@@ -157,7 +163,9 @@ jobs:
             }
 
       - name: Vitest Coverage Report
-        if: ${{ github.event_name == 'pull_request' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        # Same-repo only — posts a PR comment, so it 403s on forked PRs (read-only
+        # token). The coverage artifact upload below still runs for every PR.
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           json-summary-path: coverage/coverage-summary.json
@@ -304,7 +312,9 @@ jobs:
   deploy-preview:
     name: Deploy preview
     needs: [validate, e2e]
-    if: github.event_name == 'pull_request'
+    # Same-repo PRs only. Forked PRs receive neither the Cloudflare secrets nor a
+    # writable token, so every step here would fail — skip the job for forks.
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-preview-${{ github.event.pull_request.number }}
