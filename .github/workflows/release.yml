@@ -250,7 +250,7 @@ jobs:
             echo "${NAME}@${VERSION} already on npm — skipping."
             exit 0
           fi
-          npm publish -w cli --provenance
+          npm publish -w cli --provenance --access public
 
   deploy-web:
     name: Deploy web to production (Cloudflare)
