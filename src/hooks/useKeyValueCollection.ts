@@ -19,13 +19,13 @@ export function createKeyValueItem(overrides?: Partial<KeyValue>): KeyValue {
  * Hook for managing key-value collections (params, headers, metadata)
  * Extracts common add/update/delete patterns used across RequestBuilder and GrpcRequestBuilder
  */
-export function useKeyValueCollection(
-  items: KeyValue[],
-  onUpdate: (items: KeyValue[]) => void
-) {
-  const handleAdd = useCallback(() => {
-    onUpdate([...items, createKeyValueItem()]);
-  }, [items, onUpdate]);
+export function useKeyValueCollection(items: KeyValue[], onUpdate: (items: KeyValue[]) => void) {
+  const handleAdd = useCallback(
+    (overrides?: Partial<Omit<KeyValue, 'id'>>) => {
+      onUpdate([...items, createKeyValueItem(overrides)]);
+    },
+    [items, onUpdate]
+  );
 
   const handleUpdate = useCallback(
     (id: string, updates: Partial<KeyValue>) => {

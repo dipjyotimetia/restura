@@ -34,7 +34,7 @@ export type { TextFieldProps } from './TextField';
 export { SubTabBar } from './SubTabBar';
 export type { SubTabBarProps, SubTab } from './SubTabBar';
 
-export { ParamRow } from './ParamRow';
+export { ParamRow, PARAM_GRID } from './ParamRow';
 export type { ParamRowProps, ParamRowData } from './ParamRow';
 
 export { ComboboxInput } from './ComboboxInput';
