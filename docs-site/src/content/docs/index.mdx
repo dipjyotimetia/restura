@@ -21,6 +21,9 @@ hero:
 ---
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import DesktopDownload from '../../components/DesktopDownload.astro';
+
+<DesktopDownload />
 
 ## Speaks every protocol
 
@@ -45,10 +48,10 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
     No account, no cloud sync, no telemetry. Collections, history and secrets live on your machine — IndexedDB on web, OS keychain on desktop.
   </Card>
   <Card title="Scriptable, sandboxed" icon="seti:code-search">
-    Pre-request and test scripts run in an isolated QuickJS WASM sandbox. Postman `pm.*` API compatible. No DOM, no network escape.
+    Pre-request and test scripts run in an isolated QuickJS WASM sandbox using the native `rs.*` API — fully Postman `pm.*` compatible. No DOM, no network escape.
   </Card>
   <Card title="Chain requests with workflows" icon="seti:plan">
-    Extract variables with JSONPath, regex, or headers. Conditional steps. Exponential-backoff retries. Run anywhere — including in CI.
+    Build request graphs with branching, switches, loops, and parallel steps. Extract variables with JSONPath, regex, or headers. Run anywhere — including in CI.
   </Card>
   <Card title="Built-in AI assistant" icon="seti:notebook">
     Chat with OpenAI, Anthropic, or OpenRouter. The assistant can read the current request and response for context — with redaction baked in.
