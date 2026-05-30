@@ -77,6 +77,7 @@ export default defineConfig({
             { label: 'Scripts', slug: 'guides/scripts' },
             { label: 'AI assistant', slug: 'guides/ai-assistant' },
             { label: 'MCP server mode', slug: 'guides/mcp-server-mode' },
+            { label: 'Desktop updates', slug: 'guides/electron-updates' },
             { label: 'Keyboard shortcuts', slug: 'guides/keyboard-shortcuts' },
             { label: 'Import & export', slug: 'guides/import-export' },
           ],
