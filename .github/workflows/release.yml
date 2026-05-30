@@ -1,6 +1,8 @@
 name: Release
 
-# Every merge to main creates a new tag and GitHub release.
+# Manually dispatched — a release is NEVER cut automatically on merge to main.
+# Run it from the Actions tab ("Release" → "Run workflow", on the main branch)
+# or via `gh workflow run release.yml --ref main` when you want to ship.
 #
 # Flow:
 #   1. Determine next semver from conventional-commit messages since the last
@@ -17,13 +19,11 @@ name: Release
 #   - `publish-cli` — publish `restura-cli` to the npm registry (needs the
 #                     NPM_TOKEN secret; skips cleanly if it's absent).
 #
-# Loop safety: the bump commit + tag are pushed with the default GITHUB_TOKEN,
-# which by design does NOT re-trigger workflows. The `chore(release):` prefix
-# guard is belt-and-suspenders in case anyone swaps in a PAT later.
+# Note: the bump commit + tag are pushed with the default GITHUB_TOKEN. Because
+# the only trigger is workflow_dispatch, that push can't re-enter this workflow.
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   # Never cancel an in-flight release — partial state (bumped commit without a
@@ -37,7 +37,6 @@ permissions:
 jobs:
   release:
     name: Tag + release
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -141,8 +140,8 @@ jobs:
   desktop:
     name: Desktop installers (${{ matrix.os }})
     needs: [release]
-    # `needs` already gates on `release`; if that job is skipped (a
-    # chore(release): commit), this is skipped too — no orphan build.
+    # Runs only after `release` succeeds (and only when the release is manually
+    # dispatched), so there's never an orphan installer build.
     runs-on: ${{ matrix.os }}
     # macOS notarization is a serial Apple-side round-trip that can stall for
     # 30+ min when their notary queue is backed up; 40 was too tight and the
@@ -203,8 +202,7 @@ jobs:
   publish-cli:
     name: Publish restura-cli to npm
     needs: [release]
-    # Skipped automatically on `chore(release):` commits (the `release` job it
-    # depends on is skipped there too).
+    # Runs only after a successful manually-dispatched `release`.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -253,3 +251,86 @@ jobs:
             exit 0
           fi
           npm publish -w cli --provenance
+
+  deploy-web:
+    name: Deploy web to production (Cloudflare)
+    needs: [release]
+    # Production Cloudflare deploy (Worker + SPA + docs). Lives here, not in CI,
+    # so it ships ONLY as part of a manually-dispatched release — never on a
+    # bare merge to main. Deploys the freshly-tagged release commit.
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.new_tag }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        env:
+          VITE_WORKER_URL: https://api.restura.dev
+          VITE_WORKER_PROXY_TOKEN: ${{ secrets.WORKER_PROXY_TOKEN }}
+        run: npm run build
+
+      - name: Clean stale deploy config
+        run: rm -rf .wrangler/deploy
+
+      - name: Deploy Worker (api.restura.dev)
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: dist/web/restura
+          command: deploy
+
+      - name: Deploy Echo Worker (echo.restura.dev)
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: echo
+          command: deploy
+
+      - name: Ensure Pages project exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages project create restura --production-branch=main || true
+
+      - name: Deploy SPA to Cloudflare Pages (restura.pages.dev)
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist/web/client --project-name=restura --branch=main
+
+      - name: Install docs-site dependencies
+        run: npm --prefix docs-site ci
+
+      - name: Build docs site
+        run: npm --prefix docs-site run build
+
+      - name: Ensure docs Pages project exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages project create restura-docs --production-branch=main || true
+
+      - name: Deploy docs site to Cloudflare Pages (docs.restura.dev)
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs-site/dist --project-name=restura-docs --branch=main
