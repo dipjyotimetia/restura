@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
-import { io as ioClient, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
@@ -18,6 +18,20 @@ import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-con
 import { IPC } from '../shared/channels';
 
 export const socketIoRateLimiter = createKeyedRateLimiter(20, 60_000);
+
+// socket.io-client is loaded lazily on first connect so it doesn't evaluate at
+// app boot (the static import ran before app.whenReady via main.ts). The connect
+// handler is async, so a dynamic import() is fine here — and it keeps module
+// mocking working in the DNS-pinning regression tests. Memoized.
+//
+// The cast pins the runtime import to the CJS module shape: under nodenext this
+// file is CJS, so `import type { Socket }` above resolves the CJS build, while a
+// bare `await import()` resolves the ESM build — TS treats the two `io` types as
+// distinct. Casting unifies them with the rest of the file.
+type SocketIoModule = typeof import('socket.io-client');
+let _io: SocketIoModule['io'] | undefined;
+const getIo = async (): Promise<SocketIoModule['io']> =>
+  (_io ??= ((await import('socket.io-client')) as unknown as SocketIoModule).io);
 
 const MAX_CONCURRENT_SOCKETIO_CONNECTIONS = 50;
 const DEFAULT_ACK_TIMEOUT_MS = 15_000;
@@ -120,7 +134,7 @@ export function registerSocketIoHandlerIPC(): void {
       const lookup = createPinnedLookup(pinned.host, pinned.ip);
       const agent = secure ? new HttpsAgent({ lookup }) : new HttpAgent({ lookup });
 
-      const socket = ioClient(connectUrl, {
+      const socket = (await getIo())(connectUrl, {
         path: config.path ?? '/socket.io',
         auth: config.auth ?? {},
         query: config.query ?? {},

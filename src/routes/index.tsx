@@ -1,13 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from '@/components/ui/motion';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
-import GrpcRequestBuilder from '@/features/grpc/components/GrpcRequestBuilder';
-import GraphQLRequestBuilder from '@/features/graphql/components/GraphQLRequestBuilder';
-import WebSocketClient from '@/features/websocket/components/WebSocketClient';
-import SocketIOClient from '@/features/socketio/components/SocketIOClient';
-import SseClient from '@/features/sse/components/SseClient';
-import McpRequestBuilder from '@/features/mcp/components/McpRequestBuilder';
-import KafkaClient from '@/features/kafka/components/KafkaClient';
 import ResponseViewer from '@/components/shared/ResponseViewer';
 import ConsoleDrawer from '@/components/shared/ConsoleDrawer';
 import ResizableLayout from '@/components/shared/ResizableLayout';
@@ -35,6 +28,27 @@ import { useAiChatStore } from '@/features/ai/store';
 import type { RequestMode, ActivePanel } from '@/types';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
+
+// HTTP is the default mode and stays eager (imported above). The other seven
+// protocol builders are split into their own chunks so they're only fetched
+// when the user actually switches into that mode — this keeps them (and their
+// transitive deps: socket.io-client, graphql, the Kafka/MCP UI trees) out of
+// the renderer entry chunk that V8 parses at desktop startup.
+const GrpcRequestBuilder = lazyComponent(
+  () => import('@/features/grpc/components/GrpcRequestBuilder')
+);
+const GraphQLRequestBuilder = lazyComponent(
+  () => import('@/features/graphql/components/GraphQLRequestBuilder')
+);
+const WebSocketClient = lazyComponent(
+  () => import('@/features/websocket/components/WebSocketClient')
+);
+const SocketIOClient = lazyComponent(() => import('@/features/socketio/components/SocketIOClient'));
+const SseClient = lazyComponent(() => import('@/features/sse/components/SseClient'));
+const McpRequestBuilder = lazyComponent(
+  () => import('@/features/mcp/components/McpRequestBuilder')
+);
+const KafkaClient = lazyComponent(() => import('@/features/kafka/components/KafkaClient'));
 
 // Below this width the fixed-width sidebar leaves too little room for the
 // workspace (URL bar / response status clip), so it auto-collapses. Manual
@@ -78,8 +92,7 @@ export default function Home() {
   // The workspace mode is now derived per-tab — the active tab's modeOverride
   // (for WS/Socket.IO/Kafka/GraphQL pseudo-modes) takes precedence over its
   // request type. Tab switches naturally restore the correct view.
-  const requestMode: RequestMode =
-    activeTab?.modeOverride ?? activeTab?.request.type ?? 'http';
+  const requestMode: RequestMode = activeTab?.modeOverride ?? activeTab?.request.type ?? 'http';
 
   const handleRequestModeChange = useCallback(
     (mode: RequestMode) => {
@@ -136,10 +149,10 @@ export default function Home() {
     }
   }, [windowWidth, activePanel]);
 
-  const allLogs = useMemo(() => [
-    ...(scriptResult?.preRequest?.logs ?? []),
-    ...(scriptResult?.test?.logs ?? []),
-  ], [scriptResult]);
+  const allLogs = useMemo(
+    () => [...(scriptResult?.preRequest?.logs ?? []), ...(scriptResult?.test?.logs ?? [])],
+    [scriptResult]
+  );
 
   const allTests = useMemo(() => scriptResult?.test?.tests, [scriptResult]);
 
@@ -279,14 +292,15 @@ export default function Home() {
         </ClientHydration>
 
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden gap-2.5">
-          <main aria-label="Request workspace" className="flex flex-1 flex-col min-h-0 overflow-hidden gap-2.5">
+          <main
+            aria-label="Request workspace"
+            className="flex flex-1 flex-col min-h-0 overflow-hidden gap-2.5"
+          >
             <TabBar
               onSaveToCollection={setSaveDialogTabId}
               onChangeMode={handleRequestModeChange}
             />
-            <div className="flex flex-1 flex-col min-h-0">
-              {renderRequestBuilder()}
-            </div>
+            <div className="flex flex-1 flex-col min-h-0">{renderRequestBuilder()}</div>
             <ConsoleDrawer
               scriptLogs={allLogs}
               {...(allTests !== undefined && { tests: allTests })}
@@ -325,7 +339,9 @@ export default function Home() {
         <SaveToCollectionDialog
           tabId={saveDialogTabId}
           open={true}
-          onOpenChange={(o) => { if (!o) setSaveDialogTabId(null); }}
+          onOpenChange={(o) => {
+            if (!o) setSaveDialogTabId(null);
+          }}
         />
       )}
     </div>
