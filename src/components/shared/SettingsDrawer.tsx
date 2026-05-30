@@ -1,39 +1,39 @@
 'use client';
 
-import * as React from 'react';
-import { useEffect, useState, useCallback } from 'react';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import { Logo } from '@/components/shared/Logo';
+import { Floater, Kbd, Segmented, Stepper, TextField, ToggleField } from '@/components/ui/spatial';
+import { CertificateOverride } from '@/features/http/components/CertificateOverride';
+import { readFileAsText } from '@/lib/shared/file-utils';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import type { ClientCert } from '@/types';
+import { DEFAULT_AUTO_UPDATE_SETTINGS, SPATIAL_ACCENT_PRESETS, type SpatialAccent } from '@/types';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
-  X,
-  Palette,
-  Send,
-  Network,
-  ShieldCheck,
+  Check,
+  Download,
+  Info,
   KeyRound,
   Keyboard as KeyboardIcon,
-  Info,
-  Check,
+  Network,
+  Palette,
+  RefreshCw,
+  Send,
+  ShieldCheck,
   Sliders,
+  Sparkles,
   Trash2,
   Upload,
-  Sparkles,
-  Download,
-  RefreshCw,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import * as React from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { useSettingsStore } from '@/store/useSettingsStore';
-import { ToggleField, Segmented, Stepper, TextField, Kbd, Floater } from '@/components/ui/spatial';
-import { SPATIAL_ACCENT_PRESETS, DEFAULT_AUTO_UPDATE_SETTINGS, type SpatialAccent } from '@/types';
-import { cn } from '@/lib/shared/utils';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import { readFileAsText } from '@/lib/shared/file-utils';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { CertificateOverride } from '@/features/http/components/CertificateOverride';
-import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
-import { Logo } from '@/components/shared/Logo';
-import type { ClientCert } from '@/types';
 
 const ProviderSettings = lazyComponent(async () => {
   const m = await import('@/features/ai/components/ProviderSettings');
@@ -1430,8 +1430,8 @@ function AboutSection() {
           <LinkCard
             icon={<Info size={16} />}
             label="Documentation"
-            hint="restura.dev"
-            href="https://restura.dev"
+            hint="docs.restura.dev"
+            href="https://docs.restura.dev"
           />
         </div>
       </section>
