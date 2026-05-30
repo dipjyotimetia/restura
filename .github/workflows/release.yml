@@ -138,7 +138,11 @@ jobs:
     # `needs` already gates on `release`; if that job is skipped (a
     # chore(release): commit), this is skipped too — no orphan build.
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    # macOS notarization is a serial Apple-side round-trip that can stall for
+    # 30+ min when their notary queue is backed up; 40 was too tight and the
+    # job was killed mid-notarize. Windows/Linux finish in <7 min, so the
+    # higher ceiling only ever applies to a slow mac leg.
+    timeout-minutes: 120
     strategy:
       # One platform failing (e.g. a flaky notarization) shouldn't discard
       # installers that built cleanly on the others.
