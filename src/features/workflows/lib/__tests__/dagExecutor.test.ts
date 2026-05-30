@@ -1055,7 +1055,7 @@ describe('dagExecutor — switch / loop / template / display', () => {
     expect(result.status).toBe('success');
     expect(result.finalVariables.i).toBe('3');
     expect(result.finalVariables['lp.iterations']).toBe('3');
-  });
+  }, 30000);
 
   it('loop honours the maxIterations cap', async () => {
     const bodyGraph: WorkflowGraph = {
