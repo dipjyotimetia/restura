@@ -6,6 +6,7 @@ import { Segmented } from '@/components/ui/spatial';
 import { Button } from '@/components/ui/button';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { registerScriptIntellisense } from '@/features/scripts/lib/scriptApiTypes';
 import { cn } from '@/lib/shared/utils';
 
 const CodeEditor = lazyComponent(
@@ -191,7 +192,13 @@ export default function ScriptsEditor({
       </div>
 
       <div className="rounded-sp-panel border border-sp-line bg-sp-code overflow-hidden">
-        <CodeEditor value={script} onChange={setScript} language="javascript" height="350px" />
+        <CodeEditor
+          value={script}
+          onChange={setScript}
+          language="javascript"
+          height="350px"
+          onEditorMount={() => void registerScriptIntellisense()}
+        />
       </div>
     </div>
   );

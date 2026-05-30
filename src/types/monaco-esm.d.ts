@@ -17,6 +17,7 @@ declare module 'monaco-editor/esm/vs/editor/editor.api' {
 declare module 'monaco-editor/esm/vs/editor/editor.all.js';
 declare module 'monaco-editor/esm/vs/language/json/monaco.contribution';
 declare module 'monaco-editor/esm/vs/language/typescript/monaco.contribution';
+declare module 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution';
 declare module 'monaco-editor/esm/vs/language/html/monaco.contribution';
 declare module 'monaco-editor/esm/vs/language/css/monaco.contribution';
 declare module 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';

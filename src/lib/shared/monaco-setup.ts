@@ -21,6 +21,13 @@ import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import 'monaco-editor/esm/vs/editor/editor.all.js';
 import 'monaco-editor/esm/vs/language/json/monaco.contribution';
 import 'monaco-editor/esm/vs/language/typescript/monaco.contribution';
+// The typescript *language-service* contribution above wires the worker +
+// javascriptDefaults and an onLanguage('javascript') hook, but it does NOT
+// register the `javascript` language id itself (unlike json, whose service
+// contribution self-registers). Without this basic-language registration the
+// id never exists, so the scripts editor falls back to plaintext — no
+// highlighting, no worker, no IntelliSense. Register it so onLanguage fires.
+import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution';
 import 'monaco-editor/esm/vs/language/html/monaco.contribution';
 import 'monaco-editor/esm/vs/language/css/monaco.contribution';
 import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';
