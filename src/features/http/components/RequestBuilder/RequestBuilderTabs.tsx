@@ -416,10 +416,10 @@ function ParamHeaderTable({
     'bg-transparent outline-none placeholder:text-sp-dim/50 font-mono text-sp-12 w-full px-2 py-1.5 focus:bg-sp-hover/50 transition-colors';
 
   return (
-    <div>
-      {/* Column header */}
+    <div className="flex flex-col h-full min-h-0">
+      {/* Column header — pinned */}
       <div
-        className="grid items-center border-b border-sp-line bg-sp-surface-lo/30"
+        className="grid items-center border-b border-sp-line bg-sp-surface-lo/30 flex-none"
         style={{ gridTemplateColumns: PARAM_GRID }}
       >
         <span aria-hidden="true" />
@@ -434,53 +434,56 @@ function ParamHeaderTable({
         <span aria-hidden="true" />
       </div>
 
-      {/* Rows */}
-      <div role="rowgroup">
-        {rows.map((row, i) => (
-          <ParamRow
-            key={row.id}
-            row={row}
-            onChange={onRowChange}
-            onRemove={onRowRemove}
-            showVariableHighlight
-            {...(i === rows.length - 1 && { inputRef: newRowRef })}
-            {...(keySuggestions && { keySuggestions })}
-            {...(valueSuggestionsFor && { valueSuggestionsFor })}
-          />
-        ))}
-      </div>
-
-      {/*
-        Ghost row — always-visible add affordance. Uses plain <input> rather
-        than VariableInput/ComboboxInput by design: a draft has no variable
-        highlighting or key autocomplete. Those features apply the moment it's
-        committed and becomes a real ParamRow above.
-      */}
-      <div
-        className="grid items-stretch border-b border-sp-line/50 opacity-40 focus-within:opacity-75 transition-opacity"
-        style={{ gridTemplateColumns: PARAM_GRID }}
-        onBlur={handleGhostBlur}
-        onKeyDown={handleGhostKeyDown}
-      >
-        <div className="flex items-center justify-center">
-          <span aria-hidden="true" className="h-3 w-3 rounded-full border border-sp-line/60" />
-        </div>
-        {GHOST_FIELDS.map(({ label, field, extraClass }) => (
-          <div key={field} className="border-l border-sp-line/40 min-w-0">
-            <input
-              value={draft[field]}
-              onChange={(e) => setDraft((d) => ({ ...d, [field]: e.target.value }))}
-              placeholder={label}
-              className={cn(ghostInput, extraClass)}
-              aria-label={`New entry ${label.toLowerCase()}`}
+      {/* Scrollable rows + ghost row — only this region scrolls, so the header
+          and footer stay pinned and never clip against the panel edge. */}
+      <div className="flex-1 overflow-auto min-h-0">
+        <div role="rowgroup">
+          {rows.map((row, i) => (
+            <ParamRow
+              key={row.id}
+              row={row}
+              onChange={onRowChange}
+              onRemove={onRowRemove}
+              showVariableHighlight
+              {...(i === rows.length - 1 && { inputRef: newRowRef })}
+              {...(keySuggestions && { keySuggestions })}
+              {...(valueSuggestionsFor && { valueSuggestionsFor })}
             />
+          ))}
+        </div>
+
+        {/*
+          Ghost row — always-visible add affordance. Uses plain <input> rather
+          than VariableInput/ComboboxInput by design: a draft has no variable
+          highlighting or key autocomplete. Those features apply the moment it's
+          committed and becomes a real ParamRow above.
+        */}
+        <div
+          className="grid items-stretch border-b border-sp-line/50 opacity-40 focus-within:opacity-75 transition-opacity"
+          style={{ gridTemplateColumns: PARAM_GRID }}
+          onBlur={handleGhostBlur}
+          onKeyDown={handleGhostKeyDown}
+        >
+          <div className="flex items-center justify-center">
+            <span aria-hidden="true" className="h-3 w-3 rounded-full border border-sp-line/60" />
           </div>
-        ))}
-        <div />
+          {GHOST_FIELDS.map(({ label, field, extraClass }) => (
+            <div key={field} className="border-l border-sp-line/40 min-w-0">
+              <input
+                value={draft[field]}
+                onChange={(e) => setDraft((d) => ({ ...d, [field]: e.target.value }))}
+                placeholder={label}
+                className={cn(ghostInput, extraClass)}
+                aria-label={`New entry ${label.toLowerCase()}`}
+              />
+            </div>
+          ))}
+          <div />
+        </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between px-3 py-2">
+      {/* Footer — pinned */}
+      <div className="flex items-center justify-between px-3 py-2 border-t border-sp-line/50 flex-none">
         <button
           type="button"
           onClick={() => onAdd()}
