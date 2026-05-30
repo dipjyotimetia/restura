@@ -821,11 +821,19 @@ export interface AppSettings {
   accent?: SpatialAccent;
   // Desktop auto-updater preferences (Electron only). Synced to the main
   // process via window.electron.updater.setConfig. `beta` maps to prerelease.
-  autoUpdate?: {
-    autoDownload: boolean;
-    channel: 'stable' | 'beta';
-  };
+  autoUpdate?: AutoUpdateSettings;
 }
+
+export interface AutoUpdateSettings {
+  autoDownload: boolean;
+  channel: 'stable' | 'beta';
+}
+
+/** Single source of truth for the default auto-updater preferences. */
+export const DEFAULT_AUTO_UPDATE_SETTINGS: AutoUpdateSettings = {
+  autoDownload: true,
+  channel: 'stable',
+};
 
 export type SpatialAccent = '#4d9fff' | '#7c5cff' | '#22c55e' | '#f59e0b' | '#ef4444' | '#06b6d4';
 

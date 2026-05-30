@@ -25,7 +25,7 @@ import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { ToggleField, Segmented, Stepper, TextField, Kbd, Floater } from '@/components/ui/spatial';
-import { SPATIAL_ACCENT_PRESETS, type SpatialAccent } from '@/types';
+import { SPATIAL_ACCENT_PRESETS, DEFAULT_AUTO_UPDATE_SETTINGS, type SpatialAccent } from '@/types';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { readFileAsText } from '@/lib/shared/file-utils';
@@ -1006,13 +1006,11 @@ function GithubMark({ size = 14 }: { size?: number }) {
 /*  Updates                                                                    */
 /* -------------------------------------------------------------------------- */
 
-const DEFAULT_AUTO_UPDATE = { autoDownload: true, channel: 'stable' as const };
-
 function UpdatesSection() {
   const version = import.meta.env.VITE_APP_VERSION || '0.0.0';
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
-  const autoUpdate = settings.autoUpdate ?? DEFAULT_AUTO_UPDATE;
+  const autoUpdate = settings.autoUpdate ?? DEFAULT_AUTO_UPDATE_SETTINGS;
 
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AppSettings, ProxyConfig, CorsProxyConfig, ClientCert, CaCert } from '@/types';
+import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
@@ -60,7 +61,7 @@ const defaultSettings: AppSettings = {
   // Spatial Depth default accent — cobalt blue
   accent: '#4d9fff',
   // Desktop auto-updater: download in the background on the stable channel.
-  autoUpdate: { autoDownload: true, channel: 'stable' },
+  autoUpdate: DEFAULT_AUTO_UPDATE_SETTINGS,
   // clientCert and caCert intentionally omitted (optional under EOPT)
 };
 

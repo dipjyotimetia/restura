@@ -3,9 +3,8 @@ import { toast } from 'sonner';
 import { Download, RefreshCw, RotateCw, X } from 'lucide-react';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import type { UpdaterStatus } from '../../../electron/types/electron-api';
-
-const DEFAULT_AUTO_UPDATE = { autoDownload: true, channel: 'stable' as const };
 
 /**
  * In-app auto-updater UI for the Electron desktop app. Subscribes to the
@@ -17,7 +16,7 @@ const DEFAULT_AUTO_UPDATE = { autoDownload: true, channel: 'stable' as const };
 export function UpdateNotification(): ReactElement | null {
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
   const [dismissed, setDismissed] = useState(false);
-  const autoUpdate = useSettingsStore((s) => s.settings.autoUpdate) ?? DEFAULT_AUTO_UPDATE;
+  const autoUpdate = useSettingsStore((s) => s.settings.autoUpdate) ?? DEFAULT_AUTO_UPDATE_SETTINGS;
 
   // Subscribe to status pushes + wire the tray menu's check action.
   useEffect(() => {
