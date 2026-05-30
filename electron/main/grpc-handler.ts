@@ -1,7 +1,6 @@
 import { ipcMain, app } from 'electron';
 import type { LogEntry } from './request-logger';
-import * as grpc from '@grpc/grpc-js';
-import * as protoLoader from '@grpc/proto-loader';
+import type * as grpc from '@grpc/grpc-js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -20,6 +19,18 @@ import { applyNonSignAtWireAuth } from './auth-applier';
 import { resolveUrlHostnameSafe } from './dns-guard';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+
+// @grpc/grpc-js and @grpc/proto-loader are heavy modules to evaluate. The
+// static `import` used to run as part of this module's load (pulled in by
+// main.ts before app.whenReady), so it delayed window creation even for users
+// who never touch gRPC. Load them lazily on the first gRPC operation instead.
+// The getters are memoized and safe to call from the unit tests that exercise
+// these helpers directly — require() resolves the module on demand.
+let _grpc: typeof import('@grpc/grpc-js') | undefined;
+let _protoLoader: typeof import('@grpc/proto-loader') | undefined;
+const getGrpc = (): typeof import('@grpc/grpc-js') => (_grpc ??= require('@grpc/grpc-js'));
+const getProtoLoader = (): typeof import('@grpc/proto-loader') =>
+  (_protoLoader ??= require('@grpc/proto-loader'));
 
 // gRPC schemes the SSRF guard must accept; `validateURL` defaults to http/https,
 // but the reflection handler and the renderer both also produce grpc:// URLs.
@@ -343,7 +354,7 @@ const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
   const protoPath = path.join(tempDir, sanitizedFileName);
   fs.writeFileSync(protoPath, config.protoContent);
 
-  const packageDefinition = protoLoader.loadSync(protoPath, {
+  const packageDefinition = getProtoLoader().loadSync(protoPath, {
     keepCase: true,
     longs: String,
     enums: String,
@@ -351,7 +362,7 @@ const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
     oneofs: true,
   });
 
-  return grpc.loadPackageDefinition(packageDefinition);
+  return getGrpc().loadPackageDefinition(packageDefinition);
 };
 
 // Build a grpc-js client from the loaded package definition
@@ -373,12 +384,15 @@ function buildGrpcClient(
       `"${serviceName}" resolved to a non-constructor — check the service name in your proto`
     );
   }
-  const ServiceClient = obj as unknown as typeof grpc.Client;
+  const ServiceClient = obj as unknown as grpc.ServiceClientConstructor;
   // Dial the pre-validated IP literal (not the hostname) so grpc-js's C++
   // resolver can't be rebound between our check and the connect. Authority +
   // SSL target name stay on the original hostname (see computeGrpcDial).
   const { target, useTls, channelOptions: authorityOptions } = computeGrpcDial(url, pinned);
-  const credentials = useTls ? grpc.credentials.createSsl() : grpc.credentials.createInsecure();
+  const grpcLib = getGrpc();
+  const credentials = useTls
+    ? grpcLib.credentials.createSsl()
+    : grpcLib.credentials.createInsecure();
   const channelOptions: grpc.ChannelOptions = {
     ...authorityOptions,
     ...(useCompression
@@ -389,7 +403,7 @@ function buildGrpcClient(
 }
 
 function buildMetadata(map: Record<string, string> = {}): grpc.Metadata {
-  const md = new grpc.Metadata();
+  const md = new (getGrpc().Metadata)();
   Object.entries(map).forEach(([k, v]) => md.add(k, v));
   return md;
 }
@@ -677,7 +691,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
           const handleError = (err: unknown) => {
             const error = toGrpcError(err);
-            if (error.name === 'AbortError' || error.code === grpc.status.CANCELLED) {
+            if (error.name === 'AbortError' || error.code === getGrpc().status.CANCELLED) {
               cleanup();
               return;
             }

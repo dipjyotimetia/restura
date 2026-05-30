@@ -1,18 +1,21 @@
 import { ipcMain, webContents } from 'electron';
 import type { WebContents } from 'electron';
-import {
-  Consumer,
-  MessagesStreamModes,
-  Producer,
-  stringDeserializers,
-  stringSerializers,
-} from '@platformatic/kafka';
 import type {
+  Consumer,
   ConsumerOptions,
   Message,
   MessagesStream,
+  Producer,
   ProducerOptions,
 } from '@platformatic/kafka';
+
+// @platformatic/kafka is heavy to evaluate and most sessions never open a Kafka
+// connection. Load it lazily on first use rather than at module load (which ran
+// before app.whenReady via main.ts, delaying window creation). The named types
+// above are erased at compile time, so importing them type-only costs nothing.
+let _kafka: typeof import('@platformatic/kafka') | undefined;
+const getKafka = (): typeof import('@platformatic/kafka') =>
+  (_kafka ??= require('@platformatic/kafka'));
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { emitTo } from './ipc-utils';
@@ -243,11 +246,12 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
     try {
       const clientOptions = buildClientOptions(cfg);
+      const kafka = getKafka();
       const producerOptions = {
         ...clientOptions,
-        serializers: stringSerializers,
+        serializers: kafka.stringSerializers,
       } as unknown as ProducerOptions<string, string, string, string>;
-      const producer = new Producer<string, string, string, string>(producerOptions);
+      const producer = new kafka.Producer<string, string, string, string>(producerOptions);
 
       // @platformatic/kafka producers connect lazily; auth/TLS/host errors
       // surface on the first send rather than here. Metadata pre-fetch was
@@ -359,16 +363,19 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         return { success: false, error: 'Already subscribed — unsubscribe first' };
       }
       try {
+        const kafka = getKafka();
         const consumerOptions = {
           ...entry.clientOptions,
           groupId: cfg.groupId,
-          deserializers: stringDeserializers,
+          deserializers: kafka.stringDeserializers,
         } as unknown as ConsumerOptions<string, string, string, string>;
-        const consumer = new Consumer<string, string, string, string>(consumerOptions);
+        const consumer = new kafka.Consumer<string, string, string, string>(consumerOptions);
 
         const stream = await (consumer.consume({
           topics: cfg.topics,
-          mode: cfg.fromBeginning ? MessagesStreamModes.EARLIEST : MessagesStreamModes.LATEST,
+          mode: cfg.fromBeginning
+            ? kafka.MessagesStreamModes.EARLIEST
+            : kafka.MessagesStreamModes.LATEST,
         }) as Promise<StringStream>);
 
         bindStreamListeners(entry, stream);

@@ -1,14 +1,27 @@
-import * as grpc from '@grpc/grpc-js';
-import * as protoLoader from '@grpc/proto-loader';
+import type * as grpc from '@grpc/grpc-js';
+import type * as protoLoader from '@grpc/proto-loader';
 import { app, ipcMain } from 'electron';
 import * as path from 'path';
-import { createValidatedHandler, ReflectionIpcConfigSchema, type ReflectionIpcConfig } from './ipc-validators';
+import {
+  createValidatedHandler,
+  ReflectionIpcConfigSchema,
+  type ReflectionIpcConfig,
+} from './ipc-validators';
 import { assertUrlHostnameSafe } from './dns-guard';
 import { IPC } from '../shared/channels';
 
 // gRPC schemes accepted by the SSRF guard. Reflection URLs are routinely
 // passed as grpc:// or grpcs:// in addition to http(s)://.
 const GRPC_REFLECTION_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
+
+// @grpc/grpc-js and @grpc/proto-loader are loaded lazily on first reflection
+// use so they don't evaluate at app boot (the static imports ran before
+// app.whenReady, delaying window creation). Memoized getters.
+let _grpc: typeof import('@grpc/grpc-js') | undefined;
+let _protoLoader: typeof import('@grpc/proto-loader') | undefined;
+const getGrpc = (): typeof import('@grpc/grpc-js') => (_grpc ??= require('@grpc/grpc-js'));
+const getProtoLoader = (): typeof import('@grpc/proto-loader') =>
+  (_protoLoader ??= require('@grpc/proto-loader'));
 
 // In production, @grpc/reflection proto files are unpacked from the asar archive via asarUnpack.
 // require.resolve() still points inside the asar, so we must redirect to the unpacked location.
@@ -49,13 +62,17 @@ function loadServiceClient(version: 'v1' | 'v1alpha'): grpc.ServiceClientConstru
   const cached = clientCache.get(version);
   if (cached) return cached;
 
-  const packageDef = protoLoader.loadSync(getProtoPath(version), PROTO_LOADER_OPTIONS);
-  const pkg = grpc.loadPackageDefinition(packageDef) as Record<string, unknown>;
+  const packageDef = getProtoLoader().loadSync(getProtoPath(version), PROTO_LOADER_OPTIONS);
+  const pkg = getGrpc().loadPackageDefinition(packageDef) as Record<string, unknown>;
 
   const ns =
     version === 'v1'
-      ? ((pkg['grpc'] as Record<string, unknown>)?.['reflection'] as Record<string, unknown>)?.['v1']
-      : ((pkg['grpc'] as Record<string, unknown>)?.['reflection'] as Record<string, unknown>)?.['v1alpha'];
+      ? ((pkg['grpc'] as Record<string, unknown>)?.['reflection'] as Record<string, unknown>)?.[
+          'v1'
+        ]
+      : ((pkg['grpc'] as Record<string, unknown>)?.['reflection'] as Record<string, unknown>)?.[
+          'v1alpha'
+        ];
 
   const ClientConstructor = (ns as Record<string, unknown>)?.['ServerReflection'] as
     | grpc.ServiceClientConstructor
@@ -127,7 +144,10 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
   });
 
   const { address, useTls } = parseTargetAddress(url);
-  const credentials = useTls ? grpc.credentials.createSsl() : grpc.credentials.createInsecure();
+  const grpcLib = getGrpc();
+  const credentials = useTls
+    ? grpcLib.credentials.createSsl()
+    : grpcLib.credentials.createInsecure();
 
   const ClientConstructor = loadServiceClient(version);
   const client = new ClientConstructor(address, credentials, {
@@ -154,7 +174,10 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
 
     const call = (
       client as unknown as {
-        ServerReflectionInfo: () => grpc.ClientDuplexStream<Record<string, unknown>, GrpcReflectionResponse>;
+        ServerReflectionInfo: () => grpc.ClientDuplexStream<
+          Record<string, unknown>,
+          GrpcReflectionResponse
+        >;
       }
     ).ServerReflectionInfo();
 
