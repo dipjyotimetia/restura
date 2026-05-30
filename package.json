@@ -152,7 +152,7 @@
     "yaml": "^2.9.0",
     "zod": "^4.4.3",
     "zundo": "^2.3.0",
-    "zustand": "^5.0.13"
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.12.0",
