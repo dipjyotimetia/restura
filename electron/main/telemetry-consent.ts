@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IPC } from '../shared/channels';
-import { assertTrustedSender, validateIpcInput } from './ipc-validators';
+import { createValidatedHandler } from './ipc-validators';
 import { setSentryEnabled } from './sentry';
 import { createLogger } from '../../src/lib/shared/logger';
 
@@ -55,12 +55,10 @@ const ConsentSchema = z.boolean();
 export function registerTelemetryConsentIPC(): void {
   ipcMain.handle(
     IPC.telemetry.setConsent,
-    async (event, enabled: unknown): Promise<{ ok: true }> => {
-      assertTrustedSender(IPC.telemetry.setConsent, event);
-      const valid = validateIpcInput(ConsentSchema, enabled, IPC.telemetry.setConsent);
-      writeConsent(valid);
-      setSentryEnabled(valid);
+    createValidatedHandler(IPC.telemetry.setConsent, ConsentSchema, (enabled): { ok: true } => {
+      writeConsent(enabled);
+      setSentryEnabled(enabled);
       return { ok: true };
-    }
+    })
   );
 }

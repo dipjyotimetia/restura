@@ -31,11 +31,8 @@ const log = createLogger('sentry');
 // survive into the packaged app where `process.env` is absent. `SENTRY_DSN`
 // overrides it for local/dev runs pointing at a throwaway project. Left empty
 // until a project DSN is provisioned — `initSentry` no-ops without one. Read
-// lazily inside `doInit` (not a module const) so it reflects the env at init.
+// inside `doInit` (not at module load) so it reflects the env at init time.
 const BAKED_IN_DSN = '';
-function resolveDsn(): string {
-  return process.env['SENTRY_DSN'] ?? BAKED_IN_DSN;
-}
 
 // Runtime opt-in gate. `Sentry.init` runs at most once; this flag lets the
 // in-session toggle (renderer → IPC) open/close JS-event reporting without a
@@ -92,7 +89,7 @@ export function scrubEvent<T extends Sentry.Event>(event: T): T {
 
 function doInit(): void {
   if (initialized) return;
-  const dsn = resolveDsn();
+  const dsn = process.env['SENTRY_DSN'] ?? BAKED_IN_DSN;
   if (!dsn) {
     log.warn('Sentry DSN not configured — error reporting disabled');
     return;
@@ -105,12 +102,13 @@ function doInit(): void {
     tracesSampleRate: 0,
     sendDefaultPii: false,
     beforeSend: (event) => (telemetryEnabled ? scrubEvent(event) : null),
-    beforeBreadcrumb: (crumb) => {
-      if (!telemetryEnabled) return null;
-      delete crumb.data;
-      if (crumb.message) crumb.message = scrubString(crumb.message);
-      return crumb;
-    },
+    // Gate only — stop buffering breadcrumbs while opted out. Scrubbing happens
+    // once, at send time, in scrubEvent (which loops over event.breadcrumbs).
+    beforeBreadcrumb: (crumb) => (telemetryEnabled ? crumb : null),
+    // Offline caching is on by default (queue persists across restarts). Flush
+    // it at startup so a crash captured while offline uploads on the next launch
+    // rather than waiting for the next event.
+    transportOptions: { flushAtStartup: true },
   });
   initialized = true;
   log.info('Sentry initialized', { release: app.getVersion() });
