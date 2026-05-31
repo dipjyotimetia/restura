@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { vi } from 'vitest';
+import { afterAll, beforeAll, vi } from 'vitest';
 import { z } from 'zod';
+import { setLogSink, noopSink, consoleSink } from '../../../src/lib/shared/logger';
 import {
   HttpRequestConfigSchema,
   GrpcRequestConfigSchema,
@@ -13,6 +14,13 @@ import {
   MAX_HTTP_BODY_BYTES,
   MAX_PROTO_CONTENT_BYTES,
 } from '../ipc-validators';
+
+// validateIpcInput logs at error level before throwing, which produces JSON
+// lines on stderr. GitHub Actions issue-matcher regexes backtrack
+// catastrophically on those lines and time out the runner. Use noopSink for
+// this file since the log output is noise — the throw is what tests assert.
+beforeAll(() => setLogSink(noopSink));
+afterAll(() => setLogSink(consoleSink));
 
 // Reusable trusted event for tests that need a valid sender frame (file://
 // is what the packaged Electron renderer uses).
