@@ -1153,12 +1153,13 @@ function DataButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-sp-btn',
-        'bg-sp-surface border border-sp-line text-sp-12 font-medium',
-        'hover:bg-sp-hover transition-colors',
+        'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-sp-btn text-sp-12 font-medium border',
+        'transition-colors',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
         'disabled:opacity-50 disabled:cursor-not-allowed',
-        danger ? 'text-rose-500 dark:text-rose-400 hover:border-rose-400/60' : 'text-sp-text'
+        danger
+          ? 'border-rose-500/30 bg-rose-500/5 text-rose-500 dark:text-rose-400 hover:bg-rose-500/10 hover:border-rose-400/60'
+          : 'border-sp-line bg-sp-surface text-sp-text hover:bg-sp-hover'
       )}
     >
       <Icon size={12} aria-hidden="true" />
@@ -1255,10 +1256,15 @@ function DataSection() {
               {status.percentage.toFixed(1)}% of {formattedAvailable}
             </span>
           </div>
-          <div className="h-1.5 w-full rounded-full bg-sp-surface overflow-hidden">
+          <div className="h-1.5 w-full rounded-full bg-sp-line overflow-hidden">
             <div
               className="h-full rounded-full transition-all"
-              style={{ width: `${Math.min(100, status.percentage)}%`, background: levelColor }}
+              style={{
+                // Floor the width so a non-empty store still shows a sliver of fill
+                // (0.0% of a 10 GB quota would otherwise render an empty track).
+                width: `${status.totalRecords > 0 ? Math.max(2, Math.min(100, status.percentage)) : 0}%`,
+                background: levelColor,
+              }}
             />
           </div>
           {status.message && (
