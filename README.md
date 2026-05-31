@@ -12,7 +12,7 @@
 
 <br/>
 
-[![Live App](https://img.shields.io/badge/Live_App-6366F1?style=for-the-badge&logo=cloudflare&logoColor=white)](https://restura.pages.dev)
+[![Live App](https://img.shields.io/badge/Live_App-6366F1?style=for-the-badge&logo=cloudflare&logoColor=white)](https://restura.dev/)
 &nbsp;
 [![Download](https://img.shields.io/badge/Download_Desktop-14121F?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/dipjyotimetia/restura/releases/latest)
 &nbsp;
