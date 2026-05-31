@@ -22,7 +22,7 @@ import { useStoreHydration } from '@/hooks/useStoreHydration';
 import { useKeybindings } from '@/hooks/useKeybindings';
 import { SaveToCollectionDialog } from '@/components/shared/SaveToCollectionDialog';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { isElectron } from '@/lib/shared/platform';
+import { isElectron, onMenuEvent } from '@/lib/shared/platform';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useAiChatStore } from '@/features/ai/store';
 import type { RequestMode, ActivePanel } from '@/types';
@@ -203,6 +203,17 @@ export default function Home() {
       },
     },
   ]);
+
+  // Native "Settings/Preferences" menu item (Electron) → open the drawer. The
+  // mod+, keybinding above covers the web build, where there is no native menu.
+  useEffect(
+    () =>
+      onMenuEvent('menu:settings', () => {
+        setSettingsInitialSection('general');
+        setSettingsOpen(true);
+      }),
+    []
+  );
 
   const handleSendRequest = useCallback(() => {
     const event = new KeyboardEvent('keydown', {

@@ -14,6 +14,17 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
     },
   };
 
+  // Opens the renderer's Settings drawer. Accelerator matches the renderer's own
+  // `mod+,` keybinding (opening is idempotent, so the two paths can't conflict).
+  const settingsItem: MenuItemConstructorOptions = {
+    label: isMac ? 'Settings…' : 'Preferences',
+    accelerator: 'CmdOrCtrl+,',
+    click: () => {
+      if (mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send('menu:settings');
+    },
+  };
+
   const template: MenuItemConstructorOptions[] = [
     // App menu (macOS only)
     ...(isMac
@@ -24,6 +35,8 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
               { role: 'about' as const },
               { type: 'separator' as const },
               checkForUpdatesItem,
+              { type: 'separator' as const },
+              settingsItem,
               { type: 'separator' as const },
               { role: 'services' as const },
               { type: 'separator' as const },
@@ -64,6 +77,8 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
           },
         },
         { type: 'separator' },
+        // macOS surfaces Settings in the app menu; elsewhere File is its home.
+        ...(!isMac ? [settingsItem, { type: 'separator' as const }] : []),
         isMac ? { role: 'close' as const } : { role: 'quit' as const },
       ],
     },
