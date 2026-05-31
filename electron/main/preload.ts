@@ -1,7 +1,3 @@
-// Renderer-side Sentry shim. Must be imported in the sandboxed preload so that
-// @sentry/electron/renderer can forward events to the main-process SDK over IPC.
-// Without this, renderer error forwarding silently no-ops. See electron/main/sentry.ts.
-import '@sentry/electron/preload';
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ElectronAPI, UpdaterStatus } from '../types/electron-api';
@@ -792,13 +788,6 @@ const electronAPI = {
     removeFileChangedListener: () => {
       ipcRenderer.removeAllListeners(EVENT.collectionFileChanged);
     },
-  },
-
-  // Telemetry consent — renderer pushes the opt-in flag to main so it can gate
-  // Sentry (and persist the flag for the next launch's native crash capture).
-  telemetry: {
-    setConsent: (enabled: boolean): Promise<{ ok: true }> =>
-      ipcRenderer.invoke(IPC.telemetry.setConsent, enabled),
   },
 
   // Events
