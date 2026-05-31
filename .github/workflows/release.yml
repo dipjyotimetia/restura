@@ -4,26 +4,50 @@ name: Release
 # Run it from the Actions tab ("Release" → "Run workflow", on the main branch)
 # or via `gh workflow run release.yml --ref main` when you want to ship.
 #
-# Flow:
+# Inputs:
+#   prerelease              — when true, publishes a GitHub prerelease (beta).
+#                             Skips Docker, npm CLI, and Cloudflare deploys.
+#   prerelease_identifier   — appended to the next stable semver to form the
+#                             prerelease tag (e.g. "beta.1" → v0.2.16-beta.1).
+#                             Increment for successive betas (beta.2, beta.3…).
+#
+# Flow (stable):
 #   1. Determine next semver from conventional-commit messages since the last
 #      tag (feat → minor, feat!/BREAKING CHANGE → major, anything else → patch).
 #   2. Bump root + every workspace's package.json to that version.
-#   3. Commit the bump as `chore(release): vX.Y.Z` and push it back to main.
-#   4. Create + push the `vX.Y.Z` tag.
-#   5. Generate a CycloneDX SBOM for the production dep tree.
-#   6. Cut a GitHub release with auto-generated notes + the SBOM attached.
+#   3. Commit the bump as `chore(release): vX.Y.Z` and push to main.
+#   4. Create + push the `vX.Y.Z` tag (points at the bump commit).
+#   5. Generate structured release notes from conventional commits (git-cliff).
+#   6. Generate a CycloneDX SBOM. Cut a GitHub release with notes + SBOM.
 #
-# Two downstream jobs fan out from `release`, each checking out the freshly
-# tagged (post-bump) commit so their package.json version matches the release:
-#   - `desktop`     — build + publish the Electron installers.
-#   - `publish-cli` — publish `restura-cli` to the npm registry (needs the
-#                     NPM_TOKEN secret; skips cleanly if it's absent).
+# Flow (prerelease / beta):
+#   1–2. Same version determination; actual tag = vX.Y.Z-{identifier}.
+#   3. Tag current HEAD and push — main is NOT touched (no bump commit).
+#      Each desktop runner bumps its local package.json before building so the
+#      packaged app reports the correct beta version (About, app.getVersion()).
+#   4–6. Same notes/SBOM/release steps; GitHub release marked prerelease=true.
+#
+# Downstream jobs fan out from `release`:
+#   - `desktop`      — build + publish Electron installers (all releases).
+#   - `publish-cli`  — publish `restura-cli` to npm (stable only).
+#   - `publish-docker` — publish Docker image to GHCR (stable only).
+#   - `deploy-web`   — deploy to Cloudflare (stable only).
+#   - `sentry-sourcemaps` — upload source maps (all releases).
 #
 # Note: the bump commit + tag are pushed with the default GITHUB_TOKEN. Because
 # the only trigger is workflow_dispatch, that push can't re-enter this workflow.
 
 on:
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Publish as a prerelease (beta)'
+        type: boolean
+        default: false
+      prerelease_identifier:
+        description: 'Pre-release identifier appended to the next stable version (e.g. beta.1, beta.2). Only used when prerelease=true.'
+        type: string
+        default: 'beta.1'
 
 concurrency:
   # Never cancel an in-flight release — partial state (bumped commit without a
@@ -40,9 +64,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
-      # Consumed by the `desktop` job so it checks out the freshly-tagged commit
-      # (post version-bump) and electron-builder publishes to the matching release.
-      new_tag: ${{ steps.bump.outputs.new_tag }}
+      # The actual published tag — includes prerelease suffix when applicable.
+      # Consumed by downstream jobs so they check out the right commit.
+      actual_tag: ${{ steps.tag.outputs.actual_tag }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -73,18 +97,33 @@ jobs:
           # so we don't end up with a tag that points at the pre-bump commit.
           DRY_RUN: 'true'
 
+      - name: Compute actual tag
+        id: tag
+        env:
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
+        run: |
+          ACTUAL_TAG="$NEW_TAG"
+          if [ "$PRERELEASE" = "true" ]; then
+            ACTUAL_TAG="${NEW_TAG}-${PRERELEASE_IDENTIFIER}"
+          fi
+          echo "actual_tag=$ACTUAL_TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing: $ACTUAL_TAG (prerelease=$PRERELEASE)"
+
       - name: Configure git author
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
       - name: Bump root + workspace versions
+        # Stable only: prerelease builds tag current HEAD without touching main,
+        # so the version bump happens locally on each desktop runner instead.
+        if: ${{ !inputs.prerelease }}
         env:
-          # anothrNick exposes new_tag (e.g. v1.2.3) but no stripped version,
-          # so we strip the prefix here for npm version.
-          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
         run: |
-          NEW_VERSION="${NEW_TAG#v}"
+          NEW_VERSION="${ACTUAL_TAG#v}"
           npm version "$NEW_VERSION" \
             --no-git-tag-version \
             --workspaces \
@@ -93,20 +132,62 @@ jobs:
 
       - name: Commit, tag, push
         env:
-          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
-          git add package.json package-lock.json cli/package.json
-          if git diff --staged --quiet; then
-            echo "No version changes to commit (already at ${NEW_TAG})."
-          else
-            git commit -m "chore(release): ${NEW_TAG}"
+          if [ "$PRERELEASE" = "false" ]; then
+            # Stable: commit the version bump back to main before tagging so the
+            # tag points at the bumped package.json.
+            git add package.json package-lock.json cli/package.json
+            if git diff --staged --quiet; then
+              echo "No version changes to commit (already at ${ACTUAL_TAG})."
+            else
+              git commit -m "chore(release): ${ACTUAL_TAG}"
+            fi
+            # Handle the rare case where another commit landed during the run.
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
-          # Handle the rare case where another commit landed during the run.
-          git pull --rebase origin main
-          git push origin HEAD:main
-          git tag -a "${NEW_TAG}" -m "${NEW_TAG}"
-          git push origin "${NEW_TAG}"
+          # Both stable and prerelease: push the tag. Prerelease tags point at
+          # the current HEAD (main stays untouched; version is set per-runner).
+          git tag -a "${ACTUAL_TAG}" -m "${ACTUAL_TAG}"
+          git push origin "${ACTUAL_TAG}"
+
+      - name: Compute changelog range
+        id: range
+        shell: bash
+        env:
+          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          BASE_ARGS="--strip header"
+          if [ "$PRERELEASE" = "true" ]; then
+            # Beta: all changes since the last tag (stable or prerelease).
+            echo "args=--latest ${BASE_ARGS}" >> "$GITHUB_OUTPUT"
+          else
+            # Stable: base the changelog on the last *stable* tag so that all
+            # changes including the beta period appear in the final release notes.
+            PREV_STABLE=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
+              | grep -v -- '-' \
+              | sort -V \
+              | grep -Fxv "${ACTUAL_TAG}" \
+              | tail -1)
+            if [ -n "$PREV_STABLE" ]; then
+              echo "args=${PREV_STABLE}..${ACTUAL_TAG} ${BASE_ARGS}" >> "$GITHUB_OUTPUT"
+            else
+              echo "args=--latest ${BASE_ARGS}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Generate release notes
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: ${{ steps.range.outputs.args }}
+        env:
+          OUTPUT: CHANGELOG.md
 
       - name: Generate CycloneDX SBOM
         run: |
@@ -124,13 +205,16 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.bump.outputs.new_tag }}
-          name: ${{ steps.bump.outputs.new_tag }}
-          # GitHub generates "## What's Changed" + its own "**Full Changelog**"
-          # link from PR history. `body` is prepended to that, so we only put
-          # the bits the generator doesn't know about (SBOM attachment note).
-          generate_release_notes: true
+          tag_name: ${{ steps.tag.outputs.actual_tag }}
+          name: ${{ steps.tag.outputs.actual_tag }}
+          prerelease: ${{ inputs.prerelease }}
+          # Release notes generated by git-cliff from conventional commits.
+          # Replaces GitHub's auto-generated "What's Changed" (noisy, no categorization).
+          generate_release_notes: false
           body: |
+            ${{ steps.cliff.outputs.content }}
+
+            ---
             A CycloneDX SBOM of the production dependency tree is attached
             (`restura.cdx.json` / `.xml`).
           files: |
@@ -159,7 +243,7 @@ jobs:
         with:
           # The freshly-pushed version-bump commit, by tag, so package.json's
           # version matches the release electron-builder publishes into.
-          ref: ${{ needs.release.outputs.new_tag }}
+          ref: ${{ needs.release.outputs.actual_tag }}
 
       - uses: actions/setup-node@v6
         with:
@@ -168,6 +252,22 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # For prerelease builds the release job tags current HEAD without bumping
+      # package.json on main. Set the version locally here so the packaged app
+      # reports the correct version (About page, app.getVersion(), updater).
+      - name: Set prerelease version locally
+        if: ${{ inputs.prerelease }}
+        env:
+          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
+        shell: bash
+        run: |
+          NEW_VERSION="${ACTUAL_TAG#v}"
+          npm version "$NEW_VERSION" \
+            --no-git-tag-version \
+            --workspaces \
+            --include-workspace-root \
+            --allow-same-version
 
       # Inject the Sentry DSN into package.json so the packaged main process can
       # read it at runtime (electron/main/sentry.ts reads sentry.dsn). The DSN is
@@ -230,12 +330,20 @@ jobs:
           WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.CSC_LINK != '') || (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
-        run: npm run electron:publish
+          PRERELEASE: ${{ inputs.prerelease }}
+        shell: bash
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            npm run electron:publish:prerelease
+          else
+            npm run electron:publish
+          fi
 
   publish-cli:
     name: Publish restura-cli to npm
     needs: [release]
-    # Runs only after a successful manually-dispatched `release`.
+    # Stable releases only — beta installers don't warrant a CLI npm publish.
+    if: ${{ !inputs.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -249,7 +357,7 @@ jobs:
         with:
           # The freshly-pushed version-bump commit, by tag, so cli/package.json's
           # version matches the GitHub release this run cut.
-          ref: ${{ needs.release.outputs.new_tag }}
+          ref: ${{ needs.release.outputs.actual_tag }}
 
       - uses: actions/setup-node@v6
         with:
@@ -288,6 +396,8 @@ jobs:
   publish-docker:
     name: Publish Docker image to GHCR
     needs: [release]
+    # Stable releases only — no Docker image for beta builds.
+    if: ${{ !inputs.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -296,7 +406,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release.outputs.new_tag }}
+          ref: ${{ needs.release.outputs.actual_tag }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -314,8 +424,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.release.outputs.new_tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release.outputs.new_tag }}
+            type=semver,pattern={{version}},value=${{ needs.release.outputs.actual_tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release.outputs.actual_tag }}
             type=raw,value=latest
 
       - name: Build and push
@@ -332,6 +442,8 @@ jobs:
   deploy-web:
     name: Deploy web to production (Cloudflare)
     needs: [release]
+    # Stable releases only — web/Cloudflare deploys do not ship beta builds.
+    if: ${{ !inputs.prerelease }}
     # Production Cloudflare deploy (Worker + SPA + docs). Lives here, not in CI,
     # so it ships ONLY as part of a manually-dispatched release — never on a
     # bare merge to main. Deploys the freshly-tagged release commit.
@@ -345,7 +457,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release.outputs.new_tag }}
+          ref: ${{ needs.release.outputs.actual_tag }}
 
       - uses: actions/setup-node@v6
         with:
@@ -415,10 +527,10 @@ jobs:
   sentry-sourcemaps:
     name: Upload Electron source maps to Sentry
     needs: [release]
-    # Single run (NOT per-OS): the renderer + main JS maps are platform-identical,
-    # so uploading once with the release version is enough — the `desktop` matrix
-    # must not upload the same maps three times. Skips cleanly when SENTRY_AUTH_TOKEN
-    # is unset, so the release isn't blocked before a Sentry project is provisioned.
+    # Runs for both stable and prerelease — symbolication is useful for beta
+    # crash reports too. Single run (NOT per-OS): renderer + main JS maps are
+    # platform-identical, so uploading once per release is sufficient. Skips
+    # cleanly when SENTRY_AUTH_TOKEN is unset.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -426,7 +538,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release.outputs.new_tag }}
+          ref: ${{ needs.release.outputs.actual_tag }}
 
       - uses: actions/setup-node@v6
         with:
@@ -448,7 +560,7 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          NEW_TAG: ${{ needs.release.outputs.new_tag }}
+          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
         run: |
           set -euo pipefail
           if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
@@ -456,7 +568,7 @@ jobs:
             exit 0
           fi
           # Must match the SDK's release: `restura@<version>` (electron/main/sentry.ts).
-          RELEASE="restura@${NEW_TAG#v}"
+          RELEASE="restura@${ACTUAL_TAG#v}"
           # NOTE: this job builds its own copy of the bundles to upload maps. The
           # `desktop` matrix ships a separate build, so symbolication relies on
           # release+filename matching being identical across the two builds (same
