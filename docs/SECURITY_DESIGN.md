@@ -10,8 +10,9 @@ boundaries, and the design of the parts that are easy to get subtly wrong:
 secret storage, the OS keychain, code signing, and the secret-resolution path.
 Decisions referenced here are recorded in
 [ADR 0004](./adr/0004-security-hardening.md),
-[0006](./adr/0006-electron-connection-and-dns-hardening.md), and
-[0007](./adr/0007-secret-ref-pattern.md).
+[0006](./adr/0006-electron-connection-and-dns-hardening.md),
+[0007](./adr/0007-secret-ref-pattern.md), and
+[0008](./adr/0008-keystore-and-renderer-hardening.md).
 
 ## Threat model
 
