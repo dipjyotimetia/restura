@@ -12,6 +12,8 @@ name: Release
 #   prerelease_identifier   — appended to the next stable semver to form the
 #                             prerelease tag (e.g. "beta.1" → v0.2.16-beta.1).
 #                             Increment for successive betas (beta.2, beta.3…).
+#   publish_docker          — opt-in (default false). When true on a stable
+#                             release, publishes the Docker image to GHCR.
 #
 # Flow (stable):
 #   1. Preflight validates main, inputs, tests, type-checks, and build health.
@@ -32,7 +34,7 @@ name: Release
 # Downstream jobs fan out from `release`:
 #   - `desktop`      — build + publish Electron installers (all releases).
 #   - `publish-cli`  — publish `restura-cli` to npm (stable only).
-#   - `publish-docker` — publish Docker image to GHCR (stable only).
+#   - `publish-docker` — publish Docker image to GHCR (stable + publish_docker opt-in).
 #   - `deploy-web`   — deploy to Cloudflare (stable only).
 #
 # Note: the bump commit + tag are pushed with the default GITHUB_TOKEN. Because
@@ -66,6 +68,10 @@ on:
         description: 'Pre-release identifier appended to the next stable version (e.g. beta.1, beta.2). Only used when prerelease=true.'
         type: string
         default: 'beta.1'
+      publish_docker:
+        description: 'Publish the Docker image to GHCR (stable releases only). Off by default — tick to opt in.'
+        type: boolean
+        default: false
 
 concurrency:
   # Never cancel an in-flight release — partial state (bumped commit without a
@@ -515,8 +521,8 @@ jobs:
   publish-docker:
     name: Publish Docker image to GHCR
     needs: [release]
-    # Stable releases only — no Docker image for beta builds.
-    if: ${{ !inputs.prerelease }}
+    # Stable releases only, and only when opted in at dispatch (publish_docker).
+    if: ${{ !inputs.prerelease && inputs.publish_docker }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -662,7 +668,9 @@ jobs:
   publish-release:
     name: Publish GitHub release
     needs: [release, desktop, publish-cli, publish-docker, deploy-web]
-    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (inputs.prerelease || (needs.publish-cli.result == 'success' && needs.publish-docker.result == 'success' && needs.deploy-web.result == 'success')) }}
+    # publish-docker is opt-in (publish_docker input), so 'skipped' is an acceptable
+    # outcome here — only a hard 'failure'/'cancelled' should block publishing.
+    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (inputs.prerelease || (needs.publish-cli.result == 'success' && (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped') && needs.deploy-web.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -671,10 +679,13 @@ jobs:
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
         run: |
           set -euo pipefail
-          gh release edit "$ACTUAL_TAG" --draft=false
+          # No checkout in this job, so `gh` can't infer the repo from a .git dir;
+          # GH_REPO tells it explicitly (otherwise: "fatal: not a git repository").
+          gh release edit "$ACTUAL_TAG" --draft=false --repo "$GH_REPO"
 
   sentry-sourcemaps:
     name: Upload Electron source maps to Sentry
