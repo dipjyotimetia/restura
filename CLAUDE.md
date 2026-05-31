@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, and MCP** (Model Context Protocol), plus an **AI assistant** that can read request context. It ships from a single React renderer to three targets: a web app (Cloudflare Pages + Workers), a self-hostable Node/Docker server, and an Electron desktop app. Restura can also act *as* an MCP server (`src/features/mcp-server`, `electron/main/mcp-server-handler.ts`). Node.js 24+ required.
+Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP** (Model Context Protocol), plus an **AI assistant** that can read request context. It ships from a single React renderer to three targets: a web app (Cloudflare Pages + Workers), a self-hostable Node/Docker server, and an Electron desktop app. Restura can also act _as_ an MCP server (`src/features/mcp-server`, `electron/main/mcp-server-handler.ts`). Node.js 24+ required.
 
 ## Development Commands
 
@@ -14,7 +14,7 @@ npm run dev                    # Start Vite dev server (port 5173) — boots the
 npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode (all tsconfigs)
-npm run lint                   # ESLint over src/ electron/main worker/ echo/
+npm run lint                   # ESLint over src/ electron/main worker/ echo/ scripts/
 npm run lint:fix               # ESLint --fix
 npm run format                 # Prettier write
 npm run format:check           # Prettier check
@@ -90,6 +90,7 @@ This is the most important architectural piece in the repo. Each protocol (HTTP,
 ```
 
 Key modules:
+
 - `shared/protocol/url-validation.ts` — SSRF guard: RFC 1918, RFC 6598 (CGNAT), link-local 169.254/16, loopback, cloud-metadata endpoints, IPv6 unique-local, IPv4-mapped IPv6. Single source of truth (before this refactor, the guard had drifted between backends).
 - `shared/protocol/header-policy.ts` — Hop-by-hop deny lists, header sanitisers.
 - `shared/protocol/body-builder.ts` — JSON / text / form-urlencoded / form-data / binary.
@@ -110,9 +111,10 @@ A chat assistant that can read the current request/response context. **Electron-
 Each feature module owns its components, hooks, lib (executors/clients), and store. Protocol features (`http/`, `grpc/`, `graphql/`, `websocket/`, `socketio/`, `sse/`, `mcp/`, `kafka/`) follow the same shape and export a `protocol.ts` describing their schema. The renderer's executor in each feature branches on `isElectron()` to pick IPC vs. HTTP transport — no behavioural difference.
 
 ```
-src/features/{http,grpc,graphql,websocket,socketio,sse,mcp,kafka}   # protocol features
+src/features/{http,grpc,graphql,websocket,socketio,sse,mcp,kafka,mqtt}   # protocol features
 src/features/ai                                      # AI assistant (chat + request-context tooling)
 src/features/mcp-server                              # Restura-as-MCP-server (agent-drivable surface)
+src/features/load-testing                            # collection load/perf runner (not a protocol)
 src/features/{collections,environments,workflows,scripts,auth,registry,contracts}
 src/components/{ui,shared,providers}
 src/routes/                                          # React Router route components
@@ -136,7 +138,7 @@ Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollec
 
 ### Electron main process (`electron/main/`)
 
-One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts` (+ `kafka-broker-guard.ts`), `ai-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `git-handler.ts`. Plus:
+One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts` (+ `kafka-broker-guard.ts`), `mqtt-handler.ts` (+ `mqtt-broker-guard.ts`), `ai-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `vault-handler.ts`, `git-handler.ts`. Plus:
 
 - `main.ts` — entry / orchestrator
 - `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod
@@ -192,6 +194,7 @@ Standalone npm package `@restura/cli` (separate `package.json`, built with `tsup
 ## Electron Build
 
 `electron-builder.json` defines the build. Process:
+
 1. `electron:build:web` — `vite build` with `VITE_IS_ELECTRON_BUILD=true` → `dist/web/`
 2. `electron:compile` — Compiles `electron/main/` TypeScript → `dist/electron/`
 3. `electron-builder` — Packages from `dist/` per target (`electron:dist:{mac,win,linux}`)
