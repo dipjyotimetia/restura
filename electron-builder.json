@@ -13,7 +13,8 @@
     "!dist/web/_worker.js",
     "dist/electron/**/*",
     "electron/resources/**/*",
-    "package.json"
+    "package.json",
+    "!**/*.map"
   ],
   "extraMetadata": {
     "main": "dist/electron/electron/main/main.js"
