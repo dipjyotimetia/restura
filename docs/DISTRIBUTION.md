@@ -78,9 +78,10 @@ npm run electron:dist
    ```
 
 3. **Configure GitHub Secrets**
-   - `MACOS_CERTIFICATE`: Base64-encoded .p12 certificate
-   - `MACOS_CERTIFICATE_PASSWORD`: Certificate password
-   - `KEYCHAIN_PASSWORD`: Temporary keychain password (any strong password)
+   - `CSC_LINK`: Base64-encoded .p12 certificate
+   - `CSC_KEY_PASSWORD`: Certificate password
+
+   (electron-builder manages a temporary keychain itself during signing — no separate keychain-password secret is needed.)
 
 ### macOS Notarization
 
@@ -98,6 +99,8 @@ Apple requires notarization for apps distributed outside the App Store.
    - `APPLE_APP_SPECIFIC_PASSWORD`: Generated app-specific password
    - `APPLE_TEAM_ID`: Your team ID
 
+> The **Release** workflow fails the macOS leg if `CSC_LINK` or `APPLE_ID` is missing, so it never publishes an unsigned DMG. Set all of the above before cutting a macOS release.
+
 ### Windows Code Signing
 
 1. **Purchase a Code Signing Certificate**
@@ -113,14 +116,14 @@ Apple requires notarization for apps distributed outside the App Store.
    ```
 
 3. **Configure GitHub Secrets**
-   - `WINDOWS_CERTIFICATE`: Base64-encoded .pfx certificate
-   - `WINDOWS_CERTIFICATE_PASSWORD`: Certificate password
+   - `WIN_CSC_LINK`: Base64-encoded .pfx certificate
+   - `WIN_CSC_KEY_PASSWORD`: Certificate password
 
 ## CI/CD Pipeline
 
 ### Automated Releases
 
-The GitHub Actions workflow (`.github/workflows/electron-release.yml`) automates:
+The GitHub Actions workflow (`.github/workflows/release.yml`, named **Release**) automates:
 
 1. **Building** on all platforms (macOS x64/arm64, Windows, Linux)
 2. **Signing** with configured certificates
@@ -139,7 +142,7 @@ git push && git push --tags
 
 **Option 2: Manual Workflow**
 
-- Go to Actions → Build and Release Electron App
+- Go to Actions → Release
 - Click "Run workflow"
 - Optionally specify version
 
@@ -175,9 +178,8 @@ GITHUB_TOKEN          # Automatically provided
 ### macOS Signing (Optional)
 
 ```
-MACOS_CERTIFICATE             # Base64 .p12 certificate
-MACOS_CERTIFICATE_PASSWORD    # Certificate password
-KEYCHAIN_PASSWORD             # Temporary keychain password
+CSC_LINK                      # Base64 .p12 certificate
+CSC_KEY_PASSWORD              # Certificate password
 ```
 
 ### macOS Notarization (Optional)
@@ -191,8 +193,8 @@ APPLE_TEAM_ID                 # Team ID
 ### Windows Signing (Optional)
 
 ```
-WINDOWS_CERTIFICATE           # Base64 .pfx certificate
-WINDOWS_CERTIFICATE_PASSWORD  # Certificate password
+WIN_CSC_LINK                  # Base64 .pfx certificate
+WIN_CSC_KEY_PASSWORD          # Certificate password
 ```
 
 ## Auto-Updates
