@@ -41,7 +41,8 @@ flowchart TB
 | Layer | Mechanism | Source |
 | --- | --- | --- |
 | Process isolation | `contextIsolation`, `sandbox`, `nodeIntegration:false` | `window-manager.ts` |
-| IPC boundary | frame allow-list + Zod validation + per-`webContents` rate limit | `ipc-validators.ts` |
+| IPC boundary | frame allow-list (every handler) + Zod validation + per-`webContents` rate limit | `ipc-validators.ts` |
+| Renderer permissions | deny-by-default; only `clipboard-sanitized-write` granted | `permission-policy.ts` |
 | Content policy | production CSP, `frame-ancestors 'none'` | `main.ts` |
 | Secret isolation | `SecretRef` handles; no `secret:resolve` in preload | `secret-handle-store.ts` |
 | At-rest encryption | electron-store + 256-bit key wrapped by `safeStorage` | `encrypted-key.ts` |

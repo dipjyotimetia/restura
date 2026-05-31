@@ -28,16 +28,16 @@ Both are free forever.
 
 ## Protocols 🧩
 
-| | Protocol | What works today |
-|:---:|---|---|
-| `HTTP` | REST / HTTP | All methods, params, headers, body types, cookies, code gen |
-| `GQL` | GraphQL | Query builder, schema introspection, subscriptions |
-| `RPC` | gRPC | Unary, server streaming, server reflection |
-| `WS` | WebSocket | Connect, send/receive, full message history |
-| `IO` | Socket.IO | Connect, emit/listen events, acks (desktop only) |
-| `SSE` | Server-Sent Events | Live event stream viewer with reconnection |
-| `KFK` | Kafka | Produce / consume, SASL + TLS (desktop only) |
-| `MCP` | Model Context Protocol | Proxy to any MCP server |
+|        | Protocol               | What works today                                            |
+| :----: | ---------------------- | ----------------------------------------------------------- |
+| `HTTP` | REST / HTTP            | All methods, params, headers, body types, cookies, code gen |
+| `GQL`  | GraphQL                | Query builder, schema introspection, subscriptions          |
+| `RPC`  | gRPC                   | Unary, server streaming, server reflection                  |
+|  `WS`  | WebSocket              | Connect, send/receive, full message history                 |
+|  `IO`  | Socket.IO              | Connect, emit/listen events, acks (desktop only)            |
+| `SSE`  | Server-Sent Events     | Live event stream viewer with reconnection                  |
+| `KFK`  | Kafka                  | Produce / consume, SASL + TLS (desktop only)                |
+| `MCP`  | Model Context Protocol | Proxy to any MCP server                                     |
 
 ---
 
@@ -64,7 +64,7 @@ Both are free forever.
 Restura's security posture is asymmetric between the desktop and web clients by virtue of platform capability gaps. The web client surfaces a "Desktop only" badge on UI fields whose underlying capability isn't available in the browser.
 
 - **Desktop (Electron)** — Encryption keys are persisted via Electron's `safeStorage`, which wraps them with the OS keychain (macOS Keychain, Windows Credential Manager, Linux libsecret). Stored data is encrypted with AES-256-GCM keyed by that hardware-backed key. mTLS, custom CA certificates, SOCKS proxies, PAC resolution, and disabling TLS verification all work because Electron uses Node's TLS / `net` stack.
-- **Web** — Encryption keys default to in-memory ephemeral (regenerated per session) — strictly better than persisting the key alongside the ciphertext, but it does mean encrypted data does not survive a reload. A future release will add an opt-in passphrase prompt that derives a stable session key via PBKDF2; for now, web users opting into encryption should treat it as session-scoped. mTLS, custom CA, SOCKS, and "Verify SSL = off" are not available in the web client because the browser sandbox doesn't expose them.
+- **Web** — Persisted state defaults to no app-layer encryption at rest (`PlaintextKeyProvider`); IndexedDB is protected only by the browser's same-origin policy. (This replaced an earlier ephemeral-key mode that corrupted data on every reload, since the random key never survived the session.) A future release will add an opt-in passphrase prompt that derives a stable key via PBKDF2. mTLS, custom CA, SOCKS, and "Verify SSL = off" are not available in the web client because the browser sandbox doesn't expose them.
 - **Network** — SSRF guards (RFC 1918, RFC 6598 CGNAT, link-local 169.254/16, cloud metadata endpoints, IPv6 unique-local, IPv4-mapped IPv6) on both Worker and Electron paths. Electron additionally enforces a DNS-rebind guard at lookup time. AWS SigV4 is signed at the wire (in the Worker / Electron handler, not the renderer) so the signature matches the exact bytes the upstream receives.
 - **Sandbox** — User pre-request and test scripts run in a [QuickJS](https://bellard.org/quickjs/) WASM sandbox with memory and execution-time limits. No host bridge, no filesystem, no network.
 
@@ -85,7 +85,7 @@ npm install
 npm run dev
 ```
 
-Visit **http://localhost:5173**. One command starts the Vite dev server *and* the Cloudflare Worker proxy via Miniflare.
+Visit **http://localhost:5173**. One command starts the Vite dev server _and_ the Cloudflare Worker proxy via Miniflare.
 
 ### Desktop App
 
@@ -166,18 +166,18 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a full breakdown.
 
 ## Stack
 
-| Concern | Choice |
-|---|---|
-| Build | Vite 8 + `@cloudflare/vite-plugin` |
-| UI | React 19, TailwindCSS v4, shadcn/ui, Radix UI |
-| Routing | React Router v7 (hash mode — works on `file://` and `https://`) |
-| State | Zustand v5 with `persist` middleware |
-| Validation | Zod v4 |
-| Editor | Monaco Editor |
-| Script VM | QuickJS WASM (`quickjs-emscripten`) |
-| Worker | Hono on Cloudflare Pages Functions |
-| Desktop | Electron 42 |
-| Tests | Vitest + React Testing Library |
+| Concern    | Choice                                                          |
+| ---------- | --------------------------------------------------------------- |
+| Build      | Vite 8 + `@cloudflare/vite-plugin`                              |
+| UI         | React 19, TailwindCSS v4, shadcn/ui, Radix UI                   |
+| Routing    | React Router v7 (hash mode — works on `file://` and `https://`) |
+| State      | Zustand v5 with `persist` middleware                            |
+| Validation | Zod v4                                                          |
+| Editor     | Monaco Editor                                                   |
+| Script VM  | QuickJS WASM (`quickjs-emscripten`)                             |
+| Worker     | Hono on Cloudflare Pages Functions                              |
+| Desktop    | Electron 42                                                     |
+| Tests      | Vitest + React Testing Library                                  |
 
 ---
 

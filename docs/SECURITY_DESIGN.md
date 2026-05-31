@@ -64,18 +64,19 @@ in main. Crossing back into the renderer is the thing we design to prevent.
 
 ## Defense in depth
 
-| Layer              | Mechanism                                                                              | Source                                                                           |
-| ------------------ | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Process isolation  | `contextIsolation`, `sandbox`, `nodeIntegration:false`, `webSecurity`                  | `electron/main/window-manager.ts`                                                |
-| IPC boundary       | `assertTrustedSender` frame allow-list + Zod validation + per-`webContents` rate limit | `electron/main/ipc-validators.ts`                                                |
-| Content policy     | Production CSP: no remote `script-src`, `frame-ancestors 'none'`                       | `electron/main/main.ts`                                                          |
-| Secret isolation   | `SecretRef` handles; no `secret:resolve` in preload                                    | `electron/main/secret-handle-store.ts`                                           |
-| At-rest encryption | electron-store + 256-bit key wrapped by OS keychain (`safeStorage`)                    | `electron/main/encrypted-key.ts`                                                 |
-| SSRF / DNS         | shared URL validation + pinned/pre-flight DNS guard                                    | `shared/protocol/url-validation.ts`, `electron/main/dns-guard.ts`                |
-| Wire-level auth    | AWS SigV4 / OAuth1 / WSSE signed in main, not renderer                                 | `shared/protocol/auth-signer.ts`                                                 |
-| Script sandbox     | QuickJS WASM, no DOM/fs/network, memory + time caps                                    | `src/features/scripts/lib/scriptExecutor.ts`                                     |
-| Redaction          | AI prompt + MCP/export redactors                                                       | `shared/protocol/ai/redaction.ts`, `electron/main/collection-export-redactor.ts` |
-| Supply chain       | Developer-ID signing + notarisation; CI guard refuses unsigned mac release             | `electron-builder.json`, `.github/workflows/release.yml`                         |
+| Layer                | Mechanism                                                                                              | Source                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| Process isolation    | `contextIsolation`, `sandbox`, `nodeIntegration:false`, `webSecurity`                                  | `electron/main/window-manager.ts`                                                |
+| IPC boundary         | `assertTrustedSender` frame allow-list (every handler) + Zod validation + per-`webContents` rate limit | `electron/main/ipc-validators.ts`                                                |
+| Renderer permissions | deny-by-default request/check handlers; only `clipboard-sanitized-write` granted                       | `electron/main/permission-policy.ts`                                             |
+| Content policy       | Production CSP: no remote `script-src`, `frame-ancestors 'none'`                                       | `electron/main/main.ts`                                                          |
+| Secret isolation     | `SecretRef` handles; no `secret:resolve` in preload                                                    | `electron/main/secret-handle-store.ts`                                           |
+| At-rest encryption   | electron-store + 256-bit key wrapped by OS keychain (`safeStorage`)                                    | `electron/main/encrypted-key.ts`                                                 |
+| SSRF / DNS           | shared URL validation + pinned/pre-flight DNS guard                                                    | `shared/protocol/url-validation.ts`, `electron/main/dns-guard.ts`                |
+| Wire-level auth      | AWS SigV4 / OAuth1 / WSSE signed in main, not renderer                                                 | `shared/protocol/auth-signer.ts`                                                 |
+| Script sandbox       | QuickJS WASM, no DOM/fs/network, memory + time caps                                                    | `src/features/scripts/lib/scriptExecutor.ts`                                     |
+| Redaction            | AI prompt + MCP/export redactors                                                                       | `shared/protocol/ai/redaction.ts`, `electron/main/collection-export-redactor.ts` |
+| Supply chain         | Developer-ID signing + notarisation; CI guard refuses unsigned mac release                             | `electron-builder.json`, `.github/workflows/release.yml`                         |
 
 The SSRF, sandbox, redaction, and worker-auth layers are documented in depth in
 [`docs/security.md`](./security.md) and the website Security model page; the rest
@@ -197,11 +198,11 @@ unfixable repeat-prompts).
 
 ## Platform asymmetry
 
-|                            | Desktop                       | Web                                                                  |
-| -------------------------- | ----------------------------- | -------------------------------------------------------------------- |
-| At-rest key                | OS keychain via `safeStorage` | In-memory / opt-in passphrase (PBKDF2) — no OS keychain in a browser |
-| mTLS, custom CA, SOCKS/PAC | ✅                            | ❌ (no browser TCP)                                                  |
-| SSRF guard                 | ✅ (+ DNS pinning)            | ✅ (Worker side)                                                     |
+|                            | Desktop                       | Web                                                                                              |
+| -------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| At-rest key                | OS keychain via `safeStorage` | None by default (`PlaintextKeyProvider`); opt-in PBKDF2 passphrase — no OS keychain in a browser |
+| mTLS, custom CA, SOCKS/PAC | ✅                            | ❌ (no browser TCP)                                                                              |
+| SSRF guard                 | ✅ (+ DNS pinning)            | ✅ (Worker side)                                                                                 |
 
 Capability parity is data-driven in `src/lib/shared/capabilities.ts` and gated
 by `npm run capabilities:check`. The UI surfaces "Desktop only" badges rather
