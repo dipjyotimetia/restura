@@ -26,6 +26,7 @@ import { isElectron, onMenuEvent } from '@/lib/shared/platform';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useAiChatStore } from '@/features/ai/store';
 import type { RequestMode, ActivePanel } from '@/types';
+import { isConnectionMode } from '@/types';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
 
@@ -49,6 +50,7 @@ const McpRequestBuilder = lazyComponent(
   () => import('@/features/mcp/components/McpRequestBuilder')
 );
 const KafkaClient = lazyComponent(() => import('@/features/kafka/components/KafkaClient'));
+const MqttClient = lazyComponent(() => import('@/features/mqtt/components/MqttClient'));
 
 // Below this width the fixed-width sidebar leaves too little room for the
 // workspace (URL bar / response status clip), so it auto-collapses. Manual
@@ -96,7 +98,7 @@ export default function Home() {
 
   const handleRequestModeChange = useCallback(
     (mode: RequestMode) => {
-      if (mode === 'graphql' || mode === 'websocket' || mode === 'socketio' || mode === 'kafka') {
+      if (isConnectionMode(mode)) {
         const tabId = openTabWithMode(mode);
         if (mode === 'graphql') {
           // Seed the URL only when the placeholder still holds the default.
@@ -254,6 +256,8 @@ export default function Home() {
         return <McpRequestBuilder />;
       case 'kafka':
         return <KafkaClient />;
+      case 'mqtt':
+        return <MqttClient />;
       default:
         return null;
     }

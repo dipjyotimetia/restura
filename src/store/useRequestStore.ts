@@ -23,6 +23,7 @@ import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
 
 interface ScriptResults {
   preRequest?: ScriptResult;
@@ -122,10 +123,14 @@ const createDefaultMcpRequest = (): McpRequest => ({
 
 function defaultRequestForType(type: RequestType): Request {
   switch (type) {
-    case 'http': return createDefaultHttpRequest();
-    case 'grpc': return createDefaultGrpcRequest();
-    case 'sse': return createDefaultSseRequest();
-    case 'mcp': return createDefaultMcpRequest();
+    case 'http':
+      return createDefaultHttpRequest();
+    case 'grpc':
+      return createDefaultGrpcRequest();
+    case 'sse':
+      return createDefaultSseRequest();
+    case 'mcp':
+      return createDefaultMcpRequest();
   }
 }
 
@@ -148,10 +153,12 @@ function dispatchTabCleanup(closedTabIds: string[]): void {
   const ws = useWebSocketStore.getState();
   const sio = useSocketIOStore.getState();
   const kafka = useKafkaStore.getState();
+  const mqtt = useMqttStore.getState();
   for (const id of closedTabIds) {
     ws.cleanupConnectionForTab(id);
     sio.cleanupConnectionForTab(id);
     kafka.cleanupConnectionForTab(id);
+    mqtt.cleanupConnectionForTab(id);
   }
 }
 
@@ -331,7 +338,8 @@ export const useRequestStore = create<RequestState>()(
 
         linkTabToSavedRequest: (tabId, savedRequestId) => {
           const existing = get().tabs.find((t) => t.id === tabId);
-          if (!existing || (existing.savedRequestId === savedRequestId && !existing.isDirty)) return;
+          if (!existing || (existing.savedRequestId === savedRequestId && !existing.isDirty))
+            return;
           set((s) => ({
             tabs: s.tabs.map((t) =>
               t.id === tabId ? { ...t, savedRequestId, isDirty: false } : t
@@ -364,10 +372,12 @@ export const useRequestStore = create<RequestState>()(
         // response: bodies can be tens of MB and already live in useHistoryStore;
         // rehydrate with response: null so the tab is restorable but doesn't
         // carry stale data on the hot path of every tab switch / write.
-        tabs: state.tabs.map(({ streamingEvents: _streamingEvents, response: _response, ...rest }) => ({
-          ...rest,
-          response: null,
-        })),
+        tabs: state.tabs.map(
+          ({ streamingEvents: _streamingEvents, response: _response, ...rest }) => ({
+            ...rest,
+            response: null,
+          })
+        ),
         activeTabId: state.activeTabId,
       }),
       migrate: (persistedState: unknown, version) => {

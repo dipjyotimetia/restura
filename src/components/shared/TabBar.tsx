@@ -18,11 +18,11 @@ import {
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
+import { isConnectionMode } from '@/types';
+import type { RequestMode, TabModeOverride } from '@/types';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 
-type NewRequestMode =
-  | 'http' | 'grpc' | 'sse' | 'mcp'
-  | 'graphql' | 'websocket' | 'socketio' | 'kafka';
+type NewRequestMode = RequestMode;
 
 interface TabStripProps {
   onSaveToCollection?: (tabId: string) => void;
@@ -31,7 +31,7 @@ interface TabStripProps {
    * (graphql, websocket, socketio, kafka). The orchestrator owns the mode
    * override; the TabStrip just announces intent.
    */
-  onChangeMode?: (mode: 'graphql' | 'websocket' | 'socketio' | 'kafka') => void;
+  onChangeMode?: (mode: TabModeOverride) => void;
 }
 
 /**
@@ -64,7 +64,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const clearTabDirty = useRequestStore((s) => s.clearTabDirty);
 
   const handleNewTab = (mode: NewRequestMode) => {
-    if (mode === 'graphql' || mode === 'websocket' || mode === 'socketio' || mode === 'kafka') {
+    if (isConnectionMode(mode)) {
       onChangeMode?.(mode);
       return;
     }
@@ -303,16 +303,12 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                     Save to Collection…
                   </ContextMenuItem>
                   {tab.isDirty && tab.savedRequestId && (
-                    <ContextMenuItem
-                      onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}
-                    >
+                    <ContextMenuItem onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}>
                       Save changes
                     </ContextMenuItem>
                   )}
                   <ContextMenuSeparator />
-                  <ContextMenuItem onClick={() => duplicateTab(tab.id)}>
-                    Duplicate
-                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => duplicateTab(tab.id)}>Duplicate</ContextMenuItem>
                   <ContextMenuItem onClick={() => closeTab(tab.id)}>Close</ContextMenuItem>
                   <ContextMenuItem onClick={() => closeOtherTabs(tab.id)}>
                     Close Others
@@ -340,30 +336,25 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleNewTab('http')}>
-                HTTP request
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewTab('http')}>HTTP request</DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleNewTab('graphql')}>
                 GraphQL request
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('grpc')}>
-                gRPC request
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('websocket')}>
-                WS
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewTab('grpc')}>gRPC request</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewTab('websocket')}>WS</DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleNewTab('socketio')}>
                 Socket.IO
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('sse')}>
-                SSE stream
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('mcp')}>
-                MCP request
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewTab('sse')}>SSE stream</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewTab('mcp')}>MCP request</DropdownMenuItem>
               {isElectron() && (
                 <DropdownMenuItem onClick={() => handleNewTab('kafka')}>
                   Kafka consumer
+                </DropdownMenuItem>
+              )}
+              {isElectron() && (
+                <DropdownMenuItem onClick={() => handleNewTab('mqtt')}>
+                  MQTT client
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

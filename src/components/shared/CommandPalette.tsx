@@ -32,6 +32,7 @@ import { useUiStore } from '@/store/useUiStore';
 import { useActiveResponse, useActiveTab } from '@/store/selectors';
 import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
+import { isConnectionMode } from '@/types';
 import type { Collection, CollectionItem, RequestType } from '@/types';
 
 interface CommandPaletteProps {
@@ -44,7 +45,7 @@ interface CommandPaletteProps {
   // the full RequestMode union. The original narrower type omitted graphql
   // because graphql lives under modeOverride rather than as a tab type.
   onChangeMode?: (
-    mode: 'http' | 'grpc' | 'websocket' | 'socketio' | 'sse' | 'mcp' | 'graphql' | 'kafka'
+    mode: 'http' | 'grpc' | 'websocket' | 'socketio' | 'sse' | 'mcp' | 'graphql' | 'kafka' | 'mqtt'
   ) => void;
   // Optional controlled mode — when both are provided the palette becomes
   // controlled (e.g. opened by the chrome Search pill). When omitted the
@@ -89,9 +90,7 @@ function flattenCollectionRequests(
       } else if (item.type === 'request' && item.request) {
         const req = item.request;
         const method =
-          'method' in req && typeof req.method === 'string'
-            ? req.method
-            : req.type.toUpperCase();
+          'method' in req && typeof req.method === 'string' ? req.method : req.type.toUpperCase();
         out.push({
           id: item.id,
           name: item.name,
@@ -196,7 +195,8 @@ export default function CommandPalette({
       if (seenRecent.has(h.request.id)) continue;
       seenRecent.add(h.request.id);
       const req = h.request;
-      const method = 'method' in req && typeof req.method === 'string' ? req.method : req.type.toUpperCase();
+      const method =
+        'method' in req && typeof req.method === 'string' ? req.method : req.type.toUpperCase();
       items.push({
         id: `recent-${h.id}`,
         kind: 'request',
@@ -299,8 +299,12 @@ export default function CommandPalette({
       onSelect: clearHistory,
     });
 
-    // New group — Kafka is desktop-only (worker can't open raw TCP).
-    const newProtos: Array<{ proto: string; type: RequestType | 'websocket' | 'socketio' | 'graphql' | 'kafka'; label: string }> = [
+    // New group — Kafka and MQTT are desktop-only (worker can't open raw TCP).
+    const newProtos: Array<{
+      proto: string;
+      type: RequestType | 'websocket' | 'socketio' | 'graphql' | 'kafka' | 'mqtt';
+      label: string;
+    }> = [
       { proto: 'HTTP', type: 'http', label: 'New HTTP request' },
       { proto: 'GRPC', type: 'grpc', label: 'New gRPC request' },
       { proto: 'GQL', type: 'graphql', label: 'New GraphQL request' },
@@ -308,7 +312,12 @@ export default function CommandPalette({
       { proto: 'SOCKETIO', type: 'socketio', label: 'New Socket.IO' },
       { proto: 'SSE', type: 'sse', label: 'New SSE stream' },
       { proto: 'MCP', type: 'mcp', label: 'New MCP request' },
-      ...(isElectron() ? [{ proto: 'KAFKA', type: 'kafka' as const, label: 'New Kafka consumer' }] : []),
+      ...(isElectron()
+        ? [
+            { proto: 'KAFKA', type: 'kafka' as const, label: 'New Kafka consumer' },
+            { proto: 'MQTT', type: 'mqtt' as const, label: 'New MQTT client' },
+          ]
+        : []),
     ];
     for (const p of newProtos) {
       items.push({
@@ -318,12 +327,7 @@ export default function CommandPalette({
         name: p.label,
         proto: p.proto,
         onSelect: () => {
-          if (
-            p.type === 'graphql' ||
-            p.type === 'websocket' ||
-            p.type === 'socketio' ||
-            p.type === 'kafka'
-          ) {
+          if (isConnectionMode(p.type)) {
             onChangeMode?.(p.type);
           } else {
             createNewRequest(p.type);
@@ -422,7 +426,14 @@ export default function CommandPalette({
 
   // Group preserving original order
   const grouped = useMemo(() => {
-    const order: Array<PaletteItem['group']> = ['Recent', 'Requests', 'Actions', 'New', 'Environments', 'Settings'];
+    const order: Array<PaletteItem['group']> = [
+      'Recent',
+      'Requests',
+      'Actions',
+      'New',
+      'Environments',
+      'Settings',
+    ];
     const map = new Map<PaletteItem['group'], PaletteItem[]>();
     for (const g of order) map.set(g, []);
     for (const it of filtered) map.get(it.group)?.push(it);
@@ -525,11 +536,7 @@ export default function CommandPalette({
           </div>
 
           {/* List */}
-          <div
-            ref={listRef}
-            className="flex-1 overflow-y-auto py-2"
-            style={{ minHeight: 0 }}
-          >
+          <div ref={listRef} className="flex-1 overflow-y-auto py-2" style={{ minHeight: 0 }}>
             {filtered.length === 0 ? (
               <div className="px-4 py-12 text-center text-sp-muted text-sp-12">
                 No matches for &lsquo;{query}&rsquo;
@@ -560,9 +567,7 @@ export default function CommandPalette({
           </div>
 
           {/* Footer */}
-          <div
-            className="flex items-center justify-between border-t border-sp-line px-4 py-2 text-sp-11 text-sp-muted"
-          >
+          <div className="flex items-center justify-between border-t border-sp-line px-4 py-2 text-sp-11 text-sp-muted">
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center gap-1">
                 <Kbd size="xs">↑</Kbd>
@@ -607,7 +612,8 @@ const PROTO_ICON: Record<string, LucideIcon> = {
 };
 
 function PaletteRow({ item, index, active, onMouseEnter, onClick }: PaletteRowProps) {
-  const Icon = item.icon ?? (item.kind === 'new' && item.proto ? PROTO_ICON[item.proto] : undefined);
+  const Icon =
+    item.icon ?? (item.kind === 'new' && item.proto ? PROTO_ICON[item.proto] : undefined);
 
   return (
     <div
