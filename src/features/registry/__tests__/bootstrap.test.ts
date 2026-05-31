@@ -13,8 +13,21 @@ describe('protocol bootstrap', () => {
   it('registers every wire protocol Restura supports', async () => {
     await import('../bootstrap');
     const { protocolRegistry } = await import('../registry');
-    const ids = protocolRegistry.list().map((p) => p.id).sort();
-    expect(ids).toEqual(['graphql', 'grpc', 'http', 'kafka', 'mcp', 'socketio', 'sse', 'websocket']);
+    const ids = protocolRegistry
+      .list()
+      .map((p) => p.id)
+      .sort();
+    expect(ids).toEqual([
+      'graphql',
+      'grpc',
+      'http',
+      'kafka',
+      'mcp',
+      'mqtt',
+      'socketio',
+      'sse',
+      'websocket',
+    ]);
   });
 
   it('every registered protocol has the required fields', async () => {

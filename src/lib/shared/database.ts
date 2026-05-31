@@ -101,6 +101,7 @@ export type WebSocketConnectionsRecord = NamedEncryptedRecord;
 export type SseConnectionsRecord = NamedEncryptedRecord;
 export type McpConnectionsRecord = NamedEncryptedRecord;
 export type KafkaConnectionsRecord = NamedEncryptedRecord;
+export type MqttConnectionsRecord = NamedEncryptedRecord;
 export type SocketIoConnectionsRecord = NamedEncryptedRecord;
 export type ConsoleRecord = NamedEncryptedRecord;
 export type GraphqlSchemaRecord = NamedEncryptedRecord;
@@ -131,6 +132,7 @@ export class ResturaDB extends Dexie {
   sseConnections!: Table<SseConnectionsRecord, string>;
   mcpConnections!: Table<McpConnectionsRecord, string>;
   kafkaConnections!: Table<KafkaConnectionsRecord, string>;
+  mqttConnections!: Table<MqttConnectionsRecord, string>;
   socketioConnections!: Table<SocketIoConnectionsRecord, string>;
   console!: Table<ConsoleRecord, string>;
   graphqlSchemas!: Table<GraphqlSchemaRecord, string>;
@@ -216,6 +218,12 @@ export class ResturaDB extends Dexie {
       // Postman-compatible: workspace-wide vars survive environment switches.
       globals: 'id, name, updatedAt',
     });
+
+    this.version(10).stores({
+      // MQTT connections — same encrypted NamedEncryptedRecord shape as the
+      // other connection-based protocols (Kafka, WebSocket, Socket.IO).
+      mqttConnections: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -238,6 +246,7 @@ export class ResturaDB extends Dexie {
         this.sseConnections,
         this.mcpConnections,
         this.kafkaConnections,
+        this.mqttConnections,
         this.socketioConnections,
         this.console,
         this.graphqlSchemas,
@@ -260,6 +269,7 @@ export class ResturaDB extends Dexie {
           this.sseConnections.clear(),
           this.mcpConnections.clear(),
           this.kafkaConnections.clear(),
+          this.mqttConnections.clear(),
           this.socketioConnections.clear(),
           this.console.clear(),
           this.graphqlSchemas.clear(),
@@ -292,6 +302,7 @@ export class ResturaDB extends Dexie {
       sseConnections: await this.sseConnections.count(),
       mcpConnections: await this.mcpConnections.count(),
       kafkaConnections: await this.kafkaConnections.count(),
+      mqttConnections: await this.mqttConnections.count(),
       socketioConnections: await this.socketioConnections.count(),
       console: await this.console.count(),
       graphqlSchemas: await this.graphqlSchemas.count(),
@@ -331,6 +342,7 @@ export class ResturaDB extends Dexie {
       sseConnections?: SseConnectionsRecord[];
       mcpConnections?: McpConnectionsRecord[];
       kafkaConnections?: KafkaConnectionsRecord[];
+      mqttConnections?: MqttConnectionsRecord[];
       socketioConnections?: SocketIoConnectionsRecord[];
     };
   }> {
@@ -351,6 +363,7 @@ export class ResturaDB extends Dexie {
         sseConnections: await this.sseConnections.toArray(),
         mcpConnections: await this.mcpConnections.toArray(),
         kafkaConnections: await this.kafkaConnections.toArray(),
+        mqttConnections: await this.mqttConnections.toArray(),
         socketioConnections: await this.socketioConnections.toArray(),
       },
     };
@@ -375,6 +388,7 @@ export class ResturaDB extends Dexie {
       sseConnections?: SseConnectionsRecord[];
       mcpConnections?: McpConnectionsRecord[];
       kafkaConnections?: KafkaConnectionsRecord[];
+      mqttConnections?: MqttConnectionsRecord[];
       socketioConnections?: SocketIoConnectionsRecord[];
     };
   }): Promise<void> {
@@ -394,6 +408,7 @@ export class ResturaDB extends Dexie {
         this.sseConnections,
         this.mcpConnections,
         this.kafkaConnections,
+        this.mqttConnections,
         this.socketioConnections,
       ],
       async () => {
@@ -416,6 +431,8 @@ export class ResturaDB extends Dexie {
           await this.mcpConnections.bulkPut(backup.data.mcpConnections);
         if (backup.data.kafkaConnections)
           await this.kafkaConnections.bulkPut(backup.data.kafkaConnections);
+        if (backup.data.mqttConnections)
+          await this.mqttConnections.bulkPut(backup.data.mqttConnections);
         if (backup.data.socketioConnections)
           await this.socketioConnections.bulkPut(backup.data.socketioConnections);
       }

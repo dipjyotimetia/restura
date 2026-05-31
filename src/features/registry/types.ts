@@ -8,7 +8,7 @@ import type { Request, Response, RequestType, ScriptResult } from '@/types';
  * registry only uses this for diagnostics / metadata, so widening it here
  * doesn't pollute the narrower `Request` union used by stores and selectors.
  */
-export type ProtocolTabType = RequestType | 'graphql' | 'websocket' | 'kafka' | 'socketio';
+export type ProtocolTabType = RequestType | 'graphql' | 'websocket' | 'kafka' | 'mqtt' | 'socketio';
 
 export interface ProtocolScriptResult {
   preRequest?: ScriptResult;
@@ -84,10 +84,7 @@ export interface ProtocolModule {
    * MCP is session-based JSON-RPC; it uses `runJsonRpc` (defined on
    * the MCP module specifically) rather than `startStream`.
    */
-  startStream?: (
-    request: unknown,
-    ctx: RunContext
-  ) => Promise<ProtocolStreamHandle>;
+  startStream?: (request: unknown, ctx: RunContext) => Promise<ProtocolStreamHandle>;
 }
 
 /**

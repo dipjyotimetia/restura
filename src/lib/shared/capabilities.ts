@@ -30,6 +30,7 @@ export type CapabilityName =
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'kafka.basic'
+  | 'mqtt.basic'
   | 'socketio.basic'
   | 'ai.basic'
   | 'collections.file'
@@ -133,6 +134,12 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: 'Native broker protocol; no browser TCP',
+  },
+  'mqtt.basic': {
+    label: 'MQTT publish / subscribe',
+    web: false,
+    desktop: true,
+    notes: 'Native broker protocol over raw TCP/TLS; no browser TCP',
   },
   'socketio.basic': { label: 'Socket.IO client', web: true, desktop: true },
   'ai.basic': {

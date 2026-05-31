@@ -359,6 +359,72 @@ const electronAPI = {
     ...channelEventBridge(CHANNEL_PREFIXES.kafka),
   },
 
+  // MQTT publish/subscribe operations (desktop-only)
+  mqtt: {
+    connect: (config: {
+      connectionId: string;
+      brokerUrl: string;
+      protocolVersion: 4 | 5;
+      clientId: string;
+      keepalive: number;
+      cleanStart: boolean;
+      connectTimeout: number;
+      autoReconnect: boolean;
+      username?: string;
+      password?: string;
+      tls?: {
+        ca?: string;
+        cert?: string;
+        key?: string;
+        passphrase?: string;
+        rejectUnauthorized?: boolean;
+      };
+      lwt?: { topic: string; payload: string; qos: 0 | 1 | 2; retain: boolean };
+      sessionExpiryInterval?: number;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.mqtt.connect, config),
+
+    publish: (config: {
+      connectionId: string;
+      topic: string;
+      payload: string;
+      qos: 0 | 1 | 2;
+      retain: boolean;
+      userProperties?: Record<string, string | string[]>;
+      messageExpiryInterval?: number;
+      contentType?: string;
+      responseTopic?: string;
+    }): Promise<{
+      success: boolean;
+      ack?: {
+        topic: string;
+        qos: 0 | 1 | 2;
+        packetId?: number;
+        reasonCode?: number;
+        timestamp: number;
+      };
+      error?: string;
+    }> => ipcRenderer.invoke(IPC.mqtt.publish, config),
+
+    subscribe: (config: {
+      connectionId: string;
+      topicFilter: string;
+      qos: 0 | 1 | 2;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.mqtt.subscribe, config),
+
+    unsubscribe: (config: {
+      connectionId: string;
+      topicFilter: string;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.mqtt.unsubscribe, config),
+
+    disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke(IPC.mqtt.disconnect, config),
+
+    ...channelEventBridge(CHANNEL_PREFIXES.mqtt),
+  },
+
   // Native notifications
   notification: {
     isSupported: (): Promise<boolean> => ipcRenderer.invoke(IPC.notification.isSupported),
