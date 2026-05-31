@@ -198,7 +198,8 @@ export function PrivacyControls() {
           Privacy & Data Controls
         </h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Your data is stored locally and encrypted. No data is sent to external servers.
+          Your data is stored locally and encrypted. Only opt-out crash/error reports are sent — see
+          below.
         </p>
       </div>
       <div className="space-y-4">
