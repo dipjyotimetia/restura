@@ -1,29 +1,18 @@
 'use client';
 
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Logo } from '@/components/shared/Logo';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { Floater, Kbd, Segmented, Stepper, TextField, ToggleField } from '@/components/ui/spatial';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
 import { useStorageMonitor } from '@/hooks/useStorageMonitor';
 import {
   clearDexieStorage,
   exportDexieData,
-  getDexieStorageStats,
   importDexieData,
   secureDeleteAllDexieData,
 } from '@/lib/shared/dexie-storage';
-import { readFileAsText } from '@/lib/shared/file-utils';
+import { downloadBlob, readFileAsText } from '@/lib/shared/file-utils';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
@@ -1178,66 +1167,22 @@ function DataButton({
   );
 }
 
-/** A destructive action gated behind an AlertDialog confirmation. */
-function ConfirmDestructive({
-  trigger,
-  title,
-  description,
-  confirmLabel,
-  onConfirm,
-}: {
-  trigger: React.ReactNode;
-  title: string;
-  description: string;
-  confirmLabel: string;
-  onConfirm: () => void;
-}) {
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            className="bg-destructive text-destructive-foreground"
-          >
-            {confirmLabel}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
 function DataSection() {
-  const { status, formattedUsed, formattedAvailable } = useStorageMonitor();
-  const [records, setRecords] = useState<number | null>(null);
+  // autoPrune:false — this is a display-only usage indicator; don't silently
+  // prune history just because the user opened the Data tab.
+  const { status, checkStorage, formattedUsed, formattedAvailable } = useStorageMonitor({
+    autoPrune: false,
+  });
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<null | 'clear' | 'secure'>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const refreshStats = useCallback(async () => {
-    try {
-      setRecords((await getDexieStorageStats()).totalRecords);
-    } catch {
-      /* stats are best-effort */
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshStats();
-  }, [refreshStats]);
 
   const run = useCallback(
     async (action: () => Promise<void>, success: string, failPrefix: string) => {
       setBusy(true);
       try {
         await action();
-        await refreshStats();
+        await checkStorage();
         toast.success(success);
       } catch (e) {
         toast.error(`${failPrefix}: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -1245,22 +1190,16 @@ function DataSection() {
         setBusy(false);
       }
     },
-    [refreshStats]
+    [checkStorage]
   );
 
   const handleExport = () =>
     run(
-      async () => {
-        const blob = new Blob([await exportDexieData()], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `restura-backup-${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      },
+      async () =>
+        downloadBlob(
+          await exportDexieData(),
+          `restura-backup-${new Date().toISOString().split('T')[0]}.json`
+        ),
       'Data exported',
       'Export failed'
     );
@@ -1274,6 +1213,20 @@ function DataSection() {
       'Data imported — reload to see changes',
       'Import failed'
     );
+  };
+
+  const confirmDestructive = () => {
+    const which = confirm;
+    setConfirm(null);
+    if (which === 'clear') {
+      void run(clearDexieStorage, 'All data cleared — reload to reset', 'Clear failed');
+    } else if (which === 'secure') {
+      void run(
+        secureDeleteAllDexieData,
+        'All data securely deleted — reload to reset',
+        'Secure delete failed'
+      );
+    }
   };
 
   const levelColor =
@@ -1296,7 +1249,7 @@ function DataSection() {
         <Floater radius="panel" elevation="inset" className="p-4 space-y-2">
           <div className="flex items-center justify-between text-sp-12 font-mono text-sp-muted">
             <span>
-              {records ?? '—'} records · {formattedUsed}
+              {status.totalRecords} records · {formattedUsed}
             </span>
             <span>
               {status.percentage.toFixed(1)}% of {formattedAvailable}
@@ -1337,38 +1290,30 @@ function DataSection() {
       <section className="mt-5">
         <SectionLabel>Danger zone</SectionLabel>
         <Floater radius="panel" elevation="inset" className="p-4 flex flex-wrap gap-2">
-          <ConfirmDestructive
-            trigger={
-              <DataButton disabled={busy} icon={Trash2} danger>
-                Clear all data
-              </DataButton>
-            }
-            title="Clear all data?"
-            description="Permanently deletes all collections, history, environments, and settings from this device. This cannot be undone."
-            confirmLabel="Clear all"
-            onConfirm={() =>
-              void run(clearDexieStorage, 'All data cleared — reload to reset', 'Clear failed')
-            }
-          />
-          <ConfirmDestructive
-            trigger={
-              <DataButton disabled={busy} icon={Trash2} danger>
-                Secure delete
-              </DataButton>
-            }
-            title="Securely delete all data?"
-            description="Overwrites every stored record with random data before deleting it, then wipes the database — for use on a shared machine. This cannot be undone."
-            confirmLabel="Secure delete"
-            onConfirm={() =>
-              void run(
-                secureDeleteAllDexieData,
-                'All data securely deleted — reload to reset',
-                'Secure delete failed'
-              )
-            }
-          />
+          <DataButton onClick={() => setConfirm('clear')} disabled={busy} icon={Trash2} danger>
+            Clear all data
+          </DataButton>
+          <DataButton onClick={() => setConfirm('secure')} disabled={busy} icon={Trash2} danger>
+            Secure delete
+          </DataButton>
         </Floater>
       </section>
+
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+        variant="destructive"
+        title={confirm === 'secure' ? 'Securely delete all data?' : 'Clear all data?'}
+        description={
+          confirm === 'secure'
+            ? 'Overwrites every stored record with random data before deleting it, then wipes the database — for use on a shared machine. This cannot be undone.'
+            : 'Permanently deletes all collections, history, environments, and settings from this device. This cannot be undone.'
+        }
+        confirmText={confirm === 'secure' ? 'Secure delete' : 'Clear all'}
+        onConfirm={confirmDestructive}
+      />
     </>
   );
 }

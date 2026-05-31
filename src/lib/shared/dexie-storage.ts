@@ -431,32 +431,24 @@ export async function secureDeleteRecord(tableName: StorageTableName, id: string
   }
 }
 
-// Encrypted user-data tables. Connection/console/schema tables carry no secrets
-// and are wiped by clearDexieStorage, so they're not overwritten here.
-const SECURE_DELETE_TABLES: StorageTableName[] = [
-  'collections',
-  'environments',
-  'history',
-  'settings',
-  'cookies',
-  'workflows',
-  'workflowExecutions',
-  'fileCollections',
-];
+// Every persisted table holds encrypted data (all dexieStorageAdapters set
+// encrypt: true), so secure-delete overwrites all of them. Derived from the
+// adapter registry rather than hand-listed so a newly-added table can't silently
+// escape the overwrite and leak recoverable ciphertext.
+const ENCRYPTED_TABLES = Object.keys(dexieStorageAdapters) as StorageTableName[];
 
 /**
- * Securely wipe all data: overwrite every encrypted user-data record with random
- * bytes (so freed IndexedDB pages can't yield recoverable ciphertext), then clear
- * the entire database. Reuses {@link secureDeleteRecord} per record and
- * {@link clearDexieStorage} for the final wipe + key-cache reset.
+ * Securely wipe all data: overwrite every record in every encrypted table with
+ * random bytes (so freed IndexedDB pages can't yield recoverable ciphertext),
+ * then clear the database. Overwrites in one bulk write per table; the actual
+ * deletion + key-cache reset is deferred to {@link clearDexieStorage}.
  */
 export async function secureDeleteAllDexieData(): Promise<void> {
-  for (const tableName of SECURE_DELETE_TABLES) {
-    const table = getTable(tableName);
-    const records = (await table.toArray()) as Array<{ id: string }>;
-    for (const { id } of records) {
-      await secureDeleteRecord(tableName, id);
-    }
+  for (const tableName of ENCRYPTED_TABLES) {
+    const ids = (await getTable(tableName).toCollection().primaryKeys()) as string[];
+    // Overwrite a table's records concurrently; tables stay sequential to bound
+    // peak memory. clearDexieStorage then does the final wipe + key-cache reset.
+    await Promise.all(ids.map((id) => secureDeleteRecord(tableName, id)));
   }
   await clearDexieStorage();
 }
