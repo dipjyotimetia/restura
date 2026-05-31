@@ -33,7 +33,7 @@ function pushConsent(enabled: boolean): void {
 /**
  * Push the current opt-in flag to main, then forward every change. The store
  * rehydrates from Dexie asynchronously, so the initial push may carry the
- * default (false); the subscription then catches the rehydrated value.
+ * default (true); the subscription then catches the rehydrated value if it differs.
  */
 function subscribeConsent(): void {
   if (consentSubscribed) return;

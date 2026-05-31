@@ -198,8 +198,7 @@ export function PrivacyControls() {
           Privacy & Data Controls
         </h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Your data is stored locally and encrypted. Only opt-out crash/error reports are sent — see
-          below.
+          Your data is stored locally and encrypted. No data is sent to external servers.
         </p>
       </div>
       <div className="space-y-4">
@@ -302,10 +301,7 @@ export function PrivacyControls() {
         <div className="text-xs text-muted-foreground mt-4 space-y-1">
           <p>All data is encrypted with AES-256-GCM before storage.</p>
           <p>Encryption keys are derived locally and never leave your device.</p>
-          <p>
-            No product analytics. Crash and error reports (message, stack, app version) are sent to
-            help fix bugs — never request payloads, headers, or response bodies.
-          </p>
+          <p>No analytics, telemetry, or external network calls.</p>
         </div>
       </div>
     </div>
