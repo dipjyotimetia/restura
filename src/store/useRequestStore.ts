@@ -23,6 +23,7 @@ import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
 
 interface ScriptResults {
   preRequest?: ScriptResult;
@@ -152,10 +153,12 @@ function dispatchTabCleanup(closedTabIds: string[]): void {
   const ws = useWebSocketStore.getState();
   const sio = useSocketIOStore.getState();
   const kafka = useKafkaStore.getState();
+  const mqtt = useMqttStore.getState();
   for (const id of closedTabIds) {
     ws.cleanupConnectionForTab(id);
     sio.cleanupConnectionForTab(id);
     kafka.cleanupConnectionForTab(id);
+    mqtt.cleanupConnectionForTab(id);
   }
 }
 
