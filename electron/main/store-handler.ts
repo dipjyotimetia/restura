@@ -10,6 +10,7 @@ import {
   StoreValueSchema,
   createValidatedHandler,
   validateIpcInput,
+  assertTrustedSender,
 } from './ipc-validators';
 import { getOrCreateEncryptedKey, getOrCreateEncryptedKeyAsync } from './encrypted-key';
 import { createLogger } from '../../src/lib/shared/logger';
@@ -98,8 +99,11 @@ export function registerStoreHandlerIPC(): void {
     )
   );
 
-  // store:set takes two args: key and value — validate both
-  ipcMain.handle(IPC.store.set, async (_event, key: unknown, value: unknown): Promise<void> => {
+  // store:set takes two positional args (key, value), so it can't use the
+  // single-arg createValidatedHandler wrapper — validate the sender frame and
+  // both args explicitly, matching the wrapper's guarantees.
+  ipcMain.handle(IPC.store.set, async (event, key: unknown, value: unknown): Promise<void> => {
+    assertTrustedSender(IPC.store.set, event);
     const validKey = validateIpcInput(StoreKeySchema, key, IPC.store.set);
     const validValue = validateIpcInput(StoreValueSchema, value, IPC.store.set);
     try {
@@ -128,7 +132,8 @@ export function registerStoreHandlerIPC(): void {
     })
   );
 
-  ipcMain.handle(IPC.store.clear, async (): Promise<void> => {
+  ipcMain.handle(IPC.store.clear, async (event): Promise<void> => {
+    assertTrustedSender(IPC.store.clear, event);
     try {
       getStoreInstance().clear();
     } catch (error) {

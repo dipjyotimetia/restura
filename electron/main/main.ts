@@ -27,6 +27,7 @@ import {
 } from './secret-handle-store';
 import { registerVaultHandlers, unregisterVaultHandlers, initVaultStore } from './vault-handler';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
+import { applyPermissionPolicy } from './permission-policy';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
 import {
@@ -276,6 +277,7 @@ app.whenReady().then(async () => {
   }
 
   setupContentSecurityPolicy();
+  applyPermissionPolicy(session.defaultSession);
   registerIPCHandlers();
 
   const initialWindow = createMainWindow(isDev);
