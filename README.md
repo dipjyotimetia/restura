@@ -16,7 +16,7 @@
 &nbsp;
 [![Download](https://img.shields.io/badge/Download_Desktop-14121F?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/dipjyotimetia/restura/releases/latest)
 &nbsp;
-[![Docs](https://img.shields.io/badge/Documentation-14121F?style=for-the-badge&logo=readthedocs&logoColor=white)](docs/ARCHITECTURE.md)
+[![Docs](https://img.shields.io/badge/Documentation-14121F?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.restura.dev/)
 
 </div>
 
@@ -229,6 +229,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit format, and th
 
 ## Links
 
+- [**Documentation**](https://docs.restura.dev/) — guides, references, and how-tos
 - [**Architecture**](docs/ARCHITECTURE.md) — system design, security model, IPC internals
 - [**Roadmap**](docs/ROADMAP.md) — what's planned
 - [**Changelog**](docs/CHANGELOG.md) — what's shipped
