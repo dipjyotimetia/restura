@@ -88,7 +88,6 @@ export default defineConfig({
             { label: 'Overview', slug: 'architecture/overview' },
             { label: 'Shared protocol layer', slug: 'architecture/shared-protocol' },
             { label: 'Security model', slug: 'architecture/security' },
-            { label: 'Security design', slug: 'architecture/security-design' },
             {
               label: 'Design decisions (ADRs)',
               collapsed: false,
@@ -101,10 +100,6 @@ export default defineConfig({
                 { label: '0005 — CLI runner', slug: 'architecture/adrs/0005-cli-runner' },
                 { label: '0006 — Connection + DNS hardening', slug: 'architecture/adrs/0006-connection-and-dns-hardening' },
                 { label: '0007 — SecretRef pattern', slug: 'architecture/adrs/0007-secret-ref-pattern' },
-                {
-                  label: '0008 — Keystore + renderer hardening',
-                  slug: 'architecture/adrs/0008-keystore-and-renderer-hardening',
-                },
               ],
             },
           ],

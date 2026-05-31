@@ -13,7 +13,6 @@ export type ConsoleProtocol =
   | 'sse'
   | 'websocket'
   | 'kafka'
-  | 'mqtt'
   | 'socketio';
 
 export type ConsoleStatusFilter = 'all' | '2xx' | '3xx' | '4xx' | '5xx' | 'errored';
@@ -53,7 +52,7 @@ export interface ConsoleEntry {
   iteration?: number;
 }
 
-export type FrameProtocol = 'websocket' | 'socketio' | 'kafka' | 'mqtt';
+export type FrameProtocol = 'websocket' | 'socketio' | 'kafka';
 export type FrameDirection = 'in' | 'out' | 'system';
 
 export interface ConsoleFrame {
@@ -113,8 +112,6 @@ interface ConsoleState {
   removeEntry: (id: string) => void;
   togglePin: (id: string) => void;
   addFrame: (frame: Omit<ConsoleFrame, 'id'>) => void;
-  /** Batch append — one store update for many frames (high-throughput streams). */
-  addFrames: (frames: Array<Omit<ConsoleFrame, 'id'>>) => void;
   clearFrames: () => void;
   selectEntry: (id: string | null) => void;
   setExpanded: (expanded: boolean) => void;
@@ -224,16 +221,6 @@ export const useConsoleStore = create<ConsoleState>()(
               ? state.frames.slice(state.frames.length - (MAX_FRAMES - 1))
               : state.frames.slice();
           next.push(newFrame);
-          return { frames: next };
-        }),
-
-      addFrames: (frames) =>
-        set((state) => {
-          if (frames.length === 0) return state;
-          const incoming: ConsoleFrame[] = frames.map((f) => ({ ...f, id: uuidv4() }));
-          const merged = state.frames.concat(incoming);
-          const next =
-            merged.length > MAX_FRAMES ? merged.slice(merged.length - MAX_FRAMES) : merged;
           return { frames: next };
         }),
 

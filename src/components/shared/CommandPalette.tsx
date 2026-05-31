@@ -32,7 +32,6 @@ import { useUiStore } from '@/store/useUiStore';
 import { useActiveResponse, useActiveTab } from '@/store/selectors';
 import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
-import { isConnectionMode } from '@/types';
 import type { Collection, CollectionItem, RequestType } from '@/types';
 
 interface CommandPaletteProps {
@@ -45,7 +44,7 @@ interface CommandPaletteProps {
   // the full RequestMode union. The original narrower type omitted graphql
   // because graphql lives under modeOverride rather than as a tab type.
   onChangeMode?: (
-    mode: 'http' | 'grpc' | 'websocket' | 'socketio' | 'sse' | 'mcp' | 'graphql' | 'kafka' | 'mqtt'
+    mode: 'http' | 'grpc' | 'websocket' | 'socketio' | 'sse' | 'mcp' | 'graphql' | 'kafka'
   ) => void;
   // Optional controlled mode — when both are provided the palette becomes
   // controlled (e.g. opened by the chrome Search pill). When omitted the
@@ -299,10 +298,10 @@ export default function CommandPalette({
       onSelect: clearHistory,
     });
 
-    // New group — Kafka and MQTT are desktop-only (worker can't open raw TCP).
+    // New group — Kafka is desktop-only (worker can't open raw TCP).
     const newProtos: Array<{
       proto: string;
-      type: RequestType | 'websocket' | 'socketio' | 'graphql' | 'kafka' | 'mqtt';
+      type: RequestType | 'websocket' | 'socketio' | 'graphql' | 'kafka';
       label: string;
     }> = [
       { proto: 'HTTP', type: 'http', label: 'New HTTP request' },
@@ -313,10 +312,7 @@ export default function CommandPalette({
       { proto: 'SSE', type: 'sse', label: 'New SSE stream' },
       { proto: 'MCP', type: 'mcp', label: 'New MCP request' },
       ...(isElectron()
-        ? [
-            { proto: 'KAFKA', type: 'kafka' as const, label: 'New Kafka consumer' },
-            { proto: 'MQTT', type: 'mqtt' as const, label: 'New MQTT client' },
-          ]
+        ? [{ proto: 'KAFKA', type: 'kafka' as const, label: 'New Kafka consumer' }]
         : []),
     ];
     for (const p of newProtos) {
@@ -327,7 +323,12 @@ export default function CommandPalette({
         name: p.label,
         proto: p.proto,
         onSelect: () => {
-          if (isConnectionMode(p.type)) {
+          if (
+            p.type === 'graphql' ||
+            p.type === 'websocket' ||
+            p.type === 'socketio' ||
+            p.type === 'kafka'
+          ) {
             onChangeMode?.(p.type);
           } else {
             createNewRequest(p.type);

@@ -79,13 +79,6 @@ export const IPC = {
     unsubscribe: 'kafka:unsubscribe',
     disconnect: 'kafka:disconnect',
   },
-  mqtt: {
-    connect: 'mqtt:connect',
-    publish: 'mqtt:publish',
-    subscribe: 'mqtt:subscribe',
-    unsubscribe: 'mqtt:unsubscribe',
-    disconnect: 'mqtt:disconnect',
-  },
   notification: {
     isSupported: 'notification:isSupported',
     show: 'notification:show',
@@ -198,14 +191,6 @@ export const EVENT_PREFIX = {
     consumerClosed: 'kafka:consumer-closed:',
     close: 'kafka:close:',
   },
-  mqtt: {
-    connected: 'mqtt:connected:',
-    message: 'mqtt:message:',
-    error: 'mqtt:error:',
-    subscribed: 'mqtt:subscribed:',
-    unsubscribed: 'mqtt:unsubscribed:',
-    close: 'mqtt:close:',
-  },
   ai: {
     chunk: 'ai:chat:chunk:',
     end: 'ai:chat:end:',
@@ -229,14 +214,20 @@ export const CHANNEL_PREFIXES = {
   sse: 'sse:',
   mcp: 'mcp:',
   kafka: 'kafka:',
-  mqtt: 'mqtt:',
 } as const;
 
 /**
  * Top-level menu/app event channels the renderer may subscribe to via the
  * generic `window.electron.on(...)` bridge.
  */
-export const VALID_EVENT_CHANNELS = ['menu:settings', 'app:check-updates', 'deep-link'] as const;
+export const VALID_EVENT_CHANNELS = [
+  'menu:import',
+  'menu:export',
+  'menu:new-request',
+  'app:focus',
+  'app:check-updates',
+  'deep-link',
+] as const;
 
 /** Flat list of every static `ipcMain.handle` / `ipcMain.on` channel. */
 export const ALL_IPC_CHANNELS: readonly string[] = Object.values(IPC).flatMap((group) =>

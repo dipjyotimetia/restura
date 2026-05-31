@@ -10,7 +10,7 @@ import type {
 } from '@platformatic/kafka';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
-import { emitTo, errorMessage } from './ipc-utils';
+import { emitTo } from './ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
 import { IPC } from '../shared/channels';
 import { assertKafkaBrokersSafe } from './kafka-broker-guard';
@@ -85,6 +85,10 @@ function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): v
     return;
   }
   emitTo(entry.webContentsId, channel, ...args);
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function buildClientOptions(cfg: KafkaConnectConfig): KafkaClientOptions {

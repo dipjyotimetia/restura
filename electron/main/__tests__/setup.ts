@@ -47,9 +47,6 @@ vi.mock('electron', () => {
       isEncryptionAvailable: vi.fn(),
       encryptString: vi.fn(),
       decryptString: vi.fn(),
-      isAsyncEncryptionAvailable: vi.fn(),
-      encryptStringAsync: vi.fn(),
-      decryptStringAsync: vi.fn(),
     },
   };
 });

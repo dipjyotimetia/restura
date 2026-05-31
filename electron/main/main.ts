@@ -9,7 +9,6 @@ import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './socketio-hand
 import { registerSseHandlerIPC, stopSseCleanup } from './sse-handler';
 import { registerMcpHandlerIPC, stopMcpCleanup } from './mcp-handler';
 import { registerKafkaHandlerIPC, stopKafkaCleanup } from './kafka-handler';
-import { registerMqttHandlerIPC, stopMqttCleanup } from './mqtt-handler';
 import { registerGrpcReflectionIPC } from './grpc-reflection-handler';
 import { logRequest, registerRequestLoggerIPC } from './request-logger';
 import { registerWindowControlsIPC } from './window-controls';
@@ -20,16 +19,10 @@ import {
   cleanupCollectionWatchers,
   isRegisteredCollectionDirectory,
 } from './collection-manager';
-import { registerStoreHandlerIPC, initStoreHandler } from './store-handler';
-import {
-  registerSecretHandleIPC,
-  unregisterSecretHandleIPC,
-  initSecretHandleStore,
-} from './secret-handle-store';
-import { registerVaultHandlers, unregisterVaultHandlers, initVaultStore } from './vault-handler';
+import { registerStoreHandlerIPC } from './store-handler';
+import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './secret-handle-store';
+import { registerVaultHandlers, unregisterVaultHandlers } from './vault-handler';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
-import { applyPermissionPolicy, denyWebContentsDeviceAccess } from './permission-policy';
-import { setupCrashRecovery, logChildProcessExits } from './crash-recovery';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
 import {
@@ -98,11 +91,6 @@ if (!gotTheLock) {
 // (requires single-instance lock to be requested before calling this)
 registerDeepLinkHandler(getMainWindow);
 
-// Force every renderer process-wide into the Chromium sandbox. Each BrowserWindow
-// already sets `sandbox: true`, so this is a defense-in-depth backstop: a future
-// window that forgets the flag still runs sandboxed. Must be called before ready.
-app.enableSandbox();
-
 // Register security measures early so all web-contents are protected from creation
 setupSecurityMeasures();
 
@@ -129,7 +117,6 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerSseHandlerIPC(), dispose: () => stopSseCleanup() },
   { register: () => registerMcpHandlerIPC(), dispose: () => stopMcpCleanup() },
   { register: () => registerKafkaHandlerIPC(logRequest), dispose: () => stopKafkaCleanup() },
-  { register: () => registerMqttHandlerIPC(logRequest), dispose: () => stopMqttCleanup() },
   { register: () => registerRequestLoggerIPC() },
   { register: () => registerWindowControlsIPC(getMainWindow) },
   { register: () => registerNewWindowIPC(isDev) },
@@ -192,12 +179,7 @@ function setupContentSecurityPolicy(): void {
 
 // Setup security measures
 function setupSecurityMeasures(): void {
-  logChildProcessExits();
-
   app.on('web-contents-created', (_event, contents) => {
-    setupCrashRecovery(contents);
-    denyWebContentsDeviceAccess(contents);
-
     contents.on('will-navigate', (event, navigationUrl) => {
       // In dev allow only the Vite dev server origin
       if (isDev) {
@@ -225,24 +207,6 @@ function setupSecurityMeasures(): void {
 
 // Initialize the application
 app.whenReady().then(async () => {
-  // Prewarm the encrypted stores up front via the non-blocking async safeStorage
-  // path, so the OS-keychain-backed key is derived in a single access at a
-  // predictable moment. Runs in MCP mode too — headless secret resolution needs
-  // the stores open. Failures are logged (not fatal); the sync self-init
-  // accessors remain a fallback. safeStorage is only reliable post-`ready`.
-  const prewarm = await Promise.allSettled([
-    initStoreHandler(),
-    initSecretHandleStore(),
-    initVaultStore(),
-  ]);
-  for (const result of prewarm) {
-    if (result.status === 'rejected') {
-      log.error('encrypted store prewarm failed', {
-        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-      });
-    }
-  }
-
   if (isMcpServerMode) {
     // Headless: no window, no tray, no auto-updater. The MCP SDK owns stdio.
     // Anything that would log to stdout (`console.log`, banners) corrupts the
@@ -265,7 +229,6 @@ app.whenReady().then(async () => {
   }
 
   setupContentSecurityPolicy();
-  applyPermissionPolicy(session.defaultSession);
   registerIPCHandlers();
 
   const initialWindow = createMainWindow(isDev);

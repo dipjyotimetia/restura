@@ -28,7 +28,6 @@ const FLAGS: FeatureFlags = {
     'protocol.sse': true,
     'protocol.mcp': true,
     'protocol.kafka': true,
-    'protocol.mqtt': true,
     'protocol.socketio': true,
   },
 };

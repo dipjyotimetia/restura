@@ -30,7 +30,6 @@ rather than discover it experimentally.
 | gRPC unary + streaming | ✅ | ✅ | Web uses Connect transport over HTTP/2 |
 | gRPC reflection | ✅ | ✅ |  |
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
-| MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
 | Socket.IO client | ✅ | ✅ |  |
 | AI assistant (chat) | ❌ | ✅ | Electron-first; streams via IPC. No Worker /api/ai route |
 | Filesystem-backed collections | ❌ | ✅ |  |
