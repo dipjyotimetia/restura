@@ -37,6 +37,15 @@ name: Release
 #
 # Note: the bump commit + tag are pushed with the default GITHUB_TOKEN. Because
 # the only trigger is workflow_dispatch, that push can't re-enter this workflow.
+#
+# Recovery after a failed run (stable): the bump commit + tag are pushed to main
+# BEFORE the desktop/publish/deploy jobs run, so if one of those fails the GitHub
+# release stays a draft but main already carries `chore(release): vX.Y.Z` + tag.
+# A plain re-run is then refused by "Validate tag does not exist". To retry:
+#   1. Delete the draft release:  gh release delete vX.Y.Z --cleanup-tag --yes
+#      (or `gh release delete vX.Y.Z --yes` then `git push origin :refs/tags/vX.Y.Z`)
+#   2. Revert the bump commit on main if you do NOT want to keep that version.
+#   3. Re-dispatch the release.
 
 on:
   workflow_dispatch:
@@ -170,10 +179,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Record release base
-        id: base
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
@@ -222,11 +227,14 @@ jobs:
             exit 1
           fi
           if git rev-parse -q --verify "refs/tags/${ACTUAL_TAG}" >/dev/null; then
-            echo "Tag ${ACTUAL_TAG} already exists. Choose a different release bump or prerelease identifier."
+            echo "Tag ${ACTUAL_TAG} already exists. Pick a different release bump / prerelease identifier,"
+            echo "or if this is a retry of a failed run, delete the tag + draft release first:"
+            echo "  gh release delete ${ACTUAL_TAG} --cleanup-tag --yes"
             exit 1
           fi
           if gh release view "$ACTUAL_TAG" >/dev/null 2>&1; then
-            echo "GitHub release ${ACTUAL_TAG} already exists."
+            echo "GitHub release ${ACTUAL_TAG} already exists (likely a prior failed run)."
+            echo "Delete it before retrying:  gh release delete ${ACTUAL_TAG} --cleanup-tag --yes"
             exit 1
           fi
 
@@ -253,7 +261,9 @@ jobs:
         env:
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
           PRERELEASE: ${{ inputs.prerelease }}
-          BASE_SHA: ${{ steps.base.outputs.sha }}
+          # The commit this run was dispatched against — the exact tree preflight
+          # validated and that we checked out. Refuse to push if main has moved off it.
+          BASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [ "$PRERELEASE" = "false" ]; then
@@ -267,7 +277,7 @@ jobs:
             fi
             # Refuse to release unvalidated commits that landed after this run began.
             git fetch origin main
-            REMOTE_MAIN="$(git rev-parse origin/main)"
+            REMOTE_MAIN="$(git rev-parse FETCH_HEAD)"
             if [ "$REMOTE_MAIN" != "$BASE_SHA" ]; then
               echo "origin/main moved from ${BASE_SHA} to ${REMOTE_MAIN}; rerun the release."
               exit 1
