@@ -40,8 +40,8 @@ describe('telemetry-consent', () => {
     setEnabledMock.mockClear();
   });
 
-  it('readConsentSync defaults to false when no file exists', () => {
-    expect(readConsentSync()).toBe(false);
+  it('readConsentSync defaults to true (opt-out) when no file exists', () => {
+    expect(readConsentSync()).toBe(true);
   });
 
   it('persists consent and flips the Sentry gate, round-tripping through readConsentSync', async () => {

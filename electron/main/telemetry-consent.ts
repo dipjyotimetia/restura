@@ -27,15 +27,16 @@ function consentFilePath(): string {
   return join(app.getPath('userData'), 'telemetry-consent.json');
 }
 
-/** Read the persisted opt-in flag. Default false (opt-in). */
+/** Read the persisted consent flag. Defaults to ON (opt-out) when unset. */
 export function readConsentSync(): boolean {
   try {
     const raw = readFileSync(consentFilePath(), 'utf8');
-    return (JSON.parse(raw) as { errorsEnabled?: unknown }).errorsEnabled === true;
+    // Explicit opt-out persists `false`; anything else (incl. absent key) is on.
+    return (JSON.parse(raw) as { errorsEnabled?: unknown }).errorsEnabled !== false;
   } catch {
-    // Missing / unreadable / corrupt → opt-out default. Absence is the normal
-    // first-run case, so this is not logged.
-    return false;
+    // Missing / unreadable / corrupt → on by default. Absence is the normal
+    // first-run case (no consent file yet), so this is not logged.
+    return true;
   }
 }
 

@@ -69,9 +69,10 @@ const defaultSettings: AppSettings = {
   allowPrivateIPs: false,
   // CORS proxy settings for web mode
   corsProxy: defaultCorsProxyConfig,
-  // Telemetry opt-in defaults to OFF — explicit user consent required before
-  // any error is sent to /api/telemetry/error (Gap #2c).
-  telemetry: { errorsEnabled: false },
+  // Telemetry defaults to ON (opt-out): error reports are sent to
+  // /api/telemetry/error (web) and Sentry (desktop). Users can disable it; the
+  // flag is mirrored to the Electron main process to gate Sentry.
+  telemetry: { errorsEnabled: true },
   // Spatial Depth default accent — cobalt blue
   accent: '#4d9fff',
   // Desktop auto-updater: download in the background on the stable channel.

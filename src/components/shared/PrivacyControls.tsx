@@ -84,7 +84,10 @@ export function PrivacyControls() {
       await importDexieData(text);
       await loadStats();
 
-      setMessage({ type: 'success', text: 'Data imported successfully. Reload the app to see changes.' });
+      setMessage({
+        type: 'success',
+        text: 'Data imported successfully. Reload the app to see changes.',
+      });
     } catch (error) {
       setMessage({
         type: 'error',
@@ -124,7 +127,16 @@ export function PrivacyControls() {
 
     try {
       // First overwrite all tables with random data
-      const tables = ['collections', 'environments', 'history', 'settings', 'cookies', 'workflows', 'workflowExecutions', 'fileCollections'] as const;
+      const tables = [
+        'collections',
+        'environments',
+        'history',
+        'settings',
+        'cookies',
+        'workflows',
+        'workflowExecutions',
+        'fileCollections',
+      ] as const;
 
       for (const tableName of tables) {
         const table = db[tableName] as ReturnType<typeof db.table>;
@@ -137,7 +149,12 @@ export function PrivacyControls() {
             .map((b) => b.toString(16).padStart(2, '0'))
             .join('');
 
-          const typedRecord = record as { id: string; name?: string; updatedAt?: number; encryptedData?: string };
+          const typedRecord = record as {
+            id: string;
+            name?: string;
+            updatedAt?: number;
+            encryptedData?: string;
+          };
           await table.put({
             id: typedRecord.id,
             name: typedRecord.name ?? '',
@@ -211,45 +228,26 @@ export function PrivacyControls() {
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
           {/* Export */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExport}
-            disabled={isLoading}
-          >
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={isLoading}>
             <Download className="h-4 w-4 mr-2" />
             Export Data
           </Button>
 
           {/* Import */}
           <label>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isLoading}
-              asChild
-            >
+            <Button variant="outline" size="sm" disabled={isLoading} asChild>
               <span>
                 <Upload className="h-4 w-4 mr-2" />
                 Import Data
               </span>
             </Button>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImport}
-              className="hidden"
-            />
+            <input type="file" accept=".json" onChange={handleImport} className="hidden" />
           </label>
 
           {/* Clear All */}
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isLoading}
-              >
+              <Button variant="outline" size="sm" disabled={isLoading}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 Clear All
               </Button>
@@ -258,15 +256,13 @@ export function PrivacyControls() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Clear All Data?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will delete all your collections, environments, history, and settings.
-                  This action cannot be undone. Consider exporting your data first.
+                  This will delete all your collections, environments, history, and settings. This
+                  action cannot be undone. Consider exporting your data first.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleClearAll}>
-                  Clear All
-                </AlertDialogAction>
+                <AlertDialogAction onClick={handleClearAll}>Clear All</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -274,11 +270,7 @@ export function PrivacyControls() {
           {/* Secure Delete */}
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={isLoading}
-              >
+              <Button variant="destructive" size="sm" disabled={isLoading}>
                 <Shield className="h-4 w-4 mr-2" />
                 Secure Delete
               </Button>
@@ -288,8 +280,8 @@ export function PrivacyControls() {
                 <AlertDialogTitle>Secure Delete All Data?</AlertDialogTitle>
                 <AlertDialogDescription>
                   This will overwrite all data with random bytes before deleting, making recovery
-                  impossible. Use this for maximum privacy when disposing of the app.
-                  This action cannot be undone.
+                  impossible. Use this for maximum privacy when disposing of the app. This action
+                  cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -309,7 +301,10 @@ export function PrivacyControls() {
         <div className="text-xs text-muted-foreground mt-4 space-y-1">
           <p>All data is encrypted with AES-256-GCM before storage.</p>
           <p>Encryption keys are derived locally and never leave your device.</p>
-          <p>No analytics, telemetry, or external network calls.</p>
+          <p>
+            No product analytics. Crash and error reports (message, stack, app version) are sent to
+            help fix bugs — never request payloads, headers, or response bodies.
+          </p>
         </div>
       </div>
     </div>
