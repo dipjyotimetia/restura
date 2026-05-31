@@ -20,7 +20,7 @@
   },
   "mac": {
     "category": "public.app-category.developer-tools",
-    "icon": "electron/resources/icon.png",
+    "icon": "electron/resources/icon.icns",
     "target": [
       {
         "target": "dmg",
@@ -38,6 +38,7 @@
     "notarize": true
   },
   "dmg": {
+    "icon": "electron/resources/icon.icns",
     "contents": [
       {
         "x": 130,

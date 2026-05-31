@@ -5,6 +5,8 @@ name: Release
 # or via `gh workflow run release.yml --ref main` when you want to ship.
 #
 # Inputs:
+#   release_bump             — semver bump to release: patch, minor, or major.
+#                             Defaults to patch.
 #   prerelease              — when true, publishes a GitHub prerelease (beta).
 #                             Skips Docker, npm CLI, and Cloudflare deploys.
 #   prerelease_identifier   — appended to the next stable semver to form the
@@ -12,13 +14,13 @@ name: Release
 #                             Increment for successive betas (beta.2, beta.3…).
 #
 # Flow (stable):
-#   1. Determine next semver from conventional-commit messages since the last
-#      tag (feat → minor, feat!/BREAKING CHANGE → major, anything else → patch).
-#   2. Bump root + every workspace's package.json to that version.
-#   3. Commit the bump as `chore(release): vX.Y.Z` and push to main.
-#   4. Create + push the `vX.Y.Z` tag (points at the bump commit).
-#   5. Generate structured release notes from conventional commits (git-cliff).
-#   6. Generate a CycloneDX SBOM. Cut a GitHub release with notes + SBOM.
+#   1. Preflight validates main, inputs, tests, type-checks, and build health.
+#   2. Determine next semver from the selected release_bump input.
+#   3. Bump root + every workspace's package.json to that version.
+#   4. Commit the bump as `chore(release): vX.Y.Z` and push to main.
+#   5. Create + push the `vX.Y.Z` tag (points at the bump commit).
+#   6. Generate structured release notes from conventional commits (git-cliff).
+#   7. Generate a CycloneDX SBOM. Cut a draft GitHub release with notes + SBOM.
 #
 # Flow (prerelease / beta):
 #   1–2. Same version determination; actual tag = vX.Y.Z-{identifier}.
@@ -39,6 +41,14 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      release_bump:
+        description: 'Semver bump to release'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
       prerelease:
         description: 'Publish as a prerelease (beta)'
         type: boolean
@@ -58,8 +68,95 @@ permissions:
   contents: write
 
 jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Require main branch
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "Release must be dispatched from main; got ${GITHUB_REF}."
+            exit 1
+          fi
+
+      - name: Validate release inputs
+        env:
+          RELEASE_BUMP: ${{ inputs.release_bump }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_BUMP" in
+            patch|minor|major) ;;
+            *)
+              echo "release_bump must be patch, minor, or major; got '${RELEASE_BUMP}'."
+              exit 1
+              ;;
+          esac
+
+          if [ "$PRERELEASE" = "true" ]; then
+            if ! [[ "$PRERELEASE_IDENTIFIER" =~ ^[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$ ]]; then
+              echo "prerelease_identifier must be a dot-separated semver prerelease identifier; got '${PRERELEASE_IDENTIFIER}'."
+              exit 1
+            fi
+          fi
+
+      - name: Validate stable release secrets
+        if: ${{ !inputs.prerelease }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_PROXY_TOKEN: ${{ secrets.WORKER_PROXY_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in NPM_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required stable release secret(s): %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate application
+        env:
+          ELECTRON_OVERRIDE_DIST_PATH: /tmp
+        run: npm run validate
+
+      - name: Validate release build surfaces
+        env:
+          ELECTRON_OVERRIDE_DIST_PATH: /tmp
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit -p electron/tsconfig.json
+          npx tsc --noEmit -p worker/tsconfig.json
+          npx tsc --noEmit -p echo/tsconfig.json
+          npm run --workspace cli type-check
+          npm run build -w cli
+          npm run electron:compile
+
   release:
     name: Tag + release
+    needs: [preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -72,6 +169,10 @@ jobs:
           # full history so the bump action can read every prior tag
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record release base
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v6
         with:
@@ -89,7 +190,7 @@ jobs:
         uses: anothrNick/github-tag-action@1.75.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: patch
+          DEFAULT_BUMP: ${{ inputs.release_bump }}
           TAG_PREFIX: v
           RELEASE_BRANCHES: main
           # Let *this* workflow do the actual tag push (after the version-bump commit),
@@ -109,6 +210,25 @@ jobs:
           fi
           echo "actual_tag=$ACTUAL_TAG" >> "$GITHUB_OUTPUT"
           echo "Releasing: $ACTUAL_TAG (prerelease=$PRERELEASE)"
+
+      - name: Validate tag does not exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$ACTUAL_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Computed tag is not a valid semver tag: ${ACTUAL_TAG}"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/${ACTUAL_TAG}" >/dev/null; then
+            echo "Tag ${ACTUAL_TAG} already exists. Choose a different release bump or prerelease identifier."
+            exit 1
+          fi
+          if gh release view "$ACTUAL_TAG" >/dev/null 2>&1; then
+            echo "GitHub release ${ACTUAL_TAG} already exists."
+            exit 1
+          fi
 
       - name: Configure git author
         run: |
@@ -133,6 +253,7 @@ jobs:
         env:
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
           PRERELEASE: ${{ inputs.prerelease }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
           set -euo pipefail
           if [ "$PRERELEASE" = "false" ]; then
@@ -144,8 +265,13 @@ jobs:
             else
               git commit -m "chore(release): ${ACTUAL_TAG}"
             fi
-            # Handle the rare case where another commit landed during the run.
-            git pull --rebase origin main
+            # Refuse to release unvalidated commits that landed after this run began.
+            git fetch origin main
+            REMOTE_MAIN="$(git rev-parse origin/main)"
+            if [ "$REMOTE_MAIN" != "$BASE_SHA" ]; then
+              echo "origin/main moved from ${BASE_SHA} to ${REMOTE_MAIN}; rerun the release."
+              exit 1
+            fi
             git push origin HEAD:main
           fi
           # Both stable and prerelease: push the tag. Prerelease tags point at
@@ -206,6 +332,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.actual_tag }}
           name: ${{ steps.tag.outputs.actual_tag }}
+          draft: true
           prerelease: ${{ inputs.prerelease }}
           # Release notes generated by git-cliff from conventional commits.
           # Replaces GitHub's auto-generated "What's Changed" (noisy, no categorization).
@@ -346,8 +473,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN secret not set — skipping CLI publish."
-            exit 0
+            echo "NPM_TOKEN secret not set; stable releases must publish restura-cli."
+            exit 1
           fi
           NAME="$(node -p "require('./cli/package.json').name")"
           VERSION="$(node -p "require('./cli/package.json').version")"
@@ -462,7 +589,15 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler pages project create restura --production-branch=main || true
+        run: |
+          set -euo pipefail
+          npx wrangler pages project create restura --production-branch=main 2>&1 | tee wrangler-pages-create.log || {
+            if grep -qiE 'already exists|project.*exists' wrangler-pages-create.log; then
+              echo "Pages project restura already exists."
+            else
+              exit 1
+            fi
+          }
 
       - name: Deploy SPA to Cloudflare Pages (restura.pages.dev)
         uses: cloudflare/wrangler-action@v4
@@ -481,7 +616,15 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler pages project create restura-docs --production-branch=main || true
+        run: |
+          set -euo pipefail
+          npx wrangler pages project create restura-docs --production-branch=main 2>&1 | tee wrangler-docs-pages-create.log || {
+            if grep -qiE 'already exists|project.*exists' wrangler-docs-pages-create.log; then
+              echo "Pages project restura-docs already exists."
+            else
+              exit 1
+            fi
+          }
 
       - name: Deploy docs site to Cloudflare Pages (docs.restura.dev)
         uses: cloudflare/wrangler-action@v4
@@ -489,3 +632,20 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy docs-site/dist --project-name=restura-docs --branch=main
+
+  publish-release:
+    name: Publish GitHub release
+    needs: [release, desktop, publish-cli, publish-docker, deploy-web]
+    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (inputs.prerelease || (needs.publish-cli.result == 'success' && needs.publish-docker.result == 'success' && needs.deploy-web.result == 'success')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
+        run: |
+          set -euo pipefail
+          gh release edit "$ACTUAL_TAG" --draft=false
