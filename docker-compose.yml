@@ -5,10 +5,12 @@
 
 services:
   restura:
+    # Pull the published image from GHCR (set IMAGE_TAG to pin a version, e.g. "0.2.15").
+    # To build locally from source instead: `docker compose build`
+    image: ${RESTURA_IMAGE:-ghcr.io/dipjyotimetia/restura}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
-    image: restura/web:latest
     container_name: restura
     restart: unless-stopped
     ports:
