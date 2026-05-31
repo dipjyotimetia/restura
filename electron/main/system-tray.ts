@@ -51,24 +51,6 @@ export function createSystemTray(
     },
     { type: 'separator' },
     {
-      label: 'New Request',
-      accelerator: 'CmdOrCtrl+N',
-      click: () =>
-        withWindow((w) => {
-          w.show();
-          w.webContents.send('menu:new-request');
-        }),
-    },
-    {
-      label: 'Import Collection',
-      click: () =>
-        withWindow((w) => {
-          w.show();
-          w.webContents.send('menu:import');
-        }),
-    },
-    { type: 'separator' },
-    {
       label: 'Check for Updates',
       click: () =>
         withWindow((w) => {

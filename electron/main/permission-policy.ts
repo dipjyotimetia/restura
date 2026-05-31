@@ -10,7 +10,7 @@
  * a deny-by-default policy means a rendered-response XSS or a malicious shared
  * collection can't silently obtain a device permission.
  */
-import type { Session } from 'electron';
+import type { Session, WebContents } from 'electron';
 import { createLogger } from '../../src/lib/shared/logger';
 
 const log = createLogger('permissions');
@@ -37,4 +37,33 @@ export function applyPermissionPolicy(ses: Session): void {
   });
 
   ses.setPermissionCheckHandler((_webContents, permission) => ALLOWED_PERMISSIONS.has(permission));
+
+  // WebUSB / Web Serial / WebHID go through a separate device-chooser path that
+  // the permission handlers above don't cover. The renderer uses none of them —
+  // deny every device grant and cancel the chooser if anything ever requests one.
+  ses.setDevicePermissionHandler(() => false);
+  ses.on('select-serial-port', (event, _portList, _webContents, callback) => {
+    event.preventDefault();
+    callback('');
+  });
+  ses.on('select-hid-device', (event, _details, callback) => {
+    event.preventDefault();
+    callback();
+  });
+  ses.on('select-usb-device', (event, _details, callback) => {
+    event.preventDefault();
+    callback();
+  });
+}
+
+/**
+ * Web Bluetooth uses a per-`WebContents` chooser event rather than a `Session`
+ * one, so it can't be denied in `applyPermissionPolicy`. Kept here so all
+ * device-access denials live in one place; call once per web-contents.
+ */
+export function denyWebContentsDeviceAccess(contents: WebContents): void {
+  contents.on('select-bluetooth-device', (event, _devices, callback) => {
+    event.preventDefault();
+    callback('');
+  });
 }
