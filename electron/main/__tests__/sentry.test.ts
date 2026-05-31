@@ -1,0 +1,153 @@
+import './setup';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+
+// @sentry/electron/main is mocked so init() records the options object — we then
+// exercise the captured beforeSend/beforeSendTransaction directly. The tracing
+// integration factories are stubbed so doInit() can call them.
+vi.mock('@sentry/electron/main', () => ({
+  init: vi.fn(),
+  startupTracingIntegration: vi.fn(() => ({ name: 'startup' })),
+  httpIntegration: vi.fn(() => ({ name: 'http' })),
+}));
+
+import * as Sentry from '@sentry/electron/main';
+import {
+  scrubEvent,
+  transactionCarriesUrl,
+  initSentry,
+  setSentryEnabled,
+  isSentryEnabled,
+} from '../sentry';
+
+const initMock = Sentry.init as unknown as Mock;
+
+describe('scrubEvent', () => {
+  it('drops request context and server_name', () => {
+    const out = scrubEvent({
+      message: 'boom',
+      request: { url: 'https://api.example.com/x', headers: { authorization: 'Bearer abc' } },
+      server_name: 'my-machine',
+    } as Sentry.Event);
+    expect(out.request).toBeUndefined();
+    expect(out.server_name).toBeUndefined();
+  });
+
+  it('redacts secrets in message and exception values', () => {
+    const out = scrubEvent({
+      message: 'failed with token sk-ant-0123456789abcdef0123',
+      exception: {
+        values: [{ type: 'Error', value: 'Authorization: Bearer abcdef0123456789' }],
+      },
+    } as Sentry.Event);
+    expect(out.message).not.toContain('sk-ant-');
+    expect(out.message).toContain('[REDACTED]');
+    expect(out.exception?.values?.[0]?.value).toContain('[REDACTED]');
+  });
+
+  it('scrubs absolute file paths from free-text', () => {
+    const out = scrubEvent({
+      message: 'ENOENT at /Users/alice/secret/file.txt',
+    } as Sentry.Event);
+    expect(out.message).not.toContain('/Users/alice');
+    expect(out.message).toContain('[path]');
+  });
+
+  it('drops stack-frame locals and breadcrumb data', () => {
+    const out = scrubEvent({
+      exception: {
+        values: [
+          { stacktrace: { frames: [{ filename: 'app:///index.js', vars: { token: 'secret' } }] } },
+        ],
+      },
+      breadcrumbs: [{ message: 'GET /Users/bob/x', data: { url: 'https://x.test', body: 'y' } }],
+    } as Sentry.Event);
+    expect(out.exception?.values?.[0]?.stacktrace?.frames?.[0]?.vars).toBeUndefined();
+    // filename is preserved for source-map matching.
+    expect(out.exception?.values?.[0]?.stacktrace?.frames?.[0]?.filename).toBe('app:///index.js');
+    expect(out.breadcrumbs?.[0]?.data).toBeUndefined();
+    expect(out.breadcrumbs?.[0]?.message).toContain('[path]');
+  });
+});
+
+describe('transactionCarriesUrl', () => {
+  it('flags a transaction whose root trace span is an http.client op', () => {
+    expect(
+      transactionCarriesUrl({
+        type: 'transaction',
+        contexts: { trace: { op: 'http.client', span_id: 'a', trace_id: 'b' } },
+      } as unknown as Sentry.Event)
+    ).toBe(true);
+  });
+
+  it('flags a transaction with a child span carrying http.url data', () => {
+    expect(
+      transactionCarriesUrl({
+        type: 'transaction',
+        spans: [{ data: { 'http.url': 'https://api.example.com/private' } }],
+      } as unknown as Sentry.Event)
+    ).toBe(true);
+  });
+
+  it('passes a URL-free transaction (e.g. app startup)', () => {
+    expect(
+      transactionCarriesUrl({
+        type: 'transaction',
+        contexts: { trace: { op: 'app.start', span_id: 'a', trace_id: 'b' } },
+        spans: [{ op: 'ui.load', data: { 'ui.component_name': 'App' } }],
+      } as unknown as Sentry.Event)
+    ).toBe(false);
+  });
+});
+
+describe('opt-in gate', () => {
+  beforeEach(() => {
+    initMock.mockClear();
+    setSentryEnabled(false);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('does not init Sentry without a DSN', () => {
+    initSentry({ enabled: true });
+    expect(initMock).not.toHaveBeenCalled();
+    // ...but the in-memory gate still reflects the requested state.
+    expect(isSentryEnabled()).toBe(true);
+  });
+
+  it('tracks the enabled flag via setSentryEnabled', () => {
+    setSentryEnabled(true);
+    expect(isSentryEnabled()).toBe(true);
+    setSentryEnabled(false);
+    expect(isSentryEnabled()).toBe(false);
+  });
+
+  // Runs last: doInit() is one-shot (module-level `initialized`), so this test
+  // is the one allowed to actually init. The DSN is read lazily inside doInit,
+  // so stubbing the env here is enough — no module re-import needed.
+  it('inits when enabled and the gates honour the runtime flag', () => {
+    vi.stubEnv('SENTRY_DSN', 'https://examplePublicKey@o0.ingest.sentry.io/0');
+    initSentry({ enabled: true });
+    expect(initMock).toHaveBeenCalledTimes(1);
+
+    const opts = initMock.mock.calls[0]![0] as {
+      beforeSend: (e: unknown) => unknown;
+      beforeSendTransaction: (e: unknown) => unknown;
+    };
+
+    // Error gate: passes when enabled, dropped when disabled.
+    expect(opts.beforeSend({ message: 'hi' })).toBeTruthy();
+
+    // Transaction gate: a URL-free transaction passes when enabled...
+    const cleanTx = { type: 'transaction', contexts: { trace: { op: 'app.start' } } };
+    expect(opts.beforeSendTransaction(cleanTx)).toBeTruthy();
+    // ...but a transaction carrying a request URL is always dropped.
+    const urlTx = { type: 'transaction', spans: [{ data: { 'http.url': 'https://x.test' } }] };
+    expect(opts.beforeSendTransaction(urlTx)).toBeNull();
+
+    setSentryEnabled(false);
+    expect(opts.beforeSend({ message: 'hi' })).toBeNull();
+    expect(opts.beforeSendTransaction(cleanTx)).toBeNull();
+  });
+});
