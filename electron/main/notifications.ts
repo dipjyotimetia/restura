@@ -1,4 +1,4 @@
-import type { BrowserWindow} from 'electron';
+import type { BrowserWindow } from 'electron';
 import { Notification, ipcMain, app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -8,6 +8,7 @@ import {
   NotificationVersionSchema,
   NotificationMessageSchema,
   createValidatedHandler,
+  NoInputSchema,
 } from './ipc-validators';
 import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { IPC } from '../shared/channels';
@@ -65,22 +66,33 @@ export function showNativeNotification(
   notification.show();
 }
 
-export function registerNotificationIPC(getMainWindow: () => BrowserWindow | null, isDev: boolean): void {
-  // Check if notifications are supported
-  ipcMain.handle(IPC.notification.isSupported, () => {
-    return Notification.isSupported();
-  });
+export function registerNotificationIPC(
+  getMainWindow: () => BrowserWindow | null,
+  isDev: boolean
+): void {
+  // Check if notifications are supported. Wrapped so the sender frame is
+  // validated like every other channel, even though it takes no input.
+  ipcMain.handle(
+    IPC.notification.isSupported,
+    createValidatedHandler(IPC.notification.isSupported, NoInputSchema, () =>
+      Notification.isSupported()
+    )
+  );
 
   // Show a native notification
   ipcMain.handle(
     IPC.notification.show,
     rateLimited(
       notificationRateLimiter,
-      createValidatedHandler(IPC.notification.show, NotificationOptionsSchema, async (options: NotificationOptions) => {
-        const mainWindow = getMainWindow();
-        showNativeNotification(options, mainWindow, isDev);
-        return { success: true };
-      })
+      createValidatedHandler(
+        IPC.notification.show,
+        NotificationOptionsSchema,
+        async (options: NotificationOptions) => {
+          const mainWindow = getMainWindow();
+          showNativeNotification(options, mainWindow, isDev);
+          return { success: true };
+        }
+      )
     )
   );
 
@@ -110,36 +122,44 @@ export function registerNotificationIPC(getMainWindow: () => BrowserWindow | nul
   // Show update available notification
   ipcMain.handle(
     IPC.notification.updateAvailable,
-    createValidatedHandler(IPC.notification.updateAvailable, NotificationVersionSchema, async (version: string) => {
-      const mainWindow = getMainWindow();
-      showNativeNotification(
-        {
-          title: '🚀 Update Available',
-          body: `Version ${version} is available for download`,
-          urgency: 'normal',
-        },
-        mainWindow,
-        isDev
-      );
-      return { success: true };
-    })
+    createValidatedHandler(
+      IPC.notification.updateAvailable,
+      NotificationVersionSchema,
+      async (version: string) => {
+        const mainWindow = getMainWindow();
+        showNativeNotification(
+          {
+            title: '🚀 Update Available',
+            body: `Version ${version} is available for download`,
+            urgency: 'normal',
+          },
+          mainWindow,
+          isDev
+        );
+        return { success: true };
+      }
+    )
   );
 
   // Show error notification
   ipcMain.handle(
     IPC.notification.error,
-    createValidatedHandler(IPC.notification.error, NotificationMessageSchema, async (message: string) => {
-      const mainWindow = getMainWindow();
-      showNativeNotification(
-        {
-          title: '⚠️ Error',
-          body: message,
-          urgency: 'critical',
-        },
-        mainWindow,
-        isDev
-      );
-      return { success: true };
-    })
+    createValidatedHandler(
+      IPC.notification.error,
+      NotificationMessageSchema,
+      async (message: string) => {
+        const mainWindow = getMainWindow();
+        showNativeNotification(
+          {
+            title: '⚠️ Error',
+            body: message,
+            urgency: 'critical',
+          },
+          mainWindow,
+          isDev
+        );
+        return { success: true };
+      }
+    )
   );
 }

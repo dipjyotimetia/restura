@@ -5,6 +5,7 @@ This guide explains how to build, sign, and distribute the Restura Electron app.
 ## Overview
 
 The app supports distribution on:
+
 - **macOS**: DMG installer and ZIP archive (x64 and arm64)
 - **Windows**: NSIS installer and portable executable (x64 and ia32)
 - **Linux**: AppImage, DEB, and RPM packages (x64)
@@ -12,6 +13,7 @@ The app supports distribution on:
 ## Prerequisites
 
 ### Required Software
+
 - Node.js 24.x or later
 - npm 10.x or later
 - Git
@@ -19,14 +21,17 @@ The app supports distribution on:
 ### Platform-Specific Requirements
 
 **macOS:**
+
 - Xcode Command Line Tools
 - Apple Developer Account (for signing/notarization)
 
 **Windows:**
+
 - Windows SDK
 - Code Signing Certificate (optional but recommended)
 
 **Linux:**
+
 - dpkg-deb (for DEB builds)
 - rpm-build (for RPM builds)
 
@@ -47,14 +52,14 @@ npm run electron:dist
 
 ### Build Commands
 
-| Command | Description |
-|---------|-------------|
-| `npm run electron:dev` | Start development server with hot reload |
-| `npm run electron:dist` | Build for all platforms |
-| `npm run electron:dist:mac` | Build for macOS only |
-| `npm run electron:dist:win` | Build for Windows only |
-| `npm run electron:dist:linux` | Build for Linux only |
-| `npm run electron:pack` | Build unpacked app (for testing) |
+| Command                       | Description                              |
+| ----------------------------- | ---------------------------------------- |
+| `npm run electron:dev`        | Start development server with hot reload |
+| `npm run electron:dist`       | Build for all platforms                  |
+| `npm run electron:dist:mac`   | Build for macOS only                     |
+| `npm run electron:dist:win`   | Build for Windows only                   |
+| `npm run electron:dist:linux` | Build for Linux only                     |
+| `npm run electron:pack`       | Build unpacked app (for testing)         |
 
 ## Code Signing Setup
 
@@ -65,6 +70,7 @@ npm run electron:dist
    - Create a "Developer ID Application" certificate in Xcode
 
 2. **Export Certificate**
+
    ```bash
    # Export from Keychain as .p12 file
    # Base64 encode for GitHub secrets
@@ -72,9 +78,10 @@ npm run electron:dist
    ```
 
 3. **Configure GitHub Secrets**
-   - `MACOS_CERTIFICATE`: Base64-encoded .p12 certificate
-   - `MACOS_CERTIFICATE_PASSWORD`: Certificate password
-   - `KEYCHAIN_PASSWORD`: Temporary keychain password (any strong password)
+   - `CSC_LINK`: Base64-encoded .p12 certificate
+   - `CSC_KEY_PASSWORD`: Certificate password
+
+   (electron-builder manages a temporary keychain itself during signing — no separate keychain-password secret is needed.)
 
 ### macOS Notarization
 
@@ -92,6 +99,8 @@ Apple requires notarization for apps distributed outside the App Store.
    - `APPLE_APP_SPECIFIC_PASSWORD`: Generated app-specific password
    - `APPLE_TEAM_ID`: Your team ID
 
+> The **Release** workflow fails the macOS leg if `CSC_LINK` or `APPLE_ID` is missing, so it never publishes an unsigned DMG. Set all of the above before cutting a macOS release.
+
 ### Windows Code Signing
 
 1. **Purchase a Code Signing Certificate**
@@ -99,6 +108,7 @@ Apple requires notarization for apps distributed outside the App Store.
    - EV certificates provide SmartScreen reputation
 
 2. **Export Certificate**
+
    ```bash
    # Export as .pfx/.p12 file
    # Base64 encode for GitHub secrets
@@ -106,14 +116,14 @@ Apple requires notarization for apps distributed outside the App Store.
    ```
 
 3. **Configure GitHub Secrets**
-   - `WINDOWS_CERTIFICATE`: Base64-encoded .pfx certificate
-   - `WINDOWS_CERTIFICATE_PASSWORD`: Certificate password
+   - `WIN_CSC_LINK`: Base64-encoded .pfx certificate
+   - `WIN_CSC_KEY_PASSWORD`: Certificate password
 
 ## CI/CD Pipeline
 
 ### Automated Releases
 
-The GitHub Actions workflow (`.github/workflows/electron-release.yml`) automates:
+The GitHub Actions workflow (`.github/workflows/release.yml`, named **Release**) automates:
 
 1. **Building** on all platforms (macOS x64/arm64, Windows, Linux)
 2. **Signing** with configured certificates
@@ -123,6 +133,7 @@ The GitHub Actions workflow (`.github/workflows/electron-release.yml`) automates
 ### Triggering a Release
 
 **Option 1: Git Tag (Recommended)**
+
 ```bash
 # Update version and create tag
 npm version patch  # or minor, major
@@ -130,7 +141,8 @@ git push && git push --tags
 ```
 
 **Option 2: Manual Workflow**
-- Go to Actions → Build and Release Electron App
+
+- Go to Actions → Release
 - Click "Run workflow"
 - Optionally specify version
 
@@ -158,18 +170,20 @@ git push && git push --tags
 Add these secrets in Repository Settings → Secrets → Actions:
 
 ### Required Secrets
+
 ```
 GITHUB_TOKEN          # Automatically provided
 ```
 
 ### macOS Signing (Optional)
+
 ```
-MACOS_CERTIFICATE             # Base64 .p12 certificate
-MACOS_CERTIFICATE_PASSWORD    # Certificate password
-KEYCHAIN_PASSWORD             # Temporary keychain password
+CSC_LINK                      # Base64 .p12 certificate
+CSC_KEY_PASSWORD              # Certificate password
 ```
 
 ### macOS Notarization (Optional)
+
 ```
 APPLE_ID                      # Apple ID email
 APPLE_APP_SPECIFIC_PASSWORD   # App-specific password
@@ -177,9 +191,10 @@ APPLE_TEAM_ID                 # Team ID
 ```
 
 ### Windows Signing (Optional)
+
 ```
-WINDOWS_CERTIFICATE           # Base64 .pfx certificate
-WINDOWS_CERTIFICATE_PASSWORD  # Certificate password
+WIN_CSC_LINK                  # Base64 .pfx certificate
+WIN_CSC_KEY_PASSWORD          # Certificate password
 ```
 
 ## Auto-Updates
@@ -217,6 +232,7 @@ Users can trigger manual update checks via the app menu or by using the IPC chan
 ### Step-by-Step
 
 1. **Update Version**
+
    ```bash
    # Patch release (0.1.0 → 0.1.1)
    npm version patch
@@ -229,6 +245,7 @@ Users can trigger manual update checks via the app menu or by using the IPC chan
    ```
 
 2. **Push Tags**
+
    ```bash
    git push origin main --tags
    ```
@@ -252,10 +269,12 @@ Users can trigger manual update checks via the app menu or by using the IPC chan
 ### macOS Issues
 
 **"App is damaged and can't be opened"**
+
 - Not properly signed/notarized
 - Solution: Right-click → Open, or `xattr -cr /Applications/Restura.app`
 
 **Notarization Fails**
+
 - Check Apple ID credentials
 - Verify team ID is correct
 - Ensure hardened runtime is enabled
@@ -263,11 +282,13 @@ Users can trigger manual update checks via the app menu or by using the IPC chan
 ### Windows Issues
 
 **SmartScreen Warning**
+
 - Certificate not recognized
 - EV certificate builds reputation over time
 - Users can click "More info" → "Run anyway"
 
 **Installation Blocked**
+
 - Group policy restrictions
 - Antivirus interference
 - Try running as administrator
@@ -275,10 +296,12 @@ Users can trigger manual update checks via the app menu or by using the IPC chan
 ### Linux Issues
 
 **AppImage Won't Run**
+
 - Missing execute permission: `chmod +x *.AppImage`
 - Missing FUSE: `sudo apt install fuse`
 
 **DEB Dependencies**
+
 - Missing libraries: `sudo apt --fix-broken install`
 
 ## Security Best Practices
@@ -293,6 +316,7 @@ Users can trigger manual update checks via the app menu or by using the IPC chan
 ## Monitoring and Analytics
 
 Consider integrating:
+
 - **Sentry**: Error tracking and performance monitoring
 - **Countly**: Analytics and user behavior
 - **Matomo**: Privacy-focused analytics
@@ -300,8 +324,9 @@ Consider integrating:
 ## Support
 
 For distribution issues:
+
 - Check [Electron Builder Docs](https://www.electron.build/)
-- Review [GitHub Actions Logs](../../actions)
+- Review [GitHub Actions Logs](https://github.com/dipjyotimetia/restura/actions)
 - Open an issue with build logs
 
 ## License

@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { z } from 'zod';
 import { createApplicationMenu } from './menu';
-import { SAFE_OPEN_PROTOCOLS } from './ipc-validators';
+import { SAFE_OPEN_PROTOCOLS, createValidatedHandler, NoInputSchema } from './ipc-validators';
 import { IPC } from '../shared/channels';
 import { bindLimiterToWebContents } from './rate-limiter-cleanup';
 import { httpRateLimiter } from './http-handler';
@@ -227,7 +227,10 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
 }
 
 export function registerNewWindowIPC(isDev: boolean): void {
-  ipcMain.handle(IPC.window.new, async () => {
-    createMainWindow(isDev);
-  });
+  ipcMain.handle(
+    IPC.window.new,
+    createValidatedHandler(IPC.window.new, NoInputSchema, async () => {
+      createMainWindow(isDev);
+    })
+  );
 }

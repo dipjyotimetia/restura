@@ -37,6 +37,7 @@ User → Vite SPA → fetch /api/* → Cloudflare Worker (Hono) → Target API
 ```
 
 The Worker runs as a Cloudflare Pages Function, co-deployed with the SPA. It handles:
+
 - HTTP proxying (`/api/proxy`)
 - gRPC unary + streaming (`/api/grpc`)
 - gRPC reflection (`/api/grpc/reflection`)
@@ -74,16 +75,16 @@ shared/protocol/
   └── mcp-proxy.ts          ── validateMcpSpec(spec, allowLocalhost)
 ```
 
-| Module | Responsibility |
-|---|---|
+| Module                              | Responsibility                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `shared/protocol/url-validation.ts` | SSRF guard: blocks RFC 1918, RFC 6598 (CGNAT), link-local, loopback, and cloud-metadata endpoints; DNS-rebind check |
-| `shared/protocol/header-policy.ts` | Hop-by-hop deny lists + header sanitisers |
-| `shared/protocol/body-builder.ts` | JSON / text / form-urlencoded / form-data / binary body construction |
-| `shared/protocol/types.ts` | `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union |
-| `shared/protocol/http-proxy.ts` | `executeHttpProxy(spec, fetcher, options)` — HTTP orchestrator + `MAX_RESPONSE_SIZE` cap |
-| `shared/protocol/grpc-proxy.ts` | `executeGrpcProxy(spec, fetcher, options)` — Connect-protocol orchestrator |
-| `shared/protocol/grpc-status.ts` | gRPC status code enum + reverse map |
-| `shared/protocol/mcp-proxy.ts` | `validateMcpSpec(spec, allowLocalhost)` — JSON-RPC envelope + URL validation |
+| `shared/protocol/header-policy.ts`  | Hop-by-hop deny lists + header sanitisers                                                                           |
+| `shared/protocol/body-builder.ts`   | JSON / text / form-urlencoded / form-data / binary body construction                                                |
+| `shared/protocol/types.ts`          | `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union                                                       |
+| `shared/protocol/http-proxy.ts`     | `executeHttpProxy(spec, fetcher, options)` — HTTP orchestrator + `MAX_RESPONSE_SIZE` cap                            |
+| `shared/protocol/grpc-proxy.ts`     | `executeGrpcProxy(spec, fetcher, options)` — Connect-protocol orchestrator                                          |
+| `shared/protocol/grpc-status.ts`    | gRPC status code enum + reverse map                                                                                 |
+| `shared/protocol/mcp-proxy.ts`      | `validateMcpSpec(spec, allowLocalhost)` — JSON-RPC envelope + URL validation                                        |
 
 ### Backend adapters
 
@@ -116,24 +117,24 @@ SSRF rules, header sanitisers, body construction, error mapping, and timeouts co
 
 ## Technology Stack
 
-| Concern | Technology |
-|---|---|
-| Build tool | Vite 8 + `@cloudflare/vite-plugin` |
-| UI framework | React 19 |
-| Routing | React Router v7 (`createHashRouter`) |
-| Styling | TailwindCSS v4 via `@tailwindcss/vite` |
-| UI components | shadcn/ui patterns on Radix UI primitives |
-| State management | Zustand v5 with `persist` middleware |
-| Validation | Zod v4 |
-| Code editor | Monaco Editor (`@monaco-editor/react`) |
-| Script sandbox | QuickJS WASM (`quickjs-emscripten`) |
-| gRPC (web) | `@connectrpc/connect-web` + `@bufbuild/protobuf` |
-| gRPC (desktop) | `@grpc/grpc-js` + `@grpc/proto-loader` |
-| Worker framework | Hono |
-| Desktop shell | Electron 42 |
-| Auto-updates | `electron-updater` |
-| Testing | Vitest + React Testing Library |
-| Deployment | Cloudflare Pages + Functions |
+| Concern          | Technology                                       |
+| ---------------- | ------------------------------------------------ |
+| Build tool       | Vite 8 + `@cloudflare/vite-plugin`               |
+| UI framework     | React 19                                         |
+| Routing          | React Router v7 (`createHashRouter`)             |
+| Styling          | TailwindCSS v4 via `@tailwindcss/vite`           |
+| UI components    | shadcn/ui patterns on Radix UI primitives        |
+| State management | Zustand v5 with `persist` middleware             |
+| Validation       | Zod v4                                           |
+| Code editor      | Monaco Editor (`@monaco-editor/react`)           |
+| Script sandbox   | QuickJS WASM (`quickjs-emscripten`)              |
+| gRPC (web)       | `@connectrpc/connect-web` + `@bufbuild/protobuf` |
+| gRPC (desktop)   | `@grpc/grpc-js` + `@grpc/proto-loader`           |
+| Worker framework | Hono                                             |
+| Desktop shell    | Electron 42                                      |
+| Auto-updates     | `electron-updater`                               |
+| Testing          | Vitest + React Testing Library                   |
+| Deployment       | Cloudflare Pages + Functions                     |
 
 ---
 
@@ -338,7 +339,7 @@ Some Restura features depend on capabilities the browser doesn't expose. They're
 - **PAC files** (Proxy Auto-Config): Electron uses `session.resolveProxy()`; browsers don't expose this.
 - **System proxy detection**: Electron reads OS proxy settings; browsers only honour what the OS configures globally and don't let pages introspect.
 - **"Verify SSL = off"**: browsers always validate TLS regardless of any app toggle. Only Electron can opt out (`rejectUnauthorized: false`) for self-signed dev certificates.
-- **Hardware-backed encryption**: Electron uses `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret); web defaults to in-memory ephemeral encryption per session.
+- **Hardware-backed encryption**: Electron uses `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret); web defaults to no app-layer at-rest encryption (`PlaintextKeyProvider`), with an opt-in PBKDF2 passphrase provider available once the prompt UI ships.
 
 The web client surfaces a "Desktop only" badge (`src/components/shared/DesktopOnlyBadge.tsx`) on UI fields that depend on these capabilities, with a tooltip explaining the difference. Inside Electron the badge renders nothing.
 
@@ -377,12 +378,12 @@ The Worker is a Hono application deployed as a Cloudflare Pages Function (`_work
 
 ### Route Map
 
-| Route | Handler | Purpose |
-|---|---|---|
-| `POST /api/proxy` | `proxy.ts` | HTTP/HTTPS request proxying |
-| `POST /api/grpc` | `grpc.ts` | gRPC unary + streaming |
-| `POST /api/grpc/reflection` | `grpc-reflection.ts` | gRPC server reflection |
-| `POST /api/mcp` | `mcp.ts` | MCP server proxy |
+| Route                       | Handler              | Purpose                     |
+| --------------------------- | -------------------- | --------------------------- |
+| `POST /api/proxy`           | `proxy.ts`           | HTTP/HTTPS request proxying |
+| `POST /api/grpc`            | `grpc.ts`            | gRPC unary + streaming      |
+| `POST /api/grpc/reflection` | `grpc-reflection.ts` | gRPC server reflection      |
+| `POST /api/mcp`             | `mcp.ts`             | MCP server proxy            |
 
 ---
 
@@ -414,6 +415,8 @@ main.ts (entry)
 
 - Context isolation is enabled; the renderer cannot access Node.js APIs directly
 - All IPC inputs are validated with Zod schemas in `ipc-validators.ts` before processing
+- Every IPC handler validates its sender frame via `assertTrustedSender` (in the `createValidatedHandler` / `createValidatedListener` wrappers, or explicitly) — only the `file://` app shell (or the dev server) can invoke them
+- Renderer permissions are deny-by-default (`electron/main/permission-policy.ts`): only sanitized clipboard writes are allowed; camera, mic, geolocation, MIDI, notifications, etc. are refused
 - IPC calls are rate-limited in `ipc-rate-limiter.ts`
 - `preload.ts` exposes only the explicitly declared `electronAPI` surface via `contextBridge`
 
@@ -427,16 +430,16 @@ main.ts (entry)
 
 ## Supported Protocols
 
-| Protocol | Web (Worker) | Desktop (IPC) |
-|---|---|---|
-| HTTP/HTTPS | `/api/proxy` | `http-handler.ts` |
-| gRPC unary | `/api/grpc` | `grpc-handler.ts` |
-| gRPC streaming | `/api/grpc` | `grpc-handler.ts` |
-| gRPC reflection | `/api/grpc/reflection` | `grpc-reflection-handler.ts` |
-| WebSocket | Browser native | `websocket-handler.ts` |
-| Server-Sent Events | Browser native | `sse-handler.ts` |
-| GraphQL (over HTTP) | `/api/proxy` | `http-handler.ts` |
-| MCP | `/api/mcp` | `mcp-handler.ts` |
+| Protocol            | Web (Worker)           | Desktop (IPC)                |
+| ------------------- | ---------------------- | ---------------------------- |
+| HTTP/HTTPS          | `/api/proxy`           | `http-handler.ts`            |
+| gRPC unary          | `/api/grpc`            | `grpc-handler.ts`            |
+| gRPC streaming      | `/api/grpc`            | `grpc-handler.ts`            |
+| gRPC reflection     | `/api/grpc/reflection` | `grpc-reflection-handler.ts` |
+| WebSocket           | Browser native         | `websocket-handler.ts`       |
+| Server-Sent Events  | Browser native         | `sse-handler.ts`             |
+| GraphQL (over HTTP) | `/api/proxy`           | `http-handler.ts`            |
+| MCP                 | `/api/mcp`             | `mcp-handler.ts`             |
 
 ---
 
@@ -457,7 +460,7 @@ Restura's security posture is asymmetric between the Electron desktop client and
 The `KeyProvider` interface (`src/lib/shared/keyProvider.ts`) abstracts where the encryption key for the renderer's Dexie store comes from:
 
 - **Electron**: `ElectronSafeStorageKeyProvider` persists the key via the existing `electronAPI.store` IPC, which is `safeStorage`-protected at the Electron main level (`electron/main/store-handler.ts`). The OS keychain holds the wrapping key — macOS Keychain, Windows Credential Manager, Linux libsecret.
-- **Web**: `EphemeralKeyProvider` by default — a fresh random key per session. The `WebSessionPassphraseProvider` (PBKDF2-derived from a user passphrase) is available but requires a UI passphrase prompt that hasn't shipped yet.
+- **Web**: `PlaintextKeyProvider` by default — persisted state is stored without the encryption envelope (protected only by browser same-origin). This replaced the old `EphemeralKeyProvider`, whose fresh-per-session random key corrupted data on every reload. The `WebSessionPassphraseProvider` (PBKDF2-derived from a user passphrase) is available but requires a UI passphrase prompt that hasn't shipped yet.
 
 ### Auth-at-the-wire
 
@@ -522,6 +525,7 @@ Tests are colocated with source files as `*.test.ts` / `*.test.tsx`. Vitest runs
 ### Type-Check Coverage
 
 CI type-checks three independent TypeScript projects:
+
 1. Renderer — `tsc --noEmit` (uses `tsconfig.json`)
 2. Electron main — `tsc --noEmit -p electron/tsconfig.json`
 3. Worker — `tsc --noEmit -p worker/tsconfig.json`

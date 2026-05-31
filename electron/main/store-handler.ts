@@ -10,8 +10,9 @@ import {
   StoreValueSchema,
   createValidatedHandler,
   validateIpcInput,
+  assertTrustedSender,
 } from './ipc-validators';
-import { getOrCreateEncryptedKey } from './encrypted-key';
+import { getOrCreateEncryptedKey, getOrCreateEncryptedKeyAsync } from './encrypted-key';
 import { createLogger } from '../../src/lib/shared/logger';
 
 const log = createLogger('store');
@@ -58,6 +59,24 @@ function getStoreInstance(): ElectronStoreInstance {
 }
 
 /**
+ * Prewarm the store via the non-blocking async key path (preferred — handles
+ * OS keychain rotation + temporary unavailability gracefully). Called once at
+ * startup so the single keychain access happens up front; afterwards the sync
+ * `getStoreInstance()` accessor just returns this cached instance. Idempotent.
+ */
+export async function initStoreHandler(): Promise<void> {
+  if (store) return;
+  store = new Store({
+    name: 'restura-encrypted-store',
+    encryptionKey: await getOrCreateEncryptedKeyAsync({
+      fileName: '.encryption-key',
+      storeLabel: 'credential store',
+    }),
+    clearInvalidConfig: true,
+  }) as ElectronStoreInstance;
+}
+
+/**
  * Register all electron-store IPC handlers
  */
 export function registerStoreHandlerIPC(): void {
@@ -80,8 +99,11 @@ export function registerStoreHandlerIPC(): void {
     )
   );
 
-  // store:set takes two args: key and value — validate both
-  ipcMain.handle(IPC.store.set, async (_event, key: unknown, value: unknown): Promise<void> => {
+  // store:set takes two positional args (key, value), so it can't use the
+  // single-arg createValidatedHandler wrapper — validate the sender frame and
+  // both args explicitly, matching the wrapper's guarantees.
+  ipcMain.handle(IPC.store.set, async (event, key: unknown, value: unknown): Promise<void> => {
+    assertTrustedSender(IPC.store.set, event);
     const validKey = validateIpcInput(StoreKeySchema, key, IPC.store.set);
     const validValue = validateIpcInput(StoreValueSchema, value, IPC.store.set);
     try {
@@ -110,7 +132,8 @@ export function registerStoreHandlerIPC(): void {
     })
   );
 
-  ipcMain.handle(IPC.store.clear, async (): Promise<void> => {
+  ipcMain.handle(IPC.store.clear, async (event): Promise<void> => {
+    assertTrustedSender(IPC.store.clear, event);
     try {
       getStoreInstance().clear();
     } catch (error) {

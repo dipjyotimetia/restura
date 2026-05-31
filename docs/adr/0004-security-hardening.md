@@ -37,6 +37,7 @@ Four coordinated fixes:
 
 - Web users with existing encrypted data on first launch after this update may see decryption fail (returns null gracefully — the app stays functional with empty stores) until they re-enter the relevant data. This is a deliberate one-time migration cost; the prior in-metadata key was not actually secure.
 - The session-ephemeral default for web means data does NOT persist across reloads. A passphrase-prompt UI (deferred to a follow-up) restores cross-session persistence with PBKDF2-derived keys.
+  - **Superseded:** the web default later changed from `EphemeralKeyProvider` to `PlaintextKeyProvider` (no at-rest envelope; same-origin only) because the ephemeral key corrupted data on every reload. The opt-in `WebSessionPassphraseProvider` (PBKDF2) remains the cross-session path. See [`docs/security.md`](../security.md).
 - The `RequestSpec.auth` field crosses the IPC / proxy boundary; the Electron Zod validator now has a recursive `AuthConfigSchema` to validate it.
 
 ## Alternatives considered

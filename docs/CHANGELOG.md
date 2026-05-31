@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Keychain key lifecycle + renderer hardening** (see [ADR-0008](./adr/0008-keystore-and-renderer-hardening.md))
+  - `electron/main/encrypted-key.ts` — async, rotation-aware `safeStorage` key derivation (`getOrCreateEncryptedKeyAsync` using `decryptStringAsync` / `encryptStringAsync`, honouring `shouldReEncrypt`); the three electron-store keys are pre-warmed once at `app.whenReady()`
+  - `electron/main/permission-policy.ts` — deny-by-default renderer permission handlers (only `clipboard-sanitized-write` granted)
+  - Uniform IPC sender validation: `store:set` / `store:clear`, `window:new`, the window controls, and `notification:isSupported` now assert the sender frame
+  - CI: the macOS release leg fails when `CSC_LINK` / `APPLE_ID` are absent, so an unsigned DMG can't ship unnoticed
+  - New `docs/SECURITY_DESIGN.md` consolidated security design document
 - **Electron renderer-cleanup and pre-flight DNS guard** (see [ADR-0006](./adr/0006-electron-connection-and-dns-hardening.md))
   - `electron/main/connection-cleanup.ts` — idempotent `destroyed` listener dedupe (`bindRendererCleanup`) and walk-and-dispose helper (`disposeByOwner`) shared by every long-lived streaming handler (gRPC, MCP, SSE, WebSocket, Socket.IO)
   - `electron/main/dns-guard.ts` — `assertHostnameSafe` / `assertUrlHostnameSafe` close the SSRF gap for transports without a connector-level `lookup` hook by running `assertResolvedAddressAllowed` against every record from `dns.lookup`. Pre-flight only — true DNS-rebind (TTL=0 swap during connect) is intentionally out of scope and tracked for follow-up
