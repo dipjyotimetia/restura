@@ -1,16 +1,7 @@
 import * as React from 'react';
 import { cn } from '@/lib/shared/utils';
 
-export type ProtocolName =
-  | 'HTTP'
-  | 'GRPC'
-  | 'WS'
-  | 'GQL'
-  | 'MCP'
-  | 'SSE'
-  | 'KAFKA'
-  | 'MQTT'
-  | 'SOCKETIO';
+export type ProtocolName = 'HTTP' | 'GRPC' | 'WS' | 'GQL' | 'MCP' | 'SSE' | 'KAFKA' | 'SOCKETIO';
 
 const protoStyles: Record<ProtocolName, { color: string; bg: string; label: string }> = {
   HTTP: { color: '#4d9fff', bg: 'rgba(77,159,255,0.14)', label: 'HTTP' },
@@ -20,7 +11,6 @@ const protoStyles: Record<ProtocolName, { color: string; bg: string; label: stri
   MCP: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', label: 'MCP' },
   SSE: { color: '#06b6d4', bg: 'rgba(6,182,212,0.16)', label: 'SSE' },
   KAFKA: { color: '#f472b6', bg: 'rgba(244,114,182,0.16)', label: 'Kafka' },
-  MQTT: { color: '#10b981', bg: 'rgba(16,185,129,0.16)', label: 'MQTT' },
   SOCKETIO: { color: '#a78bfa', bg: 'rgba(167,139,250,0.16)', label: 'IO' },
 };
 

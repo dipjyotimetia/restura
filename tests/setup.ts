@@ -29,7 +29,6 @@ vi.mock('@/lib/shared/dexie-storage', () => {
       sseConnections: f,
       mcpConnections: f,
       kafkaConnections: f,
-      mqttConnections: f,
       socketioConnections: f,
       console: f,
       graphqlSchemas: f,

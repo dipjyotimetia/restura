@@ -12,12 +12,3 @@ export function emitTo(webContentsId: number, channel: string, ...args: unknown[
     wc.send(channel, ...args);
   }
 }
-
-/**
- * Normalize an unknown thrown value to a string message. The same
- * `err instanceof Error ? err.message : String(err)` idiom was duplicated
- * across the protocol handlers; share it so error surfacing is consistent.
- */
-export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}

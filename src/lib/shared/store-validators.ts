@@ -29,7 +29,7 @@ const ConsoleTestSchema = z.object({
 export const ConsoleFrameSchema = z.object({
   id: z.string(),
   timestamp: z.number(),
-  protocol: z.enum(['websocket', 'socketio', 'kafka', 'mqtt']),
+  protocol: z.enum(['websocket', 'socketio', 'kafka']),
   direction: z.enum(['in', 'out', 'system']),
   connectionId: z.string().optional(),
   label: z.string().optional(),
@@ -41,7 +41,7 @@ export const ConsoleEntrySchema = z.object({
   id: z.string(),
   timestamp: z.number(),
   protocol: z
-    .enum(['http', 'grpc', 'graphql', 'mcp', 'sse', 'websocket', 'kafka', 'mqtt', 'socketio'])
+    .enum(['http', 'grpc', 'graphql', 'mcp', 'sse', 'websocket', 'kafka', 'socketio'])
     .optional(),
   request: z.object({
     method: z.string(),

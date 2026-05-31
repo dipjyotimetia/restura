@@ -18,7 +18,6 @@ import { mcpProtocol } from '@/features/mcp/protocol';
 import { sseProtocol } from '@/features/sse/protocol';
 import { websocketProtocol } from '@/features/websocket/protocol';
 import { kafkaProtocol } from '@/features/kafka/protocol';
-import { mqttProtocol } from '@/features/mqtt/protocol';
 import { socketioProtocol } from '@/features/socketio/protocol';
 
 protocolRegistry.register(httpProtocol);
@@ -28,5 +27,4 @@ protocolRegistry.register(mcpProtocol);
 protocolRegistry.register(sseProtocol);
 protocolRegistry.register(websocketProtocol);
 protocolRegistry.register(kafkaProtocol);
-protocolRegistry.register(mqttProtocol);
 protocolRegistry.register(socketioProtocol);

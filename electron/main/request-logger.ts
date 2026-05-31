@@ -15,7 +15,7 @@ const log = createLogger('request-logger');
  * `status` mapped from the closing event, and `durationMs` covering the
  * session lifetime — not per-message events, which would flood the log.
  */
-export type LogProtocol = 'http' | 'grpc' | 'ws' | 'sse' | 'mcp' | 'kafka' | 'mqtt' | 'socketio';
+export type LogProtocol = 'http' | 'grpc' | 'ws' | 'sse' | 'mcp' | 'kafka' | 'socketio';
 
 export interface LogEntry {
   ts: number;
@@ -44,7 +44,7 @@ const LogEntrySchema = z.object({
   url: z.string(),
   status: z.number(),
   durationMs: z.number(),
-  protocol: z.enum(['http', 'grpc', 'ws', 'sse', 'mcp', 'kafka', 'mqtt', 'socketio']),
+  protocol: z.enum(['http', 'grpc', 'ws', 'sse', 'mcp', 'kafka', 'socketio']),
   requestId: z.string().optional(),
   error: z.string().optional(),
 });

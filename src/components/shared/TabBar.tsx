@@ -18,11 +18,17 @@ import {
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
-import { isConnectionMode } from '@/types';
-import type { RequestMode, TabModeOverride } from '@/types';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 
-type NewRequestMode = RequestMode;
+type NewRequestMode =
+  | 'http'
+  | 'grpc'
+  | 'sse'
+  | 'mcp'
+  | 'graphql'
+  | 'websocket'
+  | 'socketio'
+  | 'kafka';
 
 interface TabStripProps {
   onSaveToCollection?: (tabId: string) => void;
@@ -31,7 +37,7 @@ interface TabStripProps {
    * (graphql, websocket, socketio, kafka). The orchestrator owns the mode
    * override; the TabStrip just announces intent.
    */
-  onChangeMode?: (mode: TabModeOverride) => void;
+  onChangeMode?: (mode: 'graphql' | 'websocket' | 'socketio' | 'kafka') => void;
 }
 
 /**
@@ -64,7 +70,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const clearTabDirty = useRequestStore((s) => s.clearTabDirty);
 
   const handleNewTab = (mode: NewRequestMode) => {
-    if (isConnectionMode(mode)) {
+    if (mode === 'graphql' || mode === 'websocket' || mode === 'socketio' || mode === 'kafka') {
       onChangeMode?.(mode);
       return;
     }
@@ -350,11 +356,6 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               {isElectron() && (
                 <DropdownMenuItem onClick={() => handleNewTab('kafka')}>
                   Kafka consumer
-                </DropdownMenuItem>
-              )}
-              {isElectron() && (
-                <DropdownMenuItem onClick={() => handleNewTab('mqtt')}>
-                  MQTT client
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

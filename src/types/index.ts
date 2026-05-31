@@ -56,9 +56,8 @@ export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
 export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';
 
 // Request Mode (used for UI mode switching)
-// Kafka and MQTT are connection-based (no Request shape) and Electron-only —
-// the picker still surfaces them in the web build but the page renders a
-// "Desktop only" panel.
+// Kafka is connection-based (no Request shape) and Electron-only — the picker
+// still surfaces it in the web build but the page renders a "Desktop only" panel.
 export type RequestMode =
   | 'http'
   | 'grpc'
@@ -67,7 +66,6 @@ export type RequestMode =
   | 'sse'
   | 'mcp'
   | 'kafka'
-  | 'mqtt'
   | 'socketio';
 
 // Body Types
@@ -398,27 +396,6 @@ export type StreamEventLike =
  * without a corresponding `RequestType` propagates automatically.
  */
 export type TabModeOverride = Exclude<RequestMode, RequestType>;
-
-/**
- * Runtime companion to {@link TabModeOverride}. The `Record` makes the set of
- * connection-based modes exhaustive at compile time — adding a new
- * `TabModeOverride` without listing it here is a type error, so the UI call
- * sites that branch on "is this a connection-based mode?" can never silently
- * fall out of sync (the failure mode that previously shipped a protocol
- * missing from one of several hand-maintained `||` lists).
- */
-const CONNECTION_MODES: Record<TabModeOverride, true> = {
-  graphql: true,
-  websocket: true,
-  socketio: true,
-  kafka: true,
-  mqtt: true,
-};
-
-/** True when `mode` opens via `openTabWithMode` (a `modeOverride` tab) rather than a real `RequestType`. */
-export function isConnectionMode(mode: string): mode is TabModeOverride {
-  return mode in CONNECTION_MODES;
-}
 
 export interface RequestTab {
   id: string;

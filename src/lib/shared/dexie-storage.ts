@@ -68,7 +68,6 @@ type StorageTableName =
   | 'sseConnections'
   | 'mcpConnections'
   | 'kafkaConnections'
-  | 'mqttConnections'
   | 'socketioConnections'
   | 'console'
   | 'graphqlSchemas'
@@ -300,8 +299,6 @@ export const dexieStorageAdapters = {
   mcpConnections: () => createDexieStorage({ tableName: 'mcpConnections', encrypt: true }),
 
   kafkaConnections: () => createDexieStorage({ tableName: 'kafkaConnections', encrypt: true }),
-
-  mqttConnections: () => createDexieStorage({ tableName: 'mqttConnections', encrypt: true }),
 
   socketioConnections: () =>
     createDexieStorage({ tableName: 'socketioConnections', encrypt: true }),

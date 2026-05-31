@@ -23,7 +23,6 @@ describe('protocol bootstrap', () => {
       'http',
       'kafka',
       'mcp',
-      'mqtt',
       'socketio',
       'sse',
       'websocket',
