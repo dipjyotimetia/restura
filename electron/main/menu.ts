@@ -4,27 +4,6 @@ import { app, dialog, Menu, shell } from 'electron';
 export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
   const isMac = process.platform === 'darwin';
 
-  // Reuses the same `app:check-updates` event the system tray emits; the
-  // renderer (UpdateNotification.tsx) gives it transient toast feedback.
-  const checkForUpdatesItem: MenuItemConstructorOptions = {
-    label: 'Check for Updates…',
-    click: () => {
-      if (mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send('app:check-updates');
-    },
-  };
-
-  // Opens the renderer's Settings drawer. Accelerator matches the renderer's own
-  // `mod+,` keybinding (opening is idempotent, so the two paths can't conflict).
-  const settingsItem: MenuItemConstructorOptions = {
-    label: isMac ? 'Settings…' : 'Preferences',
-    accelerator: 'CmdOrCtrl+,',
-    click: () => {
-      if (mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send('menu:settings');
-    },
-  };
-
   const template: MenuItemConstructorOptions[] = [
     // App menu (macOS only)
     ...(isMac
@@ -33,10 +12,6 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
             label: app.name,
             submenu: [
               { role: 'about' as const },
-              { type: 'separator' as const },
-              checkForUpdatesItem,
-              { type: 'separator' as const },
-              settingsItem,
               { type: 'separator' as const },
               { role: 'services' as const },
               { type: 'separator' as const },
@@ -54,8 +29,29 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
     {
       label: 'File',
       submenu: [
-        // macOS surfaces Settings in the app menu; elsewhere File is its home.
-        ...(!isMac ? [settingsItem, { type: 'separator' as const }] : []),
+        {
+          label: 'New Request',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => {
+            mainWindow.webContents.send('menu:new-request');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Import Collection...',
+          accelerator: 'CmdOrCtrl+I',
+          click: () => {
+            mainWindow.webContents.send('menu:import');
+          },
+        },
+        {
+          label: 'Export Collection...',
+          accelerator: 'CmdOrCtrl+E',
+          click: () => {
+            mainWindow.webContents.send('menu:export');
+          },
+        },
+        { type: 'separator' },
         isMac ? { role: 'close' as const } : { role: 'quit' as const },
       ],
     },
@@ -121,9 +117,6 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
     {
       role: 'help' as const,
       submenu: [
-        // macOS surfaces this in the app menu (platform convention); elsewhere
-        // Help is the discoverable home for it.
-        ...(!isMac ? [checkForUpdatesItem, { type: 'separator' as const }] : []),
         {
           label: 'Documentation',
           click: async () => {

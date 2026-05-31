@@ -653,7 +653,7 @@ interface ElectronAPI {
   log: ElectronLogAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
-  // Valid channels: 'menu:settings' | 'app:check-updates' | 'deep-link'
+  // Valid channels: 'menu:import' | 'menu:export' | 'menu:new-request' | 'app:focus' | 'deep-link'
   // 'deep-link' callback receives: { host: string; params: Record<string, string> }
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;

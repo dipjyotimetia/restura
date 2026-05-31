@@ -27,8 +27,7 @@ import {
 } from './secret-handle-store';
 import { registerVaultHandlers, unregisterVaultHandlers, initVaultStore } from './vault-handler';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
-import { applyPermissionPolicy, denyWebContentsDeviceAccess } from './permission-policy';
-import { setupCrashRecovery, logChildProcessExits } from './crash-recovery';
+import { applyPermissionPolicy } from './permission-policy';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
 import {
@@ -96,11 +95,6 @@ if (!gotTheLock) {
 // events can fire even before the window is created
 // (requires single-instance lock to be requested before calling this)
 registerDeepLinkHandler(getMainWindow);
-
-// Force every renderer process-wide into the Chromium sandbox. Each BrowserWindow
-// already sets `sandbox: true`, so this is a defense-in-depth backstop: a future
-// window that forgets the flag still runs sandboxed. Must be called before ready.
-app.enableSandbox();
 
 // Register security measures early so all web-contents are protected from creation
 setupSecurityMeasures();
@@ -190,12 +184,7 @@ function setupContentSecurityPolicy(): void {
 
 // Setup security measures
 function setupSecurityMeasures(): void {
-  logChildProcessExits();
-
   app.on('web-contents-created', (_event, contents) => {
-    setupCrashRecovery(contents);
-    denyWebContentsDeviceAccess(contents);
-
     contents.on('will-navigate', (event, navigationUrl) => {
       // In dev allow only the Vite dev server origin
       if (isDev) {
