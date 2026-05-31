@@ -243,6 +243,7 @@ export const VALID_EVENT_CHANNELS = [
   'menu:import',
   'menu:export',
   'menu:new-request',
+  'menu:settings',
   'app:focus',
   'app:check-updates',
   'deep-link',
