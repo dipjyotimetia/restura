@@ -34,7 +34,7 @@ Both are free forever.
 | `GQL`  | GraphQL                | Query builder, schema introspection, subscriptions          |
 | `RPC`  | gRPC                   | Unary, server streaming, server reflection                  |
 |  `WS`  | WebSocket              | Connect, send/receive, full message history                 |
-|  `IO`  | Socket.IO              | Connect, emit/listen events, acks (desktop only)            |
+|  `IO`  | Socket.IO              | Connect, emit/listen events; acks desktop-only              |
 | `SSE`  | Server-Sent Events     | Live event stream viewer with reconnection                  |
 | `KFK`  | Kafka                  | Produce / consume, SASL + TLS (desktop only)                |
 | `MCP`  | Model Context Protocol | Proxy to any MCP server                                     |
@@ -145,7 +145,7 @@ src/
 │   ├── http/          # REST request builder & executor
 │   ├── grpc/          # gRPC client + server reflection
 │   ├── websocket/     # WebSocket client
-│   ├── socketio/      # Socket.IO client (desktop only)
+│   ├── socketio/      # Socket.IO client
 │   ├── graphql/       # GraphQL builder + schema explorer
 │   ├── sse/           # Server-Sent Events client
 │   ├── kafka/         # Kafka producer/consumer (desktop only)
