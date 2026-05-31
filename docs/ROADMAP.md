@@ -1,6 +1,6 @@
 # Restura — Roadmap
 
-## Current Status: v0.2.15
+## Current Status: v0.1.0
 
 Core functionality is complete and shipping. Web (Cloudflare Pages) and desktop (Electron) apps are both available.
 
@@ -29,7 +29,6 @@ Core functionality is complete and shipping. Web (Cloudflare Pages) and desktop 
 - [x] Proxy support with mTLS and proxy chaining
 - [x] Cookie management
 - [x] Command palette
-- [x] Mock servers (local HTTP mock listener, desktop)
 
 ### Extended Protocols
 
@@ -41,8 +40,6 @@ Core functionality is complete and shipping. Web (Cloudflare Pages) and desktop 
 - [x] GraphQL subscriptions
 - [x] Server-Sent Events (SSE) client
 - [x] Model Context Protocol (MCP) client
-- [x] Socket.IO connection management (emit/listen events, acks)
-- [x] Kafka produce / consume with SASL + TLS (desktop only)
 
 ### Workflows
 
@@ -103,6 +100,7 @@ Features below are planned but not yet scheduled. Contributions welcome.
 
 - [ ] Test suites with HTML/JUnit reports
 - [ ] Scheduled test runs
+- [ ] Mock servers
 - [ ] CI/CD integration guide
 
 ### Performance Testing
@@ -154,4 +152,4 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to get started.
 
 ---
 
-_Last updated: May 2026_
+*Last updated: May 2026*

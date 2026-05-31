@@ -20,7 +20,7 @@
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../shared/channels';
-import { getOrCreateEncryptedKey, getOrCreateEncryptedKeyAsync } from './encrypted-key';
+import { getOrCreateEncryptedKey } from './encrypted-key';
 import { createValidatedHandler } from './ipc-validators';
 
 // electron-store v9+ ESM-only; .default is the constructor under Node 22+.
@@ -52,23 +52,6 @@ function getStore(): VaultStoreShape {
     clearInvalidConfig: true,
   }) as VaultStoreShape;
   return storeInstance;
-}
-
-/**
- * Prewarm via the non-blocking async key path (preferred — graceful OS keychain
- * rotation + temporary-unavailability handling). Called once at startup; the
- * sync `getStore()` accessor then returns this cached instance. Idempotent.
- */
-export async function initVaultStore(): Promise<void> {
-  if (storeInstance) return;
-  storeInstance = new Store({
-    name: 'restura-vault',
-    encryptionKey: await getOrCreateEncryptedKeyAsync({
-      fileName: '.vault-key',
-      storeLabel: 'pm.vault store',
-    }),
-    clearInvalidConfig: true,
-  }) as VaultStoreShape;
 }
 
 // Vault key shape: 1–256 chars, no control characters. Tight enough to

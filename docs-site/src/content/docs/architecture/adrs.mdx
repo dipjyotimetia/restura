@@ -17,7 +17,6 @@ timeline
              : 0005 — CLI runner
   2026-05-16 : 0006 — Connection + DNS hardening
   2026-05-27 : 0007 — SecretRef pattern
-  2026-05-31 : 0008 — Keystore + renderer hardening
 ```
 
 <CardGrid>
@@ -55,10 +54,5 @@ timeline
     title="0007 — SecretRef pattern"
     description="Handle-based secrets: plaintext never leaves the main process; renderer, Zustand, and exports only see SecretRef handles."
     href="/architecture/adrs/0007-secret-ref-pattern/"
-  />
-  <LinkCard
-    title="0008 — Keystore + renderer hardening"
-    description="Async rotation-aware safeStorage keys, deny-by-default permissions, uniform IPC sender validation, fail-closed macOS signing."
-    href="/architecture/adrs/0008-keystore-and-renderer-hardening/"
   />
 </CardGrid>
