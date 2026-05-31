@@ -115,9 +115,11 @@ export function scrubEvent<T extends Sentry.Event>(event: T): T {
 // child span for an http-client op or any URL/host data attribute.
 const URL_DATA_KEYS: readonly string[] = ['http.url', 'url.full', 'server.address', 'http.target'];
 
-function spanCarriesUrl(
-  span: { op?: string; data?: Record<string, unknown> } | undefined
-): boolean {
+// Minimal shape shared by Sentry's root trace context and child spans — both
+// carry an optional op + data bag, which is all spanCarriesUrl inspects.
+type SpanLike = { op?: string; data?: Record<string, unknown> };
+
+function spanCarriesUrl(span: SpanLike | undefined): boolean {
   if (!span) return false;
   if (span.op && span.op.startsWith('http.client')) return true;
   const data = span.data;
@@ -134,10 +136,9 @@ function spanCarriesUrl(
  * `type: 'transaction'` and the `spans`/`contexts.trace` fields used here.
  */
 export function transactionCarriesUrl(event: Sentry.Event): boolean {
-  if (spanCarriesUrl(event.contexts?.trace as { op?: string; data?: Record<string, unknown> }))
-    return true;
+  if (spanCarriesUrl(event.contexts?.trace as SpanLike)) return true;
   for (const span of event.spans ?? []) {
-    if (spanCarriesUrl(span as { op?: string; data?: Record<string, unknown> })) return true;
+    if (spanCarriesUrl(span as SpanLike)) return true;
   }
   return false;
 }
