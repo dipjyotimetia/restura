@@ -1,6 +1,6 @@
 {
   "name": "restura-cli",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "description": "Restura CLI — run API collections in CI with JUnit/HTML/JSON reporters",
   "license": "MIT",
   "author": "dipjyotimetia",
