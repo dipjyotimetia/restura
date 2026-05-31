@@ -22,17 +22,32 @@
 
 import * as Sentry from '@sentry/electron/main';
 import { app } from 'electron';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { redactBody } from '@shared/protocol/ai/redaction';
 import { createLogger } from '../../src/lib/shared/logger';
 
 const log = createLogger('sentry');
 
-// A DSN is not a secret (it's a public ingest identifier), so it's baked in to
-// survive into the packaged app where `process.env` is absent. `SENTRY_DSN`
-// overrides it for local/dev runs pointing at a throwaway project. Left empty
-// until a project DSN is provisioned — `initSentry` no-ops without one. Read
-// inside `doInit` (not at module load) so it reflects the env at init time.
-const BAKED_IN_DSN = '';
+// The DSN is resolved at init time and is never hardcoded in source. Two
+// sources, in priority order:
+//   1. SENTRY_DSN env var — for dev (`SENTRY_DSN=… npm run electron:dev`).
+//   2. `sentry.dsn` in the packaged package.json, injected at build time from a
+//      CI secret via `npm pkg set sentry.dsn=…` (see .github/workflows/release.yml).
+// A DSN is a public ingest identifier (not a secret), so shipping it inside the
+// packaged package.json is fine. Empty → initSentry no-ops.
+function resolveDsn(): string {
+  const fromEnv = process.env['SENTRY_DSN'];
+  if (fromEnv) return fromEnv;
+  try {
+    const pkg = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) as {
+      sentry?: { dsn?: string };
+    };
+    return pkg.sentry?.dsn ?? '';
+  } catch {
+    return '';
+  }
+}
 
 // Runtime opt-in gate. `Sentry.init` runs at most once; this flag lets the
 // in-session toggle (renderer → IPC) open/close JS-event reporting without a
@@ -89,7 +104,7 @@ export function scrubEvent<T extends Sentry.Event>(event: T): T {
 
 function doInit(): void {
   if (initialized) return;
-  const dsn = process.env['SENTRY_DSN'] ?? BAKED_IN_DSN;
+  const dsn = resolveDsn();
   if (!dsn) {
     log.warn('Sentry DSN not configured — error reporting disabled');
     return;

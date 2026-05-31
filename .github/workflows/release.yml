@@ -169,6 +169,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Inject the Sentry DSN into package.json so the packaged main process can
+      # read it at runtime (electron/main/sentry.ts reads sentry.dsn). The DSN is
+      # a public ingest identifier, not a secret, but we source it from a repo
+      # secret to avoid hardcoding it. Skipped (Sentry disabled) when unset.
+      - name: Inject Sentry DSN (optional)
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        shell: bash
+        run: |
+          if [ -n "${SENTRY_DSN:-}" ]; then
+            npm pkg set sentry.dsn="$SENTRY_DSN"
+            echo "Injected Sentry DSN into package.json."
+          else
+            echo "SENTRY_DSN not set — desktop build ships with Sentry disabled."
+          fi
+
       # electron-builder's rpm target shells out to `rpmbuild`, which isn't on
       # the ubuntu-latest image by default. AppImage/deb need no extra packages.
       - name: Install Linux packaging tools

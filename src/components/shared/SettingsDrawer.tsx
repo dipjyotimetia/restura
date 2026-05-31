@@ -410,6 +410,20 @@ function GeneralSection() {
           }
         />
       </FieldGroup>
+
+      <FieldGroup label="Privacy">
+        <FieldRow
+          label="Send crash & error reports"
+          hint="Helps fix bugs. Only the error message, stack, and app version are sent — never request payloads, headers, or response bodies."
+          control={
+            <ToggleField
+              checked={settings.telemetry?.errorsEnabled ?? true}
+              onChange={(v) => updateSettings({ telemetry: { errorsEnabled: v } })}
+              ariaLabel="Send crash and error reports"
+            />
+          }
+        />
+      </FieldGroup>
     </>
   );
 }
