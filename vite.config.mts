@@ -44,7 +44,11 @@ export default defineConfig({
   build: {
     outDir: 'dist/web',
     assetsDir: 'assets',
-    sourcemap: process.env.NODE_ENV === 'production' ? false : true,
+    // Electron prod builds emit *hidden* source maps (no `sourceMappingURL`
+    // comment in the shipped JS) so Sentry can symbolicate crashes after a CI
+    // upload, without leaking maps into the packaged app. electron-builder
+    // excludes the *.map files from the asar (see electron-builder.json).
+    sourcemap: isElectronBuild ? 'hidden' : process.env.NODE_ENV === 'production' ? false : true,
     ...(isElectronBuild && { target: 'esnext' }),
     // Split the large, stable vendor libraries that sit in the *eager* import
     // graph (the renderer entry) into their own chunks. On desktop the renderer

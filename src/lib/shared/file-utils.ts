@@ -19,3 +19,15 @@ export function readFileAsText(file: File): Promise<string> {
     reader.readAsText(file);
   });
 }
+
+/** Trigger a browser download of `content` as `filename` (creates + revokes a blob URL). */
+export function downloadBlob(content: BlobPart, filename: string, type = 'application/json'): void {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

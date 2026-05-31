@@ -10,6 +10,7 @@ interface StorageStatus {
   used: number;
   available: number;
   percentage: number;
+  totalRecords: number;
   level: 'ok' | 'warning' | 'critical';
   message?: string;
 }
@@ -33,6 +34,7 @@ export function useStorageMonitor(options: UseStorageMonitorOptions = {}) {
     used: 0,
     available: 0,
     percentage: 0,
+    totalRecords: 0,
     level: 'ok',
   });
 
@@ -70,6 +72,7 @@ export function useStorageMonitor(options: UseStorageMonitorOptions = {}) {
         used: stats.estimatedSize,
         available: availableBytes,
         percentage: Math.round(percentage * 100) / 100,
+        totalRecords: stats.totalRecords,
         level,
         message,
       });
@@ -174,7 +177,11 @@ export async function getStorageStatus(): Promise<StorageStatus> {
     const stats = await getDexieStorageStats();
 
     let availableBytes = 100 * 1024 * 1024;
-    if (typeof navigator !== 'undefined' && 'storage' in navigator && 'estimate' in navigator.storage) {
+    if (
+      typeof navigator !== 'undefined' &&
+      'storage' in navigator &&
+      'estimate' in navigator.storage
+    ) {
       const estimate = await navigator.storage.estimate();
       if (estimate.quota) {
         availableBytes = estimate.quota;
@@ -198,6 +205,7 @@ export async function getStorageStatus(): Promise<StorageStatus> {
       used: stats.estimatedSize,
       available: availableBytes,
       percentage: Math.round(percentage * 100) / 100,
+      totalRecords: stats.totalRecords,
       level,
       message,
     };
@@ -206,6 +214,7 @@ export async function getStorageStatus(): Promise<StorageStatus> {
       used: 0,
       available: 0,
       percentage: 0,
+      totalRecords: 0,
       level: 'ok',
     };
   }
