@@ -1,6 +1,5 @@
 import { app, dialog } from 'electron';
 import type { WebContents } from 'electron';
-import * as Sentry from '@sentry/electron/main';
 import { bindRendererCleanup } from './connection-cleanup';
 import { createLogger } from '../../src/lib/shared/logger';
 
@@ -25,15 +24,6 @@ export function setupCrashRecovery(contents: WebContents): void {
 
     // Only recover from genuine crashes — not intentional teardown.
     if (details.reason !== 'crashed' && details.reason !== 'oom') return;
-
-    // A dead renderer is not a JS throw, so Sentry's default integrations don't
-    // see it — capture it explicitly. The opt-in gate is enforced in beforeSend.
-    Sentry.captureMessage(`renderer ${details.reason}`, {
-      level: 'fatal',
-      tags: { kind: 'render-process-gone', reason: details.reason },
-      extra: { exitCode: details.exitCode },
-    });
-
     if (contents.isDestroyed()) return;
 
     const now = Date.now();
@@ -72,11 +62,6 @@ export function logChildProcessExits(): void {
       reason: details.reason,
       name: details.name,
       exitCode: details.exitCode,
-    });
-    Sentry.captureMessage(`child process gone: ${details.type}`, {
-      level: 'error',
-      tags: { kind: 'child-process-gone', type: details.type, reason: details.reason },
-      extra: { name: details.name, exitCode: details.exitCode },
     });
   });
 }

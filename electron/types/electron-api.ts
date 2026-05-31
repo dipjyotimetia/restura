@@ -702,11 +702,6 @@ interface ElectronAiAPI {
   ) => () => void;
 }
 
-interface ElectronTelemetryAPI {
-  /** Push the renderer's opt-in flag to main; gates Sentry crash/error reporting. */
-  setConsent: (enabled: boolean) => Promise<{ ok: true }>;
-}
-
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -734,7 +729,6 @@ interface ElectronAPI {
   log: ElectronLogAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
-  telemetry: ElectronTelemetryAPI;
   // Valid channels: 'menu:settings' | 'app:check-updates' | 'deep-link'
   // 'deep-link' callback receives: { host: string; params: Record<string, string> }
   on: (channel: string, callback: (...args: unknown[]) => void) => void;

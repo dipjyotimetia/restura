@@ -151,9 +151,6 @@ export const IPC = {
     stop: 'mock:stop',
     status: 'mock:status',
   },
-  telemetry: {
-    setConsent: 'telemetry:setConsent',
-  },
 } as const;
 
 /** Static main→renderer push channels (not per-connection). */

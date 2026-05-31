@@ -42,8 +42,6 @@ import { startStdioMcpServer } from './mcp-server-handler';
 import { loadMcpDispatchContext } from './mcp-context-loader';
 import { createLogger } from '../../src/lib/shared/logger';
 import { initLogging } from './logging';
-import { initSentry } from './sentry';
-import { readConsentSync, registerTelemetryConsentIPC } from './telemetry-consent';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -53,15 +51,7 @@ initLogging(isDev);
 
 const log = createLogger('main');
 
-// Initialize Sentry as early as possible — before window creation — so native
-// crashes and main-process errors are armed from line one. @sentry/electron/main
-// owns the native crashReporter (minidumps); it only inits when the user has
-// opted in (read synchronously from the plain consent mirror), so opted-out
-// users upload nothing. See electron/main/sentry.ts.
-initSentry({ enabled: readConsentSync() });
-
-// Sentry's default integrations already capture main-process uncaught
-// exceptions/rejections; these handlers add structured local logging on top so
+// Log JS-level failures so
 // async paths (chokidar, dispatchers, stream errors) don't fail silently.
 process.on('uncaughtException', (err, origin) => {
   log.error('uncaughtException', { origin, message: err.message, stack: err.stack });
@@ -277,7 +267,6 @@ app.whenReady().then(async () => {
   setupContentSecurityPolicy();
   applyPermissionPolicy(session.defaultSession);
   registerIPCHandlers();
-  registerTelemetryConsentIPC();
 
   const initialWindow = createMainWindow(isDev);
 

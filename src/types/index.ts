@@ -866,11 +866,10 @@ export interface AppSettings {
   serverCipherOrder?: boolean;
   minTlsVersion?: MinTlsVersion;
   cipherSuites?: string;
-  // Telemetry (Gap #2c). Defaults to ON (opt-out). Gates the renderer→Worker
-  // error sink (web) and, on desktop, Sentry crash/error reporting (native
-  // minidumps + main/renderer JS errors) — never request payloads, headers, or
-  // response bodies. The flag is mirrored to the Electron main process so it can
-  // gate Sentry; see electron/main/sentry.ts and electron/main/telemetry-consent.ts.
+  // Telemetry opt-ins (Gap #2c). Both default false. Only renderer-side errors
+  // and main-process JS-level failures are sent — never request payloads,
+  // headers, or response bodies. Native crashes go to crashReporter.submitURL
+  // independently (a separate opt-in via CRASH_REPORT_URL env var).
   telemetry?: {
     errorsEnabled: boolean;
   };
