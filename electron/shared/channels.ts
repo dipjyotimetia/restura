@@ -79,6 +79,13 @@ export const IPC = {
     unsubscribe: 'kafka:unsubscribe',
     disconnect: 'kafka:disconnect',
   },
+  mqtt: {
+    connect: 'mqtt:connect',
+    publish: 'mqtt:publish',
+    subscribe: 'mqtt:subscribe',
+    unsubscribe: 'mqtt:unsubscribe',
+    disconnect: 'mqtt:disconnect',
+  },
   notification: {
     isSupported: 'notification:isSupported',
     show: 'notification:show',
@@ -191,6 +198,14 @@ export const EVENT_PREFIX = {
     consumerClosed: 'kafka:consumer-closed:',
     close: 'kafka:close:',
   },
+  mqtt: {
+    connected: 'mqtt:connected:',
+    message: 'mqtt:message:',
+    error: 'mqtt:error:',
+    subscribed: 'mqtt:subscribed:',
+    unsubscribed: 'mqtt:unsubscribed:',
+    close: 'mqtt:close:',
+  },
   ai: {
     chunk: 'ai:chat:chunk:',
     end: 'ai:chat:end:',
@@ -214,6 +229,7 @@ export const CHANNEL_PREFIXES = {
   sse: 'sse:',
   mcp: 'mcp:',
   kafka: 'kafka:',
+  mqtt: 'mqtt:',
 } as const;
 
 /**

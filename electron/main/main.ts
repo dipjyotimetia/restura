@@ -9,6 +9,7 @@ import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './socketio-hand
 import { registerSseHandlerIPC, stopSseCleanup } from './sse-handler';
 import { registerMcpHandlerIPC, stopMcpCleanup } from './mcp-handler';
 import { registerKafkaHandlerIPC, stopKafkaCleanup } from './kafka-handler';
+import { registerMqttHandlerIPC, stopMqttCleanup } from './mqtt-handler';
 import { registerGrpcReflectionIPC } from './grpc-reflection-handler';
 import { logRequest, registerRequestLoggerIPC } from './request-logger';
 import { registerWindowControlsIPC } from './window-controls';
@@ -117,6 +118,7 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerSseHandlerIPC(), dispose: () => stopSseCleanup() },
   { register: () => registerMcpHandlerIPC(), dispose: () => stopMcpCleanup() },
   { register: () => registerKafkaHandlerIPC(logRequest), dispose: () => stopKafkaCleanup() },
+  { register: () => registerMqttHandlerIPC(logRequest), dispose: () => stopMqttCleanup() },
   { register: () => registerRequestLoggerIPC() },
   { register: () => registerWindowControlsIPC(getMainWindow) },
   { register: () => registerNewWindowIPC(isDev) },

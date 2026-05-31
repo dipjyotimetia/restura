@@ -8,6 +8,9 @@ export const modes = {
   socketio: 'Socket.IO',
   sse: 'SSE stream',
   mcp: 'MCP request',
+  // Desktop-only: only present in the menu when isElectron() is true (e.g. the
+  // mocked-Electron MQTT e2e). On the web build the item is gated off.
+  mqtt: 'MQTT client',
 } as const;
 
 export type Mode = keyof typeof modes;
