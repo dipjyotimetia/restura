@@ -87,7 +87,7 @@ The investigation nonetheless surfaced four hardening gaps worth closing togethe
   [ADR 0006](./0006-electron-connection-and-dns-hardening.md).
 - **macOS app-sandbox** not enabled — impractical for a developer tool that makes
   arbitrary outbound requests and reads user-selected certs/protos. Hardened runtime
-  - notarisation is the correct bar for this app class.
+  and notarisation are the correct bar for this app class.
 
 ## Alternatives considered
 
