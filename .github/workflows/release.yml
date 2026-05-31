@@ -12,6 +12,8 @@ name: Release
 #   prerelease_identifier   — appended to the next stable semver to form the
 #                             prerelease tag (e.g. "beta.1" → v0.2.16-beta.1).
 #                             Increment for successive betas (beta.2, beta.3…).
+#   publish_docker          — opt-in (default false). When true on a stable
+#                             release, publishes the Docker image to GHCR.
 #
 # Flow (stable):
 #   1. Preflight validates main, inputs, tests, type-checks, and build health.
@@ -32,7 +34,7 @@ name: Release
 # Downstream jobs fan out from `release`:
 #   - `desktop`      — build + publish Electron installers (all releases).
 #   - `publish-cli`  — publish `restura-cli` to npm (stable only).
-#   - `publish-docker` — publish Docker image to GHCR (stable only).
+#   - `publish-docker` — publish Docker image to GHCR (stable + publish_docker opt-in).
 #   - `deploy-web`   — deploy to Cloudflare (stable only).
 #
 # Note: the bump commit + tag are pushed with the default GITHUB_TOKEN. Because
@@ -66,6 +68,10 @@ on:
         description: 'Pre-release identifier appended to the next stable version (e.g. beta.1, beta.2). Only used when prerelease=true.'
         type: string
         default: 'beta.1'
+      publish_docker:
+        description: 'Publish the Docker image to GHCR (stable releases only). Off by default — tick to opt in.'
+        type: boolean
+        default: false
 
 concurrency:
   # Never cancel an in-flight release — partial state (bumped commit without a
@@ -405,6 +411,22 @@ jobs:
             --include-workspace-root \
             --allow-same-version
 
+      # Inject the Sentry DSN into package.json so the packaged main process can
+      # read it at runtime (electron/main/sentry.ts reads sentry.dsn). The DSN is
+      # a public ingest identifier, not a secret, but we source it from a repo
+      # secret to avoid hardcoding it. Skipped (Sentry disabled) when unset.
+      - name: Inject Sentry DSN (optional)
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        shell: bash
+        run: |
+          if [ -n "${SENTRY_DSN:-}" ]; then
+            npm pkg set sentry.dsn="$SENTRY_DSN"
+            echo "Injected Sentry DSN into package.json."
+          else
+            echo "SENTRY_DSN not set — desktop build ships with Sentry disabled."
+          fi
+
       # electron-builder's rpm target shells out to `rpmbuild`, which isn't on
       # the ubuntu-latest image by default. AppImage/deb need no extra packages.
       - name: Install Linux packaging tools
@@ -499,8 +521,8 @@ jobs:
   publish-docker:
     name: Publish Docker image to GHCR
     needs: [release]
-    # Stable releases only — no Docker image for beta builds.
-    if: ${{ !inputs.prerelease }}
+    # Stable releases only, and only when opted in at dispatch (publish_docker).
+    if: ${{ !inputs.prerelease && inputs.publish_docker }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -646,7 +668,9 @@ jobs:
   publish-release:
     name: Publish GitHub release
     needs: [release, desktop, publish-cli, publish-docker, deploy-web]
-    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (inputs.prerelease || (needs.publish-cli.result == 'success' && needs.publish-docker.result == 'success' && needs.deploy-web.result == 'success')) }}
+    # publish-docker is opt-in (publish_docker input), so 'skipped' is an acceptable
+    # outcome here — only a hard 'failure'/'cancelled' should block publishing.
+    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (inputs.prerelease || (needs.publish-cli.result == 'success' && (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped') && needs.deploy-web.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -655,7 +679,65 @@ jobs:
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
         run: |
           set -euo pipefail
-          gh release edit "$ACTUAL_TAG" --draft=false
+          # No checkout in this job, so `gh` can't infer the repo from a .git dir;
+          # GH_REPO tells it explicitly (otherwise: "fatal: not a git repository").
+          gh release edit "$ACTUAL_TAG" --draft=false --repo "$GH_REPO"
+
+  sentry-sourcemaps:
+    name: Upload Electron source maps to Sentry
+    needs: [release]
+    # Single run (NOT per-OS): the renderer + main JS maps are platform-identical,
+    # so uploading once with the release version is enough — the `desktop` matrix
+    # must not upload the same maps three times. Skips cleanly when SENTRY_AUTH_TOKEN
+    # is unset, so the release isn't blocked before a Sentry project is provisioned.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.actual_tag }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Produce both map sets: hidden renderer maps (dist/web) + main-process
+      # maps (dist/electron). These are the same artifacts the desktop job builds.
+      - name: Build renderer + main (with source maps)
+        run: |
+          npm run electron:build:web
+          npm run electron:compile
+
+      - name: Inject + upload source maps
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "SENTRY_AUTH_TOKEN not set — skipping source map upload."
+            exit 0
+          fi
+          # Must match the SDK's release: `restura@<version>` (electron/main/sentry.ts).
+          RELEASE="restura@${ACTUAL_TAG#v}"
+          # NOTE: this job builds its own copy of the bundles to upload maps. The
+          # `desktop` matrix ships a separate build, so symbolication relies on
+          # release+filename matching being identical across the two builds (same
+          # tag, same `npm ci`). When a DSN is provisioned, verify a real crash
+          # symbolicates; if it doesn't, move `sourcemaps inject` into the desktop
+          # build (inject on every OS leg, upload once) so the shipped JS carries
+          # the debug IDs.
+          npx @sentry/cli sourcemaps inject dist/web dist/electron
+          npx @sentry/cli sourcemaps upload --release "$RELEASE" dist/web dist/electron
