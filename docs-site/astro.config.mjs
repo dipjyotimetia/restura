@@ -88,6 +88,7 @@ export default defineConfig({
             { label: 'Overview', slug: 'architecture/overview' },
             { label: 'Shared protocol layer', slug: 'architecture/shared-protocol' },
             { label: 'Security model', slug: 'architecture/security' },
+            { label: 'Security design', slug: 'architecture/security-design' },
             {
               label: 'Design decisions (ADRs)',
               collapsed: false,

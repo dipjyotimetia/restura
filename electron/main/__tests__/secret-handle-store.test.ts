@@ -10,13 +10,27 @@ const inMemoryStore = new Map<string, unknown>();
 // shaped like the real module: a default export that's a class.
 vi.mock('electron-store', () => {
   class FakeStore {
-    constructor() { /* options are ignored in tests */ }
-    get(key: string) { return inMemoryStore.get(key); }
-    set(key: string, value: unknown) { inMemoryStore.set(key, value); }
-    delete(key: string) { inMemoryStore.delete(key); }
-    clear() { inMemoryStore.clear(); }
-    has(key: string) { return inMemoryStore.has(key); }
-    get store() { return Object.fromEntries(inMemoryStore.entries()); }
+    constructor() {
+      /* options are ignored in tests */
+    }
+    get(key: string) {
+      return inMemoryStore.get(key);
+    }
+    set(key: string, value: unknown) {
+      inMemoryStore.set(key, value);
+    }
+    delete(key: string) {
+      inMemoryStore.delete(key);
+    }
+    clear() {
+      inMemoryStore.clear();
+    }
+    has(key: string) {
+      return inMemoryStore.has(key);
+    }
+    get store() {
+      return Object.fromEntries(inMemoryStore.entries());
+    }
   }
   return { default: FakeStore };
 });
@@ -25,15 +39,14 @@ vi.mock('electron-store', () => {
 // time. The key value is irrelevant — the fake store ignores it.
 vi.mock('../encrypted-key', () => ({
   getOrCreateEncryptedKey: vi.fn(() => 'test-encryption-key'),
+  getOrCreateEncryptedKeyAsync: vi.fn(async () => 'test-encryption-key'),
   getKeyStoreStatus: vi.fn(() => ({ mode: 'safeStorage', plaintextStores: [] })),
 }));
 
 // Note: electron is mocked in __tests__/setup.ts (loaded for every test).
 // No additional mock needed here.
 
-import {
-  unwrapSecretValueMain,
-} from '../secret-handle-store';
+import { unwrapSecretValueMain } from '../secret-handle-store';
 
 describe('secret-handle-store', () => {
   beforeEach(() => {
@@ -46,9 +59,7 @@ describe('secret-handle-store', () => {
     });
 
     it('returns the value of an inline SecretRef', () => {
-      expect(unwrapSecretValueMain({ kind: 'inline', value: 'inline-val' })).toBe(
-        'inline-val'
-      );
+      expect(unwrapSecretValueMain({ kind: 'inline', value: 'inline-val' })).toBe('inline-val');
     });
 
     it('returns undefined for null / undefined / wrong shape', () => {
@@ -71,10 +82,7 @@ describe('secret-handle-store', () => {
     it('does not register any `secret:resolve*` IPC channel', async () => {
       const { readFileSync } = await import('node:fs');
       const { join } = await import('node:path');
-      const source = readFileSync(
-        join(__dirname, '..', 'secret-handle-store.ts'),
-        'utf8'
-      );
+      const source = readFileSync(join(__dirname, '..', 'secret-handle-store.ts'), 'utf8');
       // Allow mentions in comments (the file explains *why* it's NOT exposed);
       // forbid any IPC registration whose channel name BEGINS with
       // 'secret:resolve' — catches typos and variants like
@@ -85,10 +93,7 @@ describe('secret-handle-store', () => {
     it('does not expose resolveSecretHandle through the preload bridge', async () => {
       const { readFileSync } = await import('node:fs');
       const { join } = await import('node:path');
-      const preload = readFileSync(
-        join(__dirname, '..', 'preload.ts'),
-        'utf8'
-      );
+      const preload = readFileSync(join(__dirname, '..', 'preload.ts'), 'utf8');
       // The preload should NOT mention resolveSecretHandle. If it does, the
       // renderer can read plaintext, defeating the entire pattern.
       expect(preload).not.toMatch(/resolveSecretHandle/);

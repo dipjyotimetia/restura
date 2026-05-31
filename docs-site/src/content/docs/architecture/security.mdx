@@ -82,6 +82,7 @@ The deployed Cloudflare Worker requires one of:
 Local dev bypasses auth only when Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. **Never put `DEV_BYPASS_AUTH` in `wrangler.jsonc`** (the deployed config).
 
 <Aside title="Read the source">
+- [Security design](/architecture/security-design) — threat model, trust boundaries, secret-storage & code-signing design.
 - [`docs/security.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/security.md) — at-rest encryption details.
 - [ADR 0004 — Security hardening](/architecture/adrs/)
 - [ADR 0006 — Electron connection + DNS hardening](/architecture/adrs/)

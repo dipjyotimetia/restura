@@ -11,7 +11,7 @@ import {
   createValidatedHandler,
   validateIpcInput,
 } from './ipc-validators';
-import { getOrCreateEncryptedKey } from './encrypted-key';
+import { getOrCreateEncryptedKey, getOrCreateEncryptedKeyAsync } from './encrypted-key';
 import { createLogger } from '../../src/lib/shared/logger';
 
 const log = createLogger('store');
@@ -55,6 +55,24 @@ function getStoreInstance(): ElectronStoreInstance {
     }) as ElectronStoreInstance;
   }
   return store;
+}
+
+/**
+ * Prewarm the store via the non-blocking async key path (preferred — handles
+ * OS keychain rotation + temporary unavailability gracefully). Called once at
+ * startup so the single keychain access happens up front; afterwards the sync
+ * `getStoreInstance()` accessor just returns this cached instance. Idempotent.
+ */
+export async function initStoreHandler(): Promise<void> {
+  if (store) return;
+  store = new Store({
+    name: 'restura-encrypted-store',
+    encryptionKey: await getOrCreateEncryptedKeyAsync({
+      fileName: '.encryption-key',
+      storeLabel: 'credential store',
+    }),
+    clearInvalidConfig: true,
+  }) as ElectronStoreInstance;
 }
 
 /**

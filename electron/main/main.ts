@@ -19,9 +19,13 @@ import {
   cleanupCollectionWatchers,
   isRegisteredCollectionDirectory,
 } from './collection-manager';
-import { registerStoreHandlerIPC } from './store-handler';
-import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './secret-handle-store';
-import { registerVaultHandlers, unregisterVaultHandlers } from './vault-handler';
+import { registerStoreHandlerIPC, initStoreHandler } from './store-handler';
+import {
+  registerSecretHandleIPC,
+  unregisterSecretHandleIPC,
+  initSecretHandleStore,
+} from './secret-handle-store';
+import { registerVaultHandlers, unregisterVaultHandlers, initVaultStore } from './vault-handler';
 import { registerKeychainStatusIPC } from './keychain-status-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
@@ -232,6 +236,24 @@ function setupSecurityMeasures(): void {
 
 // Initialize the application
 app.whenReady().then(async () => {
+  // Prewarm the encrypted stores up front via the non-blocking async safeStorage
+  // path, so the OS-keychain-backed key is derived in a single access at a
+  // predictable moment. Runs in MCP mode too — headless secret resolution needs
+  // the stores open. Failures are logged (not fatal); the sync self-init
+  // accessors remain a fallback. safeStorage is only reliable post-`ready`.
+  const prewarm = await Promise.allSettled([
+    initStoreHandler(),
+    initSecretHandleStore(),
+    initVaultStore(),
+  ]);
+  for (const result of prewarm) {
+    if (result.status === 'rejected') {
+      log.error('encrypted store prewarm failed', {
+        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+    }
+  }
+
   if (isMcpServerMode) {
     // Headless: no window, no tray, no auto-updater. The MCP SDK owns stdio.
     // Anything that would log to stdout (`console.log`, banners) corrupts the

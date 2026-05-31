@@ -152,3 +152,89 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
   }
   return newKey;
 }
+
+/**
+ * Async variant of {@link getOrCreateEncryptedKey}, preferred per Electron's
+ * safeStorage guidance: the `*Async` APIs are non-blocking, handle temporary
+ * keychain unavailability gracefully, and `decryptStringAsync` returns
+ * `shouldReEncrypt` so a key the OS has rotated gets transparently re-wrapped
+ * instead of drifting. Used by the eager store prewarm at startup
+ * (main.ts:app.whenReady); the sync variant above remains the self-init
+ * fallback for tests and any non-prewarmed path. Behaviour is otherwise
+ * identical — including the loud-warning self-heal on a genuinely lost/replaced
+ * key, which keeps the "delete the keychain item → relaunch" recovery working.
+ */
+export async function getOrCreateEncryptedKeyAsync(opts: EncryptedKeyOptions): Promise<string> {
+  const keyFile = path.join(app.getPath('userData'), opts.fileName);
+
+  let encryptedKey: Buffer | null = null;
+  try {
+    encryptedKey = fs.readFileSync(keyFile);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      log.warn('could not read key file', {
+        storeLabel: opts.storeLabel,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (encryptedKey !== null) {
+    tightenKeyFileMode(keyFile);
+    if (safeStorage.isEncryptionAvailable()) {
+      try {
+        const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(encryptedKey);
+        if (shouldReEncrypt) {
+          // OS rotated its storage key — re-wrap the same key material under the
+          // new one. Best-effort: a failed rewrite never loses data (the
+          // decrypt already succeeded), so we only warn.
+          try {
+            fs.writeFileSync(keyFile, await safeStorage.encryptStringAsync(result));
+            tightenKeyFileMode(keyFile);
+            log.info('re-encrypted store key after OS keychain rotation', {
+              storeLabel: opts.storeLabel,
+            });
+          } catch (err) {
+            log.warn('shouldReEncrypt rewrite failed (data still intact)', {
+              storeLabel: opts.storeLabel,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        recordKeyStoreState(opts.storeLabel, 'safeStorage');
+        return result;
+      } catch {
+        // Decrypt failed despite an available keychain — the master key was
+        // replaced or lost (keychain item deleted, app re-signed under a new
+        // identity). Fall through to regenerate so the store self-heals; old
+        // records become undecryptable and clearInvalidConfig drops them. Logged
+        // loudly because it IS a reset of encrypted-at-rest data.
+        emitFallbackWarning(opts.storeLabel, 'decrypt-failed');
+        recordKeyStoreState(opts.storeLabel, 'plaintext', 'decrypt-failed');
+      }
+    } else {
+      emitFallbackWarning(opts.storeLabel, 'no-keyring');
+      recordKeyStoreState(opts.storeLabel, 'plaintext', 'no-keyring');
+      return encryptedKey.toString('utf8');
+    }
+  }
+
+  const newKey = crypto.randomBytes(32).toString('hex');
+  try {
+    if (safeStorage.isEncryptionAvailable()) {
+      fs.writeFileSync(keyFile, await safeStorage.encryptStringAsync(newKey));
+      recordKeyStoreState(opts.storeLabel, 'safeStorage');
+    } else {
+      emitFallbackWarning(opts.storeLabel, 'no-keyring');
+      fs.writeFileSync(keyFile, newKey, { mode: 0o600 });
+      recordKeyStoreState(opts.storeLabel, 'plaintext', 'no-keyring');
+    }
+    tightenKeyFileMode(keyFile);
+  } catch (err) {
+    log.error('failed to write key', {
+      storeLabel: opts.storeLabel,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return newKey;
+}

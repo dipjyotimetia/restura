@@ -34,7 +34,7 @@ import { IPC } from '../shared/channels';
 import { assertTrustedSender } from './ipc-validators';
 import * as crypto from 'crypto';
 import { z } from 'zod';
-import { getOrCreateEncryptedKey } from './encrypted-key';
+import { getOrCreateEncryptedKey, getOrCreateEncryptedKeyAsync } from './encrypted-key';
 
 // electron-store v9+ is ESM-only; require() returns the module namespace under Node 22+
 const Store = require('electron-store').default;
@@ -69,6 +69,25 @@ function getStore(): SecretStoreShape {
     clearInvalidConfig: true,
   }) as SecretStoreShape;
   return storeInstance;
+}
+
+/**
+ * Prewarm via the non-blocking async key path (preferred — graceful OS keychain
+ * rotation + temporary-unavailability handling). Called once at startup so the
+ * keychain is touched up front; the sync `getStore()` accessor then returns this
+ * cached instance, keeping `resolveSecretHandle`/`unwrapSecretValueMain`
+ * synchronous. Idempotent.
+ */
+export async function initSecretHandleStore(): Promise<void> {
+  if (storeInstance) return;
+  storeInstance = new Store({
+    name: 'restura-secret-handles',
+    encryptionKey: await getOrCreateEncryptedKeyAsync({
+      fileName: '.secret-handles-key',
+      storeLabel: 'secret-handle store',
+    }),
+    clearInvalidConfig: true,
+  }) as SecretStoreShape;
 }
 
 // ---------------------------------------------------------------------------
