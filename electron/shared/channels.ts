@@ -220,15 +220,7 @@ export const CHANNEL_PREFIXES = {
  * Top-level menu/app event channels the renderer may subscribe to via the
  * generic `window.electron.on(...)` bridge.
  */
-export const VALID_EVENT_CHANNELS = [
-  'menu:import',
-  'menu:export',
-  'menu:new-request',
-  'menu:settings',
-  'app:focus',
-  'app:check-updates',
-  'deep-link',
-] as const;
+export const VALID_EVENT_CHANNELS = ['menu:settings', 'app:check-updates', 'deep-link'] as const;
 
 /** Flat list of every static `ipcMain.handle` / `ipcMain.on` channel. */
 export const ALL_IPC_CHANNELS: readonly string[] = Object.values(IPC).flatMap((group) =>

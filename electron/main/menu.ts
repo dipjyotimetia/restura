@@ -54,29 +54,6 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
     {
       label: 'File',
       submenu: [
-        {
-          label: 'New Request',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => {
-            mainWindow.webContents.send('menu:new-request');
-          },
-        },
-        { type: 'separator' },
-        {
-          label: 'Import Collection...',
-          accelerator: 'CmdOrCtrl+I',
-          click: () => {
-            mainWindow.webContents.send('menu:import');
-          },
-        },
-        {
-          label: 'Export Collection...',
-          accelerator: 'CmdOrCtrl+E',
-          click: () => {
-            mainWindow.webContents.send('menu:export');
-          },
-        },
-        { type: 'separator' },
         // macOS surfaces Settings in the app menu; elsewhere File is its home.
         ...(!isMac ? [settingsItem, { type: 'separator' as const }] : []),
         isMac ? { role: 'close' as const } : { role: 'quit' as const },
