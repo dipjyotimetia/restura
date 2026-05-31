@@ -2,8 +2,27 @@
 
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Logo } from '@/components/shared/Logo';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Floater, Kbd, Segmented, Stepper, TextField, ToggleField } from '@/components/ui/spatial';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
+import { useStorageMonitor } from '@/hooks/useStorageMonitor';
+import {
+  clearDexieStorage,
+  exportDexieData,
+  getDexieStorageStats,
+  importDexieData,
+  secureDeleteAllDexieData,
+} from '@/lib/shared/dexie-storage';
 import { readFileAsText } from '@/lib/shared/file-utils';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
@@ -14,6 +33,7 @@ import { DEFAULT_AUTO_UPDATE_SETTINGS, SPATIAL_ACCENT_PRESETS, type SpatialAccen
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Check,
+  Database,
   Download,
   Info,
   KeyRound,
@@ -49,6 +69,7 @@ export type SectionId =
   | 'certificates'
   | 'secrets'
   | 'ai'
+  | 'data'
   | 'updates'
   | 'shortcuts'
   | 'about';
@@ -67,6 +88,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'certificates', label: 'Certificates', icon: ShieldCheck },
   { id: 'secrets', label: 'Secrets', icon: KeyRound },
   { id: 'ai', label: 'AI', icon: Sparkles },
+  { id: 'data', label: 'Data', icon: Database },
   { id: 'updates', label: 'Updates', icon: Download },
   { id: 'shortcuts', label: 'Shortcuts', icon: KeyboardIcon },
   { id: 'about', label: 'About', icon: Info },
@@ -257,6 +279,7 @@ export default function SettingsDrawer({
                   AI features are available in the desktop app only.
                 </div>
               )}
+              {activeSection === 'data' && <DataSection />}
               {activeSection === 'updates' && <UpdatesSection />}
               {activeSection === 'shortcuts' && <ShortcutsSection />}
               {activeSection === 'about' && <AboutSection />}
@@ -1113,6 +1136,239 @@ function SecretsSection() {
           </ul>
         </Floater>
       )}
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Data                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** Pill button matching the drawer's other inline actions. */
+function DataButton({
+  onClick,
+  disabled,
+  icon: Icon,
+  danger,
+  children,
+}: {
+  onClick?: () => void;
+  disabled?: boolean;
+  icon: LucideIcon;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-sp-btn',
+        'bg-sp-surface border border-sp-line text-sp-12 font-medium',
+        'hover:bg-sp-hover transition-colors',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+        'disabled:opacity-50 disabled:cursor-not-allowed',
+        danger ? 'text-rose-500 dark:text-rose-400 hover:border-rose-400/60' : 'text-sp-text'
+      )}
+    >
+      <Icon size={12} aria-hidden="true" />
+      {children}
+    </button>
+  );
+}
+
+/** A destructive action gated behind an AlertDialog confirmation. */
+function ConfirmDestructive({
+  trigger,
+  title,
+  description,
+  confirmLabel,
+  onConfirm,
+}: {
+  trigger: React.ReactNode;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={onConfirm}
+            className="bg-destructive text-destructive-foreground"
+          >
+            {confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function DataSection() {
+  const { status, formattedUsed, formattedAvailable } = useStorageMonitor();
+  const [records, setRecords] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const refreshStats = useCallback(async () => {
+    try {
+      setRecords((await getDexieStorageStats()).totalRecords);
+    } catch {
+      /* stats are best-effort */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStats();
+  }, [refreshStats]);
+
+  const run = useCallback(
+    async (action: () => Promise<void>, success: string, failPrefix: string) => {
+      setBusy(true);
+      try {
+        await action();
+        await refreshStats();
+        toast.success(success);
+      } catch (e) {
+        toast.error(`${failPrefix}: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refreshStats]
+  );
+
+  const handleExport = () =>
+    run(
+      async () => {
+        const blob = new Blob([await exportDexieData()], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `restura-backup-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      },
+      'Data exported',
+      'Export failed'
+    );
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    void run(
+      async () => importDexieData(await file.text()),
+      'Data imported — reload to see changes',
+      'Import failed'
+    );
+  };
+
+  const levelColor =
+    status.level === 'critical'
+      ? '#f43f5e'
+      : status.level === 'warning'
+        ? '#f59e0b'
+        : 'var(--sp-accent)';
+
+  return (
+    <>
+      <SectionHeader
+        icon={Database}
+        title="Data"
+        description="Back up, restore, or wipe your locally stored data. Everything stays on this device."
+      />
+
+      <section className="mt-5 first:mt-0">
+        <SectionLabel>Storage usage</SectionLabel>
+        <Floater radius="panel" elevation="inset" className="p-4 space-y-2">
+          <div className="flex items-center justify-between text-sp-12 font-mono text-sp-muted">
+            <span>
+              {records ?? '—'} records · {formattedUsed}
+            </span>
+            <span>
+              {status.percentage.toFixed(1)}% of {formattedAvailable}
+            </span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-sp-surface overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{ width: `${Math.min(100, status.percentage)}%`, background: levelColor }}
+            />
+          </div>
+          {status.message && (
+            <p className="text-sp-11 text-amber-500 dark:text-amber-400">{status.message}</p>
+          )}
+        </Floater>
+      </section>
+
+      <section className="mt-5">
+        <SectionLabel>Backup</SectionLabel>
+        <Floater radius="panel" elevation="inset" className="p-4 flex flex-wrap gap-2">
+          <DataButton onClick={() => void handleExport()} disabled={busy} icon={Download}>
+            Export data
+          </DataButton>
+          <DataButton onClick={() => fileInputRef.current?.click()} disabled={busy} icon={Upload}>
+            Import data
+          </DataButton>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImport}
+            className="hidden"
+            aria-label="Import data file"
+          />
+        </Floater>
+      </section>
+
+      <section className="mt-5">
+        <SectionLabel>Danger zone</SectionLabel>
+        <Floater radius="panel" elevation="inset" className="p-4 flex flex-wrap gap-2">
+          <ConfirmDestructive
+            trigger={
+              <DataButton disabled={busy} icon={Trash2} danger>
+                Clear all data
+              </DataButton>
+            }
+            title="Clear all data?"
+            description="Permanently deletes all collections, history, environments, and settings from this device. This cannot be undone."
+            confirmLabel="Clear all"
+            onConfirm={() =>
+              void run(clearDexieStorage, 'All data cleared — reload to reset', 'Clear failed')
+            }
+          />
+          <ConfirmDestructive
+            trigger={
+              <DataButton disabled={busy} icon={Trash2} danger>
+                Secure delete
+              </DataButton>
+            }
+            title="Securely delete all data?"
+            description="Overwrites every stored record with random data before deleting it, then wipes the database — for use on a shared machine. This cannot be undone."
+            confirmLabel="Secure delete"
+            onConfirm={() =>
+              void run(
+                secureDeleteAllDexieData,
+                'All data securely deleted — reload to reset',
+                'Secure delete failed'
+              )
+            }
+          />
+        </Floater>
+      </section>
     </>
   );
 }

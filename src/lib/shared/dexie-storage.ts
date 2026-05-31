@@ -430,3 +430,33 @@ export async function secureDeleteRecord(tableName: StorageTableName, id: string
     throw error;
   }
 }
+
+// Encrypted user-data tables. Connection/console/schema tables carry no secrets
+// and are wiped by clearDexieStorage, so they're not overwritten here.
+const SECURE_DELETE_TABLES: StorageTableName[] = [
+  'collections',
+  'environments',
+  'history',
+  'settings',
+  'cookies',
+  'workflows',
+  'workflowExecutions',
+  'fileCollections',
+];
+
+/**
+ * Securely wipe all data: overwrite every encrypted user-data record with random
+ * bytes (so freed IndexedDB pages can't yield recoverable ciphertext), then clear
+ * the entire database. Reuses {@link secureDeleteRecord} per record and
+ * {@link clearDexieStorage} for the final wipe + key-cache reset.
+ */
+export async function secureDeleteAllDexieData(): Promise<void> {
+  for (const tableName of SECURE_DELETE_TABLES) {
+    const table = getTable(tableName);
+    const records = (await table.toArray()) as Array<{ id: string }>;
+    for (const { id } of records) {
+      await secureDeleteRecord(tableName, id);
+    }
+  }
+  await clearDexieStorage();
+}
