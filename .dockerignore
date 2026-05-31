@@ -25,7 +25,12 @@ cache
 .husky
 
 # Electron, desktop, and platform-specific bundles we don't ship from this image.
-electron
+# electron/shared and electron/types are kept because the renderer imports channel
+# constants (e.g. src/features/mqtt/lib/mqttManager.ts) and type definitions from
+# them — excluding the whole electron/ dir breaks the Docker SPA build.
+electron/main
+electron/resources
+electron/tsconfig.json
 electron-builder.json
 
 # Tests + e2e — not needed at runtime.
