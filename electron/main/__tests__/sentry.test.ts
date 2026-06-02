@@ -2,22 +2,13 @@ import './setup';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 // @sentry/electron/main is mocked so init() records the options object — we then
-// exercise the captured beforeSend/beforeSendTransaction directly. The tracing
-// integration factories are stubbed so doInit() can call them.
+// exercise the captured beforeSend directly.
 vi.mock('@sentry/electron/main', () => ({
   init: vi.fn(),
-  startupTracingIntegration: vi.fn(() => ({ name: 'startup' })),
-  httpIntegration: vi.fn(() => ({ name: 'http' })),
 }));
 
 import * as Sentry from '@sentry/electron/main';
-import {
-  scrubEvent,
-  transactionCarriesUrl,
-  initSentry,
-  setSentryEnabled,
-  isSentryEnabled,
-} from '../sentry';
+import { scrubEvent, initSentry, setSentryEnabled, isSentryEnabled } from '../sentry';
 
 const initMock = Sentry.init as unknown as Mock;
 
@@ -69,36 +60,6 @@ describe('scrubEvent', () => {
   });
 });
 
-describe('transactionCarriesUrl', () => {
-  it('flags a transaction whose root trace span is an http.client op', () => {
-    expect(
-      transactionCarriesUrl({
-        type: 'transaction',
-        contexts: { trace: { op: 'http.client', span_id: 'a', trace_id: 'b' } },
-      } as unknown as Sentry.Event)
-    ).toBe(true);
-  });
-
-  it('flags a transaction with a child span carrying http.url data', () => {
-    expect(
-      transactionCarriesUrl({
-        type: 'transaction',
-        spans: [{ data: { 'http.url': 'https://api.example.com/private' } }],
-      } as unknown as Sentry.Event)
-    ).toBe(true);
-  });
-
-  it('passes a URL-free transaction (e.g. app startup)', () => {
-    expect(
-      transactionCarriesUrl({
-        type: 'transaction',
-        contexts: { trace: { op: 'app.start', span_id: 'a', trace_id: 'b' } },
-        spans: [{ op: 'ui.load', data: { 'ui.component_name': 'App' } }],
-      } as unknown as Sentry.Event)
-    ).toBe(false);
-  });
-});
-
 describe('opt-in gate', () => {
   beforeEach(() => {
     initMock.mockClear();
@@ -126,28 +87,19 @@ describe('opt-in gate', () => {
   // Runs last: doInit() is one-shot (module-level `initialized`), so this test
   // is the one allowed to actually init. The DSN is read lazily inside doInit,
   // so stubbing the env here is enough — no module re-import needed.
-  it('inits when enabled and the gates honour the runtime flag', () => {
+  it('inits when enabled and the error gate honours the runtime flag', () => {
     vi.stubEnv('SENTRY_DSN', 'https://examplePublicKey@o0.ingest.sentry.io/0');
     initSentry({ enabled: true });
     expect(initMock).toHaveBeenCalledTimes(1);
 
     const opts = initMock.mock.calls[0]![0] as {
       beforeSend: (e: unknown) => unknown;
-      beforeSendTransaction: (e: unknown) => unknown;
     };
 
     // Error gate: passes when enabled, dropped when disabled.
     expect(opts.beforeSend({ message: 'hi' })).toBeTruthy();
 
-    // Transaction gate: a URL-free transaction passes when enabled...
-    const cleanTx = { type: 'transaction', contexts: { trace: { op: 'app.start' } } };
-    expect(opts.beforeSendTransaction(cleanTx)).toBeTruthy();
-    // ...but a transaction carrying a request URL is always dropped.
-    const urlTx = { type: 'transaction', spans: [{ data: { 'http.url': 'https://x.test' } }] };
-    expect(opts.beforeSendTransaction(urlTx)).toBeNull();
-
     setSentryEnabled(false);
     expect(opts.beforeSend({ message: 'hi' })).toBeNull();
-    expect(opts.beforeSendTransaction(cleanTx)).toBeNull();
   });
 });

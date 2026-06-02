@@ -456,12 +456,36 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.CSC_LINK != '') || (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
           PRERELEASE: ${{ inputs.prerelease }}
+          # Sentry source-map upload (optional). Injecting debug IDs here — into the
+          # exact bundles this leg ships — is what makes crash stacks symbolicate;
+          # the previously-separate upload job built its own bundles, so the shipped
+          # JS never carried the debug IDs the uploaded maps were keyed on.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
         shell: bash
         run: |
-          if [ "$PRERELEASE" = "true" ]; then
-            npm run electron:publish:prerelease
+          set -euo pipefail
+          # Build renderer + main bundles first so we can inject debug IDs into the
+          # exact JS we ship below.
+          npm run electron:build:all
+          # Inject Sentry debug IDs and upload the maps. Debug IDs are content-derived,
+          # so each OS leg re-uploading the (identical) renderer/main maps is idempotent
+          # — Sentry dedups by debug ID + release. Skipped cleanly when the token is unset.
+          if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
+            # Must match the SDK's release: `restura@<version>` (electron/main/sentry.ts).
+            RELEASE="restura@${ACTUAL_TAG#v}"
+            npx @sentry/cli sourcemaps inject dist/web dist/electron
+            npx @sentry/cli sourcemaps upload --release "$RELEASE" dist/web dist/electron
           else
-            npm run electron:publish
+            echo "SENTRY_AUTH_TOKEN not set — skipping source map injection/upload."
+          fi
+          # Package + publish installers for this OS (electron-builder targets the host).
+          if [ "$PRERELEASE" = "true" ]; then
+            npx electron-builder --publish always --config.publish.releaseType=prerelease
+          else
+            npx electron-builder --publish always
           fi
 
   publish-cli:
@@ -686,58 +710,3 @@ jobs:
           # No checkout in this job, so `gh` can't infer the repo from a .git dir;
           # GH_REPO tells it explicitly (otherwise: "fatal: not a git repository").
           gh release edit "$ACTUAL_TAG" --draft=false --repo "$GH_REPO"
-
-  sentry-sourcemaps:
-    name: Upload Electron source maps to Sentry
-    needs: [release]
-    # Single run (NOT per-OS): the renderer + main JS maps are platform-identical,
-    # so uploading once with the release version is enough — the `desktop` matrix
-    # must not upload the same maps three times. Skips cleanly when SENTRY_AUTH_TOKEN
-    # is unset, so the release isn't blocked before a Sentry project is provisioned.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.release.outputs.actual_tag }}
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Produce both map sets: hidden renderer maps (dist/web) + main-process
-      # maps (dist/electron). These are the same artifacts the desktop job builds.
-      - name: Build renderer + main (with source maps)
-        run: |
-          npm run electron:build:web
-          npm run electron:compile
-
-      - name: Inject + upload source maps
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
-        run: |
-          set -euo pipefail
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
-            echo "SENTRY_AUTH_TOKEN not set — skipping source map upload."
-            exit 0
-          fi
-          # Must match the SDK's release: `restura@<version>` (electron/main/sentry.ts).
-          RELEASE="restura@${ACTUAL_TAG#v}"
-          # NOTE: this job builds its own copy of the bundles to upload maps. The
-          # `desktop` matrix ships a separate build, so symbolication relies on
-          # release+filename matching being identical across the two builds (same
-          # tag, same `npm ci`). When a DSN is provisioned, verify a real crash
-          # symbolicates; if it doesn't, move `sourcemaps inject` into the desktop
-          # build (inject on every OS leg, upload once) so the shipped JS carries
-          # the debug IDs.
-          npx @sentry/cli sourcemaps inject dist/web dist/electron
-          npx @sentry/cli sourcemaps upload --release "$RELEASE" dist/web dist/electron
