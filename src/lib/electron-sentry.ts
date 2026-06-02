@@ -11,11 +11,9 @@
  * gate, release/environment, and the actual upload all live in the main process
  * (electron/main/sentry.ts).
  *
- * Performance tracing keeps URL-free signals (pageload / navigation / web
- * vitals) but disables fetch/XHR request spans (`traceFetch`/`traceXHR: false`)
- * — Restura issues requests to arbitrary user URLs, and a request span would
- * leak the target endpoint. The main-process SDK suppresses outbound-HTTP spans
- * the same way.
+ * Crash/error reporting only — no performance tracing. We init without a tracing
+ * integration so the renderer emits no spans (a request span would leak the
+ * arbitrary user URLs Restura proxies). The main-process SDK omits tracing too.
  *
  * This module also owns the renderer→main consent push: the canonical opt-in
  * flag lives in the Zustand settings store (persisted to Dexie), and main can't
@@ -62,10 +60,8 @@ export async function initElectronSentry(): Promise<void> {
   try {
     const Sentry = await import('@sentry/electron/renderer');
     // No DSN: the renderer SDK auto-connects to the main-process SDK over IPC.
-    // Disable fetch/XHR request spans so no target URL is captured renderer-side.
-    Sentry.init({
-      integrations: [Sentry.browserTracingIntegration({ traceFetch: false, traceXHR: false })],
-    });
+    // No tracing integration — errors/crashes only, no spans.
+    Sentry.init({});
   } catch {
     // Best-effort: never block startup on telemetry.
   }

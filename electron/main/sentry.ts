@@ -1,6 +1,8 @@
 /**
- * Main-process Sentry integration — crash + error reporting (and lightweight,
- * URL-free performance tracing) for the Electron desktop target ONLY. Opt-out /
+ * Main-process Sentry integration — crash + error reporting ONLY for the Electron
+ * desktop target. No performance tracing: we deliberately do not enable spans or
+ * transactions (Restura proxies arbitrary user URLs through the main process, so
+ * an http-client span would leak the user's private API endpoints). Opt-out /
  * default-on, mirroring the renderer telemetry model (`settings.telemetry.errorsEnabled`).
  *
  * `@sentry/electron/main`'s `init()` owns the native `crashReporter` (uploads
@@ -12,18 +14,12 @@
  *  - `sendDefaultPii: false`.
  *  - We only `Sentry.init()` when the user has opted in, so an opted-out user's
  *    native minidumps are never uploaded. In-session opt-in lazily inits (so JS
- *    capture works immediately); in-session opt-out closes the `beforeSend`/
- *    `beforeSendTransaction` gates for JS/transaction events — native capture
- *    stops on next launch (crashReporter can't be un-started mid-session).
+ *    capture works immediately); in-session opt-out closes the `beforeSend` gate
+ *    for JS events — native capture stops on next launch (crashReporter can't be
+ *    un-started mid-session).
  *  - `beforeSend`/`beforeBreadcrumb` run an aggressive scrubber that drops the
  *    request context, local frame variables, and breadcrumb data, and redacts
  *    secrets/file-paths from free-text strings (reusing the AI redaction core).
- *  - Performance tracing deliberately emits NO outbound-HTTP spans: Restura
- *    proxies arbitrary user URLs through the main process, so an http-client
- *    span would leak the user's private API endpoints — the exact data the
- *    error scrubber strips. We suppress those spans at the source
- *    (`httpIntegration({ spans: false })`) and, defensively, drop any
- *    transaction that still carries request-URL data in `beforeSendTransaction`.
  */
 
 import * as Sentry from '@sentry/electron/main';
@@ -108,41 +104,6 @@ export function scrubEvent<T extends Sentry.Event>(event: T): T {
   return event;
 }
 
-// Defence-in-depth for performance tracing: even though outbound-HTTP spans are
-// suppressed at the source (httpIntegration spans:false, browser traceFetch/XHR
-// off), drop any transaction that still carries request-URL data so a user's
-// proxied endpoint can never reach Sentry. Checks the root trace span and every
-// child span for an http-client op or any URL/host data attribute.
-const URL_DATA_KEYS: readonly string[] = ['http.url', 'url.full', 'server.address', 'http.target'];
-
-// Minimal shape shared by Sentry's root trace context and child spans — both
-// carry an optional op + data bag, which is all spanCarriesUrl inspects.
-type SpanLike = { op?: string; data?: Record<string, unknown> };
-
-function spanCarriesUrl(span: SpanLike | undefined): boolean {
-  if (!span) return false;
-  if (span.op && span.op.startsWith('http.client')) return true;
-  const data = span.data;
-  if (data) {
-    for (const key of URL_DATA_KEYS) if (key in data) return true;
-  }
-  return false;
-}
-
-/**
- * Returns true if a transaction event carries any outbound-request URL data.
- * Typed as `Sentry.Event` (the transaction-specific `TransactionEvent` is not
- * re-exported by `@sentry/electron/main`); transactions are Events with
- * `type: 'transaction'` and the `spans`/`contexts.trace` fields used here.
- */
-export function transactionCarriesUrl(event: Sentry.Event): boolean {
-  if (spanCarriesUrl(event.contexts?.trace as SpanLike)) return true;
-  for (const span of event.spans ?? []) {
-    if (spanCarriesUrl(span as SpanLike)) return true;
-  }
-  return false;
-}
-
 function doInit(): void {
   if (initialized) return;
   const dsn = resolveDsn();
@@ -156,17 +117,11 @@ function doInit(): void {
     release: `restura@${app.getVersion()}`,
     environment: isDev ? 'development' : 'production',
     sendDefaultPii: false,
-    // Lightweight performance tracing. Sample modestly in production; full in
-    // dev. startupTracingIntegration times app boot (URL-free). We REMOVE the
-    // default outbound-HTTP spans — Restura proxies arbitrary user URLs through
-    // the main process, and an http-client span would leak the target endpoint.
-    tracesSampleRate: isDev ? 1.0 : 0.1,
-    integrations: [Sentry.startupTracingIntegration(), Sentry.httpIntegration({ spans: false })],
+    // Crash/error reporting only — no performance tracing. We leave
+    // `tracesSampleRate` unset so the SDK creates no spans or transactions: a
+    // span could carry the user's proxied request URL, the exact data the error
+    // scrubber strips. Default integrations still capture errors + crashes.
     beforeSend: (event) => (telemetryEnabled ? scrubEvent(event) : null),
-    // Gate transactions (beforeSend does NOT run for them) and, defensively,
-    // drop any that still carry a request URL.
-    beforeSendTransaction: (event) =>
-      telemetryEnabled && !transactionCarriesUrl(event) ? event : null,
     // Gate only — stop buffering breadcrumbs while opted out. Scrubbing happens
     // once, at send time, in scrubEvent (which loops over event.breadcrumbs).
     beforeBreadcrumb: (crumb) => (telemetryEnabled ? crumb : null),
