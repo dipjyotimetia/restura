@@ -13,7 +13,7 @@ Postman's format is locked. Insomnia's is locked. Bruno's is its own. Switching 
 
 ## What it covers
 
-- Requests across all protocols Restura supports: HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MCP.
+- Request-shaped protocols: HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, and MCP (Socket.IO / SSE / MCP ride along as `x-restura-*` extensions). The connection-based protocols (Kafka, MQTT) have no per-request shape, so they aren't stored in a collection.
 - Nested folders with inherited auth, headers, and variables.
 - Environments with scoped variables.
 - Scripts (pre-request and test) — sandbox-portable JavaScript.

@@ -1,0 +1,43 @@
+---
+title: ADR 0010 — AI assistant architecture
+description: Electron-first, provider-agnostic chat with secrets redacted at the wire.
+sidebar:
+  order: 10
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · active development · 2026-06-02" variant="note" />
+
+## Context
+
+Restura ships a chat assistant that can read the current request/response context and talk to OpenAI, Anthropic, or OpenRouter (bring-your-own-key). Two constraints shape the design. First, the assistant must never leak secrets or full URLs to a third-party model — the same secret surface [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/) protects. Second, the providers have different wire shapes and streaming formats, but the orchestration (build prompt, attach context, stream tokens, allow cancel) is identical across them.
+
+## Decision
+
+Make the AI path **Electron-first and provider-agnostic**, with the orchestrator in the shared layer.
+
+- **Transport** — the renderer streams over the IPC bridge: `window.electron.ai` → `ai:chat` / `ai:chat:cancel`, with per-call event channels `ai:chat:chunk:<id>` / `ai:chat:end:<id>` → `electron/main/ai-handler.ts` → `shared/protocol/ai/ai-proxy.ts`. The renderer's `streamConsumer.ts` must subscribe to the chunk channel **before** invoking `chat`, or it drops the first tokens.
+- **Provider-agnostic core** — `ai-proxy.ts` orchestrates and emits raw SSE bytes downstream. Per-provider wire shapes live in `provider-routes.ts`; decoders in `providers/{openai,anthropic,openrouter}.ts`, each paired with a fixture test.
+- **Redaction** — the renderer captures context via `lib/contextSnapshot.ts` (method, path, protocol, redacted headers/body, response, active env name) and `redaction.ts` scrubs secrets and URLs before anything leaves the machine.
+- **No `/api/ai` Worker route exists yet.** The web build is not wired through the proxy. Platform parity must be confirmed, not assumed — the main reason this feature is marked "active development."
+
+## Consequences
+
+**Positive**
+
+- Adding a provider is a decoder + fixture, not an orchestration rewrite.
+- Secrets/URLs are redacted at the renderer boundary, so the main process and the provider never see them.
+- Streaming + cancel reuse the same IPC event-channel pattern as the other streaming protocols.
+
+**Negative**
+
+- Web has no AI path today; the capability is desktop-only until a Worker route is added (recorded in the [capability matrix](/architecture/adrs/0012-capability-matrix-source-of-truth/)).
+- The "subscribe before invoke" ordering is an easy bug to reintroduce.
+- BYOK means key-handling quality depends on each provider's key storage path.
+
+## References
+
+- Source: [`docs/adr/0010-ai-assistant-architecture.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0010-ai-assistant-architecture.md)
+- User guide: [AI assistant](/guides/ai-assistant/).
+- Related: [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/), [ADR 0012](/architecture/adrs/0012-capability-matrix-source-of-truth/).

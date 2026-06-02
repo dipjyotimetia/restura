@@ -22,6 +22,7 @@ The browser sandbox can't expose raw TCP, custom CAs, SOCKS, or PAC scripting. R
 ### Desktop-only features
 
 - **Kafka** (produce / consume — needs raw TCP + SASL).
+- **MQTT** (publish / subscribe — needs raw TCP/TLS).
 - **Socket.IO acks** (requires a long-lived non-HTTP transport).
 - **SSE custom headers** (the browser `EventSource` API doesn't expose headers).
 - **MCP stdio transport** (subprocesses can't run in a browser).

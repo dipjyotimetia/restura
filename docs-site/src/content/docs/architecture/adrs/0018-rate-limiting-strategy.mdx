@@ -1,0 +1,40 @@
+---
+title: ADR 0018 — Rate limiting strategy
+description: Independent throttling at each boundary — internet-facing Worker vs local IPC.
+sidebar:
+  order: 18
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-06-02" variant="success" />
+
+## Context
+
+Restura exposes two abuse surfaces that need throttling, and they are very different. The hosted Cloudflare Worker is internet-facing: it proxies arbitrary upstreams for anyone who can reach it, so it needs request-rate limiting to avoid being used as an open relay or DoS amplifier. The Electron main process is local but receives IPC calls from the renderer; a runaway renderer (or a misbehaving script) shouldn't be able to flood a handler and spawn unbounded upstream connections.
+
+## Decision
+
+Apply rate limiting **independently at each boundary**, matched to its threat model:
+
+- **Worker** — `worker/middleware/rateLimiter.ts` throttles inbound `/api/*` requests. This is the internet-facing control, complementing the production auth gate (`WORKER_PROXY_TOKEN` / Cloudflare Access).
+- **Electron** — per-channel IPC rate limiting (`electron/main/ipc-rate-limiter.ts`, e.g. the keyed limiter used by the MQTT/Kafka handlers) bounds how fast the renderer can open connections or fire requests. The earlier monolithic IPC rate-limiter API is **deprecated** in favour of the per-handler keyed limiters introduced alongside the connection-hardening work ([ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)).
+
+There is intentionally no shared rate-limit abstraction across the two — the runtimes, the units (HTTP requests vs. IPC calls), and the keys (client IP vs. webContents/connection) don't align.
+
+## Consequences
+
+**Positive**
+
+- Each boundary is throttled in the terms that make sense for it; neither is forced into the other's model.
+- Per-channel IPC limiting bounds connection-based protocols (MQTT/Kafka) at the handler that owns them.
+
+**Negative**
+
+- Two separate rate-limit implementations to maintain and reason about.
+- The deprecated legacy IPC limiter still exists during migration, so contributors must be steered to the keyed-limiter API.
+
+## References
+
+- Source: [`docs/adr/0018-rate-limiting-strategy.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0018-rate-limiting-strategy.md)
+- Related: [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/), [ADR 0009](/architecture/adrs/0009-shared-hono-app-factory/).

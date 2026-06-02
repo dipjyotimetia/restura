@@ -17,6 +17,18 @@ timeline
              : 0005 — CLI runner
   2026-05-16 : 0006 — Connection + DNS hardening
   2026-05-27 : 0007 — SecretRef pattern
+  2026-06-02 : 0008 — OpenCollection native format
+             : 0009 — Shared Hono app factory
+             : 0010 — AI assistant architecture
+             : 0011 — Restura as an MCP server
+             : 0012 — Capability matrix source of truth
+             : 0013 — Hash routing
+             : 0014 — Zustand persistence
+             : 0015 — QuickJS script sandbox
+             : 0016 — Wire-level auth signing
+             : 0017 — Runtime platform detection
+             : 0018 — Rate limiting strategy
+             : 0019 — Response viewer architecture
 ```
 
 <CardGrid>
@@ -54,5 +66,65 @@ timeline
     title="0007 — SecretRef pattern"
     description="Handle-based secrets: plaintext never leaves the main process; renderer, Zustand, and exports only see SecretRef handles."
     href="/architecture/adrs/0007-secret-ref-pattern/"
+  />
+  <LinkCard
+    title="0008 — OpenCollection native format"
+    description="A vendor-neutral, round-trippable collection format with JSON-Schema-generated types and a CI drift gate."
+    href="/architecture/adrs/0008-opencollection-native-format/"
+  />
+  <LinkCard
+    title="0009 — Shared Hono app factory"
+    description="One createApp() reused by the Cloudflare Worker and the self-hosted Node server, with platform-specific adapters."
+    href="/architecture/adrs/0009-shared-hono-app-factory/"
+  />
+  <LinkCard
+    title="0010 — AI assistant architecture"
+    description="Electron-first, provider-agnostic chat; context and secrets redacted before anything leaves the machine."
+    href="/architecture/adrs/0010-ai-assistant-architecture/"
+  />
+  <LinkCard
+    title="0011 — Restura as an MCP server"
+    description="Restura as an MCP server: pure tool dispatch, consent gating, and SecretRef redaction on every response."
+    href="/architecture/adrs/0011-mcp-server-mode/"
+  />
+  <LinkCard
+    title="0012 — Capability matrix source of truth"
+    description="capabilities.ts drives UI badges, the generated matrix doc, and a CI gate that fails on drift."
+    href="/architecture/adrs/0012-capability-matrix-source-of-truth/"
+  />
+  <LinkCard
+    title="0013 — Hash routing"
+    description="createHashRouter so the identical SPA build runs under both https:// (Pages) and file:// (Electron)."
+    href="/architecture/adrs/0013-hash-routing/"
+  />
+  <LinkCard
+    title="0014 — Zustand persistence"
+    description="One persist pattern; Dexie on web, encrypted secure-storage on desktop, Zod-validated on rehydrate."
+    href="/architecture/adrs/0014-zustand-persistence/"
+  />
+  <LinkCard
+    title="0015 — QuickJS script sandbox"
+    description="User scripts run in a capability-gated WASM VM; the sandbox — not source inspection — is the boundary."
+    href="/architecture/adrs/0015-quickjs-script-sandbox/"
+  />
+  <LinkCard
+    title="0016 — Wire-level auth signing"
+    description="SigV4 / OAuth1 / WSSE sign on the backend after the body is built, so signatures match the exact upstream bytes."
+    href="/architecture/adrs/0016-wire-level-auth-signing/"
+  />
+  <LinkCard
+    title="0017 — Runtime platform detection"
+    description="isElectron() picks IPC vs HTTP transport from a single bundle, with the platform seam confined to executors."
+    href="/architecture/adrs/0017-runtime-platform-detection/"
+  />
+  <LinkCard
+    title="0018 — Rate limiting strategy"
+    description="Independent throttling at each boundary: an internet-facing Worker limiter and per-channel IPC limiters."
+    href="/architecture/adrs/0018-rate-limiting-strategy/"
+  />
+  <LinkCard
+    title="0019 — Response viewer architecture"
+    description="Monaco for finite bodies; a 5000-event capped incremental viewer for streams to stay memory-bounded."
+    href="/architecture/adrs/0019-response-viewer-architecture/"
   />
 </CardGrid>

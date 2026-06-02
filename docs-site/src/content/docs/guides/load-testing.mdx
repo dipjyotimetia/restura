@@ -1,0 +1,41 @@
+---
+title: Load testing
+description: Fire an HTTP request many times with bounded concurrency and read back latency percentiles and throughput.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Restura has a built-in load runner for quick performance checks on a single HTTP request — no extra tooling, no separate config file. It reuses the **exact same send path** as a normal request, so auth, variable resolution, and the proxy round-trip all match what you'd get manually.
+
+## Running a load test
+
+1. Open the HTTP request you want to hammer.
+2. Press <kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd> and choose **“Run load test on current request”**.
+3. Set two numbers and hit **Run**:
+   - **Total requests** — how many times to fire (default 100).
+   - **Concurrency** — how many in flight at once (default 10).
+
+Results land in the **Runs** panel, where each run is recorded so you can compare and re-run.
+
+## What you get back
+
+| Metric | Meaning |
+| --- | --- |
+| **Req/s** | Throughput across the whole run. |
+| **Mean / Min / Max** | Latency summary in ms. |
+| **p50 / p90 / p95 / p99** | Latency percentiles, also drawn as a distribution bar chart. |
+
+Each iteration is recorded as a sample with its status code and outcome, so failures show up in the success rate rather than skewing the latency numbers silently.
+
+<Aside type="caution" title="Web concurrency is capped">
+On the web build the browser limits concurrent connections per origin (~6), so the effective concurrency is lower than the number you set. For accurate high-concurrency runs, use the [desktop app](/overview/install/), which has no such cap.
+</Aside>
+
+## When to reach for the CLI instead
+
+This runner is for fast, interactive checks on one request. For repeatable, CI-gated runs across a whole collection — with JUnit / JSON / HTML reports — use [`@restura/cli`](/reference/cli/).
+
+## Related
+
+- [HTTP / REST](/protocols/http/) — load testing operates on HTTP requests.
+- [CLI runner](/reference/cli/) — headless collection runs for CI.

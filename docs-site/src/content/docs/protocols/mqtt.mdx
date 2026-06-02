@@ -1,0 +1,49 @@
+---
+title: MQTT
+description: Connect to MQTT brokers — publish, subscribe, QoS, TLS, and MQTT 5.0 properties. Desktop only.
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="desktop only" variant="caution" /> The browser sandbox doesn't allow raw TCP connections, so MQTT — a long-lived pub/sub session over a raw TCP/TLS socket — is available only in the [desktop app](/overview/install/).
+
+## What works
+
+- **Connect** — `mqtt://` or `mqtts://` brokers; pick **MQTT 3.1.1** or **MQTT 5.0** per connection.
+- **Publish** — send to a topic with a chosen **QoS** (0, 1, or 2) and an optional **retain** flag; payloads are text, JSON, or binary.
+- **Subscribe** — one or more topic filters (wildcards included); messages stream live with topic, QoS, retain / dup flags, and timestamp.
+- **Auth** — username / password. On desktop the password is stored in the OS keychain (see [secrets](/architecture/adrs/0007-secret-ref-pattern/)) and resolved only at connect time, never persisted in clear.
+- **TLS** — `mqtts://` with server-certificate validation, optional client certificate (mTLS: CA / cert / key / passphrase), and a `rejectUnauthorized` toggle.
+- **Last Will & Testament (LWT)** — topic, payload, QoS, and retain that the broker publishes if your client drops.
+- **Session control** — clean start, keepalive, connect timeout, and auto-reconnect.
+
+## MQTT 5.0
+
+When you select protocol version 5, Restura surfaces the extra wire features:
+
+- **Session expiry interval** on `CONNECT`.
+- **User properties** — arbitrary key/value pairs carried on each message.
+- **Message expiry interval**, **content type**, and **response topic** are decoded and shown on received messages.
+
+A 3.1.1 connection simply omits these fields.
+
+## Broker guard
+
+Every broker URL runs through a pre-flight SSRF check (`electron/main/mqtt-broker-guard.ts`) before the socket opens. Unlike the HTTP guard, **private and loopback addresses are allowed** — MQTT brokers routinely live on LAN / IoT networks (a Mosquitto box on a Raspberry Pi, an EMQX cluster behind VPC peering, `localhost:1883`). The guard only rejects:
+
+- cloud-metadata literal IPs (`169.254.169.254` and friends) and hostnames (`metadata.google.internal`, …),
+- non-`mqtt:` / non-`mqtts:` schemes and malformed URLs.
+
+This is **pre-flight only** — it does not mitigate a true DNS-rebind (a TTL=0 swap during connect), the same residual gap documented for Kafka in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/).
+
+## Tips
+
+- The message log is capped per connection to keep memory bounded on chatty topics — older messages roll off.
+- For schema-encoded payloads, decode in a [test script](/guides/scripts/).
+- Set a recognizable **client ID** to make your session easy to spot in broker logs.
+
+## Related
+
+- [Kafka](/protocols/kafka/) — the other desktop-only broker protocol.
+- [Self-hosting](/self-hosting/docker/) — MQTT stays desktop-only even when self-hosting the SPA; the pub/sub path needs Node.
+- [Capability matrix](/reference/capability-matrix/)
