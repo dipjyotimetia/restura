@@ -131,6 +131,19 @@ const pendingStreamMessages = new Map<string, { writes: unknown[]; end: boolean 
 const MAX_PENDING_WRITES = 256;
 const MAX_PENDING_STREAMS = 100;
 
+// Get (or create, if room) the pending buffer for a not-yet-registered stream.
+// Returns null when the map is at capacity so callers drop the message rather
+// than grow the buffer unbounded for an id that may never register.
+const getOrCreatePending = (id: string): { writes: unknown[]; end: boolean } | null => {
+  let pending = pendingStreamMessages.get(id);
+  if (!pending) {
+    if (pendingStreamMessages.size >= MAX_PENDING_STREAMS) return null;
+    pending = { writes: [], end: false };
+    pendingStreamMessages.set(id, pending);
+  }
+  return pending;
+};
+
 // Timeout for stale streams (5 minutes)
 const STREAM_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -912,13 +925,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
         // Stream not registered yet — start-stream is still resolving DNS.
         // Buffer so the write isn't lost to the race; addActiveCall flushes it.
-        let pending = pendingStreamMessages.get(requestId);
-        if (!pending) {
-          if (pendingStreamMessages.size >= MAX_PENDING_STREAMS) return;
-          pending = { writes: [], end: false };
-          pendingStreamMessages.set(requestId, pending);
-        }
-        if (pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
+        const pending = getOrCreatePending(requestId);
+        if (pending && pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
       }
     )
   );
@@ -935,13 +943,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
         // Half-close raced ahead of registration — record it for the flush.
-        let pending = pendingStreamMessages.get(requestId);
-        if (!pending) {
-          if (pendingStreamMessages.size >= MAX_PENDING_STREAMS) return;
-          pending = { writes: [], end: false };
-          pendingStreamMessages.set(requestId, pending);
-        }
-        pending.end = true;
+        const pending = getOrCreatePending(requestId);
+        if (pending) pending.end = true;
       }
     )
   );
