@@ -183,8 +183,7 @@ export default function SseClient() {
       }
     }
 
-    const avgGapMs =
-      gaps.length === 0 ? null : gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    const avgGapMs = gaps.length === 0 ? null : gaps.reduce((a, b) => a + b, 0) / gaps.length;
 
     const phases: SsePhase[] = phaseOrder.map((id) => ({
       id,
@@ -206,7 +205,7 @@ export default function SseClient() {
   if (!active) return null;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-sp-bg">
+    <div className="flex flex-col h-full overflow-hidden bg-transparent">
       <SseUrlBar
         url={active.url}
         onUrlChange={(v) => updateConnectionUrl(active.id, v)}
@@ -252,7 +251,7 @@ export default function SseClient() {
         canStop={isStreaming}
       />
 
-      <div className="flex-1 min-h-0 grid gap-3 p-3" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+      <div className="flex-1 min-h-0 grid gap-2.5 p-3" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
         <SseEventTimeline
           log={filtered}
           searchQuery={searchQuery}
@@ -262,7 +261,7 @@ export default function SseClient() {
           eventNames={eventNames}
           onClearLog={() => clearLog(active.id)}
         />
-        <div className="flex flex-col gap-3 min-h-0 overflow-y-auto">
+        <div className="flex flex-col gap-2.5 min-h-0">
           <SseAssembledOutput
             text={derived.assembledText}
             progress={derived.progress}

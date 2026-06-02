@@ -419,7 +419,7 @@ function KafkaClient() {
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden gap-3 p-3 bg-sp-bg">
+    <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
       {/* Connection bar — pill Floater */}
       <Floater radius="pill" className="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0">
         <ProtoChip protocol="KAFKA" />
@@ -574,7 +574,10 @@ function KafkaClient() {
             </Floater>
 
             {/* Two columns: message log + detail panel */}
-            <div className="flex-1 min-h-0 grid gap-3" style={{ gridTemplateColumns: '1.6fr 1fr' }}>
+            <div
+              className="flex-1 min-h-0 grid gap-2.5"
+              style={{ gridTemplateColumns: '1.6fr 1fr' }}
+            >
               {/* Message log */}
               <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
                 {/* Toolbar */}
@@ -771,7 +774,7 @@ function KafkaClient() {
 
           {/* Connection tab */}
           <TabsContent value="connection" className="flex-1 overflow-auto m-0">
-            <Floater radius="panel" className="p-4 space-y-4">
+            <Floater radius="panel" className="p-3 space-y-4">
               <div className="space-y-2">
                 <Label className="text-xs sp-label">Connection name</Label>
                 <Input
@@ -933,7 +936,7 @@ function KafkaClient() {
 
           {/* Produce tab */}
           <TabsContent value="produce" className="flex-1 overflow-auto m-0">
-            <Floater radius="panel" className="p-4 space-y-3">
+            <Floater radius="panel" className="p-3 space-y-3">
               <div className="space-y-2">
                 <Label className="text-xs sp-label">Topic</Label>
                 <Input
@@ -1016,7 +1019,7 @@ function KafkaClient() {
 
           {/* Consume tab */}
           <TabsContent value="consume" className="flex-1 overflow-auto m-0">
-            <Floater radius="panel" className="p-4 space-y-3">
+            <Floater radius="panel" className="p-3 space-y-3">
               <div className="space-y-2">
                 <Label className="text-xs sp-label">Consumer group ID</Label>
                 <Input

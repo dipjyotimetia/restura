@@ -341,7 +341,7 @@ function MqttClient() {
   const badge = connection ? statusTone(connection.status) : null;
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden gap-3 p-3 bg-sp-bg">
+    <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
       {/* Connection bar */}
       <Floater radius="pill" className="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0">
         <ProtoChip protocol="MQTT" />
@@ -450,7 +450,10 @@ function MqttClient() {
               <Stat label="Keepalive" value={`${connection.keepalive}s`} />
             </Floater>
 
-            <div className="flex-1 min-h-0 grid gap-3" style={{ gridTemplateColumns: '1.6fr 1fr' }}>
+            <div
+              className="flex-1 min-h-0 grid gap-2.5"
+              style={{ gridTemplateColumns: '1.6fr 1fr' }}
+            >
               {/* Message log */}
               <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-sp-line shrink-0">
@@ -603,7 +606,7 @@ function MqttClient() {
 
           {/* Publish tab */}
           <TabsContent value="publish" className="flex-1 overflow-auto m-0">
-            <Floater radius="panel" className="p-4 space-y-3">
+            <Floater radius="panel" className="p-3 space-y-3">
               <div className="space-y-2">
                 <Label className="text-xs sp-label">Topic</Label>
                 <Input
@@ -656,7 +659,7 @@ function MqttClient() {
 
           {/* Subscribe tab */}
           <TabsContent value="subscribe" className="flex-1 overflow-auto m-0">
-            <Floater radius="panel" className="p-4 space-y-3">
+            <Floater radius="panel" className="p-3 space-y-3">
               <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 120px auto' }}>
                 <div className="space-y-2">
                   <Label className="text-xs sp-label">Topic filter</Label>
@@ -713,7 +716,7 @@ function MqttClient() {
 
           {/* Connection tab */}
           <TabsContent value="connection" className="flex-1 overflow-auto m-0">
-            <Floater radius="panel" className="p-4 space-y-4">
+            <Floater radius="panel" className="p-3 space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label className="text-xs sp-label">Connection name</Label>

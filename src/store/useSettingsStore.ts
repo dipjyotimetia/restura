@@ -63,7 +63,7 @@ const defaultSettings: AppSettings = {
   maxHistoryItems: 100,
   theme: 'dark',
   // Layout settings
-  layoutOrientation: 'vertical',
+  layoutOrientation: 'horizontal',
   // Security settings - allow localhost by default for development convenience
   allowLocalhost: true,
   allowPrivateIPs: false,
@@ -232,18 +232,31 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'app-settings-storage',
-      version: 3, // Bumped for autoUpdate setting
+      version: 4, // v4: default request/response layout flipped to horizontal
       storage: dexieStorageAdapters.settings(),
       migrate: (persistedState, _version) => {
         const looksEmpty =
           !persistedState ||
           (typeof persistedState === 'object' &&
             Object.keys(persistedState as object).length === 0);
+        let resolved = persistedState as SettingsState;
         if (looksEmpty) {
           const legacy = migrateLegacyLocalStorage<Partial<SettingsState>>('app-settings-storage');
-          if (legacy) return legacy as SettingsState;
+          if (legacy) resolved = legacy as SettingsState;
         }
-        return persistedState as SettingsState;
+        // v3→v4: the default layout changed from vertical to horizontal. v3
+        // persisted a concrete 'vertical' default, so a deliberate vertical
+        // choice is indistinguishable from the old default — this one-time flip
+        // therefore resets ALL vertical users to horizontal. Acceptable for a
+        // cosmetic, toggle-reversible setting; anyone who wants vertical back
+        // re-picks it via the response-header toggle / settings.
+        if (resolved?.settings?.layoutOrientation === 'vertical') {
+          resolved = {
+            ...resolved,
+            settings: { ...resolved.settings, layoutOrientation: 'horizontal' },
+          };
+        }
+        return resolved;
       },
       onRehydrateStorage: () => (state, error) => {
         if (error) {

@@ -18,15 +18,11 @@ function formatBytes(n: number): string {
  */
 export function SseCounters({ events, bytes, tokens, reconnects }: SseCountersProps) {
   return (
-    <Floater
-      radius="panel"
-      elevation="float"
-      className="flex flex-col overflow-hidden"
-    >
+    <Floater radius="panel" elevation="float" className="flex flex-col overflow-hidden shrink-0">
       <div className="flex items-center justify-between px-4 h-11 border-b border-sp-line shrink-0">
         <span className="sp-label">Counters</span>
       </div>
-      <div className="grid grid-cols-2 gap-3 p-4">
+      <div className="grid grid-cols-2 gap-2.5 p-3">
         <div className="p-3 rounded-sp-btn border border-sp-line bg-sp-surface-lo/60">
           <Stat label="Events" value={events.toLocaleString()} />
         </div>
