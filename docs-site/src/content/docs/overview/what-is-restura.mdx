@@ -1,19 +1,19 @@
 ---
 title: What is Restura?
-description: A multi-protocol API client for developers — HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MCP — that runs in the browser, on your desktop, or self-hosted.
+description: A multi-protocol API client for developers — HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, MCP — that runs in the browser, on your desktop, or self-hosted.
 ---
 
-Restura is an API client for developers who are tired of switching tools. You can test HTTP endpoints, debug gRPC services, send WebSocket frames, watch SSE streams, produce to Kafka topics, and call MCP servers — all from one interface.
+Restura is an API client for developers who are tired of switching tools. You can test HTTP endpoints, debug gRPC services, send WebSocket frames, watch SSE streams, produce to Kafka topics, publish over MQTT, and call MCP servers — all from one interface.
 
 It ships from a single React renderer to three deployment targets:
 
 - **Web app** on Cloudflare Pages — open it and start sending requests.
-- **Desktop app** built with Electron for macOS, Windows, and Linux — gets capabilities the browser sandbox can't offer (mTLS, SOCKS, Kafka, custom CAs).
+- **Desktop app** built with Electron for macOS, Windows, and Linux — gets capabilities the browser sandbox can't offer (mTLS, SOCKS, Kafka, MQTT, custom CAs).
 - **Self-hosted** via a single Docker image you can drop behind your own reverse proxy.
 
 ## What it can do
 
-- **Eight protocols out of the box** — HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events, Kafka, and Model Context Protocol.
+- **Nine protocols out of the box** — HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events, Kafka, MQTT, and Model Context Protocol.
 - **Auth covered** — Bearer, Basic, API Key, OAuth 2.0 (auth code / client credentials / password / device with PKCE), OAuth 1.0, AWS SigV4, Digest, NTLM, WSSE, and mTLS on desktop.
 - **Collections & environments** — Group requests, share folders, scope variables, swap between staging and production in a click.
 - **Workflows** — Chain requests into a graph with branching, switches, loops, and parallel steps; extract variables with JSONPath / regex / headers; retry with backoff — or generate a workflow from a prompt. Runs in the app or in CI.

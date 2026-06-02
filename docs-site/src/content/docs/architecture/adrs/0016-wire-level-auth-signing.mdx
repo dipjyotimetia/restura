@@ -1,0 +1,42 @@
+---
+title: ADR 0016 — Wire-level auth signing
+description: Sign SigV4 / OAuth1 / WSSE on the backend, after the body is built — not in the renderer.
+sidebar:
+  order: 16
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-06-02" variant="success" />
+
+## Context
+
+Some auth schemes sign the actual request bytes: AWS SigV4 hashes the canonical request (method, path, headers, body), OAuth 1.0a builds an HMAC over request parameters, and WSSE derives a password digest. If the renderer computes these signatures and then the proxy (Worker/Electron) reshapes the request — normalizes headers, rebuilds the body, follows a redirect — the signature no longer matches the bytes the upstream receives, and auth fails intermittently and confusingly. [ADR 0004](/architecture/adrs/0004-security-hardening/) established this for SigV4; this ADR records the general principle.
+
+## Decision
+
+Sign **at the wire**, in the backend that emits the final bytes, not in the renderer. Signing happens inside `executeHttpProxy` / `executeHttpProxyStreaming` *after* body construction and header sanitisation, in the shared protocol layer:
+
+- `shared/protocol/auth-signer.ts` — AWS SigV4, plus dispatch for the other wire-signing schemes.
+- `shared/protocol/oauth1-signer.ts` — OAuth 1.0a.
+- `shared/protocol/wsse-header.ts` — WSSE UsernameToken.
+
+The renderer still applies the schemes that are just static headers (Bearer, Basic, API key, OAuth 2.0 access token) — those don't depend on the final byte stream. Because the signers live in `shared/`, the Worker, Electron main process, and CLI all sign identically.
+
+## Consequences
+
+**Positive**
+
+- Signatures always match the exact bytes the upstream receives, across all three backends, regardless of body builder or header policy.
+- The renderer (and exported collections, logs) never needs the signing secret at request time; it stays on the backend, consistent with [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/).
+
+**Negative**
+
+- Auth logic is split: simple header schemes in the renderer, wire-signing schemes in the backend. Contributors must know which side a new scheme belongs on.
+- The backend must reconstruct enough request context (region/service for SigV4, realm for OAuth1) to sign, so that metadata has to flow through the `RequestSpec`.
+
+## References
+
+- Source: [`docs/adr/0016-wire-level-auth-signing.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0016-wire-level-auth-signing.md)
+- Docs: [Authentication](/guides/auth/).
+- Related: [ADR 0001](/architecture/adrs/0001-shared-protocol-layer/), [ADR 0004](/architecture/adrs/0004-security-hardening/), [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/).

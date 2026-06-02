@@ -19,6 +19,7 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - MCP — HTTP-SSE and streamable-HTTP transports.
 - Socket.IO — basic emit/listen.
 - Collections, environments, workflows, scripts.
+- Load testing — fire an HTTP request at bounded concurrency (browser caps effective concurrency ~6).
 - Encrypted local storage.
 - SSRF guard on all upstream requests.
 - AI assistant (where wired through to the provider).
@@ -26,6 +27,7 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 ### Desktop only
 
 - **Kafka** — produce / consume / SASL / TLS (needs raw TCP).
+- **MQTT** — publish / subscribe / QoS / TLS / MQTT 5.0 (needs raw TCP).
 - **Socket.IO acks** — needs a direct socket session.
 - **SSE custom headers** — browser `EventSource` doesn't allow them.
 - **MCP `stdio` transport** — needs subprocess spawning.

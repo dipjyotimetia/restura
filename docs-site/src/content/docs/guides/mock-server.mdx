@@ -1,0 +1,39 @@
+---
+title: Mock server
+description: Serve recorded and stubbed responses from a local HTTP listener so a frontend can run without a live backend. Desktop only.
+---
+
+import { Badge, Aside } from '@astrojs/starlight/components';
+
+<Badge text="desktop only" variant="caution" /> The mock server binds a local HTTP listener, which the browser sandbox can't do — it's available only in the [desktop app](/overview/install/).
+
+Point a frontend (or any HTTP client) at `http://127.0.0.1:PORT` and get back recorded or stubbed responses without standing up a real backend.
+
+## Starting it
+
+From a collection's <kbd>⋯</kbd> menu, choose **“Start mock server”**. Restura compiles the collection's requests — plus matching entries from your [history](/guides/collections/) — into routes using a **record-and-replay** strategy: each HTTP request becomes a route that returns its recorded response.
+
+The listener binds to **`127.0.0.1`** only (never a public interface). If you don't pin a port, the OS assigns a free one and returns it.
+
+## Observing and stopping
+
+The **Runs** panel shows the live server: running state, the **base URL** (one click to copy), and the served routes. Stop it from there or from the same collection menu.
+
+## How routes match
+
+| Pattern in path | Matches |
+| --- | --- |
+| `:id` or `{id}` | exactly one path segment |
+| trailing `*` | the rest of the path |
+| literal text | itself |
+
+The first route whose method (or `*`) and path pattern match wins, with exact paths preferred. Each route carries a status, headers, and a body (text, or base64 for binary), plus an optional artificial `delayMs` to simulate latency.
+
+<Aside type="note">
+Responses are static replays — there's no scripting or stateful behaviour. For dynamic flows, drive a real backend through a [workflow](/guides/workflows/).
+</Aside>
+
+## Related
+
+- [Collections](/guides/collections/) — routes are built from a collection and its history.
+- [Capability matrix](/reference/capability-matrix/)
