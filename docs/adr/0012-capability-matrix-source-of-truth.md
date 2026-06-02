@@ -19,7 +19,7 @@ When a new feature differs across platforms, you update `capabilities.ts` — ne
 - The CI gate makes drift a build failure rather than a stale-docs bug.
 
 **Negative**
-- The docs-site `/reference/capability-matrix/` page is a hand-written prose summary that links to the canonical generated `docs/CAPABILITY_MATRIX.md`; it is not itself codegen'd, so it must be updated by hand when capabilities change. (This ADR's own review surfaced that the summary had gone stale.)
+- The docs-site `/reference/capability-matrix/` page is a hand-written prose summary that links to the canonical generated `docs/CAPABILITY_MATRIX.md`; it is not itself codegen'd, so it must be updated by hand when capabilities change.
 - Capabilities must be enumerated up front; a feature that forgets to add an entry gets no badge and no matrix row.
 
 ## References

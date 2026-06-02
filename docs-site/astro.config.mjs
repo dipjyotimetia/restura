@@ -106,7 +106,7 @@ export default defineConfig({
                 { label: '0008 — OpenCollection native format', slug: 'architecture/adrs/0008-opencollection-native-format' },
                 { label: '0009 — Shared Hono app factory', slug: 'architecture/adrs/0009-shared-hono-app-factory' },
                 { label: '0010 — AI assistant architecture', slug: 'architecture/adrs/0010-ai-assistant-architecture' },
-                { label: '0011 — MCP server mode', slug: 'architecture/adrs/0011-mcp-server-mode' },
+                { label: '0011 — Restura as an MCP server', slug: 'architecture/adrs/0011-mcp-server-mode' },
                 { label: '0012 — Capability matrix source of truth', slug: 'architecture/adrs/0012-capability-matrix-source-of-truth' },
                 { label: '0013 — Hash routing', slug: 'architecture/adrs/0013-hash-routing' },
                 { label: '0014 — Zustand persistence', slug: 'architecture/adrs/0014-zustand-persistence' },
