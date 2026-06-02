@@ -121,6 +121,29 @@ interface ActiveCall {
 // Store active calls for streaming with improved management
 const activeCalls = new Map<string, ActiveCall>();
 
+// `grpc:start-stream` is async (it awaits a DNS SSRF pre-flight before it can
+// register the ActiveCall). A `grpc:send-message` / `grpc:end-stream` that races
+// ahead of that registration would otherwise be dropped silently — losing the
+// first client/bidi message or a premature half-close. Buffer those per
+// requestId and flush them in addActiveCall. Bounded (per-id + map size) so a
+// renderer that sends to an id that never registers can't grow this unbounded.
+const pendingStreamMessages = new Map<string, { writes: unknown[]; end: boolean }>();
+const MAX_PENDING_WRITES = 256;
+const MAX_PENDING_STREAMS = 100;
+
+// Get (or create, if room) the pending buffer for a not-yet-registered stream.
+// Returns null when the map is at capacity so callers drop the message rather
+// than grow the buffer unbounded for an id that may never register.
+const getOrCreatePending = (id: string): { writes: unknown[]; end: boolean } | null => {
+  let pending = pendingStreamMessages.get(id);
+  if (!pending) {
+    if (pendingStreamMessages.size >= MAX_PENDING_STREAMS) return null;
+    pending = { writes: [], end: false };
+    pendingStreamMessages.set(id, pending);
+  }
+  return pending;
+};
+
 // Timeout for stale streams (5 minutes)
 const STREAM_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -276,6 +299,7 @@ export function stopStreamCleanup(): void {
     }
   });
   activeCalls.clear();
+  pendingStreamMessages.clear();
 }
 
 // Safe method to add a stream with collision detection
@@ -289,6 +313,15 @@ const addActiveCall = (id: string, call: Omit<ActiveCall, 'createdAt' | 'request
     createdAt: Date.now(),
     requestId: id,
   });
+  // Flush any writes / half-close that raced ahead of registration (see
+  // pendingStreamMessages). For server-streaming write/end are no-ops, so this
+  // is harmless there.
+  const pending = pendingStreamMessages.get(id);
+  if (pending) {
+    pendingStreamMessages.delete(id);
+    for (const msg of pending.writes) call.write(msg);
+    if (pending.end) call.end();
+  }
   return true;
 };
 
@@ -464,6 +497,9 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     );
     const metadata = buildMetadata(mergeMainSideAuth(config.metadata, config.auth));
     const method = config.method;
+    const callOptions: grpc.CallOptions = config.timeoutMs
+      ? { deadline: Date.now() + config.timeoutMs }
+      : {};
 
     if (config.methodType === 'unary') {
       try {
@@ -471,6 +507,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
           const call = invokeGrpcMethod(grpcClient, method, [
             config.message,
             metadata,
+            callOptions,
             (err: grpc.ServiceError | null, res: unknown) => {
               if (err) reject(err);
               else resolve(res);
@@ -506,7 +543,11 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       let accumulatedSize = 0;
       try {
         await new Promise<void>((resolve, reject) => {
-          const callRaw = invokeGrpcMethod(grpcClient, method, [config.message, metadata]);
+          const callRaw = invokeGrpcMethod(grpcClient, method, [
+            config.message,
+            metadata,
+            callOptions,
+          ]);
           assertGrpcCall(callRaw, method);
           const call = callRaw as grpc.ClientReadableStream<unknown>;
           call.on('metadata', (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap()));
@@ -624,6 +665,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         };
 
         if (!grpcRateLimiter.check(event.sender.id)) {
+          pendingStreamMessages.delete(requestId);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 14,
             details: 'Rate limit exceeded',
@@ -638,6 +680,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         try {
           grpcDial = await resolveGrpcDialAddress(config.url);
         } catch (err) {
+          pendingStreamMessages.delete(requestId);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 3,
             details:
@@ -649,7 +692,10 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
         // Renderer may have been destroyed during the DNS lookup; bail out
         // before allocating cleanup listeners and temp directories.
-        if (event.sender.isDestroyed()) return;
+        if (event.sender.isDestroyed()) {
+          pendingStreamMessages.delete(requestId);
+          return;
+        }
 
         bindRendererCleanup(activeCalls, event.sender, (deadId) => {
           disposeByOwner(activeCalls, deadId, (c) => c.cancel());
@@ -670,78 +716,110 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           );
           const metadata = buildMetadata(mergeMainSideAuth(config.metadata, config.auth));
           const method = config.method;
+          const callOptions: grpc.CallOptions = config.timeoutMs
+            ? { deadline: Date.now() + config.timeoutMs }
+            : {};
           let accumulatedSize = 0;
-
-          const handleData = (data: unknown) => {
-            const dataSize = estimateSize(data);
-            accumulatedSize += dataSize;
-
-            if (accumulatedSize > MAX_RESPONSE_SIZE) {
-              activeCalls.get(requestId)?.cancel();
-              event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-                status: 8, // RESOURCE_EXHAUSTED
-                details: `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`,
-              });
-              return;
-            }
-
-            event.sender.send(eventChannel(EVENT_PREFIX.grpc.data, requestId), data);
-          };
-
-          const handleError = (err: unknown) => {
-            const error = toGrpcError(err);
-            if (error.name === 'AbortError' || error.code === getGrpc().status.CANCELLED) {
-              cleanup();
-              return;
-            }
-            event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
-              status: error.code || 2,
-              details: sanitizeErrorMessage(error.message),
-            });
-            if (onComplete) {
-              onComplete({
-                ts: streamStartTime,
-                method: `${config.service}/${config.method}`,
-                url: config.url,
-                status: error.code || 2,
-                durationMs: Date.now() - streamStartTime,
-                protocol: 'grpc',
-                error: sanitizeErrorMessage(error.message),
-              });
-            }
-            cleanup();
-          };
-
-          const handleEnd = () => {
-            event.sender.send(eventChannel(EVENT_PREFIX.grpc.status, requestId), {
-              status: 0,
-              details: 'OK',
-            });
-            if (onComplete) {
-              onComplete({
-                ts: streamStartTime,
-                method: `${config.service}/${config.method}`,
-                url: config.url,
-                status: 0,
-                durationMs: Date.now() - streamStartTime,
-                protocol: 'grpc',
-              });
-            }
-            cleanup();
-          };
+          const capturedHeaders: Record<string, string> = {};
+          const capturedTrailers: Record<string, string> = {};
+          let finalized = false;
 
           const cleanup = () => {
             removeActiveCall(requestId);
             cleanupTemp(tempDir);
           };
 
+          // Emit the single terminal event for the stream, carrying the captured
+          // response headers + trailers and the real gRPC status. OK → `status`
+          // channel; non-OK → `error` channel (mirrors the renderer's split).
+          // Guarded so the first terminal signal wins — a grpc-js `status`/`error`
+          // event, a size-limit trip, or a deadline. Previously this hardcoded
+          // status 0 and dropped headers/trailers on every streaming call.
+          const finalize = (code: number, details: string) => {
+            if (finalized) return;
+            finalized = true;
+            if (code === 0) {
+              safeSend(eventChannel(EVENT_PREFIX.grpc.status, requestId), {
+                status: 0,
+                details: details || 'OK',
+                headers: capturedHeaders,
+                trailers: capturedTrailers,
+              });
+            } else {
+              safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+                status: code,
+                details: sanitizeErrorMessage(details),
+                headers: capturedHeaders,
+                trailers: capturedTrailers,
+              });
+            }
+            if (onComplete) {
+              onComplete({
+                ts: streamStartTime,
+                method: `${config.service}/${config.method}`,
+                url: config.url,
+                status: code,
+                durationMs: Date.now() - streamStartTime,
+                protocol: 'grpc',
+                ...(code !== 0 ? { error: sanitizeErrorMessage(details) } : {}),
+              });
+            }
+            cleanup();
+          };
+
+          const handleMetadata = (md: grpc.Metadata) => Object.assign(capturedHeaders, md.getMap());
+
+          const handleData = (data: unknown) => {
+            if (finalized) return;
+            accumulatedSize += estimateSize(data);
+            if (accumulatedSize > MAX_RESPONSE_SIZE) {
+              // Cancel the still-registered call first; finalize() then sets the
+              // guard so the CANCELLED status the cancel triggers is ignored.
+              activeCalls.get(requestId)?.cancel();
+              finalize(
+                8, // RESOURCE_EXHAUSTED
+                `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
+              );
+              return;
+            }
+            safeSend(eventChannel(EVENT_PREFIX.grpc.data, requestId), data);
+          };
+
+          const handleStatus = (st: grpc.StatusObject) => {
+            Object.assign(capturedTrailers, st.metadata.getMap());
+            finalize(st.code ?? 0, st.details ?? '');
+          };
+
+          const handleError = (err: unknown) => {
+            const error = toGrpcError(err);
+            if (error.name === 'AbortError' || error.code === getGrpc().status.CANCELLED) {
+              if (!finalized) {
+                finalized = true;
+                cleanup();
+              }
+              return;
+            }
+            // ServiceError carries the trailing metadata; capture it in case the
+            // `status` event hasn't fired yet (ordering varies in grpc-js).
+            const md = (err as { metadata?: grpc.Metadata }).metadata;
+            if (md && typeof md.getMap === 'function') {
+              Object.assign(capturedTrailers, md.getMap());
+            }
+            finalize(error.code || 2, error.message || '');
+          };
+
           if (config.methodType === 'server-streaming') {
-            const ssCallRaw = invokeGrpcMethod(grpcClient, method, [config.message, metadata]);
+            const ssCallRaw = invokeGrpcMethod(grpcClient, method, [
+              config.message,
+              metadata,
+              callOptions,
+            ]);
             assertGrpcCall(ssCallRaw, method);
             const ssCall = ssCallRaw as grpc.ClientReadableStream<unknown>;
+            ssCall.on('metadata', handleMetadata);
             ssCall.on('data', handleData);
             ssCall.on('error', handleError);
-            ssCall.on('end', handleEnd);
+            ssCall.on('status', handleStatus);
 
             const added = addActiveCall(requestId, {
               cancel: () => ssCall.cancel(),
@@ -752,7 +830,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
             if (!added) {
               ssCall.cancel();
-              event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+              safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
                 status: 13,
                 details: `Stream with ID ${requestId} already exists`,
               });
@@ -761,15 +839,17 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           } else if (config.methodType === 'client-streaming') {
             const csCall = invokeGrpcMethod(grpcClient, method, [
               metadata,
+              callOptions,
               (err: grpc.ServiceError | null, res: unknown) => {
-                if (err) {
-                  handleError(err);
-                } else {
-                  handleData(res);
-                  handleEnd();
-                }
+                // The single response arrives via the callback; the `status`
+                // event finalizes the call (with trailers).
+                if (err) handleError(err);
+                else handleData(res);
               },
             ]) as grpc.ClientWritableStream<unknown>;
+            csCall.on('metadata', handleMetadata);
+            csCall.on('status', handleStatus);
+            csCall.on('error', handleError);
 
             const csAdded = addActiveCall(requestId, {
               cancel: () => csCall.cancel(),
@@ -788,19 +868,20 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
             if (!csAdded) {
               csCall.cancel();
-              event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+              safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
                 status: 13,
                 details: `Stream with ID ${requestId} already exists`,
               });
               return;
             }
           } else if (config.methodType === 'bidirectional-streaming') {
-            const bidiCallRaw = invokeGrpcMethod(grpcClient, method, [metadata]);
+            const bidiCallRaw = invokeGrpcMethod(grpcClient, method, [metadata, callOptions]);
             assertGrpcCall(bidiCallRaw, method);
             const bidiCall = bidiCallRaw as grpc.ClientDuplexStream<unknown, unknown>;
+            bidiCall.on('metadata', handleMetadata);
             bidiCall.on('data', handleData);
             bidiCall.on('error', handleError);
-            bidiCall.on('end', handleEnd);
+            bidiCall.on('status', handleStatus);
 
             const bidiAdded = addActiveCall(requestId, {
               cancel: () => bidiCall.cancel(),
@@ -811,7 +892,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
             if (!bidiAdded) {
               bidiCall.cancel();
-              event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+              safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
                 status: 13,
                 details: `Stream with ID ${requestId} already exists`,
               });
@@ -819,8 +900,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             }
           }
         } catch (err: unknown) {
+          pendingStreamMessages.delete(requestId);
           const error = err instanceof Error ? err : new Error(String(err));
-          event.sender.send(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+          safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 2,
             details: sanitizeErrorMessage(error.message),
           });
@@ -839,7 +921,12 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         const call = activeCalls.get(requestId);
         if (call) {
           call.write(message);
+          return;
         }
+        // Stream not registered yet — start-stream is still resolving DNS.
+        // Buffer so the write isn't lost to the race; addActiveCall flushes it.
+        const pending = getOrCreatePending(requestId);
+        if (pending && pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
       }
     )
   );
@@ -853,7 +940,11 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         const call = activeCalls.get(requestId);
         if (call) {
           call.end();
+          return;
         }
+        // Half-close raced ahead of registration — record it for the flush.
+        const pending = getOrCreatePending(requestId);
+        if (pending) pending.end = true;
       }
     )
   );
@@ -864,6 +955,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       IPC.grpc.cancelStream,
       GrpcStreamRequestIdSchema,
       (_event, requestId: string) => {
+        pendingStreamMessages.delete(requestId);
         const call = activeCalls.get(requestId);
         if (call) {
           call.cancel();

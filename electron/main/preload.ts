@@ -15,37 +15,9 @@ import {
   CHANNEL_PREFIXES,
   VALID_EVENT_CHANNELS,
 } from '../shared/channels';
+import { channelEventBridge } from './channel-event-bridge';
 
 const validEventChannels: readonly string[] = VALID_EVENT_CHANNELS;
-
-/**
- * Build the `{ on, removeListener, removeAllListeners }` trio every streaming
- * namespace exposes, guarded by a channel-name prefix allowlist. Factored out
- * so the prefix guard — a renderer-isolation boundary — is defined once
- * instead of copy-pasted per protocol. `prefix` comes from CHANNEL_PREFIXES.
- */
-function channelEventBridge(prefix: string) {
-  return {
-    on: (channel: string, callback: (...args: unknown[]) => void) => {
-      if (channel.startsWith(prefix)) {
-        ipcRenderer.on(channel, (_event, ...args) => callback(...args));
-      }
-    },
-    removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
-      if (channel.startsWith(prefix)) {
-        ipcRenderer.removeListener(
-          channel,
-          callback as Parameters<typeof ipcRenderer.removeListener>[1]
-        );
-      }
-    },
-    removeAllListeners: (channel: string) => {
-      if (channel.startsWith(prefix)) {
-        ipcRenderer.removeAllListeners(channel);
-      }
-    },
-  };
-}
 
 // Define the API that will be exposed to the renderer process
 const electronAPI = {

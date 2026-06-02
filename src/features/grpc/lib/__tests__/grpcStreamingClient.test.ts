@@ -183,10 +183,7 @@ describe('startGrpcStream', () => {
   });
 
   it('parses an end-of-stream envelope with an error to set non-OK status', async () => {
-    const errEnv = jsonEnvelope(
-      { error: { code: 'permission_denied', message: 'no' } },
-      0x02
-    );
+    const errEnv = jsonEnvelope({ error: { code: 'permission_denied', message: 'no' } }, 0x02);
     const body = chunkStream([jsonEnvelope({ i: 1 }), errEnv]);
     const fetcher: StreamFetcher = async () => ({
       ok: true,
@@ -267,10 +264,7 @@ describe('startGrpcStream', () => {
           void _;
         }
       })();
-      await Promise.race([
-        drain,
-        new Promise((res) => setTimeout(res, 50)),
-      ]);
+      await Promise.race([drain, new Promise((res) => setTimeout(res, 50))]);
     } catch {
       // ignore — abort path is allowed to throw
     }
@@ -316,5 +310,140 @@ describe('createInteractiveGrpcStreamForTest', () => {
     handle.cancel();
     const final = await handle.done;
     expect(final.status).toBe(GrpcStatusCode.CANCELLED);
+  });
+});
+
+describe('startGrpcStream — Electron interactive (IPC) path', () => {
+  type Listener = (...a: unknown[]) => void;
+
+  function installElectronMock() {
+    const listeners = new Map<string, Listener>();
+    const grpc = {
+      startStream: vi.fn(),
+      sendMessage: vi.fn(),
+      endStream: vi.fn(),
+      cancelStream: vi.fn(),
+      on: vi.fn((channel: string, cb: Listener) => listeners.set(channel, cb)),
+      removeListener: vi.fn((channel: string, cb: Listener) => {
+        if (listeners.get(channel) === cb) listeners.delete(channel);
+      }),
+    };
+    Object.defineProperty(window, 'electron', {
+      value: { isElectron: true, grpc },
+      writable: true,
+      configurable: true,
+    });
+    const emit = (suffix: string, payload: unknown) =>
+      listeners.get(`grpc:${suffix}:r1`)?.(payload);
+    return { grpc, emit };
+  }
+
+  function uninstallElectronMock() {
+    Object.defineProperty(window, 'electron', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+  }
+
+  const proto = 'syntax = "proto3";\nservice Foo {}';
+
+  it('routes server-streaming through IPC, iterates data, resolves done with status + headers + trailers, and removes listeners', async () => {
+    const { grpc, emit } = installElectronMock();
+    try {
+      const handle = await startGrpcStream({
+        request: baseRequest,
+        resolveVariables: (s) => s,
+        protoContent: proto,
+        protoFileName: 'f.proto',
+        timeoutMs: 12345,
+      });
+
+      expect(grpc.startStream).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'r1', methodType: 'server-streaming', timeoutMs: 12345 })
+      );
+      expect(grpc.on).toHaveBeenCalledTimes(3);
+
+      const collected: unknown[] = [];
+      const iter = (async () => {
+        for await (const m of handle.messages) collected.push(m);
+      })();
+
+      emit('data', { n: 1 });
+      emit('data', { n: 2 });
+      emit('status', {
+        status: 0,
+        details: 'OK',
+        headers: { 'x-h': '1' },
+        trailers: { 'x-t': '2' },
+      });
+
+      await iter;
+      expect(collected).toEqual([{ n: 1 }, { n: 2 }]);
+
+      const final = await handle.done;
+      expect(final.status).toBe(GrpcStatusCode.OK);
+      expect(final.headers['x-h']).toBe('1');
+      expect(final.trailers['x-t']).toBe('2');
+
+      // Listeners removed on terminal status — no leak / no duplicate handling on re-run.
+      expect(grpc.removeListener).toHaveBeenCalledTimes(3);
+    } finally {
+      uninstallElectronMock();
+    }
+  });
+
+  it('surfaces a non-OK trailing status via the error channel without rejecting done', async () => {
+    const { emit } = installElectronMock();
+    try {
+      const handle = await startGrpcStream({
+        request: { ...baseRequest, methodType: 'bidirectional-streaming' },
+        resolveVariables: (s) => s,
+        protoContent: proto,
+        protoFileName: 'f.proto',
+      });
+
+      let thrown: unknown;
+      const iter = (async () => {
+        try {
+          for await (const _m of handle.messages) void _m;
+        } catch (e) {
+          thrown = e;
+        }
+      })();
+
+      emit('error', { status: 9, details: 'failed precondition', trailers: { 'x-t': 'z' } });
+      await iter;
+
+      expect(thrown).toBeInstanceOf(Error);
+      const final = await handle.done; // resolves, never rejects → no unhandled rejection
+      expect(final.status).toBe(9);
+      expect(final.trailers['x-t']).toBe('z');
+    } finally {
+      uninstallElectronMock();
+    }
+  });
+
+  it('send / closeSend / cancel delegate to the IPC bridge', async () => {
+    const { grpc } = installElectronMock();
+    try {
+      const handle = await startGrpcStream({
+        request: { ...baseRequest, methodType: 'client-streaming' },
+        resolveVariables: (s) => s,
+        protoContent: proto,
+        protoFileName: 'f.proto',
+      });
+
+      await handle.send({ chunk: 1 });
+      expect(grpc.sendMessage).toHaveBeenCalledWith('r1', { chunk: 1 });
+
+      handle.closeSend();
+      expect(grpc.endStream).toHaveBeenCalledWith('r1');
+
+      handle.cancel();
+      expect(grpc.cancelStream).toHaveBeenCalledWith('r1');
+    } finally {
+      uninstallElectronMock();
+    }
   });
 });
