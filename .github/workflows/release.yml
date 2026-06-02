@@ -456,36 +456,19 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.CSC_LINK != '') || (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
           PRERELEASE: ${{ inputs.prerelease }}
-          # Sentry source-map upload (optional). Injecting debug IDs here — into the
-          # exact bundles this leg ships — is what makes crash stacks symbolicate;
-          # the previously-separate upload job built its own bundles, so the shipped
-          # JS never carried the debug IDs the uploaded maps were keyed on.
+          # Sentry source-map upload (optional). electron:publish injects debug IDs
+          # into the exact bundles it ships — the only way crash stacks symbolicate.
+          # Runs on every desktop OS leg; debug IDs are content-derived so re-uploads
+          # dedupe. Skipped cleanly (in scripts/sentry-sourcemaps.mjs) when unset.
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
         shell: bash
         run: |
-          set -euo pipefail
-          # Build renderer + main bundles first so we can inject debug IDs into the
-          # exact JS we ship below.
-          npm run electron:build:all
-          # Inject Sentry debug IDs and upload the maps. Debug IDs are content-derived,
-          # so each OS leg re-uploading the (identical) renderer/main maps is idempotent
-          # — Sentry dedups by debug ID + release. Skipped cleanly when the token is unset.
-          if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
-            # Must match the SDK's release: `restura@<version>` (electron/main/sentry.ts).
-            RELEASE="restura@${ACTUAL_TAG#v}"
-            npx @sentry/cli sourcemaps inject dist/web dist/electron
-            npx @sentry/cli sourcemaps upload --release "$RELEASE" dist/web dist/electron
-          else
-            echo "SENTRY_AUTH_TOKEN not set — skipping source map injection/upload."
-          fi
-          # Package + publish installers for this OS (electron-builder targets the host).
           if [ "$PRERELEASE" = "true" ]; then
-            npx electron-builder --publish always --config.publish.releaseType=prerelease
+            npm run electron:publish:prerelease
           else
-            npx electron-builder --publish always
+            npm run electron:publish
           fi
 
   publish-cli:
