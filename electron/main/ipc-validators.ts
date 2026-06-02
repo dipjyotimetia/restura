@@ -192,6 +192,9 @@ export const GrpcRequestConfigSchema = z.object({
     .max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit'),
   protoFileName: z.string().min(1, 'Proto file name is required'),
   useCompression: z.boolean().optional(),
+  // Per-call deadline in ms. Applied as a grpc-js `deadline` on unary and
+  // streaming invocations; omitted → grpc-js channel defaults. Capped at 10min.
+  timeoutMs: z.number().int().positive().max(600_000).optional(),
   // Present only when a credential carries a SecretRef handle the renderer
   // cannot resolve (ADR-0007). The handler resolves it main-side via the OS
   // keychain and merges it into the metadata. Inline/plain creds are already

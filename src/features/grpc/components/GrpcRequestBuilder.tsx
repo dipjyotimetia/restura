@@ -18,9 +18,10 @@ import {
   getMethodTypeDescription,
   GrpcClientError,
   buildAuthMetadata,
-  startElectronGrpcStream,
   createErrorResponse,
 } from '@/features/grpc/lib/grpcClient';
+import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
+import { GrpcStatusCodeName, type GrpcStatusCode } from '@/types';
 import {
   validateGrpcUrl,
   validateServiceField,
@@ -102,9 +103,8 @@ function GrpcRequestBuilder() {
     handleAdd: handleAddMetadata,
     handleUpdate: handleUpdateMetadata,
     handleDelete: handleDeleteMetadata,
-  } = useKeyValueCollection(
-    currentRequest?.metadata ?? [],
-    (metadata) => updateRequest({ metadata })
+  } = useKeyValueCollection(currentRequest?.metadata ?? [], (metadata) =>
+    updateRequest({ metadata })
   );
 
   const validateUrl = useCallback((url: string) => {
@@ -239,8 +239,9 @@ function GrpcRequestBuilder() {
 
   const grpcRequest: GrpcRequest = currentRequest;
   const reflectionResult = reflection.result;
-  const reflectionServices: ReflectionServiceInfo[] =
-    reflectionResult?.success ? reflectionResult.services : [];
+  const reflectionServices: ReflectionServiceInfo[] = reflectionResult?.success
+    ? reflectionResult.services
+    : [];
 
   const handleMethodTypeChange = (methodType: GrpcMethodType) => {
     updateRequest({ methodType });
@@ -337,15 +338,11 @@ function GrpcRequestBuilder() {
         protoContent = await protoFile.text();
         protoFileName = protoFile.name;
       } else if (reflection.result?.success && reflection.selectedService) {
-        protoContent = generateProtoFromReflection(
-          grpcRequest.service,
-          reflection.selectedService
-        );
+        protoContent = generateProtoFromReflection(grpcRequest.service, reflection.selectedService);
         protoFileName = 'generated.proto';
       } else {
         toast.error('Proto file or reflection required', {
-          description:
-            'Please upload a .proto file or use a server with gRPC reflection enabled.',
+          description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
         });
         setLoading(false);
         return;
@@ -364,34 +361,52 @@ function GrpcRequestBuilder() {
           setLoading(false);
           return;
         }
-        const control = startElectronGrpcStream(
-          grpcRequest,
+        const handle = await startGrpcStream({
+          request: grpcRequest,
+          resolveVariables,
           protoContent,
           protoFileName,
-          resolveVariables,
-          {
-            onData: (data: unknown) => {
-              setStreamingMessages((prev) => [...prev, JSON.stringify(data, null, 2)]);
-            },
-            onError: (error: unknown) => {
-              const err = error as { status: number; details: string };
-              toast.error(`gRPC Error: ${err.status}`, {
-                description: err.details || 'Unknown error',
-              });
-              setLoading(false);
-              setStreamControl(null);
-            },
-            onStatus: (status: unknown) => {
-              const s = status as { status: number; details: string };
-              if (s.status === 0) toast.success('Stream completed');
-              setLoading(false);
-              setStreamControl(null);
-            },
-          },
           timeoutMs,
-          useCompression
-        );
-        setStreamControl(control);
+          useCompression,
+        });
+        // Adapt the async-iterator handle to the streamControl shape the
+        // invocation bar / streaming controls already consume.
+        setStreamControl({
+          sendMessage: (msg: unknown) => {
+            void handle.send(msg);
+          },
+          endStream: () => handle.closeSend(),
+          cancelStream: () => handle.cancel(),
+        });
+        // Drain inbound messages as they arrive, then settle on the final gRPC
+        // status. The iterator throws if the stream errors; `done` always
+        // resolves (carrying the status + trailers), so the error is reported
+        // once, from the catch.
+        void (async () => {
+          try {
+            for await (const msg of handle.messages) {
+              setStreamingMessages((prev) => [...prev, JSON.stringify(msg, null, 2)]);
+            }
+            const final = await handle.done;
+            if (final.status === 0) {
+              toast.success('Stream completed');
+            } else {
+              toast.error(`gRPC Error: ${final.status}`, {
+                description:
+                  final.statusMessage ||
+                  GrpcStatusCodeName[final.status as GrpcStatusCode] ||
+                  'Stream error',
+              });
+            }
+          } catch (err) {
+            toast.error('gRPC stream error', {
+              description: err instanceof Error ? err.message : String(err),
+            });
+          } finally {
+            setLoading(false);
+            setStreamControl(null);
+          }
+        })();
         return;
       }
 
@@ -457,8 +472,7 @@ function GrpcRequestBuilder() {
       if (error instanceof GrpcClientError) {
         toast.error(`gRPC Error: ${error.statusCode}`, { description: error.message });
       } else {
-        const errorMessage =
-          error instanceof Error ? error.message : 'gRPC request failed';
+        const errorMessage = error instanceof Error ? error.message : 'gRPC request failed';
         toast.error('Request failed', { description: errorMessage });
       }
     } finally {
@@ -497,9 +511,7 @@ function GrpcRequestBuilder() {
   // Cast active response to GrpcResponse if it carries grpc fields. We can't
   // narrow at the store level (the slot is ApiResponse), so coerce here.
   const grpcResponse =
-    activeResponse && 'grpcStatus' in activeResponse
-      ? (activeResponse as GrpcResponse)
-      : null;
+    activeResponse && 'grpcStatus' in activeResponse ? (activeResponse as GrpcResponse) : null;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 p-2.5 gap-2.5">
@@ -569,9 +581,7 @@ function GrpcRequestBuilder() {
                     type="number"
                     value={timeoutMs}
                     onChange={(e) =>
-                      setTimeoutMs(
-                        Math.max(1000, parseInt(e.target.value, 10) || 30000)
-                      )
+                      setTimeoutMs(Math.max(1000, parseInt(e.target.value, 10) || 30000))
                     }
                     min={1000}
                     step={1000}
@@ -628,9 +638,7 @@ function GrpcRequestBuilder() {
                     onChange={handleMessageChange}
                     error={validation.message.error}
                     isValid={validation.message.valid}
-                    {...(activeTabId
-                      ? { editorPath: `tab-${activeTabId}-grpc-message` }
-                      : {})}
+                    {...(activeTabId ? { editorPath: `tab-${activeTabId}-grpc-message` } : {})}
                   />
                 </div>
               )}
@@ -638,8 +646,7 @@ function GrpcRequestBuilder() {
               {activeTab === 'metadata' && (
                 <div className="p-3 space-y-3">
                   <p className="text-sp-11 text-sp-muted font-mono">
-                    gRPC metadata (headers). Common: authorization, content-type,
-                    grpc-timeout
+                    gRPC metadata (headers). Common: authorization, content-type, grpc-timeout
                   </p>
                   <KeyValueEditor
                     items={grpcRequest.metadata}
@@ -688,12 +695,8 @@ function GrpcRequestBuilder() {
                 <ScriptsEditor
                   preRequestScript={grpcRequest.preRequestScript || ''}
                   testScript={grpcRequest.testScript || ''}
-                  onPreRequestScriptChange={(script) =>
-                    updateRequest({ preRequestScript: script })
-                  }
-                  onTestScriptChange={(script) =>
-                    updateRequest({ testScript: script })
-                  }
+                  onPreRequestScriptChange={(script) => updateRequest({ preRequestScript: script })}
+                  onTestScriptChange={(script) => updateRequest({ testScript: script })}
                 />
               )}
 
@@ -706,12 +709,8 @@ function GrpcRequestBuilder() {
               {activeTab === 'web-stream' && grpcRequest.methodType !== 'unary' && (
                 <GrpcStreamingPanel
                   request={grpcRequest}
-                  {...(resolvedProto?.content
-                    ? { protoContent: resolvedProto.content }
-                    : {})}
-                  {...(resolvedProto?.fileName
-                    ? { protoFileName: resolvedProto.fileName }
-                    : {})}
+                  {...(resolvedProto?.content ? { protoContent: resolvedProto.content } : {})}
+                  {...(resolvedProto?.fileName ? { protoFileName: resolvedProto.fileName } : {})}
                 />
               )}
             </div>

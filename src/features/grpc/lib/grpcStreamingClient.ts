@@ -72,10 +72,12 @@ export interface StartGrpcStreamArgs {
   fetcher?: StreamFetcher;
   /** Connection timeout in ms. */
   timeoutMs?: number;
-  /** Proto file content — required for Electron IPC client/bidi streaming. */
+  /** Proto file content — required for Electron IPC streaming. */
   protoContent?: string;
-  /** Proto file name — required for Electron IPC client/bidi streaming. */
+  /** Proto file name — required for Electron IPC streaming. */
   protoFileName?: string;
+  /** Enable gzip compression on the Electron IPC streaming call. */
+  useCompression?: boolean;
 }
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -101,6 +103,36 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     throw new Error(methodCheck.error ?? 'Invalid method name');
   }
 
+  const isStreamingType =
+    args.request.methodType === 'server-streaming' ||
+    args.request.methodType === 'client-streaming' ||
+    args.request.methodType === 'bidirectional-streaming';
+  if (!isStreamingType) {
+    throw new Error(
+      `startGrpcStream only supports streaming method types; got '${args.request.methodType}'.`
+    );
+  }
+
+  // Electron: every streaming type goes through the IPC → grpc-js transport
+  // (real HTTP/2 gRPC, works against any gRPC server, resolves secret handles
+  // main-side). The connect-fetch path below is the web-only fallback and only
+  // speaks the Connect/gRPC-Web protocol.
+  if (isElectron()) {
+    return startElectronInteractiveStream<TIn, TOut>(args) as GrpcStreamingHandle<TIn, TOut>;
+  }
+
+  // Web (no IPC). Client/bidi need a request duplex the browser fetch can't
+  // provide, so they are desktop-only.
+  if (
+    args.request.methodType === 'client-streaming' ||
+    args.request.methodType === 'bidirectional-streaming'
+  ) {
+    throw new Error(
+      `${args.request.methodType} is currently available in the desktop app only. ` +
+        `Use the Electron desktop app to send and receive client or bidirectional streams.`
+    );
+  }
+
   // Resolve variables and build metadata; prepareGrpcRequest also parses the
   // message JSON. It throws GrpcClientError("Invalid JSON message") on bad JSON
   // — re-surface as a plain Error with the substring expected by callers.
@@ -123,29 +155,10 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     headers.set(k, v);
   }
 
-  if (
-    args.request.methodType === 'client-streaming' ||
-    args.request.methodType === 'bidirectional-streaming'
-  ) {
-    if (!isElectron()) {
-      throw new Error(
-        `${args.request.methodType} is currently available in the desktop app only. ` +
-          `Use the Electron desktop app to send and receive client or bidirectional streams.`
-      );
-    }
-    return startElectronInteractiveStream<TIn, TOut>(args) as GrpcStreamingHandle<TIn, TOut>;
-  }
-  if (args.request.methodType !== 'server-streaming') {
-    throw new Error(
-      `startGrpcStream only supports streaming method types; got '${args.request.methodType}'.`
-    );
-  }
-
-  // Server-streaming runs as a renderer-side connect-web fetch on both
-  // platforms, so a stored secret handle can't be resolved at the wire (unlike
-  // unary + client/bidi, which go through the Electron IPC handler that resolves
-  // handles main-side). Reject clearly instead of sending an unauthenticated
-  // stream that 401s upstream.
+  // The web server-streaming path is a direct connect-web fetch, so a stored
+  // secret handle can't be resolved at the wire (unlike the Electron IPC path,
+  // which resolves handles main-side). Reject clearly instead of sending an
+  // unauthenticated stream that 401s upstream.
   if (grpcAuthNeedsMainSideApply(args.request.auth)) {
     throw new Error(
       'This credential uses a stored secret handle. Server-streaming uses a direct ' +
@@ -346,10 +359,8 @@ function startElectronInteractiveStream<TIn, TOut>(
   const queue = new AsyncMessageQueue<TOut>();
 
   let doneResolve!: (v: GrpcStreamFinal) => void;
-  let doneReject!: (e: Error) => void;
-  const done = new Promise<GrpcStreamFinal>((res, rej) => {
+  const done = new Promise<GrpcStreamFinal>((res) => {
     doneResolve = res;
-    doneReject = rej;
   });
 
   const prepared = prepareGrpcRequest(args.request, args.resolveVariables);
@@ -357,26 +368,47 @@ function startElectronInteractiveStream<TIn, TOut>(
 
   let cancelled = false;
 
+  // The main process sends `{ status, details, headers, trailers }` on both the
+  // status and error channels (see electron/main/grpc-handler.ts). Read those
+  // keys — the previous code read `s.code` / `err.message`, which never matched
+  // the payload, so the real status was lost and headers/trailers were dropped.
+  type StreamEventPayload = {
+    status?: number;
+    details?: string;
+    headers?: Record<string, string>;
+    trailers?: Record<string, string>;
+  };
+
   const onData = (data: unknown) => {
     if (!cancelled) queue.push(data as TOut);
   };
-  const onError = (err: unknown) => {
+  const onError = (payload: unknown) => {
     if (cancelled) return;
-    const msg = (err as { message?: string })?.message ?? 'Stream error';
-    const e = new Error(msg);
-    queue.fail(e);
-    doneReject(e);
+    const p = (payload ?? {}) as StreamEventPayload;
+    const status = (p.status ?? GrpcStatusCode.UNKNOWN) as GrpcStatusCode;
+    const message = p.details || GrpcStatusCodeName[status] || 'Stream error';
+    // The error surfaces through the messages iterator (queue.fail throws there).
+    // `done` always resolves — carrying the gRPC status + trailers — so a caller
+    // that doesn't await it after the iterator throws can't trigger an unhandled
+    // rejection.
+    queue.fail(new Error(message));
+    doneResolve({
+      headers: p.headers ?? {},
+      trailers: p.trailers ?? {},
+      status,
+      statusMessage: message,
+    });
     cleanup();
   };
-  const onStatus = (status: unknown) => {
+  const onStatus = (payload: unknown) => {
     if (cancelled) return;
-    const s = status as { code?: number; details?: string };
+    const p = (payload ?? {}) as StreamEventPayload;
     queue.close();
     doneResolve({
-      headers: {},
-      trailers: {},
-      status: s.code ?? GrpcStatusCode.OK,
-      statusMessage: s.details,
+      headers: p.headers ?? {},
+      trailers: p.trailers ?? {},
+      status: (p.status ?? GrpcStatusCode.OK) as GrpcStatusCode,
+      statusMessage: p.details,
     });
     cleanup();
   };
@@ -402,6 +434,8 @@ function startElectronInteractiveStream<TIn, TOut>(
       message: prepared.message,
       protoContent: args.protoContent ?? '',
       protoFileName: args.protoFileName ?? 'request.proto',
+      ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
+      ...(args.useCompression !== undefined ? { useCompression: args.useCompression } : {}),
       ...(grpcAuthNeedsMainSideApply(args.request.auth) ? { auth: args.request.auth } : {}),
     });
   } catch (err) {

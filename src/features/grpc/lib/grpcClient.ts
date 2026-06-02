@@ -531,74 +531,10 @@ export async function makeElectronGrpcRequest(
   }
 }
 
-// Start gRPC stream via Electron IPC
-export function startElectronGrpcStream(
-  request: GrpcRequest,
-  protoContent: string,
-  protoFileName: string,
-  resolveVariables: (text: string) => string,
-  callbacks: {
-    onData: (data: unknown) => void;
-    onError: (error: unknown) => void;
-    onStatus: (status: unknown) => void;
-  },
-  timeoutMs: number = 30000,
-  useCompression: boolean = false
-): {
-  sendMessage: (message: unknown) => void;
-  endStream: () => void;
-  cancelStream: () => void;
-} {
-  if (!isElectron()) {
-    throw new Error('Electron environment required for full gRPC support');
-  }
-
-  const api = getElectronAPI();
-  if (!api) throw new Error('Electron API not available');
-
-  const prepared = prepareGrpcRequest(request, resolveVariables);
-  const requestId = request.id;
-
-  // Setup listeners
-  const dataChannel = `grpc:data:${requestId}`;
-  const errorChannel = `grpc:error:${requestId}`;
-  const statusChannel = `grpc:status:${requestId}`;
-
-  api.grpc.on(dataChannel, callbacks.onData);
-  api.grpc.on(errorChannel, callbacks.onError);
-  api.grpc.on(statusChannel, callbacks.onStatus);
-
-  // Start stream
-  api.grpc.startStream({
-    id: requestId,
-    url: prepared.url,
-    service: request.service,
-    method: request.method,
-    methodType: request.methodType,
-    metadata: prepared.metadata,
-    message: prepared.message,
-    protoContent,
-    protoFileName,
-    timeoutMs,
-    useCompression,
-    ...(grpcAuthNeedsMainSideApply(request.auth) ? { auth: request.auth } : {}),
-  });
-
-  return {
-    sendMessage: (message: unknown) => {
-      api.grpc.sendMessage(requestId, message);
-    },
-    endStream: () => {
-      api.grpc.endStream(requestId);
-    },
-    cancelStream: () => {
-      api.grpc.cancelStream(requestId);
-      api.grpc.removeListener(dataChannel, callbacks.onData);
-      api.grpc.removeListener(errorChannel, callbacks.onError);
-      api.grpc.removeListener(statusChannel, callbacks.onStatus);
-    },
-  };
-}
+// gRPC streaming is driven by startGrpcStream() in grpcStreamingClient.ts —
+// a single async-iterator path for web (connect-fetch) and Electron (IPC →
+// grpc-js). The former callback-based startElectronGrpcStream was removed in
+// favour of that unified handle.
 
 // Create error response
 export function createErrorResponse(
