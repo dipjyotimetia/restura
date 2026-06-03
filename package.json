@@ -224,7 +224,7 @@
     "typescript": "^5",
     "typescript-eslint": "^8.60.1",
     "vite": "^8.0.14",
-    "vitest": "^4.1.7",
+    "vitest": "^4.1.8",
     "wait-on": "^9.0.10",
     "wrangler": "^4.95.0",
     "xml2js": "^0.6.2"
