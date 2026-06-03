@@ -150,6 +150,10 @@ test.describe('Real MCP server', () => {
     await page.getByPlaceholder('https://mcp.example.com/v1/server').fill(servers.mcp.url);
     await page.getByRole('button', { name: /Connect/i }).click();
 
+    // The catalog (tools/resources/prompts) is hidden by default; reveal it via
+    // the connection-bar "Tools" toggle so the discovered tools are listed.
+    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+
     // Tools tab badge increases as the client discovers them.
     await expect(page.getByRole('tab', { name: /Tools\s+3/ })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('echo', { exact: true }).first()).toBeVisible();
