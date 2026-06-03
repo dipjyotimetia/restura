@@ -393,13 +393,8 @@ function MqttClient() {
           )}
 
           {connection && canConnect && (
-            <Button
-              variant="glow"
-              size="sm"
-              onClick={handleConnect}
-              className="h-7 min-w-[88px] text-xs font-medium rounded-sp-btn"
-            >
-              <Plug className="h-3.5 w-3.5 mr-1.5" /> Connect
+            <Button variant="cta" size="cta" onClick={handleConnect} className="min-w-[88px]">
+              <Plug className="h-3.5 w-3.5" /> Connect
             </Button>
           )}
           {connection && !canConnect && (

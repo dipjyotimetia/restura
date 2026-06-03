@@ -1,5 +1,6 @@
 import { AlertCircle, Loader2, Play, X } from 'lucide-react';
 import { Floater, Segmented } from '@/components/ui/spatial';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/shared/utils';
 import GrpcStreamingControls from './GrpcStreamingControls';
 import type { GrpcMethodType } from '@/types';
@@ -53,10 +54,10 @@ export function GrpcInvocationBar({
 }: GrpcInvocationBarProps) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-stretch gap-2">
+      <div className="flex items-center gap-2">
         <Floater
           radius="btn"
-          className="flex-1 flex items-center gap-2 pl-1.5 pr-1.5 h-10"
+          className="flex-1 min-w-0 flex items-center gap-2 pl-1.5 pr-1.5 h-10"
           style={{ background: 'var(--sp-surface)' }}
         >
           <Segmented<GrpcMethodType>
@@ -74,29 +75,21 @@ export function GrpcInvocationBar({
             placeholder={ECHO_URLS.grpc}
             aria-label="gRPC server URL"
             className={cn(
-              'flex-1 h-7 bg-transparent border-0 outline-none px-1',
+              'flex-1 min-w-0 h-7 bg-transparent border-0 outline-none px-1',
               'font-mono text-sp-13 text-sp-text placeholder:text-sp-dim',
               !isUrlValid && 'text-red-400'
             )}
           />
         </Floater>
 
-        <button
+        <Button
           type="button"
+          variant="cta"
+          size="cta"
           onClick={onSend}
           disabled={(isLoading && !streamControl) || !isFormValid}
           aria-label={isLoading ? 'Invoking gRPC method' : 'Invoke gRPC method'}
-          className={cn(
-            'inline-flex items-center justify-center gap-1.5 h-10 px-5 rounded-sp-btn shrink-0',
-            'font-semibold text-sp-13 transition-all',
-            'disabled:opacity-50 disabled:cursor-not-allowed',
-            'text-white'
-          )}
-          style={{
-            background: 'linear-gradient(180deg, var(--sp-accent), #3a85ee)',
-            boxShadow:
-              '0 8px 24px var(--sp-accent-glow-33), inset 0 1px 0 rgba(255,255,255,0.3), 0 0 0 1px var(--sp-accent-glow-55)',
-          }}
+          className="shrink-0"
         >
           {isLoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -104,7 +97,7 @@ export function GrpcInvocationBar({
             <Play className="h-3.5 w-3.5" fill="currentColor" />
           )}
           {isLoading ? 'Invoking…' : 'Invoke'}
-        </button>
+        </Button>
       </div>
 
       {streamControl && (

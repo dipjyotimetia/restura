@@ -800,7 +800,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             <p className="text-sp-13 text-sp-muted font-medium">No authentication</p>
             <p className="text-sp-11 text-sp-dim mt-1 max-w-[260px]">
-              Pick an auth method on the left to configure credentials for this request.
+              Choose an authentication method to configure credentials for this request.
             </p>
           </div>
         );

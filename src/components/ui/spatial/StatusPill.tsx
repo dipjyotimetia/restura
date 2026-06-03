@@ -8,10 +8,7 @@ function pickColor(status: number): { color: string; bg: string; glow: string } 
   if (status >= 300 && status <= 399) {
     return { color: '#06b6d4', bg: 'rgba(6,182,212,0.16)', glow: '0 0 8px rgba(6,182,212,0.45)' };
   }
-  if (status >= 400 && status <= 499) {
-    return { color: '#f59e0b', bg: 'rgba(245,158,11,0.18)', glow: '0 0 8px rgba(245,158,11,0.45)' };
-  }
-  if (status >= 500) {
+  if (status >= 400) {
     return { color: '#ef4444', bg: 'rgba(239,68,68,0.18)', glow: '0 0 8px rgba(239,68,68,0.45)' };
   }
   return { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)', glow: 'none' };

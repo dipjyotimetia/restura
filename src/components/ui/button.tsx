@@ -19,18 +19,27 @@ export const buttonVariants = cva(
           'border glass-border-default bg-white/[0.45] dark:bg-white/[0.04] backdrop-blur-md text-foreground hover:bg-white/[0.6] dark:hover:bg-white/[0.08] hover:border-white/15 dark:hover:border-white/15',
         secondary:
           'glass-2 border glass-border-default text-secondary-foreground shadow-sm hover:bg-white/[0.7] dark:hover:bg-white/[0.07]',
-        ghost: 'hover:bg-white/[0.5] dark:hover:bg-white/[0.06] hover:backdrop-blur-sm hover:text-foreground',
+        ghost:
+          'hover:bg-white/[0.5] dark:hover:bg-white/[0.06] hover:backdrop-blur-sm hover:text-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
         glow: 'bg-primary/[0.2] text-primary border border-primary/40 backdrop-blur-sm hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)]',
+        // Canonical primary action (Send / Invoke / Connect / Stream) — solid
+        // accent gradient + glow, white label. Pair with size="cta".
+        cta: 'sp-cta text-white tracking-wide hover:brightness-110 disabled:opacity-50',
         glass:
           'glass-2 border glass-border-default text-foreground hover:bg-white/[0.7] dark:hover:bg-white/[0.08] hover:shadow-md',
       },
       size: {
-        default: 'h-9 px-4 py-2 text-sm rounded-md [&_svg]:size-4',
-        sm: 'h-8 rounded-md px-3 text-xs [&_svg]:size-3.5',
-        lg: 'h-10 rounded-md px-8 [&_svg]:size-5',
-        icon: 'h-9 w-9 rounded-md [&_svg]:size-4',
-        'icon-sm': 'h-8 w-8 rounded-md [&_svg]:size-3.5',
+        default: 'h-8 px-3 py-2 text-[13px] rounded-md [&_svg]:size-4',
+        sm: 'h-7 rounded-md px-2.5 text-xs [&_svg]:size-3.5',
+        lg: 'h-9 rounded-md px-4 text-sm [&_svg]:size-5',
+        icon: 'h-8 w-8 rounded-md [&_svg]:size-4',
+        'icon-sm': 'h-7 w-7 rounded-md [&_svg]:size-3.5',
+        // Canonical primary-action size — h-8/32px, pill, used with variant="cta".
+        // text-[13px] (not text-sp-13) so tailwind-merge keeps it as font-size and
+        // does NOT drop the variant's text-white (custom text-sp-* classes collide
+        // with text-white in tailwind-merge's "text" group).
+        cta: 'h-8 px-4 gap-1.5 rounded-sp-pill text-[13px] font-semibold [&_svg]:size-3.5',
       },
     },
     defaultVariants: {
@@ -41,8 +50,7 @@ export const buttonVariants = cva(
 );
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
   asChild?: boolean;
   loading?: boolean;
   loadingText?: string;
@@ -50,7 +58,17 @@ export interface ButtonProps
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   (
-    { className, variant, size, asChild = false, loading, loadingText, disabled, children, ...props },
+    {
+      className,
+      variant,
+      size,
+      asChild = false,
+      loading,
+      loadingText,
+      disabled,
+      children,
+      ...props
+    },
     ref
   ) => {
     const Comp = asChild ? Slot : 'button';

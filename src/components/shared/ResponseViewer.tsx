@@ -444,7 +444,9 @@ function ResponseViewer() {
                 <StatusPill status={currentResponse.status} text={currentResponse.statusText} />
                 <Stat label="Time" value={formatTime(currentResponse.time)} />
                 <Stat label="Size" value={formatBytes(currentResponse.size)} />
-                <Stat label="HTTP" value={alpnLabel(currentResponse.negotiatedAlpn)} />
+                {currentResponse.negotiatedAlpn && (
+                  <Stat label="HTTP" value={alpnLabel(currentResponse.negotiatedAlpn)} />
+                )}
 
                 <div className="flex-1" />
 
@@ -657,7 +659,7 @@ function ResponseViewer() {
                                 {c.value}
                               </span>
                               {c.attrs && (
-                                <div className="text-sp-10-5 text-sp-dim font-mono">{c.attrs}</div>
+                                <div className="text-sp-11 text-sp-dim font-mono">{c.attrs}</div>
                               )}
                             </div>
                           </div>
