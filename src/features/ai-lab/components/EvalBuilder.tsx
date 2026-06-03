@@ -59,7 +59,9 @@ function defaultScorer(kind: ScorerKind, judgeModel: ModelRef | undefined): Scor
       return {
         id,
         kind,
-        code: "pm.test('non-empty', () => pm.expect(pm.response.body).to.be.a('string'));",
+        // The model output is exposed as pm.response.text() (the synthetic
+        // response wraps it as the body); pm.response.body is not the string.
+        code: "pm.test('non-empty', () => pm.expect(pm.response.text().length).to.be.above(0));",
       };
     case 'judge':
       return {

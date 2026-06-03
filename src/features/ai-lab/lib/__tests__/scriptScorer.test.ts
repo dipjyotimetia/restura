@@ -38,4 +38,14 @@ describe('runScriptScorer (QuickJS, synthetic response)', () => {
     const res = await runScriptScorer({ code: 'const x = 1;', output: 'x', latencyMs: 5 });
     expect(res.passed).toBe(false);
   });
+
+  it("the EvalBuilder default 'script' snippet passes on non-empty output", async () => {
+    // Keep in sync with defaultScorer('script') in EvalBuilder.tsx.
+    const res = await runScriptScorer({
+      code: "pm.test('non-empty', () => pm.expect(pm.response.text().length).to.be.above(0));",
+      output: 'some answer',
+      latencyMs: 5,
+    });
+    expect(res.passed).toBe(true);
+  });
 });
