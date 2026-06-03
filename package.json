@@ -196,7 +196,7 @@
     "better-sse": "^0.16.1",
     "chai": "^6.2.2",
     "cheerio": "^1.2.0",
-    "concurrently": "^10.0.0",
+    "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
     "crypto-js": "^4.2.0",
     "csv-parse": "^6.2.1",
