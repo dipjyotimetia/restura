@@ -86,6 +86,11 @@ export function EvalBuilder() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [scorers, setScorers] = useState<ScorerConfig[]>([]);
   const [concurrency, setConcurrency] = useState(4);
+  // Stable id for this eval across re-runs: upsertEvalConfig overwrites instead
+  // of accumulating a new config per run (which would also leak unbounded into
+  // the store), and a stable evalConfigId lets ReportView's "Δ vs prev"
+  // regression compare find the previous run of this eval.
+  const [configId] = useState(() => uuidv4());
 
   const modelOptions = useMemo<ModelOption[]>(() => {
     const out: ModelOption[] = [];
@@ -124,7 +129,7 @@ export function EvalBuilder() {
     }
     const promptId = upsertPrompt({ name: `${name} prompt`, system, user });
     const config: EvalConfig = {
-      id: uuidv4(),
+      id: configId,
       name,
       promptId,
       datasetId,
@@ -346,8 +351,12 @@ function ScorerRow({
             <Select
               value={`${scorer.judgeModel.providerConfigId}:${scorer.judgeModel.model}`}
               onValueChange={(v) => {
-                const [providerConfigId = '', model = ''] = v.split(':');
-                onChange({ judgeModel: { providerConfigId, model } });
+                // Split on the FIRST colon only: the provider id is a UUID (no
+                // colons) but model ids can contain them (Ollama `llama3.2:latest`).
+                const i = v.indexOf(':');
+                onChange({
+                  judgeModel: { providerConfigId: v.slice(0, i), model: v.slice(i + 1) },
+                });
               }}
             >
               <SelectTrigger className="h-7 text-xs">

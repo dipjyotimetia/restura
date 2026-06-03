@@ -86,6 +86,23 @@ describe('runEval', () => {
     expect(progress.at(-1)).toBe(2);
   });
 
+  it('reports cost as unknown (null) for a priced model that returns no usage estimate', async () => {
+    mockComplete.mockResolvedValue({ ok: true, text: 'x', toolCalls: [] }); // no usage
+    const cells = await runEval(
+      {
+        prompt: PROMPT,
+        dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [],
+        providers: { p1: PROVIDER }, // pricingKnown: true
+        concurrency: 1,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    expect(cells[0]?.cost).toBeNull();
+  });
+
   it('marks a failed model call as not passed and records the error', async () => {
     mockComplete.mockResolvedValue({
       ok: false,

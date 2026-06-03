@@ -40,7 +40,9 @@ function computeCost(
   estimatedCostUSD: number | undefined
 ): number | null {
   if (cfg.provider === 'ollama') return 0;
-  if (cfg.pricingKnown) return estimatedCostUSD ?? 0;
+  // A priced model with no usage estimate is unknown, not free — don't coerce a
+  // missing estimate to $0 (which would let a cost-threshold scorer pass).
+  if (cfg.pricingKnown) return estimatedCostUSD ?? null;
   return null;
 }
 
