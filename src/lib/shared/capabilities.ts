@@ -33,6 +33,10 @@ export type CapabilityName =
   | 'mqtt.basic'
   | 'socketio.basic'
   | 'ai.basic'
+  | 'aiLab.basic'
+  | 'aiLab.localProviders'
+  | 'aiLab.evals'
+  | 'aiLab.judge'
   | 'collections.file'
   | 'collections.git'
   | 'mock.localServer'
@@ -147,6 +151,30 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: 'Electron-first; streams via IPC. No Worker /api/ai route',
+  },
+  'aiLab.basic': {
+    label: 'AI Lab (prompt/model workbench)',
+    web: false,
+    desktop: true,
+    notes: 'Electron-only; model calls + SSRF localhost carve-out run in main',
+  },
+  'aiLab.localProviders': {
+    label: 'AI Lab local runtimes (Ollama / OpenAI-compatible)',
+    web: false,
+    desktop: true,
+    notes: 'Needs the localhost SSRF carve-out; no browser access to 127.0.0.1',
+  },
+  'aiLab.evals': {
+    label: 'AI Lab dataset evals (deterministic + script scorers)',
+    web: false,
+    desktop: true,
+    notes: 'QuickJS scorers + bounded-concurrency runner over case × model cells',
+  },
+  'aiLab.judge': {
+    label: 'AI Lab LLM-as-judge',
+    web: false,
+    desktop: true,
+    notes: 'Structured-output judge call via the AI Lab complete path',
   },
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git': { label: 'Git operations on collections', web: false, desktop: true },

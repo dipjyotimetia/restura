@@ -146,6 +146,13 @@ export const IPC = {
     chat: 'ai:chat',
     chatCancel: 'ai:chat:cancel',
   },
+  aiLab: {
+    complete: 'ai-lab:complete',
+    stream: 'ai-lab:stream',
+    streamCancel: 'ai-lab:stream:cancel',
+    listModels: 'ai-lab:list-models',
+    testConnection: 'ai-lab:test-connection',
+  },
   mock: {
     start: 'mock:start',
     stop: 'mock:stop',
@@ -212,6 +219,10 @@ export const EVENT_PREFIX = {
   ai: {
     chunk: 'ai:chat:chunk:',
     end: 'ai:chat:end:',
+  },
+  aiLab: {
+    chunk: 'ai-lab:chunk:',
+    end: 'ai-lab:end:',
   },
 } as const;
 

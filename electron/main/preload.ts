@@ -5,7 +5,12 @@
 import '@sentry/electron/preload';
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import type { ElectronAPI, UpdaterStatus } from '../types/electron-api';
+import type {
+  ElectronAPI,
+  UpdaterStatus,
+  AiLabModelSpec,
+  AiLabDiscoverArgs,
+} from '../types/electron-api';
 import type { ProtocolSecretValue } from '@shared/protocol/types';
 import {
   IPC,
@@ -660,6 +665,43 @@ const electronAPI = {
       cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void
     ): (() => void) => {
       const channel = eventChannel(EVENT_PREFIX.ai.end, streamId);
+      const listener = (_event: unknown, payload: { reason: 'done' | 'cancelled' | 'error' }) =>
+        cb(payload);
+      ipcRenderer.on(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+      return () =>
+        ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+    },
+  },
+
+  // AI Lab — Electron-only LLM testing/eval workbench. Superset of `ai` above:
+  // adds local providers (Ollama, OpenAI-compatible), a non-streaming `complete`
+  // for eval cells + LLM-as-judge, and model discovery. See ai-lab-handler.ts.
+  // Param/return shapes are enforced by `satisfies ElectronAPI` on this object.
+  aiLab: {
+    complete: (spec: AiLabModelSpec) => ipcRenderer.invoke(IPC.aiLab.complete, spec),
+
+    stream: (spec: AiLabModelSpec & { streamId: string }) =>
+      ipcRenderer.invoke(IPC.aiLab.stream, spec),
+
+    cancelStream: (args: { streamId: string }) => ipcRenderer.invoke(IPC.aiLab.streamCancel, args),
+
+    listModels: (args: AiLabDiscoverArgs) => ipcRenderer.invoke(IPC.aiLab.listModels, args),
+
+    testConnection: (args: AiLabDiscoverArgs) => ipcRenderer.invoke(IPC.aiLab.testConnection, args),
+
+    onChunk: (streamId: string, cb: (event: ChatStreamEvent) => void): (() => void) => {
+      const channel = eventChannel(EVENT_PREFIX.aiLab.chunk, streamId);
+      const listener = (_event: unknown, payload: ChatStreamEvent) => cb(payload);
+      ipcRenderer.on(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+      return () =>
+        ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.on>[1]);
+    },
+
+    onEnd: (
+      streamId: string,
+      cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void
+    ): (() => void) => {
+      const channel = eventChannel(EVENT_PREFIX.aiLab.end, streamId);
       const listener = (_event: unknown, payload: { reason: 'done' | 'cancelled' | 'error' }) =>
         cb(payload);
       ipcRenderer.on(channel, listener as Parameters<typeof ipcRenderer.on>[1]);

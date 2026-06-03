@@ -1,0 +1,110 @@
+// Renderer → IPC bridge for AI Lab model calls. Wraps window.electron.aiLab so
+// the rest of the feature (runner, scorers, Playground) never touches the raw
+// bridge. Electron-only — throws a clear error on web.
+import { getElectronAPI } from '@/lib/shared/platform';
+import type { ChatStreamEvent, CompletionResult, Provider } from '@shared/protocol/ai/types';
+import type { AiLabProviderConfig } from '../types';
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface LlmCallSpec {
+  provider: Provider;
+  model: string;
+  messages: ChatMessage[];
+  apiKeyHandleId?: string;
+  baseUrlOverride?: string;
+  rawMode?: boolean;
+  maxOutputTokens?: number;
+  tools?: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+}
+
+function api() {
+  const a = getElectronAPI()?.aiLab;
+  if (!a) throw new Error('AI Lab is only available in the desktop app.');
+  return a;
+}
+
+/** Build a call spec from a stored provider config + model id. */
+export function specFor(
+  cfg: AiLabProviderConfig,
+  model: string,
+  messages: ChatMessage[],
+  opts: { maxOutputTokens?: number; tools?: LlmCallSpec['tools'] } = {}
+): LlmCallSpec {
+  return {
+    provider: cfg.provider,
+    model,
+    messages,
+    // AI Lab prompts are user-authored test inputs (no auto-captured request
+    // context), so the redaction paranoia pass is off — otherwise a prompt that
+    // legitimately mentions a token would be refused.
+    rawMode: true,
+    ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
+    ...(cfg.baseUrl ? { baseUrlOverride: cfg.baseUrl } : {}),
+    ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
+    ...(opts.tools ? { tools: opts.tools } : {}),
+  };
+}
+
+/** Non-streaming completion (eval cells + LLM-as-judge). */
+export async function completeLlm(spec: LlmCallSpec): Promise<CompletionResult> {
+  const res = await api().complete({ ...spec, rawMode: spec.rawMode ?? true });
+  if (!res.ok) throw new Error(res.error);
+  return res.result;
+}
+
+export interface StreamHandle {
+  streamId: string;
+  cancel: () => void;
+}
+
+/**
+ * Start a streaming completion (Playground). Subscribes to chunk/end channels
+ * BEFORE invoking `stream` so no early events are missed, mirroring the chat
+ * streamConsumer contract.
+ */
+export async function streamLlm(
+  spec: LlmCallSpec,
+  handlers: {
+    onChunk: (ev: ChatStreamEvent) => void;
+    onEnd: (reason: 'done' | 'cancelled' | 'error') => void;
+  }
+): Promise<StreamHandle> {
+  const a = api();
+  const streamId = crypto.randomUUID();
+  const offChunk = a.onChunk(streamId, handlers.onChunk);
+  const offEnd = a.onEnd(streamId, (p) => {
+    handlers.onEnd(p.reason);
+    offChunk();
+    offEnd();
+  });
+  const res = await a.stream({ ...spec, rawMode: spec.rawMode ?? true, streamId });
+  if (!res.ok) {
+    offChunk();
+    offEnd();
+    throw new Error(res.error);
+  }
+  return {
+    streamId,
+    cancel: () => void a.cancelStream({ streamId }),
+  };
+}
+
+export async function listModels(args: {
+  provider: Provider;
+  baseUrl: string;
+  apiKeyHandleId?: string;
+}) {
+  return api().listModels(args);
+}
+
+export async function testConnection(args: {
+  provider: Provider;
+  baseUrl: string;
+  apiKeyHandleId?: string;
+}) {
+  return api().testConnection(args);
+}

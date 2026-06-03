@@ -1003,3 +1003,51 @@ export const AiChatRequestSchema = z.object({
 export const AiChatCancelSchema = z.object({
   streamId: z.uuid(),
 });
+
+// ---------------------------------------------------------------------------
+// AI Lab (Electron-only). Superset of the chat providers — adds local runtimes
+// (Ollama, generic OpenAI-compatible). The API-key handle is OPTIONAL because a
+// bare local Ollama needs no key. `openai-compatible` always needs a base URL
+// (it has no sensible default); the handler/refine enforces that.
+// ---------------------------------------------------------------------------
+const AiLabProviderSchema = z.enum([
+  'openai',
+  'anthropic',
+  'openrouter',
+  'ollama',
+  'openai-compatible',
+]);
+
+const AiLabCompleteBase = z.object({
+  provider: AiLabProviderSchema,
+  model: z.string().min(1).max(200),
+  messages: z.array(AiChatMessageSchema).min(1).max(200),
+  apiKeyHandleId: z.uuid().optional(),
+  baseUrlOverride: z.url().optional(),
+  rawMode: z.boolean(),
+  maxOutputTokens: z.number().int().positive().max(32_768).optional(),
+  tools: z.array(AiChatToolSchema).max(32).optional(),
+});
+
+const requireBaseForCompat = (v: { provider: string; baseUrlOverride?: string }) =>
+  v.provider !== 'openai-compatible' || !!v.baseUrlOverride;
+
+export const AiLabCompleteSchema = AiLabCompleteBase.refine(requireBaseForCompat, {
+  message: 'openai-compatible provider requires a base URL.',
+  path: ['baseUrlOverride'],
+});
+
+export const AiLabStreamSchema = AiLabCompleteBase.extend({
+  streamId: z.uuid(),
+}).refine(requireBaseForCompat, {
+  message: 'openai-compatible provider requires a base URL.',
+  path: ['baseUrlOverride'],
+});
+
+export const AiLabStreamCancelSchema = z.object({ streamId: z.uuid() });
+
+export const AiLabDiscoverSchema = z.object({
+  provider: AiLabProviderSchema,
+  baseUrl: z.url(),
+  apiKeyHandleId: z.uuid().optional(),
+});

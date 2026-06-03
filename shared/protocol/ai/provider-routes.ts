@@ -12,7 +12,10 @@
 import type { Provider, ChatRequestSpec } from './types';
 
 export interface ProviderRoute {
-  buildRequest(spec: ChatRequestSpec, apiKey: string): {
+  buildRequest(
+    spec: ChatRequestSpec,
+    apiKey: string
+  ): {
     url: string;
     headers: Record<string, string>;
     body: string;
@@ -23,10 +26,23 @@ const DEFAULT_BASE_URLS: Record<Provider, string> = {
   openai: 'https://api.openai.com',
   anthropic: 'https://api.anthropic.com',
   openrouter: 'https://openrouter.ai/api',
+  ollama: 'http://localhost:11434',
+  // No sensible default — the user must supply a base URL for a generic
+  // OpenAI-compatible endpoint (enforced by the AI Lab provider form).
+  'openai-compatible': '',
 };
 
 function baseUrl(spec: ChatRequestSpec): string {
   return spec.baseUrlOverride?.replace(/\/+$/, '') ?? DEFAULT_BASE_URLS[spec.provider];
+}
+
+/**
+ * The effective base URL for a provider call — the override, or the provider's
+ * default. Exported so the Electron handler can resolve + DNS-pin the exact host
+ * it's about to connect to (the SSRF guard validates this same host).
+ */
+export function resolveBaseUrl(provider: Provider, baseUrlOverride?: string): string {
+  return baseUrlOverride?.replace(/\/+$/, '') ?? DEFAULT_BASE_URLS[provider];
 }
 
 /** OpenAI tools: [{ type:'function', function:{ name, description, parameters } }]. */
@@ -102,7 +118,7 @@ const openrouterRoute: ProviderRoute = {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://restura.dev',  // OpenRouter attribution
+        'HTTP-Referer': 'https://restura.dev', // OpenRouter attribution
         'X-Title': 'Restura',
       },
       body: JSON.stringify({
@@ -118,8 +134,40 @@ const openrouterRoute: ProviderRoute = {
   },
 };
 
+/**
+ * Ollama + generic OpenAI-compatible endpoints. Identical OpenAI wire shape;
+ * the only differences from `openaiRoute` are (1) auth is optional — a bare
+ * local Ollama needs no key, so the Authorization header is sent only when a
+ * key is present — and (2) the base URL is user-supplied. SSRF/localhost policy
+ * is enforced upstream in the AI-Lab handler, not here.
+ */
+function openAiCompatibleRoute(): ProviderRoute {
+  return {
+    buildRequest(spec, apiKey) {
+      const tools = openaiTools(spec);
+      return {
+        url: `${baseUrl(spec)}/v1/chat/completions`,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: spec.model,
+          messages: spec.messages,
+          stream: true,
+          stream_options: { include_usage: true },
+          max_tokens: spec.maxOutputTokens ?? 2048,
+          ...(tools ? { tools } : {}),
+        }),
+      };
+    },
+  };
+}
+
 export const PROVIDER_ROUTES: Record<Provider, ProviderRoute> = {
   openai: openaiRoute,
   anthropic: anthropicRoute,
   openrouter: openrouterRoute,
+  ollama: openAiCompatibleRoute(),
+  'openai-compatible': openAiCompatibleRoute(),
 };
