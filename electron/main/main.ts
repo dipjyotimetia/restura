@@ -26,6 +26,7 @@ import { registerVaultHandlers, unregisterVaultHandlers } from './vault-handler'
 import { registerKeychainStatusIPC } from './keychain-status-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
 import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
+import { registerAiLabHandlers, unregisterAiLabHandlers } from './ai-lab-handler';
 import {
   registerMockServerIPC,
   unregisterMockServerIPC,
@@ -151,6 +152,7 @@ const IPC_MODULES: IpcModule[] = [
     },
   },
   { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
+  { register: () => registerAiLabHandlers(), dispose: () => unregisterAiLabHandlers() },
   {
     register: () => registerMockServerIPC(),
     dispose: () => {

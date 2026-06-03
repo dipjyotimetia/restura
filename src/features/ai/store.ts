@@ -1,68 +1,10 @@
 import { create } from 'zustand';
-import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { debouncedStorage } from '@/lib/shared/debouncedStorage';
 import { AiChatStateSchema, type PersistedAiChatState } from '@/lib/shared/store-validators';
-import type { Provider } from '@shared/protocol/ai/types';
-
-/**
- * Wrap a persist storage so rapid `setItem` calls coalesce into one write.
- * During streaming the store is mutated ~60×/s (RAF-batched delta appends), and
- * each write re-serializes AND AES-GCM-encrypts the ENTIRE chat history with a
- * PBKDF2-derived key — that is dozens of 100k-iteration derivations per second,
- * scaling with total history. Debouncing collapses it to a trailing write
- * `waitMs` after activity stops, with `maxWaitMs` so a long stream still
- * checkpoints, plus a flush on page hide so the final state isn't lost.
- * `getItem`/`removeItem` pass through; persistence is best-effort either way.
- */
-function debouncedStorage<T>(
-  inner: PersistStorage<T>,
-  waitMs: number,
-  maxWaitMs: number,
-): PersistStorage<T> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let firstPendingAt = 0;
-  let pending: { name: string; value: StorageValue<T> } | null = null;
-
-  const flush = (): void => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    firstPendingAt = 0;
-    const p = pending;
-    pending = null;
-    if (p) void inner.setItem(p.name, p.value);
-  };
-
-  if (typeof window !== 'undefined') {
-    window.addEventListener('pagehide', flush);
-    window.addEventListener('beforeunload', flush);
-  }
-
-  return {
-    getItem: (name) => inner.getItem(name),
-    removeItem: (name) => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      pending = null;
-      firstPendingAt = 0;
-      return inner.removeItem(name);
-    },
-    setItem: (name, value) => {
-      pending = { name, value };
-      const now = Date.now();
-      if (firstPendingAt === 0) firstPendingAt = now;
-      if (timer) clearTimeout(timer);
-      // Shrink the delay as we approach maxWait so a continuous stream still
-      // checkpoints rather than starving the trailing write indefinitely.
-      const delay = Math.max(0, Math.min(waitMs, maxWaitMs - (now - firstPendingAt)));
-      timer = setTimeout(flush, delay);
-    },
-  };
-}
+import type { CloudProvider, Provider } from '@shared/protocol/ai/types';
 
 type SecretRefHandle = { kind: 'handle'; id: string; label?: string };
 
@@ -111,8 +53,8 @@ export interface AiChatState extends PersistedAiChatState {
   setMessageError: (id: string, error: string) => void;
   setPanelOpen: (open: boolean) => void;
   setPanelWidth: (px: number) => void;
-  setProviderConfig: (p: Provider, cfg: ProviderConfig | null) => void;
-  setActiveProvider: (p: Provider) => void;
+  setProviderConfig: (p: CloudProvider, cfg: ProviderConfig | null) => void;
+  setActiveProvider: (p: CloudProvider) => void;
   setRedactionMode: (m: 'default' | 'raw') => void;
   setAgentToolsEnabled: (enabled: boolean) => void;
 }
@@ -141,7 +83,7 @@ function deriveTitle(text: string): string {
  */
 function findConversationByMessageId(
   conversations: Record<string, Conversation>,
-  messageId: string,
+  messageId: string
 ): Conversation | undefined {
   for (const conv of Object.values(conversations)) {
     if (conv.messages.some((m) => m.id === messageId)) return conv;
@@ -236,7 +178,9 @@ export const useAiChatStore = create<AiChatState>()(
               ...s.conversations,
               [conv.id]: {
                 ...conv,
-                messages: conv.messages.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m)),
+                messages: conv.messages.map((m) =>
+                  m.id === id ? { ...m, text: m.text + delta } : m
+                ),
                 updatedAt: Date.now(),
               },
             },
@@ -253,7 +197,7 @@ export const useAiChatStore = create<AiChatState>()(
               [conv.id]: {
                 ...conv,
                 messages: conv.messages.map((m) =>
-                  m.id === id ? { ...m, status: 'done' as const, ...(usage ? { usage } : {}) } : m,
+                  m.id === id ? { ...m, status: 'done' as const, ...(usage ? { usage } : {}) } : m
                 ),
                 updatedAt: Date.now(),
               },
@@ -271,7 +215,7 @@ export const useAiChatStore = create<AiChatState>()(
               [conv.id]: {
                 ...conv,
                 messages: conv.messages.map((m) =>
-                  m.id === id ? { ...m, status: 'error' as const, errorMessage: error } : m,
+                  m.id === id ? { ...m, status: 'error' as const, errorMessage: error } : m
                 ),
                 updatedAt: Date.now(),
               },
@@ -328,6 +272,6 @@ export const useAiChatStore = create<AiChatState>()(
         }
         useAiChatStore.setState({ conversations });
       },
-    },
-  ),
+    }
+  )
 );

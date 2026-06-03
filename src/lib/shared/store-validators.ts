@@ -259,6 +259,136 @@ export const AiChatStateSchema = z.object({
 
 export type PersistedAiChatState = z.infer<typeof AiChatStateSchema>;
 
+// ---------------------------------------------------------------------------
+// AI Lab (Electron-only). Persisted in the aiLab / evalRuns Dexie tables.
+// Provider enum is the wire superset (adds local runtimes).
+// ---------------------------------------------------------------------------
+const AiLabProviderEnumSchema = z.enum([
+  'openai',
+  'anthropic',
+  'openrouter',
+  'ollama',
+  'openai-compatible',
+]);
+
+const ModelRefSchema = z.object({
+  providerConfigId: z.string(),
+  model: z.string(),
+});
+
+const AiLabProviderConfigSchema = z.object({
+  id: z.string(),
+  provider: AiLabProviderEnumSchema,
+  label: z.string(),
+  baseUrl: z.string().optional(),
+  apiKeyHandleId: z.string().optional(),
+  pricingKnown: z.boolean(),
+  isLocal: z.boolean(),
+  models: z.array(z.string()),
+  createdAt: z.number(),
+});
+
+const PromptTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  system: z.string(),
+  user: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+const DatasetCaseSchema = z.object({
+  id: z.string(),
+  vars: z.record(z.string(), z.string()),
+  reference: z.string().optional(),
+  expected: z.string().optional(),
+});
+
+const DatasetSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  cases: z.array(DatasetCaseSchema),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+// Scorers are a discriminated union; validate only id+kind here (the runner
+// narrows on `kind`). z.object strips—not rejects—the per-kind fields, and the
+// rehydrate path keeps the original state on success, so nothing is lost.
+const ScorerConfigSchema = z.object({
+  id: z.string(),
+  kind: z.enum([
+    'exact-match',
+    'contains',
+    'regex',
+    'json-valid',
+    'json-schema',
+    'latency',
+    'cost',
+    'script',
+    'judge',
+  ]),
+});
+
+const EvalConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  promptId: z.string(),
+  datasetId: z.string(),
+  models: z.array(ModelRefSchema),
+  scorers: z.array(ScorerConfigSchema),
+  concurrency: z.number().int().positive().max(32),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export const AiLabStateSchema = z.object({
+  providers: z.record(z.string(), AiLabProviderConfigSchema),
+  prompts: z.record(z.string(), PromptTemplateSchema),
+  datasets: z.record(z.string(), DatasetSchema),
+  evalConfigs: z.record(z.string(), EvalConfigSchema),
+});
+
+export type PersistedAiLabState = z.infer<typeof AiLabStateSchema>;
+
+const ScoreResultSchema = z.object({
+  scorerId: z.string(),
+  kind: z.string(),
+  passed: z.boolean(),
+  score: z.number().optional(),
+  detail: z.string().optional(),
+});
+
+const EvalCellResultSchema = z.object({
+  caseId: z.string(),
+  modelRef: ModelRefSchema,
+  output: z.string(),
+  ok: z.boolean(),
+  error: z.string().optional(),
+  latencyMs: z.number(),
+  usage: z.object({ promptTokens: z.number(), completionTokens: z.number() }).optional(),
+  cost: z.number().nullable(),
+  scores: z.array(ScoreResultSchema),
+  passed: z.boolean(),
+});
+
+const EvalRunSchema = z.object({
+  id: z.string(),
+  evalConfigId: z.string(),
+  configName: z.string(),
+  startedAt: z.number(),
+  finishedAt: z.number().optional(),
+  status: z.enum(['running', 'done', 'cancelled', 'error']),
+  cells: z.array(EvalCellResultSchema),
+  totalCells: z.number(),
+});
+
+export const EvalRunStateSchema = z.object({
+  runs: z.record(z.string(), EvalRunSchema),
+});
+
+export type PersistedEvalRunState = z.infer<typeof EvalRunStateSchema>;
+
 /**
  * Validates URL format
  */

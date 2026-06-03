@@ -1,15 +1,23 @@
 import { useState } from 'react';
 import { useAiChatStore, type Conversation } from '@/features/ai/store';
-import { ALL_PROVIDERS, getProviderModule } from '@shared/protocol/ai/providers';
+import { CLOUD_PROVIDERS, getProviderModule } from '@shared/protocol/ai/providers';
 import { redactBody } from '@shared/protocol/ai/redaction';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { Provider } from '@shared/protocol/ai/types';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import type { CloudProvider } from '@shared/protocol/ai/types';
 
-const PROVIDER_LABELS: Record<Provider, string> = {
+// The chat panel talks only to cloud providers; local runtimes (Ollama,
+// OpenAI-compatible) are configured in the AI Lab, not here.
+const PROVIDER_LABELS: Record<CloudProvider, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   openrouter: 'OpenRouter',
@@ -24,7 +32,7 @@ const PROVIDER_LABELS: Record<Provider, string> = {
  * providerConfigs, which are NOT exported.
  */
 function redactConversationsForExport(
-  conversations: Record<string, Conversation>,
+  conversations: Record<string, Conversation>
 ): Record<string, Conversation> {
   const out: Record<string, Conversation> = {};
   for (const [id, conv] of Object.entries(conversations)) {
@@ -51,13 +59,13 @@ export function ProviderSettings() {
   const setProviderConfig = useAiChatStore((s) => s.setProviderConfig);
   const deleteConversation = useAiChatStore((s) => s.deleteConversation);
 
-  const [pendingKeys, setPendingKeys] = useState<Record<Provider, string>>({
+  const [pendingKeys, setPendingKeys] = useState<Record<CloudProvider, string>>({
     openai: '',
     anthropic: '',
     openrouter: '',
   });
 
-  const saveKey = async (provider: Provider) => {
+  const saveKey = async (provider: CloudProvider) => {
     const value = pendingKeys[provider].trim();
     if (!value) return;
     const api = getElectronAPI()?.secrets;
@@ -65,7 +73,8 @@ export function ProviderSettings() {
     const result = await api.store({ scope: `ai:${provider}`, value, label: `${provider} key` });
     if (!result.ok) return;
     const providerModule = getProviderModule(provider);
-    const defaultModel = providerConfigs[provider]?.defaultModel ?? providerModule.models[0]?.id ?? '';
+    const defaultModel =
+      providerConfigs[provider]?.defaultModel ?? providerModule.models[0]?.id ?? '';
     setProviderConfig(provider, {
       provider,
       defaultModel,
@@ -74,7 +83,7 @@ export function ProviderSettings() {
     setPendingKeys((p) => ({ ...p, [provider]: '' }));
   };
 
-  const clearKey = async (provider: Provider) => {
+  const clearKey = async (provider: CloudProvider) => {
     const handleId = providerConfigs[provider]?.apiKeyRef.id;
     const api = getElectronAPI()?.secrets;
     if (handleId && api) {
@@ -90,10 +99,10 @@ export function ProviderSettings() {
         JSON.stringify(
           { conversations: redactConversationsForExport(conversations), exportedAt: Date.now() },
           null,
-          2,
+          2
         ),
       ],
-      { type: 'application/json' },
+      { type: 'application/json' }
     );
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -114,12 +123,12 @@ export function ProviderSettings() {
     <div className="space-y-6">
       <div className="space-y-2">
         <Label className="text-sm">Active provider</Label>
-        <Select value={activeProvider} onValueChange={(v) => setActiveProvider(v as Provider)}>
+        <Select value={activeProvider} onValueChange={(v) => setActiveProvider(v as CloudProvider)}>
           <SelectTrigger className="w-60">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {ALL_PROVIDERS.map((p) => (
+            {CLOUD_PROVIDERS.map((p) => (
               <SelectItem key={p} value={p}>
                 {PROVIDER_LABELS[p]}
               </SelectItem>
@@ -128,7 +137,7 @@ export function ProviderSettings() {
         </Select>
       </div>
 
-      {ALL_PROVIDERS.map((provider) => {
+      {CLOUD_PROVIDERS.map((provider) => {
         const cfg = providerConfigs[provider];
         const providerModule = getProviderModule(provider);
         return (
@@ -150,7 +159,9 @@ export function ProviderSettings() {
                   <Label className="text-xs">Default model</Label>
                   <Select
                     value={cfg.defaultModel}
-                    onValueChange={(model) => setProviderConfig(provider, { ...cfg, defaultModel: model })}
+                    onValueChange={(model) =>
+                      setProviderConfig(provider, { ...cfg, defaultModel: model })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -173,7 +184,13 @@ export function ProviderSettings() {
                     type="password"
                     value={pendingKeys[provider]}
                     onChange={(e) => setPendingKeys((p) => ({ ...p, [provider]: e.target.value }))}
-                    placeholder={provider === 'anthropic' ? 'sk-ant-…' : provider === 'openai' ? 'sk-…' : 'sk-or-…'}
+                    placeholder={
+                      provider === 'anthropic'
+                        ? 'sk-ant-…'
+                        : provider === 'openai'
+                          ? 'sk-…'
+                          : 'sk-or-…'
+                    }
                   />
                   <Button size="sm" onClick={() => void saveKey(provider)}>
                     Save
@@ -192,7 +209,8 @@ export function ProviderSettings() {
         <div>
           <Label className="text-sm">Conversation history</Label>
           <p className="text-[11px] text-muted-foreground mb-2">
-            All chats are stored locally (encrypted). Export redacts recognizable secrets to placeholders.
+            All chats are stored locally (encrypted). Export redacts recognizable secrets to
+            placeholders.
           </p>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={exportAll}>

@@ -24,17 +24,17 @@ describe('openrouter', () => {
       JSON.stringify({
         choices: [{ delta: {}, finish_reason: 'stop' }],
         usage: { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 },
-      }),
+      })
     );
     const events = decoder.flush();
     const usage = events.find(
-      (e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage',
+      (e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage'
     );
     const priced = openrouterModule.models.find((m) => m.id === model)!;
     // 1M input + 1M output tokens → exactly input + output per-MTok price.
     expect(usage?.usage.estimatedCostUSD).toBeCloseTo(
       priced.inputUSDPerMTok + priced.outputUSDPerMTok,
-      5,
+      5
     );
     expect(usage?.usage.estimatedCostUSD).toBeGreaterThan(0);
   });
@@ -47,7 +47,13 @@ describe('provider registry', () => {
     expect(getProviderModule('openrouter').provider).toBe('openrouter');
   });
 
-  it('ALL_PROVIDERS lists all three', () => {
-    expect(ALL_PROVIDERS).toEqual(['openai', 'anthropic', 'openrouter']);
+  it('ALL_PROVIDERS lists the cloud providers followed by the local ones', () => {
+    expect(ALL_PROVIDERS).toEqual([
+      'openai',
+      'anthropic',
+      'openrouter',
+      'ollama',
+      'openai-compatible',
+    ]);
   });
 });

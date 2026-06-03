@@ -139,6 +139,8 @@ export class ResturaDB extends Dexie {
   protoFiles!: Table<ProtoFileRecord, string>;
   aiChat!: Table<NamedEncryptedRecord, string>;
   globals!: Table<NamedEncryptedRecord, string>;
+  aiLab!: Table<NamedEncryptedRecord, string>;
+  evalRuns!: Table<NamedEncryptedRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
   constructor() {
@@ -224,6 +226,14 @@ export class ResturaDB extends Dexie {
       // other connection-based protocols (Kafka, WebSocket, Socket.IO).
       mqttConnections: 'id, name, updatedAt',
     });
+
+    this.version(11).stores({
+      // AI Lab (Electron-only): providers/prompts/datasets/eval-configs in
+      // `aiLab`, eval run history+results in `evalRuns`. Same encrypted
+      // NamedEncryptedRecord shape as aiChat.
+      aiLab: 'id, name, updatedAt',
+      evalRuns: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -252,6 +262,8 @@ export class ResturaDB extends Dexie {
         this.graphqlSchemas,
         this.protoFiles,
         this.aiChat,
+        this.aiLab,
+        this.evalRuns,
         this.metadata,
       ],
       () =>
@@ -275,6 +287,8 @@ export class ResturaDB extends Dexie {
           this.graphqlSchemas.clear(),
           this.protoFiles.clear(),
           this.aiChat.clear(),
+          this.aiLab.clear(),
+          this.evalRuns.clear(),
           this.metadata.clear(),
         ])
     );

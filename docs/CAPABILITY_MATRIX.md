@@ -33,6 +33,10 @@ rather than discover it experimentally.
 | MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
 | Socket.IO client | ✅ | ✅ |  |
 | AI assistant (chat) | ❌ | ✅ | Electron-first; streams via IPC. No Worker /api/ai route |
+| AI Lab (prompt/model workbench) | ❌ | ✅ | Electron-only; model calls + SSRF localhost carve-out run in main |
+| AI Lab local runtimes (Ollama / OpenAI-compatible) | ❌ | ✅ | Needs the localhost SSRF carve-out; no browser access to 127.0.0.1 |
+| AI Lab dataset evals (deterministic + script scorers) | ❌ | ✅ | QuickJS scorers + bounded-concurrency runner over case × model cells |
+| AI Lab LLM-as-judge | ❌ | ✅ | Structured-output judge call via the AI Lab complete path |
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ |  |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |

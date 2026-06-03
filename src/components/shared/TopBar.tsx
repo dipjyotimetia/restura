@@ -1,4 +1,4 @@
-import { Globe, Settings, Sparkles } from 'lucide-react';
+import { Globe, Settings, Sparkles, FlaskConical } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Floater, Kbd } from '@/components/ui/spatial';
@@ -166,6 +166,15 @@ export function WindowChrome({
             icon={<Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
           />
         )}
+        <ChromeIconButton
+          label="Open AI Lab"
+          // HashRouter — set the hash directly so the chrome stays presentational
+          // (no useNavigate, which would require a Router context in unit tests).
+          onClick={() => {
+            window.location.hash = '#/ai-lab';
+          }}
+          icon={<FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />}
+        />
         <ChromeIconButton
           label="Open settings"
           onClick={onOpenSettings}

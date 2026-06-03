@@ -702,6 +702,60 @@ interface ElectronAiAPI {
   ) => () => void;
 }
 
+/**
+ * AI Lab (Electron-only). Superset of the chat providers — adds local runtimes
+ * (Ollama, generic OpenAI-compatible) and a non-streaming `complete` for evals /
+ * LLM-as-judge. See electron/main/ai-lab-handler.ts.
+ */
+interface AiLabModelSpec {
+  provider: import('../../shared/protocol/ai/types').Provider;
+  model: string;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  apiKeyHandleId?: string;
+  baseUrlOverride?: string;
+  rawMode: boolean;
+  maxOutputTokens?: number;
+  tools?: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+}
+
+interface AiLabDiscoverArgs {
+  provider: import('../../shared/protocol/ai/types').Provider;
+  baseUrl: string;
+  apiKeyHandleId?: string;
+}
+
+interface ElectronAiLabAPI {
+  complete: (
+    spec: AiLabModelSpec
+  ) => Promise<
+    | { ok: true; result: import('../../shared/protocol/ai/types').CompletionResult }
+    | { ok: false; error: string }
+  >;
+  stream: (
+    spec: AiLabModelSpec & { streamId: string }
+  ) => Promise<{ ok: true; streamId: string } | { ok: false; error: string }>;
+  cancelStream: (args: {
+    streamId: string;
+  }) => Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }>;
+  listModels: (
+    args: AiLabDiscoverArgs
+  ) => Promise<
+    | { ok: true; models: import('../../shared/protocol/ai/model-discovery').DiscoveredModel[] }
+    | { ok: false; error: string }
+  >;
+  testConnection: (
+    args: AiLabDiscoverArgs
+  ) => Promise<{ ok: true; modelCount: number } | { ok: false; error: string }>;
+  onChunk: (
+    streamId: string,
+    cb: (event: import('../../shared/protocol/ai/types').ChatStreamEvent) => void
+  ) => () => void;
+  onEnd: (
+    streamId: string,
+    cb: (payload: { reason: 'done' | 'cancelled' | 'error' }) => void
+  ) => () => void;
+}
+
 interface ElectronTelemetryAPI {
   /** Push the renderer's opt-in flag to main; gates Sentry crash/error reporting. */
   setConsent: (enabled: boolean) => Promise<{ ok: true }>;
@@ -731,6 +785,7 @@ interface ElectronAPI {
   secrets: ElectronSecretsAPI;
   vault: ElectronVaultAPI;
   ai: ElectronAiAPI;
+  aiLab: ElectronAiLabAPI;
   log: ElectronLogAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
@@ -788,4 +843,7 @@ export type {
   FileChangedEvent,
   LogEntry,
   ElectronAiAPI,
+  ElectronAiLabAPI,
+  AiLabModelSpec,
+  AiLabDiscoverArgs,
 };

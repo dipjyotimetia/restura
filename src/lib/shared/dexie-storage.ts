@@ -74,6 +74,8 @@ type StorageTableName =
   | 'graphqlSchemas'
   | 'protoFiles'
   | 'aiChat'
+  | 'aiLab'
+  | 'evalRuns'
   | 'globals';
 
 /**
@@ -313,6 +315,13 @@ export const dexieStorageAdapters = {
   protoFiles: () => createDexieStorage({ tableName: 'protoFiles', encrypt: true }),
 
   aiChat: () => createDexieStorage({ tableName: 'aiChat', encrypt: true }),
+
+  // AI Lab (Electron-only) — providers/prompts/datasets/eval-configs and eval
+  // run history. Encrypted: holds provider configs (secret-handle refs) and
+  // prompt/dataset content.
+  aiLab: () => createDexieStorage({ tableName: 'aiLab', encrypt: true }),
+
+  evalRuns: () => createDexieStorage({ tableName: 'evalRuns', encrypt: true }),
 
   globals: () => createDexieStorage({ tableName: 'globals', encrypt: true }),
 };

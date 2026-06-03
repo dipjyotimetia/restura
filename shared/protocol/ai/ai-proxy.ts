@@ -30,7 +30,7 @@ function isAbortError(e: unknown, signal: AbortSignal | undefined): boolean {
 export async function* executeAiChat(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
-  secretResolver: SecretResolver,
+  secretResolver: SecretResolver
 ): AsyncGenerator<ChatStreamEvent, void, unknown> {
   // 1. Paranoia pass on outgoing messages.
   if (!spec.rawMode) {
@@ -48,12 +48,19 @@ export async function* executeAiChat(
     }
   }
 
-  // 2. Resolve API key handle.
-  const apiKey = await secretResolver(spec.apiKeyHandleId);
-  if (!apiKey) {
-    yield { type: 'error', code: 'guard', message: 'API key not found for handle.' };
-    yield { type: 'done' };
-    return;
+  // 2. Resolve API key handle. Local runtimes (a bare Ollama) need no key, so an
+  // empty handle id is allowed and yields an empty key (the route then omits the
+  // Authorization header). A non-empty handle that fails to resolve is still an
+  // error — that's a misconfiguration, not an intentionally keyless endpoint.
+  let apiKey = '';
+  if (spec.apiKeyHandleId) {
+    const resolved = await secretResolver(spec.apiKeyHandleId);
+    if (resolved == null) {
+      yield { type: 'error', code: 'guard', message: 'API key not found for handle.' };
+      yield { type: 'done' };
+      return;
+    }
+    apiKey = resolved;
   }
 
   // 3. Build provider request.
