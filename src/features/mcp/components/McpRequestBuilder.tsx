@@ -224,12 +224,11 @@ export default function McpRequestBuilder() {
             </>
           ) : (
             <Button
-              variant="glow"
-              size="sm"
+              variant="cta"
+              size="cta"
               onClick={handleConnect}
               loading={isBusy}
               disabled={!active.url.trim()}
-              className="h-7 px-3 text-sp-12 rounded-sp-btn"
             >
               <Play className="h-3.5 w-3.5" />
               Connect

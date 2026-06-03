@@ -1,5 +1,6 @@
 import { Play, Square } from 'lucide-react';
 import { MethodChip, VariableText } from '@/components/ui/spatial';
+import { Button } from '@/components/ui/button';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
 
@@ -88,27 +89,18 @@ export function SseUrlBar({
           Stop
         </button>
       ) : (
-        <button
+        <Button
           type="button"
+          variant="cta"
+          size="cta"
           onClick={onStream}
           disabled={!canStream}
           aria-label="Start SSE stream"
-          className={cn(
-            'h-8 min-w-[88px] px-3 rounded-sp-btn text-sp-12 font-semibold text-white',
-            'inline-flex items-center justify-center gap-1.5 shrink-0',
-            'transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50',
-            'enabled:hover:brightness-110 enabled:active:brightness-95'
-          )}
-          style={{
-            background: 'linear-gradient(180deg, var(--sp-accent), #3a82e6)',
-            boxShadow: canStream
-              ? '0 0 0 1px var(--sp-accent-glow-33), 0 0 16px var(--sp-accent-glow-26)'
-              : 'none',
-          }}
+          className="min-w-[88px] shrink-0"
         >
           <Play className="h-3.5 w-3.5" />
           Stream
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -7,9 +7,9 @@ import { cn } from '@/lib/shared/utils';
 const buttonGroupVariants = cva('inline-flex items-center rounded-md', {
   variants: {
     size: {
-      default: 'h-9',
-      sm: 'h-8',
-      lg: 'h-10',
+      default: 'h-8',
+      sm: 'h-7',
+      lg: 'h-9',
     },
   },
   defaultVariants: {
@@ -18,8 +18,7 @@ const buttonGroupVariants = cva('inline-flex items-center rounded-md', {
 });
 
 export interface ButtonGroupProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof buttonGroupVariants> {}
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof buttonGroupVariants> {}
 
 export const ButtonGroup = React.forwardRef<HTMLDivElement, ButtonGroupProps>(
   ({ className, size, children, ...props }, ref) => {

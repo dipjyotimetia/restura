@@ -310,7 +310,6 @@ export default function Home() {
                 <Sidebar
                   activePanel={activePanel}
                   onClose={() => setActivePanel(null)}
-                  onOpenEnvironmentManager={() => setEnvManagerOpen(true)}
                   onOpenImport={() => setImportDialogOpen(true)}
                 />
               </motion.div>

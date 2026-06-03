@@ -5,6 +5,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Send, Code2, Loader2, Link2 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 import { Floater, Kbd, MethodChip, VariableText, methodLabel } from '@/components/ui/spatial';
+import { Button } from '@/components/ui/button';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import type { HttpMethod } from '@/types';
 import { VariableInput } from '@/components/shared/VariableInput';
@@ -88,7 +89,7 @@ export function UrlBar({
 
   return (
     <div className="px-3 pt-3 pb-2 shrink-0">
-      <div className="flex items-stretch gap-2.5">
+      <div className="flex items-center gap-2.5">
         {/* Url pill */}
         <Floater
           radius="pill"
@@ -206,24 +207,14 @@ export function UrlBar({
         </Floater>
 
         {/* Send button */}
-        <button
+        <Button
           type="button"
+          variant="cta"
+          size="cta"
           onClick={onSend}
           disabled={isLoading || !url || !!urlError}
           aria-label={isLoading ? 'Sending request' : 'Send request'}
-          className={cn(
-            'inline-flex items-center justify-center gap-1.5 px-4 h-10 rounded-sp-pill shrink-0',
-            'font-semibold text-sp-13 text-white tracking-wide select-none',
-            'transition-[transform,filter] active:translate-y-px hover:brightness-110',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sp-accent-glow-55)]',
-            'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:brightness-100'
-          )}
-          style={{
-            background:
-              'linear-gradient(180deg, var(--sp-accent), color-mix(in srgb, var(--sp-accent), black 20%))',
-            boxShadow:
-              '0 8px 24px var(--sp-accent-glow-55), inset 0 1px 0 rgba(255,255,255,0.3), 0 0 0 1px var(--sp-accent)',
-          }}
+          className="shrink-0 select-none"
         >
           {isLoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -236,7 +227,7 @@ export function UrlBar({
               </Kbd>
             </>
           )}
-        </button>
+        </Button>
       </div>
       {urlError && (
         <p id="url-error" role="alert" className="mt-1 px-3 text-sp-11 text-rose-400 font-medium">

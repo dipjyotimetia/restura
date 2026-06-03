@@ -327,11 +327,11 @@ function WebSocketClient() {
           </button>
         ) : (
           <Button
-            variant="glow"
-            size="sm"
+            variant="cta"
+            size="cta"
             onClick={handleConnect}
             disabled={!connection.url}
-            className="h-7 min-w-[80px]"
+            className="min-w-[80px]"
           >
             Connect
           </Button>

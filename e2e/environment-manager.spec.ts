@@ -22,10 +22,10 @@ function dialog(page: Page) {
 }
 
 async function openManager(page: Page) {
-  // Sidebar footer button — "Environment: <name>" or "Environment: none".
-  await page.getByRole('button', { name: /Environment:/ }).click();
-  // EnvSwitcher popover → "New environment" launches the full manager.
-  await page.getByRole('button', { name: 'New environment' }).click();
+  // Header env pill — "Switch environment (current: <name>)" — opens the
+  // Environment Manager dialog directly (the sidebar footer + quick-switch
+  // popover were removed when the env indicator was de-duplicated).
+  await page.getByRole('button', { name: /Switch environment/ }).click();
   await expect(dialog(page)).toBeVisible();
 }
 
@@ -110,10 +110,12 @@ test.describe('Environment Manager', () => {
     await dialog(page).getByRole('button', { name: 'New environment' }).click();
     await expect(dialog(page).getByRole('button', { name: 'Set as active' })).toBeEnabled();
 
-    // Close — the sidebar footer should still read "Local" as the active env.
+    // Close — the header env pill should still read "Local" as the active env.
     await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog(page)).not.toBeVisible();
-    await expect(page.getByRole('button', { name: /Environment:\s*Local/ })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Switch environment \(current: Local\)/ })
+    ).toBeVisible();
   });
 
   test('inline rename on detail header commits on Enter', async ({ app: page }) => {

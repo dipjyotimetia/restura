@@ -75,7 +75,7 @@ export default function CodeEditor({
         // Ignore formatting errors
       }
     }
-    
+
     // Initial layout
     editor.layout();
   };
@@ -115,7 +115,10 @@ export default function CodeEditor({
   };
 
   return (
-    <div ref={containerRef} className="relative border border-border rounded-lg overflow-hidden group h-full bg-background">
+    <div
+      ref={containerRef}
+      className="relative border border-border rounded-lg overflow-hidden group h-full bg-background"
+    >
       {showCopyButton && value && (
         <Button
           variant="ghost"
@@ -124,11 +127,7 @@ export default function CodeEditor({
           onClick={handleCopy}
           title="Copy to clipboard"
         >
-          {copied ? (
-            <Check className="h-4 w-4 text-green-500" />
-          ) : (
-            <Copy className="h-4 w-4" />
-          )}
+          {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
         </Button>
       )}
       <Editor
@@ -144,6 +143,7 @@ export default function CodeEditor({
           minimap: { enabled: minimap },
           scrollBeyondLastLine: false,
           fontSize: 13,
+          fontFamily: '"JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace',
           lineNumbers: 'on',
           wordWrap: 'on',
           automaticLayout: true,

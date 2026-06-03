@@ -3,9 +3,6 @@
 @import '@fontsource/jetbrains-mono/500.css';
 @import '@fontsource/jetbrains-mono/600.css';
 @import '@fontsource/jetbrains-mono/700.css';
-/* Fira Code kept temporarily for legacy components; removed in Phase 11 */
-@import '@fontsource/fira-code/400.css';
-@import '@fontsource/fira-code/500.css';
 
 @config "../../tailwind.config.mts";
 @import 'tailwindcss';
@@ -216,6 +213,20 @@
       0 0 16px var(--sp-accent-glow-26);
   }
 
+  /* Primary action CTA fill — the canonical Send/Invoke/Connect/Stream button.
+     Used by the Button `cta` variant so every protocol's primary action matches. */
+  .sp-cta {
+    background: linear-gradient(
+      180deg,
+      var(--sp-accent),
+      color-mix(in srgb, var(--sp-accent), black 20%)
+    );
+    box-shadow:
+      0 8px 24px var(--sp-accent-glow-55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      0 0 0 1px var(--sp-accent);
+  }
+
   /* Variable highlight ({{varName}}) used across inputs/editors */
   .sp-variable {
     background: rgba(245, 158, 11, 0.2);
@@ -226,7 +237,7 @@
 
   /* Section labels (e.g. HEADERS, TIMING, STREAMING) */
   .sp-label {
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;

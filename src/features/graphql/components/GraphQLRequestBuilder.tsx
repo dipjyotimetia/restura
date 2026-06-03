@@ -280,27 +280,27 @@ function GraphQLRequestBuilder() {
       }
       return (
         <Button
-          variant="glow"
-          size="sm"
+          variant="cta"
+          size="cta"
           onClick={handleSubscribe}
           disabled={!httpRequest.url}
-          className="h-7 min-w-[100px] shrink-0 text-xs font-medium"
+          className="min-w-[100px] shrink-0"
         >
-          <Plug className="mr-1.5 h-3.5 w-3.5" />
+          <Plug className="h-3.5 w-3.5" />
           Subscribe
         </Button>
       );
     }
     return (
       <Button
-        variant="glow"
-        size="sm"
+        variant="cta"
+        size="cta"
         onClick={handleSendRequest}
         disabled={isLoading || !httpRequest.url}
         aria-label={isLoading ? 'Sending GraphQL query' : 'Send GraphQL query'}
-        className="h-7 min-w-[72px] shrink-0 text-xs font-medium"
+        className="min-w-[72px] shrink-0"
       >
-        <Send className="mr-1.5 h-3.5 w-3.5" />
+        <Send className="h-3.5 w-3.5" />
         {isLoading ? 'Sending...' : 'Send'}
       </Button>
     );

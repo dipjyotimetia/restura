@@ -76,12 +76,23 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const [renameValue, setRenameValue] = useState('');
   const [localSaveDialogTabId, setLocalSaveDialogTabId] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const activeTabRef = useRef<HTMLButtonElement>(null);
 
   const openSaveDialog = onSaveToCollection ?? setLocalSaveDialogTabId;
 
   useEffect(() => {
     if (renamingTabId) renameInputRef.current?.select();
   }, [renamingTabId]);
+
+  // Keep the active tab visible when the strip overflows — otherwise a freshly
+  // selected/created tab can land off-screen behind the cropped edge with no
+  // affordance. `inline: 'nearest'` avoids jumping when it's already visible.
+  useEffect(() => {
+    // `scrollIntoView` is absent under jsdom — guard so test renders don't throw.
+    if (typeof activeTabRef.current?.scrollIntoView === 'function') {
+      activeTabRef.current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }, [activeTabId]);
 
   const startRename = (tabId: string, currentName: string) => {
     setRenamingTabId(tabId);
@@ -147,6 +158,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               <ContextMenu key={tab.id}>
                 <ContextMenuTrigger asChild>
                   <button
+                    ref={isActive ? activeTabRef : undefined}
                     type="button"
                     role="tab"
                     aria-selected={isActive}
