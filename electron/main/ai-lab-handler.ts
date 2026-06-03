@@ -159,7 +159,9 @@ export function registerAiLabHandlers(): void {
       }
     }
 
-    const completeId = `${senderId}:${Date.now()}:${Math.round(performance.now())}`;
+    // Collision-free id (a timestamp-based key could collide for two completes
+    // from the same sender in the same tick, leaking an AbortController).
+    const completeId = crypto.randomUUID();
     const abort = new AbortController();
     activeCompletes.set(completeId, { webContentsId: senderId, abort });
     bindRendererCleanup(activeCompletes, event.sender, (deadId) =>
