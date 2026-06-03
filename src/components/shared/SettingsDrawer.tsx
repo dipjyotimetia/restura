@@ -399,7 +399,7 @@ function GeneralSection() {
           hint="Side-by-side or stacked request/response."
           control={
             <Segmented<'vertical' | 'horizontal'>
-              value={settings.layoutOrientation ?? 'vertical'}
+              value={settings.layoutOrientation ?? 'horizontal'}
               onChange={(v) => updateSettings({ layoutOrientation: v })}
               options={[
                 { value: 'horizontal', label: 'Horizontal' },

@@ -38,6 +38,9 @@ const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel
 const GrpcRequestBuilder = lazyComponent(
   () => import('@/features/grpc/components/GrpcRequestBuilder')
 );
+const GrpcResponsePanel = lazyComponent(
+  () => import('@/features/grpc/components/GrpcResponsePanel')
+);
 const GraphQLRequestBuilder = lazyComponent(
   () => import('@/features/graphql/components/GraphQLRequestBuilder')
 );
@@ -49,6 +52,7 @@ const SseClient = lazyComponent(() => import('@/features/sse/components/SseClien
 const McpRequestBuilder = lazyComponent(
   () => import('@/features/mcp/components/McpRequestBuilder')
 );
+const McpResultPanel = lazyComponent(() => import('@/features/mcp/components/McpResultPanel'));
 const KafkaClient = lazyComponent(() => import('@/features/kafka/components/KafkaClient'));
 const MqttClient = lazyComponent(() => import('@/features/mqtt/components/MqttClient'));
 
@@ -236,9 +240,12 @@ export default function Home() {
           </ResizableLayout>
         );
       case 'grpc':
-        // gRPC builder owns its own response panel (GrpcResponsePanel) per the
-        // 3-column handoff layout in §7. No outer ResizableLayout/ResponseViewer.
-        return <GrpcRequestBuilder />;
+        return (
+          <ResizableLayout orientation={effectiveLayout}>
+            <GrpcRequestBuilder />
+            <GrpcResponsePanel />
+          </ResizableLayout>
+        );
       case 'graphql':
         return (
           <ResizableLayout orientation={effectiveLayout}>
@@ -253,7 +260,12 @@ export default function Home() {
       case 'sse':
         return <SseClient />;
       case 'mcp':
-        return <McpRequestBuilder />;
+        return (
+          <ResizableLayout orientation={effectiveLayout}>
+            <McpRequestBuilder />
+            <McpResultPanel />
+          </ResizableLayout>
+        );
       case 'kafka':
         return <KafkaClient />;
       case 'mqtt':

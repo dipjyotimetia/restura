@@ -7,14 +7,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
-import {
-  CheckCircle,
-  Download,
-  Plug,
-  PlugZap,
-  Send,
-  Wand2,
-} from 'lucide-react';
+import { CheckCircle, Download, PanelLeft, Plug, PlugZap, Send, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { HttpRequest, AuthConfig as AuthConfigType } from '@/types';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
@@ -47,13 +40,7 @@ const CodeEditor = lazyComponent(
   <CodeEditorSkeleton className="h-[260px]" />
 );
 
-type TabValue =
-  | 'query'
-  | 'variables'
-  | 'headers'
-  | 'auth'
-  | 'scripts'
-  | 'subscription';
+type TabValue = 'query' | 'variables' | 'headers' | 'auth' | 'scripts' | 'subscription';
 
 function GraphQLRequestBuilder() {
   // GraphQL is HTTP under the hood — narrow the active tab to an HttpRequest.
@@ -65,14 +52,15 @@ function GraphQLRequestBuilder() {
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const isLoading = useRequestStore((s) => s.isLoading);
   const { resolveVariables } = useEnvironmentStore();
-  const { fetchSchema, getSchema, isLoading: isSchemaLoading } =
-    useGraphQLSchemaStore();
+  const { fetchSchema, getSchema, isLoading: isSchemaLoading } = useGraphQLSchemaStore();
   const { run: runViaRegistry } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<TabValue>('query');
+  // Schema explorer is hidden by default so the query editor gets the full
+  // builder width (side-by-side leaves the pane narrow); the URL-bar toggle
+  // reveals it on demand, matching the gRPC/MCP catalog pattern.
+  const [showSchema, setShowSchema] = useState(false);
   const [graphqlVariables, setGraphqlVariables] = useState('{}');
-  const [subscriptionMessages, setSubscriptionMessages] = useState<
-    SubscriptionMessage[]
-  >([]);
+  const [subscriptionMessages, setSubscriptionMessages] = useState<SubscriptionMessage[]>([]);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const subscriptionClientRef = useRef<GraphQLSubscriptionClient | null>(null);
 
@@ -80,9 +68,7 @@ function GraphQLRequestBuilder() {
     handleAdd: handleAddHeader,
     handleUpdate: handleUpdateHeader,
     handleDelete: handleDeleteHeader,
-  } = useKeyValueCollection(currentRequest?.headers ?? [], (headers) =>
-    updateRequest({ headers })
-  );
+  } = useKeyValueCollection(currentRequest?.headers ?? [], (headers) => updateRequest({ headers }));
 
   const url = currentRequest?.url ?? '';
   const schemaResult = url ? getSchema(url) : null;
@@ -101,15 +87,11 @@ function GraphQLRequestBuilder() {
   const operationType = extractOperationType(query);
   const isSubscription = operationType === 'subscription';
 
-  const activeHeaderCount = httpRequest.headers.filter(
-    (h) => h.enabled && h.key
-  ).length;
+  const activeHeaderCount = httpRequest.headers.filter((h) => h.enabled && h.key).length;
   const detectedVarCount = (() => {
     try {
       const parsed = JSON.parse(graphqlVariables || '{}');
-      return parsed && typeof parsed === 'object'
-        ? Object.keys(parsed).length
-        : 0;
+      return parsed && typeof parsed === 'object' ? Object.keys(parsed).length : 0;
     } catch {
       return 0;
     }
@@ -235,8 +217,7 @@ function GraphQLRequestBuilder() {
         });
       }
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Request failed';
+      const errorMessage = error instanceof Error ? error.message : 'Request failed';
       toast.error('Request failed', { description: errorMessage });
     } finally {
       setLoading(false);
@@ -353,15 +334,11 @@ function GraphQLRequestBuilder() {
               ? 'bg-violet-500/[0.12] border-violet-500/25 text-violet-400'
               : 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
           )}
-          aria-label={
-            isSubscription ? 'GraphQL subscription' : 'GraphQL query (POST)'
-          }
+          aria-label={isSubscription ? 'GraphQL subscription' : 'GraphQL query (POST)'}
         >
           {isSubscription ? 'SUB' : 'POST'}
         </div>
-        <span className="text-sp-dim font-mono text-sm select-none shrink-0">
-          ›
-        </span>
+        <span className="text-sp-dim font-mono text-sm select-none shrink-0">›</span>
         <Input
           value={httpRequest.url}
           onChange={(e) => updateRequest({ url: e.target.value })}
@@ -369,18 +346,35 @@ function GraphQLRequestBuilder() {
           className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim"
           aria-label="GraphQL endpoint URL"
         />
+        <button
+          type="button"
+          onClick={() => setShowSchema((s) => !s)}
+          aria-pressed={showSchema}
+          title={showSchema ? 'Hide schema' : 'Browse schema'}
+          className={cn(
+            'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-sp-btn text-sp-12 font-medium shrink-0 transition-colors',
+            showSchema
+              ? 'bg-sp-active text-sp-text'
+              : 'text-sp-muted hover:text-sp-text hover:bg-sp-hover'
+          )}
+        >
+          <PanelLeft className="h-3.5 w-3.5" />
+          Schema
+        </button>
         {renderSendButton()}
       </div>
 
-      {/* Two-column body: schema + editor */}
-      <div className="flex-1 flex gap-3 p-3 min-h-0 overflow-hidden">
-        <SchemaExplorer
-          schema={schemaResult?.schema ?? null}
-          onFieldSelect={handleFieldSelect}
-          onRefresh={handleRefreshSchema}
-          loading={schemaLoading}
-          loaded={Boolean(schemaResult?.success)}
-        />
+      {/* Body: schema (toggleable) + editor */}
+      <div className="flex-1 flex gap-2.5 p-3 min-h-0 overflow-hidden">
+        {showSchema && (
+          <SchemaExplorer
+            schema={schemaResult?.schema ?? null}
+            onFieldSelect={handleFieldSelect}
+            onRefresh={handleRefreshSchema}
+            loading={schemaLoading}
+            loaded={Boolean(schemaResult?.success)}
+          />
+        )}
 
         {/* Editor pane */}
         <Floater
@@ -421,8 +415,7 @@ function GraphQLRequestBuilder() {
               ) : activeTab === 'auth' && httpRequest.auth.type !== 'none' ? (
                 <CheckCircle className="h-3 w-3 text-emerald-400" />
               ) : activeTab === 'scripts' &&
-                (httpRequest.preRequestScript?.trim() ||
-                  httpRequest.testScript?.trim()) ? (
+                (httpRequest.preRequestScript?.trim() || httpRequest.testScript?.trim()) ? (
                 <CheckCircle className="h-3 w-3 text-emerald-400" />
               ) : null
             }
@@ -435,9 +428,7 @@ function GraphQLRequestBuilder() {
                 query={query}
                 variables={graphqlVariables}
                 url={httpRequest.url}
-                onQueryChange={(q) =>
-                  updateRequest({ body: { ...httpRequest.body, raw: q } })
-                }
+                onQueryChange={(q) => updateRequest({ body: { ...httpRequest.body, raw: q } })}
                 onVariablesChange={setGraphqlVariables}
               />
             )}
@@ -453,9 +444,7 @@ function GraphQLRequestBuilder() {
                     onChange={setGraphqlVariables}
                     language="json"
                     height="100%"
-                    {...(activeTabId
-                      ? { path: `tab-${activeTabId}-graphql-variables-full` }
-                      : {})}
+                    {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables-full` } : {})}
                   />
                 </div>
               </div>
@@ -464,8 +453,8 @@ function GraphQLRequestBuilder() {
             {activeTab === 'headers' && (
               <div className="p-3 overflow-auto h-full">
                 <p className="text-sp-11 text-sp-muted font-mono mb-3">
-                  Content-Type: application/json is automatically set. Auth
-                  header is injected from the Auth tab.
+                  Content-Type: application/json is automatically set. Auth header is injected from
+                  the Auth tab.
                 </p>
                 <KeyValueEditor
                   items={httpRequest.headers}
@@ -483,13 +472,9 @@ function GraphQLRequestBuilder() {
             {activeTab === 'auth' && (
               <div className="p-3 overflow-auto h-full">
                 <p className="text-sp-11 text-sp-muted font-mono mb-4">
-                  For subscriptions, credentials are sent as WebSocket
-                  connection params.
+                  For subscriptions, credentials are sent as WebSocket connection params.
                 </p>
-                <AuthConfiguration
-                  auth={httpRequest.auth}
-                  onChange={handleAuthChange}
-                />
+                <AuthConfiguration auth={httpRequest.auth} onChange={handleAuthChange} />
               </div>
             )}
 
@@ -498,12 +483,8 @@ function GraphQLRequestBuilder() {
                 <ScriptsEditor
                   preRequestScript={httpRequest.preRequestScript || ''}
                   testScript={httpRequest.testScript || ''}
-                  onPreRequestScriptChange={(script) =>
-                    updateRequest({ preRequestScript: script })
-                  }
-                  onTestScriptChange={(script) =>
-                    updateRequest({ testScript: script })
-                  }
+                  onPreRequestScriptChange={(script) => updateRequest({ preRequestScript: script })}
+                  onTestScriptChange={(script) => updateRequest({ testScript: script })}
                 />
               </div>
             )}
@@ -534,18 +515,14 @@ function GraphQLRequestBuilder() {
                       >
                         <div className="flex items-center gap-2 mb-1 sp-label">
                           <span>{msg.type}</span>
-                          <span>
-                            {new Date(msg.timestamp).toLocaleTimeString()}
-                          </span>
+                          <span>{new Date(msg.timestamp).toLocaleTimeString()}</span>
                         </div>
                         {msg.payload !== undefined && (
                           <pre className="whitespace-pre-wrap break-all">
                             {JSON.stringify(msg.payload, null, 2)}
                           </pre>
                         )}
-                        {msg.error && (
-                          <span className="text-destructive">{msg.error}</span>
-                        )}
+                        {msg.error && <span className="text-destructive">{msg.error}</span>}
                       </div>
                     ))}
                   </div>

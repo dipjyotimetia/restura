@@ -30,14 +30,7 @@ import {
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { cn } from '@/lib/shared/utils';
-import {
-  Send,
-  Trash2,
-  Search,
-  Download,
-  X,
-  Filter,
-} from 'lucide-react';
+import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
 
 type SendFormat = 'json' | 'text' | 'binary';
 
@@ -100,7 +93,9 @@ function argsSize(args: unknown[]): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function parseEmitArgs(input: string): { ok: true; args: unknown[] } | { ok: false; error: string } {
+function parseEmitArgs(
+  input: string
+): { ok: true; args: unknown[] } | { ok: false; error: string } {
   const trimmed = input.trim();
   if (!trimmed) return { ok: true, args: [] };
   try {
@@ -155,9 +150,9 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
 function SocketIOClient() {
   const activeTabId = useActiveTabId();
   const connectionByTabId = useSocketIOStore((s) => s.connectionByTabId);
-  const activeConnectionId = activeTabId ? connectionByTabId[activeTabId] ?? null : null;
+  const activeConnectionId = activeTabId ? (connectionByTabId[activeTabId] ?? null) : null;
   const connection = useSocketIOStore((s) =>
-    activeConnectionId ? s.connections[activeConnectionId] ?? null : null
+    activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
   );
   const eventFilter = useSocketIOStore((s) => s.eventFilter);
   const searchQuery = useSocketIOStore((s) => s.searchQuery);
@@ -230,15 +225,14 @@ function SocketIOClient() {
 
   if (!connection || !activeConnectionId) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-sp-bg p-8">
+      <div className="flex flex-1 items-center justify-center bg-transparent p-8">
         <p className="text-sp-12 text-sp-dim font-mono">Preparing Socket.IO connection…</p>
       </div>
     );
   }
 
   const isConnected = connection.status === 'connected';
-  const isConnecting =
-    connection.status === 'connecting' || connection.status === 'reconnecting';
+  const isConnecting = connection.status === 'connecting' || connection.status === 'reconnecting';
 
   const handleConnect = () => {
     const resolvedUrl = resolveVariables(connection.url);
@@ -259,12 +253,7 @@ function SocketIOClient() {
       return;
     }
     setEmitError(null);
-    socketioManager.emit(
-      activeConnectionId,
-      emitEventName.trim() || 'message',
-      parsed.args,
-      false
-    );
+    socketioManager.emit(activeConnectionId, emitEventName.trim() || 'message', parsed.args, false);
   };
 
   const handleClear = () => {
@@ -308,7 +297,7 @@ function SocketIOClient() {
     connection.transports.length > 0 ? connection.transports.join('+') : 'auto';
 
   return (
-    <div className="flex flex-1 flex-col gap-3 bg-sp-bg p-3 overflow-hidden">
+    <div className="flex flex-1 flex-col gap-2.5 bg-transparent p-3 overflow-hidden">
       {/* Connection bar */}
       <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
         <ProtoChip protocol="SOCKETIO" />
@@ -321,9 +310,7 @@ function SocketIOClient() {
             <>
               <Input
                 value={connection.url}
-                onChange={(e) =>
-                  updateConnectionField(activeConnectionId, 'url', e.target.value)
-                }
+                onChange={(e) => updateConnectionField(activeConnectionId, 'url', e.target.value)}
                 placeholder="https://your-server.example.com"
                 className="h-7 flex-1 bg-transparent border-0 px-1 font-mono text-sp-13 text-sp-text shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 aria-label="Socket.IO server URL"
@@ -331,11 +318,7 @@ function SocketIOClient() {
               <Input
                 value={connection.namespace}
                 onChange={(e) =>
-                  updateConnectionField(
-                    activeConnectionId,
-                    'namespace',
-                    e.target.value || '/'
-                  )
+                  updateConnectionField(activeConnectionId, 'namespace', e.target.value || '/')
                 }
                 placeholder="/"
                 className="h-7 w-24 bg-sp-surface-lo border border-sp-line px-2 font-mono text-sp-12 text-sp-text"
@@ -404,10 +387,7 @@ function SocketIOClient() {
           label="Uptime"
           value={connectionDuration > 0 ? formatDuration(connectionDuration) : '—'}
         />
-        <Stat
-          label="↑ Events"
-          value={<span style={{ color: '#a78bfa' }}>{counts.sent}</span>}
-        />
+        <Stat label="↑ Events" value={<span style={{ color: '#a78bfa' }}>{counts.sent}</span>} />
         <Stat
           label="↓ Events"
           value={<span style={{ color: '#22c55e' }}>{counts.received}</span>}
@@ -419,9 +399,7 @@ function SocketIOClient() {
           <span className="sp-label">Auto-reconnect</span>
           <ToggleField
             checked={connection.autoReconnect}
-            onChange={(v) =>
-              updateConnectionField(activeConnectionId, 'autoReconnect', v)
-            }
+            onChange={(v) => updateConnectionField(activeConnectionId, 'autoReconnect', v)}
             ariaLabel="Auto-reconnect"
             size="sm"
           />
@@ -429,7 +407,7 @@ function SocketIOClient() {
       </div>
 
       {/* Two columns */}
-      <div className="flex flex-1 min-h-0 gap-3">
+      <div className="flex flex-1 min-h-0 gap-2.5">
         {/* Event log */}
         <Floater
           radius="panel"
@@ -438,9 +416,7 @@ function SocketIOClient() {
         >
           <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
             <span className="text-sp-13 font-medium text-sp-text">Events</span>
-            <span className="text-sp-11 text-sp-dim font-mono">
-              ({connection.events.length})
-            </span>
+            <span className="text-sp-11 text-sp-dim font-mono">({connection.events.length})</span>
             <div className="flex-1" />
             <TextField
               size="sm"
@@ -504,10 +480,7 @@ function SocketIOClient() {
             <span>PREVIEW</span>
           </div>
 
-          <div
-            ref={eventsScrollRef}
-            className="flex-1 min-h-0 overflow-auto font-mono"
-          >
+          <div ref={eventsScrollRef} className="flex-1 min-h-0 overflow-auto font-mono">
             {filteredEvents.length === 0 ? (
               <div className="py-10 text-center text-sp-dim text-sp-12">
                 {connection.events.length === 0
@@ -538,9 +511,7 @@ function SocketIOClient() {
                     <span className="truncate font-mono font-medium text-sp-12 text-sp-text">
                       {event.eventName}
                     </span>
-                    <span className="text-sp-dim text-sp-11">
-                      {argsSize(event.args)}
-                    </span>
+                    <span className="text-sp-dim text-sp-11">{argsSize(event.args)}</span>
                     <span className="truncate text-sp-12 text-sp-text">
                       {event.ackId
                         ? `ack:${event.ackStatus ?? 'pending'} ${previewArgs(event.args)}`
@@ -554,16 +525,11 @@ function SocketIOClient() {
         </Floater>
 
         {/* Right column */}
-        <div className="flex flex-col gap-3 min-h-0" style={{ flex: 1 }}>
+        <div className="flex flex-col gap-2.5 min-h-0" style={{ flex: 1 }}>
           {/* Selected event */}
-          <Floater
-            radius="panel"
-            className="flex flex-1 flex-col min-h-0 overflow-hidden"
-          >
+          <Floater radius="panel" className="flex flex-1 flex-col min-h-0 overflow-hidden">
             <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
-              <span className="text-sp-13 font-medium text-sp-text">
-                Selected event
-              </span>
+              <span className="text-sp-13 font-medium text-sp-text">Selected event</span>
               {selectedEvent && (
                 <span className="text-sp-11 text-sp-dim font-mono">
                   {selectedEvent.eventName} · {formatTime(selectedEvent.timestamp)}
@@ -597,10 +563,7 @@ function SocketIOClient() {
           </Floater>
 
           {/* Compose */}
-          <Floater
-            radius="panel"
-            className="flex flex-1 flex-col min-h-0 overflow-hidden"
-          >
+          <Floater radius="panel" className="flex flex-1 flex-col min-h-0 overflow-hidden">
             <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
               <span className="text-sp-13 font-medium text-sp-text">Compose</span>
               <div className="flex-1" />
@@ -645,10 +608,7 @@ function SocketIOClient() {
                 />
               </CodeEditorFrame>
               {emitError && (
-                <p
-                  className="mt-1 font-mono text-sp-11"
-                  style={{ color: '#ef4444' }}
-                >
+                <p className="mt-1 font-mono text-sp-11" style={{ color: '#ef4444' }}>
                   JSON error: {emitError}
                 </p>
               )}
@@ -665,9 +625,7 @@ function SocketIOClient() {
               </Button>
               <Kbd size="xs">⌘↵</Kbd>
               <div className="flex-1" />
-              <span className="text-sp-11 text-sp-dim font-mono tabular-nums">
-                {byteCount} B
-              </span>
+              <span className="text-sp-11 text-sp-dim font-mono tabular-nums">{byteCount} B</span>
             </div>
           </Floater>
         </div>
@@ -678,7 +636,7 @@ function SocketIOClient() {
 
 export default withErrorBoundary(
   SocketIOClient,
-  <div className="flex flex-1 items-center justify-center bg-sp-bg p-8 text-sm text-sp-muted">
+  <div className="flex flex-1 items-center justify-center bg-transparent p-8 text-sm text-sp-muted">
     Something went wrong rendering the Socket.IO client.
   </div>
 );

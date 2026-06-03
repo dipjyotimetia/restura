@@ -1,11 +1,8 @@
 import { Fragment, useMemo } from 'react';
 import { Floater, Stat, StatusPill } from '@/components/ui/spatial';
+import { useActiveResponse } from '@/store/selectors';
+import { useRequestStore } from '@/store/useRequestStore';
 import { GrpcStatusCodeName, type GrpcResponse, type GrpcStatusCode } from '@/types';
-
-export interface GrpcResponsePanelProps {
-  response: GrpcResponse | null;
-  isLoading: boolean;
-}
 
 function formatBytes(n: number | undefined): string {
   if (!n || n <= 0) return '0 B';
@@ -28,28 +25,30 @@ function prettyJson(raw: string): string {
  * formatted JSON body (or streamed messages), a trailers grid, and a
  * footer with size / frames / compression stats.
  */
-export function GrpcResponsePanel({ response, isLoading }: GrpcResponsePanelProps) {
+export function GrpcResponsePanel() {
+  // Self-sufficient peer of ResponseViewer: read the active response from the
+  // store and narrow it to the gRPC shape here, so the route stays protocol-
+  // agnostic. The slot type is the generic ApiResponse union.
+  const activeResponse = useActiveResponse();
+  const isLoading = useRequestStore((s) => s.isLoading);
+  const response =
+    activeResponse && 'grpcStatus' in activeResponse ? (activeResponse as GrpcResponse) : null;
+
   const body = useMemo(() => prettyJson(response?.body ?? ''), [response?.body]);
   const trailers = response?.trailers ?? {};
   const grpcStatus: GrpcStatusCode | undefined = response?.grpcStatus;
   const grpcStatusName =
-    grpcStatus != null
-      ? `${grpcStatus} (${GrpcStatusCodeName[grpcStatus] ?? '?'})`
-      : '—';
+    grpcStatus != null ? `${grpcStatus} (${GrpcStatusCodeName[grpcStatus] ?? '?'})` : '—';
   const isOk = grpcStatus === 0;
   // StatusPill maps numeric ranges; map gRPC OK → 200, error codes → 500
   // range so the pill colors match the HTTP convention used elsewhere.
-  const pillStatus =
-    grpcStatus == null ? 0 : grpcStatus === 0 ? 200 : 500;
+  const pillStatus = grpcStatus == null ? 0 : grpcStatus === 0 ? 200 : 500;
   const pillText =
-    grpcStatus == null ? 'idle' : isOk ? 'OK' : GrpcStatusCodeName[grpcStatus] ?? 'ERR';
+    grpcStatus == null ? 'idle' : isOk ? 'OK' : (GrpcStatusCodeName[grpcStatus] ?? 'ERR');
 
   const frameCount = response?.messages?.length ?? (response?.body ? 1 : 0);
   // Try to read a content-encoding/grpc-encoding trailer for compression.
-  const compression =
-    trailers['grpc-encoding'] ??
-    trailers['content-encoding'] ??
-    'identity';
+  const compression = trailers['grpc-encoding'] ?? trailers['content-encoding'] ?? 'identity';
 
   return (
     <Floater
@@ -115,7 +114,9 @@ export function GrpcResponsePanel({ response, isLoading }: GrpcResponsePanelProp
           }}
         >
           <span className="text-sp-muted">grpc-status</span>
-          <span style={{ color: isOk ? '#22c55e' : grpcStatus != null ? '#ef4444' : 'var(--sp-text)' }}>
+          <span
+            style={{ color: isOk ? '#22c55e' : grpcStatus != null ? '#ef4444' : 'var(--sp-text)' }}
+          >
             {grpcStatusName}
           </span>
           <span className="text-sp-muted">grpc-message</span>

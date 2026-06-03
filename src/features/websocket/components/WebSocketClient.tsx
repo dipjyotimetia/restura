@@ -22,21 +22,10 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useActiveTabId } from '@/store/selectors';
-import type {
-  WebSocketMessageType,
-} from '@/features/websocket/store/useWebSocketStore';
-import {
-  useWebSocketStore,
-} from '@/features/websocket/store/useWebSocketStore';
+import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
+import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
-import {
-  Send,
-  Trash2,
-  Search,
-  Download,
-  X,
-  Filter,
-} from 'lucide-react';
+import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
@@ -127,9 +116,9 @@ function WebSocketClient() {
   const connectionByTabId = useWebSocketStore((s) => s.connectionByTabId);
   const messageFilter = useWebSocketStore((s) => s.messageFilter);
   const searchQuery = useWebSocketStore((s) => s.searchQuery);
-  const activeConnectionId = activeTabId ? connectionByTabId[activeTabId] ?? null : null;
+  const activeConnectionId = activeTabId ? (connectionByTabId[activeTabId] ?? null) : null;
   const connection = useWebSocketStore((s) =>
-    activeConnectionId ? s.connections[activeConnectionId] ?? null : null
+    activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
   );
   const {
     ensureConnectionForTab,
@@ -178,15 +167,14 @@ function WebSocketClient() {
 
   if (!connection || !activeConnectionId) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-sp-bg">
+      <div className="flex-1 flex items-center justify-center bg-transparent">
         <p className="text-sp-12 text-sp-dim font-mono">Preparing WebSocket connection…</p>
       </div>
     );
   }
 
   const isConnected = connection.status === 'connected';
-  const isConnecting =
-    connection.status === 'connecting' || connection.status === 'reconnecting';
+  const isConnecting = connection.status === 'connecting' || connection.status === 'reconnecting';
 
   const handleConnect = () => {
     try {
@@ -263,8 +251,7 @@ function WebSocketClient() {
 
   const filteredMessages = getFilteredMessages(activeConnectionId);
   const selectedMessage =
-    (selectedMessageId && connection.messages.find((m) => m.id === selectedMessageId)) ||
-    null;
+    (selectedMessageId && connection.messages.find((m) => m.id === selectedMessageId)) || null;
 
   const byteCount = new Blob([message]).size;
   const sendDisabled = !isConnected || !message.trim();
@@ -278,12 +265,9 @@ function WebSocketClient() {
         : 'DISCONNECTED';
 
   return (
-    <div className="flex flex-1 flex-col gap-3 bg-sp-bg p-3 overflow-hidden">
+    <div className="flex flex-1 flex-col gap-2.5 bg-transparent p-3 overflow-hidden">
       {/* Connection bar */}
-      <Floater
-        radius="pill"
-        className="flex items-center gap-2 px-3 h-12 shrink-0"
-      >
+      <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
         <ProtoChip protocol="WS" />
         <div className="flex-1 flex items-center gap-2 min-w-0">
           {isConnected || isConnecting ? (
@@ -360,10 +344,7 @@ function WebSocketClient() {
           label="Uptime"
           value={connectionDuration > 0 ? formatDuration(connectionDuration) : '—'}
         />
-        <Stat
-          label="↑ Messages"
-          value={<span style={{ color: '#a78bfa' }}>{counts.sent}</span>}
-        />
+        <Stat label="↑ Messages" value={<span style={{ color: '#a78bfa' }}>{counts.sent}</span>} />
         <Stat
           label="↓ Messages"
           value={<span style={{ color: '#22c55e' }}>{counts.received}</span>}
@@ -387,7 +368,7 @@ function WebSocketClient() {
       </div>
 
       {/* Two columns */}
-      <div className="flex flex-1 min-h-0 gap-3">
+      <div className="flex flex-1 min-h-0 gap-2.5">
         {/* Event log (flex: 1.4) */}
         <Floater
           radius="panel"
@@ -397,9 +378,7 @@ function WebSocketClient() {
           {/* Header */}
           <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
             <span className="text-sp-13 font-medium text-sp-text">Messages</span>
-            <span className="text-sp-11 text-sp-dim font-mono">
-              ({connection.messages.length})
-            </span>
+            <span className="text-sp-11 text-sp-dim font-mono">({connection.messages.length})</span>
             <div className="flex-1" />
             <TextField
               size="sm"
@@ -413,9 +392,7 @@ function WebSocketClient() {
             />
             <Select
               value={messageFilter}
-              onValueChange={(value) =>
-                setMessageFilter(value as WebSocketMessageType | 'all')
-              }
+              onValueChange={(value) => setMessageFilter(value as WebSocketMessageType | 'all')}
             >
               <SelectTrigger
                 aria-label="Filter messages"
@@ -506,16 +483,11 @@ function WebSocketClient() {
         </Floater>
 
         {/* Right column */}
-        <div className="flex flex-col gap-3 min-h-0" style={{ flex: 1 }}>
+        <div className="flex flex-col gap-2.5 min-h-0" style={{ flex: 1 }}>
           {/* Selected message */}
-          <Floater
-            radius="panel"
-            className="flex flex-1 flex-col min-h-0 overflow-hidden"
-          >
+          <Floater radius="panel" className="flex flex-1 flex-col min-h-0 overflow-hidden">
             <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
-              <span className="text-sp-13 font-medium text-sp-text">
-                Selected message
-              </span>
+              <span className="text-sp-13 font-medium text-sp-text">Selected message</span>
               {selectedMessage && (
                 <span className="text-sp-11 text-sp-dim font-mono">
                   {formatTime(selectedMessage.timestamp)} · {formatSize(selectedMessage.content)}
@@ -549,10 +521,7 @@ function WebSocketClient() {
           </Floater>
 
           {/* Compose */}
-          <Floater
-            radius="panel"
-            className="flex flex-1 flex-col min-h-0 overflow-hidden"
-          >
+          <Floater radius="panel" className="flex flex-1 flex-col min-h-0 overflow-hidden">
             <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
               <span className="text-sp-13 font-medium text-sp-text">Compose</span>
               <div className="flex-1" />
@@ -603,9 +572,7 @@ function WebSocketClient() {
               </Button>
               <Kbd size="xs">⌘↵</Kbd>
               <div className="flex-1" />
-              <span className="text-sp-11 text-sp-dim font-mono tabular-nums">
-                {byteCount} B
-              </span>
+              <span className="text-sp-11 text-sp-dim font-mono tabular-nums">{byteCount} B</span>
             </div>
           </Floater>
         </div>

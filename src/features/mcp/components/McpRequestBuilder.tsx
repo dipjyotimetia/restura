@@ -8,7 +8,6 @@ import {
   Floater,
   ProtoChip,
   Segmented,
-  Stat,
   SubTabBar,
   TextField,
   VariableText,
@@ -26,6 +25,8 @@ import type {
 import {
   ChevronDown,
   ChevronRight,
+  PanelLeft,
+  PanelLeftClose,
   Play,
   RefreshCw,
   Sparkles,
@@ -73,6 +74,10 @@ export default function McpRequestBuilder() {
 
   const [tab, setTab] = useState<ListTab>('tools');
   const [headersOpen, setHeadersOpen] = useState(false);
+  // Catalog (tools/resources/prompts/log) is hidden by default so the workspace
+  // reads as request-form LEFT / result RIGHT. The connection-bar toggle reveals
+  // it as a narrow left column when the user wants to browse/pick.
+  const [showCatalog, setShowCatalog] = useState(false);
 
   // Tool/Prompt selection lifted to parent so the right-hand columns can react.
   const [selectedToolName, setSelectedToolName] = useState<string | null>(null);
@@ -158,9 +163,6 @@ export default function McpRequestBuilder() {
     setStatus(active.id, 'connected');
   };
 
-  // ---- last log entry drives the Result panel ----
-  const lastEntry: McpInvocationLog | null = log.length > 0 ? (log[0] ?? null) : null;
-
   const transportOptions = [
     { value: 'streamable-http' as const, label: 'Streamable HTTP' },
     { value: 'http-sse' as const, label: 'HTTP + SSE' },
@@ -173,14 +175,14 @@ export default function McpRequestBuilder() {
         <Floater
           radius="pill"
           elevation="float"
-          className="flex items-center gap-2 px-2 h-11 bg-sp-surface border border-sp-line flex-wrap"
+          className="flex items-center gap-2 px-2 min-h-11 py-1.5 bg-sp-surface border border-sp-line flex-wrap"
         >
           <ProtoChip protocol="MCP" />
           <span className="text-sp-dim font-mono text-sp-13 select-none">›</span>
 
           {/* URL with VariableText overlay when not editable; raw input otherwise. */}
           {isConnected ? (
-            <div className="flex-1 min-w-[240px] px-1 font-mono text-sp-12 text-sp-text truncate">
+            <div className="flex-1 min-w-[140px] px-1 font-mono text-sp-12 text-sp-text truncate">
               <VariableText text={active.url} emptyLabel="No URL" />
             </div>
           ) : (
@@ -189,20 +191,10 @@ export default function McpRequestBuilder() {
               value={active.url}
               onChange={(e) => setUrl(active.id, e.target.value)}
               disabled={isBusy}
-              className="flex-1 min-w-[240px] h-7 bg-transparent border-0 font-mono text-sp-12 text-sp-text px-1 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim"
+              className="flex-1 min-w-[140px] h-7 bg-transparent border-0 font-mono text-sp-12 text-sp-text px-1 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim"
               aria-label="MCP server URL"
             />
           )}
-
-          {/* Transport picker (Segmented inside the bar) */}
-          <Segmented<McpTransportType>
-            options={transportOptions}
-            value={active.transport}
-            onChange={(v) => setTransport(active.id, v)}
-            size="sm"
-            ariaLabel="MCP transport"
-            className={cn((isConnected || isBusy) && 'opacity-60 pointer-events-none')}
-          />
 
           {/* CONNECTED / status pill (green when connected) */}
           <ConnectionPill status={active.status} />
@@ -260,12 +252,35 @@ export default function McpRequestBuilder() {
         )}
       </div>
 
-      {/* ───────────── Collapsible headers row ───────────── */}
-      <div className="px-3 pb-2 shrink-0">
+      {/* ───────────── Controls row: transport + catalog toggle + collapsible headers ───────────── */}
+      <div className="px-3 pb-2 shrink-0 flex items-stretch gap-2">
+        {/* Transport picker */}
+        <div className="flex items-center px-2 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line">
+          <Segmented<McpTransportType>
+            options={transportOptions}
+            value={active.transport}
+            onChange={(v) => setTransport(active.id, v)}
+            size="sm"
+            ariaLabel="MCP transport"
+            className={cn((isConnected || isBusy) && 'opacity-60 pointer-events-none')}
+          />
+        </div>
+        {/* Catalog toggle — reveals the tools/resources/prompts list */}
+        <Button
+          variant={showCatalog ? 'secondary' : 'ghost'}
+          size="sm"
+          onClick={() => setShowCatalog((s) => !s)}
+          aria-pressed={showCatalog}
+          title={showCatalog ? 'Hide catalog' : 'Browse tools, resources & prompts'}
+          className="h-9 px-3 text-sp-12 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line"
+        >
+          <PanelLeft className="h-3.5 w-3.5" />
+          Tools
+        </Button>
         <Floater
           radius="panel"
           elevation="float"
-          className="bg-sp-surface border border-sp-line overflow-hidden"
+          className="flex-1 min-w-0 bg-sp-surface border border-sp-line overflow-hidden"
         >
           <button
             type="button"
@@ -303,61 +318,76 @@ export default function McpRequestBuilder() {
         </Floater>
       </div>
 
-      {/* ───────────── Three-column layout ───────────── */}
-      <div className="flex-1 grid grid-cols-[300px_minmax(0,1fr)_minmax(0,1fr)] gap-3 px-3 pb-3 overflow-hidden min-h-0">
-        {/* Column 1 — List Floater */}
-        <Floater
-          radius="panel"
-          elevation="float"
-          className="bg-sp-surface border border-sp-line flex flex-col overflow-hidden min-h-0"
-        >
-          <SubTabBar<ListTab>
-            tabs={[
-              { value: 'tools', label: 'Tools', count: tools.length },
-              { value: 'resources', label: 'Resources', count: resources.length },
-              { value: 'prompts', label: 'Prompts', count: prompts.length },
-              { value: 'log', label: 'Log', count: log.length },
-            ]}
-            value={tab}
-            onChange={setTab}
-            className="border-b-0"
-          />
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {tab === 'tools' && (
-              <ToolList
-                tools={tools}
-                selected={selectedToolName}
-                onSelect={setSelectedToolName}
-              />
-            )}
-            {tab === 'resources' && (
-              <ResourceList
-                resources={resources}
-                onRead={async (uri) => {
-                  if (!clientRef.current) return;
-                  const res = await clientRef.current.readResource(uri);
-                  logCall('resources/read', { uri }, res);
-                }}
-              />
-            )}
-            {tab === 'prompts' && (
-              <PromptList
-                prompts={prompts}
-                selected={selectedPromptName}
-                onSelect={setSelectedPromptName}
-              />
-            )}
-            {tab === 'log' && (
-              <LogList log={log} onClear={() => clearLog(active.id)} />
-            )}
-          </div>
-        </Floater>
+      {/* ───────────── Request body: catalog (toggle) · invoke form ─────────────
+          The result panel is a resizable sibling supplied by the route
+          (ResizableLayout), so this reads as request-left / result-right like
+          HTTP. The catalog list is hidden by default and revealed via the
+          connection-bar toggle. */}
+      <div className="flex-1 flex gap-2.5 px-3 pb-3 overflow-hidden min-h-0">
+        {/* Column 1 — Catalog list (hidden by default) */}
+        {showCatalog && (
+          <Floater
+            radius="panel"
+            elevation="float"
+            className="w-75 shrink-0 bg-sp-surface border border-sp-line flex flex-col overflow-hidden min-h-0"
+          >
+            <SubTabBar<ListTab>
+              tabs={[
+                { value: 'tools', label: 'Tools', count: tools.length },
+                { value: 'resources', label: 'Resources', count: resources.length },
+                { value: 'prompts', label: 'Prompts', count: prompts.length },
+                { value: 'log', label: 'Log', count: log.length },
+              ]}
+              value={tab}
+              onChange={setTab}
+              className="border-b-0"
+              right={
+                <button
+                  type="button"
+                  onClick={() => setShowCatalog(false)}
+                  aria-label="Hide catalog"
+                  title="Hide catalog"
+                  className="flex items-center justify-center h-6 w-6 rounded-sp-btn text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors"
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              }
+            />
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {tab === 'tools' && (
+                <ToolList
+                  tools={tools}
+                  selected={selectedToolName}
+                  onSelect={setSelectedToolName}
+                />
+              )}
+              {tab === 'resources' && (
+                <ResourceList
+                  resources={resources}
+                  onRead={async (uri) => {
+                    if (!clientRef.current) return;
+                    const res = await clientRef.current.readResource(uri);
+                    logCall('resources/read', { uri }, res);
+                  }}
+                />
+              )}
+              {tab === 'prompts' && (
+                <PromptList
+                  prompts={prompts}
+                  selected={selectedPromptName}
+                  onSelect={setSelectedPromptName}
+                />
+              )}
+              {tab === 'log' && <LogList log={log} onClear={() => clearLog(active.id)} />}
+            </div>
+          </Floater>
+        )}
 
         {/* Column 2 — Invoke form Floater */}
         <Floater
           radius="panel"
           elevation="float"
-          className="bg-sp-surface border border-sp-line flex flex-col overflow-hidden min-h-0"
+          className="flex-1 min-w-0 bg-sp-surface border border-sp-line flex flex-col overflow-hidden min-h-0"
         >
           {tab === 'tools' ? (
             <InvokeToolForm
@@ -381,16 +411,6 @@ export default function McpRequestBuilder() {
             <EmptyForm tab={tab} />
           )}
         </Floater>
-
-        {/* Column 3 — Result Floater */}
-        <Floater
-          radius="panel"
-          elevation="float"
-          className="border border-sp-line flex flex-col overflow-hidden min-h-0"
-          style={{ background: 'var(--sp-code)' }}
-        >
-          <ResultPanel entry={lastEntry} />
-        </Floater>
       </div>
     </div>
   );
@@ -400,7 +420,11 @@ export default function McpRequestBuilder() {
 // Connection status pill
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ConnectionPill({ status }: { status: 'disconnected' | 'connecting' | 'connected' | 'error' }) {
+function ConnectionPill({
+  status,
+}: {
+  status: 'disconnected' | 'connecting' | 'connected' | 'error';
+}) {
   const style: { color: string; bg: string; glow?: string; label: string } = (() => {
     switch (status) {
       case 'connected':
@@ -453,12 +477,7 @@ function ToolList({
   onSelect: (name: string) => void;
 }) {
   if (tools.length === 0) {
-    return (
-      <EmptyState
-        title="No tools"
-        hint="Connect to a server to discover tools."
-      />
-    );
+    return <EmptyState title="No tools" hint="Connect to a server to discover tools." />;
   }
   return (
     <ScrollArea className="h-full">
@@ -474,22 +493,13 @@ function ToolList({
               className={cn(
                 'w-full text-left rounded-sp-btn px-2.5 py-2 transition-colors group',
                 'border border-transparent',
-                isSelected
-                  ? 'bg-sp-active'
-                  : 'hover:bg-sp-hover'
+                isSelected ? 'bg-sp-active' : 'hover:bg-sp-hover'
               )}
-              style={
-                isSelected
-                  ? { borderColor: 'var(--sp-accent-glow-55)' }
-                  : undefined
-              }
+              style={isSelected ? { borderColor: 'var(--sp-accent-glow-55)' } : undefined}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <Sparkles
-                    className="h-3.5 w-3.5 shrink-0"
-                    style={{ color: '#f59e0b' }}
-                  />
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: '#f59e0b' }} />
                   <span className="font-mono font-bold text-sp-12 text-sp-text truncate">
                     {t.name}
                   </span>
@@ -544,9 +554,7 @@ function ResourceList({
           >
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <div className="font-mono font-bold text-sp-12 text-sp-text truncate">
-                  {r.name}
-                </div>
+                <div className="font-mono font-bold text-sp-12 text-sp-text truncate">{r.name}</div>
                 <div className="text-sp-11 font-mono text-sp-dim truncate">{r.uri}</div>
               </div>
               <Button
@@ -562,9 +570,7 @@ function ResourceList({
             {r.description && (
               <p className="text-sp-11-5 text-sp-muted line-clamp-2">{r.description}</p>
             )}
-            {r.mimeType && (
-              <span className="sp-label inline-flex">{r.mimeType}</span>
-            )}
+            {r.mimeType && <span className="sp-label inline-flex">{r.mimeType}</span>}
           </div>
         ))}
       </div>
@@ -604,16 +610,11 @@ function PromptList({
                 'border border-transparent',
                 isSelected ? 'bg-sp-active' : 'hover:bg-sp-hover'
               )}
-              style={
-                isSelected ? { borderColor: 'var(--sp-accent-glow-55)' } : undefined
-              }
+              style={isSelected ? { borderColor: 'var(--sp-accent-glow-55)' } : undefined}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <Sparkles
-                    className="h-3.5 w-3.5 shrink-0"
-                    style={{ color: '#f59e0b' }}
-                  />
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: '#f59e0b' }} />
                   <span className="font-mono font-bold text-sp-12 text-sp-text truncate">
                     {p.name}
                   </span>
@@ -859,9 +860,7 @@ function InvokeToolForm({
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-3 space-y-3">
-          {tool.description && (
-            <p className="text-sp-12 text-sp-muted">{tool.description}</p>
-          )}
+          {tool.description && <p className="text-sp-12 text-sp-muted">{tool.description}</p>}
           {fields.length === 0 ? (
             <div className="text-sp-12 text-sp-dim italic">This tool takes no arguments.</div>
           ) : (
@@ -903,14 +902,9 @@ function ArgFieldRow({
           </span>
         )}
       </div>
-      {field.description && (
-        <div className="text-sp-11-5 text-sp-muted">{field.description}</div>
-      )}
+      {field.description && <div className="text-sp-11-5 text-sp-muted">{field.description}</div>}
       {field.isComplex ? (
-        <CodeEditorFrame
-          gutter={false}
-          className="min-h-[100px]"
-        >
+        <CodeEditorFrame gutter={false} className="min-h-[100px]">
           <textarea
             value={value}
             onChange={(e) => onChange(e.target.value)}
@@ -990,9 +984,7 @@ function InvokePromptForm({
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-3 space-y-3">
-          {prompt.description && (
-            <p className="text-sp-12 text-sp-muted">{prompt.description}</p>
-          )}
+          {prompt.description && <p className="text-sp-12 text-sp-muted">{prompt.description}</p>}
           {fields.length === 0 ? (
             <div className="text-sp-12 text-sp-dim italic">This prompt takes no arguments.</div>
           ) : (
@@ -1010,15 +1002,11 @@ function InvokePromptForm({
                     </span>
                   )}
                 </div>
-                {a.description && (
-                  <div className="text-sp-11-5 text-sp-muted">{a.description}</div>
-                )}
+                {a.description && <div className="text-sp-11-5 text-sp-muted">{a.description}</div>}
                 <TextField
                   mono
                   value={args[a.name] ?? ''}
-                  onChange={(e) =>
-                    setArgs((cur) => ({ ...cur, [a.name]: e.target.value }))
-                  }
+                  onChange={(e) => setArgs((cur) => ({ ...cur, [a.name]: e.target.value }))}
                   placeholder=""
                   className="w-full"
                 />
@@ -1027,62 +1015,6 @@ function InvokePromptForm({
           )}
         </div>
       </ScrollArea>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Result panel (column 3)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ResultPanel({ entry }: { entry: McpInvocationLog | null }) {
-  if (!entry) {
-    return (
-      <div className="flex-1 grid place-items-center text-center px-4">
-        <div>
-          <div className="font-mono text-sp-12 text-sp-muted">No result yet</div>
-          <div className="mt-1 text-sp-11-5 text-sp-dim">Invoke a tool to see output here.</div>
-        </div>
-      </div>
-    );
-  }
-
-  const isError = entry.error !== undefined;
-  const payload: unknown = isError
-    ? { error: entry.error, ...(entry.jsonRpcError ? { jsonRpcError: entry.jsonRpcError } : {}) }
-    : entry.result;
-  const json = JSON.stringify(payload, null, 2);
-  const lines = json.split('\n').length;
-  const bytes = new TextEncoder().encode(json).length;
-  const sizeLabel = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
-
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center justify-between gap-3 px-3 h-10 border-b border-sp-line shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="sp-label">Result</span>
-          <span
-            className="inline-flex items-center gap-1 px-1.5 h-5 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
-            style={{
-              color: isError ? '#ef4444' : '#22c55e',
-              background: isError ? 'rgba(239,68,68,0.14)' : 'rgba(34,197,94,0.14)',
-            }}
-          >
-            isError: {isError ? 'true' : 'false'}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <Stat label="Time" value={`${entry.durationMs.toFixed(0)}ms`} align="right" />
-          <Stat label="Size" value={sizeLabel} align="right" />
-        </div>
-      </div>
-      <div className="flex-1 min-h-0 overflow-auto p-3">
-        <CodeEditorFrame lineCount={lines} className="h-full">
-          <pre className="text-sp-12 font-mono text-sp-text whitespace-pre-wrap break-all">
-            {json}
-          </pre>
-        </CodeEditorFrame>
-      </div>
     </div>
   );
 }

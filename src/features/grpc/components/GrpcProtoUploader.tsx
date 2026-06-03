@@ -9,7 +9,6 @@ import type { ProtoFileInfo, GrpcMethodType } from '@/types';
 interface GrpcProtoUploaderProps {
   protoFile: File | null;
   onProtoFileChange: (file: File | null) => void;
-  onProtoInfoChange: (info: ProtoFileInfo | null) => void;
   onServiceChange: (service: string) => void;
   onMethodChange: (method: string) => void;
   onMethodTypeChange: (methodType: GrpcMethodType) => void;
@@ -18,7 +17,6 @@ interface GrpcProtoUploaderProps {
 export default function GrpcProtoUploader({
   protoFile,
   onProtoFileChange,
-  onProtoInfoChange,
   onServiceChange,
   onMethodChange,
   onMethodTypeChange,
@@ -39,7 +37,6 @@ export default function GrpcProtoUploader({
     try {
       const content = await file.text();
       const parsed = parseProtoFile(content);
-      onProtoInfoChange(parsed);
 
       // Auto-fill service if available
       if (parsed.services.length > 0) {
@@ -80,7 +77,6 @@ export default function GrpcProtoUploader({
       toast.error('Proto parsing failed', {
         description: errorMessage,
       });
-      onProtoInfoChange(null);
     }
   };
 
@@ -94,9 +90,15 @@ export default function GrpcProtoUploader({
           className="hidden"
           id="proto-upload"
         />
-        <Button variant="outline" onClick={() => document.getElementById('proto-upload')?.click()}>
-          <Upload className="mr-2 h-4 w-4" />
-          {protoFile ? protoFile.name : 'Upload .proto'}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => document.getElementById('proto-upload')?.click()}
+          title={protoFile ? protoFile.name : 'Upload a .proto file'}
+          className="h-8 shrink-0 text-sp-12 max-w-[180px]"
+        >
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          <span className="truncate">{protoFile ? protoFile.name : 'Upload .proto'}</span>
         </Button>
       </div>
     </>
@@ -114,9 +116,7 @@ export function GrpcProtoInfo({ protoInfo }: { protoInfo: ProtoFileInfo | null }
         Proto File Info
       </div>
       <div>Package: {protoInfo.package || 'default'}</div>
-      <div>
-        Services: {protoInfo.services.map((s) => s.name).join(', ') || 'None'}
-      </div>
+      <div>Services: {protoInfo.services.map((s) => s.name).join(', ') || 'None'}</div>
       <div>Messages: {Object.keys(protoInfo.messages).join(', ') || 'None'}</div>
     </div>
   );
