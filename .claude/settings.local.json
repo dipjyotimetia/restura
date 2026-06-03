@@ -87,5 +87,8 @@
       "Bash(gh api *)",
       "Bash(echo \"exit: $?\")"
     ]
-  }
+  },
+  "disabledMcpjsonServers": [
+    "supabase"
+  ]
 }

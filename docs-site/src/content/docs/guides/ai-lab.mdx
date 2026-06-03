@@ -1,0 +1,106 @@
+---
+title: AI Lab
+description: A desktop-only workbench for testing prompts and models — Playground stream-compare, dataset-driven evals, deterministic + script + LLM-as-judge scorers, against local (Ollama) and cloud models.
+---
+
+import { Badge, Aside, Steps } from '@astrojs/starlight/components';
+
+<Badge text="Desktop only" variant="caution" />
+
+**AI Lab** is a workbench for testing prompts and models. Add a provider (a local Ollama, an OpenAI-compatible gateway, or a cloud key), compare model outputs side by side in the Playground, then run a prompt over a dataset and score every output with deterministic checks, sandboxed scripts, or an LLM-as-judge.
+
+It is reachable at `/ai-lab` (the flask icon in the top bar) and is **Electron-only** — testing local LLMs and arbitrary OpenAI-compatible endpoints needs direct network access the browser can't provide. On the web build the route renders a desktop-only state.
+
+<Aside type="note">
+AI Lab is distinct from the [AI assistant](/guides/ai-assistant/). The assistant is a chat panel that reads your *current request*; AI Lab is a model/prompt *testing* tool with its own datasets, evals, and providers. They share the provider-routing core but nothing else.
+</Aside>
+
+## Providers
+
+A provider config is one row per endpoint you add. AI Lab splits them into two kinds:
+
+| Kind | Providers | Base URL | API key | Pricing |
+| --- | --- | --- | --- | --- |
+| **Cloud** | OpenAI, Anthropic, OpenRouter | Hardcoded (overridable) | Required | Known — cost estimated |
+| **Local** | Ollama, OpenAI-compatible | User-supplied | Optional | Unknown — shown as "free"/"unknown" |
+
+- **Ollama** defaults to `http://localhost:11434` and needs no key.
+- **OpenAI-compatible** covers LM Studio, vLLM, llama.cpp, Together, Groq, and any gateway that speaks the OpenAI `/v1/chat/completions` wire shape — you must supply the base URL.
+
+API keys are stored as a [`SecretRef`](/architecture/adrs/0007-secret-ref-pattern/) handle, never in plaintext in the renderer; the main process resolves the key only at the moment it signs the outbound request. The **Providers** tab also lets you **test the connection** and **discover models** (`/api/tags` for Ollama, `/v1/models` for OpenAI-compatible).
+
+<Aside type="caution" title="Local endpoints only reach loopback">
+The localhost SSRF carve-out is **loopback-only** (`127.0.0.1` / `::1`). LAN, private (RFC 1918 / CGNAT), link-local, and cloud-metadata addresses stay blocked for every provider — see [Security](#security--ssrf) below.
+</Aside>
+
+## Playground
+
+Pick one or more model references (provider config + model id) and stream a prompt to all of them at once. Outputs render side by side as they arrive, so you can eyeball quality, speed, and tone differences between models or providers in one shot. Streaming uses the same subscribe-before-invoke IPC contract as the AI assistant, so no early tokens are dropped.
+
+## Datasets
+
+A **dataset** is a list of cases. Each case carries:
+
+- `vars` — template variables substituted into the prompt's `{{placeholders}}`.
+- `expected` *(optional)* — an exact expected output, for exact-match scoring.
+- `reference` *(optional)* — a gold/reference answer, for reference-based scorers and the judge.
+
+### Generate from an OpenAPI spec
+
+The **Datasets** tab can seed a dataset from an OpenAPI 3 / Swagger 2 document. AI Lab extracts a compact operation summary (method, path, summary, parameter names — no `$ref` dereferencing) and asks a model to emit diverse test cases as a structured tool call. Review and edit the generated cases before saving.
+
+## Evals
+
+An eval is the cross-product of **dataset cases × selected models**, each cell scored by your configured scorers. The runner is a bounded-concurrency sweep (like the load-test runner): render the prompt → call the model → score → emit progress. Model calls cross IPC to the main process; scorers run in the renderer.
+
+<Steps>
+
+1. Pick a **prompt template**, a **dataset**, and one or more **models**.
+2. Add one or more **scorers** (below).
+3. Set a **concurrency** cap and run. Progress streams in per cell; you can cancel mid-run (in-flight cells finish).
+
+</Steps>
+
+### Scorers
+
+A cell passes only when its model call succeeded **and** every scorer passed. Each scorer fails closed.
+
+| Scorer | Passes when |
+| --- | --- |
+| `exact-match` | Output equals the case's `expected` / `reference` (optional case-insensitive trim). |
+| `contains` | Output contains a substring. |
+| `regex` | Output matches a pattern (invalid pattern → fail). |
+| `json-valid` | Output parses as JSON. |
+| `json-schema` | Output is JSON valid against a supplied JSON Schema (Ajv). |
+| `latency` | Round-trip ≤ `maxMs`. |
+| `cost` | Estimated USD ≤ `maxUSD`. **Unknown cost fails** — an unpriced gateway can't satisfy a budget. |
+| `script` | A [QuickJS](/architecture/adrs/0015-quickjs-script-sandbox/) test script passes (the output is exposed as `pm.response.text()`). |
+| `judge` | An **LLM-as-judge** scores the output ≥ a pass threshold. |
+
+### LLM-as-judge
+
+The `judge` scorer calls a model of your choosing with the output, the case's reference, and a rubric, and asks it to return a structured judgement (`score` 0–1, `reasoning`, `pass`) via a tool call. Use any provider for the judge, including a cheaper or local model than the one under test.
+
+## Reports
+
+The **Reports** tab shows a **leaderboard** across a run (pass rate, latency, cost per model) and a **regression compare** against an earlier run of the same eval config. Eval-run ids are stable per config so re-running and comparing works across sessions.
+
+## Security & SSRF
+
+Every outbound model call goes through the Electron AI Lab handler, which applies the **same shared SSRF guard** as the rest of Restura, with one provider-kind-aware twist: `allowLocalhost` is enabled **only** for local providers (Ollama, OpenAI-compatible).
+
+- **Loopback only.** Local providers may reach `127.0.0.1` / `::1`. Nothing else opens up — LAN, RFC 1918/6598 private ranges, link-local `169.254/16`, IPv6 unique-local, and cloud-metadata endpoints remain blocked for everyone, including across redirects and DNS rebind.
+- **Cloud providers get no carve-out** — they can only reach their public endpoints.
+- The handler also enforces a hard concurrency ceiling independent of the renderer-side cap.
+
+## Where it runs
+
+- **Desktop** — fully wired. The renderer drives model calls over the `window.electron.aiLab` IPC bridge → `electron/main/ai-lab-handler.ts` → `shared/protocol/ai`. <Badge text="primary path" variant="success" />
+- **Web / self-hosted** — not available; the route shows a desktop-only message. There is no Worker route for AI Lab.
+
+## Related
+
+- [AI assistant](/guides/ai-assistant/) — the request-aware chat panel (shares the provider core).
+- [Scripts](/guides/scripts/) — the same QuickJS sandbox the `script` scorer uses.
+- [ADR 0020 — AI Lab eval workbench](/architecture/adrs/0020-ai-lab-eval-workbench/) — the architecture decision behind this feature.
+- [Capability matrix](/reference/capability-matrix/) — what's desktop-only and why.
