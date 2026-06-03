@@ -17,10 +17,11 @@
  */
 
 import { ipcMain } from 'electron';
+import type { Fetcher } from '@shared/protocol/types';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
-import { assertUrlHostnameSafe } from './dns-guard';
+import { resolveSafeAddress, createPinnedFetch } from './safe-connect';
 import { resolveSecretHandle } from './secret-handle-store';
 import {
   AiLabCompleteSchema,
@@ -33,6 +34,7 @@ import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
+import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
 import { makeFetchFetcher } from './fetch-fetcher';
 
@@ -41,8 +43,6 @@ import { makeFetchFetcher } from './fetch-fetcher';
 const rateLimiter = createKeyedRateLimiter(300, 60_000);
 const MAX_CONCURRENT_STREAMS = 6; // Playground compares a handful of models at once.
 const COMPLETE_CONCURRENCY = 8; // Hard ceiling on simultaneous upstream model calls.
-
-const nodeFetcher = makeFetchFetcher();
 
 async function resolveSecretFn(handleId: string): Promise<string | undefined> {
   const v = resolveSecretHandle(handleId);
@@ -83,9 +83,24 @@ interface ActiveAbort {
 const activeStreams = new Map<string, ActiveAbort & { streamId: string }>();
 const activeCompletes = new Map<string, ActiveAbort>();
 
-/** SSRF guard for a user-supplied base/target URL, gated by provider kind. */
-async function guardUrl(provider: Provider, url: string): Promise<void> {
-  await assertUrlHostnameSafe(url, { allowLocalhost: isLocalProvider(provider) });
+/**
+ * Validate + DNS-pin the host we're about to reach and return a Fetcher locked
+ * to it. `resolveSafeAddress` applies the SAME shared SSRF policy (allowLocalhost
+ * gated by provider kind; private/metadata always blocked) and returns the
+ * resolved IP; `createPinnedFetch` dials exactly that IP (closing the DNS-rebind
+ * window a pre-flight string check leaves open); `redirect: 'manual'` stops the
+ * fetch from following a 3xx to a private/metadata host (the bypass a bare
+ * `redirect: 'follow'` fetcher would allow). Throws on any policy violation.
+ */
+async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
+  const effectiveBase = resolveBaseUrl(provider, baseUrlOverride);
+  const pinned = await resolveSafeAddress(effectiveBase, {
+    allowLocalhost: isLocalProvider(provider),
+  });
+  return makeFetchFetcher({
+    redirect: 'manual',
+    fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
+  });
 }
 
 function buildSpec(data: {
@@ -112,6 +127,7 @@ function buildSpec(data: {
 
 async function runStream(
   spec: ChatRequestSpec,
+  fetcher: Fetcher,
   streamId: string,
   webContentsId: number,
   abort: AbortController
@@ -121,7 +137,7 @@ async function runStream(
   try {
     for await (const ev of executeAiChat(
       { ...spec, signal: abort.signal },
-      nodeFetcher,
+      fetcher,
       resolveSecretFn
     )) {
       emitTo(webContentsId, chunkChannel, ev);
@@ -151,12 +167,11 @@ export function registerAiLabHandlers(): void {
     // hundreds of completes, and the concurrency semaphore (COMPLETE_CONCURRENCY)
     // is the real throttle. A per-minute cap would spuriously fail evals midway.
     const data = parsed.data;
-    if (data.baseUrlOverride) {
-      try {
-        await guardUrl(data.provider, data.baseUrlOverride);
-      } catch (e) {
-        return { ok: false as const, error: (e as Error).message };
-      }
+    let fetcher: Fetcher;
+    try {
+      fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message };
     }
 
     // Collision-free id (a timestamp-based key could collide for two completes
@@ -172,7 +187,7 @@ export function registerAiLabHandlers(): void {
     try {
       const result = await runToCompletion(
         { ...buildSpec(data), signal: abort.signal },
-        nodeFetcher,
+        fetcher,
         resolveSecretFn
       );
       return { ok: true as const, result };
@@ -200,19 +215,18 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: 'Too many concurrent AI Lab streams.' };
     }
     const data = parsed.data;
-    if (data.baseUrlOverride) {
-      try {
-        await guardUrl(data.provider, data.baseUrlOverride);
-      } catch (e) {
-        return { ok: false as const, error: (e as Error).message };
-      }
+    let fetcher: Fetcher;
+    try {
+      fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message };
     }
     const abort = new AbortController();
     activeStreams.set(data.streamId, { streamId: data.streamId, webContentsId: senderId, abort });
     bindRendererCleanup(activeStreams, event.sender, (deadId) =>
       disposeByOwner(activeStreams, deadId, (s) => s.abort.abort())
     );
-    void runStream(buildSpec(data), data.streamId, senderId, abort);
+    void runStream(buildSpec(data), fetcher, data.streamId, senderId, abort);
     return { ok: true as const, streamId: data.streamId };
   });
 
@@ -237,12 +251,12 @@ export function registerAiLabHandlers(): void {
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
     try {
-      await guardUrl(provider, baseUrl);
+      const fetcher = await buildSafeFetcher(provider, baseUrl);
       const apiKey = apiKeyHandleId ? await resolveSecretFn(apiKeyHandleId) : undefined;
       const models = await listModels({
         provider,
         baseUrl,
-        fetcher: nodeFetcher,
+        fetcher,
         ...(apiKey ? { apiKey } : {}),
       });
       return { ok: true as const, models };
@@ -256,8 +270,9 @@ export function registerAiLabHandlers(): void {
     const parsed = AiLabDiscoverSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
+    let fetcher: Fetcher;
     try {
-      await guardUrl(provider, baseUrl);
+      fetcher = await buildSafeFetcher(provider, baseUrl);
     } catch (e) {
       return { ok: false as const, error: (e as Error).message };
     }
@@ -265,7 +280,7 @@ export function registerAiLabHandlers(): void {
     const result = await testConnection({
       provider,
       baseUrl,
-      fetcher: nodeFetcher,
+      fetcher,
       ...(apiKey ? { apiKey } : {}),
     });
     return result;

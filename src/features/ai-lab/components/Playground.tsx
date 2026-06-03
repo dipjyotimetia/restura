@@ -78,7 +78,10 @@ export function Playground() {
       Object.fromEntries(chosen.map((m) => [m.key, { text: '', status: 'streaming' as const }]))
     );
 
-    const handles = await Promise.all(
+    // allSettled (not all): if one stream fails to start (e.g. hitting the
+    // per-sender concurrency cap), the others still run and remain cancellable,
+    // and the failed cell shows an error instead of stranding the UI in "Stop".
+    const settled = await Promise.allSettled(
       chosen.map(async (m) => {
         const messages = sys
           ? [
@@ -128,6 +131,23 @@ export function Playground() {
         });
       })
     );
+
+    const handles: StreamHandle[] = [];
+    settled.forEach((r, i) => {
+      const m = chosen[i];
+      if (!m) return;
+      if (r.status === 'fulfilled') {
+        handles.push(r.value);
+      } else {
+        // Stream never started: surface the error and release its activeCount slot.
+        setActiveCount((c) => Math.max(0, c - 1));
+        const message = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        setCells((prev) => ({
+          ...prev,
+          [m.key]: { ...(prev[m.key] ?? { text: '' }), status: 'error', error: message },
+        }));
+      }
+    });
     handlesRef.current = handles;
   };
 

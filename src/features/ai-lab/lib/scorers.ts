@@ -146,13 +146,22 @@ async function scoreJsonSchema(
   } catch {
     return pass(scorer, false, 'scorer schema is not valid JSON');
   }
-  const mod = (await import('ajv')) as unknown as {
-    default?: new (opts?: object) => { compile: (s: object) => (d: unknown) => boolean };
-  } & { Ajv?: new (opts?: object) => { compile: (s: object) => (d: unknown) => boolean } };
-  const Ctor = mod.default ?? mod.Ajv;
-  if (!Ctor) return pass(scorer, false, 'JSON-schema validator unavailable');
-  const ajv = new Ctor({ allErrors: true, strict: false });
-  const validate = ajv.compile(schema);
-  const ok = validate(data);
-  return pass(scorer, ok, ok ? undefined : 'output does not match schema');
+  try {
+    const mod = (await import('ajv')) as unknown as {
+      default?: new (opts?: object) => { compile: (s: object) => (d: unknown) => boolean };
+    } & { Ajv?: new (opts?: object) => { compile: (s: object) => (d: unknown) => boolean } };
+    const Ctor = mod.default ?? mod.Ajv;
+    if (!Ctor) return pass(scorer, false, 'JSON-schema validator unavailable');
+    const ajv = new Ctor({ allErrors: true, strict: false });
+    const validate = ajv.compile(schema);
+    const ok = validate(data);
+    return pass(scorer, ok, ok ? undefined : 'output does not match schema');
+  } catch (e) {
+    // Invalid schema (ajv.compile throws) or a load failure — fail closed.
+    return pass(
+      scorer,
+      false,
+      `schema validation error: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
 }

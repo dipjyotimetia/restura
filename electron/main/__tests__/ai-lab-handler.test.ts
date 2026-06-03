@@ -12,15 +12,18 @@ const mockRunToCompletion = vi.hoisted(() =>
 const mockListModels = vi.hoisted(() => vi.fn(async () => [{ id: 'llama3.2' }]));
 const mockTestConnection = vi.hoisted(() => vi.fn(async () => ({ ok: true, modelCount: 1 })));
 
-// dns-guard fake mimicking the real loopback-only policy so we can assert that
-// the handler passes the correct `allowLocalhost` flag on every outbound path.
-const mockAssertSafe = vi.hoisted(() =>
+// safe-connect fake mimicking the real loopback-only SSRF policy so we can assert
+// the handler resolves+pins the right host with the correct `allowLocalhost` flag
+// on every outbound path. resolveSafeAddress both validates AND returns a pinned
+// address; createPinnedFetch is irrelevant to these assertions.
+const mockResolveSafe = vi.hoisted(() =>
   vi.fn(async (url: string, opts: { allowLocalhost: boolean }) => {
     const host = new URL(url).hostname.toLowerCase();
     const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
     if (isLoopback && !opts.allowLocalhost) {
       throw new Error('Localhost URLs are not allowed');
     }
+    return { host, ip: '203.0.113.1', port: 443, family: 4 as const };
   })
 );
 
@@ -28,7 +31,10 @@ vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: mockRemoveHandler },
 }));
 vi.mock('../secret-handle-store', () => ({ resolveSecretHandle: mockResolveSecret }));
-vi.mock('../dns-guard', () => ({ assertUrlHostnameSafe: mockAssertSafe }));
+vi.mock('../safe-connect', () => ({
+  resolveSafeAddress: mockResolveSafe,
+  createPinnedFetch: () => vi.fn(),
+}));
 vi.mock('../ipc-utils', () => ({ emitTo: mockEmitTo }));
 vi.mock('../connection-cleanup', () => ({
   bindRendererCleanup: mockBindCleanup,
@@ -60,7 +66,7 @@ function handlerFor(channel: string) {
 describe('ai-lab-handler', () => {
   beforeEach(() => {
     mockHandle.mockClear();
-    mockAssertSafe.mockClear();
+    mockResolveSafe.mockClear();
     mockResolveSecret.mockReset();
     mockRunToCompletion.mockClear();
     mockListModels.mockClear();
@@ -100,7 +106,7 @@ describe('ai-lab-handler', () => {
         baseUrlOverride: 'http://localhost:8080',
       });
       expect(res.ok).toBe(false);
-      expect(mockAssertSafe).toHaveBeenCalledWith('http://localhost:8080', {
+      expect(mockResolveSafe).toHaveBeenCalledWith('http://localhost:8080', {
         allowLocalhost: false,
       });
       expect(mockRunToCompletion).not.toHaveBeenCalled();
@@ -112,7 +118,7 @@ describe('ai-lab-handler', () => {
         provider: 'ollama',
         baseUrlOverride: 'http://localhost:11434',
       });
-      expect(mockAssertSafe).toHaveBeenCalledWith('http://localhost:11434', {
+      expect(mockResolveSafe).toHaveBeenCalledWith('http://localhost:11434', {
         allowLocalhost: true,
       });
       expect(res.ok).toBe(true);
@@ -127,7 +133,7 @@ describe('ai-lab-handler', () => {
         baseUrl: 'http://localhost:1234',
       });
       expect(res.ok).toBe(false);
-      expect(mockAssertSafe).toHaveBeenCalledWith('http://localhost:1234', {
+      expect(mockResolveSafe).toHaveBeenCalledWith('http://localhost:1234', {
         allowLocalhost: false,
       });
       expect(mockListModels).not.toHaveBeenCalled();
@@ -139,7 +145,7 @@ describe('ai-lab-handler', () => {
         baseUrl: 'http://localhost:11434',
       });
       expect(res.ok).toBe(true);
-      expect(mockAssertSafe).toHaveBeenCalledWith('http://localhost:11434', {
+      expect(mockResolveSafe).toHaveBeenCalledWith('http://localhost:11434', {
         allowLocalhost: true,
       });
       expect(mockListModels).toHaveBeenCalledOnce();

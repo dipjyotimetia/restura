@@ -33,6 +33,8 @@ const SCORER_KINDS: Array<{ kind: ScorerKind; label: string }> = [
   { kind: 'json-valid', label: 'Valid JSON' },
   { kind: 'json-schema', label: 'JSON schema' },
   { kind: 'latency', label: 'Latency under (ms)' },
+  { kind: 'cost', label: 'Cost under (USD)' },
+  { kind: 'script', label: 'Script (pm.test)' },
   { kind: 'judge', label: 'LLM-as-judge' },
 ];
 
@@ -318,6 +320,25 @@ function ScorerRow({
             type="number"
             value={scorer.maxMs}
             onChange={(e) => onChange({ maxMs: Number(e.target.value) || 0 })}
+          />
+        )}
+        {scorer.kind === 'cost' && (
+          <Input
+            className="h-7 w-28 text-xs"
+            type="number"
+            step={0.001}
+            min={0}
+            value={scorer.maxUSD}
+            onChange={(e) => onChange({ maxUSD: Number(e.target.value) || 0 })}
+          />
+        )}
+        {scorer.kind === 'script' && (
+          <Textarea
+            className="font-mono text-xs"
+            rows={3}
+            placeholder="pm.test('...', () => pm.expect(pm.response.text()).to.include('...'))"
+            value={scorer.code}
+            onChange={(e) => onChange({ code: e.target.value })}
           />
         )}
         {scorer.kind === 'judge' && (

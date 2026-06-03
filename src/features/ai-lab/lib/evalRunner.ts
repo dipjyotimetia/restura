@@ -140,11 +140,35 @@ async function runCell(
   }
 
   const cost = computeCost(cfg, completion.usage?.estimatedCostUSD);
-  const scores = await scoreCell(
-    scorers,
-    {
+  // Individual scorers fail closed inside runScorer; this guard is the backstop
+  // for an UNEXPECTED throw (e.g. a scorer dependency failing to load) so one bad
+  // cell fails on its own instead of rejecting the whole worker pool.
+  let scores: EvalCellResult['scores'];
+  try {
+    scores = await scoreCell(
+      scorers,
+      {
+        output: completion.text,
+        testCase: c,
+        latencyMs,
+        cost,
+        ...(completion.usage
+          ? {
+              usage: {
+                promptTokens: completion.usage.promptTokens,
+                completionTokens: completion.usage.completionTokens,
+              },
+            }
+          : {}),
+      },
+      providers
+    );
+  } catch (e) {
+    return {
+      caseId: c.id,
+      modelRef,
       output: completion.text,
-      testCase: c,
+      ok: true,
       latencyMs,
       cost,
       ...(completion.usage
@@ -155,9 +179,11 @@ async function runCell(
             },
           }
         : {}),
-    },
-    providers
-  );
+      error: `scoring failed: ${e instanceof Error ? e.message : String(e)}`,
+      scores: [],
+      passed: false,
+    };
+  }
 
   return {
     caseId: c.id,

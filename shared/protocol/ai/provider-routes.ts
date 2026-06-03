@@ -36,6 +36,15 @@ function baseUrl(spec: ChatRequestSpec): string {
   return spec.baseUrlOverride?.replace(/\/+$/, '') ?? DEFAULT_BASE_URLS[spec.provider];
 }
 
+/**
+ * The effective base URL for a provider call — the override, or the provider's
+ * default. Exported so the Electron handler can resolve + DNS-pin the exact host
+ * it's about to connect to (the SSRF guard validates this same host).
+ */
+export function resolveBaseUrl(provider: Provider, baseUrlOverride?: string): string {
+  return baseUrlOverride?.replace(/\/+$/, '') ?? DEFAULT_BASE_URLS[provider];
+}
+
 /** OpenAI tools: [{ type:'function', function:{ name, description, parameters } }]. */
 function openaiTools(spec: ChatRequestSpec) {
   if (!spec.tools || spec.tools.length === 0) return undefined;
