@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { BarChart3, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Floater } from '@/components/ui/spatial';
+import { cn } from '@/lib/shared/utils';
 import { percentile } from '@/lib/shared/loadStats';
 import { useEvalRunStore } from '../store/useEvalRunStore';
+import { EmptyState } from './EmptyState';
 import type { EvalCellResult, EvalRun } from '../types';
 
 interface ModelStats {
@@ -63,25 +66,29 @@ export function ReportView() {
   const current = active ? statsByModel(active) : [];
   const prevStats = previous ? statsByModel(previous) : [];
 
+  if (sorted.length === 0) {
+    return <EmptyState icon={BarChart3} message="No runs yet. Run an eval first." />;
+  }
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
       <div className="space-y-2">
-        {sorted.length === 0 && (
-          <p className="text-sm text-muted-foreground">No runs yet. Run an eval first.</p>
-        )}
         {sorted.map((r) => (
           <button
             key={r.id}
             onClick={() => setActiveId(r.id)}
-            className={`flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm ${
-              active?.id === r.id ? 'border-primary bg-primary/5' : 'border-border/40'
-            }`}
+            className={cn(
+              'flex w-full items-center justify-between rounded-sp-btn border px-3 py-2 text-left text-sp-13 transition-colors',
+              active?.id === r.id
+                ? 'border-sp-accent bg-[var(--sp-accent-glow-15)] text-sp-text'
+                : 'border-sp-line text-sp-text hover:bg-sp-hover'
+            )}
           >
             <span className="truncate">
               {r.configName}
-              <span className="ml-1 text-[10px] text-muted-foreground">{r.status}</span>
+              <span className="ml-1 text-[10px] text-sp-muted">{r.status}</span>
             </span>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-sp-12 text-sp-muted">
               {r.cells.length}/{r.totalCells}
             </span>
           </button>
@@ -89,9 +96,9 @@ export function ReportView() {
       </div>
 
       {active ? (
-        <div className="space-y-3">
+        <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium">{active.configName}</h2>
+            <h2 className="text-sp-13 font-semibold text-sp-text">{active.configName}</h2>
             <Button
               variant="ghost"
               size="sm"
@@ -104,9 +111,9 @@ export function ReportView() {
             </Button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="text-muted-foreground">
-                <tr className="border-b border-border/40 text-left">
+            <table className="w-full text-sp-12">
+              <thead className="text-sp-muted">
+                <tr className="border-b border-sp-line text-left">
                   <th className="py-1 pr-3">Model</th>
                   <th className="py-1 pr-3">Pass rate</th>
                   <th className="py-1 pr-3">Δ vs prev</th>
@@ -115,7 +122,7 @@ export function ReportView() {
                   <th className="py-1 pr-3">Cost</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="text-sp-text">
                 {current
                   .slice()
                   .sort((a, b) => b.passRate - a.passRate)
@@ -123,7 +130,7 @@ export function ReportView() {
                     const prev = prevStats.find((p) => p.label === m.label);
                     const delta = prev ? m.passRate - prev.passRate : null;
                     return (
-                      <tr key={m.label} className="border-b border-border/20">
+                      <tr key={m.label} className="border-b border-sp-line">
                         <td className="py-1 pr-3 font-medium">{m.label}</td>
                         <td className="py-1 pr-3">
                           {(m.passRate * 100).toFixed(0)}% ({m.passed}/{m.total})
@@ -154,13 +161,13 @@ export function ReportView() {
             </table>
           </div>
           {previous && (
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-[10px] text-sp-muted">
               Δ compares against the previous run of this eval.
             </p>
           )}
-        </div>
+        </Floater>
       ) : (
-        <p className="text-sm text-muted-foreground">Select a run.</p>
+        <EmptyState message="Select a run." />
       )}
     </div>
   );

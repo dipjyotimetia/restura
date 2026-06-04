@@ -3,10 +3,10 @@ import { toast } from 'sonner';
 import { Play, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
+import { Floater } from '@/components/ui/spatial';
 import {
   Select,
   SelectContent,
@@ -149,21 +149,23 @@ export function EvalBuilder() {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <div className="space-y-3">
+      <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
         <div className="space-y-1">
-          <Label className="text-xs">Eval name</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">Eval name</label>
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">System</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">System</label>
           <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2} />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">User prompt ({'{{var}}'} from dataset)</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">
+            User prompt ({'{{var}}'} from dataset)
+          </label>
           <Textarea value={user} onChange={(e) => setUser(e.target.value)} rows={3} />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Dataset</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">Dataset</label>
           <Select value={datasetId} onValueChange={setDatasetId}>
             <SelectTrigger>
               <SelectValue placeholder="Select a dataset" />
@@ -178,23 +180,21 @@ export function EvalBuilder() {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Models</Label>
-          <div className="max-h-40 space-y-1 overflow-auto rounded border border-border/40 p-2">
+          <label className="text-sp-11 text-sp-muted font-mono">Models</label>
+          <Floater radius="btn" elevation="inset" className="max-h-40 space-y-1 overflow-auto p-2">
             {modelOptions.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Add providers + discover models first.
-              </p>
+              <p className="text-sp-12 text-sp-muted">Add providers + discover models first.</p>
             )}
             {modelOptions.map((m) => (
-              <label key={m.key} className="flex items-center gap-2 text-xs">
+              <label key={m.key} className="flex items-center gap-2 text-sp-12 text-sp-text">
                 <Checkbox checked={selected.has(m.key)} onCheckedChange={() => toggle(m.key)} />
                 {m.label}
               </label>
             ))}
-          </div>
+          </Floater>
         </div>
         <div className="flex items-center gap-2">
-          <Label className="text-xs">Concurrency</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">Concurrency</label>
           <Input
             type="number"
             min={1}
@@ -204,11 +204,11 @@ export function EvalBuilder() {
             className="w-20"
           />
         </div>
-      </div>
+      </Floater>
 
-      <div className="space-y-3">
+      <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
         <div className="flex items-center justify-between">
-          <Label className="text-xs">Scorers</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">Scorers</label>
           <Select
             value=""
             onValueChange={(k) =>
@@ -238,9 +238,7 @@ export function EvalBuilder() {
             />
           ))}
           {scorers.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              No scorers — cells will record output only.
-            </p>
+            <p className="text-sp-12 text-sp-muted">No scorers — cells will record output only.</p>
           )}
         </div>
 
@@ -249,21 +247,21 @@ export function EvalBuilder() {
             <Square className="mr-2 h-3.5 w-3.5" /> Stop
           </Button>
         ) : (
-          <Button size="sm" onClick={run} className="w-full">
-            <Play className="mr-2 h-3.5 w-3.5" /> Run eval
+          <Button variant="cta" size="cta" onClick={run} className="w-full">
+            <Play className="h-3.5 w-3.5" /> Run eval
           </Button>
         )}
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {error && <p className="text-sp-12 text-destructive">{error}</p>}
         {progress && (
           <div className="space-y-1">
             <Progress value={(progress.completed / Math.max(1, progress.total)) * 100} />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sp-12 text-sp-muted">
               {progress.completed}/{progress.total} cells · {passCount} passed
               {progress.done && ' · done — see Reports'}
             </p>
           </div>
         )}
-      </div>
+      </Floater>
     </div>
   );
 }
@@ -280,9 +278,9 @@ function ScorerRow({
   onRemove: () => void;
 }) {
   return (
-    <div className="glass-1 flex items-start gap-2 rounded border border-border/40 p-2">
+    <Floater radius="btn" elevation="inset" className="flex items-start gap-2 p-2">
       <div className="flex-1 space-y-1">
-        <div className="text-xs font-medium">{scorer.kind}</div>
+        <div className="text-sp-12 font-medium text-sp-text">{scorer.kind}</div>
         {scorer.kind === 'contains' && (
           <Input
             className="h-7 text-xs"
@@ -394,6 +392,6 @@ function ScorerRow({
       <Button variant="ghost" size="sm" onClick={onRemove} className="h-6 w-6 p-0">
         <X className="h-3 w-3" />
       </Button>
-    </div>
+    </Floater>
   );
 }
