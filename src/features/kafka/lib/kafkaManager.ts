@@ -4,26 +4,55 @@ import type {
   KafkaCompression,
   KafkaConnection,
   KafkaMessageDirection,
+  KafkaRegistry,
 } from '@/features/kafka/store/useKafkaStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
-import type { KafkaAuthIpc, KafkaGroupInfo } from '../../../../electron/types/electron-api';
+import type {
+  KafkaAuthIpc,
+  KafkaGroupInfo,
+  KafkaRegistryIpc,
+} from '../../../../electron/types/electron-api';
 
-export function kafkaSecretKey(
-  connectionId: string,
-  field: 'sasl-password' | 'tls-passphrase'
-): string {
+type KafkaSecretField = 'sasl-password' | 'tls-passphrase' | 'registry-password' | 'registry-token';
+
+export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
   // Hits the sensitive-key regex (`password`/`auth`) in secureStorage so it
   // routes to electron-store + safeStorage in the desktop build.
   return `kafka:${connectionId}:${field}`;
 }
 
-function readSecret(
-  connectionId: string,
-  field: 'sasl-password' | 'tls-passphrase'
-): string | null {
+function readSecret(connectionId: string, field: KafkaSecretField): string | null {
   return secureStorage.get(kafkaSecretKey(connectionId, field));
+}
+
+/**
+ * Resolve the persisted registry config (secret sentinels) into the plaintext
+ * IPC shape. Returns undefined when no registry is configured.
+ */
+function resolveRegistry(
+  connectionId: string,
+  registry: KafkaRegistry | undefined
+): KafkaRegistryIpc | undefined {
+  if (!registry) return undefined;
+  const out: KafkaRegistryIpc = { url: registry.url };
+  if (registry.auth) {
+    const auth: NonNullable<KafkaRegistryIpc['auth']> = {};
+    if (registry.auth.username) auth.username = registry.auth.username;
+    const password =
+      registry.auth.password === KAFKA_SECRET_SENTINEL
+        ? readSecret(connectionId, 'registry-password')
+        : registry.auth.password;
+    if (password) auth.password = password;
+    const token =
+      registry.auth.token === KAFKA_SECRET_SENTINEL
+        ? readSecret(connectionId, 'registry-token')
+        : registry.auth.token;
+    if (token) auth.token = token;
+    if (Object.keys(auth).length > 0) out.auth = auth;
+  }
+  return out;
 }
 
 /**
@@ -127,12 +156,14 @@ class KafkaManager {
 
     this.bindLifecycleListeners(connection.id);
 
+    const registry = resolveRegistry(connection.id, connection.registry);
     const result = await api.kafka.connect({
       connectionId: connection.id,
       clientId: connection.clientId,
       bootstrapBrokers: connection.bootstrapBrokers,
       auth: ipcAuth,
       ...(connection.idempotent ? { idempotent: true } : {}),
+      ...(registry ? { registry } : {}),
     });
 
     if (!result.success) {

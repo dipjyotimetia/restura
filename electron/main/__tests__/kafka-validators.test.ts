@@ -23,6 +23,31 @@ describe('Kafka IPC validators', () => {
       expect(result.success).toBe(true);
     });
 
+    it('accepts an optional Schema Registry config with auth', () => {
+      const result = KafkaConnectSchema.safeParse({
+        connectionId: 'abc',
+        clientId: 'r',
+        bootstrapBrokers: ['localhost:9092'],
+        auth: { securityProtocol: 'PLAINTEXT' },
+        registry: {
+          url: 'https://schema-registry:8081',
+          auth: { username: 'u', password: 'p', token: 't' },
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects a Schema Registry with a non-URL', () => {
+      const result = KafkaConnectSchema.safeParse({
+        connectionId: 'abc',
+        clientId: 'r',
+        bootstrapBrokers: ['localhost:9092'],
+        auth: { securityProtocol: 'PLAINTEXT' },
+        registry: { url: 'not-a-url' },
+      });
+      expect(result.success).toBe(false);
+    });
+
     it('requires SASL block for SASL_PLAINTEXT', () => {
       const result = KafkaConnectSchema.safeParse({
         connectionId: 'abc',

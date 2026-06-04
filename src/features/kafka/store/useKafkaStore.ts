@@ -40,6 +40,22 @@ export interface KafkaAuth {
   tls?: KafkaTls;
 }
 
+/**
+ * Confluent Schema Registry config. When set, the consumer decodes
+ * Avro/Protobuf/JSON Schema messages via the registry. Auth secrets persist as
+ * the sentinel; real values live in secureStorage (resolved by kafkaManager).
+ */
+export interface KafkaRegistry {
+  url: string;
+  auth?: {
+    username?: string;
+    /** Persisted as the sentinel; real value comes from secureStorage */
+    password?: string;
+    /** Persisted as the sentinel; real value comes from secureStorage */
+    token?: string;
+  };
+}
+
 export interface KafkaProducedAck {
   topic: string;
   partition: number;
@@ -82,6 +98,8 @@ export interface KafkaConnection {
   compression: KafkaCompression;
   /** Idempotent producer — exactly-once-per-partition dedup; forces acks=-1. */
   idempotent: boolean;
+  /** Optional Confluent Schema Registry — enables Avro/Protobuf/JSON decode. */
+  registry?: KafkaRegistry;
   consumer: KafkaConsumerState;
   messages: KafkaMessage[];
   createdAt: number;
@@ -350,6 +368,7 @@ export const useKafkaStore = create<KafkaState>()(
               status: 'disconnected' as const,
               messages: [] as KafkaMessage[],
               auth: redactSecrets(conn.auth),
+              registry: conn.registry ? redactRegistry(conn.registry) : undefined,
               consumer: { ...conn.consumer, status: 'idle' as const },
             },
           ])
@@ -381,4 +400,13 @@ function redactSecrets(auth: KafkaAuth): KafkaAuth {
     next.tls = tls;
   }
   return next;
+}
+
+function redactRegistry(registry: KafkaRegistry): KafkaRegistry {
+  if (!registry.auth) return { url: registry.url };
+  const auth: NonNullable<KafkaRegistry['auth']> = {};
+  if (registry.auth.username !== undefined) auth.username = registry.auth.username;
+  if (registry.auth.password) auth.password = KAFKA_SECRET_SENTINEL;
+  if (registry.auth.token) auth.token = KAFKA_SECRET_SENTINEL;
+  return { url: registry.url, auth };
 }

@@ -209,6 +209,8 @@ function KafkaClient() {
 
   const [saslPasswordDraft, setSaslPasswordDraft] = useState('');
   const [tlsPassphraseDraft, setTlsPassphraseDraft] = useState('');
+  const [registryPasswordDraft, setRegistryPasswordDraft] = useState('');
+  const [registryTokenDraft, setRegistryTokenDraft] = useState('');
   const [brokerDraft, setBrokerDraft] = useState('');
   const [topicDraft, setTopicDraft] = useState('');
   const [produceKey, setProduceKey] = useState('');
@@ -347,7 +349,29 @@ function KafkaClient() {
     if (nextAuth !== connection.auth) {
       updateAuth(connection.id, nextAuth);
     }
-    await kafkaManager.connect({ ...connection, auth: nextAuth });
+
+    // Persist registry secret drafts to secureStorage and store sentinels.
+    let nextRegistry = connection.registry;
+    if (nextRegistry && (registryPasswordDraft || registryTokenDraft)) {
+      const auth = { ...(nextRegistry.auth ?? {}) };
+      if (registryPasswordDraft) {
+        secureStorage.set(
+          kafkaSecretKey(connection.id, 'registry-password'),
+          registryPasswordDraft
+        );
+        auth.password = KAFKA_SECRET_SENTINEL;
+        setRegistryPasswordDraft('');
+      }
+      if (registryTokenDraft) {
+        secureStorage.set(kafkaSecretKey(connection.id, 'registry-token'), registryTokenDraft);
+        auth.token = KAFKA_SECRET_SENTINEL;
+        setRegistryTokenDraft('');
+      }
+      nextRegistry = { ...nextRegistry, auth };
+      updateConnection(connection.id, { registry: nextRegistry });
+    }
+
+    await kafkaManager.connect({ ...connection, auth: nextAuth, registry: nextRegistry });
   };
 
   const handleDisconnect = async (): Promise<void> => {
@@ -1037,6 +1061,76 @@ function KafkaClient() {
                   </div>
                 </div>
               )}
+
+              {/* Schema Registry (optional) — decodes Avro/Protobuf/JSON on consume */}
+              <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs sp-label">Schema Registry</Label>
+                  <Switch
+                    checked={!!connection.registry}
+                    onCheckedChange={(checked) =>
+                      updateConnection(connection.id, {
+                        registry: checked ? (connection.registry ?? { url: '' }) : undefined,
+                      })
+                    }
+                  />
+                </div>
+                {connection.registry && (
+                  <>
+                    <Input
+                      value={connection.registry.url}
+                      onChange={(e) =>
+                        updateConnection(connection.id, {
+                          registry: { ...connection.registry!, url: e.target.value },
+                        })
+                      }
+                      placeholder="https://schema-registry:8081"
+                      className="h-8 text-xs font-mono"
+                    />
+                    <Input
+                      value={connection.registry.auth?.username ?? ''}
+                      onChange={(e) =>
+                        updateConnection(connection.id, {
+                          registry: {
+                            ...connection.registry!,
+                            auth: {
+                              ...(connection.registry!.auth ?? {}),
+                              username: e.target.value,
+                            },
+                          },
+                        })
+                      }
+                      placeholder="Username (optional)"
+                      className="h-8 text-xs font-mono"
+                    />
+                    <Input
+                      type="password"
+                      value={registryPasswordDraft}
+                      onChange={(e) => setRegistryPasswordDraft(e.target.value)}
+                      placeholder={
+                        connection.registry.auth?.password === KAFKA_SECRET_SENTINEL
+                          ? 'Password (stored — leave blank to keep)'
+                          : 'Password (optional)'
+                      }
+                      className="h-8 text-xs font-mono"
+                    />
+                    <Input
+                      type="password"
+                      value={registryTokenDraft}
+                      onChange={(e) => setRegistryTokenDraft(e.target.value)}
+                      placeholder={
+                        connection.registry.auth?.token === KAFKA_SECRET_SENTINEL
+                          ? 'Bearer token (stored — leave blank to keep)'
+                          : 'Bearer token (optional)'
+                      }
+                      className="h-8 text-xs font-mono"
+                    />
+                    <p className="text-sp-11 text-sp-muted">
+                      Decodes Avro / Protobuf / JSON messages on consume.
+                    </p>
+                  </>
+                )}
+              </div>
             </Floater>
           </TabsContent>
 

@@ -42,3 +42,21 @@ export function assertKafkaBrokersSafe(brokers: readonly string[]): void {
     }
   }
 }
+
+/**
+ * Pre-flight SSRF guard for a Confluent Schema Registry URL. Same trust posture
+ * as the brokers (registries live on the same private/VPC networks), so private
+ * IPs are allowed but cloud-metadata endpoints and blocked hostnames are not.
+ * String-policy only — the same residual DNS-rebind gap as the broker guard
+ * applies (documented in ADR-0006).
+ */
+export function assertRegistryUrlSafe(url: string): void {
+  const result = validateURL(url, {
+    allowedSchemes: ['http:', 'https:'],
+    allowLocalhost: true,
+    allowPrivateIPs: true, // registries sit alongside brokers on private nets
+  });
+  if (!result.valid) {
+    throw new Error(`Schema Registry URL rejected: ${result.error}`);
+  }
+}

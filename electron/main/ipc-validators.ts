@@ -621,6 +621,19 @@ const KafkaAuthSchema = z.discriminatedUnion('securityProtocol', [
 export const KafkaCompressionSchema = z.enum(['none', 'gzip', 'snappy', 'lz4', 'zstd']);
 export const KafkaAcksSchema = z.union([z.literal(0), z.literal(1), z.literal(-1)]);
 
+// Confluent Schema Registry. `url` is SSRF-guarded at connect; auth holds the
+// already-resolved plaintext (kafkaManager resolves secret sentinels first).
+const KafkaRegistrySchema = z.object({
+  url: z.url('Invalid Schema Registry URL').max(2048),
+  auth: z
+    .object({
+      username: z.string().max(256).optional(),
+      password: z.string().max(1024).optional(),
+      token: z.string().max(4096).optional(),
+    })
+    .optional(),
+});
+
 export const KafkaConnectSchema = z.object({
   connectionId: KafkaConnectionIdSchema,
   clientId: z.string().min(1).max(256),
@@ -630,6 +643,7 @@ export const KafkaConnectSchema = z.object({
   // An idempotent producer REQUIRES acks=all(-1); the produce handler forces
   // that override when this is set, and the UI locks the acks picker to -1.
   idempotent: z.boolean().optional(),
+  registry: KafkaRegistrySchema.optional(),
 });
 
 // Topic naming rules per Kafka: max 249 chars, [a-zA-Z0-9._-]; we also forbid

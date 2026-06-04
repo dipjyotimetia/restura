@@ -3,6 +3,7 @@ import type { WebContents } from 'electron';
 import type {
   Admin,
   AdminOptions,
+  ConfluentSchemaRegistry,
   Consumer,
   ConsumerOptions,
   Message,
@@ -16,7 +17,8 @@ import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { emitTo, errorMessage } from './ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
 import { IPC } from '../shared/channels';
-import { assertKafkaBrokersSafe } from './kafka-broker-guard';
+import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from './kafka-broker-guard';
+import { valueToString } from './kafka-serde';
 import type { LogEntry } from './request-logger';
 import {
   KafkaConnectSchema,
@@ -67,6 +69,12 @@ interface ActiveKafka {
    * produce path forces acks=-1 (idempotent delivery requires all-ISR acks).
    */
   idempotent: boolean;
+  /**
+   * Confluent Schema Registry, built at connect when configured. When set, the
+   * consumer decodes Avro/Protobuf/JSON via it (the produce path stays string
+   * until Phase 2 wires schema selection).
+   */
+  registry?: ConfluentSchemaRegistry;
   /** Cached at connect — avoids a `webContents.fromId()` lookup per message. */
   wc?: WebContents;
   createdAt: number;
@@ -173,8 +181,8 @@ function bindStreamListeners(entry: ActiveKafka, stream: StringStream): void {
       topic: msg.topic,
       partition: msg.partition,
       offset: msg.offset.toString(),
-      key: msg.key,
-      value: msg.value,
+      key: msg.key == null ? undefined : valueToString(msg.key),
+      value: valueToString(msg.value),
       headers: headersFromMap(msg.headers as Map<string, string> | undefined),
       timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
     });
@@ -249,6 +257,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
     try {
       assertKafkaBrokersSafe(cfg.bootstrapBrokers);
+      if (cfg.registry) assertRegistryUrlSafe(cfg.registry.url);
     } catch (err) {
       const msg = errorMessage(err);
       logEntry(400, msg);
@@ -267,6 +276,16 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       } as unknown as ProducerOptions<string, string, string, string>;
       const producer = new kafka.Producer<string, string, string, string>(producerOptions);
 
+      // Schema Registry (optional): built here, used by the consumer to decode
+      // Avro/Protobuf/JSON. Construction is cheap and lazy — it fetches schemas
+      // on demand, not now. The produce path stays string until Phase 2.
+      const registry = cfg.registry
+        ? new kafka.ConfluentSchemaRegistry({
+            url: cfg.registry.url,
+            ...(cfg.registry.auth ? { auth: cfg.registry.auth } : {}),
+          })
+        : undefined;
+
       // @platformatic/kafka producers connect lazily; auth/TLS/host errors
       // surface on the first send rather than here. Metadata pre-fetch was
       // tried but some brokers reject `metadata({ topics: [] })`.
@@ -277,6 +296,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         connectionId,
         webContentsId,
         idempotent: cfg.idempotent ?? false,
+        ...(registry ? { registry } : {}),
         ...(wc ? { wc } : {}),
         createdAt: Date.now(),
       };
@@ -383,10 +403,15 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       }
       try {
         const kafka = getKafka();
+        // With a registry, pass `registry` and OMIT `deserializers` — the lib
+        // throws if both are set, and derives deserializers from the registry
+        // (decoded values arrive as objects; `valueToString` serializes them).
         const consumerOptions = {
           ...entry.clientOptions,
           groupId: cfg.groupId,
-          deserializers: kafka.stringDeserializers,
+          ...(entry.registry
+            ? { registry: entry.registry }
+            : { deserializers: kafka.stringDeserializers }),
         } as unknown as ConsumerOptions<string, string, string, string>;
         const consumer = new kafka.Consumer<string, string, string, string>(consumerOptions);
 
