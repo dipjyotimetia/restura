@@ -1,8 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Rocket, Send, Globe, Code2, Keyboard, FolderOpen, ArrowRight, CheckCircle2 } from 'lucide-react';
+import {
+  Rocket,
+  Send,
+  Globe,
+  Code2,
+  Keyboard,
+  FolderOpen,
+  ArrowRight,
+  CheckCircle2,
+} from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
+import { secureStorage } from '@/lib/shared/secure-storage';
 
 interface OnboardingStep {
   icon: React.ReactNode;
@@ -21,7 +38,8 @@ const onboardingSteps: OnboardingStep[] = [
   {
     icon: <Globe className="h-7 w-7 text-emerald-400" />,
     title: 'Manage Environments',
-    description: 'Create different environments (dev, staging, prod) and switch between them easily.',
+    description:
+      'Create different environments (dev, staging, prod) and switch between them easily.',
     tip: 'Use {{variableName}} syntax in URLs to reference environment variables',
   },
   {
@@ -33,7 +51,8 @@ const onboardingSteps: OnboardingStep[] = [
   {
     icon: <Code2 className="h-7 w-7 text-primary" />,
     title: 'Generate Code Snippets',
-    description: 'Convert any request into code in multiple languages (JavaScript, Python, Go, etc.).',
+    description:
+      'Convert any request into code in multiple languages (JavaScript, Python, Go, etc.).',
     tip: 'Click the "Code" button next to Send to generate snippets',
   },
   {
@@ -51,7 +70,9 @@ export default function WelcomeOnboarding() {
   const [currentStep, setCurrentStep] = useState(0);
 
   useEffect(() => {
-    const hasCompleted = localStorage.getItem(ONBOARDING_KEY);
+    // secureStorage wraps localStorage with try/catch (private mode / disabled
+    // storage → null), so we don't hand-roll the guard here.
+    const hasCompleted = secureStorage.get(ONBOARDING_KEY);
     if (!hasCompleted) {
       const timer = setTimeout(() => setIsOpen(true), 500);
       return () => clearTimeout(timer);
@@ -68,7 +89,7 @@ export default function WelcomeOnboarding() {
   };
 
   const handleComplete = () => {
-    localStorage.setItem(ONBOARDING_KEY, 'true');
+    secureStorage.set(ONBOARDING_KEY, 'true');
     setIsOpen(false);
   };
 
@@ -143,12 +164,7 @@ export default function WelcomeOnboarding() {
             <span className="text-[10px] font-mono text-muted-foreground">
               {currentStep + 1}/{onboardingSteps.length}
             </span>
-            <Button
-              variant="glow"
-              size="sm"
-              onClick={handleNext}
-              className="font-mono text-xs"
-            >
+            <Button variant="glow" size="sm" onClick={handleNext} className="font-mono text-xs">
               {currentStep === onboardingSteps.length - 1 ? (
                 'Get Started'
               ) : (

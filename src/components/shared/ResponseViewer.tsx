@@ -582,7 +582,12 @@ function ResponseViewer() {
                 {activeTab === 'preview' && (
                   <iframe
                     srcDoc={currentResponse.body}
-                    sandbox="allow-scripts allow-same-origin"
+                    // The preview renders an UNTRUSTED upstream response body.
+                    // `allow-scripts` ONLY — combining it with `allow-same-origin`
+                    // defeats the sandbox (scripts would run in the renderer's
+                    // origin, reaching its cookies/storage and the same-origin
+                    // /api proxy). Same load-bearing boundary as VisualizerFrame.
+                    sandbox="allow-scripts"
                     className="w-full h-full bg-white border-0"
                     title="HTML Preview"
                   />

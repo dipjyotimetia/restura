@@ -60,6 +60,13 @@ export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<R
   const server = pair[1];
   server.accept();
 
+  // 101 Switching Protocols handing the client socket back to the runtime.
+  // `ResponseInit.webSocket` is typed by the Worker lib as the full `WebSocket`;
+  // our narrow `CfWebSocket` only models the members we use, so the single cast
+  // here bridges that gap (vs. the previous `as unknown as ResponseInit` ×3).
+  const upgradeResponse = (): Response =>
+    new Response(null, { status: 101, webSocket: client as unknown as WebSocket });
+
   // Open the upstream via fetch() with Upgrade header — documented Workers
   // pattern for outbound WS-client connections.
   const upstreamUrl = spec.target.replace(/^ws/, 'http');
@@ -75,13 +82,12 @@ export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<R
     upstreamRes = await fetch(upstreamUrl, { headers: sanitisedHeaders });
   } catch (err) {
     server.close(1011, `Upstream connect failed: ${(err as Error).message}`);
-    return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
+    return upgradeResponse();
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const upstream = (upstreamRes as any).webSocket as CfWebSocket | undefined;
+  const upstream = upstreamRes.webSocket as CfWebSocket | null;
   if (!upstream) {
     server.close(1002, 'Upstream did not upgrade');
-    return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
+    return upgradeResponse();
   }
   upstream.accept();
 
@@ -102,14 +108,22 @@ export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<R
         dst.close(1009);
         return;
       }
-      try { dst.send(ev.data); } catch { /* peer closed */ }
+      try {
+        dst.send(ev.data);
+      } catch {
+        /* peer closed */
+      }
     });
     src.addEventListener('close', (ev) => {
-      try { dst.close(ev.code, ev.reason); } catch { /* already closed */ }
+      try {
+        dst.close(ev.code, ev.reason);
+      } catch {
+        /* already closed */
+      }
     });
   };
   pipe(server, upstream);
   pipe(upstream, server);
 
-  return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
+  return upgradeResponse();
 }
