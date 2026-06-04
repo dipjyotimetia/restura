@@ -203,8 +203,8 @@ export function Playground() {
           )}
         </div>
         {activeCount > 0 ? (
-          <Button variant="destructive" size="sm" onClick={stop} className="w-full">
-            <Square className="mr-2 h-3.5 w-3.5" /> Stop
+          <Button variant="destructive" size="cta" onClick={stop}>
+            <Square className="h-3.5 w-3.5" /> Stop
           </Button>
         ) : (
           <Button
@@ -212,7 +212,6 @@ export function Playground() {
             size="cta"
             onClick={() => void run()}
             disabled={selected.size === 0}
-            className="w-full"
           >
             <Play className="h-3.5 w-3.5" /> Run on {selected.size} model(s)
           </Button>

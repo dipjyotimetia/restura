@@ -67,8 +67,8 @@ export function DatasetEditor() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
       <div className="space-y-2">
-        <Button variant="cta" size="cta" onClick={createNew} className="w-full">
-          <Plus className="h-3.5 w-3.5" /> New dataset
+        <Button variant="secondary" size="sm" onClick={createNew} className="w-full">
+          <Plus className="mr-2 h-3.5 w-3.5" /> New dataset
         </Button>
         <div className="flex justify-center">
           <OpenApiGenDialog onCreated={(id) => setActiveId(id)} />
@@ -119,7 +119,7 @@ export function DatasetEditor() {
               className="font-mono text-xs"
             />
           </div>
-          <Button variant="cta" size="cta" onClick={save}>
+          <Button variant="secondary" size="sm" onClick={save}>
             Save dataset
           </Button>
         </Floater>

@@ -243,11 +243,11 @@ export function EvalBuilder() {
         </div>
 
         {running ? (
-          <Button variant="destructive" size="sm" onClick={stop} className="w-full">
-            <Square className="mr-2 h-3.5 w-3.5" /> Stop
+          <Button variant="destructive" size="cta" onClick={stop}>
+            <Square className="h-3.5 w-3.5" /> Stop
           </Button>
         ) : (
-          <Button variant="cta" size="cta" onClick={run} className="w-full">
+          <Button variant="cta" size="cta" onClick={run}>
             <Play className="h-3.5 w-3.5" /> Run eval
           </Button>
         )}

@@ -178,7 +178,7 @@ export function ProviderManager() {
             />
           </div>
         </div>
-        <Button onClick={() => void add()} variant="cta" size="cta">
+        <Button onClick={() => void add()} variant="secondary" size="sm">
           Add provider
         </Button>
       </Floater>
