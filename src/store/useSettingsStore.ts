@@ -8,6 +8,7 @@ import type {
   CaCert,
   HostClientCert,
   HostCaCert,
+  JudgeSettings,
 } from '@/types';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
@@ -29,6 +30,8 @@ interface SettingsState {
   // CORS proxy actions
   updateCorsProxy: (updates: Partial<CorsProxyConfig>) => void;
   setCorsProxyEnabled: (enabled: boolean) => void;
+  // Semantic-assertion judge actions
+  updateJudge: (updates: Partial<JudgeSettings>) => void;
   // Certificate actions
   setClientCert: (cert: ClientCert | undefined) => void;
   setCaCert: (ca: CaCert | undefined) => void;
@@ -77,6 +80,14 @@ const defaultSettings: AppSettings = {
   accent: '#4d9fff',
   // Desktop auto-updater: download in the background on the stable channel.
   autoUpdate: DEFAULT_AUTO_UPDATE_SETTINGS,
+  // Semantic-assertion judge (rs.judge): off by default; redact-before-judge ON
+  // (safe-by-default — don't ship raw API responses to a cloud LLM unprompted).
+  judge: {
+    enabled: false,
+    provider: 'openai',
+    model: '',
+    redactBeforeJudge: true,
+  },
   // clientCert and caCert intentionally omitted (optional under EOPT)
 };
 
@@ -175,6 +186,21 @@ export const useSettingsStore = create<SettingsState>()(
             corsProxy: { ...state.settings.corsProxy, enabled },
           },
         })),
+
+      updateJudge: (updates) =>
+        set((state) => {
+          // Merge over the persisted value or the defaults (pre-judge persisted
+          // state has no `judge` field).
+          const current: JudgeSettings = state.settings.judge ?? {
+            enabled: false,
+            provider: 'openai',
+            model: '',
+            redactBeforeJudge: true,
+          };
+          return {
+            settings: { ...state.settings, judge: { ...current, ...updates } },
+          };
+        }),
 
       setClientCert: (cert) =>
         set((s) => {

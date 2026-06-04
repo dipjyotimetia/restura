@@ -7,6 +7,7 @@ import { getQuickJS } from 'quickjs-emscripten';
 import { PM_EXPECT_BOOTSTRAP } from './pmExpect';
 import { loadSandboxLibraries, buildRequireShimSource } from './sandboxLibraries';
 import type { PmCookieAdapter, PmCookieRecord } from './pmCookieAdapter';
+import type { JudgeRequestInput, JudgeVerdict } from '@shared/protocol/ai/judge';
 export type { PmCookieAdapter, PmCookieRecord };
 
 export interface PmRequestInfo {
@@ -51,6 +52,13 @@ export interface ScriptHostBridges {
   cookies?: (currentUrl: string | undefined) => PmCookieAdapter;
   /** Vault key-value store for `pm.vault` (Phase D). */
   vault?: PmVaultAdapter;
+  /**
+   * LLM-as-judge bridge for `rs.judge(output, opts)` — a semantic
+   * assertion on the response. Like `sendRequest`/`vault` it routes to a
+   * host-resolved promise (renderer → `aiLab.complete` IPC; CLI → the AI
+   * proxy). Bound only when wired in, so non-AI builds never expose it.
+   */
+  judge?: (input: JudgeRequestInput) => Promise<JudgeVerdict>;
 }
 
 /** Phase-C placeholder shapes — concretized when host bridges land. */
@@ -316,7 +324,9 @@ class ScriptExecutor {
    * keychain unwrap can legitimately take a few seconds.
    */
   private hasAsyncBridges(): boolean {
-    return Boolean(this.host.sendRequest ?? this.host.vault ?? this.host.cookies);
+    return Boolean(
+      this.host.sendRequest ?? this.host.vault ?? this.host.cookies ?? this.host.judge
+    );
   }
 
   /**
@@ -821,66 +831,86 @@ class ScriptExecutor {
    * Promises that resolve when the host async work completes. The
    * Promise / pending-counter pattern matches pm.sendRequest above.
    */
+  /**
+   * Shared async-host-op machinery for `pm.vault` / `rs.judge` (and any
+   * future host bridge that returns a host-resolved promise). Creates a
+   * QuickJS deferred, increments `pendingHostOps`, registers a cleanup in
+   * `pendingHostCleanups` (so a wall-clock timeout / `dispose()` can reject
+   * + free the deferred before the runtime is torn down — QuickJS asserts
+   * on leaked handles otherwise), and settles the deferred when `work()`
+   * resolves/rejects. Lifted out of `bindPmVault` so `bindPmJudge` reuses
+   * the exact same memory-safe lifecycle.
+   */
+  private wrapAsyncHostOp<T>(
+    vm: QuickJSContext,
+    work: () => Promise<T>,
+    onResolve: (value: T) => QuickJSHandle
+  ): QuickJSHandle {
+    const deferred = vm.newPromise();
+    this.pendingHostOps++;
+    const cleanup = (): void => {
+      if (!this.pendingHostCleanups.has(cleanup)) return;
+      this.pendingHostCleanups.delete(cleanup);
+      if (this.runtime && deferred.alive) {
+        try {
+          const err = vm.newError('Script execution interrupted');
+          deferred.reject(err);
+          err.dispose();
+        } catch {
+          // vm in tear-down
+        }
+      }
+      if (deferred.alive) {
+        try {
+          deferred.dispose();
+        } catch {
+          // already disposed
+        }
+      }
+    };
+    this.pendingHostCleanups.add(cleanup);
+    work()
+      .then((value) => {
+        // Bail if dispose() ran during host work — every handle below
+        // is owned by the vm that's now gone.
+        if (!this.runtime) return;
+        const h = onResolve(value);
+        deferred.resolve(h);
+        h.dispose();
+      })
+      .catch((err: unknown) => {
+        if (!this.runtime) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        const e = this.makeJSValue(vm, { message: msg });
+        deferred.reject(e);
+        e.dispose();
+      })
+      .finally(() => {
+        this.pendingHostOps--;
+        cleanup();
+        if (this.runtime) {
+          const pending = this.runtime.executePendingJobs();
+          if (pending.error) pending.error.dispose();
+        }
+      });
+    return deferred.handle;
+  }
+
+  /**
+   * Build pm.vault namespace — three async methods returning QuickJS
+   * Promises that resolve when the host async work completes. The
+   * Promise / pending-counter pattern matches pm.sendRequest above.
+   */
   private bindPmVault(vm: QuickJSContext, pmObj: QuickJSHandle): void {
     const ns = vm.newObject();
-
-    const wrapAsync = <T>(work: () => Promise<T>, onResolve: (value: T) => QuickJSHandle) => {
-      const deferred = vm.newPromise();
-      this.pendingHostOps++;
-      const cleanup = (): void => {
-        if (!this.pendingHostCleanups.has(cleanup)) return;
-        this.pendingHostCleanups.delete(cleanup);
-        if (this.runtime && deferred.alive) {
-          try {
-            const err = vm.newError('Script execution interrupted');
-            deferred.reject(err);
-            err.dispose();
-          } catch {
-            // vm in tear-down
-          }
-        }
-        if (deferred.alive) {
-          try {
-            deferred.dispose();
-          } catch {
-            // already disposed
-          }
-        }
-      };
-      this.pendingHostCleanups.add(cleanup);
-      work()
-        .then((value) => {
-          // Bail if dispose() ran during host work — every handle below
-          // is owned by the vm that's now gone.
-          if (!this.runtime) return;
-          const h = onResolve(value);
-          deferred.resolve(h);
-          h.dispose();
-        })
-        .catch((err: unknown) => {
-          if (!this.runtime) return;
-          const msg = err instanceof Error ? err.message : String(err);
-          const e = this.makeJSValue(vm, { message: msg });
-          deferred.reject(e);
-          e.dispose();
-        })
-        .finally(() => {
-          this.pendingHostOps--;
-          cleanup();
-          if (this.runtime) {
-            const pending = this.runtime.executePendingJobs();
-            if (pending.error) pending.error.dispose();
-          }
-        });
-      return deferred.handle;
-    };
 
     const noHost = (op: string) =>
       Promise.reject(new Error(`pm.vault.${op}: no host adapter wired in this build`));
 
     const getFn = vm.newFunction('get', (keyHandle) => {
       const key = vm.getString(keyHandle);
-      return wrapAsync(
+      return this.wrapAsyncHostOp(
+        vm,
         () => (this.host.vault ? this.host.vault.get(key) : noHost('get')),
         (value) => (value === undefined ? vm.undefined : vm.newString(String(value)))
       );
@@ -888,14 +918,16 @@ class ScriptExecutor {
     const setFn = vm.newFunction('set', (keyHandle, valueHandle) => {
       const key = vm.getString(keyHandle);
       const value = vm.getString(valueHandle);
-      return wrapAsync(
+      return this.wrapAsyncHostOp(
+        vm,
         () => (this.host.vault ? this.host.vault.set(key, value) : noHost('set')),
         () => vm.undefined
       );
     });
     const unsetFn = vm.newFunction('unset', (keyHandle) => {
       const key = vm.getString(keyHandle);
-      return wrapAsync(
+      return this.wrapAsyncHostOp(
+        vm,
         () => (this.host.vault ? this.host.vault.unset(key) : noHost('unset')),
         () => vm.undefined
       );
@@ -908,6 +940,46 @@ class ScriptExecutor {
     unsetFn.dispose();
     vm.setProp(pmObj, 'vault', ns);
     ns.dispose();
+  }
+
+  /**
+   * Bind `rs.judge(output, opts)` — a semantic assertion that asks an LLM
+   * judge to evaluate `output` against `opts.rubric` (optional `reference`
+   * / `passThreshold`). Returns a QuickJS Promise resolving to a verdict
+   * `{ pass, score, reasoning }`. Routes through `this.host.judge`; bound
+   * only when that bridge is wired (mirrors `pm.sendRequest`). Reuses
+   * `wrapAsyncHostOp` for the deferred/cleanup lifecycle.
+   */
+  private bindPmJudge(vm: QuickJSContext, pmObj: QuickJSHandle): void {
+    const fn = vm.newFunction('judge', (outputHandle, optsHandle) => {
+      const output =
+        vm.typeof(outputHandle) === 'string'
+          ? vm.getString(outputHandle)
+          : this.stringify(vm.dump(outputHandle));
+      const optsRaw = optsHandle ? (vm.dump(optsHandle) as unknown) : undefined;
+      const opts =
+        optsRaw && typeof optsRaw === 'object' ? (optsRaw as Record<string, unknown>) : {};
+      const rubric = typeof opts.rubric === 'string' ? opts.rubric : '';
+      const reference = typeof opts.reference === 'string' ? opts.reference : undefined;
+      const passThreshold = typeof opts.passThreshold === 'number' ? opts.passThreshold : undefined;
+      const input: JudgeRequestInput = {
+        output,
+        rubric,
+        ...(reference !== undefined && { reference }),
+        ...(passThreshold !== undefined && { passThreshold }),
+      };
+      const judge = this.host.judge;
+      return this.wrapAsyncHostOp<JudgeVerdict>(
+        vm,
+        () =>
+          judge
+            ? judge(input)
+            : Promise.reject(new Error('rs.judge: host.judge is not wired in this build')),
+        (verdict) => this.makeJSValue(vm, verdict as unknown)
+      );
+    });
+    vm.setProp(pmObj, 'judge', fn);
+    fn.dispose();
   }
 
   /**
@@ -1310,6 +1382,13 @@ class ScriptExecutor {
     if (this.host.sendRequest) {
       this.bindPmSendRequest(vm, pmObj);
     }
+
+    // rs.judge — LLM-as-judge semantic assertion. Bound unconditionally
+    // (like pm.vault): when no host.judge closure is wired (web build / CLI
+    // without an AI provider) each call rejects with a clean "not wired in"
+    // error so scripts fail loudly rather than throwing "not a function".
+    // Available as both pm.judge and rs.judge (same object).
+    this.bindPmJudge(vm, pmObj);
 
     // pm.vault — async key-value secret store. Each method returns a
     // QuickJS Promise that resolves when the host async work (IPC →

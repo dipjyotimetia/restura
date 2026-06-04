@@ -1,4 +1,5 @@
 import type { SecretValue } from '@/lib/shared/secretRef';
+import type { Provider } from '@shared/protocol/ai/types';
 
 // HTTP Methods
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
@@ -879,6 +880,26 @@ export interface AppSettings {
   // Desktop auto-updater preferences (Electron only). Synced to the main
   // process via window.electron.updater.setConfig. `beta` maps to prerelease.
   autoUpdate?: AutoUpdateSettings;
+  // Semantic-assertion judge (rs.judge in test scripts). Desktop-only for now
+  // (web has no /api/ai route). See src/lib/shared/judgeBridge.ts.
+  judge?: JudgeSettings;
+}
+
+/**
+ * Config for the LLM-as-judge backing `rs.judge(...)` in test scripts.
+ * Structurally matches `JudgeConfig` in `src/lib/shared/judgeBridge.ts` (the
+ * consumer) — keep the two field-for-field in sync.
+ */
+export interface JudgeSettings {
+  enabled: boolean;
+  provider: Provider;
+  model: string;
+  /** SecretRef handle id for the provider API key (absent for keyless local runtimes). */
+  apiKeyHandleId?: string;
+  /** Base URL override; required by the IPC for local providers (ollama/openai-compatible). */
+  baseUrl?: string;
+  /** Redact the candidate output before sending it to the judge LLM. Default true. */
+  redactBeforeJudge: boolean;
 }
 
 export interface AutoUpdateSettings {

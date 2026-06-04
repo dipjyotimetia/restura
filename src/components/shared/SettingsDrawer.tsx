@@ -19,6 +19,8 @@ import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ClientCert } from '@/types';
 import { DEFAULT_AUTO_UPDATE_SETTINGS, SPATIAL_ACCENT_PRESETS, type SpatialAccent } from '@/types';
+import type { JudgeSettings } from '@/types';
+import type { Provider } from '@shared/protocol/ai/types';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Check,
@@ -263,7 +265,12 @@ export default function SettingsDrawer({
               {activeSection === 'proxy' && <ProxySection />}
               {activeSection === 'certificates' && <CertificatesSection />}
               {activeSection === 'secrets' && <SecretsSection />}
-              {activeSection === 'ai' && isElectron() && <ProviderSettings />}
+              {activeSection === 'ai' && isElectron() && (
+                <>
+                  <ProviderSettings />
+                  <JudgeSettingsSection />
+                </>
+              )}
               {activeSection === 'ai' && !isElectron() && (
                 <div className="text-sm text-muted-foreground">
                   AI features are available in the desktop app only.
@@ -666,6 +673,112 @@ function ProxySection() {
         />
       </FieldGroup>
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Semantic-assertion judge (rs.judge)                                        */
+/* -------------------------------------------------------------------------- */
+
+const JUDGE_DEFAULTS: JudgeSettings = {
+  enabled: false,
+  provider: 'openai',
+  model: '',
+  redactBeforeJudge: true,
+};
+
+const JUDGE_PROVIDERS: ReadonlyArray<{ value: Provider; label: string }> = [
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'openrouter', label: 'OpenRouter' },
+  { value: 'ollama', label: 'Ollama' },
+  { value: 'openai-compatible', label: 'Compatible' },
+];
+
+function JudgeSettingsSection() {
+  const judge = useSettingsStore((s) => s.settings.judge) ?? JUDGE_DEFAULTS;
+  const updateJudge = useSettingsStore((s) => s.updateJudge);
+  const isLocal = judge.provider === 'ollama' || judge.provider === 'openai-compatible';
+
+  return (
+    <FieldGroup label="Semantic assertions (rs.judge)">
+      <FieldRow
+        label="Enable LLM judge"
+        hint="Lets test scripts call rs.judge(output, { rubric }) to assert on response meaning."
+        control={
+          <ToggleField
+            checked={judge.enabled}
+            onChange={(v) => updateJudge({ enabled: v })}
+            ariaLabel="Enable LLM judge"
+          />
+        }
+      />
+      <FieldRow
+        label="Judge provider"
+        control={
+          <Segmented<Provider>
+            value={judge.provider}
+            onChange={(v) => updateJudge({ provider: v })}
+            options={JUDGE_PROVIDERS}
+          />
+        }
+      />
+      <FieldRow
+        label="Judge model"
+        hint="e.g. gpt-4o-mini, claude-3-5-haiku, or a local Ollama model."
+        control={
+          <TextField
+            mono
+            placeholder="gpt-4o-mini"
+            value={judge.model}
+            onChange={(e) => updateJudge({ model: e.target.value })}
+            disabled={!judge.enabled}
+            className="w-[260px]"
+          />
+        }
+      />
+      {isLocal && (
+        <FieldRow
+          label="Base URL"
+          hint="Required for local runtimes (e.g. http://localhost:11434)."
+          control={
+            <TextField
+              mono
+              placeholder="http://localhost:11434"
+              value={judge.baseUrl ?? ''}
+              onChange={(e) => updateJudge({ baseUrl: e.target.value })}
+              disabled={!judge.enabled}
+              className="w-[260px]"
+            />
+          }
+        />
+      )}
+      <FieldRow
+        label="API key handle"
+        hint="SecretRef handle id for the provider key. Leave blank for keyless local runtimes."
+        control={
+          <TextField
+            mono
+            placeholder="(optional)"
+            value={judge.apiKeyHandleId ?? ''}
+            onChange={(e) => updateJudge({ apiKeyHandleId: e.target.value })}
+            disabled={!judge.enabled}
+            className="w-[260px]"
+          />
+        }
+      />
+      <FieldRow
+        label="Redact before judging"
+        hint="Strip secret-looking tokens from the response before it is sent to the judge. For sensitive APIs, prefer a local Ollama judge so responses never leave your machine."
+        control={
+          <ToggleField
+            checked={judge.redactBeforeJudge}
+            onChange={(v) => updateJudge({ redactBeforeJudge: v })}
+            ariaLabel="Redact before judging"
+          />
+        }
+      />
+    </FieldGroup>
   );
 }
 
