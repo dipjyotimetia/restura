@@ -106,6 +106,10 @@ Key modules:
 
 A chat assistant that can read the current request/response context. **Electron-first**: the renderer streams via the IPC bridge (`window.electron.ai` → `ai:chat` / `ai:chat:cancel`, with `ai:chat:chunk:<id>` / `ai:chat:end:<id>` event channels) → `electron/main/ai-handler.ts` → `shared/protocol/ai/ai-proxy.ts`. There is **no `/api/ai` Worker route yet**, so the web path is not wired through the proxy — confirm platform support before assuming parity. Renderer pieces: `lib/promptBuilder.ts`, `lib/contextSnapshot.ts` (captures request context; URLs/secrets redacted), `lib/streamConsumer.ts` (subscribe to chunk channel **before** invoking `chat`). Providers (OpenAI, Anthropic, OpenRouter) decode in `shared/protocol/ai/providers/*` against fixtures. This feature is in flux — verify against the code.
 
+### AI Lab (`src/features/ai-lab/`) — Electron-only LLM/eval workbench
+
+A separate workbench for testing prompts and models: per-provider config, a multi-model Playground, datasets, an eval runner with LLM-as-judge + scorers, and OpenAPI-driven test generation. Renderer state persists to Dexie tables `aiLab`/`evalRuns`; provider API keys are stored only as `SecretRef` handles (`apiKeyHandleId`, resolved in main). Backed by `electron/main/ai-lab-handler.ts` — a sibling to `ai-handler.ts` kept separate so the chat path is untouched. It adds a non-streaming `complete` (used heavily by the eval runner/judge, bounded by a queueing semaphore), model discovery + connection test, and a **localhost SSRF carve-out**: the same shared URL guard runs, but `allowLocalhost` is derived from provider kind — true only for local runtimes (Ollama, OpenAI-compatible), never for cloud providers.
+
 ### Feature-based renderer layout (`src/features/`)
 
 Each feature module owns its components, hooks, lib (executors/clients), and store. Protocol features (`http/`, `grpc/`, `graphql/`, `websocket/`, `socketio/`, `sse/`, `mcp/`, `kafka/`) follow the same shape and export a `protocol.ts` describing their schema. The renderer's executor in each feature branches on `isElectron()` to pick IPC vs. HTTP transport — no behavioural difference.
@@ -113,6 +117,7 @@ Each feature module owns its components, hooks, lib (executors/clients), and sto
 ```
 src/features/{http,grpc,graphql,websocket,socketio,sse,mcp,kafka,mqtt}   # protocol features
 src/features/ai                                      # AI assistant (chat + request-context tooling)
+src/features/ai-lab                                  # Electron-only LLM/prompt testing & eval workbench
 src/features/mcp-server                              # Restura-as-MCP-server (agent-drivable surface)
 src/features/load-testing                            # collection load/perf runner (not a protocol)
 src/features/{collections,environments,workflows,scripts,auth,registry,contracts}
@@ -138,7 +143,7 @@ Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollec
 
 ### Electron main process (`electron/main/`)
 
-One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts` (+ `kafka-broker-guard.ts`), `mqtt-handler.ts` (+ `mqtt-broker-guard.ts`), `ai-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `vault-handler.ts`, `git-handler.ts`. Plus:
+One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts` (+ `kafka-broker-guard.ts`), `mqtt-handler.ts` (+ `mqtt-broker-guard.ts`), `ai-handler.ts`, `ai-lab-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `vault-handler.ts`, `git-handler.ts`, `sentry.ts` + `telemetry-consent.ts` (opt-in error reporting). Plus:
 
 - `main.ts` — entry / orchestrator
 - `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod
@@ -172,6 +177,10 @@ A separate Cloudflare Worker (`echo/wrangler.jsonc`) used by e2e tests as a cont
 ### CLI subproject (`cli/`)
 
 Standalone npm package `@restura/cli` (separate `package.json`, built with `tsup`). Runs collections in CI with JUnit/HTML/JSON reporters. Self-contained — has its own deps and tests.
+
+### Docs site (`docs-site/`)
+
+Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.dev) with its own `package.json`. Scripts from repo root: `npm run docs:dev`, `docs:build`, `docs:check`, `deploy:docs`. Not part of the production app build.
 
 ## Key Technical Patterns
 
