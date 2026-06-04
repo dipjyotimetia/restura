@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Trash2, Wifi, RefreshCw } from 'lucide-react';
+import { Server, Trash2, Wifi, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -11,10 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Floater } from '@/components/ui/spatial';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { listModels, testConnection } from '../lib/llmClient';
 import { useAiLabStore } from '../store/useAiLabStore';
+import { EmptyState } from './EmptyState';
 import type { AiLabProviderConfig } from '../types';
 
 const PROVIDER_OPTIONS: Array<{ value: Provider; label: string; needsBaseUrl: boolean }> = [
@@ -129,11 +130,11 @@ export function ProviderManager() {
 
   return (
     <div className="space-y-6">
-      <section className="glass-1 space-y-3 rounded-lg border border-border/40 p-4">
-        <h2 className="text-sm font-medium">Add a provider</h2>
+      <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
+        <h2 className="text-sp-13 font-semibold text-sp-text">Add a provider</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label className="text-xs">Type</Label>
+            <label className="text-sp-11 text-sp-muted font-mono">Type</label>
             <Select value={provider} onValueChange={(v) => onProviderChange(v as Provider)}>
               <SelectTrigger>
                 <SelectValue />
@@ -148,7 +149,7 @@ export function ProviderManager() {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Name</Label>
+            <label className="text-sp-11 text-sp-muted font-mono">Name</label>
             <Input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
@@ -157,7 +158,7 @@ export function ProviderManager() {
           </div>
           {(opt.needsBaseUrl || isLocalProvider(provider)) && (
             <div className="space-y-1">
-              <Label className="text-xs">Base URL</Label>
+              <label className="text-sp-11 text-sp-muted font-mono">Base URL</label>
               <Input
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
@@ -166,9 +167,9 @@ export function ProviderManager() {
             </div>
           )}
           <div className="space-y-1">
-            <Label className="text-xs">
+            <label className="text-sp-11 text-sp-muted font-mono">
               API key {isLocalProvider(provider) ? '(optional)' : ''}
-            </Label>
+            </label>
             <Input
               type="password"
               value={apiKey}
@@ -177,30 +178,32 @@ export function ProviderManager() {
             />
           </div>
         </div>
-        <Button onClick={() => void add()} size="sm">
+        <Button onClick={() => void add()} variant="secondary" size="sm">
           Add provider
         </Button>
-      </section>
+      </Floater>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-medium">Providers</h2>
+        <h2 className="text-sp-13 font-semibold text-sp-text">Providers</h2>
         {Object.values(providers).length === 0 && (
-          <p className="text-sm text-muted-foreground">No providers yet. Add one above.</p>
+          <EmptyState icon={Server} message="No providers yet. Add one above." />
         )}
         {Object.values(providers).map((cfg) => (
-          <div
+          <Floater
             key={cfg.id}
-            className="glass-1 flex items-center justify-between rounded-lg border border-border/40 p-3"
+            radius="panel"
+            elevation="inset"
+            className="flex items-center justify-between p-3"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{cfg.label}</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <span className="text-sp-13 font-medium text-sp-text">{cfg.label}</span>
+                <span className="text-[10px] uppercase tracking-wide text-sp-muted">
                   {cfg.provider}
                 </span>
                 {cfg.isLocal && <span className="text-[10px] text-emerald-500">local</span>}
               </div>
-              <div className="truncate text-xs text-muted-foreground">
+              <div className="truncate text-sp-12 text-sp-muted">
                 {effectiveBaseUrl(cfg)} · {cfg.models.length} model(s)
                 {!cfg.pricingKnown && ' · cost unknown'}
               </div>
@@ -226,7 +229,7 @@ export function ProviderManager() {
                 <Trash2 className="h-3.5 w-3.5 text-destructive" />
               </Button>
             </div>
-          </div>
+          </Floater>
         ))}
       </section>
     </div>

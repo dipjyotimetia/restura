@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import { Play, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Floater } from '@/components/ui/spatial';
 import { renderTemplate, extractVars } from '../lib/promptTemplate';
 import { specFor, streamLlm, type StreamHandle } from '../lib/llmClient';
 import { useAiLabStore } from '../store/useAiLabStore';
@@ -151,20 +151,28 @@ export function Playground() {
     handlesRef.current = handles;
   };
 
+  const hasResults = Object.keys(cells).length > 0;
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
-      <div className="space-y-3">
+    <div
+      className={
+        hasResults ? 'grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]' : 'mx-auto w-full max-w-2xl'
+      }
+    >
+      <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
         <div className="space-y-1">
-          <Label className="text-xs">System</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">System</label>
           <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={3} />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">User prompt</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">User prompt</label>
           <Textarea value={user} onChange={(e) => setUser(e.target.value)} rows={4} />
         </div>
         {promptVars.length > 0 && (
           <div className="space-y-1">
-            <Label className="text-xs">Variables ({promptVars.join(', ')})</Label>
+            <label className="text-sp-11 text-sp-muted font-mono">
+              Variables ({promptVars.join(', ')})
+            </label>
             <Textarea
               value={varsText}
               onChange={(e) => setVarsText(e.target.value)}
@@ -174,71 +182,83 @@ export function Playground() {
           </div>
         )}
         <div className="space-y-1">
-          <Label className="text-xs">Models</Label>
+          <label className="text-sp-11 text-sp-muted font-mono">Models</label>
           {modelOptions.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sp-12 text-sp-muted">
               No models. Add a provider and discover its models in the Providers tab.
             </p>
           ) : (
-            <div className="max-h-48 space-y-1 overflow-auto rounded border border-border/40 p-2">
+            <Floater
+              radius="btn"
+              elevation="inset"
+              className="max-h-48 space-y-1 overflow-auto p-2"
+            >
               {modelOptions.map((m) => (
-                <label key={m.key} className="flex items-center gap-2 text-xs">
+                <label key={m.key} className="flex items-center gap-2 text-sp-12 text-sp-text">
                   <Checkbox checked={selected.has(m.key)} onCheckedChange={() => toggle(m.key)} />
                   {m.label}
                 </label>
               ))}
-            </div>
+            </Floater>
           )}
         </div>
         {activeCount > 0 ? (
-          <Button variant="destructive" size="sm" onClick={stop} className="w-full">
-            <Square className="mr-2 h-3.5 w-3.5" /> Stop
+          <Button variant="destructive" size="cta" onClick={stop}>
+            <Square className="h-3.5 w-3.5" /> Stop
           </Button>
         ) : (
           <Button
-            size="sm"
+            variant="cta"
+            size="cta"
             onClick={() => void run()}
             disabled={selected.size === 0}
-            className="w-full"
           >
-            <Play className="mr-2 h-3.5 w-3.5" /> Run on {selected.size} model(s)
+            <Play className="h-3.5 w-3.5" /> Run on {selected.size} model(s)
           </Button>
         )}
-      </div>
+      </Floater>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {modelOptions
-          .filter((m) => cells[m.key])
-          .map((m) => {
-            const cell = cells[m.key]!;
-            return (
-              <div
-                key={m.key}
-                className="glass-1 flex flex-col rounded-lg border border-border/40 p-3"
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="truncate text-xs font-medium">{m.label}</span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {cell.status === 'streaming' ? '…' : cell.status}
-                  </span>
-                </div>
-                <div className="min-h-[6rem] whitespace-pre-wrap text-sm">
-                  {cell.error ? <span className="text-destructive">{cell.error}</span> : cell.text}
-                </div>
-                {cell.completionTokens !== undefined && (
-                  <div className="mt-2 border-t border-border/40 pt-2 text-[10px] text-muted-foreground">
-                    {cell.promptTokens}+{cell.completionTokens} tok ·{' '}
-                    {cell.cost == null
-                      ? 'cost unknown'
-                      : cell.cost === 0
-                        ? 'free'
-                        : `$${cell.cost.toFixed(5)}`}
+      {hasResults && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {modelOptions
+            .filter((m) => cells[m.key])
+            .map((m) => {
+              const cell = cells[m.key]!;
+              return (
+                <Floater
+                  key={m.key}
+                  radius="panel"
+                  elevation="float"
+                  className="flex flex-col bg-sp-surface p-3"
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="truncate text-sp-12 font-medium text-sp-text">{m.label}</span>
+                    <span className="text-[10px] text-sp-muted">
+                      {cell.status === 'streaming' ? '…' : cell.status}
+                    </span>
                   </div>
-                )}
-              </div>
-            );
-          })}
-      </div>
+                  <div className="min-h-[6rem] whitespace-pre-wrap text-sp-13 text-sp-text">
+                    {cell.error ? (
+                      <span className="text-destructive">{cell.error}</span>
+                    ) : (
+                      cell.text
+                    )}
+                  </div>
+                  {cell.completionTokens !== undefined && (
+                    <div className="mt-2 border-t border-sp-line pt-2 text-[10px] text-sp-muted">
+                      {cell.promptTokens}+{cell.completionTokens} tok ·{' '}
+                      {cell.cost == null
+                        ? 'cost unknown'
+                        : cell.cost === 0
+                          ? 'free'
+                          : `$${cell.cost.toFixed(5)}`}
+                    </div>
+                  )}
+                </Floater>
+              );
+            })}
+        </div>
+      )}
     </div>
   );
 }
