@@ -1,7 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { domainMatch, pathMatch, getPublicSuffix } from 'tough-cookie';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
+
+// PSL lookup tuned for an API client used heavily against local runtimes:
+// allowSpecialUseDomain keeps `localhost` a valid registrable name, and
+// ignoreError makes special-use/IP hosts return undefined instead of throwing.
+const PUBLIC_SUFFIX_OPTIONS = {
+  allowSpecialUseDomain: true,
+  ignoreError: true,
+} as const;
 
 export interface CookieItem {
   id: string;
@@ -36,10 +45,7 @@ export const useCookieStore = create<CookieStore>()(
         set((state) => {
           // Check if cookie already exists (by domain, path, key)
           const existsIndex = state.cookies.findIndex(
-            (c) =>
-              c.domain === cookie.domain &&
-              c.path === cookie.path &&
-              c.key === cookie.key
+            (c) => c.domain === cookie.domain && c.path === cookie.path && c.key === cookie.key
           );
 
           if (existsIndex >= 0) {
@@ -76,17 +82,26 @@ export const useCookieStore = create<CookieStore>()(
               if (!isNaN(expiry) && expiry <= now) return false;
             }
 
-            // Domain matching (simplified)
-            const domainMatch =
-              hostname === cookie.domain || hostname.endsWith('.' + cookie.domain);
+            // Public-suffix guard (RFC 6265 §5.3): a cookie scoped to a bare
+            // public suffix (e.g. `com`, `co.uk`) must not leak to every site
+            // under it. getPublicSuffix returns undefined for a public suffix
+            // (and for raw IPs); allow it through only as a host-only cookie.
+            if (
+              !getPublicSuffix(cookie.domain, PUBLIC_SUFFIX_OPTIONS) &&
+              hostname !== cookie.domain
+            ) {
+              return false;
+            }
 
-            // Path matching
-            const pathMatch = pathname.startsWith(cookie.path);
+            // RFC 6265 domain & path matching via tough-cookie (PSL-aware,
+            // proper `/foo` vs `/foobar` boundary handling).
+            if (!domainMatch(hostname, cookie.domain)) return false;
+            if (!pathMatch(pathname, cookie.path)) return false;
 
-            // Secure matching
-            const secureMatch = cookie.secure ? urlObj.protocol === 'https:' : true;
+            // Secure-only cookies are withheld over plaintext http.
+            if (cookie.secure && urlObj.protocol !== 'https:') return false;
 
-            return domainMatch && pathMatch && secureMatch;
+            return true;
           });
         } catch {
           return [];
@@ -112,9 +127,7 @@ export const useCookieStore = create<CookieStore>()(
           (typeof persistedState === 'object' &&
             Object.keys(persistedState as object).length === 0);
         if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<CookieStore>>(
-            'restura-cookies'
-          );
+          const legacy = migrateLegacyLocalStorage<Partial<CookieStore>>('restura-cookies');
           if (legacy) return legacy as CookieStore;
         }
         return persistedState as CookieStore;
