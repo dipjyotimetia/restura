@@ -564,6 +564,40 @@ function MqttClient() {
                             </div>
                           )}
 
+                        {(() => {
+                          const meta: Array<[string, string]> = [];
+                          if (selectedMessage.responseTopic)
+                            meta.push(['Response topic', selectedMessage.responseTopic]);
+                          if (selectedMessage.correlationData)
+                            meta.push(['Correlation data', selectedMessage.correlationData]);
+                          if (selectedMessage.contentType)
+                            meta.push(['Content type', selectedMessage.contentType]);
+                          if (selectedMessage.subscriptionIdentifier !== undefined) {
+                            const ids = selectedMessage.subscriptionIdentifier;
+                            meta.push([
+                              'Subscription id',
+                              Array.isArray(ids) ? ids.join(', ') : String(ids),
+                            ]);
+                          }
+                          if (meta.length === 0) return null;
+                          return (
+                            <div className="space-y-1">
+                              <div className="sp-label">MQTT 5 metadata</div>
+                              <div
+                                className="grid gap-x-3 gap-y-1 font-mono text-sp-11-5"
+                                style={{ gridTemplateColumns: 'auto 1fr' }}
+                              >
+                                {meta.map(([k, v]) => (
+                                  <div key={k} className="contents">
+                                    <span className="text-sp-muted">{k}</span>
+                                    <span className="text-sp-text break-all">{v}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         <div className="space-y-1">
                           <div className="sp-label">Payload</div>
                           {(() => {

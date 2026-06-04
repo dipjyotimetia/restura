@@ -352,12 +352,29 @@ interface KafkaAck {
   timestamp: number;
 }
 
+/** Per-partition starting offset for MANUAL consume mode (offset is a numeric string). */
+interface KafkaPartitionOffset {
+  topic: string;
+  partition: number;
+  offset: string;
+}
+
+/** A consumer group as returned by Admin.listGroups (Map flattened to an array). */
+interface KafkaGroupInfo {
+  id: string;
+  state: string;
+  groupType: string;
+  protocolType: string;
+}
+
 interface ElectronKafkaAPI {
   connect: (config: {
     connectionId: string;
     clientId: string;
     bootstrapBrokers: string[];
     auth: KafkaAuthIpc;
+    /** Enable the idempotent producer (forces acks=-1 on the produce path). */
+    idempotent?: boolean;
   }) => Promise<{ success: boolean; error?: string }>;
   produce: (config: {
     connectionId: string;
@@ -374,9 +391,30 @@ interface ElectronKafkaAPI {
     groupId: string;
     topics: string[];
     fromBeginning: boolean;
+    /** Start position. 'manual' seeks to the explicit `offsets` below. */
+    mode?: 'latest' | 'earliest' | 'manual';
+    offsets?: KafkaPartitionOffset[];
   }) => Promise<{ success: boolean; error?: string }>;
   unsubscribe: (config: { connectionId: string }) => Promise<{ success: boolean; error?: string }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
+  // Admin (topic + consumer-group management). Each constructs a short-lived
+  // Admin client from the live connection's auth/TLS.
+  listTopics: (config: {
+    connectionId: string;
+  }) => Promise<{ success: boolean; topics?: string[]; error?: string }>;
+  createTopic: (config: {
+    connectionId: string;
+    topic: string;
+    partitions: number;
+    replicationFactor: number;
+  }) => Promise<{ success: boolean; error?: string }>;
+  deleteTopic: (config: {
+    connectionId: string;
+    topic: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  listGroups: (config: {
+    connectionId: string;
+  }) => Promise<{ success: boolean; groups?: KafkaGroupInfo[]; error?: string }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;
@@ -427,6 +465,7 @@ interface MqttPublishIpc {
   messageExpiryInterval?: number;
   contentType?: string;
   responseTopic?: string;
+  correlationData?: string;
 }
 
 interface MqttPublishAck {
@@ -831,6 +870,8 @@ export type {
   KafkaTlsIpc,
   KafkaSaslMechanism,
   KafkaAck,
+  KafkaPartitionOffset,
+  KafkaGroupInfo,
   ElectronMqttAPI,
   MqttConnectIpc,
   MqttPublishIpc,

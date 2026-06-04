@@ -78,6 +78,10 @@ export const IPC = {
     subscribe: 'kafka:subscribe',
     unsubscribe: 'kafka:unsubscribe',
     disconnect: 'kafka:disconnect',
+    listTopics: 'kafka:list-topics',
+    createTopic: 'kafka:create-topic',
+    deleteTopic: 'kafka:delete-topic',
+    listGroups: 'kafka:list-groups',
   },
   mqtt: {
     connect: 'mqtt:connect',
