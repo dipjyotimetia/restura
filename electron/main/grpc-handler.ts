@@ -184,7 +184,9 @@ type GrpcCall = {
  * type guard before binding event listeners.
  */
 export function invokeGrpcMethod(client: grpc.Client, method: string, args: unknown[]): unknown {
-  const fn = (client as unknown as Record<string, unknown>)[method];
+  // Reflect.get does the dynamic lookup without an `as unknown as Record` cast;
+  // annotating `unknown` keeps the result type-safe until the callable guard.
+  const fn: unknown = Reflect.get(client, method);
   if (typeof fn !== 'function') {
     throw new Error(`gRPC client has no method "${method}"`);
   }

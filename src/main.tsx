@@ -19,7 +19,11 @@ void initElectronSentry();
 // re-renders when this resolves; default is fail-open so nothing is blocked.
 void fetchFlags();
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error('Root element #root not found — index.html is missing the mount node');
+}
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
