@@ -12,8 +12,10 @@ import { applyAuthHeaders } from './auth';
  * carries JSON-shaped payloads. The CLI's `undiciFetcher` is the same one the
  * HTTP path uses; gRPC just sets specific headers and rides on top.
  *
- * Streaming methods (server / client / bidi) fall back to unary semantics for
- * the CLI v0.2 — the shared proxy does not yet stream-buffer.
+ * Only unary methods are supported: the shared proxy is unary-only. Streaming
+ * methods (server / client / bidi) fail explicitly rather than silently
+ * downgrading to unary, which previously returned partial/incorrect data with
+ * no warning in CI.
  */
 export async function executeGrpc(
   item: LoadedRequest,
@@ -29,6 +31,15 @@ export async function executeGrpc(
     };
   }
   const req = item.request as GrpcRequest;
+  if (req.methodType && req.methodType !== 'unary') {
+    return {
+      status: 0,
+      passed: false,
+      durationMs: 0,
+      bodyBytes: 0,
+      errorMessage: `The CLI does not support ${req.methodType} gRPC methods yet (unary only). Run streaming methods from the desktop app.`,
+    };
+  }
   const url = resolveVarsDeep(req.url, opts.vars);
   const metadata: Record<string, string> = {};
   for (const m of req.metadata ?? []) {

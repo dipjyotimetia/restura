@@ -182,6 +182,67 @@ describe('startGrpcStream', () => {
     await expect(handle.send({})).rejects.toThrow(/not supported/);
   });
 
+  it('decompresses gzip-compressed message envelopes named by grpc-encoding', async () => {
+    // Build a gzip-compressed payload, then frame it with the compression bit
+    // (0x01) set — exactly what a server using `grpc-encoding: gzip` emits.
+    const raw = new TextEncoder().encode(JSON.stringify({ i: 42 }));
+    const rawStream = new ReadableStream<Uint8Array<ArrayBuffer>>({
+      start(c) {
+        c.enqueue(new Uint8Array(raw));
+        c.close();
+      },
+    });
+    const gzStream = rawStream.pipeThrough(new CompressionStream('gzip'));
+    const compressed = new Uint8Array(await new Response(gzStream).arrayBuffer());
+    const body = chunkStream([
+      encodeEnvelope(0x01, compressed),
+      jsonEnvelope({ metadata: {} }, 0x02), // end-of-stream
+    ]);
+    const fetcher: StreamFetcher = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'grpc-encoding': 'gzip' }),
+      body,
+    });
+
+    const handle = await startGrpcStream({
+      request: baseRequest,
+      resolveVariables: (s) => s,
+      fetcher,
+    });
+
+    const collected: unknown[] = [];
+    for await (const m of handle.messages) collected.push(m);
+    expect(collected).toEqual([{ i: 42 }]);
+    expect((await handle.done).status).toBe(GrpcStatusCode.OK);
+  });
+
+  it('errors clearly on an unsupported message encoding', async () => {
+    const body = chunkStream([encodeEnvelope(0x01, new TextEncoder().encode('x'))]);
+    const fetcher: StreamFetcher = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'grpc-encoding': 'snappy' }),
+      body,
+    });
+
+    const handle = await startGrpcStream({
+      request: baseRequest,
+      resolveVariables: (s) => s,
+      fetcher,
+    });
+
+    // `done` rejects in lock-step with the iterator; consume it so the
+    // rejection isn't surfaced as an unhandled promise in a later test.
+    const doneRejects = expect(handle.done).rejects.toThrow(/Unsupported gRPC message encoding/);
+    await expect(
+      (async () => {
+        for await (const _ of handle.messages) void _;
+      })()
+    ).rejects.toThrow(/Unsupported gRPC message encoding: snappy/);
+    await doneRejects;
+  });
+
   it('parses an end-of-stream envelope with an error to set non-OK status', async () => {
     const errEnv = jsonEnvelope({ error: { code: 'permission_denied', message: 'no' } }, 0x02);
     const body = chunkStream([jsonEnvelope({ i: 1 }), errEnv]);
