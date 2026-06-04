@@ -150,10 +150,46 @@ export function extractOperationName(query: string): string | null {
   return match && match[1] ? match[1] : null;
 }
 
+/**
+ * Extract GraphQL errors from a response body. GraphQL signals failures with a
+ * top-level `errors` array — often alongside HTTP 200 and partial `data`, which
+ * naive HTTP-status checks miss. Returns the messages (empty array if none, or
+ * the body isn't a GraphQL error envelope).
+ */
+export function extractGraphQLErrors(body: string): string[] {
+  if (!body) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== 'object') return [];
+  const errors = (parsed as { errors?: unknown }).errors;
+  if (!Array.isArray(errors)) return [];
+  return errors.map((e) => {
+    const message = (e as { message?: unknown }).message;
+    return typeof message === 'string' ? message : 'Unknown GraphQL error';
+  });
+}
+
+/**
+ * Build the GraphQL POST body `{ query, variables, operationName? }`.
+ * `operationName` is included only when the document declares a named
+ * operation — servers require it to disambiguate multi-operation documents,
+ * and it is harmless for single-operation documents. Omitting it (the old
+ * behaviour) made any document with >1 named operation fail.
+ */
+export function buildGraphQLRequestBody(
+  query: string,
+  variables: Record<string, unknown>
+): { query: string; variables: Record<string, unknown>; operationName?: string } {
+  const operationName = extractOperationName(query);
+  return operationName ? { query, variables, operationName } : { query, variables };
+}
+
 // Extract operation type from query
-export function extractOperationType(
-  query: string
-): 'query' | 'mutation' | 'subscription' | null {
+export function extractOperationType(query: string): 'query' | 'mutation' | 'subscription' | null {
   const pattern = /^\s*(query|mutation|subscription)/;
   const match = pattern.exec(query);
   return match && match[1] ? (match[1] as 'query' | 'mutation' | 'subscription') : null;

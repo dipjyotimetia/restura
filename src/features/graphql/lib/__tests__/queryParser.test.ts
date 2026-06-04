@@ -6,6 +6,8 @@ import {
   extractOperationName,
   extractOperationType,
   validateGraphQLSyntax,
+  buildGraphQLRequestBody,
+  extractGraphQLErrors,
 } from '../queryParser';
 
 describe('parseVariables', () => {
@@ -16,14 +18,23 @@ describe('parseVariables', () => {
   });
 
   it('parses multiple variables', () => {
-    const vars = parseVariables('query Search($term: String!, $limit: Int = 10) { search(term: $term, limit: $limit) { id } }');
+    const vars = parseVariables(
+      'query Search($term: String!, $limit: Int = 10) { search(term: $term, limit: $limit) { id } }'
+    );
     expect(vars).toHaveLength(2);
     expect(vars[0]).toMatchObject({ name: 'term', type: 'String!', isRequired: true });
-    expect(vars[1]).toMatchObject({ name: 'limit', type: 'Int', isRequired: false, defaultValue: '10' });
+    expect(vars[1]).toMatchObject({
+      name: 'limit',
+      type: 'Int',
+      isRequired: false,
+      defaultValue: '10',
+    });
   });
 
   it('parses list type variables', () => {
-    const vars = parseVariables('mutation CreateItems($items: [ItemInput!]!) { createItems(items: $items) { id } }');
+    const vars = parseVariables(
+      'mutation CreateItems($items: [ItemInput!]!) { createItems(items: $items) { id } }'
+    );
     expect(vars).toHaveLength(1);
     expect(vars[0]).toMatchObject({ name: 'items', type: '[ItemInput!]!', isRequired: true });
   });
@@ -38,7 +49,9 @@ describe('parseVariables', () => {
   });
 
   it('parses subscription variables', () => {
-    const vars = parseVariables('subscription OnMessage($roomId: String!) { messageAdded(roomId: $roomId) { text } }');
+    const vars = parseVariables(
+      'subscription OnMessage($roomId: String!) { messageAdded(roomId: $roomId) { text } }'
+    );
     expect(vars).toHaveLength(1);
     expect(vars[0]).toMatchObject({ name: 'roomId', type: 'String!' });
   });
@@ -70,7 +83,9 @@ describe('generateDefaultValue', () => {
 
 describe('generateVariablesTemplate', () => {
   it('generates JSON template from parsed variables', () => {
-    const vars = parseVariables('query GetUser($id: ID!, $name: String) { user(id: $id) { name } }');
+    const vars = parseVariables(
+      'query GetUser($id: ID!, $name: String) { user(id: $id) { name } }'
+    );
     const template = generateVariablesTemplate(vars);
     const parsed = JSON.parse(template);
     expect(parsed).toHaveProperty('id', '');
@@ -95,7 +110,9 @@ describe('extractOperationName', () => {
   });
 
   it('extracts mutation name', () => {
-    expect(extractOperationName('mutation CreateUser($name: String!) { createUser(name: $name) { id } }')).toBe('CreateUser');
+    expect(
+      extractOperationName('mutation CreateUser($name: String!) { createUser(name: $name) { id } }')
+    ).toBe('CreateUser');
   });
 
   it('extracts subscription name', () => {
@@ -109,6 +126,54 @@ describe('extractOperationName', () => {
 
   it('returns null for empty string', () => {
     expect(extractOperationName('')).toBeNull();
+  });
+});
+
+describe('buildGraphQLRequestBody', () => {
+  it('includes operationName for a named operation', () => {
+    const body = buildGraphQLRequestBody('query GetUser { user { id } }', { id: 1 });
+    expect(body).toEqual({
+      query: 'query GetUser { user { id } }',
+      variables: { id: 1 },
+      operationName: 'GetUser',
+    });
+  });
+
+  it('omits operationName for an anonymous operation', () => {
+    const body = buildGraphQLRequestBody('{ user { id } }', {});
+    expect(body).toEqual({ query: '{ user { id } }', variables: {} });
+    expect('operationName' in body).toBe(false);
+  });
+
+  it('picks the first named operation in a multi-operation document', () => {
+    const doc = 'query First { a } query Second { b }';
+    expect(buildGraphQLRequestBody(doc, {}).operationName).toBe('First');
+  });
+});
+
+describe('extractGraphQLErrors', () => {
+  it('returns messages from a GraphQL error envelope (even with partial data)', () => {
+    const body = JSON.stringify({
+      data: { user: null },
+      errors: [{ message: 'Not authorized' }, { message: 'Field missing' }],
+    });
+    expect(extractGraphQLErrors(body)).toEqual(['Not authorized', 'Field missing']);
+  });
+
+  it('returns [] for a successful response with no errors', () => {
+    expect(extractGraphQLErrors(JSON.stringify({ data: { ok: true } }))).toEqual([]);
+  });
+
+  it('returns [] for non-JSON or non-object bodies', () => {
+    expect(extractGraphQLErrors('<html>500</html>')).toEqual([]);
+    expect(extractGraphQLErrors('')).toEqual([]);
+    expect(extractGraphQLErrors('null')).toEqual([]);
+  });
+
+  it('falls back to a placeholder when an error has no message', () => {
+    expect(extractGraphQLErrors(JSON.stringify({ errors: [{}] }))).toEqual([
+      'Unknown GraphQL error',
+    ]);
   });
 });
 

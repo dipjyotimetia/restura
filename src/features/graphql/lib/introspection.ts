@@ -1,102 +1,14 @@
 import type { GraphQLSchema, IntrospectionResult } from '../types';
-import { buildClientSchema, printSchema, type GraphQLSchema as GQLSchema, type IntrospectionQuery } from 'graphql';
+import {
+  buildClientSchema,
+  getIntrospectionQuery,
+  printSchema,
+  type GraphQLSchema as GQLSchema,
+  type IntrospectionQuery,
+} from 'graphql';
 
-// Standard GraphQL introspection query
-const INTROSPECTION_QUERY = `
-  query IntrospectionQuery {
-    __schema {
-      queryType { name }
-      mutationType { name }
-      subscriptionType { name }
-      types {
-        ...FullType
-      }
-      directives {
-        name
-        description
-        locations
-        args {
-          ...InputValue
-        }
-      }
-    }
-  }
-
-  fragment FullType on __Type {
-    kind
-    name
-    description
-    fields(includeDeprecated: true) {
-      name
-      description
-      args {
-        ...InputValue
-      }
-      type {
-        ...TypeRef
-      }
-      isDeprecated
-      deprecationReason
-    }
-    inputFields {
-      ...InputValue
-    }
-    interfaces {
-      ...TypeRef
-    }
-    enumValues(includeDeprecated: true) {
-      name
-      description
-      isDeprecated
-      deprecationReason
-    }
-    possibleTypes {
-      ...TypeRef
-    }
-  }
-
-  fragment InputValue on __InputValue {
-    name
-    description
-    type {
-      ...TypeRef
-    }
-    defaultValue
-  }
-
-  fragment TypeRef on __Type {
-    kind
-    name
-    ofType {
-      kind
-      name
-      ofType {
-        kind
-        name
-        ofType {
-          kind
-          name
-          ofType {
-            kind
-            name
-            ofType {
-              kind
-              name
-              ofType {
-                kind
-                name
-                ofType {
-                  kind
-                  name
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
+// Standard GraphQL introspection query (spec-compliant, from the official `graphql` library)
+const INTROSPECTION_QUERY = getIntrospectionQuery();
 
 export interface IntrospectionOptions {
   headers?: Record<string, string>;
@@ -138,12 +50,14 @@ export async function introspectSchema(
       };
     }
 
-    const json = await response.json();
+    const raw: unknown = await response.json();
+    const json = raw as {
+      data?: { __schema: GraphQLSchema } | null;
+      errors?: Array<{ message: string }>;
+    };
 
     if (json.errors && json.errors.length > 0) {
-      const errorMessage = json.errors
-        .map((e: { message: string }) => e.message)
-        .join(', ');
+      const errorMessage = json.errors.map((e) => e.message).join(', ');
       return {
         success: false,
         schema: null,
@@ -171,9 +85,13 @@ export async function introspectSchema(
       directives: json.data.__schema.directives,
     };
 
+    // Spec-compliant `IntrospectionQuery` for `buildClientSchema`.
+    const introspection = (raw as { data: IntrospectionQuery }).data;
+
     return {
       success: true,
       schema,
+      introspection,
       endpoint,
       timestamp: Date.now(),
     };
@@ -200,9 +118,7 @@ export async function introspectSchema(
 
 // Get types by kind from schema
 export function getTypesByKind(schema: GraphQLSchema, kind: string) {
-  return schema.types.filter(
-    (t) => t.kind === kind && !t.name?.startsWith('__')
-  );
+  return schema.types.filter((t) => t.kind === kind && !t.name?.startsWith('__'));
 }
 
 // Get query/mutation/subscription root types
@@ -254,29 +170,12 @@ export function exportSchemaToSDL(schema: GQLSchema): string {
 export function buildSchemaFromIntrospection(
   introspectionResult: IntrospectionResult
 ): GQLSchema | null {
-  if (!introspectionResult.success || !introspectionResult.schema) {
+  if (!introspectionResult.success || !introspectionResult.introspection) {
     return null;
   }
 
   try {
-    // Convert our schema format to IntrospectionQuery format
-    const introspectionQuery = {
-      __schema: {
-        queryType: introspectionResult.schema.queryType
-          ? { name: introspectionResult.schema.queryType.name! }
-          : null,
-        mutationType: introspectionResult.schema.mutationType
-          ? { name: introspectionResult.schema.mutationType.name! }
-          : null,
-        subscriptionType: introspectionResult.schema.subscriptionType
-          ? { name: introspectionResult.schema.subscriptionType.name! }
-          : null,
-        types: introspectionResult.schema.types,
-        directives: introspectionResult.schema.directives,
-      },
-    } as unknown as IntrospectionQuery;
-
-    return buildClientSchema(introspectionQuery);
+    return buildClientSchema(introspectionResult.introspection);
   } catch (error) {
     console.error('Failed to build schema from introspection:', error);
     return null;
