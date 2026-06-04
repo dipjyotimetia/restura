@@ -10,11 +10,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import type { AuthConfig } from '@/types';
 import { Lock, Loader2, AlertTriangle } from 'lucide-react';
-import { isElectron } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
 import SecretInput from './SecretInput';
 import {
@@ -30,6 +28,25 @@ import {
 interface AuthConfigProps {
   auth: AuthConfig;
   onChange: (auth: AuthConfig) => void;
+}
+
+/**
+ * Digest and NTLM are selectable and persist their config, but no backend
+ * currently applies them to the wire (buildAuthCredential / auth-applier /
+ * auth-signer all no-op these types). Surface that explicitly so the request
+ * isn't silently sent unauthenticated. Remove when the scheme is implemented.
+ */
+function UnappliedAuthNotice({ scheme }: { scheme: 'Digest' | 'NTLM' }) {
+  return (
+    <p
+      className="p-3 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500 flex items-center gap-2"
+      data-testid={`${scheme.toLowerCase()}-unimplemented-warning`}
+    >
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+      {scheme} authentication isn’t applied yet — the request is sent without authentication.
+      Credentials below are saved but not used.
+    </p>
+  );
 }
 
 export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
@@ -413,6 +430,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
       case 'digest':
         return (
           <div className="space-y-4">
+            <UnappliedAuthNotice scheme="Digest" />
             <div>
               <label className="text-sm font-medium mb-2 block">Username</label>
               <Input
@@ -645,23 +663,9 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
 
       case 'ntlm': {
         const n = auth.ntlm;
-        const inElectron = isElectron();
         return (
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Badge variant={inElectron ? 'info' : 'warning'} data-testid="ntlm-platform-badge">
-                Desktop only
-              </Badge>
-              {!inElectron && (
-                <p
-                  className="text-xs text-amber-500 flex items-center gap-1"
-                  data-testid="ntlm-web-warning"
-                >
-                  <AlertTriangle className="h-3 w-3" />
-                  Will not run in browser; use the desktop app.
-                </p>
-              )}
-            </div>
+            <UnappliedAuthNotice scheme="NTLM" />
             <div>
               <label className="text-sm font-medium mb-2 block">Username</label>
               <Input

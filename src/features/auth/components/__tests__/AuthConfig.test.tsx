@@ -59,34 +59,29 @@ describe('AuthConfiguration — new auth variants', () => {
     });
   });
 
+  describe('Digest', () => {
+    it('warns that Digest auth is not applied to the request', () => {
+      const digestAuth: AuthConfigType = {
+        type: 'digest',
+        digest: { username: '', password: '' },
+      };
+      render(<AuthConfiguration auth={digestAuth} onChange={vi.fn()} />);
+      expect(screen.getByTestId('digest-unimplemented-warning')).toHaveTextContent(
+        /isn’t applied yet/i
+      );
+    });
+  });
+
   describe('NTLM', () => {
-    it('renders the "Desktop only" badge always', () => {
+    it('warns that NTLM auth is not applied to the request (web or desktop)', () => {
       const ntlmAuth: AuthConfigType = {
         type: 'ntlm',
         ntlm: { username: '', password: '' },
       };
       render(<AuthConfiguration auth={ntlmAuth} onChange={vi.fn()} />);
-      expect(screen.getByTestId('ntlm-platform-badge')).toHaveTextContent('Desktop only');
-    });
-
-    it('shows the web-runtime warning when isElectron() is false', () => {
-      vi.mocked(platform.isElectron).mockReturnValue(false);
-      const ntlmAuth: AuthConfigType = {
-        type: 'ntlm',
-        ntlm: { username: '', password: '' },
-      };
-      render(<AuthConfiguration auth={ntlmAuth} onChange={vi.fn()} />);
-      expect(screen.getByTestId('ntlm-web-warning')).toHaveTextContent(/Will not run in browser/i);
-    });
-
-    it('hides the web-runtime warning when isElectron() is true', () => {
-      vi.mocked(platform.isElectron).mockReturnValue(true);
-      const ntlmAuth: AuthConfigType = {
-        type: 'ntlm',
-        ntlm: { username: '', password: '' },
-      };
-      render(<AuthConfiguration auth={ntlmAuth} onChange={vi.fn()} />);
-      expect(screen.queryByTestId('ntlm-web-warning')).not.toBeInTheDocument();
+      expect(screen.getByTestId('ntlm-unimplemented-warning')).toHaveTextContent(
+        /isn’t applied yet/i
+      );
     });
 
     it('persists username edits via onChange with shape {type, ntlm}', async () => {
