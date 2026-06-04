@@ -464,66 +464,39 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
   ipcMain.handle(
     IPC.kafka.listTopics,
-    createValidatedHandler(IPC.kafka.listTopics, KafkaListTopicsSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
-      if (!entry) return { success: false, error: 'Not connected' };
-      const admin = newAdmin(entry);
-      try {
-        const topics = await admin.listTopics();
-        return { success: true, topics };
-      } catch (err) {
-        return { success: false, error: errorMessage(err) };
-      } finally {
-        await closeAdmin(admin);
-      }
-    })
+    createValidatedHandler(IPC.kafka.listTopics, KafkaListTopicsSchema, (cfg) =>
+      withAdmin(cfg.connectionId, async (admin) => ({ topics: await admin.listTopics() }))
+    )
   );
 
   ipcMain.handle(
     IPC.kafka.createTopic,
-    createValidatedHandler(IPC.kafka.createTopic, KafkaCreateTopicSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
-      if (!entry) return { success: false, error: 'Not connected' };
-      const admin = newAdmin(entry);
-      try {
+    createValidatedHandler(IPC.kafka.createTopic, KafkaCreateTopicSchema, (cfg) =>
+      withAdmin(cfg.connectionId, async (admin) => {
         await admin.createTopics({
           topics: [cfg.topic],
           partitions: cfg.partitions,
           replicas: cfg.replicationFactor,
         });
-        return { success: true };
-      } catch (err) {
-        return { success: false, error: errorMessage(err) };
-      } finally {
-        await closeAdmin(admin);
-      }
-    })
+        return {};
+      })
+    )
   );
 
   ipcMain.handle(
     IPC.kafka.deleteTopic,
-    createValidatedHandler(IPC.kafka.deleteTopic, KafkaDeleteTopicSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
-      if (!entry) return { success: false, error: 'Not connected' };
-      const admin = newAdmin(entry);
-      try {
+    createValidatedHandler(IPC.kafka.deleteTopic, KafkaDeleteTopicSchema, (cfg) =>
+      withAdmin(cfg.connectionId, async (admin) => {
         await admin.deleteTopics({ topics: [cfg.topic] });
-        return { success: true };
-      } catch (err) {
-        return { success: false, error: errorMessage(err) };
-      } finally {
-        await closeAdmin(admin);
-      }
-    })
+        return {};
+      })
+    )
   );
 
   ipcMain.handle(
     IPC.kafka.listGroups,
-    createValidatedHandler(IPC.kafka.listGroups, KafkaListGroupsSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
-      if (!entry) return { success: false, error: 'Not connected' };
-      const admin = newAdmin(entry);
-      try {
+    createValidatedHandler(IPC.kafka.listGroups, KafkaListGroupsSchema, (cfg) =>
+      withAdmin(cfg.connectionId, async (admin) => {
         const groupsMap = await admin.listGroups();
         // listGroups returns a Map keyed by group id — flatten to a serializable
         // array for the renderer (Maps don't survive structured clone usefully).
@@ -533,14 +506,32 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           groupType: g.groupType,
           protocolType: g.protocolType,
         }));
-        return { success: true, groups };
-      } catch (err) {
-        return { success: false, error: errorMessage(err) };
-      } finally {
-        await closeAdmin(admin);
-      }
-    })
+        return { groups };
+      })
+    )
   );
+}
+
+/**
+ * Run an admin op against a short-lived Admin client for `connectionId`,
+ * reusing the connection's validated auth/TLS. Owns the not-connected guard and
+ * the finally-close so each call site can't leak a broker socket. `fn` returns
+ * only the success payload; the wrapper stamps `success: true`.
+ */
+async function withAdmin<T extends object>(
+  connectionId: string,
+  fn: (admin: Admin) => Promise<T>
+): Promise<({ success: true } & T) | { success: false; error: string }> {
+  const entry = activeConnections.get(connectionId);
+  if (!entry) return { success: false, error: 'Not connected' };
+  const admin = newAdmin(entry);
+  try {
+    return { success: true, ...(await fn(admin)) };
+  } catch (err) {
+    return { success: false, error: errorMessage(err) };
+  } finally {
+    await closeAdmin(admin);
+  }
 }
 
 function newAdmin(entry: ActiveKafka): Admin {

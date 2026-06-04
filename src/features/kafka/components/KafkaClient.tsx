@@ -224,6 +224,14 @@ function KafkaClient() {
   const [offsetPartition, setOffsetPartition] = useState('0');
   const [offsetValue, setOffsetValue] = useState('0');
 
+  // A valid MANUAL-seek spec: partition is a 0..2^31-1 integer and offset a
+  // non-negative integer. Shared by the Subscribe guard and the seek payload so
+  // the two can't drift.
+  const offsetSpecValid =
+    /^\d+$/.test(offsetPartition.trim()) &&
+    Number(offsetPartition) <= 2_147_483_647 &&
+    /^\d+$/.test(offsetValue.trim());
+
   // Admin tab — transient results (not persisted to the store).
   const [adminTopics, setAdminTopics] = useState<string[] | null>(null);
   const [adminGroups, setAdminGroups] = useState<KafkaGroupInfo[] | null>(null);
@@ -369,11 +377,7 @@ function KafkaClient() {
     // all subscribed topics — they must know the partition number.
     const useManual = consumeMode === 'from-offset';
     const partition = Number(offsetPartition);
-    const offsetsValid =
-      useManual &&
-      Number.isInteger(partition) &&
-      partition >= 0 &&
-      /^\d+$/.test(offsetValue.trim());
+    const offsetsValid = useManual && offsetSpecValid;
     await kafkaManager.subscribe({
       connectionId: connection.id,
       groupId: connection.consumer.groupId,
@@ -522,13 +526,7 @@ function KafkaClient() {
   // In from-offset mode the partition/offset fields must be valid integers,
   // else MANUAL seek can't be built — block Subscribe rather than silently
   // falling back to LATEST.
-  const offsetSpecInvalid =
-    consumeMode === 'from-offset' &&
-    !(
-      /^\d+$/.test(offsetPartition.trim()) &&
-      Number(offsetPartition) <= 2_147_483_647 &&
-      /^\d+$/.test(offsetValue.trim())
-    );
+  const offsetSpecInvalid = consumeMode === 'from-offset' && !offsetSpecValid;
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">

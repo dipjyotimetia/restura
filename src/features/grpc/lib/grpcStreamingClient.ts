@@ -538,7 +538,9 @@ const defaultFetcher: StreamFetcher = async (url, init) => {
 
 interface DecodedEnvelope {
   flags: number;
-  data: Uint8Array;
+  // Always a freshly-allocated, ArrayBuffer-backed copy (see feed()), so it can
+  // be enqueued straight into a DecompressionStream without re-copying.
+  data: Uint8Array<ArrayBuffer>;
 }
 
 /**
@@ -650,16 +652,19 @@ function decodeJson(bytes: Uint8Array): unknown {
  * codec named in the `grpc-encoding` response header. Browsers/Electron expose
  * gzip and deflate via the native DecompressionStream — no extra dependency.
  */
-async function inflateEnvelope(data: Uint8Array, encoding: string): Promise<Uint8Array> {
+async function inflateEnvelope(
+  data: Uint8Array<ArrayBuffer>,
+  encoding: string
+): Promise<Uint8Array> {
   const format = encoding === 'gzip' ? 'gzip' : encoding === 'deflate' ? 'deflate' : null;
   if (format === null) {
     throw new Error(`Unsupported gRPC message encoding: ${encoding || 'unknown'}`);
   }
   const source = new ReadableStream<Uint8Array<ArrayBuffer>>({
     start(controller) {
-      // Copy into a fresh ArrayBuffer-backed view so the type matches the
-      // DecompressionStream transform (lib.dom requires Uint8Array<ArrayBuffer>).
-      controller.enqueue(new Uint8Array(data));
+      // `data` is already an owned ArrayBuffer-backed copy (DecodedEnvelope.data),
+      // so it can be enqueued directly — no re-copy needed.
+      controller.enqueue(data);
       controller.close();
     },
   });
