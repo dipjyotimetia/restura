@@ -49,14 +49,18 @@ export function makeRendererJudge(
 
     const passThreshold = input.passThreshold ?? DEFAULT_PASS_THRESHOLD;
 
-    // The candidate output may carry secrets echoed from a response body. When
-    // configured, scrub them before they reach the judge model.
-    const output = cfg.redactBeforeJudge ? redactBody(input.output, 'default') : input.output;
+    // The candidate output (and the reference, often pulled from an env var) may
+    // carry secrets echoed from a response body. When configured, scrub both
+    // before they reach the judge model — rawMode disables the backend pass, so
+    // this is the only redaction on the prompt content.
+    const redact = (s: string): string => (cfg.redactBeforeJudge ? redactBody(s, 'default') : s);
+    const output = redact(input.output);
+    const reference = input.reference !== undefined ? redact(input.reference) : undefined;
 
     const messages = buildJudgeMessages({
       rubric: input.rubric,
       output,
-      ...(input.reference !== undefined ? { reference: input.reference } : {}),
+      ...(reference !== undefined ? { reference } : {}),
       passThreshold,
     });
 
@@ -77,6 +81,13 @@ export function makeRendererJudge(
     const res = await complete(spec);
     if (!res.ok) {
       throw new Error(res.error);
+    }
+    // The IPC envelope succeeding doesn't mean the model call did — a provider
+    // error (5xx, rate limit, bad/empty model) returns ok:true with an inner
+    // failed CompletionResult. Surface it instead of letting parseJudgment turn
+    // an empty completion into a silent score:0 / pass:false verdict.
+    if (!res.result.ok) {
+      throw new Error(res.result.error?.message ?? 'rs.judge: judge model call failed');
     }
     return parseJudgment(res.result, passThreshold);
   };

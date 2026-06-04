@@ -103,10 +103,31 @@ describe('makeRendererJudge', () => {
     expect(userMsg.content).not.toContain('[REDACTED]');
   });
 
+  it('redacts a secret in the reference when redaction is enabled', async () => {
+    const judge = makeRendererJudge({ ...CLOUD_CFG, redactBeforeJudge: true });
+    await judge({ output: 'answer', rubric: 'rubric', reference: 'gold sk-abcdefghijklmnop1234' });
+    const userMsg = lastSpec().messages.find((m) => m.role === 'user')!;
+    expect(userMsg.content).not.toContain('sk-abcdefghijklmnop1234');
+  });
+
   it('throws with the IPC error message when complete returns { ok: false }', async () => {
     installBridge(async () => ({ ok: false, error: 'judge boom' }));
     const judge = makeRendererJudge(CLOUD_CFG);
     await expect(judge({ output: 'a', rubric: 'r' })).rejects.toThrow('judge boom');
+  });
+
+  it('throws when the model call fails even though the IPC envelope succeeded', async () => {
+    installBridge(async () => ({
+      ok: true,
+      result: {
+        ok: false,
+        text: '',
+        toolCalls: [],
+        error: { code: 'provider', message: 'rate limited' },
+      },
+    }));
+    const judge = makeRendererJudge(CLOUD_CFG);
+    await expect(judge({ output: 'a', rubric: 'r' })).rejects.toThrow(/rate limited/);
   });
 
   it('throws when not running in the desktop app', async () => {
