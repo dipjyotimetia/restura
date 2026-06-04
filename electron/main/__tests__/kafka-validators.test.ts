@@ -48,6 +48,25 @@ describe('Kafka IPC validators', () => {
       expect(result.success).toBe(false);
     });
 
+    it('accepts an optional valueSchemaId on produce', () => {
+      const ok = KafkaProduceSchema.safeParse({
+        connectionId: 'abc',
+        topic: 't',
+        value: '{"id":1}',
+        acks: 1,
+        valueSchemaId: 7,
+      });
+      expect(ok.success).toBe(true);
+      const bad = KafkaProduceSchema.safeParse({
+        connectionId: 'abc',
+        topic: 't',
+        value: '{}',
+        acks: 1,
+        valueSchemaId: 0,
+      });
+      expect(bad.success).toBe(false);
+    });
+
     it('requires SASL block for SASL_PLAINTEXT', () => {
       const result = KafkaConnectSchema.safeParse({
         connectionId: 'abc',

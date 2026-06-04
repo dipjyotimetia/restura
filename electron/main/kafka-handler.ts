@@ -267,24 +267,29 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     try {
       const clientOptions = buildClientOptions(cfg);
       const kafka = getKafka();
-      const producerOptions = {
-        ...clientOptions,
-        serializers: kafka.stringSerializers,
-        // Idempotent producer dedups retries per-partition. The broker requires
-        // acks=all(-1) for it; the produce handler enforces that override.
-        ...(cfg.idempotent ? { idempotent: true } : {}),
-      } as unknown as ProducerOptions<string, string, string, string>;
-      const producer = new kafka.Producer<string, string, string, string>(producerOptions);
 
-      // Schema Registry (optional): built here, used by the consumer to decode
-      // Avro/Protobuf/JSON. Construction is cheap and lazy — it fetches schemas
-      // on demand, not now. The produce path stays string until Phase 2.
+      // Schema Registry (optional): used by BOTH the consumer (decode) and the
+      // producer (encode). Construction is cheap and lazy — it fetches schemas
+      // on demand, not now.
       const registry = cfg.registry
         ? new kafka.ConfluentSchemaRegistry({
             url: cfg.registry.url,
             ...(cfg.registry.auth ? { auth: cfg.registry.auth } : {}),
           })
         : undefined;
+
+      // With a registry, pass `registry` and OMIT `serializers` (the lib throws
+      // if both are set). A registry producer schema-encodes a message when it
+      // carries `metadata.schemas`, and JSON-encodes via the fallback serializer
+      // otherwise — so plain produce still works (as JSON, not raw string).
+      const producerOptions = {
+        ...clientOptions,
+        ...(registry ? { registry } : { serializers: kafka.stringSerializers }),
+        // Idempotent producer dedups retries per-partition. The broker requires
+        // acks=all(-1) for it; the produce handler enforces that override.
+        ...(cfg.idempotent ? { idempotent: true } : {}),
+      } as unknown as ProducerOptions<string, string, string, string>;
+      const producer = new kafka.Producer<string, string, string, string>(producerOptions);
 
       // @platformatic/kafka producers connect lazily; auth/TLS/host errors
       // surface on the first send rather than here. Metadata pre-fetch was
@@ -339,14 +344,38 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         // regardless of the per-send `acks` so the send always succeeds (the UI
         // also locks the acks picker to -1 when idempotent is on).
         const acks = entry.idempotent ? -1 : cfg.acks;
+
+        // Schema-encode the value when a schema id is supplied. The registry
+        // encodes whatever `metadata.schemas.value` points at; the value must be
+        // a parsed object (Avro/Protobuf/JSON encoders don't take raw strings).
+        let messageValue: unknown = cfg.value;
+        let metadata: { schemas: { value: number } } | undefined;
+        if (cfg.valueSchemaId !== undefined) {
+          if (!entry.registry) {
+            return {
+              success: false,
+              error: 'A value schema ID requires a Schema Registry on this connection.',
+            };
+          }
+          try {
+            messageValue = JSON.parse(cfg.value);
+          } catch {
+            return { success: false, error: 'Schema-encoded value must be valid JSON.' };
+          }
+          metadata = { schemas: { value: cfg.valueSchemaId } };
+        }
         try {
           const result = await entry.producer.send({
             messages: [
               {
                 topic: cfg.topic,
                 ...(cfg.key !== undefined ? { key: cfg.key } : {}),
-                value: cfg.value,
+                // String for the plain path; a parsed object for the schema path
+                // (the registry serializer accepts it — the producer is string-
+                // typed only because the registry generics are loose).
+                value: messageValue as string,
                 ...(cfg.partition !== undefined ? { partition: cfg.partition } : {}),
+                ...(metadata ? { metadata } : {}),
                 ...(cfg.headers
                   ? {
                       headers: Object.entries(cfg.headers).reduce<Map<string, string>>(

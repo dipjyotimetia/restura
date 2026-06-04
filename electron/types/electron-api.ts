@@ -397,6 +397,8 @@ interface ElectronKafkaAPI {
     partition?: number;
     acks: 0 | 1 | -1;
     compression?: 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd';
+    /** Confluent value schema id — encodes the (JSON) value via the registry. */
+    valueSchemaId?: number;
   }) => Promise<{ success: boolean; ack?: KafkaAck; error?: string }>;
   subscribe: (config: {
     connectionId: string;

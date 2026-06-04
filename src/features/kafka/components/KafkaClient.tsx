@@ -215,6 +215,8 @@ function KafkaClient() {
   const [topicDraft, setTopicDraft] = useState('');
   const [produceKey, setProduceKey] = useState('');
   const [produceValue, setProduceValue] = useState('');
+  // Optional Confluent value schema id (registry connections) — empty = plain.
+  const [produceSchemaId, setProduceSchemaId] = useState('');
   const [activeTab, setActiveTab] = useState('messages');
   // UI-only — does not affect store/subscription. Visually parks the log.
   const [paused, setPaused] = useState(false);
@@ -382,6 +384,8 @@ function KafkaClient() {
   const handleProduce = async (): Promise<void> => {
     if (!connection) return;
     if (!produceValue || !connection.defaultTopic) return;
+    const schemaId =
+      connection.registry && produceSchemaId.trim() ? Number(produceSchemaId) : undefined;
     await kafkaManager.produce({
       connectionId: connection.id,
       topic: connection.defaultTopic,
@@ -389,6 +393,9 @@ function KafkaClient() {
       value: produceValue,
       acks: connection.acks,
       ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
+      ...(schemaId !== undefined && Number.isInteger(schemaId) && schemaId > 0
+        ? { valueSchemaId: schemaId }
+        : {}),
     });
     setProduceValue('');
   };
@@ -1224,6 +1231,24 @@ function KafkaClient() {
                   rows={8}
                 />
               </div>
+              {connection.registry && (
+                <div className="space-y-2">
+                  <Label className="text-xs sp-label">Value schema ID (optional)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={produceSchemaId}
+                    onChange={(e) => setProduceSchemaId(e.target.value)}
+                    placeholder="e.g. 1 — encode the value with this registry schema"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <p className="text-sp-11 text-sp-muted">
+                    {produceSchemaId.trim()
+                      ? 'Value is parsed as JSON and encoded with this schema.'
+                      : 'No schema ID — the value is sent as JSON via the registry.'}
+                  </p>
+                </div>
+              )}
               <Button
                 onClick={handleProduce}
                 disabled={
