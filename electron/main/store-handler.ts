@@ -7,9 +7,9 @@ import { ipcMain } from 'electron';
 import { IPC } from '../shared/channels';
 import {
   StoreKeySchema,
-  StoreValueSchema,
+  StoreSetSchema,
+  NoInputSchema,
   createValidatedHandler,
-  validateIpcInput,
 } from './ipc-validators';
 import { getOrCreateEncryptedKey } from './encrypted-key';
 import { createLogger } from '../../src/lib/shared/logger';
@@ -80,20 +80,22 @@ export function registerStoreHandlerIPC(): void {
     )
   );
 
-  // store:set takes two args: key and value — validate both
-  ipcMain.handle(IPC.store.set, async (_event, key: unknown, value: unknown): Promise<void> => {
-    const validKey = validateIpcInput(StoreKeySchema, key, IPC.store.set);
-    const validValue = validateIpcInput(StoreValueSchema, value, IPC.store.set);
-    try {
-      getStoreInstance().set(validKey, validValue);
-    } catch (error) {
-      log.error('store set failed', {
-        key: validKey,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  });
+  // store:set takes two args (key, value); createValidatedHandler validates
+  // them as a tuple and enforces assertTrustedSender — same pattern as fs:writeFile.
+  ipcMain.handle(
+    IPC.store.set,
+    createValidatedHandler(IPC.store.set, StoreSetSchema, async ([key, value]): Promise<void> => {
+      try {
+        getStoreInstance().set(key, value);
+      } catch (error) {
+        log.error('store set failed', {
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    })
+  );
 
   ipcMain.handle(
     IPC.store.delete,
@@ -110,16 +112,19 @@ export function registerStoreHandlerIPC(): void {
     })
   );
 
-  ipcMain.handle(IPC.store.clear, async (): Promise<void> => {
-    try {
-      getStoreInstance().clear();
-    } catch (error) {
-      log.error('store clear failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  });
+  ipcMain.handle(
+    IPC.store.clear,
+    createValidatedHandler(IPC.store.clear, NoInputSchema, async (): Promise<void> => {
+      try {
+        getStoreInstance().clear();
+      } catch (error) {
+        log.error('store clear failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    })
+  );
 
   ipcMain.handle(
     IPC.store.has,

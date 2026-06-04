@@ -560,8 +560,16 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
       IPC.collection.openInExplorer,
       FilePathSchema,
       async (directoryPath: string) => {
-        if (!isPathSafe(directoryPath)) {
+        // Restrict to directories the renderer has registered as file-backed
+        // collections (active watcher) — the same allowlist the git handler
+        // uses. Without this, a compromised renderer could shell.openPath() an
+        // arbitrary file, which launches it via its default OS handler.
+        if (!isRegisteredCollectionDirectory(directoryPath)) {
           return { success: false, error: 'Access denied' };
+        }
+        const stat = await statOrNull(directoryPath);
+        if (!stat?.isDirectory) {
+          return { success: false, error: 'Access denied: not a directory' };
         }
         await shell.openPath(directoryPath);
         return { success: true };

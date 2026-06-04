@@ -46,6 +46,20 @@ const HOME_BLOCKED_SUBDIRS = [
   '.vault-token',
   '.azure',
   '.databricks',
+  // Database client credentials
+  '.pgpass',
+  '.pg_service.conf',
+  '.my.cnf',
+  '.mylogin.cnf',
+  // Build / package-manager credentials (settings.xml, gradle.properties,
+  // auth.json, credentials all live under these and routinely hold tokens)
+  '.m2',
+  '.gradle',
+  '.composer',
+  '.gem',
+  '.bundle',
+  '.subversion',
+  '.config/rclone',
   // Shell history files (commonly leak pasted tokens/passwords)
   '.bash_history',
   '.zsh_history',
@@ -64,6 +78,10 @@ const HOME_BLOCKED_SUBDIRS = [
   'Library/Application Support',
   'Library/Keychains',
   'Library/Cookies',
+  'Library/Containers',
+  'Library/Group Containers',
+  'Library/Messages',
+  'Library/Safari',
   // Windows
   'AppData/Roaming/Microsoft',
   'AppData/Local/Google',
@@ -79,6 +97,10 @@ const HOME_BLOCKED_SUBDIRS = [
   '.mozilla',
   'snap/firefox/common/.mozilla',
 ];
+
+// Pre-split once at module load — isPathSafe runs on every fs read/write and
+// the entries never change, so there's no reason to re-split per call.
+const HOME_BLOCKED_SUBDIR_PARTS: string[][] = HOME_BLOCKED_SUBDIRS.map((b) => b.split('/'));
 
 // Block access to sensitive system directories at the OS level (cheap
 // defense-in-depth — userData/documents/home are inside the user's profile
@@ -127,8 +149,7 @@ export function isPathSafe(filePath: string): boolean {
       // rel may be '' (the home root itself — allowed) or 'foo/bar/...'
       if (rel === '') return true;
       const parts = rel.split(path.sep);
-      for (const blocked of HOME_BLOCKED_SUBDIRS) {
-        const blockedParts = blocked.split('/');
+      for (const blockedParts of HOME_BLOCKED_SUBDIR_PARTS) {
         if (blockedParts.length > parts.length) continue;
         if (blockedParts.every((p, i) => parts[i] === p)) return false;
       }
@@ -187,7 +208,10 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
 
         const stats = await fsp.stat(filePath);
         if (stats.size > MAX_FILE_SIZE_BYTES) {
-          return { success: false, error: `File too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB` };
+          return {
+            success: false,
+            error: `File too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB`,
+          };
         }
 
         const content = await fsp.readFile(filePath, 'utf-8');
@@ -200,22 +224,29 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
 
   ipcMain.handle(
     'fs:writeFile',
-    createValidatedHandler(IPC.fs.writeFile, WriteFileSchema, async ([filePath, content]: [string, string]) => {
-      try {
-        if (!isPathSafe(filePath)) {
-          return { success: false, error: 'Access denied: Path is outside allowed directories' };
-        }
+    createValidatedHandler(
+      IPC.fs.writeFile,
+      WriteFileSchema,
+      async ([filePath, content]: [string, string]) => {
+        try {
+          if (!isPathSafe(filePath)) {
+            return { success: false, error: 'Access denied: Path is outside allowed directories' };
+          }
 
-        if (content.length > MAX_FILE_SIZE_BYTES) {
-          return { success: false, error: `Content too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB` };
-        }
+          if (content.length > MAX_FILE_SIZE_BYTES) {
+            return {
+              success: false,
+              error: `Content too large: Maximum size is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB`,
+            };
+          }
 
-        await fsp.writeFile(filePath, content, 'utf-8');
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
+          await fsp.writeFile(filePath, content, 'utf-8');
+          return { success: true };
+        } catch (error) {
+          return { success: false, error: String(error) };
+        }
       }
-    })
+    )
   );
 
   // App info handlers
