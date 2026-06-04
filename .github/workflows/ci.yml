@@ -33,22 +33,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check (renderer + Electron main)
-        run: |
-          npm run type-check
-          npx tsc --noEmit -p electron/tsconfig.json
-
-      - name: Type-check (HTTP feature, exactOptionalPropertyTypes pilot)
-        run: npx tsc --noEmit -p src/features/http/tsconfig.json
-
-      - name: Type-check (worker)
-        run: npx tsc --noEmit -p worker/tsconfig.json
-
-      - name: Type-check (echo)
-        run: npx tsc --noEmit -p echo/tsconfig.json
-
-      - name: Type-check (CLI workspace)
-        run: npm run --workspace cli type-check
+      - name: Type-check (all projects)
+        # Single source of truth for the project set — same six tsc projects
+        # `npm run validate` runs locally. Keep this in sync via type-check:all only.
+        run: npm run type-check:all
 
       - name: Lint
         run: npm run lint
