@@ -887,8 +887,7 @@ export interface AppSettings {
 
 /**
  * Config for the LLM-as-judge backing `rs.judge(...)` in test scripts.
- * Structurally matches `JudgeConfig` in `src/lib/shared/judgeBridge.ts` (the
- * consumer) — keep the two field-for-field in sync.
+ * Consumed by `makeRendererJudge` in `src/lib/shared/judgeBridge.ts`.
  */
 export interface JudgeSettings {
   enabled: boolean;
@@ -901,6 +900,19 @@ export interface JudgeSettings {
   /** Redact the candidate output before sending it to the judge LLM. Default true. */
   redactBeforeJudge: boolean;
 }
+
+/**
+ * Single source of truth for the default judge config. Referenced by the
+ * settings-store default, its `updateJudge` fallback (pre-judge persisted state
+ * lacks the field), and the settings UI. Off by default; redact-before-judge ON
+ * (don't ship raw API responses to a cloud LLM unprompted).
+ */
+export const DEFAULT_JUDGE_SETTINGS: JudgeSettings = {
+  enabled: false,
+  provider: 'openai',
+  model: '',
+  redactBeforeJudge: true,
+};
 
 export interface AutoUpdateSettings {
   autoDownload: boolean;

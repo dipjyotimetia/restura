@@ -18,9 +18,13 @@ import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ClientCert } from '@/types';
-import { DEFAULT_AUTO_UPDATE_SETTINGS, SPATIAL_ACCENT_PRESETS, type SpatialAccent } from '@/types';
-import type { JudgeSettings } from '@/types';
-import type { Provider } from '@shared/protocol/ai/types';
+import {
+  DEFAULT_AUTO_UPDATE_SETTINGS,
+  DEFAULT_JUDGE_SETTINGS,
+  SPATIAL_ACCENT_PRESETS,
+  type SpatialAccent,
+} from '@/types';
+import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Check,
@@ -680,13 +684,6 @@ function ProxySection() {
 /*  Semantic-assertion judge (rs.judge)                                        */
 /* -------------------------------------------------------------------------- */
 
-const JUDGE_DEFAULTS: JudgeSettings = {
-  enabled: false,
-  provider: 'openai',
-  model: '',
-  redactBeforeJudge: true,
-};
-
 const JUDGE_PROVIDERS: ReadonlyArray<{ value: Provider; label: string }> = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
@@ -696,9 +693,9 @@ const JUDGE_PROVIDERS: ReadonlyArray<{ value: Provider; label: string }> = [
 ];
 
 function JudgeSettingsSection() {
-  const judge = useSettingsStore((s) => s.settings.judge) ?? JUDGE_DEFAULTS;
+  const judge = useSettingsStore((s) => s.settings.judge) ?? DEFAULT_JUDGE_SETTINGS;
   const updateJudge = useSettingsStore((s) => s.updateJudge);
-  const isLocal = judge.provider === 'ollama' || judge.provider === 'openai-compatible';
+  const isLocal = isLocalProvider(judge.provider);
 
   return (
     <FieldGroup label="Semantic assertions (rs.judge)">

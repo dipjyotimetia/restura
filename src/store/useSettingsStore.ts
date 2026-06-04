@@ -11,7 +11,7 @@ import type {
   JudgeSettings,
 } from '@/types';
 import type { SecretValue } from '@/lib/shared/secretRef';
-import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
+import { DEFAULT_AUTO_UPDATE_SETTINGS, DEFAULT_JUDGE_SETTINGS } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
@@ -80,14 +80,8 @@ const defaultSettings: AppSettings = {
   accent: '#4d9fff',
   // Desktop auto-updater: download in the background on the stable channel.
   autoUpdate: DEFAULT_AUTO_UPDATE_SETTINGS,
-  // Semantic-assertion judge (rs.judge): off by default; redact-before-judge ON
-  // (safe-by-default — don't ship raw API responses to a cloud LLM unprompted).
-  judge: {
-    enabled: false,
-    provider: 'openai',
-    model: '',
-    redactBeforeJudge: true,
-  },
+  // Semantic-assertion judge (rs.judge). Safe-by-default; see DEFAULT_JUDGE_SETTINGS.
+  judge: DEFAULT_JUDGE_SETTINGS,
   // clientCert and caCert intentionally omitted (optional under EOPT)
 };
 
@@ -191,12 +185,7 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => {
           // Merge over the persisted value or the defaults (pre-judge persisted
           // state has no `judge` field).
-          const current: JudgeSettings = state.settings.judge ?? {
-            enabled: false,
-            provider: 'openai',
-            model: '',
-            redactBeforeJudge: true,
-          };
+          const current: JudgeSettings = state.settings.judge ?? DEFAULT_JUDGE_SETTINGS;
           return {
             settings: { ...state.settings, judge: { ...current, ...updates } },
           };

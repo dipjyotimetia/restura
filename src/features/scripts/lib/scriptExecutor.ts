@@ -55,8 +55,9 @@ export interface ScriptHostBridges {
   /**
    * LLM-as-judge bridge for `rs.judge(output, opts)` — a semantic
    * assertion on the response. Like `sendRequest`/`vault` it routes to a
-   * host-resolved promise (renderer → `aiLab.complete` IPC; CLI → the AI
-   * proxy). Bound only when wired in, so non-AI builds never expose it.
+   * host-resolved promise; the renderer wires it to the `aiLab.complete`
+   * IPC. Bound only when wired in, so builds without a judge never expose
+   * it (the CLI does not wire one yet).
    */
   judge?: (input: JudgeRequestInput) => Promise<JudgeVerdict>;
 }
@@ -947,8 +948,8 @@ class ScriptExecutor {
    * judge to evaluate `output` against `opts.rubric` (optional `reference`
    * / `passThreshold`). Returns a QuickJS Promise resolving to a verdict
    * `{ pass, score, reasoning }`. Routes through `this.host.judge`; bound
-   * only when that bridge is wired (mirrors `pm.sendRequest`). Reuses
-   * `wrapAsyncHostOp` for the deferred/cleanup lifecycle.
+   * unconditionally (mirrors `pm.vault`) so it rejects cleanly when no judge
+   * is wired. Reuses `wrapAsyncHostOp` for the deferred/cleanup lifecycle.
    */
   private bindPmJudge(vm: QuickJSContext, pmObj: QuickJSHandle): void {
     const fn = vm.newFunction('judge', (outputHandle, optsHandle) => {

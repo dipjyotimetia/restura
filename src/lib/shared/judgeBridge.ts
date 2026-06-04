@@ -9,6 +9,7 @@
 // Depends only on @shared/protocol/ai/* and @/lib/shared/platform — no
 // cross-feature imports (the script-sandbox host owns this glue).
 import { isElectron } from '@/lib/shared/platform';
+import type { JudgeSettings } from '@/types';
 import {
   JUDGE_TOOL,
   buildJudgeMessages,
@@ -17,20 +18,7 @@ import {
   type JudgeVerdict,
 } from '@shared/protocol/ai/judge';
 import { redactBody } from '@shared/protocol/ai/redaction';
-import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
-
-/**
- * Configuration for a renderer judge. A sibling agent matches this shape
- * field-for-field, so the field names/types are load-bearing.
- */
-export interface JudgeConfig {
-  enabled: boolean;
-  provider: Provider;
-  model: string;
-  apiKeyHandleId?: string;
-  baseUrl?: string;
-  redactBeforeJudge: boolean;
-}
+import { isLocalProvider } from '@shared/protocol/ai/types';
 
 /** Default pass bar when the caller doesn't supply one. Matches buildJudgeMessages' framing. */
 const DEFAULT_PASS_THRESHOLD = 0.5;
@@ -40,12 +28,17 @@ const DEFAULT_PASS_THRESHOLD = 0.5;
  * {@link JudgeRequestInput} and resolves to a {@link JudgeVerdict}.
  */
 export function makeRendererJudge(
-  cfg: JudgeConfig
+  cfg: JudgeSettings
 ): (input: JudgeRequestInput) => Promise<JudgeVerdict> {
   return async (input: JudgeRequestInput): Promise<JudgeVerdict> => {
     const complete = typeof window !== 'undefined' ? window.electron?.aiLab?.complete : undefined;
     if (!isElectron() || !complete) {
       throw new Error('rs.judge requires the desktop app');
+    }
+    // Local runtimes (ollama / openai-compatible) require a base URL — the IPC's
+    // Zod refine rejects the call otherwise. Fail fast before building the prompt.
+    if (isLocalProvider(cfg.provider) && !cfg.baseUrl) {
+      throw new Error('rs.judge requires a base URL for local providers');
     }
 
     const passThreshold = input.passThreshold ?? DEFAULT_PASS_THRESHOLD;
@@ -74,12 +67,6 @@ export function makeRendererJudge(
       ...(cfg.apiKeyHandleId !== undefined ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
       ...(cfg.baseUrl !== undefined ? { baseUrlOverride: cfg.baseUrl } : {}),
     };
-
-    // Local runtimes (ollama / openai-compatible) require a base URL — the IPC's
-    // Zod refine rejects the call otherwise.
-    if (isLocalProvider(cfg.provider) && !cfg.baseUrl) {
-      throw new Error('rs.judge requires a base URL for local providers');
-    }
 
     const res = await complete(spec);
     if (!res.ok) {

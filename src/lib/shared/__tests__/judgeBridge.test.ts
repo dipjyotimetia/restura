@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { makeRendererJudge, type JudgeConfig } from '../judgeBridge';
+import { makeRendererJudge } from '../judgeBridge';
+import type { JudgeSettings } from '@/types';
 import { JUDGE_TOOL } from '@shared/protocol/ai/judge';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 
@@ -36,7 +37,7 @@ function installBridge(impl?: () => unknown) {
   };
 }
 
-const CLOUD_CFG: JudgeConfig = {
+const CLOUD_CFG: JudgeSettings = {
   enabled: true,
   provider: 'openai',
   model: 'gpt-judge',
@@ -44,7 +45,7 @@ const CLOUD_CFG: JudgeConfig = {
   redactBeforeJudge: false,
 };
 
-const LOCAL_CFG: JudgeConfig = {
+const LOCAL_CFG: JudgeSettings = {
   enabled: true,
   provider: 'ollama',
   model: 'llama-judge',

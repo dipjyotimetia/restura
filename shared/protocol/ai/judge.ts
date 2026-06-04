@@ -7,6 +7,7 @@
 // Depends ONLY on shared/protocol/ai/types — never on anything under
 // src/features/. ai-lab consumes this via a thin adapter (judgePrompt.ts).
 import type { ChatMessageWire, CompletionResult } from './types';
+import { extractFirstJsonObject } from './json-extract';
 
 export const JUDGE_TOOL = {
   name: 'submit_judgment',
@@ -36,9 +37,6 @@ export interface JudgeVerdict {
   score: number;
   reasoning: string;
 }
-
-/** Canonical judge result. Re-used name for callers that prefer it. */
-export type JudgeResult = JudgeVerdict;
 
 /**
  * Build the judge prompt messages. Mirrors the original ai-lab implementation:
@@ -86,7 +84,7 @@ export function buildJudgeMessages(args: {
 export function parseJudgment(completion: CompletionResult, passThreshold: number): JudgeVerdict {
   const raw =
     completion.toolCalls.find((t) => t.name === JUDGE_TOOL.name)?.input ??
-    extractJson(completion.text);
+    extractFirstJsonObject(completion.text);
   let parsed: { score?: unknown; reasoning?: unknown; pass?: unknown } = {};
   if (raw) {
     try {
@@ -104,12 +102,4 @@ export function parseJudgment(completion: CompletionResult, passThreshold: numbe
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
-}
-
-/** Best-effort extraction of the first {...} JSON object from free text. */
-function extractJson(text: string): string | undefined {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) return undefined;
-  return text.slice(start, end + 1);
 }
