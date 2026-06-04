@@ -18,7 +18,7 @@ import { emitTo, errorMessage } from './ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
 import { IPC } from '../shared/channels';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from './kafka-broker-guard';
-import { valueToString } from './kafka-serde';
+import { buildSchemaValue, valueToString } from './kafka-serde';
 import type { LogEntry } from './request-logger';
 import {
   KafkaConnectSchema,
@@ -345,9 +345,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         // also locks the acks picker to -1 when idempotent is on).
         const acks = entry.idempotent ? -1 : cfg.acks;
 
-        // Schema-encode the value when a schema id is supplied. The registry
-        // encodes whatever `metadata.schemas.value` points at; the value must be
-        // a parsed object (Avro/Protobuf/JSON encoders don't take raw strings).
+        // Schema-encode the value when a schema id is supplied. On a registry
+        // connection the value serializer falls back to JSON when no schema is
+        // set; the key serializer falls back to the string serializer, so plain
+        // keys pass through unchanged.
         let messageValue: unknown = cfg.value;
         let metadata: { schemas: { value: number } } | undefined;
         if (cfg.valueSchemaId !== undefined) {
@@ -357,12 +358,12 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
               error: 'A value schema ID requires a Schema Registry on this connection.',
             };
           }
-          try {
-            messageValue = JSON.parse(cfg.value);
-          } catch {
-            return { success: false, error: 'Schema-encoded value must be valid JSON.' };
+          const built = buildSchemaValue(cfg.value, cfg.valueSchemaId);
+          if ('error' in built) {
+            return { success: false, error: built.error };
           }
-          metadata = { schemas: { value: cfg.valueSchemaId } };
+          messageValue = built.value;
+          metadata = built.metadata;
         }
         try {
           const result = await entry.producer.send({

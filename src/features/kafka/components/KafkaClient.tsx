@@ -47,6 +47,7 @@ import type {
   KafkaSecurityProtocol,
   KafkaSaslMechanism,
   KafkaMessage,
+  KafkaRegistry,
 } from '@/features/kafka/store/useKafkaStore';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import { secureStorage } from '@/lib/shared/secure-storage';
@@ -355,19 +356,23 @@ function KafkaClient() {
     // Persist registry secret drafts to secureStorage and store sentinels.
     let nextRegistry = connection.registry;
     if (nextRegistry && (registryPasswordDraft || registryTokenDraft)) {
+      // Persist a draft secret (if any) and clear it; returns true when stored.
+      const persistDraft = (
+        field: 'registry-password' | 'registry-token',
+        draft: string,
+        setDraft: (s: string) => void
+      ): boolean => {
+        if (!draft) return false;
+        secureStorage.set(kafkaSecretKey(connection.id, field), draft);
+        setDraft('');
+        return true;
+      };
       const auth = { ...(nextRegistry.auth ?? {}) };
-      if (registryPasswordDraft) {
-        secureStorage.set(
-          kafkaSecretKey(connection.id, 'registry-password'),
-          registryPasswordDraft
-        );
+      if (persistDraft('registry-password', registryPasswordDraft, setRegistryPasswordDraft)) {
         auth.password = KAFKA_SECRET_SENTINEL;
-        setRegistryPasswordDraft('');
       }
-      if (registryTokenDraft) {
-        secureStorage.set(kafkaSecretKey(connection.id, 'registry-token'), registryTokenDraft);
+      if (persistDraft('registry-token', registryTokenDraft, setRegistryTokenDraft)) {
         auth.token = KAFKA_SECRET_SENTINEL;
-        setRegistryTokenDraft('');
       }
       nextRegistry = { ...nextRegistry, auth };
       updateConnection(connection.id, { registry: nextRegistry });
@@ -379,6 +384,12 @@ function KafkaClient() {
   const handleDisconnect = async (): Promise<void> => {
     if (!connection) return;
     await kafkaManager.disconnect(connection.id);
+  };
+
+  // Merge a patch into the connection's registry config (non-secret fields).
+  const patchRegistry = (patch: Partial<KafkaRegistry>): void => {
+    if (!connection?.registry) return;
+    updateConnection(connection.id, { registry: { ...connection.registry, ...patch } });
   };
 
   const handleProduce = async (): Promise<void> => {
@@ -1086,25 +1097,15 @@ function KafkaClient() {
                   <>
                     <Input
                       value={connection.registry.url}
-                      onChange={(e) =>
-                        updateConnection(connection.id, {
-                          registry: { ...connection.registry!, url: e.target.value },
-                        })
-                      }
+                      onChange={(e) => patchRegistry({ url: e.target.value })}
                       placeholder="https://schema-registry:8081"
                       className="h-8 text-xs font-mono"
                     />
                     <Input
                       value={connection.registry.auth?.username ?? ''}
                       onChange={(e) =>
-                        updateConnection(connection.id, {
-                          registry: {
-                            ...connection.registry!,
-                            auth: {
-                              ...(connection.registry!.auth ?? {}),
-                              username: e.target.value,
-                            },
-                          },
+                        patchRegistry({
+                          auth: { ...(connection.registry!.auth ?? {}), username: e.target.value },
                         })
                       }
                       placeholder="Username (optional)"

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { valueToString } from '../kafka-serde';
+import { valueToString, buildSchemaValue } from '../kafka-serde';
 
 describe('valueToString', () => {
   it('passes a plain string through unchanged (string consumer path)', () => {
@@ -26,5 +26,27 @@ describe('valueToString', () => {
   it('stringifies primitives that are not strings', () => {
     expect(valueToString(42)).toBe('42');
     expect(valueToString(true)).toBe('true');
+  });
+});
+
+describe('buildSchemaValue', () => {
+  it('parses a JSON value and attaches the schema metadata', () => {
+    const out = buildSchemaValue('{"id":1,"name":"a"}', 7);
+    expect(out).toEqual({
+      value: { id: 1, name: 'a' },
+      metadata: { schemas: { value: 7 } },
+    });
+  });
+
+  it('parses a JSON scalar (e.g. an Avro string schema)', () => {
+    expect(buildSchemaValue('"hello"', 3)).toEqual({
+      value: 'hello',
+      metadata: { schemas: { value: 3 } },
+    });
+  });
+
+  it('returns an error for a non-JSON value', () => {
+    const out = buildSchemaValue('not json', 7);
+    expect(out).toEqual({ error: 'Schema-encoded value must be valid JSON.' });
   });
 });

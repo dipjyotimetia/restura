@@ -38,17 +38,15 @@ function resolveRegistry(
   if (!registry) return undefined;
   const out: KafkaRegistryIpc = { url: registry.url };
   if (registry.auth) {
+    // A sentinel means the real value lives in secureStorage; otherwise it's
+    // the inline value (or undefined).
+    const resolve = (value: string | undefined, field: KafkaSecretField): string | null =>
+      value === KAFKA_SECRET_SENTINEL ? readSecret(connectionId, field) : (value ?? null);
     const auth: NonNullable<KafkaRegistryIpc['auth']> = {};
     if (registry.auth.username) auth.username = registry.auth.username;
-    const password =
-      registry.auth.password === KAFKA_SECRET_SENTINEL
-        ? readSecret(connectionId, 'registry-password')
-        : registry.auth.password;
+    const password = resolve(registry.auth.password, 'registry-password');
     if (password) auth.password = password;
-    const token =
-      registry.auth.token === KAFKA_SECRET_SENTINEL
-        ? readSecret(connectionId, 'registry-token')
-        : registry.auth.token;
+    const token = resolve(registry.auth.token, 'registry-token');
     if (token) auth.token = token;
     if (Object.keys(auth).length > 0) out.auth = auth;
   }
