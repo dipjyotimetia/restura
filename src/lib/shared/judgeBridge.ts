@@ -36,9 +36,15 @@ export function makeRendererJudge(
       throw new Error('rs.judge requires the desktop app');
     }
     // Local runtimes (ollama / openai-compatible) require a base URL — the IPC's
-    // Zod refine rejects the call otherwise. Fail fast before building the prompt.
-    if (isLocalProvider(cfg.provider) && !cfg.baseUrl) {
-      throw new Error('rs.judge requires a base URL for local providers');
+    // Zod refine rejects the call otherwise. Cloud providers require an API key
+    // handle, or the secret resolver fails downstream with a cryptic error.
+    // Fail fast, with an actionable message, before building the prompt.
+    if (isLocalProvider(cfg.provider)) {
+      if (!cfg.baseUrl) {
+        throw new Error('rs.judge requires a base URL for local providers');
+      }
+    } else if (!cfg.apiKeyHandleId) {
+      throw new Error('rs.judge: set an API key for the judge provider in Settings → AI');
     }
 
     const passThreshold = input.passThreshold ?? DEFAULT_PASS_THRESHOLD;

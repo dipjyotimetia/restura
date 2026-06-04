@@ -125,6 +125,7 @@ describe('rs.judge ⇄ makeRendererJudge integration', () => {
       enabled: true,
       provider: 'openai',
       model: 'gpt-judge',
+      apiKeyHandleId: 'h1',
       redactBeforeJudge: false,
     });
     const ex = new ScriptExecutor({ host: { judge } });

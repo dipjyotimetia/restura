@@ -696,6 +696,32 @@ function JudgeSettingsSection() {
   const judge = useSettingsStore((s) => s.settings.judge) ?? DEFAULT_JUDGE_SETTINGS;
   const updateJudge = useSettingsStore((s) => s.updateJudge);
   const isLocal = isLocalProvider(judge.provider);
+  const [pendingKey, setPendingKey] = useState('');
+
+  // The plaintext key never lands in the store — it's stored in the OS keychain
+  // (same path as the AI assistant) and only its handle id is persisted.
+  const saveJudgeKey = async () => {
+    const value = pendingKey.trim();
+    if (!value) return;
+    const api = getElectronAPI()?.secrets;
+    if (!api) return;
+    const result = await api.store({ scope: 'ai:judge', value, label: 'judge key' });
+    if (!result.ok) {
+      toast.error(`Failed to store key: ${result.error}`);
+      return;
+    }
+    updateJudge({ apiKeyHandleId: result.id });
+    setPendingKey('');
+    toast.success('Judge API key stored');
+  };
+
+  const clearJudgeKey = async () => {
+    const api = getElectronAPI()?.secrets;
+    if (judge.apiKeyHandleId && api) {
+      await api.delete(judge.apiKeyHandleId);
+    }
+    updateJudge({ apiKeyHandleId: undefined });
+  };
 
   return (
     <FieldGroup label="Semantic assertions (rs.judge)">
@@ -751,17 +777,42 @@ function JudgeSettingsSection() {
         />
       )}
       <FieldRow
-        label="API key handle"
-        hint="SecretRef handle id for the provider key. Leave blank for keyless local runtimes."
+        label="API key"
+        hint={
+          isLocal
+            ? 'Optional for local runtimes (only if your gateway requires auth).'
+            : 'Required for cloud providers. Stored in the OS keychain; the renderer never sees it.'
+        }
         control={
-          <TextField
-            mono
-            placeholder="(optional)"
-            value={judge.apiKeyHandleId ?? ''}
-            onChange={(e) => updateJudge({ apiKeyHandleId: e.target.value })}
-            disabled={!judge.enabled}
-            className="w-[260px]"
-          />
+          judge.apiKeyHandleId ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sp-12 font-mono text-sp-muted">
+                handle {judge.apiKeyHandleId.slice(0, 8)}…
+              </span>
+              <DataButton icon={Trash2} danger onClick={() => void clearJudgeKey()}>
+                Clear
+              </DataButton>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <TextField
+                type="password"
+                mono
+                placeholder="sk-…"
+                value={pendingKey}
+                onChange={(e) => setPendingKey(e.target.value)}
+                disabled={!judge.enabled}
+                className="w-[200px]"
+              />
+              <DataButton
+                icon={KeyRound}
+                disabled={!judge.enabled || !pendingKey.trim()}
+                onClick={() => void saveJudgeKey()}
+              >
+                Save
+              </DataButton>
+            </div>
+          )
         }
       />
       <FieldRow

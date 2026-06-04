@@ -116,4 +116,15 @@ describe('makeRendererJudge', () => {
       'rs.judge requires the desktop app'
     );
   });
+
+  it('throws an actionable error when a cloud provider has no API key', async () => {
+    const judge = makeRendererJudge({ ...CLOUD_CFG, apiKeyHandleId: undefined });
+    await expect(judge({ output: 'a', rubric: 'r' })).rejects.toThrow(/set an API key/);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('throws when a local provider has no base URL', async () => {
+    const judge = makeRendererJudge({ ...LOCAL_CFG, baseUrl: undefined });
+    await expect(judge({ output: 'a', rubric: 'r' })).rejects.toThrow(/base URL/);
+  });
 });
