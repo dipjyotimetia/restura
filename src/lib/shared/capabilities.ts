@@ -50,7 +50,8 @@ export type CapabilityName =
   | 'scripts.cookies'
   | 'scripts.setNextRequest'
   | 'scripts.visualizer'
-  | 'scripts.vault';
+  | 'scripts.vault'
+  | 'scripts.judge';
 
 export interface CapabilityRow {
   /** Display label for docs/UI. */
@@ -225,6 +226,12 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: 'Backed by OS keychain via electron safeStorage; no equivalent in browser',
+  },
+  'scripts.judge': {
+    label: 'rs.judge LLM-as-judge semantic assertions',
+    web: false,
+    desktop: true,
+    notes: 'Routes through the AI Lab complete IPC; no Worker /api/ai route yet',
   },
 };
 

@@ -8,9 +8,10 @@ import type {
   CaCert,
   HostClientCert,
   HostCaCert,
+  JudgeSettings,
 } from '@/types';
 import type { SecretValue } from '@/lib/shared/secretRef';
-import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
+import { DEFAULT_AUTO_UPDATE_SETTINGS, DEFAULT_JUDGE_SETTINGS } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
@@ -29,6 +30,8 @@ interface SettingsState {
   // CORS proxy actions
   updateCorsProxy: (updates: Partial<CorsProxyConfig>) => void;
   setCorsProxyEnabled: (enabled: boolean) => void;
+  // Semantic-assertion judge actions
+  updateJudge: (updates: Partial<JudgeSettings>) => void;
   // Certificate actions
   setClientCert: (cert: ClientCert | undefined) => void;
   setCaCert: (ca: CaCert | undefined) => void;
@@ -77,6 +80,8 @@ const defaultSettings: AppSettings = {
   accent: '#4d9fff',
   // Desktop auto-updater: download in the background on the stable channel.
   autoUpdate: DEFAULT_AUTO_UPDATE_SETTINGS,
+  // Semantic-assertion judge (rs.judge). Safe-by-default; see DEFAULT_JUDGE_SETTINGS.
+  judge: DEFAULT_JUDGE_SETTINGS,
   // clientCert and caCert intentionally omitted (optional under EOPT)
 };
 
@@ -175,6 +180,16 @@ export const useSettingsStore = create<SettingsState>()(
             corsProxy: { ...state.settings.corsProxy, enabled },
           },
         })),
+
+      updateJudge: (updates) =>
+        set((state) => {
+          // Merge over the persisted value or the defaults (pre-judge persisted
+          // state has no `judge` field).
+          const current: JudgeSettings = state.settings.judge ?? DEFAULT_JUDGE_SETTINGS;
+          return {
+            settings: { ...state.settings, judge: { ...current, ...updates } },
+          };
+        }),
 
       setClientCert: (cert) =>
         set((s) => {

@@ -4,6 +4,7 @@
 // cases as STRUCTURED output (a tool call), same discipline as the judge.
 import type { ChatMessage } from './llmClient';
 import type { CompletionResult } from '@shared/protocol/ai/types';
+import { extractFirstJsonObject } from '@shared/protocol/ai/json-extract';
 import type { DatasetCase } from '../types';
 
 export interface OperationSummary {
@@ -108,7 +109,7 @@ export function buildGenMessages(args: {
 export function parseGeneratedCases(completion: CompletionResult): Array<Omit<DatasetCase, 'id'>> {
   const raw =
     completion.toolCalls.find((t) => t.name === DATASET_TOOL.name)?.input ??
-    extractJson(completion.text);
+    extractFirstJsonObject(completion.text);
   if (!raw) return [];
   let parsed: { cases?: unknown };
   try {
@@ -138,11 +139,4 @@ function normalizeVars(v: unknown): Record<string, string> {
     out[k] = typeof val === 'string' ? val : JSON.stringify(val);
   }
   return out;
-}
-
-function extractJson(text: string): string | undefined {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) return undefined;
-  return text.slice(start, end + 1);
 }

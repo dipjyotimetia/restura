@@ -16,6 +16,8 @@ import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
 import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
 import { makeVaultAdapter } from '@/lib/shared/vaultClient';
+import { makeRendererJudge } from '@/lib/shared/judgeBridge';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import {
   applyAuthHeaders,
   applyApiKeyQueryParam,
@@ -398,6 +400,10 @@ export async function executeRequest(
   let testResult: ScriptResult | undefined;
   if (request.testScript) {
     const globalVars = useGlobalsStore.getState().vars;
+    // rs.judge is wired only on the TEST script (a response exists to judge)
+    // and only when the user has enabled + configured a judge provider.
+    // When absent, rs.judge rejects with a clean "not wired in" error.
+    const judgeCfg = useSettingsStore.getState().settings.judge;
     // Test script gets the fully-resolved sentHeaders (auth + content-type
     // + framework defaults) so pm.sendRequest sub-requests inherit the
     // same Authorization the parent went out with. The user can still
@@ -412,6 +418,7 @@ export async function executeRequest(
         }),
         cookies: (currentUrl) => makeCookieAdapter(currentUrl),
         vault: makeVaultAdapter(),
+        ...(judgeCfg?.enabled ? { judge: makeRendererJudge(judgeCfg) } : {}),
       },
     });
     void useCookieStore; // keep the import side-effect for cookieAdapter's lazy store binding

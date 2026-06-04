@@ -1,4 +1,5 @@
 import type { SecretValue } from '@/lib/shared/secretRef';
+import type { Provider } from '@shared/protocol/ai/types';
 
 // HTTP Methods
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
@@ -879,7 +880,39 @@ export interface AppSettings {
   // Desktop auto-updater preferences (Electron only). Synced to the main
   // process via window.electron.updater.setConfig. `beta` maps to prerelease.
   autoUpdate?: AutoUpdateSettings;
+  // Semantic-assertion judge (rs.judge in test scripts). Desktop-only for now
+  // (web has no /api/ai route). See src/lib/shared/judgeBridge.ts.
+  judge?: JudgeSettings;
 }
+
+/**
+ * Config for the LLM-as-judge backing `rs.judge(...)` in test scripts.
+ * Consumed by `makeRendererJudge` in `src/lib/shared/judgeBridge.ts`.
+ */
+export interface JudgeSettings {
+  enabled: boolean;
+  provider: Provider;
+  model: string;
+  /** SecretRef handle id for the provider API key (absent for keyless local runtimes). */
+  apiKeyHandleId?: string;
+  /** Base URL override; required by the IPC for local providers (ollama/openai-compatible). */
+  baseUrl?: string;
+  /** Redact the candidate output before sending it to the judge LLM. Default true. */
+  redactBeforeJudge: boolean;
+}
+
+/**
+ * Single source of truth for the default judge config. Referenced by the
+ * settings-store default, its `updateJudge` fallback (pre-judge persisted state
+ * lacks the field), and the settings UI. Off by default; redact-before-judge ON
+ * (don't ship raw API responses to a cloud LLM unprompted).
+ */
+export const DEFAULT_JUDGE_SETTINGS: JudgeSettings = {
+  enabled: false,
+  provider: 'openai',
+  model: '',
+  redactBeforeJudge: true,
+};
 
 export interface AutoUpdateSettings {
   autoDownload: boolean;
