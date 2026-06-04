@@ -345,6 +345,16 @@ type KafkaAuthIpc =
     }
   | { securityProtocol: 'SSL'; tls: KafkaTlsIpc };
 
+/**
+ * Confluent Schema Registry config (resolved plaintext auth — secrets are
+ * resolved main-side by kafkaManager before the IPC call). When present, the
+ * consumer decodes Avro/Protobuf/JSON Schema messages via the registry.
+ */
+interface KafkaRegistryIpc {
+  url: string;
+  auth?: { username?: string; password?: string; token?: string };
+}
+
 interface KafkaAck {
   topic: string;
   partition: number;
@@ -375,6 +385,8 @@ interface ElectronKafkaAPI {
     auth: KafkaAuthIpc;
     /** Enable the idempotent producer (forces acks=-1 on the produce path). */
     idempotent?: boolean;
+    /** Confluent Schema Registry — when set, the consumer decodes via it. */
+    registry?: KafkaRegistryIpc;
   }) => Promise<{ success: boolean; error?: string }>;
   produce: (config: {
     connectionId: string;
@@ -385,6 +397,8 @@ interface ElectronKafkaAPI {
     partition?: number;
     acks: 0 | 1 | -1;
     compression?: 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd';
+    /** Confluent value schema id — encodes the (JSON) value via the registry. */
+    valueSchemaId?: number;
   }) => Promise<{ success: boolean; ack?: KafkaAck; error?: string }>;
   subscribe: (config: {
     connectionId: string;
@@ -869,6 +883,7 @@ export type {
   KafkaAuthIpc,
   KafkaTlsIpc,
   KafkaSaslMechanism,
+  KafkaRegistryIpc,
   KafkaAck,
   KafkaPartitionOffset,
   KafkaGroupInfo,

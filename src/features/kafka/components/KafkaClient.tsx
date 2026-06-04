@@ -47,6 +47,7 @@ import type {
   KafkaSecurityProtocol,
   KafkaSaslMechanism,
   KafkaMessage,
+  KafkaRegistry,
 } from '@/features/kafka/store/useKafkaStore';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import { secureStorage } from '@/lib/shared/secure-storage';
@@ -209,10 +210,14 @@ function KafkaClient() {
 
   const [saslPasswordDraft, setSaslPasswordDraft] = useState('');
   const [tlsPassphraseDraft, setTlsPassphraseDraft] = useState('');
+  const [registryPasswordDraft, setRegistryPasswordDraft] = useState('');
+  const [registryTokenDraft, setRegistryTokenDraft] = useState('');
   const [brokerDraft, setBrokerDraft] = useState('');
   const [topicDraft, setTopicDraft] = useState('');
   const [produceKey, setProduceKey] = useState('');
   const [produceValue, setProduceValue] = useState('');
+  // Optional Confluent value schema id (registry connections) — empty = plain.
+  const [produceSchemaId, setProduceSchemaId] = useState('');
   const [activeTab, setActiveTab] = useState('messages');
   // UI-only — does not affect store/subscription. Visually parks the log.
   const [paused, setPaused] = useState(false);
@@ -347,7 +352,33 @@ function KafkaClient() {
     if (nextAuth !== connection.auth) {
       updateAuth(connection.id, nextAuth);
     }
-    await kafkaManager.connect({ ...connection, auth: nextAuth });
+
+    // Persist registry secret drafts to secureStorage and store sentinels.
+    let nextRegistry = connection.registry;
+    if (nextRegistry && (registryPasswordDraft || registryTokenDraft)) {
+      // Persist a draft secret (if any) and clear it; returns true when stored.
+      const persistDraft = (
+        field: 'registry-password' | 'registry-token',
+        draft: string,
+        setDraft: (s: string) => void
+      ): boolean => {
+        if (!draft) return false;
+        secureStorage.set(kafkaSecretKey(connection.id, field), draft);
+        setDraft('');
+        return true;
+      };
+      const auth = { ...(nextRegistry.auth ?? {}) };
+      if (persistDraft('registry-password', registryPasswordDraft, setRegistryPasswordDraft)) {
+        auth.password = KAFKA_SECRET_SENTINEL;
+      }
+      if (persistDraft('registry-token', registryTokenDraft, setRegistryTokenDraft)) {
+        auth.token = KAFKA_SECRET_SENTINEL;
+      }
+      nextRegistry = { ...nextRegistry, auth };
+      updateConnection(connection.id, { registry: nextRegistry });
+    }
+
+    await kafkaManager.connect({ ...connection, auth: nextAuth, registry: nextRegistry });
   };
 
   const handleDisconnect = async (): Promise<void> => {
@@ -355,9 +386,17 @@ function KafkaClient() {
     await kafkaManager.disconnect(connection.id);
   };
 
+  // Merge a patch into the connection's registry config (non-secret fields).
+  const patchRegistry = (patch: Partial<KafkaRegistry>): void => {
+    if (!connection?.registry) return;
+    updateConnection(connection.id, { registry: { ...connection.registry, ...patch } });
+  };
+
   const handleProduce = async (): Promise<void> => {
     if (!connection) return;
     if (!produceValue || !connection.defaultTopic) return;
+    const schemaId =
+      connection.registry && produceSchemaId.trim() ? Number(produceSchemaId) : undefined;
     await kafkaManager.produce({
       connectionId: connection.id,
       topic: connection.defaultTopic,
@@ -365,6 +404,9 @@ function KafkaClient() {
       value: produceValue,
       acks: connection.acks,
       ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
+      ...(schemaId !== undefined && Number.isInteger(schemaId) && schemaId > 0
+        ? { valueSchemaId: schemaId }
+        : {}),
     });
     setProduceValue('');
   };
@@ -1037,6 +1079,66 @@ function KafkaClient() {
                   </div>
                 </div>
               )}
+
+              {/* Schema Registry (optional) — decodes Avro/Protobuf/JSON on consume */}
+              <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs sp-label">Schema Registry</Label>
+                  <Switch
+                    checked={!!connection.registry}
+                    onCheckedChange={(checked) =>
+                      updateConnection(connection.id, {
+                        registry: checked ? (connection.registry ?? { url: '' }) : undefined,
+                      })
+                    }
+                  />
+                </div>
+                {connection.registry && (
+                  <>
+                    <Input
+                      value={connection.registry.url}
+                      onChange={(e) => patchRegistry({ url: e.target.value })}
+                      placeholder="https://schema-registry:8081"
+                      className="h-8 text-xs font-mono"
+                    />
+                    <Input
+                      value={connection.registry.auth?.username ?? ''}
+                      onChange={(e) =>
+                        patchRegistry({
+                          auth: { ...(connection.registry!.auth ?? {}), username: e.target.value },
+                        })
+                      }
+                      placeholder="Username (optional)"
+                      className="h-8 text-xs font-mono"
+                    />
+                    <Input
+                      type="password"
+                      value={registryPasswordDraft}
+                      onChange={(e) => setRegistryPasswordDraft(e.target.value)}
+                      placeholder={
+                        connection.registry.auth?.password === KAFKA_SECRET_SENTINEL
+                          ? 'Password (stored — leave blank to keep)'
+                          : 'Password (optional)'
+                      }
+                      className="h-8 text-xs font-mono"
+                    />
+                    <Input
+                      type="password"
+                      value={registryTokenDraft}
+                      onChange={(e) => setRegistryTokenDraft(e.target.value)}
+                      placeholder={
+                        connection.registry.auth?.token === KAFKA_SECRET_SENTINEL
+                          ? 'Bearer token (stored — leave blank to keep)'
+                          : 'Bearer token (optional)'
+                      }
+                      className="h-8 text-xs font-mono"
+                    />
+                    <p className="text-sp-11 text-sp-muted">
+                      Decodes Avro / Protobuf / JSON messages on consume.
+                    </p>
+                  </>
+                )}
+              </div>
             </Floater>
           </TabsContent>
 
@@ -1130,6 +1232,24 @@ function KafkaClient() {
                   rows={8}
                 />
               </div>
+              {connection.registry && (
+                <div className="space-y-2">
+                  <Label className="text-xs sp-label">Value schema ID (optional)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={produceSchemaId}
+                    onChange={(e) => setProduceSchemaId(e.target.value)}
+                    placeholder="e.g. 1 — encode the value with this registry schema"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <p className="text-sp-11 text-sp-muted">
+                    {produceSchemaId.trim()
+                      ? 'Value is parsed as JSON and encoded with this schema.'
+                      : 'No schema ID — the value is sent as JSON via the registry.'}
+                  </p>
+                </div>
+              )}
               <Button
                 onClick={handleProduce}
                 disabled={
