@@ -66,6 +66,8 @@ yarn-error.log*
 .claude/settings.local.json
 # Claude Code transient runtime lock (session id + pid; not source)
 .claude/scheduled_tasks.lock
+# Claude Code skill-usage metrics (runtime data written by the measurement hook)
+.claude/metrics/
 
 # IDE
 .idea/

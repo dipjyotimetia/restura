@@ -192,7 +192,7 @@ Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.de
 - **UI** — Radix UI primitives + Tailwind, shadcn/ui patterns in `src/components/ui/`.
 - **Script sandbox** — pre-request and test scripts run in QuickJS WASM (`src/features/scripts/lib/scriptExecutor.ts`). No DOM, no filesystem, no network escape; memory + execution-time capped.
 - **Collection import/export** — Postman v2.1, Insomnia, and OpenCollection (`src/lib/opencollection/`, with codegen — `spec-types.ts` is generated, validated by `verify:opencollection-types`).
-- **Multiple tsconfigs** — `tsconfig.json` (renderer), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI). `tsconfig.base.json` holds shared compiler options. `npm run type-check` and `npm run lint` cover all of them.
+- **Multiple tsconfigs** — `tsconfig.json` (renderer), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI), plus `src/features/http/tsconfig.json`. `tsconfig.base.json` holds shared compiler options. **`npm run type-check` only covers the renderer** — the root `tsconfig.json` excludes `worker`, `electron/main`, and `cli`, so a green `type-check` does *not* mean those projects compile. Use **`npm run type-check:all`** (chained into `npm run validate`) to type-check every project the way CI does. `npm run lint` does cover all of them.
 
 ## Testing
 

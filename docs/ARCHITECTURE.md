@@ -521,10 +521,15 @@ Tests are colocated with source files as `*.test.ts` / `*.test.tsx`. Vitest runs
 
 ### Type-Check Coverage
 
-CI type-checks three independent TypeScript projects:
+CI type-checks six independent TypeScript projects — the root `tsconfig.json` excludes `worker`, `electron/main`, and `cli`, so each needs its own invocation:
 1. Renderer — `tsc --noEmit` (uses `tsconfig.json`)
 2. Electron main — `tsc --noEmit -p electron/tsconfig.json`
-3. Worker — `tsc --noEmit -p worker/tsconfig.json`
+3. HTTP feature — `tsc --noEmit -p src/features/http/tsconfig.json`
+4. Worker — `tsc --noEmit -p worker/tsconfig.json`
+5. Echo — `tsc --noEmit -p echo/tsconfig.json`
+6. CLI — `npm run --workspace cli type-check`
+
+Run all six at once with `npm run type-check:all` (which `npm run validate` calls). Plain `npm run type-check` covers only the renderer.
 
 ---
 
