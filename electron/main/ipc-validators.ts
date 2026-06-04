@@ -833,6 +833,10 @@ export const StoreKeySchema = z
 
 export const StoreValueSchema = z.string().max(1024 * 1024, 'Value exceeds 1MB limit');
 
+// store:set takes two args (key, value); createValidatedHandler validates 2+
+// args as a tuple — same pattern as WriteFileSchema for fs:writeFile.
+export const StoreSetSchema = z.tuple([StoreKeySchema, StoreValueSchema]);
+
 // ===========================
 // Log Schemas
 // ===========================
