@@ -42,7 +42,7 @@ Run `npm run validate` — it chains: `type-check:all` → `lint` → `verify:op
 ## References (read on demand)
 
 - **`references/verification-gates.md`** — every gate, the exact command, what it catches, and what it silently misses. The full map.
-- **`references/security-checklist.md`** — change-type → which `tests/security/*` must pass, and the Restura-specific security invariants. Pair with the `restura-security-auditor` agent.
+- **`references/security-checklist.md`** — change-type → which `tests/security/*` must pass. The Restura security invariants live in the `restura-security-auditor` agent (self-contained for isolated review); dispatch it for security-surface diffs.
 - **`references/release-readiness.md`** — the pre-release / pre-deploy checklist: builds, bundle size, ASAR verification, multi-platform smoke, Sentry sourcemaps.
 - **`references/docs-parity.md`** — the doc-ownership map (code surface → owning docs), the "does this need an ADR?" rubric, and why `docs:check` (just `astro check`) does not catch content drift. Pair with the `restura-docs-steward` agent.
 
