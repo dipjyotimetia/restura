@@ -125,12 +125,22 @@ function bindClientListeners(entry: ActiveMqtt): void {
         : {}),
       ...(props.contentType ? { contentType: props.contentType } : {}),
       ...(props.responseTopic ? { responseTopic: props.responseTopic } : {}),
+      // MQTT 5 request/response correlation — Buffer on the wire, surfaced as text.
+      ...(props.correlationData
+        ? { correlationData: Buffer.from(props.correlationData).toString() }
+        : {}),
+      // Which subscription matched (MQTT 5 subscription identifier).
+      ...(props.subscriptionIdentifier !== undefined
+        ? { subscriptionIdentifier: props.subscriptionIdentifier }
+        : {}),
     });
   });
 
   client.on('error', (err: Error) => {
+    const code = (err as NodeJS.ErrnoException).code;
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.ERROR, entry.connectionId), {
       message: err.message,
+      ...(code ? { code } : {}),
     });
   });
 
@@ -262,6 +272,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       }
       if (cfg.contentType) properties.contentType = cfg.contentType;
       if (cfg.responseTopic) properties.responseTopic = cfg.responseTopic;
+      if (cfg.correlationData) properties.correlationData = Buffer.from(cfg.correlationData);
 
       return new Promise<{
         success: boolean;

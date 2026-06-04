@@ -76,8 +76,22 @@ describe('MQTT IPC validators', () => {
         userProperties: { trace: 'abc' },
         contentType: 'text/plain',
         responseTopic: 'restura/reply',
+        correlationData: 'req-42',
       });
       expect(result.success).toBe(true);
+    });
+
+    it('rejects correlationData over the size cap', () => {
+      expect(
+        MqttPublishSchema.safeParse({
+          connectionId: 'c',
+          topic: 't',
+          payload: '',
+          qos: 0,
+          retain: false,
+          correlationData: 'x'.repeat(4097),
+        }).success
+      ).toBe(false);
     });
 
     it('rejects a publish topic containing wildcards (+ or #)', () => {

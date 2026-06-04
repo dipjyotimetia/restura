@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateMcpSpec } from './mcp-proxy';
+import { validateMcpSpec, parseJsonRpcError, jsonRpcErrorToMessage } from './mcp-proxy';
 
 describe('validateMcpSpec', () => {
   it('rejects unknown transport', () => {
@@ -227,5 +227,52 @@ describe('validateMcpSpec', () => {
       true
     );
     expect(r.ok).toBe(true);
+  });
+});
+
+describe('parseJsonRpcError', () => {
+  it('accepts a well-formed error and coerces the code to number', () => {
+    const parsed = parseJsonRpcError({ code: -32601, message: 'Method not found' });
+    expect(parsed).toEqual({ code: -32601, message: 'Method not found' });
+  });
+
+  it('preserves the optional data field', () => {
+    const parsed = parseJsonRpcError({ code: 1, message: 'm', data: { detail: 'x' } });
+    expect(parsed).toEqual({ code: 1, message: 'm', data: { detail: 'x' } });
+  });
+
+  it('rejects a non-numeric code', () => {
+    expect(parseJsonRpcError({ code: '-32601', message: 'm' })).toBeNull();
+  });
+
+  it('rejects a missing message', () => {
+    expect(parseJsonRpcError({ code: 1 })).toBeNull();
+  });
+
+  it('rejects non-objects', () => {
+    expect(parseJsonRpcError(null)).toBeNull();
+    expect(parseJsonRpcError('boom')).toBeNull();
+    expect(parseJsonRpcError(undefined)).toBeNull();
+  });
+});
+
+describe('jsonRpcErrorToMessage', () => {
+  it('formats a valid error', () => {
+    expect(jsonRpcErrorToMessage({ code: -32601, message: 'Method not found' })).toBe(
+      'JSON-RPC error -32601: Method not found'
+    );
+  });
+
+  it('falls back to a message-only payload', () => {
+    expect(jsonRpcErrorToMessage({ message: 'just a string' })).toBe('just a string');
+  });
+
+  it('falls back to a code-only payload', () => {
+    expect(jsonRpcErrorToMessage({ code: 42 })).toBe('JSON-RPC error 42');
+  });
+
+  it('returns a generic message for unparseable input', () => {
+    expect(jsonRpcErrorToMessage('boom')).toBe('Unknown JSON-RPC error');
+    expect(jsonRpcErrorToMessage(null)).toBe('Unknown JSON-RPC error');
   });
 });

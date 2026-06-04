@@ -54,6 +54,10 @@ export interface MqttMessage {
   messageExpiryInterval?: number;
   contentType?: string;
   responseTopic?: string;
+  // MQTT 5 request/response correlation token (received messages).
+  correlationData?: string;
+  // MQTT 5 subscription identifier(s) — which subscription matched this message.
+  subscriptionIdentifier?: number | number[];
   reasonCode?: number;
   packetId?: number;
   timestamp: number;

@@ -1,5 +1,7 @@
 // GraphQL Introspection Types
 
+import type { IntrospectionQuery } from 'graphql';
+
 export interface GraphQLType {
   kind: GraphQLTypeKind;
   name: string | null;
@@ -69,6 +71,12 @@ export interface GraphQLSchema {
 export interface IntrospectionResult {
   success: boolean;
   schema: GraphQLSchema | null;
+  /**
+   * Raw official `IntrospectionQuery` result (from graphql's `getIntrospectionQuery()`),
+   * retained so `buildClientSchema` can consume the spec-compliant shape directly.
+   * Optional for backward-compatibility with results persisted before this field existed.
+   */
+  introspection?: IntrospectionQuery;
   error?: string;
   endpoint: string;
   timestamp: number;

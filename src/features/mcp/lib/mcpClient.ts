@@ -1,4 +1,10 @@
-import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
+import {
+  isElectron,
+  getElectronAPI,
+  workerAuthHeaders,
+  workerBaseUrl,
+} from '@/lib/shared/platform';
+import { parseJsonRpcError, jsonRpcErrorToMessage } from '@shared/protocol/mcp-proxy';
 import type {
   McpJsonSchema,
   McpPromptDescriptor,
@@ -23,6 +29,27 @@ export interface McpCallError {
 }
 
 export type McpCall<T = unknown> = McpCallResult<T> | McpCallError;
+
+/** Page shapes for the paginated list methods. `nextCursor` drives the loop. */
+interface ListPage<T> {
+  nextCursor?: string;
+  items?: T[];
+}
+interface ToolsListResult {
+  tools?: McpToolDescriptor[];
+  nextCursor?: string;
+}
+interface ResourcesListResult {
+  resources?: McpResourceDescriptor[];
+  nextCursor?: string;
+}
+interface PromptsListResult {
+  prompts?: McpPromptDescriptor[];
+  nextCursor?: string;
+}
+
+/** Cap on pagination iterations to defend against a server that never stops. */
+const MAX_LIST_PAGES = 100;
 
 interface McpClientOptions {
   url: string;
@@ -72,7 +99,8 @@ export class McpClient {
       // rather than failing later in a confusing way.
       return {
         ok: false,
-        error: 'http-sse transport is not supported in web mode (use streamable-http or the desktop app)',
+        error:
+          'http-sse transport is not supported in web mode (use streamable-http or the desktop app)',
       };
     }
     return { ok: true };
@@ -87,7 +115,11 @@ export class McpClient {
   }
 
   /** Send one JSON-RPC request; resolves with either a result or an error wrapper. */
-  async request<T = unknown>(method: string, params?: unknown, timeout?: number): Promise<McpCall<T>> {
+  async request<T = unknown>(
+    method: string,
+    params?: unknown,
+    timeout?: number
+  ): Promise<McpCall<T>> {
     const start = performance.now();
     const requestId = this.nextId++;
     try {
@@ -107,10 +139,13 @@ export class McpClient {
         if (res.success) {
           return { ok: true, result: res.result as T, durationMs };
         }
+        const jsonRpcError = parseJsonRpcError(res.jsonRpcError);
         return {
           ok: false,
-          error: res.error ?? 'MCP request failed',
-          ...(res.jsonRpcError ? { jsonRpcError: res.jsonRpcError } : {}),
+          error: jsonRpcError
+            ? jsonRpcErrorToMessage(jsonRpcError)
+            : (res.error ?? 'MCP request failed'),
+          ...(jsonRpcError ? { jsonRpcError } : {}),
           durationMs,
         };
       }
@@ -128,9 +163,9 @@ export class McpClient {
         }),
       });
       const durationMs = performance.now() - start;
-      const body = await response.json() as {
+      const body = (await response.json()) as {
         ok?: boolean;
-        jsonRpc?: { result?: unknown; error?: { code: number; message: string; data?: unknown } };
+        jsonRpc?: { result?: unknown; error?: unknown };
         sessionId?: string;
         error?: string;
       };
@@ -140,7 +175,13 @@ export class McpClient {
         return { ok: false, error: body.error ?? `HTTP ${response.status}`, durationMs };
       }
       if (body.jsonRpc?.error) {
-        return { ok: false, error: body.jsonRpc.error.message, jsonRpcError: body.jsonRpc.error, durationMs };
+        const jsonRpcError = parseJsonRpcError(body.jsonRpc.error);
+        return {
+          ok: false,
+          error: jsonRpcErrorToMessage(body.jsonRpc.error),
+          ...(jsonRpcError ? { jsonRpcError } : {}),
+          durationMs,
+        };
       }
       return { ok: true, result: body.jsonRpc?.result as T, durationMs };
     } catch (err) {
@@ -150,6 +191,32 @@ export class McpClient {
         durationMs: performance.now() - start,
       };
     }
+  }
+
+  /**
+   * Drive an MCP list method (`tools/list` etc.) to completion, following `nextCursor`
+   * pagination. The first call omits `cursor`; subsequent calls pass the opaque
+   * cursor from the previous page. Stops when `nextCursor` is absent, the page
+   * cap is hit, or a cursor repeats (loop guard). On a failed page it returns
+   * whatever was accumulated so far — never throws, matching the existing
+   * "failed list collapses to a partial/empty array" behavior.
+   */
+  private async listAll<R, T>(method: string, pick: (result: R) => ListPage<T>): Promise<T[]> {
+    const items: T[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+
+    for (let page = 0; page < MAX_LIST_PAGES; page++) {
+      const res = await this.request<R>(method, cursor !== undefined ? { cursor } : undefined);
+      if (!res.ok) break;
+      const { items: pageItems, nextCursor } = pick(res.result);
+      if (pageItems) items.push(...pageItems);
+      if (nextCursor === undefined || nextCursor === '') break;
+      if (seenCursors.has(nextCursor)) break; // cursor repeated — bail to avoid an infinite loop
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
+    return items;
   }
 
   /** Run the standard discovery: initialize, then list tools/resources/prompts. */
@@ -173,10 +240,27 @@ export class McpClient {
     const wantResources = !advertised || advertised.resources !== undefined;
     const wantPrompts = !advertised || advertised.prompts !== undefined;
 
+    // Each list paginates sequentially (cursor-driven), but the three run
+    // concurrently — same shape as the old single-shot Promise.all.
     const [tools, resources, prompts] = await Promise.all([
-      wantTools ? this.request<{ tools?: McpToolDescriptor[] }>('tools/list') : null,
-      wantResources ? this.request<{ resources?: McpResourceDescriptor[] }>('resources/list') : null,
-      wantPrompts ? this.request<{ prompts?: McpPromptDescriptor[] }>('prompts/list') : null,
+      wantTools
+        ? this.listAll<ToolsListResult, McpToolDescriptor>('tools/list', (r) => ({
+            items: r.tools,
+            nextCursor: r.nextCursor,
+          }))
+        : [],
+      wantResources
+        ? this.listAll<ResourcesListResult, McpResourceDescriptor>('resources/list', (r) => ({
+            items: r.resources,
+            nextCursor: r.nextCursor,
+          }))
+        : [],
+      wantPrompts
+        ? this.listAll<PromptsListResult, McpPromptDescriptor>('prompts/list', (r) => ({
+            items: r.prompts,
+            nextCursor: r.nextCursor,
+          }))
+        : [],
     ]);
 
     return {
@@ -184,9 +268,9 @@ export class McpClient {
       ...(init.result.serverInfo?.version ? { serverVersion: init.result.serverInfo.version } : {}),
       ...(init.result.protocolVersion ? { protocolVersion: init.result.protocolVersion } : {}),
       ...(advertised ? { capabilities: advertised } : {}),
-      tools: tools?.ok ? tools.result.tools ?? [] : [],
-      resources: resources?.ok ? resources.result.resources ?? [] : [],
-      prompts: prompts?.ok ? prompts.result.prompts ?? [] : [],
+      tools,
+      resources,
+      prompts,
     };
   }
 

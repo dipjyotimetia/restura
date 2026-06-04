@@ -626,6 +626,10 @@ export const KafkaConnectSchema = z.object({
   clientId: z.string().min(1).max(256),
   bootstrapBrokers: z.array(KafkaBrokerSchema).min(1).max(32),
   auth: KafkaAuthSchema,
+  // Enable the idempotent producer (exactly-once-per-partition delivery dedup).
+  // An idempotent producer REQUIRES acks=all(-1); the produce handler forces
+  // that override when this is set, and the UI locks the acks picker to -1.
+  idempotent: z.boolean().optional(),
 });
 
 // Topic naming rules per Kafka: max 249 chars, [a-zA-Z0-9._-]; we also forbid
@@ -656,11 +660,25 @@ export const KafkaProduceSchema = z.object({
   compression: KafkaCompressionSchema.optional(),
 });
 
+// Per-partition starting offset for MANUAL consume mode. `offset` is a numeric
+// string because the underlying lib uses bigint offsets (TopicWithPartitionAndOffset)
+// — a string avoids JS Number precision loss past 2^53 and bigint/IPC friction.
+const KafkaPartitionOffsetSchema = z.object({
+  topic: KafkaTopicSchema,
+  partition: z.number().int().nonnegative().max(2_147_483_647),
+  offset: z.string().min(1).max(20).regex(/^\d+$/, 'Offset must be a non-negative integer string'),
+});
+
 export const KafkaSubscribeSchema = z.object({
   connectionId: KafkaConnectionIdSchema,
   groupId: z.string().min(1).max(256),
   topics: z.array(KafkaTopicSchema).min(1).max(50),
+  // Start position. 'latest'/'earliest' map to the lib's stream modes;
+  // 'manual' seeks to the explicit per-partition `offsets` below. `fromBeginning`
+  // is kept for back-compat and used only when `mode` is omitted.
   fromBeginning: z.boolean(),
+  mode: z.enum(['latest', 'earliest', 'manual']).optional(),
+  offsets: z.array(KafkaPartitionOffsetSchema).min(1).max(200).optional(),
 });
 
 export const KafkaUnsubscribeSchema = z.object({
@@ -671,11 +689,43 @@ export const KafkaDisconnectSchema = z.object({
   connectionId: KafkaConnectionIdSchema,
 });
 
+// ---------------------------------------------------------------------------
+// Kafka Admin (topic + consumer-group management). Each op constructs a
+// short-lived Admin client from the connection's already-validated clientOptions
+// (auth/TLS reused) and closes it in a finally.
+// ---------------------------------------------------------------------------
+
+export const KafkaListTopicsSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+});
+
+export const KafkaCreateTopicSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+  topic: KafkaTopicSchema,
+  // Broker is the real authority on limits; these caps just reject obviously
+  // bad input early.
+  partitions: z.number().int().positive().max(10_000),
+  replicationFactor: z.number().int().positive().max(16),
+});
+
+export const KafkaDeleteTopicSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+  topic: KafkaTopicSchema,
+});
+
+export const KafkaListGroupsSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+});
+
 export type KafkaConnectConfig = z.infer<typeof KafkaConnectSchema>;
 export type KafkaProduceConfig = z.infer<typeof KafkaProduceSchema>;
 export type KafkaSubscribeConfig = z.infer<typeof KafkaSubscribeSchema>;
 export type KafkaUnsubscribeConfig = z.infer<typeof KafkaUnsubscribeSchema>;
 export type KafkaDisconnectConfig = z.infer<typeof KafkaDisconnectSchema>;
+export type KafkaListTopicsConfig = z.infer<typeof KafkaListTopicsSchema>;
+export type KafkaCreateTopicConfig = z.infer<typeof KafkaCreateTopicSchema>;
+export type KafkaDeleteTopicConfig = z.infer<typeof KafkaDeleteTopicSchema>;
+export type KafkaListGroupsConfig = z.infer<typeof KafkaListGroupsSchema>;
 
 // ===========================
 // MQTT Schemas
@@ -792,6 +842,8 @@ export const MqttPublishSchema = z.object({
   messageExpiryInterval: z.number().int().nonnegative().max(4_294_967_295).optional(),
   contentType: z.string().max(256).optional(),
   responseTopic: MqttPublishTopicSchema.optional(),
+  // MQTT 5 request/response correlation token, echoed back on the response topic.
+  correlationData: z.string().max(4096).optional(),
 });
 
 export const MqttSubscribeSchema = z.object({

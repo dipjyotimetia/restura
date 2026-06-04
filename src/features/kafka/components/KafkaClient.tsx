@@ -15,7 +15,18 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Send, Trash2, Plug, PlugZap, RefreshCw, Search, Pause, Play } from 'lucide-react';
+import {
+  Send,
+  Trash2,
+  Plug,
+  PlugZap,
+  RefreshCw,
+  Search,
+  Pause,
+  Play,
+  Plus,
+  Users,
+} from 'lucide-react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
@@ -39,6 +50,7 @@ import type {
 } from '@/features/kafka/store/useKafkaStore';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
 
 const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
   'PLAINTEXT',
@@ -208,6 +220,27 @@ function KafkaClient() {
   const [consumeMode, setConsumeMode] = useState<ConsumeMode>('latest');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
 
+  // from-offset consume inputs (MANUAL mode). The user must know partition numbers.
+  const [offsetPartition, setOffsetPartition] = useState('0');
+  const [offsetValue, setOffsetValue] = useState('0');
+
+  // A valid MANUAL-seek spec: partition is a 0..2^31-1 integer and offset a
+  // non-negative integer. Shared by the Subscribe guard and the seek payload so
+  // the two can't drift.
+  const offsetSpecValid =
+    /^\d+$/.test(offsetPartition.trim()) &&
+    Number(offsetPartition) <= 2_147_483_647 &&
+    /^\d+$/.test(offsetValue.trim());
+
+  // Admin tab — transient results (not persisted to the store).
+  const [adminTopics, setAdminTopics] = useState<string[] | null>(null);
+  const [adminGroups, setAdminGroups] = useState<KafkaGroupInfo[] | null>(null);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [newTopicName, setNewTopicName] = useState('');
+  const [newTopicPartitions, setNewTopicPartitions] = useState('1');
+  const [newTopicReplication, setNewTopicReplication] = useState('1');
+
   // Reset drafts when switching connections
   useEffect(() => {
     setSaslPasswordDraft('');
@@ -218,6 +251,10 @@ function KafkaClient() {
     setProduceValue('');
     setSelectedMessageId(null);
     setPaused(false);
+    setAdminTopics(null);
+    setAdminGroups(null);
+    setAdminError(null);
+    setNewTopicName('');
   }, [activeConnectionId]);
 
   // Narrow scalar locals — the underlying `connection` reference can swap on
@@ -335,11 +372,27 @@ function KafkaClient() {
   const handleSubscribe = async (): Promise<void> => {
     if (!connection) return;
     if (connection.consumer.topics.length === 0) return;
+    // 'from-offset' seeks every subscribed topic to (partition, offset) via the
+    // MANUAL stream mode. The user supplies one partition/offset pair applied to
+    // all subscribed topics — they must know the partition number.
+    const useManual = consumeMode === 'from-offset';
+    const partition = Number(offsetPartition);
+    const offsetsValid = useManual && offsetSpecValid;
     await kafkaManager.subscribe({
       connectionId: connection.id,
       groupId: connection.consumer.groupId,
       topics: connection.consumer.topics,
       fromBeginning: connection.consumer.fromBeginning,
+      mode: useManual ? 'manual' : connection.consumer.fromBeginning ? 'earliest' : 'latest',
+      ...(offsetsValid
+        ? {
+            offsets: connection.consumer.topics.map((topic) => ({
+              topic,
+              partition,
+              offset: offsetValue.trim(),
+            })),
+          }
+        : {}),
     });
   };
 
@@ -417,6 +470,63 @@ function KafkaClient() {
     }
     updateAuth(connection.id, next);
   };
+
+  const refreshAdminTopics = async (): Promise<void> => {
+    if (!connection) return;
+    setAdminBusy(true);
+    setAdminError(null);
+    const result = await kafkaManager.listTopics(connection.id);
+    if (result.ok) setAdminTopics(result.topics.slice().sort());
+    else setAdminError(result.error);
+    setAdminBusy(false);
+  };
+
+  const refreshAdminGroups = async (): Promise<void> => {
+    if (!connection) return;
+    setAdminBusy(true);
+    setAdminError(null);
+    const result = await kafkaManager.listGroups(connection.id);
+    if (result.ok) setAdminGroups(result.groups);
+    else setAdminError(result.error);
+    setAdminBusy(false);
+  };
+
+  const handleCreateTopic = async (): Promise<void> => {
+    if (!connection || !newTopicName.trim()) return;
+    setAdminBusy(true);
+    setAdminError(null);
+    const result = await kafkaManager.createTopic({
+      connectionId: connection.id,
+      topic: newTopicName.trim(),
+      partitions: Math.max(1, Number(newTopicPartitions) || 1),
+      replicationFactor: Math.max(1, Number(newTopicReplication) || 1),
+    });
+    setAdminBusy(false);
+    if (!result.ok) {
+      setAdminError(result.error);
+      return;
+    }
+    setNewTopicName('');
+    await refreshAdminTopics();
+  };
+
+  const handleDeleteTopic = async (topic: string): Promise<void> => {
+    if (!connection) return;
+    setAdminBusy(true);
+    setAdminError(null);
+    const result = await kafkaManager.deleteTopic(connection.id, topic);
+    setAdminBusy(false);
+    if (!result.ok) {
+      setAdminError(result.error);
+      return;
+    }
+    await refreshAdminTopics();
+  };
+
+  // In from-offset mode the partition/offset fields must be valid integers,
+  // else MANUAL seek can't be built — block Subscribe rather than silently
+  // falling back to LATEST.
+  const offsetSpecInvalid = consumeMode === 'from-offset' && !offsetSpecValid;
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
@@ -529,6 +639,7 @@ function KafkaClient() {
             <TabsTrigger value="messages">Messages ({connection.messages.length})</TabsTrigger>
             <TabsTrigger value="produce">Produce</TabsTrigger>
             <TabsTrigger value="consume">Consume</TabsTrigger>
+            <TabsTrigger value="admin">Admin</TabsTrigger>
             <TabsTrigger value="connection">Connection</TabsTrigger>
           </TabsList>
 
@@ -948,10 +1059,11 @@ function KafkaClient() {
                 <div className="space-y-2">
                   <Label className="text-xs sp-label">Acks</Label>
                   <Select
-                    value={String(connection.acks)}
+                    value={connection.idempotent ? '-1' : String(connection.acks)}
                     onValueChange={(v) =>
                       updateConnection(connection.id, { acks: Number(v) as KafkaAcks })
                     }
+                    disabled={connection.idempotent}
                   >
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />
@@ -962,6 +1074,9 @@ function KafkaClient() {
                       <SelectItem value="-1">-1 — all in-sync replicas</SelectItem>
                     </SelectContent>
                   </Select>
+                  {connection.idempotent && (
+                    <p className="text-sp-11 text-sp-dim">Locked to -1 by idempotent mode.</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs sp-label">Compression</Label>
@@ -982,6 +1097,20 @@ function KafkaClient() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              </div>
+              <div className="flex items-start gap-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+                <Switch
+                  checked={connection.idempotent}
+                  onCheckedChange={(checked) =>
+                    updateConnection(connection.id, { idempotent: checked })
+                  }
+                />
+                <div className="space-y-0.5">
+                  <Label className="text-xs">Idempotent producer</Label>
+                  <p className="text-sp-11 text-sp-dim">
+                    Exactly-once-per-partition dedup; forces acks=-1. Reconnect to apply.
+                  </p>
                 </div>
               </div>
               <div className="space-y-2">
@@ -1061,15 +1190,57 @@ function KafkaClient() {
                   onCheckedChange={(checked) =>
                     updateConsumer(connection.id, { fromBeginning: checked })
                   }
+                  disabled={consumeMode === 'from-offset'}
                 />
                 <Label className="text-xs">Read from beginning (EARLIEST)</Label>
               </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs sp-label">Start mode</Label>
+                <Segmented<ConsumeMode>
+                  options={CONSUME_MODE_OPTIONS}
+                  value={consumeMode}
+                  onChange={handleConsumeModeChange}
+                  size="sm"
+                  ariaLabel="Consume start mode"
+                />
+                {consumeMode === 'from-offset' && (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="space-y-1">
+                      <Label className="text-xs sp-label">Partition</Label>
+                      <Input
+                        value={offsetPartition}
+                        onChange={(e) => setOffsetPartition(e.target.value)}
+                        inputMode="numeric"
+                        placeholder="0"
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs sp-label">Offset</Label>
+                      <Input
+                        value={offsetValue}
+                        onChange={(e) => setOffsetValue(e.target.value)}
+                        inputMode="numeric"
+                        placeholder="0"
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                    <p className="col-span-2 text-sp-11 text-sp-dim">
+                      Seeks every subscribed topic to this (partition, offset) via MANUAL mode.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2">
                 {connection.consumer.status !== 'subscribed' ? (
                   <Button
                     onClick={handleSubscribe}
                     disabled={
-                      connection.status !== 'connected' || connection.consumer.topics.length === 0
+                      connection.status !== 'connected' ||
+                      connection.consumer.topics.length === 0 ||
+                      offsetSpecInvalid
                     }
                   >
                     Subscribe
@@ -1082,6 +1253,146 @@ function KafkaClient() {
                 <Badge variant="outline" className="font-mono">
                   {connection.consumer.status}
                 </Badge>
+              </div>
+            </Floater>
+          </TabsContent>
+
+          {/* Admin tab — topic + consumer-group management */}
+          <TabsContent value="admin" className="flex-1 overflow-auto m-0">
+            <Floater radius="panel" className="p-3 space-y-4">
+              {connection.status !== 'connected' && (
+                <p className="text-xs text-sp-muted">Connect to manage topics and groups.</p>
+              )}
+              {adminError && (
+                <div className="font-mono text-sp-12 text-red-400 break-all">{adminError}</div>
+              )}
+
+              {/* Create topic */}
+              <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+                <Label className="text-xs sp-label">Create topic</Label>
+                <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+                  <Input
+                    value={newTopicName}
+                    onChange={(e) => setNewTopicName(e.target.value)}
+                    placeholder="topic-name"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <Input
+                    value={newTopicPartitions}
+                    onChange={(e) => setNewTopicPartitions(e.target.value)}
+                    inputMode="numeric"
+                    title="Partitions"
+                    className="h-8 w-20 text-xs font-mono"
+                  />
+                  <Input
+                    value={newTopicReplication}
+                    onChange={(e) => setNewTopicReplication(e.target.value)}
+                    inputMode="numeric"
+                    title="Replication factor"
+                    className="h-8 w-20 text-xs font-mono"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sp-11 text-sp-dim">name · partitions · replication</span>
+                  <Button
+                    size="sm"
+                    onClick={handleCreateTopic}
+                    disabled={
+                      connection.status !== 'connected' || adminBusy || !newTopicName.trim()
+                    }
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1.5" /> Create
+                  </Button>
+                </div>
+              </div>
+
+              {/* Topics list */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs sp-label">Topics</Label>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={refreshAdminTopics}
+                    disabled={connection.status !== 'connected' || adminBusy}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> List topics
+                  </Button>
+                </div>
+                {adminTopics === null ? (
+                  <p className="text-xs text-sp-dim">Click "List topics" to load.</p>
+                ) : adminTopics.length === 0 ? (
+                  <p className="text-xs text-sp-dim">No topics.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {adminTopics.map((t) => (
+                      <li
+                        key={t}
+                        className="flex items-center justify-between rounded-sp-btn border border-sp-line px-2.5 py-1.5"
+                      >
+                        <span
+                          className="font-mono text-sp-12 truncate"
+                          style={{ color: KAFKA_PINK }}
+                          title={t}
+                        >
+                          {t}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteTopic(t)}
+                          disabled={adminBusy}
+                          className="h-6 w-6 p-0"
+                          title={`Delete topic ${t}`}
+                          aria-label={`Delete topic ${t}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Consumer groups list */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs sp-label">Consumer groups</Label>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={refreshAdminGroups}
+                    disabled={connection.status !== 'connected' || adminBusy}
+                  >
+                    <Users className="h-3.5 w-3.5 mr-1.5" /> List groups
+                  </Button>
+                </div>
+                {adminGroups === null ? (
+                  <p className="text-xs text-sp-dim">Click "List groups" to load.</p>
+                ) : adminGroups.length === 0 ? (
+                  <p className="text-xs text-sp-dim">No consumer groups.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {adminGroups.map((g) => (
+                      <li
+                        key={g.id}
+                        className="flex items-center gap-2 rounded-sp-btn border border-sp-line px-2.5 py-1.5"
+                      >
+                        <span className="font-mono text-sp-12 text-sp-text truncate" title={g.id}>
+                          {g.id}
+                        </span>
+                        <Badge variant="outline" className="ml-auto font-mono text-sp-11">
+                          {g.state}
+                        </Badge>
+                        {g.protocolType && (
+                          <Badge variant="secondary" className="font-mono text-sp-11">
+                            {g.protocolType}
+                          </Badge>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </Floater>
           </TabsContent>

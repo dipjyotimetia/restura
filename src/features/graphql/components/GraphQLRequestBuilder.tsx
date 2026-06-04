@@ -15,7 +15,11 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import { extractOperationType } from '@/features/graphql/lib/queryParser';
+import {
+  buildGraphQLRequestBody,
+  extractGraphQLErrors,
+  extractOperationType,
+} from '@/features/graphql/lib/queryParser';
 import {
   GraphQLSubscriptionClient,
   type SubscriptionMessage,
@@ -180,10 +184,7 @@ function GraphQLRequestBuilder() {
     setLoading(true);
     setScriptResult(null);
 
-    const wireBody = JSON.stringify({
-      query: httpRequest.body.raw || '',
-      variables: parsedVariables,
-    });
+    const wireBody = JSON.stringify(buildGraphQLRequestBody(query, parsedVariables));
     const wireHeaders = httpRequest.headers.slice();
     const hasContentType = wireHeaders.some(
       (h) => h.enabled && h.key.toLowerCase() === 'content-type'
@@ -207,13 +208,21 @@ function GraphQLRequestBuilder() {
       const { response } = await runViaRegistry(wireRequest, 'graphql');
       setCurrentResponse(response);
 
-      if (response.status >= 200 && response.status < 300) {
-        toast.success('Request completed', {
-          description: `${response.status} ${response.statusText}`,
-        });
-      } else {
+      const graphqlErrors = extractGraphQLErrors(response.body);
+      if (response.status < 200 || response.status >= 300) {
         toast.error(`Request failed: ${response.status}`, {
           description: response.statusText,
+        });
+      } else if (graphqlErrors.length > 0) {
+        // HTTP 200 but the GraphQL envelope carries errors (possibly with
+        // partial data) — surface them instead of a misleading "completed".
+        toast.error(
+          `GraphQL returned ${graphqlErrors.length} error${graphqlErrors.length > 1 ? 's' : ''}`,
+          { description: graphqlErrors[0] }
+        );
+      } else {
+        toast.success('Request completed', {
+          description: `${response.status} ${response.statusText}`,
         });
       }
     } catch (error) {

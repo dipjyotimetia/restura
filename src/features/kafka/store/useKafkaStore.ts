@@ -80,6 +80,8 @@ export interface KafkaConnection {
   defaultPartitionKey: string;
   acks: KafkaAcks;
   compression: KafkaCompression;
+  /** Idempotent producer — exactly-once-per-partition dedup; forces acks=-1. */
+  idempotent: boolean;
   consumer: KafkaConsumerState;
   messages: KafkaMessage[];
   createdAt: number;
@@ -95,7 +97,9 @@ interface KafkaState {
   searchQuery: string;
 
   // Lifecycle
-  createConnection: (init?: Partial<Pick<KafkaConnection, 'name' | 'bootstrapBrokers' | 'clientId'>>) => string;
+  createConnection: (
+    init?: Partial<Pick<KafkaConnection, 'name' | 'bootstrapBrokers' | 'clientId'>>
+  ) => string;
   removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
   /** Idempotent — returns the existing tab connection or creates a fresh one. */
@@ -117,7 +121,10 @@ interface KafkaState {
   updateStatus: (id: string, status: KafkaConnection['status']) => void;
 
   // Messages
-  addMessage: (connectionId: string, message: Omit<KafkaMessage, 'id' | 'timestamp'> & { timestamp?: number }) => void;
+  addMessage: (
+    connectionId: string,
+    message: Omit<KafkaMessage, 'id' | 'timestamp'> & { timestamp?: number }
+  ) => void;
   clearMessages: (connectionId: string) => void;
 
   // Filter
@@ -129,7 +136,9 @@ interface KafkaState {
   getFilteredMessages: (connectionId: string) => KafkaMessage[];
 }
 
-function makeDefaultConnection(init?: Partial<Pick<KafkaConnection, 'name' | 'bootstrapBrokers' | 'clientId'>>): KafkaConnection {
+function makeDefaultConnection(
+  init?: Partial<Pick<KafkaConnection, 'name' | 'bootstrapBrokers' | 'clientId'>>
+): KafkaConnection {
   const id = uuidv4();
   return {
     id,
@@ -142,6 +151,7 @@ function makeDefaultConnection(init?: Partial<Pick<KafkaConnection, 'name' | 'bo
     defaultPartitionKey: '',
     acks: 1,
     compression: 'none',
+    idempotent: false,
     consumer: {
       groupId: `restura-${id.slice(0, 8)}`,
       topics: [],
@@ -303,7 +313,7 @@ export const useKafkaStore = create<KafkaState>()(
 
       getActiveConnection: () => {
         const { connections, activeConnectionId } = get();
-        return activeConnectionId ? connections[activeConnectionId] ?? null : null;
+        return activeConnectionId ? (connections[activeConnectionId] ?? null) : null;
       },
 
       getFilteredMessages: (connectionId) => {
@@ -366,7 +376,8 @@ function redactSecrets(auth: KafkaAuth): KafkaAuth {
     if (auth.tls.certPath !== undefined) tls.certPath = auth.tls.certPath;
     if (auth.tls.keyPath !== undefined) tls.keyPath = auth.tls.keyPath;
     if (auth.tls.passphrase) tls.passphrase = KAFKA_SECRET_SENTINEL;
-    if (auth.tls.rejectUnauthorized !== undefined) tls.rejectUnauthorized = auth.tls.rejectUnauthorized;
+    if (auth.tls.rejectUnauthorized !== undefined)
+      tls.rejectUnauthorized = auth.tls.rejectUnauthorized;
     next.tls = tls;
   }
   return next;

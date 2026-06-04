@@ -8,7 +8,7 @@ import type {
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
-import type { KafkaAuthIpc } from '../../../../electron/types/electron-api';
+import type { KafkaAuthIpc, KafkaGroupInfo } from '../../../../electron/types/electron-api';
 
 export function kafkaSecretKey(
   connectionId: string,
@@ -19,7 +19,10 @@ export function kafkaSecretKey(
   return `kafka:${connectionId}:${field}`;
 }
 
-function readSecret(connectionId: string, field: 'sasl-password' | 'tls-passphrase'): string | null {
+function readSecret(
+  connectionId: string,
+  field: 'sasl-password' | 'tls-passphrase'
+): string | null {
   return secureStorage.get(kafkaSecretKey(connectionId, field));
 }
 
@@ -34,7 +37,15 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
   }
 
   // Resolve TLS material once — used by SASL_SSL and SSL.
-  let tlsIpc: { ca?: string; cert?: string; key?: string; passphrase?: string; rejectUnauthorized?: boolean } | undefined;
+  let tlsIpc:
+    | {
+        ca?: string;
+        cert?: string;
+        key?: string;
+        passphrase?: string;
+        rejectUnauthorized?: boolean;
+      }
+    | undefined;
   if (auth.tls) {
     tlsIpc = {};
     if (auth.tls.rejectUnauthorized !== undefined) {
@@ -121,6 +132,7 @@ class KafkaManager {
       clientId: connection.clientId,
       bootstrapBrokers: connection.bootstrapBrokers,
       auth: ipcAuth,
+      ...(connection.idempotent ? { idempotent: true } : {}),
     });
 
     if (!result.success) {
@@ -149,7 +161,10 @@ class KafkaManager {
     partition?: number;
     acks: 0 | 1 | -1;
     compression?: KafkaCompression;
-  }): Promise<{ ok: true; ack: { topic: string; partition: number; offset: string; timestamp: number } } | { ok: false; error: string }> {
+  }): Promise<
+    | { ok: true; ack: { topic: string; partition: number; offset: string; timestamp: number } }
+    | { ok: false; error: string }
+  > {
     if (!isElectron()) return { ok: false, error: 'Kafka is desktop-only.' };
     const api = getElectronAPI();
     if (!api) return { ok: false, error: 'Electron API unavailable.' };
@@ -163,7 +178,9 @@ class KafkaManager {
       ...(params.headers ? { headers: params.headers } : {}),
       ...(params.partition !== undefined ? { partition: params.partition } : {}),
       acks: params.acks,
-      ...(params.compression && params.compression !== 'none' ? { compression: params.compression } : {}),
+      ...(params.compression && params.compression !== 'none'
+        ? { compression: params.compression }
+        : {}),
     });
 
     if (!result.success || !result.ack) {
@@ -194,20 +211,34 @@ class KafkaManager {
     groupId: string;
     topics: string[];
     fromBeginning: boolean;
+    mode?: 'latest' | 'earliest' | 'manual';
+    offsets?: Array<{ topic: string; partition: number; offset: string }>;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) return { ok: false, error: 'Kafka is desktop-only.' };
     const api = getElectronAPI();
     if (!api) return { ok: false, error: 'Electron API unavailable.' };
 
     const store = useKafkaStore.getState();
-    store.updateConsumer(params.connectionId, { status: 'subscribing', ...params });
+    // The persisted consumer state only tracks groupId/topics/fromBeginning;
+    // mode/offsets are transient subscribe-time inputs, so don't push them there.
+    store.updateConsumer(params.connectionId, {
+      status: 'subscribing',
+      groupId: params.groupId,
+      topics: params.topics,
+      fromBeginning: params.fromBeginning,
+    });
     this.bindMessageListener(params.connectionId);
 
     const result = await api.kafka.subscribe(params);
     if (!result.success) {
       store.updateConsumer(params.connectionId, { status: 'error' });
       const msg = result.error ?? 'Subscribe failed';
-      store.addMessage(params.connectionId, { direction: 'system', topic: '', value: msg, error: msg });
+      store.addMessage(params.connectionId, {
+        direction: 'system',
+        topic: '',
+        value: msg,
+        error: msg,
+      });
       this.unbindMessageListener(params.connectionId);
       return { ok: false, error: msg };
     }
@@ -245,6 +276,56 @@ class KafkaManager {
     store.updateConsumer(connectionId, { status: 'idle' });
   }
 
+  // ---- Admin (topic + consumer-group management) -------------------------
+
+  async listTopics(
+    connectionId: string
+  ): Promise<{ ok: true; topics: string[] } | { ok: false; error: string }> {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.listTopics({ connectionId });
+    if (!result.success || !result.topics) {
+      return { ok: false, error: result.error ?? 'List topics failed' };
+    }
+    return { ok: true, topics: result.topics };
+  }
+
+  async createTopic(params: {
+    connectionId: string;
+    topic: string;
+    partitions: number;
+    replicationFactor: number;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.createTopic(params);
+    if (!result.success) return { ok: false, error: result.error ?? 'Create topic failed' };
+    return { ok: true };
+  }
+
+  async deleteTopic(
+    connectionId: string,
+    topic: string
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.deleteTopic({ connectionId, topic });
+    if (!result.success) return { ok: false, error: result.error ?? 'Delete topic failed' };
+    return { ok: true };
+  }
+
+  async listGroups(
+    connectionId: string
+  ): Promise<{ ok: true; groups: KafkaGroupInfo[] } | { ok: false; error: string }> {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.listGroups({ connectionId });
+    if (!result.success || !result.groups) {
+      return { ok: false, error: result.error ?? 'List groups failed' };
+    }
+    return { ok: true, groups: result.groups };
+  }
+
   private bindLifecycleListeners(connectionId: string): void {
     const api = getElectronAPI();
     if (!api?.kafka) return;
@@ -252,7 +333,11 @@ class KafkaManager {
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CLOSE, connectionId), () => {
       const store = useKafkaStore.getState();
       store.updateStatus(connectionId, 'disconnected');
-      store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Connection closed' });
+      store.addMessage(connectionId, {
+        direction: 'system',
+        topic: '',
+        value: 'Connection closed',
+      });
     });
 
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId), (payload: unknown) => {

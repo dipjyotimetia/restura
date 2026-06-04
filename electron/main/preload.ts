@@ -304,6 +304,7 @@ const electronAPI = {
               rejectUnauthorized?: boolean;
             };
           };
+      idempotent?: boolean;
     }): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.kafka.connect, config),
 
@@ -327,6 +328,8 @@ const electronAPI = {
       groupId: string;
       topics: string[];
       fromBeginning: boolean;
+      mode?: 'latest' | 'earliest' | 'manual';
+      offsets?: Array<{ topic: string; partition: number; offset: string }>;
     }): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.kafka.subscribe, config),
 
@@ -337,6 +340,33 @@ const electronAPI = {
 
     disconnect: (config: { connectionId: string }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke(IPC.kafka.disconnect, config),
+
+    listTopics: (config: {
+      connectionId: string;
+    }): Promise<{ success: boolean; topics?: string[]; error?: string }> =>
+      ipcRenderer.invoke(IPC.kafka.listTopics, config),
+
+    createTopic: (config: {
+      connectionId: string;
+      topic: string;
+      partitions: number;
+      replicationFactor: number;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.kafka.createTopic, config),
+
+    deleteTopic: (config: {
+      connectionId: string;
+      topic: string;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.kafka.deleteTopic, config),
+
+    listGroups: (config: {
+      connectionId: string;
+    }): Promise<{
+      success: boolean;
+      groups?: Array<{ id: string; state: string; groupType: string; protocolType: string }>;
+      error?: string;
+    }> => ipcRenderer.invoke(IPC.kafka.listGroups, config),
 
     ...channelEventBridge(CHANNEL_PREFIXES.kafka),
   },

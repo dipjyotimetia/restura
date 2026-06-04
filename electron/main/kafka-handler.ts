@@ -1,12 +1,15 @@
 import { ipcMain, webContents } from 'electron';
 import type { WebContents } from 'electron';
 import type {
+  Admin,
+  AdminOptions,
   Consumer,
   ConsumerOptions,
   Message,
   MessagesStream,
   Producer,
   ProducerOptions,
+  TopicWithPartitionAndOffset,
 } from '@platformatic/kafka';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
@@ -21,6 +24,10 @@ import {
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
   KafkaDisconnectSchema,
+  KafkaListTopicsSchema,
+  KafkaCreateTopicSchema,
+  KafkaDeleteTopicSchema,
+  KafkaListGroupsSchema,
   validateIpcInput,
   createValidatedHandler,
   assertTrustedSender,
@@ -53,6 +60,13 @@ interface ActiveKafka {
   clientOptions: KafkaClientOptions;
   connectionId: string;
   webContentsId: number;
+  /**
+   * Idempotent producer flag. Stored separately from `clientOptions` because
+   * `idempotent` is a producer-only option — `clientOptions` is also spread
+   * into the Consumer and Admin clients, which don't accept it. When set, the
+   * produce path forces acks=-1 (idempotent delivery requires all-ISR acks).
+   */
+  idempotent: boolean;
   /** Cached at connect — avoids a `webContents.fromId()` lookup per message. */
   wc?: WebContents;
   createdAt: number;
@@ -247,6 +261,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       const producerOptions = {
         ...clientOptions,
         serializers: kafka.stringSerializers,
+        // Idempotent producer dedups retries per-partition. The broker requires
+        // acks=all(-1) for it; the produce handler enforces that override.
+        ...(cfg.idempotent ? { idempotent: true } : {}),
       } as unknown as ProducerOptions<string, string, string, string>;
       const producer = new kafka.Producer<string, string, string, string>(producerOptions);
 
@@ -259,6 +276,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         clientOptions,
         connectionId,
         webContentsId,
+        idempotent: cfg.idempotent ?? false,
         ...(wc ? { wc } : {}),
         createdAt: Date.now(),
       };
@@ -297,6 +315,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         if (!entry) {
           return { success: false, error: 'Not connected' };
         }
+        // An idempotent producer requires acks=all(-1) at the broker. Force it
+        // regardless of the per-send `acks` so the send always succeeds (the UI
+        // also locks the acks picker to -1 when idempotent is on).
+        const acks = entry.idempotent ? -1 : cfg.acks;
         try {
           const result = await entry.producer.send({
             messages: [
@@ -315,7 +337,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
                   : {}),
               },
             ],
-            acks: cfg.acks,
+            acks,
             ...(cfg.compression && cfg.compression !== 'none'
               ? { compression: cfg.compression }
               : {}),
@@ -368,11 +390,37 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         } as unknown as ConsumerOptions<string, string, string, string>;
         const consumer = new kafka.Consumer<string, string, string, string>(consumerOptions);
 
+        // Start-position precedence:
+        //   1. explicit per-partition `offsets` → MANUAL seek (offset is bigint)
+        //   2. explicit `mode` (latest/earliest/manual)
+        //   3. legacy `fromBeginning` (EARLIEST vs LATEST)
+        // MANUAL requires the caller to know partition numbers; the lib seeks to
+        // each (topic, partition) → offset triple supplied in `offsets`.
+        const M = kafka.MessagesStreamModes;
+        let mode: (typeof M)[keyof typeof M];
+        let offsets: TopicWithPartitionAndOffset[] | undefined;
+        if (cfg.offsets && cfg.offsets.length > 0) {
+          mode = M.MANUAL;
+          offsets = cfg.offsets.map((o) => ({
+            topic: o.topic,
+            partition: o.partition,
+            offset: BigInt(o.offset),
+          }));
+        } else if (cfg.mode === 'manual') {
+          // 'manual' with no offsets is meaningless — fall back to LATEST.
+          mode = M.LATEST;
+        } else if (cfg.mode === 'earliest') {
+          mode = M.EARLIEST;
+        } else if (cfg.mode === 'latest') {
+          mode = M.LATEST;
+        } else {
+          mode = cfg.fromBeginning ? M.EARLIEST : M.LATEST;
+        }
+
         const stream = await (consumer.consume({
           topics: cfg.topics,
-          mode: cfg.fromBeginning
-            ? kafka.MessagesStreamModes.EARLIEST
-            : kafka.MessagesStreamModes.LATEST,
+          mode,
+          ...(offsets ? { offsets } : {}),
         }) as Promise<StringStream>);
 
         bindStreamListeners(entry, stream);
@@ -407,6 +455,98 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       return { success: true };
     })
   );
+
+  // ---- Admin (topic + consumer-group management) -------------------------
+  // Each op builds a short-lived Admin client from the connection's already-
+  // validated clientOptions (auth/TLS reused), runs the call, and closes it in
+  // a finally so broker sockets are released. Brokers were SSRF-guarded at
+  // connect, so we don't re-run assertKafkaBrokersSafe here.
+
+  ipcMain.handle(
+    IPC.kafka.listTopics,
+    createValidatedHandler(IPC.kafka.listTopics, KafkaListTopicsSchema, (cfg) =>
+      withAdmin(cfg.connectionId, async (admin) => ({ topics: await admin.listTopics() }))
+    )
+  );
+
+  ipcMain.handle(
+    IPC.kafka.createTopic,
+    createValidatedHandler(IPC.kafka.createTopic, KafkaCreateTopicSchema, (cfg) =>
+      withAdmin(cfg.connectionId, async (admin) => {
+        await admin.createTopics({
+          topics: [cfg.topic],
+          partitions: cfg.partitions,
+          replicas: cfg.replicationFactor,
+        });
+        return {};
+      })
+    )
+  );
+
+  ipcMain.handle(
+    IPC.kafka.deleteTopic,
+    createValidatedHandler(IPC.kafka.deleteTopic, KafkaDeleteTopicSchema, (cfg) =>
+      withAdmin(cfg.connectionId, async (admin) => {
+        await admin.deleteTopics({ topics: [cfg.topic] });
+        return {};
+      })
+    )
+  );
+
+  ipcMain.handle(
+    IPC.kafka.listGroups,
+    createValidatedHandler(IPC.kafka.listGroups, KafkaListGroupsSchema, (cfg) =>
+      withAdmin(cfg.connectionId, async (admin) => {
+        const groupsMap = await admin.listGroups();
+        // listGroups returns a Map keyed by group id — flatten to a serializable
+        // array for the renderer (Maps don't survive structured clone usefully).
+        const groups = Array.from(groupsMap.values()).map((g) => ({
+          id: g.id,
+          state: String(g.state),
+          groupType: g.groupType,
+          protocolType: g.protocolType,
+        }));
+        return { groups };
+      })
+    )
+  );
+}
+
+/**
+ * Run an admin op against a short-lived Admin client for `connectionId`,
+ * reusing the connection's validated auth/TLS. Owns the not-connected guard and
+ * the finally-close so each call site can't leak a broker socket. `fn` returns
+ * only the success payload; the wrapper stamps `success: true`.
+ */
+async function withAdmin<T extends object>(
+  connectionId: string,
+  fn: (admin: Admin) => Promise<T>
+): Promise<({ success: true } & T) | { success: false; error: string }> {
+  const entry = activeConnections.get(connectionId);
+  if (!entry) return { success: false, error: 'Not connected' };
+  const admin = newAdmin(entry);
+  try {
+    return { success: true, ...(await fn(admin)) };
+  } catch (err) {
+    return { success: false, error: errorMessage(err) };
+  } finally {
+    await closeAdmin(admin);
+  }
+}
+
+function newAdmin(entry: ActiveKafka): Admin {
+  const kafka = getKafka();
+  // AdminOptions extends BaseOptions (clientId, bootstrapBrokers, sasl, tls) —
+  // the same shape KafkaClientOptions carries. No serializers needed.
+  return new kafka.Admin(entry.clientOptions as AdminOptions);
+}
+
+async function closeAdmin(admin: Admin): Promise<void> {
+  try {
+    await Promise.resolve(admin.close());
+  } catch {
+    /* ignore — best-effort socket release */
+  }
 }
 
 export async function stopKafkaCleanup(): Promise<void> {

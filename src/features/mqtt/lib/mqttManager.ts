@@ -173,6 +173,7 @@ class MqttManager {
     messageExpiryInterval?: number;
     contentType?: string;
     responseTopic?: string;
+    correlationData?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) return { ok: false, error: 'MQTT is desktop-only.' };
     const api = getElectronAPI();
@@ -191,6 +192,7 @@ class MqttManager {
         : {}),
       ...(params.contentType ? { contentType: params.contentType } : {}),
       ...(params.responseTopic ? { responseTopic: params.responseTopic } : {}),
+      ...(params.correlationData ? { correlationData: params.correlationData } : {}),
     });
 
     if (!result.success) {
@@ -297,6 +299,8 @@ class MqttManager {
         messageExpiryInterval?: number;
         contentType?: string;
         responseTopic?: string;
+        correlationData?: string;
+        subscriptionIdentifier?: number | number[];
         timestamp: number;
       };
       this.enqueueReceived(connectionId, {
@@ -312,6 +316,10 @@ class MqttManager {
           : {}),
         ...(msg.contentType ? { contentType: msg.contentType } : {}),
         ...(msg.responseTopic ? { responseTopic: msg.responseTopic } : {}),
+        ...(msg.correlationData ? { correlationData: msg.correlationData } : {}),
+        ...(msg.subscriptionIdentifier !== undefined
+          ? { subscriptionIdentifier: msg.subscriptionIdentifier }
+          : {}),
         timestamp: msg.timestamp,
       });
     });

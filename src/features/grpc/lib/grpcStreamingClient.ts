@@ -226,6 +226,7 @@ function startServerStream<TIn, TOut>(args: ServerStreamArgs): GrpcStreamingHand
       });
 
       final.headers = headersToObject(response.headers);
+      const grpcEncoding = (response.headers.get('grpc-encoding') ?? 'identity').toLowerCase();
 
       if (!response.body) {
         // No body — synthesise UNKNOWN if the HTTP status was bad; otherwise OK.
@@ -257,11 +258,11 @@ function startServerStream<TIn, TOut>(args: ServerStreamArgs): GrpcStreamingHand
               }
               continue;
             }
-            // Regular message envelope (compression bit 0x01 not supported here).
-            if ((env.flags & 0x01) !== 0) {
-              throw new Error('Compressed envelopes are not supported');
-            }
-            yield decodeJson(env.data) as TOut;
+            // Regular message envelope. Compression bit 0x01 means the payload
+            // is compressed with the codec named in the `grpc-encoding` header.
+            const data =
+              (env.flags & 0x01) !== 0 ? await inflateEnvelope(env.data, grpcEncoding) : env.data;
+            yield decodeJson(data) as TOut;
           }
         }
       } finally {
@@ -537,7 +538,9 @@ const defaultFetcher: StreamFetcher = async (url, init) => {
 
 interface DecodedEnvelope {
   flags: number;
-  data: Uint8Array;
+  // Always a freshly-allocated, ArrayBuffer-backed copy (see feed()), so it can
+  // be enqueued straight into a DecompressionStream without re-copying.
+  data: Uint8Array<ArrayBuffer>;
 }
 
 /**
@@ -642,6 +645,33 @@ function decodeJson(bytes: Uint8Array): unknown {
   } catch {
     return { __raw: text };
   }
+}
+
+/**
+ * Decompress a compressed gRPC-web message frame (envelope flag 0x01) using the
+ * codec named in the `grpc-encoding` response header. Browsers/Electron expose
+ * gzip and deflate via the native DecompressionStream — no extra dependency.
+ */
+async function inflateEnvelope(
+  data: Uint8Array<ArrayBuffer>,
+  encoding: string
+): Promise<Uint8Array> {
+  const format = encoding === 'gzip' ? 'gzip' : encoding === 'deflate' ? 'deflate' : null;
+  if (format === null) {
+    throw new Error(`Unsupported gRPC message encoding: ${encoding || 'unknown'}`);
+  }
+  const source = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    start(controller) {
+      // `data` is already an owned ArrayBuffer-backed copy (DecodedEnvelope.data),
+      // so it can be enqueued directly — no re-copy needed.
+      controller.enqueue(data);
+      controller.close();
+    },
+  });
+  const buffer = await new Response(
+    source.pipeThrough(new DecompressionStream(format))
+  ).arrayBuffer();
+  return new Uint8Array(buffer);
 }
 
 function headersToObject(h: Headers): Record<string, string> {

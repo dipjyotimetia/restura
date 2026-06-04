@@ -36,6 +36,47 @@ export type McpValidation =
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 120_000;
 
+/** Shape of a JSON-RPC 2.0 error object. */
+export interface JsonRpcError {
+  code: number;
+  message: string;
+  data?: unknown;
+}
+
+/**
+ * Validate the shape of an untrusted JSON-RPC error object. Returns a typed
+ * `JsonRpcError` when the wire data matches `{ code: number, message: string }`,
+ * or `null` otherwise. This is robust parsing, not a gate — callers fall back to
+ * a generic message rather than rejecting the response.
+ */
+export function parseJsonRpcError(raw: unknown): JsonRpcError | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.code !== 'number' || typeof obj.message !== 'string') return null;
+  return {
+    code: obj.code,
+    message: obj.message,
+    ...('data' in obj ? { data: obj.data } : {}),
+  };
+}
+
+/**
+ * Produce a clean, human-readable Error from an (untrusted) JSON-RPC error
+ * payload. Falls back to a best-effort message when the shape is malformed so a
+ * surfaced error is never silently dropped.
+ */
+export function jsonRpcErrorToMessage(raw: unknown): string {
+  const parsed = parseJsonRpcError(raw);
+  if (parsed) return `JSON-RPC error ${parsed.code}: ${parsed.message}`;
+  // Malformed error object — surface whatever message-like field we can find.
+  if (typeof raw === 'object' && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.message === 'string') return obj.message;
+    if (typeof obj.code === 'number') return `JSON-RPC error ${obj.code}`;
+  }
+  return 'Unknown JSON-RPC error';
+}
+
 export interface McpValidationOptions {
   allowLocalhost: boolean;
   /** Self-hosted opt-in for RFC 1918 / link-local / CGNAT MCP server URLs. */
@@ -58,11 +99,7 @@ export function validateMcpSpec(
       error: 'Invalid `transport` (expected "streamable-http" or "http-sse")',
     };
   }
-  if (
-    !spec.jsonRpc ||
-    typeof spec.jsonRpc.method !== 'string' ||
-    spec.jsonRpc.id === undefined
-  ) {
+  if (!spec.jsonRpc || typeof spec.jsonRpc.method !== 'string' || spec.jsonRpc.id === undefined) {
     return { ok: false, status: 400, error: 'Invalid `jsonRpc` (method and id are required)' };
   }
 
