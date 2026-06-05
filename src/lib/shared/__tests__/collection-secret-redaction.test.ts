@@ -117,26 +117,32 @@ describe('redactCollectionSecrets', () => {
     expect(collection.items[0]!.items![0]!.request!.auth.basic?.password).toBe('p');
   });
 
-  it('drops OpenCollection _oc passthrough bags at every level', () => {
-    // The _oc bag holds the verbatim imported document — including the
-    // pre-redaction plaintext auth. The OC exporter emits it verbatim, so a
-    // surviving bag would leak the original secrets through a "redacted"
-    // export (the exact path where the user opted out of including secrets).
+  it('drops auth-bearing OpenCollection _oc bags but keeps auth-free ones', () => {
+    // The _oc bag holds the verbatim imported node — including the
+    // pre-redaction plaintext auth — and the OC exporter emits per-item bags
+    // verbatim, so a surviving auth-bearing bag would leak the original
+    // secrets through a "redacted" export. Auth-free bags must survive:
+    // GraphQL/WebSocket items round-trip only through them.
+    const wsBag = { info: { type: 'websocket', name: 'WS' }, websocket: { url: 'wss://x' } };
     const withBags = {
       ...collection,
-      _oc: { items: [{ http: { auth: { type: 'bearer', token: 'LEAK' } } }] },
       items: [
         {
           ...collection.items[0]!,
-          _oc: { request: { auth: { type: 'basic', password: 'LEAK' } } },
-          items: [{ ...collection.items[0]!.items![0]!, _oc: { http: { auth: 'LEAK' } } }],
+          // Folder bag carries a child with plaintext auth → must drop.
+          _oc: { items: [{ http: { auth: { type: 'bearer', token: 'LEAK' } } }] },
+          items: [
+            { ...collection.items[0]!.items![0]!, _oc: { http: { auth: { token: 'LEAK' } } } },
+          ],
         },
+        // Auth-free WebSocket placeholder bag → must be kept.
+        { id: 'ws1', name: 'WS (WebSocket)', type: 'folder', items: [], _oc: wsBag },
       ],
     } as unknown as Collection;
-    const out = redactCollectionSecrets(withBags) as Collection & { _oc?: unknown };
-    expect(out._oc).toBeUndefined();
+    const out = redactCollectionSecrets(withBags);
     expect((out.items[0] as { _oc?: unknown })._oc).toBeUndefined();
     expect((out.items[0]!.items![0] as { _oc?: unknown })._oc).toBeUndefined();
+    expect((out.items[1] as { _oc?: unknown })._oc).toEqual(wsBag);
   });
 });
 
@@ -176,6 +182,17 @@ items:
           auth:
             type: bearer
             token: REQUEST-SECRET
+  - info:
+      type: graphql
+      name: Gql Query
+    graphql:
+      url: https://api.example.com/graphql
+      query: "query { viewer { login } }"
+  - info:
+      type: websocket
+      name: Live Feed
+    websocket:
+      url: wss://api.example.com/feed
 `;
     const internal = ocToInternal(parseOpenCollectionYAML(yaml));
     const redacted = redactCollectionSecrets(internal);
@@ -185,6 +202,13 @@ items:
     expect(out).not.toContain('REQUEST-SECRET');
     // Non-secret auth shape survives redaction.
     expect(out).toContain('alice');
+    // Auth-free GraphQL/WebSocket items survive through their kept _oc bags —
+    // these shapes are unrecoverable from the internal model alone (GraphQL
+    // degrades to plain HTTP, WebSocket placeholders vanish).
+    expect(out).toMatch(/type: "?graphql"?/);
+    expect(out).toContain('query { viewer { login } }');
+    expect(out).toMatch(/type: "?websocket"?/);
+    expect(out).toContain('wss://api.example.com/feed');
   });
 });
 
