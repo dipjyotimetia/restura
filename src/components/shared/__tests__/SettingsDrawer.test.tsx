@@ -22,7 +22,7 @@ vi.mock('@/lib/shared/platform', async (orig) => {
 function resetSettings() {
   // Reset accent to the cobalt default between tests so the accent picker
   // assertions are deterministic.
-  useSettingsStore.getState().updateSettings({ accent: '#4d9fff' });
+  useSettingsStore.getState().updateSettings({ accent: '#2e91ff' });
 }
 
 describe('SettingsDrawer', () => {

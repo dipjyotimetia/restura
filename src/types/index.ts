@@ -925,10 +925,10 @@ export const DEFAULT_AUTO_UPDATE_SETTINGS: AutoUpdateSettings = {
   channel: 'stable',
 };
 
-export type SpatialAccent = '#4d9fff' | '#7c5cff' | '#22c55e' | '#f59e0b' | '#ef4444' | '#06b6d4';
+export type SpatialAccent = '#2e91ff' | '#7c5cff' | '#22c55e' | '#f59e0b' | '#ef4444' | '#06b6d4';
 
 export const SPATIAL_ACCENT_PRESETS: ReadonlyArray<SpatialAccent> = [
-  '#4d9fff',
+  '#2e91ff',
   '#7c5cff',
   '#22c55e',
   '#f59e0b',

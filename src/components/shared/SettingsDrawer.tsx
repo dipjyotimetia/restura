@@ -457,7 +457,7 @@ function GeneralSection() {
 /* -------------------------------------------------------------------------- */
 
 function AppearanceSection() {
-  const accent = useSettingsStore((s) => s.settings.accent ?? '#4d9fff');
+  const accent = useSettingsStore((s) => s.settings.accent ?? '#2e91ff');
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   const { theme, setTheme } = useTheme();
   const currentTheme = (theme ?? 'system') as 'light' | 'dark' | 'system';

@@ -72,7 +72,7 @@
   --color-method-gql: #e879a4;
 
   /* Protocol chip colors */
-  --color-proto-http: #4d9fff;
+  --color-proto-http: #2e91ff;
   --color-proto-grpc: #22c55e;
   --color-proto-ws: #a78bfa;
   --color-proto-gql: #e879a4;
@@ -344,7 +344,7 @@
     --card-foreground: 240 15% 8%;
     --popover: 240 10% 97%;
     --popover-foreground: 240 15% 8%;
-    --primary: 218 85% 53%;
+    --primary: 212 100% 59%;
     --primary-foreground: 0 0% 100%;
     --secondary: 214 12% 93%;
     --secondary-foreground: 220 15% 8%;
@@ -356,7 +356,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 214 12% 88%;
     --input: 214 12% 88%;
-    --ring: 218 85% 53%;
+    --ring: 212 100% 59%;
     --radius: 0.5rem;
     --success: 158 64% 40%;
     --warning: 43 96% 50%;
@@ -375,7 +375,7 @@
     /* Subtle backdrop so frosted glass (overlays + chrome) has depth to refract.
        Toned far down from the original orbs — present, not decorative. */
     --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.06), transparent 45%),
+      radial-gradient(at 0% 0%, rgba(46, 145, 255, 0.06), transparent 45%),
       radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.05), transparent 45%), #e7ecf4;
     --sp-surface: #ffffff;
     --sp-surface-hi: #f4f6fa;
@@ -386,15 +386,15 @@
     --sp-text-dim: rgba(14, 19, 32, 0.6);
     --sp-line: rgba(14, 19, 32, 0.1);
     --sp-line-strong: rgba(14, 19, 32, 0.16);
-    --sp-accent: #4d9fff;
-    --sp-accent-glow-88: rgba(77, 159, 255, 0.53);
-    --sp-accent-glow-55: rgba(77, 159, 255, 0.33);
-    --sp-accent-glow-33: rgba(77, 159, 255, 0.2);
-    --sp-accent-glow-26: rgba(77, 159, 255, 0.15);
-    --sp-accent-glow-15: rgba(77, 159, 255, 0.08);
+    --sp-accent: #2e91ff;
+    --sp-accent-glow-88: rgba(46, 145, 255, 0.53);
+    --sp-accent-glow-55: rgba(46, 145, 255, 0.33);
+    --sp-accent-glow-33: rgba(46, 145, 255, 0.2);
+    --sp-accent-glow-26: rgba(46, 145, 255, 0.15);
+    --sp-accent-glow-15: rgba(46, 145, 255, 0.08);
     --sp-code: #f6f8fc;
     --sp-hover-bg: rgba(14, 19, 32, 0.04);
-    --sp-active-bg: rgba(77, 159, 255, 0.1);
+    --sp-active-bg: rgba(46, 145, 255, 0.1);
   }
 
   .dark {
@@ -405,7 +405,7 @@
     --card-foreground: 248 25% 94%;
     --popover: 240 15% 7%;
     --popover-foreground: 248 25% 94%;
-    --primary: 218 90% 68%;
+    --primary: 212 100% 65%;
     --primary-foreground: 220 20% 5%;
     --secondary: 214 12% 14%;
     --secondary-foreground: 218 25% 94%;
@@ -417,7 +417,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 214 12% 16%;
     --input: 214 12% 16%;
-    --ring: 218 90% 68%;
+    --ring: 212 100% 65%;
     --success: 158 64% 52%;
     --warning: 43 96% 56%;
     --info: 187 96% 45%;
@@ -433,7 +433,7 @@
     /* ───── Spatial Depth — dark theme (default) ───── */
     --sp-bg: #0a0c11;
     --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.1), transparent 50%),
+      radial-gradient(at 0% 0%, rgba(46, 145, 255, 0.1), transparent 50%),
       radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.08), transparent 50%), #0a0c11;
     --sp-surface: #14171e;
     --sp-surface-hi: #1c2029;
@@ -446,7 +446,7 @@
     --sp-line-strong: rgba(255, 255, 255, 0.14);
     --sp-code: #0c0e13;
     --sp-hover-bg: rgba(255, 255, 255, 0.04);
-    --sp-active-bg: rgba(77, 159, 255, 0.15);
+    --sp-active-bg: rgba(46, 145, 255, 0.15);
   }
 }
 

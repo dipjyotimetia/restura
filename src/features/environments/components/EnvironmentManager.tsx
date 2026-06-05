@@ -158,7 +158,7 @@ interface Scaffold {
 }
 
 const SCAFFOLDS: Scaffold[] = [
-  { name: 'Local', color: '#4d9fff', hint: 'localhost · dev keys' },
+  { name: 'Local', color: '#2e91ff', hint: 'localhost · dev keys' },
   { name: 'Staging', color: '#f59e0b', hint: 'staging APIs' },
   { name: 'Production', color: '#22c55e', hint: 'live traffic' },
 ];

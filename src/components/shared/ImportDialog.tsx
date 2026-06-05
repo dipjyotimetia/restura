@@ -67,7 +67,7 @@ const FORMATS: FormatMeta[] = [
     name: 'OpenCollection',
     tagline: 'Bruno 3.1+ bundled format',
     initials: 'OC',
-    color: '#4d9fff',
+    color: '#2e91ff',
     accept: '.json,.yaml,.yml',
   },
   {
