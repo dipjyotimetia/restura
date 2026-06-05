@@ -1,5 +1,128 @@
 # Handoff — Restura redesign (Spatial Depth direction)
 
+> [!IMPORTANT]
+> **This document has two parts.** The **Current implemented system** section
+> immediately below is authoritative and reflects the shipped + modernized UI as
+> of **2026-06-05**. The original Spatial Depth handoff that follows it (from
+> "## Overview" onward) is kept for **historical context** — it was the source
+> design, but several of its specifics (glow-heavy floating glass, `#06080f`
+> backdrop, `#4d9fff` accent, big float shadows, HSL tokens) have since been
+> deliberately superseded. Where they conflict, **this section wins**.
+
+---
+
+## Current implemented system (2026-06-05 modernization)
+
+The Spatial Depth direction was implemented and then modernized end-to-end
+(branch `ui/modernize-foundation`, PR #230). The journey: **Spatial Depth
+floating-glass → "pro-instrument" flatten** (it read as generic/AI-made) **→
+glass re-introduced only where it belongs → OKLCH/Tailwind-v4 foundation +
+a11y + richer-cobalt refresh.**
+
+### Design philosophy (current)
+
+- **Two materials, by purpose** (macOS/Linear pattern):
+  - **Solid** for things you _read_ — request/response/params, code/JSON panels.
+    `.sp-floater` = opaque `var(--sp-surface)` + a single `1px var(--sp-line)`
+    hairline. **No drop shadow, no blur.**
+  - **Frosted glass** for things that _float over_ other things — overlays
+    (dialog, alert-dialog, popover, dropdown, context-menu, tooltip, select
+    content, command palette, toaster) via `.glass-1/2/3` + `.sp-floater-lg`,
+    and chrome (top bar, sidebar, tab strip, status bar) via `.sp-chrome`.
+    Translucent + `backdrop-filter` blur; overlays add a restrained shadow.
+- **Dense, calm, flush.** Edge-to-edge square layout (panel radius `0`, hairline
+  dividers, near-zero gaps). The earlier always-on glow/orbs/noise were removed;
+  a _subtle_ `--sp-bg-glow` backdrop remains so the frosted layer has depth to
+  refract. The one saturated element is the primary action (`.sp-cta`, flat
+  solid accent — no gradient/glow).
+- **Glow discipline.** Accent appears on focus rings + active indicators only;
+  no ambient glow on toggles/subtabs/scrollbars/CTAs.
+
+### Token system (current) — single source of truth
+
+`src/styles/globals.css` is the single design-token source. There is **no
+`tailwind.config.mts`** — theme is **Tailwind v4 CSS-first** (`@theme {}` +
+`@custom-variant dark (&:is(.dark *))`). The legacy shadcn HSL token set has been
+**deleted**; legacy utilities (`bg-primary`, `text-muted-foreground`,
+`border-border`, `bg-surface-*`, …) now alias the `--sp-*` tokens via `@theme`.
+
+Tokens are **OKLCH**, one declaration each, light/dark resolved by the
+`light-dark()` CSS function against `color-scheme` (driven by `next-themes`
+`enableColorScheme` + the `.dark` class). Canonical `--sp-*` values:
+
+| Token              | Light (OKLCH)    | Dark (OKLCH)     | Used for                     |
+| ------------------ | ---------------- | ---------------- | ---------------------------- |
+| `--sp-bg`          | `94.2% .012 260` | `15.5% .011 268` | window/backdrop base         |
+| `--sp-surface`     | `100% 0 0`       | `20.5% .015 267` | solid data panels            |
+| `--sp-surface-hi`  | `97.3% .006 264` | `24.4% .018 266` | raised / active              |
+| `--sp-surface-lo`  | `95.7% .007 261` | `17.8% .013 270` | inset (inputs, code)         |
+| `--sp-text`        | `18.9% .028 268` | `95.8% .011 270` | primary text                 |
+| `--sp-text-muted`  | text / `.62`     | text / `.62`     | secondary text               |
+| `--sp-text-dim`    | text / `.60`     | text / `.55`     | tertiary (WCAG 1.4.3 ≥4.5:1) |
+| `--sp-line`        | text / `.10`     | white / `.08`    | hairline dividers            |
+| `--sp-line-strong` | text / `.16`     | white / `.14`    | stronger borders             |
+| `--sp-accent`      | `66% .19 255`    | `70% .19 255`    | actions, focus, links        |
+| `--sp-code`        | `97.9% .006 264` | `16.4% .011 268` | code editor bg               |
+| `--sp-hover-bg`    | text / `.04`     | white / `.04`    | row hover                    |
+| `--sp-active-bg`   | accent / `.10`   | accent / `.15`   | selected row / active tab    |
+
+- **Accent (signature): richer cobalt `#2e91ff`** (oklch ~66% .19 255), evolved
+  from the original `#4d9fff` — deeper, more saturated. It's user-selectable;
+  `AccentProvider` (`src/components/providers/AccentProvider.tsx`) writes
+  `--sp-accent` + the `--sp-accent-glow-*` ladder to `:root` at runtime from
+  `settings.accent`. Swatches: `#2e91ff` (cobalt), `#7c5cff`, `#22c55e`,
+  `#f59e0b`, `#ef4444`, `#06b6d4` (`SpatialAccent` in `src/types/index.ts`).
+- **Radius scale (flush/square):** `--radius-sp-chip 3 / -btn 4 / -pill 5 /
+-panel 0 / -window 6` (px).
+- **Type scale:** `--text-sp-9 … -22` (sub-11px kept for chips/badges — note this
+  is _not_ a WCAG violation; WCAG has no min font size).
+- **Method/protocol colors:** `--color-method-*` / `--color-proto-*` (HTTP =
+  `#2e91ff` to match the accent).
+
+### Modern CSS / platform adoption
+
+- **OKLCH** color (wide-gamut), **`light-dark()`** + **`color-scheme`** (single
+  token block, no duplicated `.dark` token block).
+- **Tailwind v4 CSS-first** (`@theme`, `@custom-variant`) — no JS config bridge.
+- **Container queries** — the response panel is a `@container`; its header
+  (waterfall/stats) responds to _panel_ width (`hidden @md:flex`), not viewport.
+- **View Transitions API** — light/dark switch cross-fades via
+  `src/lib/shared/viewTransition.ts` (`withViewTransition`), with reduced-motion
+  / unsupported fallback.
+- **Accessibility:** `prefers-reduced-transparency: reduce` → glass falls back to
+  solid; `prefers-contrast: more` → stronger lines/text; existing
+  `prefers-reduced-motion` honored. Focus is `:focus-visible` accent ring.
+
+### Load-bearing — do NOT "modernize away"
+
+Hash router (`createHashRouter`, required for Electron `file://`), Radix
+primitives, `next-themes`, `framer-motion`. The renderer is **shared** across
+web + Electron — every change here ships to desktop too.
+
+### Known / deliberately deferred (for future correspondence)
+
+- **WCAG 2.5.8 tap targets (24px min):** ~72 interactive `h-4`/`h-5` elements
+  left compact — a deliberate tradeoff to preserve the dense layout. Revisit if
+  touch/AA-strict support is needed.
+- **Focus-visible audit:** a few inputs set `outline-none` with their own ring;
+  a per-component pass was deferred (a blunt global override risks double-rings).
+- **Method/protocol colors** are still hardcoded as hex in some components
+  (ProtoChip, MethodChip, WaterfallBar) _and_ defined as tokens — unify onto the
+  tokens when convenient.
+- **Monaco editor** theme uses hardcoded hex (`monaco-setup.ts`) ~matching
+  `--sp-code` (canvas editor can't read CSS vars at init) — keep roughly in sync
+  by hand.
+
+### Where things live
+
+`src/styles/globals.css` (tokens, `@theme`, materials, a11y media queries),
+`src/components/providers/AccentProvider.tsx` (runtime accent),
+`src/components/ui/spatial/*` (Floater, chips, SubTabBar, …),
+`src/components/ui/{button,input,select,textarea,dialog,…}.tsx` (primitives),
+`src/lib/shared/viewTransition.ts`. See PR #230 commits for the full trail.
+
+---
+
 ## Overview
 
 This is a hi-fi redesign of **Restura**, a multi-protocol API client (HTTP, GraphQL, gRPC, WebSocket, SSE, MCP, Kafka) targeting both **web** and **Electron**. The design direction is called **Spatial Depth** — floating layered panels over a starlit cobalt void, with macOS-style window chrome, soft glass blurs, glowing accent highlights, and a deep dark-first palette (a fully polished light theme is also included).
@@ -26,37 +149,37 @@ There are two palettes (`dark` and `light`), derived in `spatial/lib.jsx → mak
 
 #### Dark (default)
 
-| Token | Value | Used for |
-|---|---|---|
-| `bg` | `#06080f` | Window background base |
-| `bgGlow` | radial cobalt gradient (top-left) + violet (bottom-right) + base | Atmospheric backdrop |
-| `surface` | `rgba(20,24,34,0.85)` | Floating panel fill (with backdrop-filter) |
-| `surfaceHi` | `rgba(28,33,45,0.9)` | Elevated overlay (palette, drawer) |
-| `surfaceLo` | `rgba(14,17,24,0.7)` | Inset elements (search bars, code editors backgrounds) |
-| `text` | `#eef1f9` | Primary text |
-| `textMuted` | `rgba(238,241,249,0.62)` | Secondary text |
-| `textDim` | `rgba(238,241,249,0.36)` | Tertiary / labels |
-| `line` | `rgba(255,255,255,0.06)` | Hairline dividers |
-| `lineStrong` | `rgba(255,255,255,0.12)` | Stronger borders (buttons) |
-| `accent` | `#4d9fff` | Primary action, focus rings, links |
-| `code` | `#0a0d14` | Code editor background |
-| `hoverBg` | `rgba(255,255,255,0.04)` | Hover state on rows |
-| `activeBg` | `rgba(77,159,255,0.15)` | Selected row / active tab |
+| Token        | Value                                                            | Used for                                               |
+| ------------ | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| `bg`         | `#06080f`                                                        | Window background base                                 |
+| `bgGlow`     | radial cobalt gradient (top-left) + violet (bottom-right) + base | Atmospheric backdrop                                   |
+| `surface`    | `rgba(20,24,34,0.85)`                                            | Floating panel fill (with backdrop-filter)             |
+| `surfaceHi`  | `rgba(28,33,45,0.9)`                                             | Elevated overlay (palette, drawer)                     |
+| `surfaceLo`  | `rgba(14,17,24,0.7)`                                             | Inset elements (search bars, code editors backgrounds) |
+| `text`       | `#eef1f9`                                                        | Primary text                                           |
+| `textMuted`  | `rgba(238,241,249,0.62)`                                         | Secondary text                                         |
+| `textDim`    | `rgba(238,241,249,0.36)`                                         | Tertiary / labels                                      |
+| `line`       | `rgba(255,255,255,0.06)`                                         | Hairline dividers                                      |
+| `lineStrong` | `rgba(255,255,255,0.12)`                                         | Stronger borders (buttons)                             |
+| `accent`     | `#4d9fff`                                                        | Primary action, focus rings, links                     |
+| `code`       | `#0a0d14`                                                        | Code editor background                                 |
+| `hoverBg`    | `rgba(255,255,255,0.04)`                                         | Hover state on rows                                    |
+| `activeBg`   | `rgba(77,159,255,0.15)`                                          | Selected row / active tab                              |
 
 #### Light
 
-| Token | Value |
-|---|---|
-| `bg` | `#eef2fa` |
-| `bgGlow` | softer cobalt + violet radials |
-| `surface` | `#ffffff` |
-| `surfaceHi` | `#fafbfd` |
-| `surfaceLo` | `#f3f5f9` |
-| `text` | `#0e1320` |
-| `textMuted` | `rgba(14,19,32,0.6)` |
-| `textDim` | `rgba(14,19,32,0.38)` |
-| `line` | `rgba(14,19,32,0.07)` |
-| `lineStrong` | `rgba(14,19,32,0.12)` |
+| Token        | Value                          |
+| ------------ | ------------------------------ |
+| `bg`         | `#eef2fa`                      |
+| `bgGlow`     | softer cobalt + violet radials |
+| `surface`    | `#ffffff`                      |
+| `surfaceHi`  | `#fafbfd`                      |
+| `surfaceLo`  | `#f3f5f9`                      |
+| `text`       | `#0e1320`                      |
+| `textMuted`  | `rgba(14,19,32,0.6)`           |
+| `textDim`    | `rgba(14,19,32,0.38)`          |
+| `line`       | `rgba(14,19,32,0.07)`          |
+| `lineStrong` | `rgba(14,19,32,0.12)`          |
 
 ### Shadows / depth
 
@@ -87,15 +210,15 @@ In dark mode, panels also use `backdrop-filter: blur(24px) saturate(180%)` for t
 
 Type scale:
 
-| px | weight | usage |
-|---|---|---|
-| 9 – 10 | 700 | Mini badges, partition pills |
-| 10.5 | 700, letter-spacing 0.5–0.7, UPPERCASE | Section labels ("HEADERS", "TIMING", "STREAMING") |
-| 11 – 11.5 | 500–600 | Secondary text, hints, timestamps, kbd |
-| 12 – 12.5 | 500–600 | Body, table cells, code blocks |
-| 13 – 14 | 600–700 | Tab labels, button labels, panel titles |
-| 16 | 700 | Drawer titles |
-| 22 | 700 | Big stat values (bento numbers, headings) |
+| px        | weight                                 | usage                                             |
+| --------- | -------------------------------------- | ------------------------------------------------- |
+| 9 – 10    | 700                                    | Mini badges, partition pills                      |
+| 10.5      | 700, letter-spacing 0.5–0.7, UPPERCASE | Section labels ("HEADERS", "TIMING", "STREAMING") |
+| 11 – 11.5 | 500–600                                | Secondary text, hints, timestamps, kbd            |
+| 12 – 12.5 | 500–600                                | Body, table cells, code blocks                    |
+| 13 – 14   | 600–700                                | Tab labels, button labels, panel titles           |
+| 16        | 700                                    | Drawer titles                                     |
+| 22        | 700                                    | Big stat values (bento numbers, headings)         |
 
 ### Iconography
 
@@ -236,6 +359,7 @@ Three-column layout:
 - **Response (flex: 1):** Large floater (background `code`). Header with `StatusPill 200`, `Stat` time/size, copy/download. Body = syntax-highlighted JSON response.
 
 GraphQL syntax highlight rules (in `hlGraphQL`):
+
 - Keywords (`query|mutation|subscription|fragment|on`) → `#c792ea`
 - Variables (`$foo`) → `#ffab70`
 - Types (`CapsCase`) → `#79b8ff`
@@ -343,14 +467,14 @@ Level colors: `info #06b6d4 · debug #94a3b8 · warn #f59e0b · error #ef4444`.
 
 ### Keyboard shortcuts (handled globally in `shell.jsx → App` and `overlays.jsx → CommandPalette`)
 
-| Shortcut | Action |
-|---|---|
-| `⌘K` / `Ctrl+K` | Toggle command palette |
-| `⌘,` / `Ctrl+,` | Open settings drawer |
-| `Esc` | Close palette / drawer / popover |
-| `↑ / ↓` (in palette) | Navigate items |
-| `↵` (in palette) | Select and close |
-| `⌘↵` (planned in send button) | Send current request |
+| Shortcut                      | Action                           |
+| ----------------------------- | -------------------------------- |
+| `⌘K` / `Ctrl+K`               | Toggle command palette           |
+| `⌘,` / `Ctrl+,`               | Open settings drawer             |
+| `Esc`                         | Close palette / drawer / popover |
+| `↑ / ↓` (in palette)          | Navigate items                   |
+| `↵` (in palette)              | Select and close                 |
+| `⌘↵` (planned in send button) | Send current request             |
 
 ### Mouse / click
 
