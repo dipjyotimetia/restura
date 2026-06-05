@@ -55,7 +55,7 @@ import {
   formatClockTime,
   getStatusBadgeColor,
 } from '@/lib/shared/console-format';
-import { filterEntries, statusClassCounts } from '@/lib/shared/console-filter';
+import { filterEntries, sortEntries, statusClassCounts } from '@/lib/shared/console-filter';
 import { parseRequestCookies, parseResponseCookies } from '@/lib/shared/cookie-parser';
 import { codeGenerators, type CodeGeneratorType } from '@/lib/shared/codeGenerators';
 
@@ -188,27 +188,19 @@ export default function NetworkTab() {
   // negation + regex). Sort is applied as a separate, view-only step.
   // Pinned entries always group first (stable within pinned/unpinned) so pins
   // don't scatter through the list as new traffic arrives.
-  const filteredEntries = useMemo(() => {
-    const list = filterEntries(entries, {
-      query: searchFilter,
-      statusFilter,
-      protocolFilter,
-      runFilter,
-    });
-    const compare = (a: (typeof list)[number], b: (typeof list)[number]): number => {
-      if (sortBy === 'time') return b.response.time - a.response.time;
-      if (sortBy === 'size') return b.response.size - a.response.size;
-      if (sortBy === 'status') return b.response.status - a.response.status;
-      return 0; // 'recent' — keep arrival order
-    };
-    const sorted = [...list];
-    sorted.sort((a, b) => {
-      const pinDelta = Number(b.pinned ?? false) - Number(a.pinned ?? false);
-      if (pinDelta !== 0) return pinDelta;
-      return compare(a, b);
-    });
-    return sorted;
-  }, [entries, searchFilter, statusFilter, protocolFilter, runFilter, sortBy]);
+  const filteredEntries = useMemo(
+    () =>
+      sortEntries(
+        filterEntries(entries, {
+          query: searchFilter,
+          statusFilter,
+          protocolFilter,
+          runFilter,
+        }),
+        sortBy
+      ),
+    [entries, searchFilter, statusFilter, protocolFilter, runFilter, sortBy]
+  );
 
   // Per-class counts on the unfiltered list — these badge the status chips so
   // the chip row doubles as a histogram of what's in the log.
