@@ -67,16 +67,17 @@ monaco.editor.defineTheme('restura-dark', {
   inherit: true,
   rules: [],
   colors: {
-    'editor.background': '#0a0d14',
-    'editorGutter.background': '#0a0d14',
-    'minimap.background': '#0a0d14',
+    // Aligned to the Spatial Depth dark palette (--sp-code / --sp-surface).
+    'editor.background': '#0c0e13',
+    'editorGutter.background': '#0c0e13',
+    'minimap.background': '#0c0e13',
     'editor.lineHighlightBackground': '#ffffff08',
     'editorLineNumber.foreground': '#eef1f95c',
     'editorLineNumber.activeForeground': '#eef1f999',
     'editor.selectionBackground': '#2e91ff33',
-    'editorWidget.background': '#0e1120',
-    'editorSuggestWidget.background': '#0e1120',
-    'input.background': '#0e1120',
+    'editorWidget.background': '#14171e',
+    'editorSuggestWidget.background': '#14171e',
+    'input.background': '#14171e',
   },
 });
 

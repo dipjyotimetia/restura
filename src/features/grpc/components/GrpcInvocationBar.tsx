@@ -57,7 +57,7 @@ export function GrpcInvocationBar({
       <div className="flex items-center gap-2">
         <Floater
           radius="btn"
-          className="flex-1 min-w-0 flex items-center gap-2 pl-1.5 pr-1.5 h-10"
+          className="flex-1 min-w-0 flex items-center gap-2 pl-1.5 pr-1.5 h-10 focus-within:ring-1 focus-within:ring-sp-accent/40"
           style={{ background: 'var(--sp-surface)' }}
         >
           <Segmented<GrpcMethodType>

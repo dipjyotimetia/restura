@@ -29,7 +29,7 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
   };
 
   return (
-    <div className="glass-1 border-border/40 m-2 rounded-lg border p-2">
+    <div className="glass-1 border-sp-line m-2 rounded-lg border p-2 focus-within:border-sp-accent/50 focus-within:ring-1 focus-within:ring-sp-accent/30">
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -45,7 +45,11 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <Switch checked={rawMode} onCheckedChange={(c) => setRawMode(c)} disabled={disabled || streaming} />
+          <Switch
+            checked={rawMode}
+            onCheckedChange={(c) => setRawMode(c)}
+            disabled={disabled || streaming}
+          />
           Send raw (skip redaction)
         </label>
         {streaming ? (

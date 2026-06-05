@@ -99,19 +99,25 @@ Hash router (`createHashRouter`, required for Electron `file://`), Radix
 primitives, `next-themes`, `framer-motion`. The renderer is **shared** across
 web + Electron — every change here ships to desktop too.
 
-### Known / deliberately deferred (for future correspondence)
+### Accessibility status & known items (for future correspondence)
 
-- **WCAG 2.5.8 tap targets (24px min):** ~72 interactive `h-4`/`h-5` elements
-  left compact — a deliberate tradeoff to preserve the dense layout. Revisit if
-  touch/AA-strict support is needed.
-- **Focus-visible audit:** a few inputs set `outline-none` with their own ring;
-  a per-component pass was deferred (a blunt global override risks double-rings).
-- **Method/protocol colors** are still hardcoded as hex in some components
-  (ProtoChip, MethodChip, WaterfallBar) _and_ defined as tokens — unify onto the
-  tokens when convenient.
-- **Monaco editor** theme uses hardcoded hex (`monaco-setup.ts`) ~matching
-  `--sp-code` (canvas editor can't read CSS vars at init) — keep roughly in sync
-  by hand.
+- **WCAG 2.5.8 tap targets — verified OK.** Audited: there are **no** genuinely
+  sub-24px _interactive targets_ — the `h-4`/`h-5` cases are icons _inside_
+  buttons that are ≥28px (`h-7`+). The compact-but-≥24px sizing is kept by
+  design. Revisit only if a touch-first target emerges.
+- **Focus-visible — addressed.** Every text input shows a focus indicator: the
+  Input/Select/Textarea primitives carry a `focus-visible` accent ring, and the
+  specialized fields (`TextField`, SSE/gRPC URL bars, AI `Composer`, `Stepper`)
+  use a `focus-within` ring on their wrapper. No bare `outline-none` left without
+  an indicator.
+- **Monaco editor — aligned.** `monaco-setup.ts` dark theme now matches
+  `--sp-code` (`#0c0e13`) / `--sp-surface` (`#14171e`) with the richer-cobalt
+  selection. (The canvas editor can't read CSS vars at init, so these are
+  hand-kept hex — adjust together with the dark `--sp-*` values if they change.)
+- **Method/protocol colors** remain hardcoded as hex in a few components
+  (ProtoChip, MethodChip, WaterfallBar) _and_ as `--color-method-*`/`-proto-*`
+  tokens — identical values, no visual gap; consolidate to a shared TS constant
+  when convenient (purely a code-dedup, not a UI issue).
 
 ### Where things live
 

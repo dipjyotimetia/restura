@@ -27,7 +27,7 @@ export function Stepper({
   return (
     <div
       className={cn(
-        'inline-flex items-center h-7 rounded-sp-btn bg-sp-surface-lo border border-sp-line',
+        'inline-flex items-center h-7 rounded-sp-btn bg-sp-surface-lo border border-sp-line focus-within:border-sp-accent/60 focus-within:ring-1 focus-within:ring-sp-accent/30',
         className
       )}
       aria-label={ariaLabel}
