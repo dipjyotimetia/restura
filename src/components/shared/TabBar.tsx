@@ -120,12 +120,12 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
 
   return (
     <>
-      <div className="px-3 pt-2 pb-1 shrink-0">
+      <div className="shrink-0">
         <Floater
-          radius="pill"
+          radius="panel"
           elevation="float"
           className={cn(
-            'flex items-center gap-0.5 p-1',
+            'sp-chrome flex items-center gap-0.5 p-1',
             // Horizontal scroll fallback when many tabs are open. We
             // intentionally hide the scrollbar — overflow is signalled by
             // the tabs themselves being cropped at the floater edge.
@@ -195,15 +195,10 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                       'rounded-sp-btn px-3 py-1.5 transition-colors',
                       'font-mono text-sp-11-5',
                       isActive
-                        ? // Active uses sp-active fill + inset accent ring.
-                          'text-sp-text bg-sp-active'
-                        : 'text-sp-muted hover:text-sp-text hover:bg-sp-hover'
+                        ? // Active uses a clean raised fill — no glow ring.
+                          'text-sp-text bg-sp-surface-hi border border-sp-line-strong'
+                        : 'text-sp-muted hover:text-sp-text hover:bg-sp-hover border border-transparent'
                     )}
-                    style={
-                      isActive
-                        ? { boxShadow: 'inset 0 0 0 1px var(--sp-accent-glow-55)' }
-                        : undefined
-                    }
                   >
                     <ProtoChip protocol={tab.modeOverride ?? tab.request.type} />
 

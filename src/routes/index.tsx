@@ -293,7 +293,7 @@ export default function Home() {
         onToggleAi={enableAi ? () => setAiPanelOpen(!aiPanelOpen) : undefined}
       />
 
-      <div className="flex flex-1 overflow-hidden min-h-0 px-3.5 pb-3 gap-3">
+      <div className="flex flex-1 overflow-hidden min-h-0">
         <ClientHydration
           fallback={<div className="w-67 shrink-0 animate-pulse rounded-sp-panel" />}
         >
@@ -317,10 +317,10 @@ export default function Home() {
           </AnimatePresence>
         </ClientHydration>
 
-        <div className="flex flex-1 flex-col min-w-0 overflow-hidden gap-2.5">
+        <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           <main
             aria-label="Request workspace"
-            className="flex flex-1 flex-col min-h-0 overflow-hidden gap-2.5"
+            className="flex flex-1 flex-col min-h-0 overflow-hidden"
           >
             <TabBar
               onSaveToCollection={setSaveDialogTabId}

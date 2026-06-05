@@ -46,7 +46,6 @@ export default function App() {
 
   return (
     <>
-      <div className="noise-texture fixed inset-0 pointer-events-none z-[-1]" />
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
         <ErrorBoundary>
           <AccentProvider>
@@ -65,11 +64,9 @@ export default function App() {
           closeButton
           theme="dark"
           toastOptions={{
-            className: 'glass-1 glass-border-default',
+            className: 'glass-1 border border-sp-line-strong',
             style: {
-              backdropFilter: 'blur(12px)',
-              WebkitBackdropFilter: 'blur(12px)',
-              color: 'hsl(var(--foreground))',
+              color: 'var(--sp-text)',
             },
           }}
         />

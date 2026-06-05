@@ -335,7 +335,7 @@ function GraphQLRequestBuilder() {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* URL zone */}
-      <div className="flex items-center gap-1 px-3 h-12 border-y border-sp-line bg-sp-surface-lo backdrop-blur-md shrink-0">
+      <div className="flex items-center gap-1 px-3 h-12 border-y border-sp-line bg-sp-surface-lo shrink-0">
         <div
           className={cn(
             'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded shrink-0 border',

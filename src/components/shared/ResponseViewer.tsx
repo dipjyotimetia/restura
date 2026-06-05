@@ -408,19 +408,15 @@ function ResponseViewer() {
             <Floater
               radius="panel"
               elevation="float-lg"
-              className="h-full flex flex-col items-center justify-center gap-4 text-sp-dim relative z-20"
+              className="h-full flex flex-col items-center justify-center text-sp-dim relative z-20"
             >
-              <div className="flex flex-col items-center gap-3 px-8 py-6 rounded-sp-panel sp-inset">
-                <Zap className="h-6 w-6 text-sp-accent opacity-60" />
-                <div className="text-center space-y-2">
-                  <p className="text-sp-12 font-mono text-sp-muted">
-                    Send a request to see the response
-                  </p>
-                  <div className="flex items-center justify-center gap-1.5 text-sp-11 text-sp-dim">
-                    <Kbd size="sm">⌘</Kbd>
-                    <Kbd size="sm">↵</Kbd>
-                    <span className="font-mono">to send</span>
-                  </div>
+              <div className="flex flex-col items-center gap-2.5">
+                <Zap className="h-4 w-4 text-sp-dim" />
+                <p className="text-sp-12 text-sp-muted">Send a request to see the response</p>
+                <div className="flex items-center justify-center gap-1.5 text-sp-11 text-sp-dim">
+                  <Kbd size="sm">⌘</Kbd>
+                  <Kbd size="sm">↵</Kbd>
+                  <span className="font-mono">to send</span>
                 </div>
               </div>
             </Floater>

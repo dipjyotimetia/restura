@@ -79,7 +79,7 @@ export function WindowChrome({
       style={{ ...region('drag'), height: 44, padding: '0 14px' }}
       className={cn(
         'relative flex items-center shrink-0 select-none',
-        'bg-sp-surface border-b border-sp-line text-sp-text'
+        'sp-chrome border-b border-sp-line text-sp-text'
       )}
     >
       {/* Left: reserved slot for the OS-drawn traffic lights + brand.

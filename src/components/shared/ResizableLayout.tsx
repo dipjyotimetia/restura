@@ -65,8 +65,8 @@ export default function ResizableLayout({
       </div>
       <div
         className={cn(
-          'bg-border hover:bg-primary/50 transition-colors duration-200 shrink-0 relative z-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-          isDraggingState && 'bg-primary/50 shadow-[0_0_8px_hsl(var(--primary)/0.4)]',
+          'bg-sp-line hover:bg-sp-accent/50 transition-colors duration-200 shrink-0 relative z-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+          isDraggingState && 'bg-sp-accent/60',
           isHorizontal ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize'
         )}
         onMouseDown={handleResizeStart}
@@ -89,7 +89,11 @@ export default function ResizableLayout({
         tabIndex={0}
       />
       <div
-        style={isHorizontal ? { width: `${100 - splitPosition}%` } : { height: `${100 - splitPosition}%` }}
+        style={
+          isHorizontal
+            ? { width: `${100 - splitPosition}%` }
+            : { height: `${100 - splitPosition}%` }
+        }
         className="min-h-0 min-w-0 overflow-hidden flex flex-col"
       >
         {children[1]}

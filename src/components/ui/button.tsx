@@ -16,18 +16,15 @@ export const buttonVariants = cva(
         destructive:
           'bg-destructive text-destructive-foreground shadow-md hover:shadow-lg hover:bg-destructive/90 hover:brightness-110 border border-transparent',
         outline:
-          'border glass-border-default bg-white/[0.45] dark:bg-white/[0.04] backdrop-blur-md text-foreground hover:bg-white/[0.6] dark:hover:bg-white/[0.08] hover:border-white/15 dark:hover:border-white/15',
+          'border border-sp-line bg-sp-surface text-foreground hover:bg-sp-surface-hi hover:border-sp-line-strong',
         secondary:
-          'glass-2 border glass-border-default text-secondary-foreground shadow-sm hover:bg-white/[0.7] dark:hover:bg-white/[0.07]',
-        ghost:
-          'hover:bg-white/[0.5] dark:hover:bg-white/[0.06] hover:backdrop-blur-sm hover:text-foreground',
+          'border border-sp-line bg-sp-surface-hi text-secondary-foreground hover:bg-sp-surface-lo',
+        ghost: 'hover:bg-sp-hover hover:text-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
-        glow: 'bg-primary/[0.2] text-primary border border-primary/40 backdrop-blur-sm hover:bg-primary/[0.35] hover:shadow-[0_0_20px_hsl(var(--primary)/0.4)]',
-        // Canonical primary action (Send / Invoke / Connect / Stream) — solid
-        // accent gradient + glow, white label. Pair with size="cta".
+        glow: 'bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20',
+        // Canonical primary action (Send / Invoke / Connect / Stream) — flat
+        // solid accent, white label, the one saturated element. Pair size="cta".
         cta: 'sp-cta text-white tracking-wide hover:brightness-110 disabled:opacity-50',
-        glass:
-          'glass-2 border glass-border-default text-foreground hover:bg-white/[0.7] dark:hover:bg-white/[0.08] hover:shadow-md',
       },
       size: {
         default: 'h-8 px-3 py-2 text-[13px] rounded-md [&_svg]:size-4',
