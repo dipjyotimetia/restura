@@ -16,6 +16,7 @@ import type {
   FlowNode,
   FlowEdge,
   Request,
+  AuthConfig,
   RequestFailureMode,
   ParallelWaitMode,
   ParallelMergeStrategy,
@@ -41,11 +42,19 @@ import {
 } from './scriptHelpers';
 import { findStartNode, getOutgoingEdges, getNodeById } from './flowTypes';
 import { validateWorkflowGraph } from './flowValidators';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 
 export interface DagExecutorOptions {
   workflow: Workflow;
   getRequestById: (id: string) => Request | undefined;
   getWorkflowById?: (id: string) => Workflow | undefined;
+  /**
+   * Folder/collection auth a request inherits when its own auth is 'none'
+   * (nearest ancestor wins — see `resolveInheritedAuthFor`). Applied to
+   * request nodes only; SSE/MCP nodes use separate header pipelines and are
+   * excluded (matches the single-send limitation).
+   */
+  getInheritedAuth?: (requestId: string) => AuthConfig | undefined;
   envVars: Record<string, string>;
   /** Variables map at the seed (env + dynamic). DAG mutates a clone. */
   resolveDynamicVariables?: (text: string) => string;
@@ -483,17 +492,23 @@ async function runRequestNode(
     throw new Error(step.error);
   }
 
-  const protocol = protocolRegistry.get(rawRequest.type);
+  // Same nearest-ancestor auth inheritance as single sends and the linear
+  // executor — the request's own configured auth always wins.
+  const request = args.options.getInheritedAuth
+    ? withEffectiveAuth(rawRequest, args.options.getInheritedAuth(workflowRequest.requestId))
+    : rawRequest;
+
+  const protocol = protocolRegistry.get(request.type);
   if (!protocol) {
     step.status = 'failed';
-    step.error = `No protocol module registered for type "${rawRequest.type}"`;
+    step.error = `No protocol module registered for type "${request.type}"`;
     finishStep(args, step);
     throw new Error(step.error);
   }
 
   const injected = protocol.injectVariables
-    ? protocol.injectVariables(rawRequest, args.variables)
-    : rawRequest;
+    ? protocol.injectVariables(request, args.variables)
+    : request;
 
   try {
     const response = await executeWithRetry(
@@ -878,6 +893,7 @@ async function runSubWorkflow(
     workflow: child,
     getRequestById: args.options.getRequestById,
     getWorkflowById: args.options.getWorkflowById,
+    getInheritedAuth: args.options.getInheritedAuth,
     envVars: childVars,
     ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     callStack: args.callStack,

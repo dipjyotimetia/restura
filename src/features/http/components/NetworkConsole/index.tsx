@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useMemo, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -75,9 +76,13 @@ export default function NetworkConsole({
   tests,
   onClearScripts,
 }: NetworkConsoleProps) {
+  // Scoped subscriptions — an unscoped useConsoleStore() here would re-render
+  // the whole panel (header, toolbar, resize handle, both tab portals) on
+  // every streamed frame. The frames array is only needed for the badge
+  // count, so subscribe to its length alone; FramesTab owns the list.
+  const framesCount = useConsoleStore((s) => s.frames.length);
   const {
     entries,
-    frames,
     isExpanded,
     panelHeight,
     activeTab,
@@ -94,7 +99,27 @@ export default function NetworkConsole({
     setCaptureEnabled,
     clearEntries,
     clearFrames,
-  } = useConsoleStore();
+  } = useConsoleStore(
+    useShallow((s) => ({
+      entries: s.entries,
+      isExpanded: s.isExpanded,
+      panelHeight: s.panelHeight,
+      activeTab: s.activeTab,
+      preserveOnSend: s.preserveOnSend,
+      captureEnabled: s.captureEnabled,
+      searchFilter: s.searchFilter,
+      statusFilter: s.statusFilter,
+      protocolFilter: s.protocolFilter,
+      runFilter: s.runFilter,
+      setExpanded: s.setExpanded,
+      setPanelHeight: s.setPanelHeight,
+      setActiveTab: s.setActiveTab,
+      setPreserveOnSend: s.setPreserveOnSend,
+      setCaptureEnabled: s.setCaptureEnabled,
+      clearEntries: s.clearEntries,
+      clearFrames: s.clearFrames,
+    }))
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -163,7 +188,7 @@ export default function NetworkConsole({
 
   const clearDisabled =
     (activeTab === 'network' && entries.length === 0) ||
-    (activeTab === 'frames' && frames.length === 0) ||
+    (activeTab === 'frames' && framesCount === 0) ||
     (activeTab === 'scripts' && scriptLogs.length === 0 && (!tests || tests.length === 0));
 
   // Filtered set mirrors what NetworkTab currently shows. Computed here too so
@@ -268,10 +293,8 @@ export default function NetworkConsole({
                   <TabsTrigger value="frames" className="text-[11px] h-7 px-2 font-medium">
                     <Cable className="h-3 w-3 mr-1.5" />
                     Frames
-                    {frames.length > 0 && (
-                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1">
-                        {frames.length}
-                      </Badge>
+                    {framesCount > 0 && (
+                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1"></Badge>
                     )}
                   </TabsTrigger>
                   {showDiskTab && (

@@ -120,6 +120,63 @@ describe('dagExecutor — happy path', () => {
   });
 });
 
+describe('dagExecutor — inherited auth on request nodes', () => {
+  const graphWithOneRequest = (): Workflow =>
+    makeGraphWorkflow(
+      {
+        version: 1,
+        nodes: [
+          { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+          {
+            id: 'req',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr1' },
+          },
+          { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+        ],
+        edges: [
+          { id: 'e1', source: 'start', target: 'req' },
+          { id: 'e2', source: 'req', target: 'end' },
+        ],
+      },
+      { requests: [{ id: 'wr1', requestId: 'r1', name: 'r1' }] }
+    );
+
+  it('applies getInheritedAuth when the request has no auth of its own', async () => {
+    // Regression: the production call site originally never passed
+    // getInheritedAuth, so graph runs silently skipped folder/collection auth.
+    httpRunRequest.mockResolvedValue(okResponse());
+    const bearerAuth = { type: 'bearer' as const, bearer: { token: 'folder-token' } };
+
+    const result = await executeDag({
+      workflow: graphWithOneRequest(),
+      getRequestById: () => ({ ...baseHttpRequest, auth: { type: 'none' as const } }),
+      getInheritedAuth: () => bearerAuth,
+      envVars: {},
+    });
+
+    expect(result.status).toBe('success');
+    const ranRequest = httpRunRequest.mock.calls[0]?.[0] as HttpRequest;
+    expect(ranRequest.auth).toEqual(bearerAuth);
+  });
+
+  it("never overrides the request's own configured auth", async () => {
+    httpRunRequest.mockResolvedValue(okResponse());
+    const ownAuth = { type: 'basic' as const, basic: { username: 'u', password: 'p' } };
+
+    await executeDag({
+      workflow: graphWithOneRequest(),
+      getRequestById: () => ({ ...baseHttpRequest, auth: ownAuth }),
+      getInheritedAuth: () => ({ type: 'bearer' as const, bearer: { token: 'folder-token' } }),
+      envVars: {},
+    });
+
+    const ranRequest = httpRunRequest.mock.calls[0]?.[0] as HttpRequest;
+    expect(ranRequest.auth).toEqual(ownAuth);
+  });
+});
+
 describe('dagExecutor — graph validation', () => {
   it('fails when there is no start node', async () => {
     const workflow = makeGraphWorkflow({

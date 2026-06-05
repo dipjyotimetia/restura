@@ -97,6 +97,56 @@ describe('useConsoleStore', () => {
       expect(urls).not.toContain('https://api.example.com/users/0');
       expect(urls).not.toContain('https://api.example.com/users/4');
     });
+
+    it('keeps the previous selection when the new entry is evicted at insert (all slots pinned)', () => {
+      const { addEntry, togglePin } = useConsoleStore.getState();
+
+      // Fill the console and pin every entry — zero room for unpinned ones.
+      for (let i = 0; i < 100; i++) {
+        addEntry({
+          timestamp: Date.now() + i,
+          request: { method: 'GET', url: `https://api.example.com/p/${i}`, headers: {} },
+          response: {
+            id: `resp-${i}`,
+            requestId: `req-${i}`,
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            body: '',
+            size: 0,
+            time: 100,
+            timestamp: Date.now() + i,
+          },
+        });
+      }
+      for (const e of useConsoleStore.getState().entries) togglePin(e.id);
+      const selectedBefore = useConsoleStore.getState().selectedEntryId;
+
+      addEntry({
+        timestamp: Date.now(),
+        request: { method: 'GET', url: 'https://api.example.com/evicted', headers: {} },
+        response: {
+          id: 'resp-evicted',
+          requestId: 'req-evicted',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 100,
+          timestamp: Date.now(),
+        },
+      });
+
+      const state = useConsoleStore.getState();
+      // The new entry was evicted immediately (no unpinned room)…
+      expect(state.entries.map((e) => e.request.url)).not.toContain(
+        'https://api.example.com/evicted'
+      );
+      // …so the selection must not dangle on its id.
+      expect(state.selectedEntryId).toBe(selectedBefore);
+      expect(state.entries.some((e) => e.id === state.selectedEntryId)).toBe(true);
+    });
   });
 
   describe('clearEntries', () => {

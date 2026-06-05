@@ -111,14 +111,23 @@ function redactItem(item: CollectionItem): CollectionItem {
  * carries an auth block: per-item bags are emitted verbatim by the OC
  * exporter with no auth gate at the request tier, so a surviving
  * auth-bearing bag would leak the original (pre-redaction) plaintext.
- * Auth-free bags — and the collection-level bag — are kept: the exporter's
- * root/folder tiers are staleness-gated (`authUnchanged` + rebuild), and
- * the bags carry fidelity that can't be rebuilt (GraphQL/WebSocket shapes,
- * root info/config extras).
+ * Auth-free item bags are kept: they carry fidelity that can't be rebuilt
+ * (GraphQL/WebSocket shapes).
+ *
+ * The collection-level `_oc` bag is dropped unconditionally. It holds the
+ * entire pre-redaction document, and the exporter's root staleness gate
+ * (`authUnchanged`) compares in *internal* space — blind to auth types that
+ * degrade to 'none' on import (OAuth1/NTLM/WSSE) and to root config secrets
+ * the internal model never sees (proxy passwords, cert passphrases). With
+ * the bag gone, the exporter rebuilds the root tier from the redacted model
+ * (Strategy 3); per-item bags still apply, so item fidelity is unaffected.
+ * Redacted exports trade byte-stability for "never leaks" by design.
  */
 export function redactCollectionSecrets(collection: Collection): Collection {
+  const next = { ...collection } as Collection & { _oc?: unknown };
+  delete next._oc;
   return {
-    ...collection,
+    ...next,
     ...(collection.auth ? { auth: redactAuthConfigSecrets(collection.auth) } : {}),
     items: collection.items.map(redactItem),
   };

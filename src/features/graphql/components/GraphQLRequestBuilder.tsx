@@ -25,6 +25,7 @@ import {
   type SubscriptionMessage,
 } from '@/features/graphql/lib/subscriptionClient';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
@@ -510,6 +511,7 @@ function GraphQLRequestBuilder() {
                 <p className="text-sp-11 text-sp-muted font-mono mb-4">
                   For subscriptions, credentials are sent as WebSocket connection params.
                 </p>
+                <InheritedAuthHint request={httpRequest} />
                 <AuthConfiguration auth={httpRequest.auth} onChange={handleAuthChange} />
               </div>
             )}

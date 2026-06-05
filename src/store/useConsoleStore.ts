@@ -168,6 +168,8 @@ function capEntries(entries: ConsoleEntry[]): ConsoleEntry[] {
  * Bound the in-memory footprint of a captured entry. Bodies over
  * LIVE_BODY_LIMIT are cut at capture time (with `bodyTruncated` set) so a
  * single pathological response can't pin tens of MB in RAM for the session.
+ * The limit is measured in UTF-16 code units (string length), not bytes —
+ * multi-byte text can occupy up to ~2× the nominal cap, which is fine here.
  */
 function capLiveBody(entry: Omit<ConsoleEntry, 'id'>): Omit<ConsoleEntry, 'id'> {
   const requestOver = (entry.request.body?.length ?? 0) > LIVE_BODY_LIMIT;
@@ -235,9 +237,13 @@ export const useConsoleStore = create<ConsoleState>()(
           const newEntry: ConsoleEntry = { ...capLiveBody(entry), id: uuidv4() };
           // preserve-off still keeps pinned entries — pins are an explicit "keep this".
           const base = state.preserveOnSend ? state.entries : state.entries.filter((e) => e.pinned);
+          const capped = capEntries([newEntry, ...base]);
+          // With MAX_ENTRIES pinned entries, capEntries evicts the new entry
+          // immediately — selecting it would dangle (detail pane finds nothing).
+          const survived = capped.some((e) => e.id === newEntry.id);
           return {
-            entries: capEntries([newEntry, ...base]),
-            selectedEntryId: newEntry.id,
+            entries: capped,
+            selectedEntryId: survived ? newEntry.id : state.selectedEntryId,
           };
         }),
 

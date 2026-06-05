@@ -416,6 +416,16 @@ function unwrapAuthForCompare(a: AuthConfig): AuthConfig {
  * false "changed" verdict merely costs byte-stability (we rebuild), while
  * false "unchanged" would require structurally different auth to serialize
  * identically — impossible.
+ *
+ * Known blind spot: auth types with no internal representation (OAuth1/NTLM/
+ * WSSE) degrade to 'none' through authToInternal, so cached-vs-current
+ * compares none === none and the gate reports "unchanged" no matter what.
+ * Untouched documents round-trip byte-stably (desired), but clearing such an
+ * auth in-app resurrects the original block on an include-secrets export.
+ * Redacted exports are NOT affected — redactCollectionSecrets drops the root
+ * `_oc` bag outright, so this tier always rebuilds there. The real fix is
+ * native internal support for these types (Phase 4); a treat-degraded-as-
+ * changed heuristic would instead drop their auth on every round-trip.
  */
 function authUnchanged(cachedNode: unknown, internalAuth: AuthConfig | undefined): boolean {
   const cachedRequest = (cachedNode as { request?: unknown } | undefined)?.request;

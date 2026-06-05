@@ -57,6 +57,12 @@ export function duplicateRequestItem(item: CollectionItem): CollectionItem {
  * every collection-variable row — so the duplicate is fully independent of
  * the source (open tabs, runs, and file-collection registrations key off
  * these ids). The clone is mutated in place; the source is untouched.
+ *
+ * SecretRef handle ids are deliberately NOT re-minted: both collections
+ * reference the same keychain entry, which is safe today because deleting a
+ * collection never reaps handles (removeCollection just filters the array).
+ * If handle reaping is ever added to the delete path, this sharing must be
+ * revisited — deleting the original would silently break the duplicate's auth.
  */
 export function duplicateCollection(collection: Collection): Collection {
   const dup = structuredClone(collection);

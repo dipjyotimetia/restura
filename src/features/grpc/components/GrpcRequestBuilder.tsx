@@ -13,6 +13,7 @@ import type {
   ReflectionServiceInfo,
 } from '@/types';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import {
   getMethodTypeDescription,
   GrpcClientError,
@@ -661,6 +662,7 @@ function GrpcRequestBuilder() {
                 <p className="text-sp-11 text-sp-muted font-mono">
                   Authentication will be automatically converted to gRPC metadata.
                 </p>
+                <InheritedAuthHint request={grpcRequest} />
                 <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
               </div>
             )}

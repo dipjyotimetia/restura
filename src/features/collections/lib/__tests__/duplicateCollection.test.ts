@@ -39,6 +39,8 @@ describe('duplicateCollection', () => {
     const dup = duplicateCollection(source);
     expect(dup.name).toBe('My API copy');
     expect(dup.description).toBe('desc');
+    // Auth is cloned as-is, SecretRef handle ids included — both collections
+    // intentionally share the keychain entry (see duplicateCollection's doc).
     expect(dup.auth).toEqual(source.auth);
     expect(dup.items).toHaveLength(2);
     expect(dup.items[0]!.items![0]!.name).toBe('Nested');

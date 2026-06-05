@@ -144,6 +144,20 @@ describe('redactCollectionSecrets', () => {
     expect((out.items[0]!.items![0] as { _oc?: unknown })._oc).toBeUndefined();
     expect((out.items[1] as { _oc?: unknown })._oc).toEqual(wsBag);
   });
+
+  it('drops the collection-level _oc bag unconditionally', () => {
+    // The root bag holds the entire pre-redaction document. The exporter's
+    // root staleness gate compares in internal space, which is blind to auth
+    // types that degrade to 'none' on import (OAuth1/NTLM/WSSE) and to root
+    // config secrets (proxy passwords, cert passphrases) — so an auth-gate
+    // here would still leak. Deny by default; the root tier rebuilds.
+    const withRootBag = {
+      ...collection,
+      _oc: { opencollection: '1.0.0', info: { name: 'C' }, items: [] },
+    } as unknown as Collection;
+    const out = redactCollectionSecrets(withRootBag);
+    expect((out as { _oc?: unknown })._oc).toBeUndefined();
+  });
 });
 
 describe('redacted OpenCollection export (end-to-end regression)', () => {
@@ -209,6 +223,47 @@ items:
     expect(out).toContain('query { viewer { login } }');
     expect(out).toMatch(/type: "?websocket"?/);
     expect(out).toContain('wss://api.example.com/feed');
+  });
+
+  it('redacts root-level auth of types that degrade to none on import (oauth1)', async () => {
+    // The leak the bearer-based test above cannot catch: OAuth1/NTLM/WSSE
+    // degrade to { type: 'none' } in authToInternal, so collection.auth ends
+    // up undefined and the exporter's authUnchanged gate sees none === none —
+    // "unchanged" — and (pre-fix) emitted the cached root _oc verbatim,
+    // original consumerSecret included. All items keep auth-free bags here so
+    // the whole-collection shortcut (Strategy 1) is otherwise viable.
+    const { parseOpenCollectionYAML, serializeOpenCollectionYAML } =
+      await import('@/lib/opencollection/serializer');
+    const { ocToInternal } = await import('@/lib/opencollection/to-internal');
+    const { internalToOC } = await import('@/lib/opencollection/from-internal');
+
+    const yaml = `opencollection: 1.0.0
+info:
+  name: Degraded Root Auth
+request:
+  auth:
+    type: oauth1
+    consumerKey: ck-public
+    consumerSecret: OAUTH1-CONSUMER-SECRET
+    accessTokenSecret: OAUTH1-TOKEN-SECRET
+items:
+  - info:
+      type: graphql
+      name: Gql Query
+    graphql:
+      url: https://api.example.com/graphql
+      query: "query { viewer { login } }"
+`;
+    const internal = ocToInternal(parseOpenCollectionYAML(yaml));
+    const redacted = redactCollectionSecrets(internal);
+    const exported = internalToOC(redacted);
+    const out = serializeOpenCollectionYAML(exported);
+    expect(out).not.toContain('OAUTH1-CONSUMER-SECRET');
+    expect(out).not.toContain('OAUTH1-TOKEN-SECRET');
+    // Still a structurally valid document with its items intact.
+    expect(exported.items?.length).toBe(1);
+    expect(out).toMatch(/type: "?graphql"?/);
+    expect(out).toContain('query { viewer { login } }');
   });
 });
 
