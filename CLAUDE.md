@@ -137,7 +137,7 @@ All global state lives in Zustand stores with the `persist` middleware. Stores a
 - **Desktop** — `src/lib/shared/secure-storage.ts` (encrypted electron-store via IPC; key wrapped by Electron `safeStorage` → OS keychain).
 - **The legacy localStorage adapter has been removed.** Don't add new persistence through `window.localStorage`.
 
-Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, `useKafkaStore`, AI store (`src/features/ai/store.ts`).
+Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, `useKafkaStore`, `useCollectionRunStore` (persisted run history, Dexie `collectionRuns`), AI store (`src/features/ai/store.ts`).
 
 **Secret handling — `SecretRef` (ADR-0007).** Secret-bearing auth fields are migrating from plaintext `string` to `SecretValue = string | SecretRef`, where `SecretRef` is `{ kind: 'inline'; value }` or `{ kind: 'handle'; id; label? }`. With a `handle`, the renderer **never sees the plaintext** — `electron/main/secret-handle-store.ts` (electron-store + `safeStorage`) holds the encrypted value and resolves it only at wire-signing time in the main process. This keeps secrets out of the Zustand store, Dexie/electron-store persistence, exported collections, crash logs, and the MCP-server's agent-readable surface. Migration is incremental (per-descriptor); see `docs/adr/0007-secret-ref-pattern.md` and `electron/main/collection-export-redactor.ts`.
 
@@ -192,7 +192,7 @@ Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.de
 - **UI** — Radix UI primitives + Tailwind, shadcn/ui patterns in `src/components/ui/`.
 - **Script sandbox** — pre-request and test scripts run in QuickJS WASM (`src/features/scripts/lib/scriptExecutor.ts`). No DOM, no filesystem, no network escape; memory + execution-time capped.
 - **Collection import/export** — Postman v2.1, Insomnia, and OpenCollection (`src/lib/opencollection/`, with codegen — `spec-types.ts` is generated, validated by `verify:opencollection-types`).
-- **Multiple tsconfigs** — `tsconfig.json` (renderer), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI), plus `src/features/http/tsconfig.json`. `tsconfig.base.json` holds shared compiler options. **`npm run type-check` only covers the renderer** — the root `tsconfig.json` excludes `worker`, `electron/main`, and `cli`, so a green `type-check` does *not* mean those projects compile. Use **`npm run type-check:all`** (chained into `npm run validate`) to type-check every project the way CI does. `npm run lint` does cover all of them.
+- **Multiple tsconfigs** — `tsconfig.json` (renderer), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI), plus `src/features/http/tsconfig.json`. `tsconfig.base.json` holds shared compiler options. **`npm run type-check` only covers the renderer** — the root `tsconfig.json` excludes `worker`, `electron/main`, and `cli`, so a green `type-check` does _not_ mean those projects compile. Use **`npm run type-check:all`** (chained into `npm run validate`) to type-check every project the way CI does. `npm run lint` does cover all of them.
 
 ## Testing
 

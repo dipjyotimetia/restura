@@ -64,6 +64,13 @@ function countAuthInlineSecrets(auth: AuthConfig | undefined): number {
 
 function redactItem(item: CollectionItem): CollectionItem {
   const next: CollectionItem = { ...item };
+  // Drop the OpenCollection passthrough bag — it holds the verbatim imported
+  // node (including any plaintext auth from the source document), and the OC
+  // exporter emits `_oc` verbatim when present. Keeping it would pipe the
+  // original secrets straight through a "redacted" export. Cost: a redacted
+  // OC export rebuilds from the redacted internal model instead of being
+  // byte-stable — acceptable on the share-safely path.
+  delete (next as { _oc?: unknown })._oc;
   if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
   if (next.items) next.items = next.items.map(redactItem);
   if (next.request && 'auth' in next.request) {
@@ -79,13 +86,20 @@ function redactItem(item: CollectionItem): CollectionItem {
  * Returns a copy of the collection with every inline secret blanked —
  * collection-level auth, folder-level auth, and each request's auth.
  * Handle references are preserved. The original is not mutated.
+ *
+ * OpenCollection `_oc` passthrough bags are dropped at every level: they
+ * contain the verbatim (pre-redaction) imported document, which the OC
+ * exporter would otherwise emit as-is, leaking the very secrets this
+ * function blanks.
  */
 export function redactCollectionSecrets(collection: Collection): Collection {
-  return {
+  const next: Collection = {
     ...collection,
     ...(collection.auth ? { auth: redactAuthConfigSecrets(collection.auth) } : {}),
     items: collection.items.map(redactItem),
   };
+  delete (next as { _oc?: unknown })._oc;
+  return next;
 }
 
 /**

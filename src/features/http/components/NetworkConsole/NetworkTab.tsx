@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import {
   entryToCurl,
@@ -123,6 +124,10 @@ const SORT_OPTIONS: Array<{ value: 'recent' | 'time' | 'size' | 'status'; label:
 ];
 
 export default function NetworkTab() {
+  // Scoped subscription — this tab never renders `frames`, and frames are the
+  // chattiest slice of the store (an SSE/WS stream can push tens of frames per
+  // second). An unscoped subscription would re-run filterEntries + sortEntries
+  // on every frame for nothing.
   const {
     entries,
     selectedEntryId,
@@ -137,7 +142,23 @@ export default function NetworkTab() {
     setRunFilter,
     removeEntry,
     togglePin,
-  } = useConsoleStore();
+  } = useConsoleStore(
+    useShallow((s) => ({
+      entries: s.entries,
+      selectedEntryId: s.selectedEntryId,
+      selectEntry: s.selectEntry,
+      searchFilter: s.searchFilter,
+      setSearchFilter: s.setSearchFilter,
+      statusFilter: s.statusFilter,
+      setStatusFilter: s.setStatusFilter,
+      protocolFilter: s.protocolFilter,
+      setProtocolFilter: s.setProtocolFilter,
+      runFilter: s.runFilter,
+      setRunFilter: s.setRunFilter,
+      removeEntry: s.removeEntry,
+      togglePin: s.togglePin,
+    }))
+  );
   const openTab = useRequestStore((s) => s.openTab);
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const activeTab = useActiveTab();

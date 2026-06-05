@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -45,7 +46,11 @@ function directionColor(direction: ConsoleFrame['direction']) {
 }
 
 export default function FramesTab() {
-  const { frames, clearFrames } = useConsoleStore();
+  // Scoped subscription — keeps entry-list churn (and search-filter keystrokes
+  // in the Network tab) from re-rendering this tab.
+  const { frames, clearFrames } = useConsoleStore(
+    useShallow((s) => ({ frames: s.frames, clearFrames: s.clearFrames }))
+  );
   const [search, setSearch] = useState('');
   const [protocolFilter, setProtocolFilter] = useState<FrameProtocol | 'all'>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);

@@ -116,6 +116,76 @@ describe('redactCollectionSecrets', () => {
     expect(collection.auth?.bearer?.token).toBe('collection-token');
     expect(collection.items[0]!.items![0]!.request!.auth.basic?.password).toBe('p');
   });
+
+  it('drops OpenCollection _oc passthrough bags at every level', () => {
+    // The _oc bag holds the verbatim imported document — including the
+    // pre-redaction plaintext auth. The OC exporter emits it verbatim, so a
+    // surviving bag would leak the original secrets through a "redacted"
+    // export (the exact path where the user opted out of including secrets).
+    const withBags = {
+      ...collection,
+      _oc: { items: [{ http: { auth: { type: 'bearer', token: 'LEAK' } } }] },
+      items: [
+        {
+          ...collection.items[0]!,
+          _oc: { request: { auth: { type: 'basic', password: 'LEAK' } } },
+          items: [{ ...collection.items[0]!.items![0]!, _oc: { http: { auth: 'LEAK' } } }],
+        },
+      ],
+    } as unknown as Collection;
+    const out = redactCollectionSecrets(withBags) as Collection & { _oc?: unknown };
+    expect(out._oc).toBeUndefined();
+    expect((out.items[0] as { _oc?: unknown })._oc).toBeUndefined();
+    expect((out.items[0]!.items![0] as { _oc?: unknown })._oc).toBeUndefined();
+  });
+});
+
+describe('redacted OpenCollection export (end-to-end regression)', () => {
+  it('a redacted export of an imported OC document contains no plaintext secrets', async () => {
+    // Reproduces the leak this guards against: import stamps the verbatim OC
+    // node (with plaintext auth) into _oc; without the bag-drop in
+    // redactCollectionSecrets, internalToOC emits it verbatim and the
+    // "redacted" YAML ships the original token.
+    const { parseOpenCollectionYAML, serializeOpenCollectionYAML } =
+      await import('@/lib/opencollection/serializer');
+    const { ocToInternal } = await import('@/lib/opencollection/to-internal');
+    const { internalToOC } = await import('@/lib/opencollection/from-internal');
+
+    const yaml = `opencollection: 1.0.0
+info:
+  name: Leak Demo
+request:
+  auth:
+    type: bearer
+    token: ROOT-SECRET
+items:
+  - info:
+      name: Folder
+    request:
+      auth:
+        type: basic
+        username: alice
+        password: FOLDER-SECRET
+    items:
+      - info:
+          type: http
+          name: Secret Req
+        http:
+          method: GET
+          url: https://api.example.com/x
+          auth:
+            type: bearer
+            token: REQUEST-SECRET
+`;
+    const internal = ocToInternal(parseOpenCollectionYAML(yaml));
+    const redacted = redactCollectionSecrets(internal);
+    const out = serializeOpenCollectionYAML(internalToOC(redacted));
+    expect(out).not.toContain('ROOT-SECRET');
+    expect(out).not.toContain('FOLDER-SECRET');
+    expect(out).not.toContain('REQUEST-SECRET');
+    // Non-secret auth shape survives redaction.
+    expect(out).toContain('alice');
+  });
 });
 
 describe('countCollectionInlineSecrets', () => {

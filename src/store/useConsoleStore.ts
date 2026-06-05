@@ -90,6 +90,12 @@ const PERSIST_BODY_LIMIT = 64 * 1024;
 // for marginal value (frames matter while debugging a live connection;
 // surviving reload is rarely useful and not worth the write storm).
 const MAX_FRAMES = 500;
+// Per-frame payload cap. MAX_FRAMES bounds the count but not the bytes — 500
+// frames of large SSE events (an LLM streaming completion is the canonical
+// case) could otherwise retain tens of MB for the session. The frame's
+// `bytes` field still records the true size, so the UI shows real numbers
+// even when the preview is cut.
+const FRAME_PAYLOAD_LIMIT = 64 * 1024;
 // In-memory cap per captured body. A pathological 100 MB response would
 // otherwise sit in RAM for the whole session (×100 entries). 5 MB keeps
 // Expand/Compare/replay intact for any realistic payload while bounding the
@@ -179,6 +185,12 @@ function capLiveBody(entry: Omit<ConsoleEntry, 'id'>): Omit<ConsoleEntry, 'id'> 
   };
 }
 
+/** Frame analogue of capLiveBody — bounds per-frame payload bytes at capture. */
+function capFramePayload(frame: Omit<ConsoleFrame, 'id'>): Omit<ConsoleFrame, 'id'> {
+  if (frame.payload.length <= FRAME_PAYLOAD_LIMIT) return frame;
+  return { ...frame, payload: truncate(frame.payload, FRAME_PAYLOAD_LIMIT) };
+}
+
 function trimForPersist(entry: ConsoleEntry): ConsoleEntry {
   return {
     ...entry,
@@ -252,7 +264,7 @@ export const useConsoleStore = create<ConsoleState>()(
       addFrame: (frame) =>
         set((state) => {
           if (!state.captureEnabled) return state;
-          const newFrame: ConsoleFrame = { ...frame, id: uuidv4() };
+          const newFrame: ConsoleFrame = { ...capFramePayload(frame), id: uuidv4() };
           // Frames append newest at the *end* — they're chronological logs,
           // not a stack of distinct requests. Tail trim when over cap.
           const next =
@@ -266,7 +278,10 @@ export const useConsoleStore = create<ConsoleState>()(
       addFrames: (frames) =>
         set((state) => {
           if (!state.captureEnabled || frames.length === 0) return state;
-          const incoming: ConsoleFrame[] = frames.map((f) => ({ ...f, id: uuidv4() }));
+          const incoming: ConsoleFrame[] = frames.map((f) => ({
+            ...capFramePayload(f),
+            id: uuidv4(),
+          }));
           const merged = state.frames.concat(incoming);
           const next =
             merged.length > MAX_FRAMES ? merged.slice(merged.length - MAX_FRAMES) : merged;

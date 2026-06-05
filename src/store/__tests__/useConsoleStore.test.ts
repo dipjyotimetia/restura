@@ -363,6 +363,45 @@ describe('useConsoleStore', () => {
       expect(entry.response.body).toBe('{"ok":true}');
     });
   });
+
+  describe('frame payload cap', () => {
+    it('truncates oversized frame payloads at capture (addFrame)', () => {
+      const huge = 'x'.repeat(64 * 1024 + 100);
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'sse',
+        direction: 'in',
+        payload: huge,
+        bytes: huge.length,
+      });
+      const frame = useConsoleStore.getState().frames[0]!;
+      expect(frame.payload.length).toBeLessThan(huge.length);
+      expect(frame.payload).toContain('[truncated');
+      // True size survives in `bytes` even though the preview is cut.
+      expect(frame.bytes).toBe(huge.length);
+    });
+
+    it('truncates oversized payloads in batch appends (addFrames)', () => {
+      const huge = 'y'.repeat(64 * 1024 + 1);
+      useConsoleStore.getState().addFrames([
+        { timestamp: Date.now(), protocol: 'websocket', direction: 'in', payload: huge },
+        { timestamp: Date.now(), protocol: 'websocket', direction: 'in', payload: 'small' },
+      ]);
+      const frames = useConsoleStore.getState().frames;
+      expect(frames[0]!.payload).toContain('[truncated');
+      expect(frames[1]!.payload).toBe('small');
+    });
+
+    it('leaves normal-sized payloads untouched', () => {
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'sse',
+        direction: 'in',
+        payload: 'data: {"ok":true}',
+      });
+      expect(useConsoleStore.getState().frames[0]!.payload).toBe('data: {"ok":true}');
+    });
+  });
 });
 
 describe('createProtocolConsoleEntry', () => {
