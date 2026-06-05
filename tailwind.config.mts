@@ -158,12 +158,6 @@ const config: Config = {
           950: '#1e1b4b',
         },
       },
-      borderOpacity: {
-        subtle: '0.08',
-        DEFAULT: '0.12',
-        strong: '0.20',
-        focus: '0.40',
-      },
       borderRadius: {
         // Legacy
         lg: 'var(--radius)',
@@ -179,13 +173,6 @@ const config: Config = {
         'sp-pill': '5px',
         'sp-panel': '0px',
         'sp-window': '6px',
-      },
-      backdropBlur: {
-        xs: '2px',
-        sp: '24px',
-      },
-      backdropSaturate: {
-        sp: '1.8',
       },
       letterSpacing: {
         tighter: '-0.025em',
@@ -306,23 +293,6 @@ const config: Config = {
         'elevation-4': '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
         'inner-top': 'inset 0 1px 2px 0 rgba(0, 0, 0, 0.05)',
         'inner-bottom': 'inset 0 -1px 2px 0 rgba(0, 0, 0, 0.05)',
-        'glow-blue': '0 0 20px rgba(59, 130, 246, 0.3)',
-        'glow-green': '0 0 20px rgba(34, 197, 94, 0.3)',
-        'glow-red': '0 0 20px rgba(239, 68, 68, 0.3)',
-        'glow-violet': '0 0 20px rgba(123, 110, 246, 0.3)',
-        'glow-violet-lg': '0 0 40px rgba(123, 110, 246, 0.4)',
-        'glow-cyan': '0 0 20px rgba(6, 182, 212, 0.3)',
-        'glow-success': '0 0 20px rgba(52, 211, 153, 0.3)',
-        'glow-error': '0 0 20px rgba(248, 113, 113, 0.3)',
-        // ─────────────────────────────────────────────────────────────
-        // Spatial Depth shadows — defining the floating-panel language
-        // ─────────────────────────────────────────────────────────────
-        'sp-float': '0 1px 0 rgba(255,255,255,0.05) inset, 0 12px 36px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4)',
-        'sp-float-lg': '0 1px 0 rgba(255,255,255,0.06) inset, 0 24px 60px rgba(0,0,0,0.65), 0 6px 18px rgba(0,0,0,0.5)',
-        'sp-float-light': '0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 24px rgba(20,30,60,0.08), 0 1px 3px rgba(20,30,60,0.05)',
-        'sp-float-lg-light': '0 1px 0 rgba(255,255,255,0.6) inset, 0 20px 50px rgba(20,30,60,0.15), 0 4px 12px rgba(20,30,60,0.08)',
-        'sp-accent-glow': '0 0 8px var(--sp-accent-glow-88)',
-        'sp-accent-ring': '0 0 0 1px var(--sp-accent-glow-33), 0 0 16px var(--sp-accent-glow-26)',
       },
     },
   },
