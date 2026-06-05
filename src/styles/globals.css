@@ -382,7 +382,8 @@
     --sp-surface-lo: #eef1f6;
     --sp-text: #0e1320;
     --sp-text-muted: rgba(14, 19, 32, 0.62);
-    --sp-text-dim: rgba(14, 19, 32, 0.45);
+    /* dim raised 0.45 → 0.60 so small/muted UI text clears WCAG 1.4.3 (4.5:1) */
+    --sp-text-dim: rgba(14, 19, 32, 0.6);
     --sp-line: rgba(14, 19, 32, 0.1);
     --sp-line-strong: rgba(14, 19, 32, 0.16);
     --sp-accent: #4d9fff;
@@ -439,7 +440,8 @@
     --sp-surface-lo: #0f1117;
     --sp-text: #eef1f9;
     --sp-text-muted: rgba(238, 241, 249, 0.62);
-    --sp-text-dim: rgba(238, 241, 249, 0.42);
+    /* dim raised 0.42 → 0.55 so small/muted UI text clears WCAG 1.4.3 (4.5:1) */
+    --sp-text-dim: rgba(238, 241, 249, 0.55);
     --sp-line: rgba(255, 255, 255, 0.08);
     --sp-line-strong: rgba(255, 255, 255, 0.14);
     --sp-code: #0c0e13;
@@ -725,6 +727,55 @@ textarea {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Reduced transparency (OS accessibility setting) — drop the frosted glass on
+   overlays + chrome to solid, legible surfaces. Mirrors prefers-reduced-motion.
+   Also removes the always-on backdrop-filter GPU cost for these users. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-1,
+  .glass-2,
+  .glass-3,
+  .sp-chrome,
+  .sp-floater-lg {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--sp-surface);
+  }
+  .glass-2 {
+    background: var(--sp-surface-hi);
+  }
+  .glass-3 {
+    background: var(--sp-surface-lo);
+  }
+  .dark .glass-1,
+  .dark .sp-chrome,
+  .dark .sp-floater-lg {
+    background: var(--sp-surface);
+  }
+  .dark .glass-2 {
+    background: var(--sp-surface-hi);
+  }
+  .dark .glass-3 {
+    background: var(--sp-surface-lo);
+  }
+}
+
+/* High contrast (OS accessibility setting) — strengthen hairlines and muted
+   text so structure and de-emphasized copy stay legible. */
+@media (prefers-contrast: more) {
+  :root {
+    --sp-line: rgba(14, 19, 32, 0.24);
+    --sp-line-strong: rgba(14, 19, 32, 0.42);
+    --sp-text-dim: rgba(14, 19, 32, 0.78);
+    --sp-text-muted: rgba(14, 19, 32, 0.88);
+  }
+  .dark {
+    --sp-line: rgba(255, 255, 255, 0.24);
+    --sp-line-strong: rgba(255, 255, 255, 0.42);
+    --sp-text-dim: rgba(238, 241, 249, 0.8);
+    --sp-text-muted: rgba(238, 241, 249, 0.9);
   }
 }
 
