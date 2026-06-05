@@ -22,9 +22,7 @@ const makeCollection = (requestId: string, collectionAuth?: AuthConfig): Collect
   id: 'col-1',
   name: 'My Collection',
   auth: collectionAuth,
-  items: [
-    { id: 'item-1', name: 'Request', type: 'request', request: makeRequest(requestId) },
-  ],
+  items: [{ id: 'item-1', name: 'Request', type: 'request', request: makeRequest(requestId) }],
 });
 
 describe('resolveEffectiveAuth', () => {
@@ -81,6 +79,77 @@ describe('findInheritedAuth', () => {
     };
     const result = findInheritedAuth(collection, 'req-nested');
     expect(result).toBe(bearerAuth);
+  });
+
+  it('folder auth overrides collection auth for descendants', () => {
+    const folderAuth: AuthConfig = { type: 'bearer', bearer: { token: 'folder-token' } };
+    const collection: Collection = {
+      id: 'col-1',
+      name: 'Col',
+      auth: bearerAuth,
+      items: [
+        {
+          id: 'folder-1',
+          name: 'Folder',
+          type: 'folder',
+          auth: folderAuth,
+          items: [
+            { id: 'item-2', name: 'Nested', type: 'request', request: makeRequest('req-nested') },
+          ],
+        },
+      ],
+    };
+    expect(findInheritedAuth(collection, 'req-nested')).toBe(folderAuth);
+  });
+
+  it("folder auth of type 'none' does not mask collection auth", () => {
+    const collection: Collection = {
+      id: 'col-1',
+      name: 'Col',
+      auth: bearerAuth,
+      items: [
+        {
+          id: 'folder-1',
+          name: 'Folder',
+          type: 'folder',
+          auth: noneAuth,
+          items: [
+            { id: 'item-2', name: 'Nested', type: 'request', request: makeRequest('req-nested') },
+          ],
+        },
+      ],
+    };
+    expect(findInheritedAuth(collection, 'req-nested')).toBe(bearerAuth);
+  });
+
+  it('inner folder auth wins over outer folder auth', () => {
+    const outerAuth: AuthConfig = { type: 'bearer', bearer: { token: 'outer' } };
+    const innerAuth: AuthConfig = { type: 'bearer', bearer: { token: 'inner' } };
+    const collection: Collection = {
+      id: 'col-1',
+      name: 'Col',
+      auth: bearerAuth,
+      items: [
+        {
+          id: 'outer',
+          name: 'Outer',
+          type: 'folder',
+          auth: outerAuth,
+          items: [
+            {
+              id: 'inner',
+              name: 'Inner',
+              type: 'folder',
+              auth: innerAuth,
+              items: [
+                { id: 'item-2', name: 'Deep', type: 'request', request: makeRequest('req-deep') },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(findInheritedAuth(collection, 'req-deep')).toBe(innerAuth);
   });
 });
 

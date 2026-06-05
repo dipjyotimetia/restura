@@ -76,6 +76,7 @@ type StorageTableName =
   | 'aiChat'
   | 'aiLab'
   | 'evalRuns'
+  | 'collectionRuns'
   | 'globals';
 
 /**
@@ -322,6 +323,8 @@ export const dexieStorageAdapters = {
   aiLab: () => createDexieStorage({ tableName: 'aiLab', encrypt: true }),
 
   evalRuns: () => createDexieStorage({ tableName: 'evalRuns', encrypt: true }),
+
+  collectionRuns: () => createDexieStorage({ tableName: 'collectionRuns', encrypt: true }),
 
   globals: () => createDexieStorage({ tableName: 'globals', encrypt: true }),
 };

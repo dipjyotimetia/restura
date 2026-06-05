@@ -12,6 +12,27 @@ import type {
 import type { SecretValue } from '@/lib/shared/secretRef';
 import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
 import { migrateScriptRsToPm } from '@/features/scripts/lib/scriptMigrations';
+import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
+
+/**
+ * Append a request's enabled params to its URL as a query string. `encode`
+ * percent-encodes keys/values (HAR wants encoded URLs); leave it off for
+ * formats whose raw URLs carry `{{template}}` variables verbatim (Postman).
+ */
+function appendQueryString(
+  url: string,
+  params: HttpRequest['params'],
+  { encode = false }: { encode?: boolean } = {}
+): string {
+  const enabled = params.filter((p) => p.enabled && p.key);
+  if (enabled.length === 0) return url;
+  const qs = enabled
+    .map((p) =>
+      encode ? `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}` : `${p.key}=${p.value}`
+    )
+    .join('&');
+  return `${url}${url.includes('?') ? '&' : '?'}${qs}`;
+}
 
 // Build a Postman `event[]` array from native rs.* scripts, reverse-migrating
 // them back to pm.* so the exported collection runs in Postman itself.
@@ -54,9 +75,11 @@ export function exportToPostman(collection: Collection): PostmanCollection {
 function convertToPostmanItem(item: CollectionItem): PostmanItem {
   if (item.type === 'folder') {
     const event = buildPostmanScriptEvents(item.preRequestScript, item.testScript);
+    const auth = isConfiguredAuth(item.auth) ? convertAuthToPostman(item.auth) : undefined;
     return {
       name: item.name,
       item: (item.items || []).map(convertToPostmanItem),
+      ...(auth ? { auth } : {}),
       ...(event ? { event } : {}),
     };
   }
@@ -70,12 +93,17 @@ function convertToPostmanItem(item: CollectionItem): PostmanItem {
       request: {
         method: 'GET',
         header: [],
-        url: { raw: 'url' in r ? r.url : '' },
+        url: 'url' in r ? r.url : '',
       },
     };
   }
 
   const request = item.request as HttpRequest;
+  // Emit the URL as a string with enabled params inlined — see the
+  // PostmanRequest.url type for why the `{ raw, query }` object form breaks
+  // on re-import. Disabled params can't be represented in the string form
+  // and are dropped (Postman itself drops them from `raw` too).
+  const rawUrl = appendQueryString(request.url, request.params);
   return {
     name: item.name,
     request: {
@@ -86,15 +114,7 @@ function convertToPostmanItem(item: CollectionItem): PostmanItem {
         disabled: !h.enabled,
         description: h.description,
       })),
-      url: {
-        raw: request.url,
-        query: request.params.map((p) => ({
-          key: p.key,
-          value: p.value,
-          disabled: !p.enabled,
-          description: p.description,
-        })),
-      },
+      url: rawUrl,
       body: convertBodyToPostman(request.body),
       auth: request.auth.type !== 'none' ? convertAuthToPostman(request.auth) : undefined,
     },
@@ -291,9 +311,13 @@ function convertBodyToInsomnia(body: HttpRequest['body']): { mimeType: string; t
 }
 
 function convertAuthToInsomnia(auth: AuthConfig): {
-  type: string;
+  type?: string;
   [key: string]: unknown;
 } {
+  // Insomnia's native export uses an empty authentication object for
+  // no-auth; emitting `{ type: 'none' }` made importers (ours included)
+  // treat it as an unknown scheme.
+  if (auth.type === 'none') return {};
   switch (auth.type) {
     case 'basic':
       return {
@@ -319,7 +343,7 @@ function convertAuthToInsomnia(auth: AuthConfig): {
         accessToken: exportSecretValue(auth.oauth2?.accessToken),
       };
     default:
-      return { type: 'none' };
+      return {};
   }
 }
 
@@ -342,14 +366,7 @@ export function exportToHAR(collection: Collection): object {
         const headers = req.headers
           .filter((h) => h.enabled && h.key)
           .map((h) => ({ name: h.key, value: h.value }));
-
-        let fullUrl = req.url;
-        if (queryString.length > 0) {
-          const qs = queryString
-            .map((q) => `${encodeURIComponent(q.name)}=${encodeURIComponent(q.value)}`)
-            .join('&');
-          fullUrl += (req.url.includes('?') ? '&' : '?') + qs;
-        }
+        const fullUrl = appendQueryString(req.url, req.params, { encode: true });
 
         entries.push({
           startedDateTime: '',

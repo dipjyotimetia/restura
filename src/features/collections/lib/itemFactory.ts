@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { CollectionItem, HttpRequest, Request } from '@/types';
+import type { Collection, CollectionItem, HttpRequest, Request } from '@/types';
 
 /**
  * Factories for new collection-tree nodes created from the Sidebar UI.
@@ -43,6 +43,33 @@ export function duplicateRequestItem(item: CollectionItem): CollectionItem {
   if (item.type !== 'request' || !item.request) {
     return { ...makeFolderItem(baseName) };
   }
-  const clonedRequest = { ...structuredClone(item.request), id: uuidv4(), name: baseName } as Request;
+  const clonedRequest = {
+    ...structuredClone(item.request),
+    id: uuidv4(),
+    name: baseName,
+  } as Request;
   return { id: uuidv4(), name: baseName, type: 'request', request: clonedRequest };
+}
+
+/**
+ * Deep-clone a whole collection with fresh ids at every level — the
+ * collection itself, every folder/request item, every inner request, and
+ * every collection-variable row — so the duplicate is fully independent of
+ * the source (open tabs, runs, and file-collection registrations key off
+ * these ids). The clone is mutated in place; the source is untouched.
+ */
+export function duplicateCollection(collection: Collection): Collection {
+  const dup = structuredClone(collection);
+  dup.id = uuidv4();
+  dup.name = `${collection.name} copy`;
+  const reId = (items: CollectionItem[]) => {
+    for (const item of items) {
+      item.id = uuidv4();
+      if (item.request) item.request.id = uuidv4();
+      if (item.items) reId(item.items);
+    }
+  };
+  reId(dup.items);
+  dup.variables?.forEach((v) => (v.id = uuidv4()));
+  return dup;
 }

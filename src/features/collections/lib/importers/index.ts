@@ -12,3 +12,4 @@ export {
 export { importBrunoCollection, type BrunoSource } from './bruno';
 export type { ImportResult, ImportWarning } from './types';
 export { summarizeWarnings } from './types';
+export { validateImportedCollection, type ImportValidation } from './validateImported';

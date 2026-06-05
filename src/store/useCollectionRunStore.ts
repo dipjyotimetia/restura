@@ -1,10 +1,14 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 /**
- * Recent collection / folder runs, surfaced in the Runs panel after the runner
- * dialog closes. In-memory only — runs are transient and don't need to survive
- * an app restart (mirrors `useLoadTestStore`). Capped to MAX_RUNS.
+ * Collection / folder runs, surfaced in the Runs panel after the runner
+ * dialog closes. Persisted to the encrypted Dexie `collectionRuns` table so
+ * run history survives a reload — results carry statuses, timings, and
+ * assertion outcomes (never response bodies), so the footprint stays small.
+ * Capped to MAX_RUNS, newest first.
  */
 interface CollectionRunState {
   runs: CollectionRunResult[];
@@ -12,10 +16,19 @@ interface CollectionRunState {
   clearRuns: () => void;
 }
 
-const MAX_RUNS = 20;
+const MAX_RUNS = 50;
 
-export const useCollectionRunStore = create<CollectionRunState>((set) => ({
-  runs: [],
-  addRun: (run) => set((s) => ({ runs: [run, ...s.runs].slice(0, MAX_RUNS) })),
-  clearRuns: () => set({ runs: [] }),
-}));
+export const useCollectionRunStore = create<CollectionRunState>()(
+  persist(
+    (set) => ({
+      runs: [],
+      addRun: (run) => set((s) => ({ runs: [run, ...s.runs].slice(0, MAX_RUNS) })),
+      clearRuns: () => set({ runs: [] }),
+    }),
+    {
+      name: 'collection-run-storage',
+      version: 1,
+      storage: dexieStorageAdapters.collectionRuns(),
+    }
+  )
+);

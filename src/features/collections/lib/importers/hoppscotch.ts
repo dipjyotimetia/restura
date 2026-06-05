@@ -5,13 +5,12 @@ import type {
   Collection,
   CollectionItem,
   Environment,
-  HttpMethod,
   HttpRequest,
   KeyValue,
   RequestBody,
 } from '@/types';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
-import type { ImportResult, ImportWarning } from './types';
+import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 import { formatZodIssues } from '@/lib/shared/validations';
 import { assertBoundedDocument } from '@/lib/opencollection';
 
@@ -185,7 +184,7 @@ function requestToInternal(rq: any, parent: any, warnings: ImportWarning[]): Htt
     id: uuid(),
     name: rq.name,
     type: 'http',
-    method: ((rq.method ?? 'GET') as string).toUpperCase() as HttpMethod,
+    method: coerceHttpMethod(rq.method, rq.name, warnings),
     url,
     headers: (rq.headers ?? []).map(toKv),
     params: (rq.params ?? []).map(toKv),

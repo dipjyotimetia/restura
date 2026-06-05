@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { flattenRunnables } from '../flattenRunnables';
-import type { CollectionItem, HttpRequest } from '@/types';
+import type { AuthConfig, CollectionItem, HttpRequest } from '@/types';
 
 function req(id: string, name: string, pre?: string, test?: string): CollectionItem {
   const request: HttpRequest = {
@@ -82,5 +82,54 @@ describe('flattenRunnables — effective script combining', () => {
 
   it('returns [] for an unknown folder id', () => {
     expect(flattenRunnables([req('r1', 'R')], 'missing')).toEqual([]);
+  });
+});
+
+describe('flattenRunnables — inherited auth threading', () => {
+  const collectionAuth: AuthConfig = { type: 'bearer', bearer: { token: 'COLLECTION' } };
+  const folderAuth: AuthConfig = { type: 'bearer', bearer: { token: 'FOLDER' } };
+  const innerAuth: AuthConfig = { type: 'bearer', bearer: { token: 'INNER' } };
+
+  function folder(id: string, items: CollectionItem[], auth?: AuthConfig): CollectionItem {
+    return { id, name: id, type: 'folder', items, ...(auth ? { auth } : {}) };
+  }
+
+  it('threads the collection-level auth to root requests', () => {
+    const runnables = flattenRunnables([req('r1', 'R')], undefined, undefined, collectionAuth);
+    expect(runnables[0]!.inheritedAuth).toEqual(collectionAuth);
+  });
+
+  it('nearest ancestor folder auth wins over collection auth', () => {
+    const items = [folder('f1', [req('r1', 'R')], folderAuth)];
+    const runnables = flattenRunnables(items, undefined, undefined, collectionAuth);
+    expect(runnables[0]!.inheritedAuth).toEqual(folderAuth);
+  });
+
+  it('inner folder auth overrides outer folder auth', () => {
+    const items = [folder('outer', [folder('inner', [req('r1', 'R')], innerAuth)], folderAuth)];
+    const runnables = flattenRunnables(items, undefined, undefined, collectionAuth);
+    expect(runnables[0]!.inheritedAuth).toEqual(innerAuth);
+  });
+
+  it('a folder without auth passes the ancestor auth through', () => {
+    const items = [folder('outer', [folder('inner', [req('r1', 'R')])], folderAuth)];
+    const runnables = flattenRunnables(items, undefined, undefined, collectionAuth);
+    expect(runnables[0]!.inheritedAuth).toEqual(folderAuth);
+  });
+
+  it("a folder with auth.type 'none' does not mask the ancestor auth", () => {
+    const items = [folder('f1', [req('r1', 'R')], { type: 'none' })];
+    const runnables = flattenRunnables(items, undefined, undefined, collectionAuth);
+    expect(runnables[0]!.inheritedAuth).toEqual(collectionAuth);
+  });
+
+  it('a folder run inherits auth from folders above the target', () => {
+    const items = [folder('outer', [folder('inner', [req('r1', 'R')])], folderAuth)];
+    const runnables = flattenRunnables(items, 'inner', undefined, collectionAuth);
+    expect(runnables[0]!.inheritedAuth).toEqual(folderAuth);
+  });
+
+  it('inheritedAuth is undefined when nothing applies', () => {
+    expect(flattenRunnables([req('r1', 'R')])[0]!.inheritedAuth).toBeUndefined();
   });
 });

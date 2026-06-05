@@ -19,7 +19,12 @@ function migrateCollectionAuth(collection: Collection): Collection {
 
 function migrateItemAuth(item: CollectionItem): CollectionItem {
   if (item.type === 'folder') {
-    return { ...item, items: item.items?.map((sub) => migrateItemAuth(sub)) ?? [] };
+    const folderAuth = item.auth ? migrateAuthConfigToSecretRef(item.auth) : undefined;
+    return {
+      ...item,
+      items: item.items?.map((sub) => migrateItemAuth(sub)) ?? [],
+      ...(folderAuth ? { auth: folderAuth } : {}),
+    };
   }
   if (item.request && 'auth' in item.request) {
     const auth = migrateAuthConfigToSecretRef(item.request.auth);
@@ -111,7 +116,11 @@ interface CollectionState {
   removeCollection: (id: string) => void;
   setActiveCollection: (id: string | null) => void;
   addItemToCollection: (collectionId: string, item: CollectionItem, parentId?: string) => void;
-  updateCollectionItem: (collectionId: string, itemId: string, updates: Partial<CollectionItem>) => void;
+  updateCollectionItem: (
+    collectionId: string,
+    itemId: string,
+    updates: Partial<CollectionItem>
+  ) => void;
   updateAnyCollectionItem: (itemId: string, updates: Partial<CollectionItem>) => void;
   removeCollectionItem: (collectionId: string, itemId: string) => void;
   /**
@@ -282,9 +291,7 @@ export const useCollectionStore = create<CollectionState>()(
             Object.keys(persistedState as object).length === 0);
         let state: CollectionState | null = null;
         if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<CollectionState>>(
-            'collection-storage'
-          );
+          const legacy = migrateLegacyLocalStorage<Partial<CollectionState>>('collection-storage');
           if (legacy) state = legacy as CollectionState;
         } else {
           state = persistedState as CollectionState;

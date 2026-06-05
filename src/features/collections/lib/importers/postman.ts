@@ -8,6 +8,8 @@ import type {
   PostmanCollection,
 } from '@/types';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
+import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
+import { coerceHttpMethod, type ImportWarning } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   FormParam,
@@ -29,7 +31,10 @@ function getDescriptionContent(
   return desc.content;
 }
 
-export async function importPostmanCollection(postmanData: PostmanCollection): Promise<Collection> {
+export async function importPostmanCollection(
+  postmanData: PostmanCollection,
+  warnings?: ImportWarning[]
+): Promise<Collection> {
   const { Collection: PostmanSDKCollection, ItemGroup } = await import('postman-collection');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PostmanSDKCollection constructor accepts loose postman data
   const sdkCollection = new PostmanSDKCollection(postmanData as any);
@@ -60,7 +65,7 @@ export async function importPostmanCollection(postmanData: PostmanCollection): P
   };
 
   sdkCollection.items.each((item) => {
-    const converted = convertPostmanSDKItem(item, collection.auth, ItemGroup);
+    const converted = convertPostmanSDKItem(item, collection.auth, ItemGroup, warnings);
     if (converted) collection.items.push(converted);
   });
 
@@ -72,20 +77,33 @@ type ItemGroupCtor = { isItemGroup(obj: unknown): boolean };
 function convertPostmanSDKItem(
   item: Item | ItemGroup<Item>,
   parentAuth: AuthConfig | undefined,
-  ItemGroupCtor: ItemGroupCtor
+  ItemGroupCtor: ItemGroupCtor,
+  warnings?: ImportWarning[]
 ): CollectionItem | null {
   if (ItemGroupCtor.isItemGroup(item)) {
     const group = item as ItemGroup<Item>;
+    // Postman item groups can carry their own auth; it overrides the
+    // collection-level auth for everything inside (nearest ancestor wins).
+    const converted = group.auth ? convertPostmanSDKAuth(group.auth) : undefined;
+    const folderAuth = isConfiguredAuth(converted) ? converted : undefined;
     const items: CollectionItem[] = [];
     group.items.each((subItem) => {
-      const converted = convertPostmanSDKItem(subItem, parentAuth, ItemGroupCtor);
-      if (converted) items.push(converted);
+      const child = convertPostmanSDKItem(
+        subItem,
+        folderAuth ?? parentAuth,
+        ItemGroupCtor,
+        warnings
+      );
+      if (child) items.push(child);
     });
     return {
       id: uuidv4(),
       name: group.name || 'Unnamed Folder',
       type: 'folder',
       items,
+      // Keep the folder auth at folder level so it stays editable and
+      // round-trips on export (descendants also get it baked, see below).
+      ...(folderAuth ? { auth: folderAuth } : {}),
       // Folder-level pre-request / test events (run for every descendant request).
       preRequestScript: extractScript(group.events, 'prerequest'),
       testScript: extractScript(group.events, 'test'),
@@ -96,12 +114,18 @@ function convertPostmanSDKItem(
   const request = requestItem.request;
   if (!request) return null;
 
+  // Postman's `raw` URL embeds the query string, and the SDK also surfaces
+  // the parsed params separately. Restura keeps the query in the params
+  // table only — leaving it in the URL too would send every param twice.
+  const fullUrl = request.url?.toString() || '';
+  const urlWithoutQuery = fullUrl.split('?')[0] ?? fullUrl;
+
   const httpRequest: HttpRequest = {
     id: uuidv4(),
     name: requestItem.name || 'Unnamed Request',
     type: 'http',
-    method: (request.method as HttpRequest['method']) || 'GET',
-    url: request.url?.toString() || '',
+    method: coerceHttpMethod(request.method, requestItem.name || 'Unnamed Request', warnings),
+    url: urlWithoutQuery,
     headers: convertPostmanSDKHeaders(request.headers),
     params: convertPostmanSDKParams(request.url?.query),
     body: convertPostmanSDKBody(request.body),

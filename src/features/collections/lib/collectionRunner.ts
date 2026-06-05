@@ -223,8 +223,9 @@ export async function runCollection(
         continue;
       }
 
-      // Collection-level auth inheritance (folder-level auth is unimplemented).
-      const authed = withEffectiveAuth(runnable.request, collection.auth);
+      // Auth inheritance: nearest ancestor folder's auth (threaded by
+      // flattenRunnables), falling back to collection-level auth.
+      const authed = withEffectiveAuth(runnable.request, runnable.inheritedAuth ?? collection.auth);
       const injected = protocol.injectVariables?.(authed, allVars) ?? authed;
 
       let scripts: ProtocolScriptResult | undefined;

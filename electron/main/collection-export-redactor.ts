@@ -20,18 +20,13 @@
  */
 
 import type { SecretValue } from '../../src/lib/shared/secretRef';
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from '../../src/lib/shared/auth-secret-fields';
 
-const SECRET_FIELDS_BY_AUTH_TYPE: Record<string, readonly string[]> = {
-  basic: ['password'],
-  bearer: ['token'],
-  apiKey: ['value'],
-  oauth2: ['accessToken', 'refreshToken', 'clientSecret', 'password'],
-  digest: ['password'],
-  awsSignature: ['secretKey'],
-  oauth1: ['consumerSecret', 'accessToken', 'accessTokenSecret'],
-  ntlm: ['password'],
-  wsse: ['password'],
-};
+// Single source of truth shared with the renderer-side export redactor
+// (`src/lib/shared/collection-secret-redaction.ts`) — a field added there is
+// redacted here too. Widened to a string-keyed record because this module
+// works on untyped auth blobs.
+const SECRET_FIELDS_BY_AUTH_TYPE: Record<string, readonly string[]> = SECRET_FIELDS_BY_AUTH_BLOCK;
 
 function redactSecretValue(value: unknown): SecretValue {
   if (typeof value === 'string') return '';

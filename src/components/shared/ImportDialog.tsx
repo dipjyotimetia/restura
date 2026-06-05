@@ -20,6 +20,7 @@ import {
   importHoppscotchEnvironment,
   isHoppscotchEnvironment,
   importBrunoCollection,
+  validateImportedCollection,
   type ImportResult,
   type ImportWarning,
 } from '@/features/collections/lib/importers';
@@ -141,13 +142,18 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
 };
 
 const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
-  postman: async (data) => ({
+  postman: async (data) => {
+    const warnings: ImportWarning[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    collection: await importPostmanCollection(data as any),
-    warnings: [],
-  }),
+    const collection = await importPostmanCollection(data as any, warnings);
+    return { collection, warnings };
+  },
   insomnia: async (data) => importInsomniaCollection(data),
-  openapi: async (data) => ({ collection: await importOpenAPICollection(data), warnings: [] }),
+  openapi: async (data) => {
+    const warnings: ImportWarning[] = [];
+    const collection = await importOpenAPICollection(data, warnings);
+    return { collection, warnings };
+  },
   opencollection: async (data) => importOpenCollection(data),
   hoppscotch: async (data) => importHoppscotchCollection(data),
   bruno: async (data) =>
@@ -165,6 +171,8 @@ function describeWarning(w: ImportWarning): string {
       return `Script type "${w.scriptType}" dropped from "${w.requestName}"`;
     case 'unsupported-auth':
       return `Auth "${w.authType}" not supported in "${w.requestName}"`;
+    case 'unsupported-method':
+      return `Method "${w.method}" not supported — "${w.requestName}" imported as GET`;
     case 'unknown-dynamic-var':
       return `{{$${w.varName}}} referenced ${w.count}× but not implemented`;
     case 'bruno-syntax':
@@ -332,6 +340,8 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   const [activeFormat, setActiveFormat] = useState<ImportType>('postman');
   const [environmentOnlyName, setEnvironmentOnlyName] = useState<string | null>(null);
   const [storeSecretsAsHandles, setStoreSecretsAsHandles] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
 
   const format = FORMATS.find((f) => f.id === activeFormat) ?? FORMATS[0]!;
   const features = FEATURE_LISTS[activeFormat];
@@ -346,11 +356,19 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     return JSON.parse(text);
   };
 
+  /** Pasted text has no filename to sniff — try JSON first, then YAML. */
+  const parsePastedContent = (text: string, type: ImportType): unknown => {
+    if (type === 'bruno') return text;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return YAML.parse(text);
+    }
+  };
+
   type ProcessOutcome = ImportResult | { kind: 'environment-only'; environmentName: string };
 
-  const processImportFile = async (file: File, type: ImportType): Promise<ProcessOutcome> => {
-    const text = await file.text();
-    const data = parseFileContent(text, file.name);
+  const processImportData = async (data: unknown, type: ImportType): Promise<ProcessOutcome> => {
     if (type === 'postman' && isPostmanEnvironment(data)) {
       const env = importPostmanEnvironment(data);
       addEnvironment(env);
@@ -364,6 +382,11 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     return IMPORTERS[type](data);
   };
 
+  const processImportFile = async (file: File, type: ImportType): Promise<ProcessOutcome> => {
+    const text = await file.text();
+    return processImportData(parseFileContent(text, file.name), type);
+  };
+
   const handleImportSuccess = async (outcome: ProcessOutcome) => {
     if ('kind' in outcome) {
       setImportStatus('success');
@@ -374,6 +397,17 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
         setImportStatus('idle');
         setEnvironmentOnlyName(null);
       }, 1500);
+      return;
+    }
+    // Gate the converter's output through the same Zod schema the store
+    // validators use — importer bugs surface here instead of corrupting
+    // persisted state. Reject-only: the original object (with passthrough
+    // bags like OpenCollection's `_oc`) is what gets stored.
+    const validation = validateImportedCollection(outcome.collection);
+    if (!validation.ok) {
+      handleImportError(
+        new Error(`Imported collection failed validation — ${validation.issues.join('; ')}`)
+      );
       return;
     }
     const collection =
@@ -421,6 +455,19 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     try {
       const outcome = await processImportFile(file, activeFormat);
       await handleImportSuccess(outcome);
+    } catch (error: unknown) {
+      handleImportError(error);
+    }
+  };
+
+  const handlePasteImport = async () => {
+    if (!pasteText.trim()) return;
+    try {
+      const data = parsePastedContent(pasteText, activeFormat);
+      const outcome = await processImportData(data, activeFormat);
+      await handleImportSuccess(outcome);
+      setPasteText('');
+      setPasteOpen(false);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -528,6 +575,50 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
             {/* Drop zone */}
             <section>
               <DropZone format={format} onFileUpload={handleFileUpload} onDrop={handleDrop} />
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => setPasteOpen((v) => !v)}
+                  className="text-sp-12 text-sp-muted hover:text-sp-text transition-colors underline underline-offset-2"
+                >
+                  {pasteOpen ? 'Hide paste area' : 'Or paste the file contents instead'}
+                </button>
+                {pasteOpen && (
+                  <div className="mt-2 space-y-2">
+                    <textarea
+                      value={pasteText}
+                      onChange={(e) => setPasteText(e.target.value)}
+                      placeholder={
+                        activeFormat === 'bruno'
+                          ? 'Paste .bru file contents…'
+                          : `Paste ${format.name} JSON or YAML…`
+                      }
+                      aria-label="Paste import content"
+                      spellCheck={false}
+                      className={cn(
+                        'w-full h-36 p-3 rounded-sp-btn resize-y',
+                        'bg-sp-surface-lo border border-sp-line text-sp-text text-sp-12 font-mono',
+                        'placeholder:text-sp-muted/70',
+                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePasteImport}
+                      disabled={!pasteText.trim()}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 h-8 px-4 rounded-sp-btn',
+                        'bg-sp-surface border border-sp-line-strong text-sp-text text-sp-12 font-medium',
+                        'hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                      )}
+                    >
+                      <Upload size={12} aria-hidden="true" />
+                      Import pasted {format.name}
+                    </button>
+                  </div>
+                )}
+              </div>
             </section>
 
             {/* Supported features */}

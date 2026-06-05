@@ -607,6 +607,13 @@ export interface CollectionItem {
   request?: Request;
   items?: CollectionItem[];
   /**
+   * Folder-level default auth (only meaningful when type === 'folder').
+   * Descendant requests whose own auth is 'none' inherit the nearest
+   * ancestor folder's auth, falling back to the collection-level auth —
+   * mirroring Postman's folder-auth semantics.
+   */
+  auth?: AuthConfig;
+  /**
    * Optional contract spec attached at folder scope (only meaningful when
    * type === 'folder'). Overrides the collection-level spec for any
    * descendant requests.
@@ -962,15 +969,24 @@ export interface PostmanRequest {
     disabled?: boolean;
     description?: string;
   }>;
-  url: {
-    raw: string;
-    query?: Array<{
-      key: string;
-      value: string;
-      disabled?: boolean;
-      description?: string;
-    }>;
-  };
+  /**
+   * Postman v2.1 allows a plain string or a structured object. We EXPORT the
+   * string form: the postman-collection SDK ignores `raw` when given an
+   * object and rebuilds the URL from structured fields (protocol/host/path),
+   * so an object carrying only `{ raw, query }` round-trips as a broken URL.
+   * The string form is parsed correctly, template variables included.
+   */
+  url:
+    | string
+    | {
+        raw: string;
+        query?: Array<{
+          key: string;
+          value: string;
+          disabled?: boolean;
+          description?: string;
+        }>;
+      };
   body?: {
     mode: string;
     raw?: string;
@@ -983,6 +999,8 @@ export interface PostmanItem {
   name: string;
   request?: PostmanRequest;
   item?: PostmanItem[];
+  /** Folder-level auth (Postman item groups support an auth block). */
+  auth?: PostmanAuth;
   event?: Array<{
     listen: string;
     script: {
@@ -1034,7 +1052,8 @@ export interface InsomniaResource {
     text: string;
   };
   authentication?: {
-    type: string;
+    /** Absent for no-auth — Insomnia's native export uses an empty object. */
+    type?: string;
     [key: string]: unknown;
   };
   parentId?: string;

@@ -3,12 +3,25 @@ import { isElectron, getElectronAPI } from './platform';
 import { coerceToInlineSecret, isInlineSecretRef } from './secretRef';
 
 /** Internal: only include the field if the source had it (preserves optional-undefined shape). */
-function pickSecret<K extends string>(source: Record<string, unknown>, key: K): Partial<Record<K, ReturnType<typeof coerceToInlineSecret>>> {
-  return source[key] !== undefined ? ({ [key]: coerceToInlineSecret(source[key]) } as Record<K, ReturnType<typeof coerceToInlineSecret>>) : {};
+function pickSecret<K extends string>(
+  source: Record<string, unknown>,
+  key: K
+): Partial<Record<K, ReturnType<typeof coerceToInlineSecret>>> {
+  return source[key] !== undefined
+    ? ({ [key]: coerceToInlineSecret(source[key]) } as Record<
+        K,
+        ReturnType<typeof coerceToInlineSecret>
+      >)
+    : {};
 }
 
-function pickString<K extends string>(source: Record<string, unknown>, key: K): Partial<Record<K, string>> {
-  return typeof source[key] === 'string' ? ({ [key]: source[key] as string } as Record<K, string>) : {};
+function pickString<K extends string>(
+  source: Record<string, unknown>,
+  key: K
+): Partial<Record<K, string>> {
+  return typeof source[key] === 'string'
+    ? ({ [key]: source[key] as string } as Record<K, string>)
+    : {};
 }
 
 /**
@@ -48,7 +61,13 @@ export function migrateAuthConfigToSecretRef(auth: unknown): AuthConfig | undefi
       ...(typeof o.expiresAt === 'number' ? { expiresAt: o.expiresAt } : {}),
       ...(Array.isArray(o.scopes) ? { scopes: o.scopes as string[] } : {}),
       ...(typeof o.grantType === 'string'
-        ? { grantType: o.grantType as 'authorization_code' | 'client_credentials' | 'password' | 'device_code' }
+        ? {
+            grantType: o.grantType as
+              | 'authorization_code'
+              | 'client_credentials'
+              | 'password'
+              | 'device_code',
+          }
         : {}),
       ...pickString(o, 'clientId'),
       ...pickSecret(o, 'clientSecret'),
@@ -156,7 +175,11 @@ export async function convertInlineSecretsToHandles(
     for (const field of fields) {
       const current = block[field];
       const plaintext =
-        typeof current === 'string' ? current : isInlineSecretRef(current as never) ? (current as { value: string }).value : null;
+        typeof current === 'string'
+          ? current
+          : isInlineSecretRef(current as never)
+            ? (current as { value: string }).value
+            : null;
       if (plaintext === null || plaintext === '') continue;
       const label = `${labelPrefix}/${method}.${field}`;
       const result = await api.secrets.store({ value: plaintext, label });
@@ -180,14 +203,24 @@ export async function convertCollectionSecretsToHandles(
   const items = await Promise.all(
     (collection.items ?? []).map((item) => convertItemSecretsToHandles(item, collection.name))
   );
-  const auth = await convertInlineSecretsToHandles(collection.auth, `${collection.name}/<collection>`);
+  const auth = await convertInlineSecretsToHandles(
+    collection.auth,
+    `${collection.name}/<collection>`
+  );
   return { ...collection, items, ...(auth ? { auth } : {}) };
 }
 
-async function convertItemSecretsToHandles(item: CollectionItem, prefix: string): Promise<CollectionItem> {
+async function convertItemSecretsToHandles(
+  item: CollectionItem,
+  prefix: string
+): Promise<CollectionItem> {
   if (item.type === 'folder') {
-    const items = await Promise.all((item.items ?? []).map((sub) => convertItemSecretsToHandles(sub, `${prefix}/${item.name}`)));
-    return { ...item, items };
+    const items = await Promise.all(
+      (item.items ?? []).map((sub) => convertItemSecretsToHandles(sub, `${prefix}/${item.name}`))
+    );
+    // Folder-level default auth carries secrets too (mirrors collection.auth).
+    const auth = await convertInlineSecretsToHandles(item.auth, `${prefix}/${item.name}/<folder>`);
+    return { ...item, items, ...(auth ? { auth } : {}) };
   }
   if (item.request && 'auth' in item.request) {
     const req = item.request as Request & { auth: AuthConfig };

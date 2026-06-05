@@ -78,10 +78,15 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
   // The ordered, selectable run list. Rebuilt whenever the scope changes.
   const allRunnables = useMemo(() => {
     if (!collection) return [];
-    return flattenRunnables(collection.items, scope?.folderId, {
-      preRequestScript: collection.preRequestScript,
-      testScript: collection.testScript,
-    });
+    return flattenRunnables(
+      collection.items,
+      scope?.folderId,
+      {
+        preRequestScript: collection.preRequestScript,
+        testScript: collection.testScript,
+      },
+      collection.auth
+    );
   }, [collection, scope?.folderId]);
 
   const [order, setOrder] = useState<string[]>([]);

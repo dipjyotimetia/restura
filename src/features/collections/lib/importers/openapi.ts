@@ -12,6 +12,7 @@ import type {
   OpenAPISchema,
   OpenAPISecurityScheme,
 } from '@/types';
+import { coerceHttpMethod, type ImportWarning } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -27,7 +28,10 @@ async function ensureBufferPolyfill(): Promise<void> {
   (globalThis as unknown as { Buffer: unknown }).Buffer = mod.Buffer;
 }
 
-export async function importOpenAPICollection(openApiData: unknown): Promise<Collection> {
+export async function importOpenAPICollection(
+  openApiData: unknown,
+  warnings?: ImportWarning[]
+): Promise<Collection> {
   if (!openApiData || typeof openApiData !== 'object') {
     throw new Error('Invalid OpenAPI document: expected an object');
   }
@@ -101,9 +105,12 @@ export async function importOpenAPICollection(openApiData: unknown): Promise<Col
       if (!operation) continue;
 
       const allParams = [...(pathItem.parameters || []), ...(operation.parameters || [])];
+      const opName = operation.summary || operation.operationId || `${method} ${path}`;
       const request = convertOpenAPIOperation(
         path,
-        method as HttpMethod,
+        // TRACE (valid OpenAPI, outside Restura's method union) downgrades
+        // to GET with a warning rather than failing the import gate.
+        coerceHttpMethod(method, opName, warnings),
         operation,
         allParams,
         baseUrl,

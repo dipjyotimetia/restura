@@ -141,6 +141,7 @@ export class ResturaDB extends Dexie {
   globals!: Table<NamedEncryptedRecord, string>;
   aiLab!: Table<NamedEncryptedRecord, string>;
   evalRuns!: Table<NamedEncryptedRecord, string>;
+  collectionRuns!: Table<NamedEncryptedRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
   constructor() {
@@ -234,6 +235,13 @@ export class ResturaDB extends Dexie {
       aiLab: 'id, name, updatedAt',
       evalRuns: 'id, name, updatedAt',
     });
+
+    this.version(12).stores({
+      // Collection/folder runner history (Runs panel) — previously in-memory
+      // only and lost on reload. Results carry statuses/timings/assertions,
+      // not response bodies, so the table stays small. Additive only.
+      collectionRuns: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -264,6 +272,7 @@ export class ResturaDB extends Dexie {
         this.aiChat,
         this.aiLab,
         this.evalRuns,
+        this.collectionRuns,
         this.metadata,
       ],
       () =>
@@ -289,6 +298,7 @@ export class ResturaDB extends Dexie {
           this.aiChat.clear(),
           this.aiLab.clear(),
           this.evalRuns.clear(),
+          this.collectionRuns.clear(),
           this.metadata.clear(),
         ])
     );
