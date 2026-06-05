@@ -237,33 +237,38 @@ jobs:
       # above), not the packed installer.
       - name: Ensure the real Electron binary is present (harness needs it)
         # _electron.launch resolves the binary via node_modules/electron/path.txt.
-        # On GitHub runners electron's postinstall reliably extracts dist/ but
-        # FLAKILY skips writing path.txt (the documented "exits 0 without writing
-        # path.txt" issue the validate job sidesteps with a stub — fine there
-        # because those tests vi.mock electron). The packing step above already
-        # warmed the @electron/get cache, so: re-run install.js, then if the
-        # binary is extracted but path.txt is still missing, write it ourselves.
+        # On GitHub runners electron's postinstall download/extract is unreliable
+        # and leaves dist/ INCOMPLETE (macOS missing Electron Framework.framework,
+        # Linux missing the binary entirely) — which is why the validate job
+        # sidesteps it with a stub path and vi.mock'd electron. The harness needs
+        # a real, complete binary, so discard any partial extraction + cache and
+        # force a clean full (re)download, retrying for network flakiness.
         shell: bash
         run: |
-          set -e
           dir=node_modules/electron
           case "$RUNNER_OS" in
-            Linux)   bin=electron ;;
-            macOS)   bin=Electron.app/Contents/MacOS/Electron ;;
-            Windows) bin=electron.exe ;;
+            Linux)   bin=electron; fw="$dir/dist/electron" ;;
+            macOS)   bin=Electron.app/Contents/MacOS/Electron; fw="$dir/dist/Electron.app/Contents/Frameworks/Electron Framework.framework" ;;
+            Windows) bin=electron.exe; fw="$dir/dist/electron.exe" ;;
             *) echo "::error::unknown RUNNER_OS=$RUNNER_OS"; exit 1 ;;
           esac
-          node "$dir/install.js" || true
-          if [ ! -f "$dir/path.txt" ] && [ -e "$dir/dist/$bin" ]; then
-            echo "path.txt missing but binary present — writing it"
-            printf '%s' "$bin" > "$dir/path.txt"
-          fi
-          if [ ! -e "$dir/dist/$(cat "$dir/path.txt" 2>/dev/null)" ]; then
-            echo "::error::Electron binary not provisioned"
-            ls -la "$dir" "$dir/dist" 2>&1 || true
+          ok=0
+          for attempt in 1 2 3; do
+            rm -rf "$dir/dist" "$dir/path.txt"
+            rm -rf "$HOME/.cache/electron" "$HOME/Library/Caches/electron" "$LOCALAPPDATA/electron/Cache" 2>/dev/null || true
+            force_no_cache=true node "$dir/install.js" || true
+            # Require path.txt, the binary, AND the framework/payload (catches the
+            # partial-extraction failure mode that broke earlier runs).
+            if [ -f "$dir/path.txt" ] && [ -e "$dir/dist/$bin" ] && [ -e "$fw" ]; then ok=1; break; fi
+            echo "electron provisioning attempt $attempt incomplete; retrying…"
+            sleep 5
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::Electron binary not fully provisioned after 3 attempts"
+            ls -la "$dir" "$dir/dist" 2>&1 | head -40 || true
             exit 1
           fi
-          echo "Electron binary: $dir/dist/$(cat "$dir/path.txt")"
+          echo "Electron OK: $dir/dist/$(cat "$dir/path.txt")"
 
       - name: Install Electron runtime libs (Linux)
         if: runner.os == 'Linux'
