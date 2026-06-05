@@ -42,7 +42,7 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
     }))
   );
   const activeEnv = activeEnvironmentId
-    ? environments.find((e) => e.id === activeEnvironmentId) ?? null
+    ? (environments.find((e) => e.id === activeEnvironmentId) ?? null)
     : null;
 
   // Today's request count, computed as a derived selector. We resolve the
@@ -83,7 +83,7 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
       className={cn(
         'flex items-center justify-between shrink-0 select-none',
         'h-7 border-t border-sp-line',
-        'bg-sp-surface text-sp-muted font-mono text-sp-11'
+        'sp-chrome text-sp-muted font-mono text-sp-11'
       )}
       style={{ padding: '0 16px' }}
     >
@@ -101,14 +101,18 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
           <span className="truncate text-sp-text/80">{envName}</span>
         </div>
 
-        <span className="text-sp-dim" aria-hidden="true">·</span>
+        <span className="text-sp-dim" aria-hidden="true">
+          ·
+        </span>
 
         <div className="flex items-center gap-1.5">
           <Zap className="h-3 w-3" aria-hidden="true" />
           <span>{todayCount} requests</span>
         </div>
 
-        <span className="text-sp-dim" aria-hidden="true">·</span>
+        <span className="text-sp-dim" aria-hidden="true">
+          ·
+        </span>
 
         <span>Auto-save</span>
       </div>
@@ -116,9 +120,13 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
       {/* Right cluster */}
       <div className="flex items-center gap-3">
         <span>HTTP/2 · TLS 1.3</span>
-        <span className="text-sp-dim" aria-hidden="true">·</span>
+        <span className="text-sp-dim" aria-hidden="true">
+          ·
+        </span>
         <span>{version}</span>
-        <span className="text-sp-dim" aria-hidden="true">·</span>
+        <span className="text-sp-dim" aria-hidden="true">
+          ·
+        </span>
         <button
           type="button"
           onClick={handlePalette}

@@ -125,7 +125,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
           radius="panel"
           elevation="float"
           className={cn(
-            'flex items-center gap-0.5 p-1',
+            'sp-chrome flex items-center gap-0.5 p-1',
             // Horizontal scroll fallback when many tabs are open. We
             // intentionally hide the scrollbar — overflow is signalled by
             // the tabs themselves being cropped at the floater edge.

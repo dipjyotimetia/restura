@@ -44,6 +44,11 @@
 
     /* ───── Spatial Depth — light theme ───── */
     --sp-bg: #e7ecf4;
+    /* Subtle backdrop so frosted glass (overlays + chrome) has depth to refract.
+       Toned far down from the original orbs — present, not decorative. */
+    --sp-bg-glow:
+      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.06), transparent 45%),
+      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.05), transparent 45%), #e7ecf4;
     --sp-surface: #ffffff;
     --sp-surface-hi: #f4f6fa;
     --sp-surface-lo: #eef1f6;
@@ -98,6 +103,9 @@
 
     /* ───── Spatial Depth — dark theme (default) ───── */
     --sp-bg: #0a0c11;
+    --sp-bg-glow:
+      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.1), transparent 50%),
+      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.08), transparent 50%), #0a0c11;
     --sp-surface: #14171e;
     --sp-surface-hi: #1c2029;
     --sp-surface-lo: #0f1117;
@@ -117,7 +125,7 @@
     border-color: hsl(var(--border));
   }
   body {
-    background: var(--sp-bg);
+    background: var(--sp-bg-glow);
     color: var(--sp-text);
     font-family:
       'Geist Variable',
@@ -163,17 +171,21 @@
   }
 
   /* Overlays only (dialogs, command palette, popovers) — these float ABOVE
-     content over a dimmed backdrop, so a real (but restrained) shadow is
-     correct here, unlike inline panels. */
+     content over a dimmed backdrop, so frosted glass + a restrained shadow are
+     correct here, unlike the solid inline data panels. */
   .sp-floater-lg {
-    background: var(--sp-surface);
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
     box-shadow:
       0 10px 30px rgba(20, 30, 60, 0.12),
       0 2px 8px rgba(20, 30, 60, 0.08);
     border: 1px solid var(--sp-line-strong);
   }
   .dark .sp-floater-lg {
-    background: var(--sp-surface-hi);
+    background: rgba(26, 31, 42, 0.82);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
     box-shadow:
       0 16px 48px rgba(0, 0, 0, 0.6),
       0 4px 12px rgba(0, 0, 0, 0.45);
@@ -231,14 +243,44 @@
   /* Legacy Strata Glass aliases — aliased to Spatial Depth surfaces.
    * Kept for one phase so legacy components still render. Removed in Phase 11.
    */
+  /* Frosted glass material — overlays (dialogs, menus, popovers, tooltips,
+     command palette) and chrome. Translucent + blurred so the backdrop shows
+     through. NOT used by the solid inline data panels (those use .sp-floater). */
   .glass-1 {
-    background: var(--sp-surface);
+    background: rgba(255, 255, 255, 0.74);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
   }
   .glass-2 {
-    background: var(--sp-surface-hi);
+    background: rgba(255, 255, 255, 0.66);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
   }
   .glass-3 {
-    background: var(--sp-surface-lo);
+    background: rgba(255, 255, 255, 0.56);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+  }
+  .dark .glass-1 {
+    background: rgba(26, 31, 42, 0.78);
+  }
+  .dark .glass-2 {
+    background: rgba(23, 27, 37, 0.72);
+  }
+  .dark .glass-3 {
+    background: rgba(19, 23, 31, 0.62);
+  }
+
+  /* Chrome material — top bar, sidebar, tab strip, status bar. Subtly frosted
+     over the backdrop so the glass identity reads at the window edges, while
+     the data panels stay solid for legibility. */
+  .sp-chrome {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+  }
+  .dark .sp-chrome {
+    background: rgba(18, 21, 28, 0.72);
   }
   .glass-border-subtle {
     border-color: var(--sp-line);

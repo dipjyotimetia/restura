@@ -40,7 +40,7 @@ export default function Sidebar({ activePanel, onClose, onOpenImport }: SidebarP
         // Width is owned by the animated wrapper in routes/index.tsx (268px
         // per design). Padding lives on the floater so the inner sidebar can
         // still scroll edge-to-edge of the visible frame.
-        'p-2 gap-2 bg-sp-surface text-sp-text'
+        'p-2 gap-2 sp-chrome text-sp-text'
       )}
     >
       {/* Org header — gradient + glow shadow anchor the panel visually. The
