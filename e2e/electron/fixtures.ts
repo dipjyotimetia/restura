@@ -19,8 +19,15 @@ interface ElectronFixtures {
 export const test = base.extend<ElectronFixtures>({
   // eslint-disable-next-line no-empty-pattern -- Playwright requires a fixtures destructure here
   electronApp: async ({}, use) => {
+    const args = [MAIN_ENTRY];
+    // GitHub's headless Ubuntu runner has no GPU and no SUID-configured Chromium
+    // sandbox — both are standard CI flags for Electron. Scoped to CI+Linux so
+    // local desktop runs keep the sandbox on.
+    if (process.env.CI && process.platform === 'linux') {
+      args.push('--no-sandbox', '--disable-gpu');
+    }
     const app = await _electron.launch({
-      args: [MAIN_ENTRY],
+      args,
       // No NODE_ENV=development → window-manager loads dist/web/index.html via
       // file:// (prod path) instead of the dev server. RESTURA_E2E marks the run.
       env: { ...process.env, NODE_ENV: 'test', RESTURA_E2E: '1' },
