@@ -171,12 +171,14 @@ const config: Config = {
         sm: 'calc(var(--radius) - 4px)',
         xl: 'calc(var(--radius) + 4px)',
         '2xl': 'calc(var(--radius) + 8px)',
-        // Spatial Depth radius scale
-        'sp-chip': '7px',
-        'sp-btn': '9px',
-        'sp-pill': '12px',
-        'sp-panel': '14px',
-        'sp-window': '16px',
+        // Spatial Depth radius scale — flush/square pro-instrument: regions
+        // (panel) are square and divided by hairlines; controls keep a hair of
+        // rounding; overlays (window) keep a small radius.
+        'sp-chip': '3px',
+        'sp-btn': '4px',
+        'sp-pill': '5px',
+        'sp-panel': '0px',
+        'sp-window': '6px',
       },
       backdropBlur: {
         xs: '2px',
@@ -222,20 +224,6 @@ const config: Config = {
         'accordion-up': {
           from: { height: 'var(--radix-accordion-content-height)' },
           to: { height: '0' },
-        },
-        'float-slow': {
-          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
-          '33%': { transform: 'translate(30px, -50px) scale(1.05)' },
-          '66%': { transform: 'translate(-20px, 20px) scale(0.95)' },
-        },
-        'float-slower': {
-          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
-          '50%': { transform: 'translate(-40px, -30px) scale(1.1)' },
-        },
-        'float-reverse': {
-          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
-          '33%': { transform: 'translate(-30px, 40px) scale(0.95)' },
-          '66%': { transform: 'translate(25px, -25px) scale(1.05)' },
         },
         'glow-pulse': {
           '0%, 100%': { opacity: '0.5' },
@@ -295,9 +283,6 @@ const config: Config = {
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
-        'float-slow': 'float-slow 25s ease-in-out infinite',
-        'float-slower': 'float-slower 35s ease-in-out infinite',
-        'float-reverse': 'float-reverse 30s ease-in-out infinite',
         'glow-pulse': 'glow-pulse 4s ease-in-out infinite',
         'shimmer': 'shimmer 2s infinite',
         'fade-in-up': 'fade-in-up 0.3s ease-out',

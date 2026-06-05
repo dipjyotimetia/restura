@@ -43,18 +43,15 @@
     --border-focus: 0.35;
 
     /* ───── Spatial Depth — light theme ───── */
-    --sp-bg: #eef2fa;
-    --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.1), transparent 50%),
-      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.08), transparent 50%), #eef2fa;
+    --sp-bg: #e7ecf4;
     --sp-surface: #ffffff;
-    --sp-surface-hi: #fafbfd;
-    --sp-surface-lo: #f3f5f9;
+    --sp-surface-hi: #f4f6fa;
+    --sp-surface-lo: #eef1f6;
     --sp-text: #0e1320;
-    --sp-text-muted: rgba(14, 19, 32, 0.6);
-    --sp-text-dim: rgba(14, 19, 32, 0.38);
-    --sp-line: rgba(14, 19, 32, 0.07);
-    --sp-line-strong: rgba(14, 19, 32, 0.12);
+    --sp-text-muted: rgba(14, 19, 32, 0.62);
+    --sp-text-dim: rgba(14, 19, 32, 0.45);
+    --sp-line: rgba(14, 19, 32, 0.1);
+    --sp-line-strong: rgba(14, 19, 32, 0.16);
     --sp-accent: #4d9fff;
     --sp-accent-glow-88: rgba(77, 159, 255, 0.53);
     --sp-accent-glow-55: rgba(77, 159, 255, 0.33);
@@ -100,19 +97,16 @@
     --border-focus: 0.35;
 
     /* ───── Spatial Depth — dark theme (default) ───── */
-    --sp-bg: #06080f;
-    --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.18), transparent 55%),
-      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.14), transparent 55%), #06080f;
-    --sp-surface: rgba(20, 24, 34, 0.85);
-    --sp-surface-hi: rgba(28, 33, 45, 0.9);
-    --sp-surface-lo: rgba(14, 17, 24, 0.7);
+    --sp-bg: #0a0c11;
+    --sp-surface: #14171e;
+    --sp-surface-hi: #1c2029;
+    --sp-surface-lo: #0f1117;
     --sp-text: #eef1f9;
     --sp-text-muted: rgba(238, 241, 249, 0.62);
-    --sp-text-dim: rgba(238, 241, 249, 0.36);
-    --sp-line: rgba(255, 255, 255, 0.06);
-    --sp-line-strong: rgba(255, 255, 255, 0.12);
-    --sp-code: #0a0d14;
+    --sp-text-dim: rgba(238, 241, 249, 0.42);
+    --sp-line: rgba(255, 255, 255, 0.08);
+    --sp-line-strong: rgba(255, 255, 255, 0.14);
+    --sp-code: #0c0e13;
     --sp-hover-bg: rgba(255, 255, 255, 0.04);
     --sp-active-bg: rgba(77, 159, 255, 0.15);
   }
@@ -123,7 +117,7 @@
     border-color: hsl(var(--border));
   }
   body {
-    background: var(--sp-bg-glow);
+    background: var(--sp-bg);
     color: var(--sp-text);
     font-family:
       'Geist Variable',
@@ -161,42 +155,29 @@
    * Spatial Depth — Floater shadow utilities
    * Use sp-floater for standard panels; sp-floater-lg for response/drawer
    * ───────────────────────────────────────────────*/
+  /* Inline panels — flat opaque surfaces separated by hairlines (no shadow,
+     no backdrop blur). The "pro instrument" density language. */
   .sp-floater {
     background: var(--sp-surface);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.6) inset,
-      0 8px 24px rgba(20, 30, 60, 0.08),
-      0 1px 3px rgba(20, 30, 60, 0.05);
-    border: 1px solid var(--sp-line);
-  }
-  .dark .sp-floater {
-    background: var(--sp-surface);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.05) inset,
-      0 12px 36px rgba(0, 0, 0, 0.55),
-      0 2px 6px rgba(0, 0, 0, 0.4);
     border: 1px solid var(--sp-line);
   }
 
+  /* Overlays only (dialogs, command palette, popovers) — these float ABOVE
+     content over a dimmed backdrop, so a real (but restrained) shadow is
+     correct here, unlike inline panels. */
   .sp-floater-lg {
     background: var(--sp-surface);
     box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.6) inset,
-      0 20px 50px rgba(20, 30, 60, 0.15),
-      0 4px 12px rgba(20, 30, 60, 0.08);
-    border: 1px solid var(--sp-line);
+      0 10px 30px rgba(20, 30, 60, 0.12),
+      0 2px 8px rgba(20, 30, 60, 0.08);
+    border: 1px solid var(--sp-line-strong);
   }
   .dark .sp-floater-lg {
-    background: var(--sp-surface);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    background: var(--sp-surface-hi);
     box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.06) inset,
-      0 24px 60px rgba(0, 0, 0, 0.65),
-      0 6px 18px rgba(0, 0, 0, 0.5);
-    border: 1px solid var(--sp-line);
+      0 16px 48px rgba(0, 0, 0, 0.6),
+      0 4px 12px rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--sp-line-strong);
   }
 
   .sp-inset {
@@ -216,15 +197,8 @@
   /* Primary action CTA fill — the canonical Send/Invoke/Connect/Stream button.
      Used by the Button `cta` variant so every protocol's primary action matches. */
   .sp-cta {
-    background: linear-gradient(
-      180deg,
-      var(--sp-accent),
-      color-mix(in srgb, var(--sp-accent), black 20%)
-    );
-    box-shadow:
-      0 8px 24px var(--sp-accent-glow-55),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3),
-      0 0 0 1px var(--sp-accent);
+    background: var(--sp-accent);
+    box-shadow: none;
   }
 
   /* Variable highlight ({{varName}}) used across inputs/editors */
@@ -244,24 +218,6 @@
     color: var(--sp-text-dim);
   }
 
-  /* Noise texture for premium feel */
-  .noise-texture {
-    position: relative;
-  }
-
-  .noise-texture::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    opacity: 0.015;
-    pointer-events: none;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-  }
-
-  .dark .noise-texture::before {
-    opacity: 0.03;
-  }
-
   .contain-layout {
     contain: layout;
   }
@@ -277,18 +233,12 @@
    */
   .glass-1 {
     background: var(--sp-surface);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
   }
   .glass-2 {
     background: var(--sp-surface-hi);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
   }
   .glass-3 {
     background: var(--sp-surface-lo);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
   }
   .glass-border-subtle {
     border-color: var(--sp-line);
@@ -402,17 +352,16 @@
   background-color: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background-color: var(--sp-accent);
-  opacity: 0.25;
+  background-color: var(--sp-line-strong);
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  opacity: 0.5;
+  background-color: var(--sp-text-dim);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--sp-accent) transparent;
+  scrollbar-color: var(--sp-line-strong) transparent;
 }
 
 button,
@@ -472,8 +421,7 @@ textarea {
 
 :focus-visible {
   outline: 2px solid var(--sp-accent);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 4px var(--sp-accent-glow-26);
+  outline-offset: 1px;
 }
 
 .button-noise {

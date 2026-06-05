@@ -85,7 +85,6 @@ export function SubTabBar<T extends string>({
                 )}
                 style={{
                   background: 'var(--sp-accent)',
-                  boxShadow: '0 0 8px var(--sp-accent-glow-88)',
                   transformOrigin: 'center',
                 }}
               />

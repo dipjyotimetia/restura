@@ -18,9 +18,7 @@ export function ToggleField({
   className,
 }: ToggleFieldProps) {
   const dims =
-    size === 'sm'
-      ? { w: 24, h: 14, knob: 10, gap: 2 }
-      : { w: 36, h: 22, knob: 18, gap: 2 };
+    size === 'sm' ? { w: 24, h: 14, knob: 10, gap: 2 } : { w: 36, h: 22, knob: 18, gap: 2 };
   const offset = checked ? dims.w - dims.knob - dims.gap : dims.gap;
 
   return (
@@ -41,7 +39,6 @@ export function ToggleField({
         width: dims.w,
         height: dims.h,
         background: checked ? 'var(--sp-accent)' : 'var(--sp-line-strong)',
-        boxShadow: checked ? '0 0 8px var(--sp-accent-glow-55)' : 'none',
       }}
     >
       <span

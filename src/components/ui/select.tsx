@@ -19,7 +19,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border glass-border-default bg-white/[0.45] dark:bg-white/[0.04] backdrop-blur-md px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground hover:bg-white/[0.55] dark:hover:bg-white/[0.06] focus:outline-none focus:border-primary/60 focus:shadow-[0_0_0_2px_hsl(var(--primary)/0.35)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 transition-colors duration-150',
+      'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border glass-border-default bg-white/[0.45] dark:bg-white/[0.04] px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground hover:bg-white/[0.55] dark:hover:bg-white/[0.06] focus:outline-none focus:border-primary/60 focus:shadow-[0_0_0_2px_hsl(var(--primary)/0.35)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 transition-colors duration-150',
       className
     )}
     {...props}
@@ -64,8 +64,7 @@ const SelectScrollDownButton = React.forwardRef<
     <ChevronDown className="h-4 w-4" />
   </SelectPrimitive.ScrollDownButton>
 ));
-SelectScrollDownButton.displayName =
-  SelectPrimitive.ScrollDownButton.displayName;
+SelectScrollDownButton.displayName = SelectPrimitive.ScrollDownButton.displayName;
 
 const SelectContent = React.forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Content>,

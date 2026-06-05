@@ -18,9 +18,12 @@ const radiusMap: Record<FloaterRadius, string> = {
   window: 'rounded-sp-window',
 };
 
+// Inline panels are flat (pro-instrument density): both float tiers map to the
+// hairline-bordered .sp-floater. The elevated .sp-floater-lg shadow is reserved
+// for true overlays (dialogs, command palette, popovers) that set it directly.
 const elevationMap: Record<FloaterElevation, string> = {
   float: 'sp-floater',
-  'float-lg': 'sp-floater-lg',
+  'float-lg': 'sp-floater',
   inset: 'sp-inset',
   none: '',
 };
