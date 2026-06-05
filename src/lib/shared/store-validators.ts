@@ -29,7 +29,8 @@ const ConsoleTestSchema = z.object({
 export const ConsoleFrameSchema = z.object({
   id: z.string(),
   timestamp: z.number(),
-  protocol: z.enum(['websocket', 'socketio', 'kafka', 'mqtt']),
+  // Keep in sync with FrameProtocol in useConsoleStore.ts.
+  protocol: z.enum(['websocket', 'socketio', 'kafka', 'mqtt', 'sse']),
   direction: z.enum(['in', 'out', 'system']),
   connectionId: z.string().optional(),
   label: z.string().optional(),
@@ -66,6 +67,8 @@ export const ConsoleEntrySchema = z.object({
   requestSize: z.number().optional(),
   // Pinned entries survive preserve-on-send clears and trimming.
   pinned: z.boolean().optional(),
+  // Body exceeded the live capture cap and was cut at capture time.
+  bodyTruncated: z.boolean().optional(),
   // Collection-run provenance (set when an entry comes from the runner).
   runId: z.string().optional(),
   runLabel: z.string().optional(),

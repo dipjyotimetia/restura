@@ -56,8 +56,19 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
   };
   if (typeof oc.docs === 'string') collection.description = oc.docs;
   if (variables.length > 0) collection.variables = variables;
+  // Collection-level default auth — OC models it as `request.auth` on the
+  // document root (RequestDefaults). Only configured auth lands on the
+  // internal model, mirroring isConfiguredAuth semantics.
+  const rootAuth = authToInternal(requestDefaultsAuth(oc.request));
+  if (rootAuth.type !== 'none') collection.auth = rootAuth;
   collection._oc = oc;
   return collection;
+}
+
+/** Pull the `auth` block out of an OC RequestDefaults bag (root or folder). */
+function requestDefaultsAuth(request: unknown): unknown {
+  if (!request || typeof request !== 'object') return undefined;
+  return (request as Record<string, unknown>).auth;
 }
 
 function itemToInternal(item: unknown): WithOC<CollectionItem>[] {
@@ -72,6 +83,10 @@ function itemToInternal(item: unknown): WithOC<CollectionItem>[] {
       name: info.name ?? 'Folder',
       items: ((it.items as unknown[] | undefined) ?? []).flatMap(itemToInternal),
     };
+    // Folder-level default auth (OC folder `request.auth`) — descendants with
+    // no auth of their own inherit it (nearest folder wins).
+    const folderAuth = authToInternal(requestDefaultsAuth(it.request));
+    if (folderAuth.type !== 'none') out.auth = folderAuth;
     out._oc = it;
     return [out];
   }
@@ -318,7 +333,10 @@ function bodyToInternal(body: unknown, context: string): RequestBody {
   return { type: 'none' };
 }
 
-function authToInternal(auth: unknown): AuthConfig {
+// Exported for from-internal.ts: export-time staleness detection converts the
+// cached OC auth through the same function before comparing against the
+// (possibly edited) internal auth.
+export function authToInternal(auth: unknown): AuthConfig {
   if (!auth) return { type: 'none' };
   const a = auth as Record<string, unknown>;
   const type = a.type as string | undefined;

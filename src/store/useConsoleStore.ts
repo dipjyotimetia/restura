@@ -47,13 +47,15 @@ export interface ConsoleEntry {
   requestSize?: number;
   /** Pinned entries survive preserve-on-send clears and trimming. */
   pinned?: boolean;
+  /** Set when the response body exceeded LIVE_BODY_LIMIT and was cut at capture. */
+  bodyTruncated?: boolean;
   /** Collection-run provenance — set when this entry was produced by the runner. */
   runId?: string;
   runLabel?: string;
   iteration?: number;
 }
 
-export type FrameProtocol = 'websocket' | 'socketio' | 'kafka' | 'mqtt';
+export type FrameProtocol = 'websocket' | 'socketio' | 'kafka' | 'mqtt' | 'sse';
 export type FrameDirection = 'in' | 'out' | 'system';
 
 export interface ConsoleFrame {
@@ -88,6 +90,12 @@ const PERSIST_BODY_LIMIT = 64 * 1024;
 // for marginal value (frames matter while debugging a live connection;
 // surviving reload is rarely useful and not worth the write storm).
 const MAX_FRAMES = 500;
+// In-memory cap per captured body. A pathological 100 MB response would
+// otherwise sit in RAM for the whole session (×100 entries). 5 MB keeps
+// Expand/Compare/replay intact for any realistic payload while bounding the
+// worst case; persist trims further (PERSIST_BODY_LIMIT) at the reload
+// boundary. Entries cut here carry `bodyTruncated` so the UI can say so.
+const LIVE_BODY_LIMIT = 5 * 1024 * 1024;
 
 export type ConsoleTabId = 'network' | 'scripts' | 'frames' | 'disk';
 
@@ -106,6 +114,9 @@ interface ConsoleState {
    *  currently-applied filter set without prop-drilling. */
   runFilter: string;
   preserveOnSend: boolean;
+  /** Pause switch — when false, addEntry/addFrame(s) are no-ops so the user
+   *  can freeze the console while inspecting bursty traffic. */
+  captureEnabled: boolean;
 
   // Actions
   addEntry: (entry: Omit<ConsoleEntry, 'id'>) => void;
@@ -125,6 +136,7 @@ interface ConsoleState {
   setProtocolFilter: (filter: ConsoleProtocol | 'all') => void;
   setRunFilter: (filter: string) => void;
   setPreserveOnSend: (preserve: boolean) => void;
+  setCaptureEnabled: (enabled: boolean) => void;
 }
 
 function truncate(str: string, limit: number): string {
@@ -144,6 +156,27 @@ function capEntries(entries: ConsoleEntry[]): ConsoleEntry[] {
   const keptUnpinned = new Set(unpinned.slice(0, room));
   // Re-walk the original order so pinned + kept-unpinned stay interleaved as-is.
   return entries.filter((e) => e.pinned || keptUnpinned.has(e));
+}
+
+/**
+ * Bound the in-memory footprint of a captured entry. Bodies over
+ * LIVE_BODY_LIMIT are cut at capture time (with `bodyTruncated` set) so a
+ * single pathological response can't pin tens of MB in RAM for the session.
+ */
+function capLiveBody(entry: Omit<ConsoleEntry, 'id'>): Omit<ConsoleEntry, 'id'> {
+  const requestOver = (entry.request.body?.length ?? 0) > LIVE_BODY_LIMIT;
+  const responseOver = entry.response.body.length > LIVE_BODY_LIMIT;
+  if (!requestOver && !responseOver) return entry;
+  return {
+    ...entry,
+    bodyTruncated: true,
+    request: requestOver
+      ? { ...entry.request, body: truncate(entry.request.body!, LIVE_BODY_LIMIT) }
+      : entry.request,
+    response: responseOver
+      ? { ...entry.response, body: truncate(entry.response.body, LIVE_BODY_LIMIT) }
+      : entry.response,
+  };
 }
 
 function trimForPersist(entry: ConsoleEntry): ConsoleEntry {
@@ -182,10 +215,12 @@ export const useConsoleStore = create<ConsoleState>()(
       protocolFilter: 'all',
       runFilter: 'all',
       preserveOnSend: true,
+      captureEnabled: true,
 
       addEntry: (entry) =>
         set((state) => {
-          const newEntry: ConsoleEntry = { ...entry, id: uuidv4() };
+          if (!state.captureEnabled) return state;
+          const newEntry: ConsoleEntry = { ...capLiveBody(entry), id: uuidv4() };
           // preserve-off still keeps pinned entries — pins are an explicit "keep this".
           const base = state.preserveOnSend ? state.entries : state.entries.filter((e) => e.pinned);
           return {
@@ -216,6 +251,7 @@ export const useConsoleStore = create<ConsoleState>()(
 
       addFrame: (frame) =>
         set((state) => {
+          if (!state.captureEnabled) return state;
           const newFrame: ConsoleFrame = { ...frame, id: uuidv4() };
           // Frames append newest at the *end* — they're chronological logs,
           // not a stack of distinct requests. Tail trim when over cap.
@@ -229,7 +265,7 @@ export const useConsoleStore = create<ConsoleState>()(
 
       addFrames: (frames) =>
         set((state) => {
-          if (frames.length === 0) return state;
+          if (!state.captureEnabled || frames.length === 0) return state;
           const incoming: ConsoleFrame[] = frames.map((f) => ({ ...f, id: uuidv4() }));
           const merged = state.frames.concat(incoming);
           const next =
@@ -261,6 +297,8 @@ export const useConsoleStore = create<ConsoleState>()(
         // mid-debug at the moment they flip the switch.
         set({ preserveOnSend: preserve });
       },
+
+      setCaptureEnabled: (enabled) => set({ captureEnabled: enabled }),
     }),
     {
       name: 'console-storage',
@@ -275,6 +313,7 @@ export const useConsoleStore = create<ConsoleState>()(
         protocolFilter: state.protocolFilter,
         // runFilter intentionally not persisted — run IDs are session-scoped.
         preserveOnSend: state.preserveOnSend,
+        captureEnabled: state.captureEnabled,
         entries: state.entries.slice(0, PERSIST_ENTRY_LIMIT).map(trimForPersist),
       }),
       onRehydrateStorage: () => (state) => {
@@ -341,6 +380,45 @@ export function createConsoleEntry(
     ...(extra?.runId !== undefined && { runId: extra.runId }),
     ...(extra?.runLabel !== undefined && { runLabel: extra.runLabel }),
     ...(extra?.iteration !== undefined && { iteration: extra.iteration }),
+  };
+}
+
+/**
+ * Generalized console-entry builder for non-HTTP-shaped protocols (gRPC,
+ * GraphQL, MCP, …). `createConsoleEntry` above takes a full `HttpRequest`;
+ * interactive sends of other protocols carry their own request shapes, so
+ * this variant takes the wire-level facts directly. `method`/`url` are the
+ * protocol's closest analogue (e.g. `Service/Method` + target for gRPC).
+ */
+export function createProtocolConsoleEntry(args: {
+  protocol: ConsoleProtocol;
+  method: string;
+  url: string;
+  headers?: Record<string, string>;
+  body?: string;
+  response: ApiResponse;
+  scriptLogs?: ConsoleLog[];
+  tests?: ConsoleTest[];
+  extra?: ConsoleEntryExtra;
+}): Omit<ConsoleEntry, 'id'> {
+  const headers = args.headers ?? {};
+  const requestSize = args.extra?.requestSize ?? estimateRequestSize(headers, args.body);
+  return {
+    timestamp: Date.now(),
+    protocol: args.protocol,
+    request: {
+      method: args.method,
+      url: args.url,
+      headers,
+      ...(args.body !== undefined && { body: args.body }),
+    },
+    response: args.response,
+    requestSize,
+    ...(args.scriptLogs !== undefined && { scriptLogs: args.scriptLogs }),
+    ...(args.tests !== undefined && { tests: args.tests }),
+    ...(args.extra?.runId !== undefined && { runId: args.extra.runId }),
+    ...(args.extra?.runLabel !== undefined && { runLabel: args.extra.runLabel }),
+    ...(args.extra?.iteration !== undefined && { iteration: args.extra.iteration }),
   };
 }
 

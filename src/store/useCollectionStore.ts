@@ -216,10 +216,7 @@ export const useCollectionStore = create<CollectionState>()(
             const removeItem = (items: CollectionItem[]): CollectionItem[] =>
               items
                 .filter((i) => i.id !== itemId)
-                .map((i) => ({
-                  ...i,
-                  items: i.items ? removeItem(i.items) : undefined,
-                }));
+                .map((i) => (i.items ? { ...i, items: removeItem(i.items) } : i));
 
             return { ...col, items: removeItem(col.items) };
           }),

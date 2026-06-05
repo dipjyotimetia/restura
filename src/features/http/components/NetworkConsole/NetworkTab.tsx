@@ -186,6 +186,8 @@ export default function NetworkTab() {
 
   // Filter using the shared DSL-aware predicate (plain text + key:value +
   // negation + regex). Sort is applied as a separate, view-only step.
+  // Pinned entries always group first (stable within pinned/unpinned) so pins
+  // don't scatter through the list as new traffic arrives.
   const filteredEntries = useMemo(() => {
     const list = filterEntries(entries, {
       query: searchFilter,
@@ -193,12 +195,17 @@ export default function NetworkTab() {
       protocolFilter,
       runFilter,
     });
-    if (sortBy === 'recent') return list;
-    const sorted = [...list];
-    sorted.sort((a, b) => {
+    const compare = (a: (typeof list)[number], b: (typeof list)[number]): number => {
       if (sortBy === 'time') return b.response.time - a.response.time;
       if (sortBy === 'size') return b.response.size - a.response.size;
-      return b.response.status - a.response.status; // 'status'
+      if (sortBy === 'status') return b.response.status - a.response.status;
+      return 0; // 'recent' — keep arrival order
+    };
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      const pinDelta = Number(b.pinned ?? false) - Number(a.pinned ?? false);
+      if (pinDelta !== 0) return pinDelta;
+      return compare(a, b);
     });
     return sorted;
   }, [entries, searchFilter, statusFilter, protocolFilter, runFilter, sortBy]);
@@ -218,7 +225,10 @@ export default function NetworkTab() {
   // Cookies parsed from the captured headers — same source the headers section
   // renders. Memoised because the detail pane re-renders on every selection.
   const requestCookies = useMemo(
-    () => (selectedEntry ? parseRequestCookies(selectedEntry.request.headers as Record<string, string | string[]>) : []),
+    () =>
+      selectedEntry
+        ? parseRequestCookies(selectedEntry.request.headers as Record<string, string | string[]>)
+        : [],
     [selectedEntry]
   );
   const responseCookies = useMemo(
@@ -230,38 +240,47 @@ export default function NetworkTab() {
   // adjacent visible row; Enter selects (already true on click); Delete
   // removes; `p` toggles pin. We rely on the parent's `tabIndex={0}` so the
   // list is focusable; the actual focus-ring is handled by the row.
-  const moveSelection = useCallback((dir: 1 | -1) => {
-    if (filteredEntries.length === 0) return;
-    const idx = filteredEntries.findIndex((e) => e.id === selectedEntryId);
-    const next = idx < 0
-      ? (dir === 1 ? 0 : filteredEntries.length - 1)
-      : Math.min(filteredEntries.length - 1, Math.max(0, idx + dir));
-    const target = filteredEntries[next];
-    if (target) selectEntry(target.id);
-  }, [filteredEntries, selectedEntryId, selectEntry]);
+  const moveSelection = useCallback(
+    (dir: 1 | -1) => {
+      if (filteredEntries.length === 0) return;
+      const idx = filteredEntries.findIndex((e) => e.id === selectedEntryId);
+      const next =
+        idx < 0
+          ? dir === 1
+            ? 0
+            : filteredEntries.length - 1
+          : Math.min(filteredEntries.length - 1, Math.max(0, idx + dir));
+      const target = filteredEntries[next];
+      if (target) selectEntry(target.id);
+    },
+    [filteredEntries, selectedEntryId, selectEntry]
+  );
 
-  const handleListKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown' || e.key === 'j') {
-      e.preventDefault();
-      moveSelection(1);
-    } else if (e.key === 'ArrowUp' || e.key === 'k') {
-      e.preventDefault();
-      moveSelection(-1);
-    } else if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (!selectedEntryId) return;
-      e.preventDefault();
-      // Move selection to the next neighbour before removal — the row at the
-      // current index vanishes, so we pick the one that will slide up into it.
-      const idx = filteredEntries.findIndex((x) => x.id === selectedEntryId);
-      const replacement = filteredEntries[idx + 1] ?? filteredEntries[idx - 1];
-      removeEntry(selectedEntryId);
-      if (replacement) selectEntry(replacement.id);
-    } else if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      if (!selectedEntryId) return;
-      e.preventDefault();
-      togglePin(selectedEntryId);
-    }
-  }, [moveSelection, selectedEntryId, filteredEntries, removeEntry, togglePin, selectEntry]);
+  const handleListKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        moveSelection(1);
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        moveSelection(-1);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (!selectedEntryId) return;
+        e.preventDefault();
+        // Move selection to the next neighbour before removal — the row at the
+        // current index vanishes, so we pick the one that will slide up into it.
+        const idx = filteredEntries.findIndex((x) => x.id === selectedEntryId);
+        const replacement = filteredEntries[idx + 1] ?? filteredEntries[idx - 1];
+        removeEntry(selectedEntryId);
+        if (replacement) selectEntry(replacement.id);
+      } else if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (!selectedEntryId) return;
+        e.preventDefault();
+        togglePin(selectedEntryId);
+      }
+    },
+    [moveSelection, selectedEntryId, filteredEntries, removeEntry, togglePin, selectEntry]
+  );
 
   // Keep the selected row visible after keyboard moves.
   useEffect(() => {
@@ -279,7 +298,9 @@ export default function NetworkTab() {
       const resolvedParams: Record<string, string> = {};
       try {
         for (const [k, v] of new URL(req.url).searchParams) resolvedParams[k] = v;
-      } catch { /* malformed URL — generators handle a blank params map fine */ }
+      } catch {
+        /* malformed URL — generators handle a blank params map fine */
+      }
       const code = codeGenerators[generatorKey].generate({
         request: req,
         resolvedUrl: req.url,
@@ -456,10 +477,12 @@ export default function NetworkTab() {
                 >
                   <span>{f.label}</span>
                   {count > 0 && (
-                    <span className={cn(
-                      'text-[9px] tabular-nums px-1 rounded-sm',
-                      statusFilter === f.value ? 'bg-primary/20' : 'bg-muted-foreground/15'
-                    )}>
+                    <span
+                      className={cn(
+                        'text-[9px] tabular-nums px-1 rounded-sm',
+                        statusFilter === f.value ? 'bg-primary/20' : 'bg-muted-foreground/15'
+                      )}
+                    >
                       {count}
                     </span>
                   )}
@@ -535,7 +558,13 @@ export default function NetworkTab() {
               </div>
             ) : (
               filteredEntries.map((entry) => (
-                <div key={entry.id} id={`entry-${entry.id}`} data-entry-id={entry.id} role="option" aria-selected={entry.id === selectedEntryId}>
+                <div
+                  key={entry.id}
+                  id={`entry-${entry.id}`}
+                  data-entry-id={entry.id}
+                  role="option"
+                  aria-selected={entry.id === selectedEntryId}
+                >
                   <RequestEntryItem
                     entry={entry}
                     isSelected={entry.id === selectedEntryId}
@@ -618,7 +647,11 @@ export default function NetworkTab() {
                     <DropdownMenuItem className="text-xs" onClick={handleCopyCurl}>
                       cURL
                     </DropdownMenuItem>
-                    {(Object.entries(codeGenerators) as Array<[CodeGeneratorType, typeof codeGenerators[CodeGeneratorType]]>)
+                    {(
+                      Object.entries(codeGenerators) as Array<
+                        [CodeGeneratorType, (typeof codeGenerators)[CodeGeneratorType]]
+                      >
+                    )
                       .filter(([key]) => key !== 'curl')
                       .map(([key, gen]) => (
                         <DropdownMenuItem
@@ -648,7 +681,10 @@ export default function NetworkTab() {
             <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/60 text-[11px] font-mono">
               <Badge
                 variant="outline"
-                className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(selectedEntry.response.status))}
+                className={cn(
+                  'text-[10px] px-1.5 py-0',
+                  getStatusBadgeColor(selectedEntry.response.status)
+                )}
               >
                 {selectedEntry.response.status || 'ERR'} {selectedEntry.response.statusText}
               </Badge>
@@ -664,6 +700,15 @@ export default function NetworkTab() {
               <span className="text-muted-foreground tabular-nums" title="Response size">
                 ↓ {formatBytes(selectedEntry.response.size)}
               </span>
+              {selectedEntry.bodyTruncated && (
+                <Badge
+                  variant="outline"
+                  className="text-[9px] px-1 py-0 bg-amber-500/10 text-amber-500 border-amber-500/30"
+                  title="Body exceeded the live capture limit and was cut at capture time"
+                >
+                  body truncated
+                </Badge>
+              )}
             </div>
 
             <TabsContent value="request" className="flex-1 m-0 overflow-hidden">
@@ -671,12 +716,16 @@ export default function NetworkTab() {
                 <div className="px-4 pt-2 pb-4 space-y-3">
                   {/* General info */}
                   <div className="space-y-1.5">
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">General</h4>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      General
+                    </h4>
                     <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs">
                       <div className="flex justify-between items-center group">
                         <span className="text-muted-foreground">URL</span>
                         <div className="flex items-center gap-1 ml-4">
-                          <span className="font-mono text-foreground truncate max-w-[280px]">{selectedEntry.request.url}</span>
+                          <span className="font-mono text-foreground truncate max-w-[280px]">
+                            {selectedEntry.request.url}
+                          </span>
                           <CopyButton value={selectedEntry.request.url} label="URL" />
                         </div>
                       </div>
@@ -711,7 +760,9 @@ export default function NetworkTab() {
                       {Object.entries(selectedEntry.request.headers).length > 0 ? (
                         Object.entries(selectedEntry.request.headers).map(([key, value]) => (
                           <div key={key} className="flex">
-                            <span className="text-primary/80 font-medium min-w-[120px]">{key}:</span>
+                            <span className="text-primary/80 font-medium min-w-[120px]">
+                              {key}:
+                            </span>
                             <span className="text-foreground/80 break-all ml-2">{value}</span>
                           </div>
                         ))
@@ -727,12 +778,16 @@ export default function NetworkTab() {
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                         <CookieIcon className="h-3 w-3" />
                         Cookies
-                        <Badge variant="secondary" className="ml-1 text-[10px]">{requestCookies.length}</Badge>
+                        <Badge variant="secondary" className="ml-1 text-[10px]">
+                          {requestCookies.length}
+                        </Badge>
                       </h4>
                       <div className="bg-muted/50 rounded-lg p-3 space-y-1.5 text-xs font-mono">
                         {requestCookies.map((c) => (
                           <div key={c.name} className="flex">
-                            <span className="text-primary/80 font-medium min-w-[120px]">{c.name}</span>
+                            <span className="text-primary/80 font-medium min-w-[120px]">
+                              {c.name}
+                            </span>
                             <span className="text-foreground/80 break-all ml-2">{c.value}</span>
                           </div>
                         ))}
@@ -743,7 +798,9 @@ export default function NetworkTab() {
                   {/* Request body */}
                   {selectedEntry.request.body && (
                     <div className="space-y-2">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Request Body</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Request Body
+                      </h4>
                       <div className="rounded-lg overflow-hidden border border-border">
                         <CodeEditor
                           value={selectedEntry.request.body}
@@ -777,12 +834,16 @@ export default function NetworkTab() {
                     <div className="bg-muted/50 rounded-lg p-3 space-y-3">
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-muted-foreground">Total Time</span>
-                        <span className={cn(
-                          'font-medium',
-                          selectedEntry.response.time < 200 ? 'text-emerald-600 dark:text-emerald-400' :
-                          selectedEntry.response.time < 500 ? 'text-amber-600 dark:text-amber-400' :
-                          'text-red-600 dark:text-red-400'
-                        )}>
+                        <span
+                          className={cn(
+                            'font-medium',
+                            selectedEntry.response.time < 200
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : selectedEntry.response.time < 500
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-red-600 dark:text-red-400'
+                          )}
+                        >
                           {selectedEntry.response.time}ms
                         </span>
                       </div>
@@ -792,11 +853,15 @@ export default function NetworkTab() {
                           <div
                             className={cn(
                               'h-full rounded-full transition-all',
-                              selectedEntry.response.time < 200 ? 'bg-emerald-500' :
-                              selectedEntry.response.time < 500 ? 'bg-amber-500' :
-                              'bg-red-500'
+                              selectedEntry.response.time < 200
+                                ? 'bg-emerald-500'
+                                : selectedEntry.response.time < 500
+                                  ? 'bg-amber-500'
+                                  : 'bg-red-500'
                             )}
-                            style={{ width: `${Math.min(100, (selectedEntry.response.time / 1000) * 100)}%` }}
+                            style={{
+                              width: `${Math.min(100, (selectedEntry.response.time / 1000) * 100)}%`,
+                            }}
                           />
                         </div>
                         <div className="flex justify-between text-[10px] text-muted-foreground">
@@ -828,7 +893,9 @@ export default function NetworkTab() {
                       {Object.entries(selectedEntry.response.headers).length > 0 ? (
                         Object.entries(selectedEntry.response.headers).map(([key, value]) => (
                           <div key={key} className="flex">
-                            <span className="text-primary/80 font-medium min-w-[120px]">{key}:</span>
+                            <span className="text-primary/80 font-medium min-w-[120px]">
+                              {key}:
+                            </span>
                             <span className="text-foreground/80 break-all ml-2">
                               {Array.isArray(value) ? value.join(', ') : value}
                             </span>
@@ -846,25 +913,55 @@ export default function NetworkTab() {
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                         <CookieIcon className="h-3 w-3" />
                         Set-Cookie
-                        <Badge variant="secondary" className="ml-1 text-[10px]">{responseCookies.length}</Badge>
+                        <Badge variant="secondary" className="ml-1 text-[10px]">
+                          {responseCookies.length}
+                        </Badge>
                       </h4>
                       <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs font-mono">
                         {responseCookies.map((c, i) => (
                           <div key={`${c.name}-${i}`} className="space-y-0.5">
                             <div className="flex">
-                              <span className="text-primary/80 font-medium min-w-[120px]">{c.name}</span>
+                              <span className="text-primary/80 font-medium min-w-[120px]">
+                                {c.name}
+                              </span>
                               <span className="text-foreground/80 break-all ml-2">{c.value}</span>
                             </div>
                             {/* Attributes — only render when something was actually parsed,
                                 so the panel stays compact for typical cookies. */}
                             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-[120px] ml-2">
-                              {c.domain && <span>Domain: <span className="text-foreground/70">{c.domain}</span></span>}
-                              {c.path && <span>Path: <span className="text-foreground/70">{c.path}</span></span>}
-                              {c.expires && <span>Expires: <span className="text-foreground/70">{c.expires}</span></span>}
-                              {c.maxAge !== undefined && <span>Max-Age: <span className="text-foreground/70">{c.maxAge}</span></span>}
-                              {c.sameSite && <span>SameSite: <span className="text-foreground/70">{c.sameSite}</span></span>}
-                              {c.httpOnly && <span className="text-amber-600 dark:text-amber-400">HttpOnly</span>}
-                              {c.secure && <span className="text-emerald-600 dark:text-emerald-400">Secure</span>}
+                              {c.domain && (
+                                <span>
+                                  Domain: <span className="text-foreground/70">{c.domain}</span>
+                                </span>
+                              )}
+                              {c.path && (
+                                <span>
+                                  Path: <span className="text-foreground/70">{c.path}</span>
+                                </span>
+                              )}
+                              {c.expires && (
+                                <span>
+                                  Expires: <span className="text-foreground/70">{c.expires}</span>
+                                </span>
+                              )}
+                              {c.maxAge !== undefined && (
+                                <span>
+                                  Max-Age: <span className="text-foreground/70">{c.maxAge}</span>
+                                </span>
+                              )}
+                              {c.sameSite && (
+                                <span>
+                                  SameSite: <span className="text-foreground/70">{c.sameSite}</span>
+                                </span>
+                              )}
+                              {c.httpOnly && (
+                                <span className="text-amber-600 dark:text-amber-400">HttpOnly</span>
+                              )}
+                              {c.secure && (
+                                <span className="text-emerald-600 dark:text-emerald-400">
+                                  Secure
+                                </span>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -875,11 +972,16 @@ export default function NetworkTab() {
                   {/* Response body preview */}
                   {selectedEntry.response.body && (
                     <div className="space-y-2">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Response Body</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Response Body
+                      </h4>
                       <div className="rounded-lg overflow-hidden border border-border">
                         <CodeEditor
                           value={selectedEntry.response.body.substring(0, 10000)}
-                          language={detectLanguage(selectedEntry.response.body, selectedEntry.response.headers)}
+                          language={detectLanguage(
+                            selectedEntry.response.body,
+                            selectedEntry.response.headers
+                          )}
                           readOnly={true}
                           height="200px"
                           showCopyButton={true}

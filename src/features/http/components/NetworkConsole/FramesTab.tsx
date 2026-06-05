@@ -5,23 +5,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Cable,
-  Copy,
-  Info,
-  Layers,
-  Search,
-  X,
-} from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Cable, Copy, Info, Layers, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/shared/utils';
-import {
-  useConsoleStore,
-  type ConsoleFrame,
-  type FrameProtocol,
-} from '@/store/useConsoleStore';
+import { useConsoleStore, type ConsoleFrame, type FrameProtocol } from '@/store/useConsoleStore';
 import { formatBytes, formatClockTime } from '@/lib/shared/console-format';
 
 const PROTOCOL_FILTERS: Array<{ value: FrameProtocol | 'all'; label: string }> = [
@@ -29,7 +16,18 @@ const PROTOCOL_FILTERS: Array<{ value: FrameProtocol | 'all'; label: string }> =
   { value: 'websocket', label: 'WS' },
   { value: 'socketio', label: 'Socket.IO' },
   { value: 'kafka', label: 'Kafka' },
+  { value: 'mqtt', label: 'MQTT' },
+  { value: 'sse', label: 'SSE' },
 ];
+
+/** Short badge label per frame protocol. */
+const PROTOCOL_BADGES: Record<FrameProtocol, string> = {
+  websocket: 'WS',
+  socketio: 'SIO',
+  kafka: 'KAFKA',
+  mqtt: 'MQTT',
+  sse: 'SSE',
+};
 
 const frameBytes = (frame: ConsoleFrame): number =>
   frame.bytes ?? (frame.payload ? new Blob([frame.payload]).size : 0);
@@ -83,7 +81,10 @@ export default function FramesTab() {
     for (const f of filtered) {
       const key = f.connectionId ?? '(no connection)';
       let bucket = map.get(key);
-      if (!bucket) { bucket = []; map.set(key, bucket); }
+      if (!bucket) {
+        bucket = [];
+        map.set(key, bucket);
+      }
       bucket.push(f);
     }
     return [...map.entries()].map(([id, items]) => ({ id, items }));
@@ -97,8 +98,7 @@ export default function FramesTab() {
   const renderFrameRow = (frame: ConsoleFrame) => {
     const isSelected = frame.id === selectedId;
     const isSystem = frame.direction === 'system';
-    const preview =
-      frame.payload.length > 80 ? frame.payload.slice(0, 80) + '…' : frame.payload;
+    const preview = frame.payload.length > 80 ? frame.payload.slice(0, 80) + '…' : frame.payload;
     return (
       <div
         key={frame.id}
@@ -112,7 +112,7 @@ export default function FramesTab() {
         <div className="flex items-center gap-2 mb-0.5">
           {directionIcon(frame.direction)}
           <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">
-            {frame.protocol === 'socketio' ? 'SIO' : frame.protocol === 'websocket' ? 'WS' : 'KAFKA'}
+            {PROTOCOL_BADGES[frame.protocol] ?? frame.protocol.toUpperCase()}
           </Badge>
           {frame.label && (
             <span className="text-[11px] font-mono text-foreground/80 truncate max-w-[120px]">
@@ -123,12 +123,7 @@ export default function FramesTab() {
             {formatClockTime(frame.timestamp)}
           </span>
         </div>
-        <div
-          className={cn(
-            'text-[11px] font-mono truncate',
-            directionColor(frame.direction)
-          )}
-        >
+        <div className={cn('text-[11px] font-mono truncate', directionColor(frame.direction))}>
           {preview || <span className="text-muted-foreground">(empty)</span>}
         </div>
       </div>
@@ -294,7 +289,9 @@ export default function FramesTab() {
             </div>
             <ScrollArea className="flex-1">
               <pre className="p-4 text-[11px] font-mono whitespace-pre-wrap wrap-break-word leading-relaxed">
-                {selectedFrame.payload || <span className="text-muted-foreground">(empty payload)</span>}
+                {selectedFrame.payload || (
+                  <span className="text-muted-foreground">(empty payload)</span>
+                )}
               </pre>
               {selectedFrame.connectionId && (
                 <div className="px-4 pb-4 text-[10px] text-muted-foreground font-mono">
