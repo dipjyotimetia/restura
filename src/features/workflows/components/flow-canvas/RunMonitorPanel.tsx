@@ -42,12 +42,12 @@ export function RunMonitorPanel() {
   return (
     <div
       className={cn(
-        'border-t border-[hsl(var(--foreground)/var(--border-default))] bg-[hsl(var(--surface-1))]',
+        'border-t border-sp-line bg-sp-surface',
         'flex flex-col',
         collapsed ? 'h-9' : 'h-56'
       )}
     >
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[hsl(var(--foreground)/var(--border-subtle))]">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-sp-line">
         <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
           Run Monitor
         </div>
@@ -134,7 +134,7 @@ function StepsTab() {
         {entries.map(([nodeId, state]) => (
           <div
             key={nodeId}
-            className="flex items-center gap-2 text-xs px-2 py-1 rounded-md border border-[hsl(var(--foreground)/var(--border-subtle))]"
+            className="flex items-center gap-2 text-xs px-2 py-1 rounded-md border border-sp-line"
           >
             <Badge
               variant={STATUS_BADGE[state.status]}
@@ -184,7 +184,7 @@ function VariablesTab() {
         {entries.map(([k, v]) => (
           <div
             key={k}
-            className="flex items-start gap-2 text-xs px-2 py-1 rounded-md border border-[hsl(var(--foreground)/var(--border-subtle))]"
+            className="flex items-start gap-2 text-xs px-2 py-1 rounded-md border border-sp-line"
           >
             <span className="font-mono text-[11px] font-semibold text-foreground flex-shrink-0">
               {k}

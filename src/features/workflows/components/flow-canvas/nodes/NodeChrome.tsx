@@ -12,17 +12,9 @@
  */
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/shared/utils';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Loader2, AlertCircle, CheckCircle2, SkipForward } from 'lucide-react';
-import {
-  useFlowRunStore,
-  type FlowRunNodeStatus,
-} from '../../../store/useFlowRunStore';
+import { useFlowRunStore, type FlowRunNodeStatus } from '../../../store/useFlowRunStore';
 
 export type NodeStatus = FlowRunNodeStatus;
 
@@ -39,12 +31,12 @@ interface NodeChromeProps {
 }
 
 const STATUS_RING: Record<NodeStatus, string> = {
-  idle: 'ring-1 ring-[hsl(var(--foreground)/var(--border-default))]',
-  pending: 'ring-1 ring-[hsl(var(--foreground)/var(--border-default))]',
+  idle: 'ring-1 ring-sp-line',
+  pending: 'ring-1 ring-sp-line',
   running: 'ring-2 ring-blue-500/60',
   success: 'ring-2 ring-emerald-500/60',
   failed: 'ring-2 ring-red-500/60',
-  skipped: 'ring-1 ring-[hsl(var(--foreground)/var(--border-subtle))] opacity-60',
+  skipped: 'ring-1 ring-sp-line opacity-60',
 };
 
 const STATUS_DOT: Record<NodeStatus, string> = {
@@ -72,10 +64,7 @@ export function NodeChrome({
   const StatusIndicator = (
     <span className="inline-flex items-center gap-1.5">
       {status === 'running' ? (
-        <Loader2
-          className="w-3 h-3 text-blue-500 animate-spin"
-          aria-label="Running"
-        />
+        <Loader2 className="w-3 h-3 text-blue-500 animate-spin" aria-label="Running" />
       ) : status === 'success' ? (
         <CheckCircle2 className="w-3 h-3 text-emerald-500" aria-label="Success" />
       ) : status === 'failed' ? (
@@ -92,9 +81,7 @@ export function NodeChrome({
         {kindLabel}
       </span>
       {duration !== undefined && status !== 'running' && (
-        <span className="font-mono text-[10px] text-muted-foreground/70 ml-auto">
-          {duration}ms
-        </span>
+        <span className="font-mono text-[10px] text-muted-foreground/70 ml-auto">{duration}ms</span>
       )}
     </span>
   );

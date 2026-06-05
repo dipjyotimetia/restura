@@ -199,7 +199,7 @@ export function FlowSidebar({ collectionId }: FlowSidebarProps) {
   };
 
   return (
-    <div className="flex flex-col h-full w-56 border-r border-[hsl(var(--foreground)/var(--border-default))] bg-[hsl(var(--surface-1))]">
+    <div className="flex flex-col h-full w-56 border-r border-sp-line bg-sp-surface">
       <div className="px-2 pt-2">
         <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground px-2 mb-1">
           Add Node
@@ -215,8 +215,8 @@ export function FlowSidebar({ collectionId }: FlowSidebarProps) {
                   onDragStart={(e) => handlePaletteDragStart(e, entry.kind)}
                   className={cn(
                     'flex items-start gap-2 px-2 py-1.5 rounded-md cursor-grab',
-                    'hover:bg-[hsl(var(--foreground)/0.05)] active:cursor-grabbing',
-                    'border border-transparent hover:border-[hsl(var(--foreground)/var(--border-subtle))]'
+                    'hover:bg-sp-hover active:cursor-grabbing',
+                    'border border-transparent hover:border-sp-line'
                   )}
                 >
                   <Icon className={cn('h-4 w-4 mt-0.5 flex-shrink-0', entry.iconClass)} />
@@ -233,7 +233,7 @@ export function FlowSidebar({ collectionId }: FlowSidebarProps) {
         </ScrollArea>
       </div>
 
-      <div className="border-t border-[hsl(var(--foreground)/var(--border-subtle))] mt-2 pt-2 px-2 flex-1 min-h-0 flex flex-col">
+      <div className="border-t border-sp-line mt-2 pt-2 px-2 flex-1 min-h-0 flex flex-col">
         <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground px-2 mb-1">
           Requests
         </div>
@@ -260,8 +260,8 @@ export function FlowSidebar({ collectionId }: FlowSidebarProps) {
                   onDragStart={(e) => handleRequestDragStart(e, req)}
                   className={cn(
                     'flex items-center gap-1.5 px-2 py-1 rounded-md cursor-grab',
-                    'hover:bg-[hsl(var(--foreground)/0.05)] active:cursor-grabbing',
-                    'border border-transparent hover:border-[hsl(var(--foreground)/var(--border-subtle))]'
+                    'hover:bg-sp-hover active:cursor-grabbing',
+                    'border border-transparent hover:border-sp-line'
                   )}
                   title={req.path}
                 >

@@ -105,8 +105,8 @@ export function FlowInspector({
 
   if (!node) {
     return (
-      <div className="flex flex-col h-full w-72 border-l border-[hsl(var(--foreground)/var(--border-default))] bg-[hsl(var(--surface-1))]">
-        <div className="px-3 py-2 border-b border-[hsl(var(--foreground)/var(--border-subtle))]">
+      <div className="flex flex-col h-full w-72 border-l border-sp-line bg-sp-surface">
+        <div className="px-3 py-2 border-b border-sp-line">
           <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
             Inspector
           </div>
@@ -119,8 +119,8 @@ export function FlowInspector({
   }
 
   return (
-    <div className="flex flex-col h-full w-72 border-l border-[hsl(var(--foreground)/var(--border-default))] bg-[hsl(var(--surface-1))]">
-      <div className="px-3 py-2 border-b border-[hsl(var(--foreground)/var(--border-subtle))] flex items-center justify-between">
+    <div className="flex flex-col h-full w-72 border-l border-sp-line bg-sp-surface">
+      <div className="px-3 py-2 border-b border-sp-line flex items-center justify-between">
         <div>
           <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
             Inspector
@@ -484,10 +484,7 @@ function SwitchInspector({
           </div>
         ) : (
           node.data.cases.map((c, i) => (
-            <div
-              key={c.id}
-              className="space-y-1 border border-[hsl(var(--foreground)/var(--border-subtle))] rounded-md p-2"
-            >
+            <div key={c.id} className="space-y-1 border border-sp-line rounded-md p-2">
               <div className="flex items-center gap-1">
                 <Input
                   className="h-7 text-xs"
@@ -564,10 +561,7 @@ function SetVariableInspector({
       </div>
       <div className="space-y-2">
         {node.data.assignments.map((a, i) => (
-          <div
-            key={i}
-            className="space-y-1 p-2 rounded-md border border-[hsl(var(--foreground)/var(--border-subtle))]"
-          >
+          <div key={i} className="space-y-1 p-2 rounded-md border border-sp-line">
             <div className="flex items-center gap-1">
               <Input
                 className="h-6 text-xs"
