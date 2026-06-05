@@ -16,32 +16,33 @@
     'Geist Variable', Geist, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, ui-monospace, monospace;
 
-  /* Legacy shadcn colors — kept as hsl(var()) so raw hsl(var(--x)) consumers
-     (flow-canvas) and these utilities keep working. Token values live in
-     :root/.dark below. (Token unification → OKLCH is a later, visible phase.) */
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-surface-0: hsl(var(--surface-0));
-  --color-surface-1: hsl(var(--surface-1));
-  --color-surface-2: hsl(var(--surface-2));
-  --color-surface-3: hsl(var(--surface-3));
+  /* Legacy shadcn color utilities (bg-primary, text-muted-foreground, border-border,
+     bg-surface-*, …) now ALIAS the canonical Spatial Depth tokens — single source
+     of truth. The legacy HSL token block has been removed; these keep the ~595
+     existing class usages working without a codemod. */
+  --color-border: var(--sp-line);
+  --color-input: var(--sp-line);
+  --color-ring: var(--sp-accent);
+  --color-background: var(--sp-bg);
+  --color-foreground: var(--sp-text);
+  --color-primary: var(--sp-accent);
+  --color-primary-foreground: oklch(100% 0 0);
+  --color-secondary: var(--sp-surface-hi);
+  --color-secondary-foreground: var(--sp-text);
+  --color-destructive: light-dark(oklch(63.7% 0.208 25.3), oklch(71.9% 0.169 13.4));
+  --color-destructive-foreground: oklch(100% 0 0);
+  --color-muted: var(--sp-surface-lo);
+  --color-muted-foreground: var(--sp-text-muted);
+  --color-accent: var(--sp-hover-bg);
+  --color-accent-foreground: var(--sp-text);
+  --color-popover: var(--sp-surface);
+  --color-popover-foreground: var(--sp-text);
+  --color-card: var(--sp-surface);
+  --color-card-foreground: var(--sp-text);
+  --color-surface-0: var(--sp-bg);
+  --color-surface-1: var(--sp-surface);
+  --color-surface-2: var(--sp-surface-hi);
+  --color-surface-3: var(--sp-surface-hi);
 
   /* Spatial Depth tokens — bg-sp-surface, text-sp-muted, … */
   --color-sp-bg: var(--sp-bg);
@@ -336,123 +337,68 @@
 }
 
 @layer base {
+  /* ─────────────────────────────────────────────────────────────────────────
+   * Spatial Depth — the SINGLE design-token source of truth (OKLCH).
+   * One declaration per token; light/dark resolved via light-dark() against the
+   * color-scheme property (next-themes sets it via enableColorScheme + the .dark
+   * class). The legacy shadcn HSL token system has been removed — its utilities
+   * (bg-primary, text-muted-foreground, …) alias these via @theme above.
+   * --sp-accent is the richer-cobalt default; AccentProvider overrides it (and
+   * the glow ladder) at runtime from the user's chosen accent.
+   * ───────────────────────────────────────────────────────────────────────── */
   :root {
-    /* Legacy tokens (used by remaining shadcn-style components) */
-    --background: 250 25% 97%;
-    --foreground: 240 15% 8%;
-    --card: 240 10% 97%;
-    --card-foreground: 240 15% 8%;
-    --popover: 240 10% 97%;
-    --popover-foreground: 240 15% 8%;
-    --primary: 212 100% 59%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 214 12% 93%;
-    --secondary-foreground: 220 15% 8%;
-    --muted: 214 12% 93%;
-    --muted-foreground: 218 12% 48%;
-    --accent: 214 12% 90%;
-    --accent-foreground: 220 15% 8%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 214 12% 88%;
-    --input: 214 12% 88%;
-    --ring: 212 100% 59%;
+    color-scheme: light dark;
     --radius: 0.5rem;
-    --success: 158 64% 40%;
-    --warning: 43 96% 50%;
-    --info: 199 89% 48%;
-    --surface-0: 0 0% 98.5%;
-    --surface-1: 240 10% 96%;
-    --surface-2: 244 12% 93%;
-    --surface-3: 244 12% 89%;
-    --border-subtle: 0.05;
-    --border-default: 0.08;
-    --border-strong: 0.15;
-    --border-focus: 0.35;
 
-    /* ───── Spatial Depth — light theme ───── */
-    --sp-bg: #e7ecf4;
-    /* Subtle backdrop so frosted glass (overlays + chrome) has depth to refract.
-       Toned far down from the original orbs — present, not decorative. */
+    --sp-bg: light-dark(oklch(94.2% 0.012 260), oklch(15.5% 0.011 268));
+    --sp-surface: light-dark(oklch(100% 0 0), oklch(20.5% 0.015 267));
+    --sp-surface-hi: light-dark(oklch(97.3% 0.006 264), oklch(24.4% 0.018 266));
+    --sp-surface-lo: light-dark(oklch(95.7% 0.007 261), oklch(17.8% 0.013 270));
+    --sp-text: light-dark(oklch(18.9% 0.028 268), oklch(95.8% 0.011 270));
+    --sp-text-muted: light-dark(oklch(18.9% 0.028 268 / 0.62), oklch(95.8% 0.011 270 / 0.62));
+    /* dim at ~WCAG 1.4.3 (4.5:1): light 0.60, dark 0.55 alpha */
+    --sp-text-dim: light-dark(oklch(18.9% 0.028 268 / 0.6), oklch(95.8% 0.011 270 / 0.55));
+    --sp-line: light-dark(oklch(18.9% 0.028 268 / 0.1), oklch(100% 0 0 / 0.08));
+    --sp-line-strong: light-dark(oklch(18.9% 0.028 268 / 0.16), oklch(100% 0 0 / 0.14));
+    /* richer cobalt; AccentProvider overrides at runtime */
+    --sp-accent: light-dark(oklch(66% 0.19 255), oklch(70% 0.19 255));
+    --sp-code: light-dark(oklch(97.9% 0.006 264), oklch(16.4% 0.011 268));
+    --sp-hover-bg: light-dark(oklch(18.9% 0.028 268 / 0.04), oklch(100% 0 0 / 0.04));
+    --sp-active-bg: light-dark(oklch(66% 0.19 255 / 0.1), oklch(70% 0.19 255 / 0.15));
+
+    /* accent glow ladder — derived so a runtime --sp-accent override cascades.
+       AccentProvider still writes tuned per-theme alphas over these at runtime. */
+    --sp-accent-glow-88: color-mix(in oklch, var(--sp-accent) 53%, transparent);
+    --sp-accent-glow-55: color-mix(in oklch, var(--sp-accent) 33%, transparent);
+    --sp-accent-glow-33: color-mix(in oklch, var(--sp-accent) 20%, transparent);
+    --sp-accent-glow-26: color-mix(in oklch, var(--sp-accent) 15%, transparent);
+    --sp-accent-glow-15: color-mix(in oklch, var(--sp-accent) 8%, transparent);
+
+    /* Subtle backdrop so frosted glass has depth to refract. light-dark() can't
+       wrap a gradient, so the dark variant is set via the .dark class below. */
     --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(46, 145, 255, 0.06), transparent 45%),
-      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.05), transparent 45%), #e7ecf4;
-    --sp-surface: #ffffff;
-    --sp-surface-hi: #f4f6fa;
-    --sp-surface-lo: #eef1f6;
-    --sp-text: #0e1320;
-    --sp-text-muted: rgba(14, 19, 32, 0.62);
-    /* dim raised 0.45 → 0.60 so small/muted UI text clears WCAG 1.4.3 (4.5:1) */
-    --sp-text-dim: rgba(14, 19, 32, 0.6);
-    --sp-line: rgba(14, 19, 32, 0.1);
-    --sp-line-strong: rgba(14, 19, 32, 0.16);
-    --sp-accent: #2e91ff;
-    --sp-accent-glow-88: rgba(46, 145, 255, 0.53);
-    --sp-accent-glow-55: rgba(46, 145, 255, 0.33);
-    --sp-accent-glow-33: rgba(46, 145, 255, 0.2);
-    --sp-accent-glow-26: rgba(46, 145, 255, 0.15);
-    --sp-accent-glow-15: rgba(46, 145, 255, 0.08);
-    --sp-code: #f6f8fc;
-    --sp-hover-bg: rgba(14, 19, 32, 0.04);
-    --sp-active-bg: rgba(46, 145, 255, 0.1);
+      radial-gradient(
+        at 0% 0%,
+        color-mix(in oklch, var(--sp-accent) 6%, transparent),
+        transparent 45%
+      ),
+      radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.05), transparent 45%), var(--sp-bg);
   }
 
   .dark {
-    /* Legacy dark tokens */
-    --background: 240 20% 5%;
-    --foreground: 248 25% 94%;
-    --card: 240 15% 7%;
-    --card-foreground: 248 25% 94%;
-    --popover: 240 15% 7%;
-    --popover-foreground: 248 25% 94%;
-    --primary: 212 100% 65%;
-    --primary-foreground: 220 20% 5%;
-    --secondary: 214 12% 14%;
-    --secondary-foreground: 218 25% 94%;
-    --muted: 214 12% 13%;
-    --muted-foreground: 218 15% 55%;
-    --accent: 214 12% 16%;
-    --accent-foreground: 218 25% 94%;
-    --destructive: 0 84% 70%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 214 12% 16%;
-    --input: 214 12% 16%;
-    --ring: 212 100% 65%;
-    --success: 158 64% 52%;
-    --warning: 43 96% 56%;
-    --info: 187 96% 45%;
-    --surface-0: 240 15% 4%;
-    --surface-1: 240 15% 6%;
-    --surface-2: 244 12% 11%;
-    --surface-3: 244 12% 14%;
-    --border-subtle: 0.05;
-    --border-default: 0.08;
-    --border-strong: 0.15;
-    --border-focus: 0.35;
-
-    /* ───── Spatial Depth — dark theme (default) ───── */
-    --sp-bg: #0a0c11;
     --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(46, 145, 255, 0.1), transparent 50%),
-      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.08), transparent 50%), #0a0c11;
-    --sp-surface: #14171e;
-    --sp-surface-hi: #1c2029;
-    --sp-surface-lo: #0f1117;
-    --sp-text: #eef1f9;
-    --sp-text-muted: rgba(238, 241, 249, 0.62);
-    /* dim raised 0.42 → 0.55 so small/muted UI text clears WCAG 1.4.3 (4.5:1) */
-    --sp-text-dim: rgba(238, 241, 249, 0.55);
-    --sp-line: rgba(255, 255, 255, 0.08);
-    --sp-line-strong: rgba(255, 255, 255, 0.14);
-    --sp-code: #0c0e13;
-    --sp-hover-bg: rgba(255, 255, 255, 0.04);
-    --sp-active-bg: rgba(46, 145, 255, 0.15);
+      radial-gradient(
+        at 0% 0%,
+        color-mix(in oklch, var(--sp-accent) 10%, transparent),
+        transparent 50%
+      ),
+      radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.08), transparent 50%), var(--sp-bg);
   }
 }
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--sp-line);
   }
   body {
     background: var(--sp-bg-glow);
