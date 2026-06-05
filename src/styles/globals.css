@@ -4,8 +4,336 @@
 @import '@fontsource/jetbrains-mono/600.css';
 @import '@fontsource/jetbrains-mono/700.css';
 
-@config "../../tailwind.config.mts";
 @import 'tailwindcss';
+
+/* Tailwind v4 CSS-first theme (replaces tailwind.config.mts). darkMode:'class'
+   is re-expressed as the dark custom variant so next-themes' .dark class works. */
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Fonts */
+  --font-sans:
+    'Geist Variable', Geist, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, ui-monospace, monospace;
+
+  /* Legacy shadcn colors — kept as hsl(var()) so raw hsl(var(--x)) consumers
+     (flow-canvas) and these utilities keep working. Token values live in
+     :root/.dark below. (Token unification → OKLCH is a later, visible phase.) */
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-surface-0: hsl(var(--surface-0));
+  --color-surface-1: hsl(var(--surface-1));
+  --color-surface-2: hsl(var(--surface-2));
+  --color-surface-3: hsl(var(--surface-3));
+
+  /* Spatial Depth tokens — bg-sp-surface, text-sp-muted, … */
+  --color-sp-bg: var(--sp-bg);
+  --color-sp-surface: var(--sp-surface);
+  --color-sp-surface-hi: var(--sp-surface-hi);
+  --color-sp-surface-lo: var(--sp-surface-lo);
+  --color-sp-text: var(--sp-text);
+  --color-sp-muted: var(--sp-text-muted);
+  --color-sp-dim: var(--sp-text-dim);
+  --color-sp-line: var(--sp-line);
+  --color-sp-line-strong: var(--sp-line-strong);
+  --color-sp-accent: var(--sp-accent);
+  --color-sp-code: var(--sp-code);
+  --color-sp-hover: var(--sp-hover-bg);
+  --color-sp-active: var(--sp-active-bg);
+
+  /* Method colors */
+  --color-method-get: #22c55e;
+  --color-method-post: #f59e0b;
+  --color-method-put: #3b82f6;
+  --color-method-patch: #a855f7;
+  --color-method-delete: #ef4444;
+  --color-method-head: #06b6d4;
+  --color-method-options: #94a3b8;
+  --color-method-ws: #a78bfa;
+  --color-method-sse: #06b6d4;
+  --color-method-mcp: #f59e0b;
+  --color-method-gql: #e879a4;
+
+  /* Protocol chip colors */
+  --color-proto-http: #4d9fff;
+  --color-proto-grpc: #22c55e;
+  --color-proto-ws: #a78bfa;
+  --color-proto-gql: #e879a4;
+  --color-proto-mcp: #f59e0b;
+  --color-proto-sse: #06b6d4;
+  --color-proto-kafka: #f472b6;
+  --color-proto-socketio: #a78bfa;
+
+  /* slate-blue (custom) — override v4 defaults for violet/indigo with the
+     existing hex so this pass is zero-color-change (re-skin is a later phase). */
+  --color-slate-blue-50: #f6f8fa;
+  --color-slate-blue-100: #eaeef2;
+  --color-slate-blue-200: #d0d7de;
+  --color-slate-blue-300: #afb8c1;
+  --color-slate-blue-400: #8c959f;
+  --color-slate-blue-500: #6e7781;
+  --color-slate-blue-600: #57606a;
+  --color-slate-blue-700: #424a53;
+  --color-slate-blue-800: #32383f;
+  --color-slate-blue-900: #24292f;
+  --color-slate-blue-950: #0a0c10;
+  --color-violet-50: #f5f3ff;
+  --color-violet-100: #ede9fe;
+  --color-violet-200: #ddd6fe;
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+  --color-violet-700: #6d28d9;
+  --color-violet-800: #5b21b6;
+  --color-violet-900: #4c1d95;
+  --color-violet-950: #2e1065;
+  --color-indigo-50: #eef2ff;
+  --color-indigo-100: #e0e7ff;
+  --color-indigo-200: #c7d2fe;
+  --color-indigo-300: #a5b4fc;
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #6366f1;
+  --color-indigo-600: #4f46e5;
+  --color-indigo-700: #4338ca;
+  --color-indigo-800: #3730a3;
+  --color-indigo-900: #312e81;
+  --color-indigo-950: #1e1b4b;
+
+  /* Radius — override v4 defaults to the existing scale */
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-sp-chip: 3px;
+  --radius-sp-btn: 4px;
+  --radius-sp-pill: 5px;
+  --radius-sp-panel: 0px;
+  --radius-sp-window: 6px;
+
+  /* Letter spacing — override v4 defaults for tighter/tight */
+  --tracking-tighter: -0.025em;
+  --tracking-tight: -0.015em;
+  --tracking-sp-label: 0.06em;
+
+  /* Font weight */
+  --font-weight-medium-plus: 450;
+
+  /* Spatial Depth type scale */
+  --text-sp-9: 9px;
+  --text-sp-9--line-height: 1.1;
+  --text-sp-10: 10px;
+  --text-sp-10--line-height: 1.1;
+  --text-sp-10-5: 10.5px;
+  --text-sp-10-5--line-height: 1.2;
+  --text-sp-11: 11px;
+  --text-sp-11--line-height: 1.3;
+  --text-sp-11-5: 11.5px;
+  --text-sp-11-5--line-height: 1.3;
+  --text-sp-12: 12px;
+  --text-sp-12--line-height: 1.4;
+  --text-sp-12-5: 12.5px;
+  --text-sp-12-5--line-height: 1.4;
+  --text-sp-13: 13px;
+  --text-sp-13--line-height: 1.4;
+  --text-sp-14: 14px;
+  --text-sp-14--line-height: 1.4;
+  --text-sp-16: 16px;
+  --text-sp-16--line-height: 1.3;
+  --text-sp-22: 22px;
+  --text-sp-22--line-height: 1.2;
+
+  /* Elevation shadows (legacy; elevation-3/4 live in dialog/sheet/select) */
+  --shadow-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --shadow-elevation-2: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-elevation-3: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --shadow-elevation-4: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --shadow-inner-top: inset 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-inner-bottom: inset 0 -1px 2px 0 rgba(0, 0, 0, 0.05);
+
+  /* Animations + keyframes (emitted on use) */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-glow-pulse: glow-pulse 4s ease-in-out infinite;
+  --animate-shimmer: shimmer 2s infinite;
+  --animate-fade-in-up: fade-in-up 0.3s ease-out;
+  --animate-slide-in-right: slide-in-right 0.3s ease-out;
+  --animate-success-pulse: success-pulse 1s ease-in-out;
+  --animate-error-shake: error-shake 0.4s ease-in-out;
+  --animate-gradient-border: gradient-border 3s ease infinite;
+  --animate-scale-in: scale-in 0.2s ease-out;
+  --animate-glow-border: glow-border 2s ease-in-out infinite;
+  --animate-status-appear: status-appear 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-sp-blink: sp-blink 1s steps(2, start) infinite;
+  --animate-sp-slide-in-right: sp-slide-in-right 0.25s cubic-bezier(0.2, 0.7, 0.3, 1);
+  --animate-sp-fade-in: sp-fade-in 0.18s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+  @keyframes glow-pulse {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes fade-in-up {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes slide-in-right {
+    0% {
+      transform: translateX(-10px);
+      opacity: 0;
+    }
+    100% {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes success-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.1);
+    }
+  }
+  @keyframes error-shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+      transform: translateX(-2px);
+    }
+    20%,
+    40%,
+    60%,
+    80% {
+      transform: translateX(2px);
+    }
+  }
+  @keyframes gradient-border {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+  @keyframes scale-in {
+    0% {
+      transform: scale(0.95);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+  @keyframes glow-border {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @keyframes status-appear {
+    from {
+      opacity: 0;
+      transform: scale(0.8) translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+  @keyframes sp-blink {
+    0%,
+    50% {
+      opacity: 1;
+    }
+    51%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes sp-slide-in-right {
+    from {
+      transform: translateX(40px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes sp-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
 
 @layer base {
   :root {
