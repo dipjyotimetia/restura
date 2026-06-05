@@ -50,6 +50,7 @@ import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { toast } from 'sonner';
+import { withViewTransition } from '@/lib/shared/viewTransition';
 
 const ProviderSettings = lazyComponent(async () => {
   const m = await import('@/features/ai/components/ProviderSettings');
@@ -394,8 +395,10 @@ function GeneralSection() {
             <Segmented<'light' | 'dark' | 'system'>
               value={currentTheme}
               onChange={(v) => {
-                setTheme(v);
-                updateSettings({ theme: v });
+                withViewTransition(() => {
+                  setTheme(v);
+                  updateSettings({ theme: v });
+                });
               }}
               options={[
                 { value: 'light', label: 'Light' },
@@ -515,7 +518,7 @@ function AppearanceSection() {
           control={
             <Segmented<'light' | 'dark' | 'system'>
               value={currentTheme}
-              onChange={(v) => setTheme(v)}
+              onChange={(v) => withViewTransition(() => setTheme(v))}
               options={[
                 { value: 'light', label: 'Light' },
                 { value: 'dark', label: 'Dark' },

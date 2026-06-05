@@ -725,6 +725,20 @@ textarea {
   }
 }
 
+/* Theme switch cross-fade (View Transitions API; see lib/shared/viewTransition).
+   Quick + calm; disabled under reduced motion (JS helper also guards). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+  animation-timing-function: ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
 ::selection {
   background-color: var(--sp-accent-glow-26);
   color: var(--sp-text);

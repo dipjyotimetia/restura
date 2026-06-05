@@ -32,6 +32,7 @@ import { useUiStore } from '@/store/useUiStore';
 import { useActiveResponse, useActiveTab } from '@/store/selectors';
 import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
+import { withViewTransition } from '@/lib/shared/viewTransition';
 import { isConnectionMode } from '@/types';
 import type { Collection, CollectionItem, RequestType } from '@/types';
 
@@ -368,7 +369,7 @@ export default function CommandPalette({
       group: 'Settings',
       name: theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
       icon: theme === 'dark' ? Sun : Moon,
-      onSelect: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+      onSelect: () => withViewTransition(() => setTheme(theme === 'dark' ? 'light' : 'dark')),
     });
     if (onOpenSettings) {
       items.push({
