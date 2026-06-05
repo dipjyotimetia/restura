@@ -31,11 +31,7 @@ function describeParentNode(node: FlowNode | undefined): string {
   return node.kind;
 }
 
-export function FlowBreadcrumb({
-  workflow,
-  path,
-  onNavigate,
-}: FlowBreadcrumbProps) {
+export function FlowBreadcrumb({ workflow, path, onNavigate }: FlowBreadcrumbProps) {
   if (path.length === 0) return null;
 
   // Resolve each segment's parent node by walking the path prefix.
@@ -59,7 +55,7 @@ export function FlowBreadcrumb({
   }
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[hsl(var(--foreground)/var(--border-subtle))] bg-[hsl(var(--surface-1))] overflow-x-auto">
+    <div className="flex items-center gap-1 px-2 py-1.5 border-b border-sp-line bg-sp-surface overflow-x-auto">
       <GitBranch className="h-3 w-3 text-muted-foreground flex-shrink-0" />
       <Button
         variant="ghost"

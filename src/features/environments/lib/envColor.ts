@@ -12,12 +12,12 @@
  * muscle memory transfers across projects:
  *   - prod → green (#22c55e) — go signal
  *   - staging / preprod / qa → amber (#f59e0b) — caution
- *   - dev / local → cobalt blue (#4d9fff) — the accent colour
+ *   - dev / local → cobalt blue (#2e91ff) — the accent colour
  * Any other name falls through to a hash-based palette pick so distinct envs
  * still get visually distinct colours.
  */
 const ENV_COLOR_PALETTE = [
-  '#4d9fff', // accent blue
+  '#2e91ff', // accent blue
   '#22c55e', // green
   '#f59e0b', // amber
   '#a78bfa', // violet
@@ -32,7 +32,7 @@ export function envColorFor(env: { id: string; name: string } | null | undefined
   const lower = env.name.toLowerCase();
   if (lower.includes('prod')) return '#22c55e';
   if (lower.includes('stag') || lower.includes('preprod') || /\bqa\b/.test(lower)) return '#f59e0b';
-  if (lower.includes('dev') || lower.includes('local')) return '#4d9fff';
+  if (lower.includes('dev') || lower.includes('local')) return '#2e91ff';
 
   const source = `${env.id}:${env.name}`;
   let hash = 0;
@@ -40,5 +40,5 @@ export function envColorFor(env: { id: string; name: string } | null | undefined
     hash = (hash * 31 + source.charCodeAt(i)) | 0;
   }
   const idx = Math.abs(hash) % ENV_COLOR_PALETTE.length;
-  return ENV_COLOR_PALETTE[idx] ?? '#4d9fff';
+  return ENV_COLOR_PALETTE[idx] ?? '#2e91ff';
 }

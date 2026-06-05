@@ -4,125 +4,401 @@
 @import '@fontsource/jetbrains-mono/600.css';
 @import '@fontsource/jetbrains-mono/700.css';
 
-@config "../../tailwind.config.mts";
 @import 'tailwindcss';
 
-@layer base {
-  :root {
-    /* Legacy tokens (used by remaining shadcn-style components) */
-    --background: 250 25% 97%;
-    --foreground: 240 15% 8%;
-    --card: 240 10% 97%;
-    --card-foreground: 240 15% 8%;
-    --popover: 240 10% 97%;
-    --popover-foreground: 240 15% 8%;
-    --primary: 218 85% 53%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 214 12% 93%;
-    --secondary-foreground: 220 15% 8%;
-    --muted: 214 12% 93%;
-    --muted-foreground: 218 12% 48%;
-    --accent: 214 12% 90%;
-    --accent-foreground: 220 15% 8%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 214 12% 88%;
-    --input: 214 12% 88%;
-    --ring: 218 85% 53%;
-    --radius: 0.5rem;
-    --success: 158 64% 40%;
-    --warning: 43 96% 50%;
-    --info: 199 89% 48%;
-    --surface-0: 0 0% 98.5%;
-    --surface-1: 240 10% 96%;
-    --surface-2: 244 12% 93%;
-    --surface-3: 244 12% 89%;
-    --border-subtle: 0.05;
-    --border-default: 0.08;
-    --border-strong: 0.15;
-    --border-focus: 0.35;
+/* Tailwind v4 CSS-first theme (replaces tailwind.config.mts). darkMode:'class'
+   is re-expressed as the dark custom variant so next-themes' .dark class works. */
+@custom-variant dark (&:is(.dark *));
 
-    /* ───── Spatial Depth — light theme ───── */
-    --sp-bg: #e7ecf4;
-    /* Subtle backdrop so frosted glass (overlays + chrome) has depth to refract.
-       Toned far down from the original orbs — present, not decorative. */
+@theme {
+  /* Fonts */
+  --font-sans:
+    'Geist Variable', Geist, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, ui-monospace, monospace;
+
+  /* Legacy shadcn color utilities (bg-primary, text-muted-foreground, border-border,
+     bg-surface-*, …) now ALIAS the canonical Spatial Depth tokens — single source
+     of truth. The legacy HSL token block has been removed; these keep the ~595
+     existing class usages working without a codemod. */
+  --color-border: var(--sp-line);
+  --color-input: var(--sp-line);
+  --color-ring: var(--sp-accent);
+  --color-background: var(--sp-bg);
+  --color-foreground: var(--sp-text);
+  --color-primary: var(--sp-accent);
+  --color-primary-foreground: oklch(100% 0 0);
+  --color-secondary: var(--sp-surface-hi);
+  --color-secondary-foreground: var(--sp-text);
+  --color-destructive: light-dark(oklch(63.7% 0.208 25.3), oklch(71.9% 0.169 13.4));
+  --color-destructive-foreground: oklch(100% 0 0);
+  --color-muted: var(--sp-surface-lo);
+  --color-muted-foreground: var(--sp-text-muted);
+  --color-accent: var(--sp-hover-bg);
+  --color-accent-foreground: var(--sp-text);
+  --color-popover: var(--sp-surface);
+  --color-popover-foreground: var(--sp-text);
+  --color-card: var(--sp-surface);
+  --color-card-foreground: var(--sp-text);
+  --color-surface-0: var(--sp-bg);
+  --color-surface-1: var(--sp-surface);
+  --color-surface-2: var(--sp-surface-hi);
+  --color-surface-3: var(--sp-surface-hi);
+
+  /* Spatial Depth tokens — bg-sp-surface, text-sp-muted, … */
+  --color-sp-bg: var(--sp-bg);
+  --color-sp-surface: var(--sp-surface);
+  --color-sp-surface-hi: var(--sp-surface-hi);
+  --color-sp-surface-lo: var(--sp-surface-lo);
+  --color-sp-text: var(--sp-text);
+  --color-sp-muted: var(--sp-text-muted);
+  --color-sp-dim: var(--sp-text-dim);
+  --color-sp-line: var(--sp-line);
+  --color-sp-line-strong: var(--sp-line-strong);
+  --color-sp-accent: var(--sp-accent);
+  --color-sp-code: var(--sp-code);
+  --color-sp-hover: var(--sp-hover-bg);
+  --color-sp-active: var(--sp-active-bg);
+
+  /* Method colors */
+  --color-method-get: #22c55e;
+  --color-method-post: #f59e0b;
+  --color-method-put: #3b82f6;
+  --color-method-patch: #a855f7;
+  --color-method-delete: #ef4444;
+  --color-method-head: #06b6d4;
+  --color-method-options: #94a3b8;
+  --color-method-ws: #a78bfa;
+  --color-method-sse: #06b6d4;
+  --color-method-mcp: #f59e0b;
+  --color-method-gql: #e879a4;
+
+  /* Protocol chip colors */
+  --color-proto-http: #2e91ff;
+  --color-proto-grpc: #22c55e;
+  --color-proto-ws: #a78bfa;
+  --color-proto-gql: #e879a4;
+  --color-proto-mcp: #f59e0b;
+  --color-proto-sse: #06b6d4;
+  --color-proto-kafka: #f472b6;
+  --color-proto-socketio: #a78bfa;
+
+  /* slate-blue (custom) — override v4 defaults for violet/indigo with the
+     existing hex so this pass is zero-color-change (re-skin is a later phase). */
+  --color-slate-blue-50: #f6f8fa;
+  --color-slate-blue-100: #eaeef2;
+  --color-slate-blue-200: #d0d7de;
+  --color-slate-blue-300: #afb8c1;
+  --color-slate-blue-400: #8c959f;
+  --color-slate-blue-500: #6e7781;
+  --color-slate-blue-600: #57606a;
+  --color-slate-blue-700: #424a53;
+  --color-slate-blue-800: #32383f;
+  --color-slate-blue-900: #24292f;
+  --color-slate-blue-950: #0a0c10;
+  --color-violet-50: #f5f3ff;
+  --color-violet-100: #ede9fe;
+  --color-violet-200: #ddd6fe;
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+  --color-violet-700: #6d28d9;
+  --color-violet-800: #5b21b6;
+  --color-violet-900: #4c1d95;
+  --color-violet-950: #2e1065;
+  --color-indigo-50: #eef2ff;
+  --color-indigo-100: #e0e7ff;
+  --color-indigo-200: #c7d2fe;
+  --color-indigo-300: #a5b4fc;
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #6366f1;
+  --color-indigo-600: #4f46e5;
+  --color-indigo-700: #4338ca;
+  --color-indigo-800: #3730a3;
+  --color-indigo-900: #312e81;
+  --color-indigo-950: #1e1b4b;
+
+  /* Radius — override v4 defaults to the existing scale */
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-sp-chip: 3px;
+  --radius-sp-btn: 4px;
+  --radius-sp-pill: 5px;
+  --radius-sp-panel: 0px;
+  --radius-sp-window: 6px;
+
+  /* Letter spacing — override v4 defaults for tighter/tight */
+  --tracking-tighter: -0.025em;
+  --tracking-tight: -0.015em;
+  --tracking-sp-label: 0.06em;
+
+  /* Font weight */
+  --font-weight-medium-plus: 450;
+
+  /* Spatial Depth type scale */
+  --text-sp-9: 9px;
+  --text-sp-9--line-height: 1.1;
+  --text-sp-10: 10px;
+  --text-sp-10--line-height: 1.1;
+  --text-sp-10-5: 10.5px;
+  --text-sp-10-5--line-height: 1.2;
+  --text-sp-11: 11px;
+  --text-sp-11--line-height: 1.3;
+  --text-sp-11-5: 11.5px;
+  --text-sp-11-5--line-height: 1.3;
+  --text-sp-12: 12px;
+  --text-sp-12--line-height: 1.4;
+  --text-sp-12-5: 12.5px;
+  --text-sp-12-5--line-height: 1.4;
+  --text-sp-13: 13px;
+  --text-sp-13--line-height: 1.4;
+  --text-sp-14: 14px;
+  --text-sp-14--line-height: 1.4;
+  --text-sp-16: 16px;
+  --text-sp-16--line-height: 1.3;
+  --text-sp-22: 22px;
+  --text-sp-22--line-height: 1.2;
+
+  /* Elevation shadows (legacy; elevation-3/4 live in dialog/sheet/select) */
+  --shadow-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --shadow-elevation-2: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-elevation-3: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --shadow-elevation-4: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --shadow-inner-top: inset 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-inner-bottom: inset 0 -1px 2px 0 rgba(0, 0, 0, 0.05);
+
+  /* Animations + keyframes (emitted on use) */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-glow-pulse: glow-pulse 4s ease-in-out infinite;
+  --animate-shimmer: shimmer 2s infinite;
+  --animate-fade-in-up: fade-in-up 0.3s ease-out;
+  --animate-slide-in-right: slide-in-right 0.3s ease-out;
+  --animate-success-pulse: success-pulse 1s ease-in-out;
+  --animate-error-shake: error-shake 0.4s ease-in-out;
+  --animate-gradient-border: gradient-border 3s ease infinite;
+  --animate-scale-in: scale-in 0.2s ease-out;
+  --animate-glow-border: glow-border 2s ease-in-out infinite;
+  --animate-status-appear: status-appear 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-sp-blink: sp-blink 1s steps(2, start) infinite;
+  --animate-sp-slide-in-right: sp-slide-in-right 0.25s cubic-bezier(0.2, 0.7, 0.3, 1);
+  --animate-sp-fade-in: sp-fade-in 0.18s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+  @keyframes glow-pulse {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes fade-in-up {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes slide-in-right {
+    0% {
+      transform: translateX(-10px);
+      opacity: 0;
+    }
+    100% {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes success-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.1);
+    }
+  }
+  @keyframes error-shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+      transform: translateX(-2px);
+    }
+    20%,
+    40%,
+    60%,
+    80% {
+      transform: translateX(2px);
+    }
+  }
+  @keyframes gradient-border {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+  @keyframes scale-in {
+    0% {
+      transform: scale(0.95);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+  @keyframes glow-border {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @keyframes status-appear {
+    from {
+      opacity: 0;
+      transform: scale(0.8) translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+  @keyframes sp-blink {
+    0%,
+    50% {
+      opacity: 1;
+    }
+    51%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes sp-slide-in-right {
+    from {
+      transform: translateX(40px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes sp-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
+@layer base {
+  /* ─────────────────────────────────────────────────────────────────────────
+   * Spatial Depth — the SINGLE design-token source of truth (OKLCH).
+   * One declaration per token; light/dark resolved via light-dark() against the
+   * color-scheme property (next-themes sets it via enableColorScheme + the .dark
+   * class). The legacy shadcn HSL token system has been removed — its utilities
+   * (bg-primary, text-muted-foreground, …) alias these via @theme above.
+   * --sp-accent is the richer-cobalt default; AccentProvider overrides it (and
+   * the glow ladder) at runtime from the user's chosen accent.
+   * ───────────────────────────────────────────────────────────────────────── */
+  :root {
+    color-scheme: light dark;
+    --radius: 0.5rem;
+
+    --sp-bg: light-dark(oklch(94.2% 0.012 260), oklch(15.5% 0.011 268));
+    --sp-surface: light-dark(oklch(100% 0 0), oklch(20.5% 0.015 267));
+    --sp-surface-hi: light-dark(oklch(97.3% 0.006 264), oklch(24.4% 0.018 266));
+    --sp-surface-lo: light-dark(oklch(95.7% 0.007 261), oklch(17.8% 0.013 270));
+    --sp-text: light-dark(oklch(18.9% 0.028 268), oklch(95.8% 0.011 270));
+    --sp-text-muted: light-dark(oklch(18.9% 0.028 268 / 0.62), oklch(95.8% 0.011 270 / 0.62));
+    /* dim at ~WCAG 1.4.3 (4.5:1): light 0.60, dark 0.55 alpha */
+    --sp-text-dim: light-dark(oklch(18.9% 0.028 268 / 0.6), oklch(95.8% 0.011 270 / 0.55));
+    --sp-line: light-dark(oklch(18.9% 0.028 268 / 0.1), oklch(100% 0 0 / 0.08));
+    --sp-line-strong: light-dark(oklch(18.9% 0.028 268 / 0.16), oklch(100% 0 0 / 0.14));
+    /* richer cobalt; AccentProvider overrides at runtime */
+    --sp-accent: light-dark(oklch(66% 0.19 255), oklch(70% 0.19 255));
+    --sp-code: light-dark(oklch(97.9% 0.006 264), oklch(16.4% 0.011 268));
+    --sp-hover-bg: light-dark(oklch(18.9% 0.028 268 / 0.04), oklch(100% 0 0 / 0.04));
+    --sp-active-bg: light-dark(oklch(66% 0.19 255 / 0.1), oklch(70% 0.19 255 / 0.15));
+
+    /* accent glow ladder — derived so a runtime --sp-accent override cascades.
+       AccentProvider still writes tuned per-theme alphas over these at runtime. */
+    --sp-accent-glow-88: color-mix(in oklch, var(--sp-accent) 53%, transparent);
+    --sp-accent-glow-55: color-mix(in oklch, var(--sp-accent) 33%, transparent);
+    --sp-accent-glow-33: color-mix(in oklch, var(--sp-accent) 20%, transparent);
+    --sp-accent-glow-26: color-mix(in oklch, var(--sp-accent) 15%, transparent);
+    --sp-accent-glow-15: color-mix(in oklch, var(--sp-accent) 8%, transparent);
+
+    /* Subtle backdrop so frosted glass has depth to refract. light-dark() can't
+       wrap a gradient, so the dark variant is set via the .dark class below. */
     --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.06), transparent 45%),
-      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.05), transparent 45%), #e7ecf4;
-    --sp-surface: #ffffff;
-    --sp-surface-hi: #f4f6fa;
-    --sp-surface-lo: #eef1f6;
-    --sp-text: #0e1320;
-    --sp-text-muted: rgba(14, 19, 32, 0.62);
-    --sp-text-dim: rgba(14, 19, 32, 0.45);
-    --sp-line: rgba(14, 19, 32, 0.1);
-    --sp-line-strong: rgba(14, 19, 32, 0.16);
-    --sp-accent: #4d9fff;
-    --sp-accent-glow-88: rgba(77, 159, 255, 0.53);
-    --sp-accent-glow-55: rgba(77, 159, 255, 0.33);
-    --sp-accent-glow-33: rgba(77, 159, 255, 0.2);
-    --sp-accent-glow-26: rgba(77, 159, 255, 0.15);
-    --sp-accent-glow-15: rgba(77, 159, 255, 0.08);
-    --sp-code: #f6f8fc;
-    --sp-hover-bg: rgba(14, 19, 32, 0.04);
-    --sp-active-bg: rgba(77, 159, 255, 0.1);
+      radial-gradient(
+        at 0% 0%,
+        color-mix(in oklch, var(--sp-accent) 6%, transparent),
+        transparent 45%
+      ),
+      radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.05), transparent 45%), var(--sp-bg);
   }
 
   .dark {
-    /* Legacy dark tokens */
-    --background: 240 20% 5%;
-    --foreground: 248 25% 94%;
-    --card: 240 15% 7%;
-    --card-foreground: 248 25% 94%;
-    --popover: 240 15% 7%;
-    --popover-foreground: 248 25% 94%;
-    --primary: 218 90% 68%;
-    --primary-foreground: 220 20% 5%;
-    --secondary: 214 12% 14%;
-    --secondary-foreground: 218 25% 94%;
-    --muted: 214 12% 13%;
-    --muted-foreground: 218 15% 55%;
-    --accent: 214 12% 16%;
-    --accent-foreground: 218 25% 94%;
-    --destructive: 0 84% 70%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 214 12% 16%;
-    --input: 214 12% 16%;
-    --ring: 218 90% 68%;
-    --success: 158 64% 52%;
-    --warning: 43 96% 56%;
-    --info: 187 96% 45%;
-    --surface-0: 240 15% 4%;
-    --surface-1: 240 15% 6%;
-    --surface-2: 244 12% 11%;
-    --surface-3: 244 12% 14%;
-    --border-subtle: 0.05;
-    --border-default: 0.08;
-    --border-strong: 0.15;
-    --border-focus: 0.35;
-
-    /* ───── Spatial Depth — dark theme (default) ───── */
-    --sp-bg: #0a0c11;
     --sp-bg-glow:
-      radial-gradient(at 0% 0%, rgba(77, 159, 255, 0.1), transparent 50%),
-      radial-gradient(at 100% 100%, rgba(124, 92, 255, 0.08), transparent 50%), #0a0c11;
-    --sp-surface: #14171e;
-    --sp-surface-hi: #1c2029;
-    --sp-surface-lo: #0f1117;
-    --sp-text: #eef1f9;
-    --sp-text-muted: rgba(238, 241, 249, 0.62);
-    --sp-text-dim: rgba(238, 241, 249, 0.42);
-    --sp-line: rgba(255, 255, 255, 0.08);
-    --sp-line-strong: rgba(255, 255, 255, 0.14);
-    --sp-code: #0c0e13;
-    --sp-hover-bg: rgba(255, 255, 255, 0.04);
-    --sp-active-bg: rgba(77, 159, 255, 0.15);
+      radial-gradient(
+        at 0% 0%,
+        color-mix(in oklch, var(--sp-accent) 10%, transparent),
+        transparent 50%
+      ),
+      radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.08), transparent 50%), var(--sp-bg);
   }
 }
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--sp-line);
   }
   body {
     background: var(--sp-bg-glow);
@@ -294,64 +570,8 @@
   .dark .glass-border-default {
     border-color: var(--sp-line-strong);
   }
-
-  .gradient-border-animated {
-    position: relative;
-    background: hsl(var(--background));
-  }
-
-  .gradient-border-animated::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 2px;
-    background: linear-gradient(
-      90deg,
-      hsl(var(--primary)),
-      hsl(var(--accent)),
-      hsl(var(--primary))
-    );
-    background-size: 200% 100%;
-    animation: gradient-border 3s ease infinite;
-    -webkit-mask:
-      linear-gradient(#fff 0 0) content-box,
-      linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
-  }
 }
 
-/* Smooth animations */
-@keyframes slideIn {
-  from {
-    transform: translateX(-100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes slideUp {
-  from {
-    transform: translateY(10px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
 @keyframes pulse {
   0%,
   100% {
@@ -456,6 +676,69 @@ textarea {
   }
 }
 
+/* Reduced transparency (OS accessibility setting) — drop the frosted glass on
+   overlays + chrome to solid, legible surfaces. Mirrors prefers-reduced-motion.
+   Also removes the always-on backdrop-filter GPU cost for these users. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-1,
+  .glass-2,
+  .glass-3,
+  .sp-chrome,
+  .sp-floater-lg {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--sp-surface);
+  }
+  .glass-2 {
+    background: var(--sp-surface-hi);
+  }
+  .glass-3 {
+    background: var(--sp-surface-lo);
+  }
+  .dark .glass-1,
+  .dark .sp-chrome,
+  .dark .sp-floater-lg {
+    background: var(--sp-surface);
+  }
+  .dark .glass-2 {
+    background: var(--sp-surface-hi);
+  }
+  .dark .glass-3 {
+    background: var(--sp-surface-lo);
+  }
+}
+
+/* High contrast (OS accessibility setting) — strengthen hairlines and muted
+   text so structure and de-emphasized copy stay legible. */
+@media (prefers-contrast: more) {
+  :root {
+    --sp-line: rgba(14, 19, 32, 0.24);
+    --sp-line-strong: rgba(14, 19, 32, 0.42);
+    --sp-text-dim: rgba(14, 19, 32, 0.78);
+    --sp-text-muted: rgba(14, 19, 32, 0.88);
+  }
+  .dark {
+    --sp-line: rgba(255, 255, 255, 0.24);
+    --sp-line-strong: rgba(255, 255, 255, 0.42);
+    --sp-text-dim: rgba(238, 241, 249, 0.8);
+    --sp-text-muted: rgba(238, 241, 249, 0.9);
+  }
+}
+
+/* Theme switch cross-fade (View Transitions API; see lib/shared/viewTransition).
+   Quick + calm; disabled under reduced motion (JS helper also guards). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+  animation-timing-function: ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
 ::selection {
   background-color: var(--sp-accent-glow-26);
   color: var(--sp-text);
@@ -464,35 +747,6 @@ textarea {
 :focus-visible {
   outline: 2px solid var(--sp-accent);
   outline-offset: 1px;
-}
-
-.button-noise {
-  position: relative;
-}
-.button-noise::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0.02;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-}
-.dark .button-noise::before {
-  opacity: 0.04;
-}
-
-@keyframes button-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 20px hsl(var(--primary) / 0.3);
-  }
-  50% {
-    box-shadow: 0 0 30px hsl(var(--primary) / 0.5);
-  }
-}
-.animate-button-glow {
-  animation: button-glow 2s ease-in-out infinite;
 }
 
 .status-dot {

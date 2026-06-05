@@ -11,7 +11,7 @@ interface Rgb {
   b: number;
 }
 
-const COBALT_FALLBACK: Rgb = { r: 77, g: 159, b: 255 };
+const COBALT_FALLBACK: Rgb = { r: 46, g: 145, b: 255 };
 
 function hexToRgb(hex: string): Rgb {
   const cleaned = hex.replace('#', '');
@@ -33,17 +33,17 @@ function rgbaString({ r, g, b }: Rgb, alpha: number): string {
 const ALPHAS_LIGHT = [
   ['--sp-accent-glow-88', 0.53],
   ['--sp-accent-glow-55', 0.33],
-  ['--sp-accent-glow-33', 0.20],
+  ['--sp-accent-glow-33', 0.2],
   ['--sp-accent-glow-26', 0.15],
   ['--sp-accent-glow-15', 0.08],
 ] as const;
 
 const ALPHAS_DARK = [
   ['--sp-accent-glow-88', 0.65],
-  ['--sp-accent-glow-55', 0.40],
+  ['--sp-accent-glow-55', 0.4],
   ['--sp-accent-glow-33', 0.25],
   ['--sp-accent-glow-26', 0.18],
-  ['--sp-accent-glow-15', 0.10],
+  ['--sp-accent-glow-15', 0.1],
 ] as const;
 
 /**
@@ -53,7 +53,7 @@ const ALPHAS_DARK = [
  * accent change.
  */
 export function AccentProvider({ children }: { children: React.ReactNode }) {
-  const accent = useSettingsStore((s) => s.settings.accent) ?? ('#4d9fff' as SpatialAccent);
+  const accent = useSettingsStore((s) => s.settings.accent) ?? ('#2e91ff' as SpatialAccent);
   const { resolvedTheme } = useTheme();
 
   React.useEffect(() => {

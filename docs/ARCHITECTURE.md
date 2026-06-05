@@ -37,6 +37,7 @@ User → Vite SPA → fetch /api/* → Cloudflare Worker (Hono) → Target API
 ```
 
 The Worker runs as a Cloudflare Pages Function, co-deployed with the SPA. It handles:
+
 - HTTP proxying (`/api/proxy`)
 - gRPC unary + streaming (`/api/grpc`)
 - gRPC reflection (`/api/grpc/reflection`)
@@ -74,16 +75,16 @@ shared/protocol/
   └── mcp-proxy.ts          ── validateMcpSpec(spec, allowLocalhost)
 ```
 
-| Module | Responsibility |
-|---|---|
+| Module                              | Responsibility                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `shared/protocol/url-validation.ts` | SSRF guard: blocks RFC 1918, RFC 6598 (CGNAT), link-local, loopback, and cloud-metadata endpoints; DNS-rebind check |
-| `shared/protocol/header-policy.ts` | Hop-by-hop deny lists + header sanitisers |
-| `shared/protocol/body-builder.ts` | JSON / text / form-urlencoded / form-data / binary body construction |
-| `shared/protocol/types.ts` | `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union |
-| `shared/protocol/http-proxy.ts` | `executeHttpProxy(spec, fetcher, options)` — HTTP orchestrator + `MAX_RESPONSE_SIZE` cap |
-| `shared/protocol/grpc-proxy.ts` | `executeGrpcProxy(spec, fetcher, options)` — Connect-protocol orchestrator |
-| `shared/protocol/grpc-status.ts` | gRPC status code enum + reverse map |
-| `shared/protocol/mcp-proxy.ts` | `validateMcpSpec(spec, allowLocalhost)` — JSON-RPC envelope + URL validation |
+| `shared/protocol/header-policy.ts`  | Hop-by-hop deny lists + header sanitisers                                                                           |
+| `shared/protocol/body-builder.ts`   | JSON / text / form-urlencoded / form-data / binary body construction                                                |
+| `shared/protocol/types.ts`          | `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union                                                       |
+| `shared/protocol/http-proxy.ts`     | `executeHttpProxy(spec, fetcher, options)` — HTTP orchestrator + `MAX_RESPONSE_SIZE` cap                            |
+| `shared/protocol/grpc-proxy.ts`     | `executeGrpcProxy(spec, fetcher, options)` — Connect-protocol orchestrator                                          |
+| `shared/protocol/grpc-status.ts`    | gRPC status code enum + reverse map                                                                                 |
+| `shared/protocol/mcp-proxy.ts`      | `validateMcpSpec(spec, allowLocalhost)` — JSON-RPC envelope + URL validation                                        |
 
 ### Backend adapters
 
@@ -116,24 +117,24 @@ SSRF rules, header sanitisers, body construction, error mapping, and timeouts co
 
 ## Technology Stack
 
-| Concern | Technology |
-|---|---|
-| Build tool | Vite 8 + `@cloudflare/vite-plugin` |
-| UI framework | React 19 |
-| Routing | React Router v7 (`createHashRouter`) |
-| Styling | TailwindCSS v4 via `@tailwindcss/vite` |
-| UI components | shadcn/ui patterns on Radix UI primitives |
-| State management | Zustand v5 with `persist` middleware |
-| Validation | Zod v4 |
-| Code editor | Monaco Editor (`@monaco-editor/react`) |
-| Script sandbox | QuickJS WASM (`quickjs-emscripten`) |
-| gRPC (web) | `@connectrpc/connect-web` + `@bufbuild/protobuf` |
-| gRPC (desktop) | `@grpc/grpc-js` + `@grpc/proto-loader` |
-| Worker framework | Hono |
-| Desktop shell | Electron 42 |
-| Auto-updates | `electron-updater` |
-| Testing | Vitest + React Testing Library |
-| Deployment | Cloudflare Pages + Functions |
+| Concern          | Technology                                       |
+| ---------------- | ------------------------------------------------ |
+| Build tool       | Vite 8 + `@cloudflare/vite-plugin`               |
+| UI framework     | React 19                                         |
+| Routing          | React Router v7 (`createHashRouter`)             |
+| Styling          | TailwindCSS v4 via `@tailwindcss/vite`           |
+| UI components    | shadcn/ui patterns on Radix UI primitives        |
+| State management | Zustand v5 with `persist` middleware             |
+| Validation       | Zod v4                                           |
+| Code editor      | Monaco Editor (`@monaco-editor/react`)           |
+| Script sandbox   | QuickJS WASM (`quickjs-emscripten`)              |
+| gRPC (web)       | `@connectrpc/connect-web` + `@bufbuild/protobuf` |
+| gRPC (desktop)   | `@grpc/grpc-js` + `@grpc/proto-loader`           |
+| Worker framework | Hono                                             |
+| Desktop shell    | Electron 42                                      |
+| Auto-updates     | `electron-updater`                               |
+| Testing          | Vitest + React Testing Library                   |
+| Deployment       | Cloudflare Pages + Functions                     |
 
 ---
 
@@ -226,7 +227,6 @@ restura/
     ├── electron-builder.json     # Electron packaging config
     ├── tsconfig.json             # Renderer TypeScript config
     ├── tsconfig.base.json        # Shared TS base
-    ├── tailwind.config.ts        # Tailwind v4 config
     ├── vitest.config.ts          # Test config
     └── eslint.config.mjs         # ESLint flat config
 ```
@@ -377,12 +377,12 @@ The Worker is a Hono application deployed as a Cloudflare Pages Function (`_work
 
 ### Route Map
 
-| Route | Handler | Purpose |
-|---|---|---|
-| `POST /api/proxy` | `proxy.ts` | HTTP/HTTPS request proxying |
-| `POST /api/grpc` | `grpc.ts` | gRPC unary + streaming |
-| `POST /api/grpc/reflection` | `grpc-reflection.ts` | gRPC server reflection |
-| `POST /api/mcp` | `mcp.ts` | MCP server proxy |
+| Route                       | Handler              | Purpose                     |
+| --------------------------- | -------------------- | --------------------------- |
+| `POST /api/proxy`           | `proxy.ts`           | HTTP/HTTPS request proxying |
+| `POST /api/grpc`            | `grpc.ts`            | gRPC unary + streaming      |
+| `POST /api/grpc/reflection` | `grpc-reflection.ts` | gRPC server reflection      |
+| `POST /api/mcp`             | `mcp.ts`             | MCP server proxy            |
 
 ---
 
@@ -427,16 +427,16 @@ main.ts (entry)
 
 ## Supported Protocols
 
-| Protocol | Web (Worker) | Desktop (IPC) |
-|---|---|---|
-| HTTP/HTTPS | `/api/proxy` | `http-handler.ts` |
-| gRPC unary | `/api/grpc` | `grpc-handler.ts` |
-| gRPC streaming | `/api/grpc` | `grpc-handler.ts` |
-| gRPC reflection | `/api/grpc/reflection` | `grpc-reflection-handler.ts` |
-| WebSocket | Browser native | `websocket-handler.ts` |
-| Server-Sent Events | Browser native | `sse-handler.ts` |
-| GraphQL (over HTTP) | `/api/proxy` | `http-handler.ts` |
-| MCP | `/api/mcp` | `mcp-handler.ts` |
+| Protocol            | Web (Worker)           | Desktop (IPC)                |
+| ------------------- | ---------------------- | ---------------------------- |
+| HTTP/HTTPS          | `/api/proxy`           | `http-handler.ts`            |
+| gRPC unary          | `/api/grpc`            | `grpc-handler.ts`            |
+| gRPC streaming      | `/api/grpc`            | `grpc-handler.ts`            |
+| gRPC reflection     | `/api/grpc/reflection` | `grpc-reflection-handler.ts` |
+| WebSocket           | Browser native         | `websocket-handler.ts`       |
+| Server-Sent Events  | Browser native         | `sse-handler.ts`             |
+| GraphQL (over HTTP) | `/api/proxy`           | `http-handler.ts`            |
+| MCP                 | `/api/mcp`             | `mcp-handler.ts`             |
 
 ---
 
@@ -522,6 +522,7 @@ Tests are colocated with source files as `*.test.ts` / `*.test.tsx`. Vitest runs
 ### Type-Check Coverage
 
 CI type-checks six independent TypeScript projects — the root `tsconfig.json` excludes `worker`, `electron/main`, and `cli`, so each needs its own invocation:
+
 1. Renderer — `tsc --noEmit` (uses `tsconfig.json`)
 2. Electron main — `tsc --noEmit -p electron/tsconfig.json`
 3. HTTP feature — `tsc --noEmit -p src/features/http/tsconfig.json`

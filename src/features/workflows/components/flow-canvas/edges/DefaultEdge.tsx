@@ -32,7 +32,7 @@ function DefaultEdgeImpl({
       markerEnd={markerEnd}
       style={{
         strokeWidth: 1.5,
-        stroke: 'hsl(var(--foreground) / var(--border-strong))',
+        stroke: 'var(--sp-line-strong)',
         ...style,
       }}
     />

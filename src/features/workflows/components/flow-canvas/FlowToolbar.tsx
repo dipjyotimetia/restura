@@ -66,7 +66,7 @@ export function FlowToolbar({ workflow, onRun, canRun }: FlowToolbarProps) {
   }, [undo, redo]);
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[hsl(var(--foreground)/var(--border-default))] bg-[hsl(var(--surface-1))]">
+    <div className="flex items-center gap-1 px-2 py-1.5 border-b border-sp-line bg-sp-surface">
       <Button
         size="sm"
         variant="ghost"
@@ -87,7 +87,7 @@ export function FlowToolbar({ workflow, onRun, canRun }: FlowToolbarProps) {
       >
         <Redo2 className="h-3.5 w-3.5" />
       </Button>
-      <div className="w-px h-4 bg-[hsl(var(--foreground)/var(--border-default))] mx-1" />
+      <div className="w-px h-4 bg-sp-line mx-1" />
       <Button
         size="sm"
         variant="ghost"
@@ -109,12 +109,7 @@ export function FlowToolbar({ workflow, onRun, canRun }: FlowToolbarProps) {
         Fit
       </Button>
       <div className="flex-1" />
-      <Button
-        size="sm"
-        className="h-7 px-3 text-xs"
-        onClick={onRun}
-        disabled={!canRun}
-      >
+      <Button size="sm" className="h-7 px-3 text-xs" onClick={onRun} disabled={!canRun}>
         <Play className="h-3.5 w-3.5 mr-1.5" />
         Run
       </Button>

@@ -19,7 +19,7 @@ const defaultPalette: Record<string, string> = {
   TCP: '#3b82f6',
   TLS: '#a78bfa',
   Request: '#22c55e',
-  Wait: '#4d9fff',
+  Wait: '#2e91ff',
   Download: '#f59e0b',
 };
 
@@ -34,12 +34,7 @@ export function makeSegments(input: Record<string, number>): WaterfallSegment[] 
     }));
 }
 
-export function WaterfallBar({
-  segments,
-  width = 220,
-  height = 8,
-  className,
-}: WaterfallBarProps) {
+export function WaterfallBar({ segments, width = 220, height = 8, className }: WaterfallBarProps) {
   const total = segments.reduce((s, x) => s + x.ms, 0);
   if (total <= 0) {
     return (
@@ -53,10 +48,7 @@ export function WaterfallBar({
     <div
       role="img"
       aria-label={`Timing waterfall: ${segments.map((s) => `${s.label} ${s.ms}ms`).join(', ')}`}
-      className={cn(
-        'inline-flex overflow-hidden rounded-full border border-sp-line',
-        className
-      )}
+      className={cn('inline-flex overflow-hidden rounded-full border border-sp-line', className)}
       style={{ width, height }}
     >
       {segments.map((s) => (

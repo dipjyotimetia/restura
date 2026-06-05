@@ -34,7 +34,7 @@ export function SseUrlBar({
   const canStream = !showStop && url.trim().length > 0;
 
   return (
-    <div className="flex items-center gap-2 px-3 h-12 border-b border-sp-line shrink-0 sp-floater rounded-none">
+    <div className="flex items-center gap-2 px-3 h-12 border-b border-sp-line shrink-0 sp-floater rounded-none focus-within:ring-1 focus-within:ring-inset focus-within:ring-sp-accent/50">
       <MethodChip method="SSE" />
       <span className="text-sp-dim font-mono text-sm select-none shrink-0" aria-hidden="true">
         ›

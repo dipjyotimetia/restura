@@ -13,7 +13,7 @@ export type ProtocolName =
   | 'SOCKETIO';
 
 const protoStyles: Record<ProtocolName, { color: string; bg: string; label: string }> = {
-  HTTP: { color: '#4d9fff', bg: 'rgba(77,159,255,0.14)', label: 'HTTP' },
+  HTTP: { color: '#2e91ff', bg: 'rgba(46,145,255,0.14)', label: 'HTTP' },
   GRPC: { color: '#22c55e', bg: 'rgba(34,197,94,0.14)', label: 'gRPC' },
   WS: { color: '#a78bfa', bg: 'rgba(167,139,250,0.16)', label: 'WS' },
   GQL: { color: '#e879a4', bg: 'rgba(232,121,164,0.16)', label: 'GQL' },

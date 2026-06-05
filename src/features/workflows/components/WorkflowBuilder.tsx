@@ -1,7 +1,14 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import type { Workflow, WorkflowRequest, Request, HttpRequest, CollectionItem, VariableExtraction } from '@/types';
+import type {
+  Workflow,
+  WorkflowRequest,
+  Request,
+  HttpRequest,
+  CollectionItem,
+  VariableExtraction,
+} from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { Button } from '@/components/ui/button';
@@ -225,8 +232,8 @@ export function WorkflowBuilder({
                       This workflow has a graph.
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      Edit it in the Graph tab. Linear (form) editing is disabled while a
-                      graph is present.
+                      Edit it in the Graph tab. Linear (form) editing is disabled while a graph is
+                      present.
                     </div>
                   </div>
                   <Button
@@ -285,11 +292,7 @@ export function WorkflowBuilder({
 
               {!formReadOnly && (
                 <div className="border-t pt-4">
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => setShowAddStep(true)}
-                  >
+                  <Button variant="outline" className="w-full" onClick={() => setShowAddStep(true)}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add Step
                   </Button>
@@ -298,7 +301,7 @@ export function WorkflowBuilder({
             </TabsContent>
 
             <TabsContent value="graph" className="flex-1 min-h-0 mt-3">
-              <div className="h-full w-full rounded-lg overflow-hidden border border-[hsl(var(--foreground)/var(--border-default))]">
+              <div className="h-full w-full rounded-lg overflow-hidden border border-sp-line">
                 <FlowEditor workflow={workflow} onRun={onRun} />
               </div>
             </TabsContent>
@@ -308,10 +311,7 @@ export function WorkflowBuilder({
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Close
             </Button>
-            <Button
-              onClick={onRun}
-              disabled={workflow.requests.length === 0}
-            >
+            <Button onClick={onRun} disabled={workflow.requests.length === 0}>
               <Play className="h-4 w-4 mr-2" />
               Run Workflow
             </Button>
@@ -364,9 +364,7 @@ export function WorkflowBuilder({
                 <Label>Step Name</Label>
                 <Input
                   value={editingStep.name}
-                  onChange={(e) =>
-                    setEditingStep({ ...editingStep, name: e.target.value })
-                  }
+                  onChange={(e) => setEditingStep({ ...editingStep, name: e.target.value })}
                   className="mt-1"
                 />
               </div>
@@ -376,9 +374,7 @@ export function WorkflowBuilder({
                 <Textarea
                   placeholder="return environment.get('token') !== undefined;"
                   value={editingStep.precondition || ''}
-                  onChange={(e) =>
-                    setEditingStep({ ...editingStep, precondition: e.target.value })
-                  }
+                  onChange={(e) => setEditingStep({ ...editingStep, precondition: e.target.value })}
                   className="mt-1 font-mono text-sm"
                   rows={3}
                 />

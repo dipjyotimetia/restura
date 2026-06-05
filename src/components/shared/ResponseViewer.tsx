@@ -379,7 +379,7 @@ function ResponseViewer() {
   // Only the total `time` is available on Response — we render a single TTFB
   // segment rather than invent DNS/TCP/TLS splits we don't have data for.
   const waterfallSegments = currentResponse
-    ? [{ label: 'Wait', ms: currentResponse.time, color: '#4d9fff', emphasised: true }]
+    ? [{ label: 'Wait', ms: currentResponse.time, color: '#2e91ff', emphasised: true }]
     : [];
 
   return (
@@ -433,9 +433,12 @@ function ResponseViewer() {
             <Floater
               radius="panel"
               elevation="float-lg"
-              className="h-full flex flex-col overflow-hidden relative z-20"
+              className="@container h-full flex flex-col overflow-hidden relative z-20"
             >
-              {/* Status row padding 12×16 / hairline bottom per handoff §5 */}
+              {/* Status row padding 12×16 / hairline bottom per handoff §5.
+                  Container-query responsive: the waterfall + the HTTP stat drop
+                  out as the PANEL (not the viewport) gets narrow, so the row
+                  stays clean at any split width or in stacked layout. */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-sp-line">
                 <StatusPill status={currentResponse.status} text={currentResponse.statusText} />
                 <Stat label="Time" value={formatTime(currentResponse.time)} />
@@ -446,7 +449,7 @@ function ResponseViewer() {
 
                 <div className="flex-1" />
 
-                <div className="flex flex-col items-end gap-1">
+                <div className="hidden @md:flex flex-col items-end gap-1">
                   <span className="sp-label">Waterfall</span>
                   <WaterfallBar segments={waterfallSegments} width={220} height={8} />
                 </div>

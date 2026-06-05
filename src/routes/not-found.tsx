@@ -11,7 +11,7 @@ export default function NotFound() {
           <span
             className="text-9xl font-mono font-bold text-primary block leading-none"
             style={{
-              textShadow: '0 0 40px hsl(var(--primary) / 0.4), 0 0 80px hsl(var(--primary) / 0.15)',
+              textShadow: '0 0 40px var(--sp-accent), 0 0 80px var(--sp-accent)',
             }}
             aria-label="Error 404"
           >

@@ -76,8 +76,8 @@ const defaultSettings: AppSettings = {
   // /api/telemetry/error (web) and Sentry (desktop). Users can disable it; the
   // flag is mirrored to the Electron main process to gate Sentry.
   telemetry: { errorsEnabled: true },
-  // Spatial Depth default accent — cobalt blue
-  accent: '#4d9fff',
+  // Spatial Depth default accent — richer cobalt
+  accent: '#2e91ff',
   // Desktop auto-updater: download in the background on the stable channel.
   autoUpdate: DEFAULT_AUTO_UPDATE_SETTINGS,
   // Semantic-assertion judge (rs.judge). Safe-by-default; see DEFAULT_JUDGE_SETTINGS.
