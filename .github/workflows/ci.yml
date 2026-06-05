@@ -230,6 +230,37 @@ jobs:
           if [ -z "$asar" ]; then echo "::error::app.asar not found"; exit 1; fi
           node scripts/verify-asar-renderer.mjs "$asar"
 
+      # Launch the actually-built app via Playwright's _electron API and run live
+      # IPC round-trips (preload surface, SSRF guard, store/keychain). This is the
+      # real boot smoke — the steps above only verify packaging. The harness runs
+      # against dist/electron + dist/web (produced by the compile/build steps
+      # above), not the packed installer. _electron uses the `electron` npm binary
+      # already installed by `npm ci`, so no `playwright install` is needed.
+      - name: Install Electron runtime libs (Linux)
+        if: runner.os == 'Linux'
+        # Electron is Chromium-based; reuse Playwright's dep installer to pull the
+        # shared libraries it needs, then ensure xvfb for a virtual display.
+        run: |
+          npx playwright install-deps chromium
+          sudo apt-get install -y xvfb
+
+      - name: Run Electron launch harness (Linux)
+        if: runner.os == 'Linux'
+        # Headless Linux has no display — xvfb-run gives Electron one.
+        run: xvfb-run -a npx playwright test -c playwright.electron.config.ts
+
+      - name: Run Electron launch harness (macOS / Windows)
+        if: runner.os != 'Linux'
+        run: npx playwright test -c playwright.electron.config.ts
+
+      - name: Upload Electron harness report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: electron-harness-report-${{ matrix.os }}
+          path: playwright-report/
+          retention-days: 14
+
   e2e:
     if: github.event_name == 'pull_request'
     # Two shards run in parallel on separate runners — each boots its own dev

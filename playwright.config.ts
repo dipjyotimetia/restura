@@ -9,6 +9,9 @@ bootstrapPrereqs();
 
 export default defineConfig({
   testDir: './e2e',
+  // The Electron launch harness has its own runner (playwright.electron.config.ts)
+  // — it must NOT run under the chromium project (no Vite webServer there).
+  testIgnore: '**/electron/**',
   globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

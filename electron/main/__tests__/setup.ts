@@ -1,52 +1,13 @@
 import { vi } from 'vitest';
 
-vi.mock('electron', () => {
-  const getPath = vi.fn((name: string) => {
-    switch (name) {
-      case 'userData':
-        return '/tmp/test-userData';
-      case 'documents':
-        return '/tmp/test-documents';
-      case 'home':
-        return '/tmp/test-home';
-      default:
-        return '/tmp/test-other';
-    }
-  });
-
-  const webContents = {
-    send: vi.fn(),
-  };
-
-  class BrowserWindowMock {
-    loadURL = vi.fn();
-    loadFile = vi.fn();
-    on = vi.fn();
-    webContents = webContents;
-  }
-
-  return {
-    app: {
-      getPath,
-      getVersion: vi.fn().mockReturnValue('1.0.0'),
-    },
-    ipcMain: {
-      handle: vi.fn(),
-      on: vi.fn(),
-      removeAllListeners: vi.fn(),
-    },
-    BrowserWindow: BrowserWindowMock,
-    dialog: {
-      showOpenDialog: vi.fn(),
-      showSaveDialog: vi.fn(),
-    },
-    shell: {
-      openExternal: vi.fn().mockResolvedValue(undefined),
-    },
-    safeStorage: {
-      isEncryptionAvailable: vi.fn(),
-      encryptString: vi.fn(),
-      decryptString: vi.fn(),
-    },
-  };
+// Side-effecting electron mock that legacy tests `import './setup'` to register
+// (sentry/logging/grpc-handler rely on this registration so the real `electron`
+// binary never loads). Delegates to the shared factory so the two mocks can't
+// drift. New tests should mock electron directly:
+//   vi.mock('electron', () => createElectronMock())  // from ./helpers/electron-mock
+vi.mock('electron', async () => {
+  // `.js` specifier satisfies nodenext's extension rule for dynamic imports;
+  // Vitest resolves it back to the .ts source at runtime.
+  const { createElectronMock } = await import('./helpers/electron-mock.js');
+  return createElectronMock();
 });
