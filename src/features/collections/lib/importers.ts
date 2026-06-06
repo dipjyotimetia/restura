@@ -12,6 +12,7 @@ export {
   isHoppscotchCollection,
   importBrunoCollection,
   summarizeWarnings,
+  validateImportedCollection,
 } from './importers/index';
 export type { BrunoSource } from './importers/index';
-export type { ImportResult, ImportWarning } from './importers/index';
+export type { ImportResult, ImportWarning, ImportValidation } from './importers/index';

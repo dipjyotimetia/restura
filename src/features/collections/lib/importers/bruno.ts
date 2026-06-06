@@ -5,13 +5,12 @@ import type {
   CollectionItem,
   Environment,
   FormDataItem,
-  HttpMethod,
   HttpRequest,
   KeyValue,
   RequestBody,
 } from '@/types';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
-import type { ImportResult, ImportWarning } from './types';
+import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
 /**
  * Source for a Bruno legacy `.bru` import.
@@ -246,9 +245,11 @@ function bruToHttpRequest(
   //   tests: string
   //   vars: { req?: [{name,value,enabled,local}], res?: [...] }
   const httpMeta = isRecord(bru.http) ? bru.http : {};
-  const method = (
-    typeof httpMeta.method === 'string' ? httpMeta.method : 'get'
-  ).toUpperCase() as HttpMethod;
+  const method = coerceHttpMethod(
+    typeof httpMeta.method === 'string' ? httpMeta.method : 'get',
+    name,
+    warnings
+  );
   const url = typeof httpMeta.url === 'string' ? httpMeta.url : '';
 
   // Detect Bruno-specific syntax in URL/body/headers and warn once per pattern.

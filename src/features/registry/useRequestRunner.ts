@@ -22,6 +22,8 @@ import type { Request, Response } from '@/types';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 
 export interface RunResult {
   response: Response;
@@ -50,15 +52,20 @@ export function useRequestRunner() {
   const abortRef = useRef<AbortController | null>(null);
 
   const run = useCallback(
-    async (
-      request: Request,
-      protocolId: string,
-      options?: RunOptions
-    ): Promise<RunResult> => {
+    async (rawRequest: Request, protocolId: string, options?: RunOptions): Promise<RunResult> => {
       const protocol = protocolRegistry.get(protocolId);
       if (!protocol) {
         throw new Error(`Unknown protocol: ${protocolId}`);
       }
+
+      // Folder/collection auth inheritance for single sends. A request whose
+      // own auth is 'none' picks up the nearest configured ancestor auth —
+      // the same rule collection runs apply via flattenRunnables. Only this
+      // runner resolves it: the collection runner and workflow executor
+      // bypass run() and thread inherited auth themselves, so there is no
+      // double application.
+      const inherited = resolveInheritedAuthFor(rawRequest);
+      const request = inherited ? withEffectiveAuth(rawRequest, inherited.auth) : rawRequest;
 
       // Cancel any prior in-flight request from this hook instance. Builders
       // that fire a second `run()` before the first resolves get the latest
@@ -97,15 +104,15 @@ export function useRequestRunner() {
         signal: ctrl.signal,
         variables,
         onScriptResult,
-        ...(options?.protocolOptions
-          ? { protocolOptions: options.protocolOptions }
-          : {}),
+        ...(options?.protocolOptions ? { protocolOptions: options.protocolOptions } : {}),
       });
       const durationMs = performance.now() - startedAt;
 
       // Persist to history. addHistoryItem honors user settings
       // (autoSaveHistory / maxHistoryItems) internally — no need to re-check.
-      useHistoryStore.getState().addHistoryItem(request, response);
+      // The RAW request is stored: inherited auth is a send-time resolution,
+      // and persisting it would copy ancestor credentials into history.
+      useHistoryStore.getState().addHistoryItem(rawRequest, response);
 
       // Clear the abort ref only if this run is still the latest one — a
       // newer run() call would have already replaced it.

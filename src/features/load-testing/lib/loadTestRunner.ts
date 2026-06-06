@@ -10,6 +10,8 @@
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
+import { v4 as uuidv4 } from 'uuid';
 import type { HttpRequest } from '@/types';
 
 export interface LoadTestOptions {
@@ -97,5 +99,61 @@ export async function runLoadTest(
     done: true,
   };
   onProgress(final);
+  pushSummaryToConsole(request, options, final);
   return final;
+}
+
+/**
+ * Mirror ONE summary entry per load-test run into the unified console.
+ * Per-request capture is deliberately not done — at load-test rates it would
+ * instantly evict the whole console window (MAX_ENTRIES) with near-identical
+ * rows; the aggregate is what's useful after the fact.
+ */
+function pushSummaryToConsole(
+  request: HttpRequest,
+  options: LoadTestOptions,
+  final: LoadProgress
+): void {
+  const ok = final.samples.filter((s) => s.ok).length;
+  const failed = final.samples.length - ok;
+  const times = final.samples
+    .map((s) => s.timeMs)
+    .filter((t) => t > 0)
+    .sort((a, b) => a - b);
+  const pct = (p: number) => times[Math.min(times.length - 1, Math.floor(times.length * p))] ?? 0;
+  const summary = {
+    url: request.url,
+    method: request.method,
+    iterations: options.iterations,
+    concurrency: options.concurrency,
+    completed: final.completed,
+    ok,
+    failed,
+    elapsedMs: Math.round(final.elapsedMs),
+    latencyMs:
+      times.length > 0
+        ? { min: times[0], p50: pct(0.5), p95: pct(0.95), max: times[times.length - 1] }
+        : null,
+  };
+  const body = JSON.stringify(summary, null, 2);
+  useConsoleStore.getState().addEntry(
+    createProtocolConsoleEntry({
+      protocol: 'http',
+      method: `LOAD ${request.method}`,
+      url: request.url,
+      body,
+      response: {
+        id: uuidv4(),
+        requestId: request.id,
+        status: failed === 0 ? 200 : 0,
+        statusText: `${ok}/${final.samples.length} ok`,
+        headers: {},
+        body,
+        size: new TextEncoder().encode(body).length,
+        time: Math.round(final.elapsedMs),
+        timestamp: Date.now(),
+      },
+      extra: { runLabel: `Load test: ${request.name || request.url}` },
+    })
+  );
 }

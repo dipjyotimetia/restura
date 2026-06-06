@@ -250,6 +250,15 @@ export const environmentSchema = z.object({
   variables: z.array(keyValueSchema),
 });
 
+// Contract Spec Source Schema (pointer only — spec text loads on demand)
+export const contractSpecSourceSchema = z.object({
+  kind: z.enum(['openapi', 'asyncapi']).optional(),
+  source: z.enum(['url', 'inline', 'file']),
+  url: z.string().optional(),
+  inline: z.string().optional(),
+  filePath: z.string().optional(),
+});
+
 // Collection Schema
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- z.ZodType<any> is required for recursive Zod schemas
 export const collectionSchema: z.ZodType<any> = z.lazy(() =>
@@ -259,6 +268,8 @@ export const collectionSchema: z.ZodType<any> = z.lazy(() =>
     description: z.string().optional(),
     items: z.array(collectionItemSchema),
     auth: authConfigSchema.optional(),
+    variables: z.array(keyValueSchema).optional(),
+    contractSpec: contractSpecSourceSchema.optional(),
     preRequestScript: z.string().optional(),
     testScript: z.string().optional(),
   })
@@ -281,6 +292,8 @@ export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
       ])
       .optional(),
     items: z.array(collectionItemSchema).optional(),
+    auth: authConfigSchema.optional(),
+    contractSpec: contractSpecSourceSchema.optional(),
     preRequestScript: z.string().optional(),
     testScript: z.string().optional(),
   })

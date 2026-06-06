@@ -34,6 +34,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
+import { v4 as uuidv4 } from 'uuid';
+import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
 
 type ListTab = 'tools' | 'resources' | 'prompts' | 'log';
 
@@ -122,6 +124,34 @@ export default function McpRequestBuilder() {
           }),
       durationMs: res.durationMs,
     });
+
+    // Mirror into the unified console so interactive MCP calls appear in the
+    // Network tab (previously only collection runs landed there). JSON-RPC
+    // has no HTTP status of its own — synthesize 200/0 from the call outcome.
+    const bodyJson = JSON.stringify(
+      res.ok ? res.result : { error: res.error, jsonRpcError: res.jsonRpcError },
+      null,
+      2
+    );
+    useConsoleStore.getState().addEntry(
+      createProtocolConsoleEntry({
+        protocol: 'mcp',
+        method,
+        url: active.url,
+        ...(params !== undefined ? { body: JSON.stringify(params, null, 2) } : {}),
+        response: {
+          id: uuidv4(),
+          requestId: active.id,
+          status: res.ok ? 200 : 0,
+          statusText: res.ok ? 'OK' : (res.error ?? 'Error'),
+          headers: {},
+          body: bodyJson ?? '',
+          size: bodyJson ? new TextEncoder().encode(bodyJson).length : 0,
+          time: res.durationMs,
+          timestamp: Date.now(),
+        },
+      })
+    );
   };
 
   const handleConnect = async () => {

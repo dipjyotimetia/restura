@@ -14,6 +14,8 @@ import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { toast } from 'sonner';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
+import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { unwrapSecret } from '@/lib/shared/secretRef';
 
 /**
@@ -151,19 +153,25 @@ export function useHttpRequestPage() {
           headers[h.key] = resolveVariables(h.value);
         });
 
+      // Folder/collection auth inheritance: a request with no auth of its own
+      // picks up the nearest configured ancestor auth — same rule the
+      // collection runner applies. Resolved at send time, never persisted.
+      const inherited = resolveInheritedAuthFor(httpRequest);
+      const effectiveAuth = resolveEffectiveAuth(httpRequest.auth, inherited?.auth);
+
       // Apply auth headers (handles all auth types including AWS SigV4).
       // SecretRef handle: renderer cannot resolve; Electron HTTP handler
       // applies main-side, web fails fast — but this curl-preview path is
       // best-effort and just renders without the Authorization header.
       const applied = await applyAuthHeaders(
-        httpRequest.auth,
+        effectiveAuth,
         headers,
         resolveVariables(httpRequest.url),
         httpRequest.method,
         httpRequest.body.type !== 'none' ? httpRequest.body.raw : undefined
       );
       headers = applied.headers;
-      params = applyApiKeyQueryParam(httpRequest.auth, params);
+      params = applyApiKeyQueryParam(effectiveAuth, params);
 
       const effectiveSettings = getEffectiveSettings();
       let proxyConfig: AxiosProxyConfig | false = false;

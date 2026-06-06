@@ -11,7 +11,7 @@ A collection on disk is either bundled (single file) or directory (multi-file).
 ### Bundled — convenient for sharing one file
 
 ```yaml
-opencollection: "1.0.0"
+opencollection: '1.0.0'
 info:
   name: My API
 bundled: true
@@ -48,7 +48,7 @@ extensions:
     - info: { type: sse, name: User Events }
       sse:
         url: https://example.com/events
-        eventFilter: ["user.created", "user.updated"]
+        eventFilter: ['user.created', 'user.updated']
   x-restura-mcp:
     - info: { type: mcp, name: Inspector }
       mcp:
@@ -62,10 +62,12 @@ These extensions are **roundtrip-stable**: tools that don't understand them igno
 
 OpenCollection v1.0.0 includes more authentication methods than Restura currently runs at the wire (OAuth1, NTLM, WSSE arrive in Phase 4). Importers and exporters preserve all of them so a Restura-imported file can roundtrip back to Bruno without losing auth configuration:
 
-| OpenCollection auth | Restura runtime support |
-|---|---|
-| `none`, `basic`, `bearer`, `apikey`, `digest`, `oauth2`, `awsv4` | ✅ Wired |
-| `oauth1`, `ntlm`, `wsse` | Round-trips, runs in Phase 4 |
+| OpenCollection auth                                              | Restura runtime support      |
+| ---------------------------------------------------------------- | ---------------------------- |
+| `none`, `basic`, `bearer`, `apikey`, `digest`, `oauth2`, `awsv4` | ✅ Wired                     |
+| `oauth1`, `ntlm`, `wsse`                                         | Round-trips, runs in Phase 4 |
+
+Collection- and folder-level **default auth** round-trips through OC's native `request.auth` (RequestDefaults) at the document root and on folder items — it imports into Restura's collection/folder auth (where nearest-ancestor inheritance applies) and exports back to the same native fields, with no vendor extension.
 
 ## Importing & exporting
 
@@ -78,9 +80,11 @@ Directory-layout import/export through a native folder picker lands in **Phase 1
 
 The importer attaches the original parsed OpenCollection document to the in-memory collection as a non-typed `_oc` passthrough bag, and the directory writer (`saveCollectionToDir`) uses it to emit the cached document verbatim when nothing has been edited.
 
-The bundled-export path used by the **Export → OpenCollection (YAML)** menu always re-serializes through `internalToOC` + the YAML emitter, so its output is *semantically* identical to the input but may differ in minor stylistic ways (key ordering inside an object, whitespace inside multi-line strings, removal of explicitly-empty arrays). For repo-friendly diffs prefer the directory layout and the Phase 1 directory-export workflow once it ships.
+The bundled-export path used by the **Export → OpenCollection (YAML)** menu always re-serializes through `internalToOC` + the YAML emitter, so its output is _semantically_ identical to the input but may differ in minor stylistic ways (key ordering inside an object, whitespace inside multi-line strings, removal of explicitly-empty arrays). For repo-friendly diffs prefer the directory layout and the Phase 1 directory-export workflow once it ships.
 
-If any item has been modified, both paths fall back to rebuilding from the internal model, which produces clean OpenCollection YAML.
+If any item has been modified, both paths fall back to rebuilding from the internal model, which produces clean OpenCollection YAML. Collection- and folder-level auth edits count as modifications: the exporter compares the cached document's auth against the live internal auth (in flattened-secret space) and defeats the verbatim shortcut when they differ, so a stale `_oc` bag never re-emits credentials you've since changed. Redacted exports drop the collection-level `_oc` bag and every auth-bearing item bag and rebuild those tiers — a verbatim emit would leak the original (pre-redaction) plaintext. Auth-free item bags survive so GraphQL/WebSocket shapes keep their fidelity.
+
+One caveat on the staleness gate: auth types Restura doesn't run yet (OAuth1, NTLM, WSSE) have no internal representation, so the gate can't see edits to them — in particular, clearing such an auth in-app and then exporting **with secrets included** re-emits the original block from the cached document. Redacted exports are unaffected (that tier always rebuilds). This resolves itself when the types are wired in Phase 4.
 
 ## Verifying the schema
 

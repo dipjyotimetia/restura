@@ -14,7 +14,7 @@ import type {
 import { v4 as uuidv4 } from 'uuid';
 import { assertBoundedDocument } from '@/lib/opencollection';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
-import type { ImportResult, ImportWarning } from './types';
+import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
 /**
  * Import an Insomnia export and convert to Restura's internal Collection +
@@ -243,7 +243,7 @@ function convertRequest(raw: InsomniaRequestLike, warnings: ImportWarning[]): Ht
     id: uuidv4(),
     name,
     type: 'http',
-    method: (raw.method as HttpRequest['method']) || 'GET',
+    method: coerceHttpMethod(raw.method, name, warnings),
     url: raw.url || '',
     headers: convertInsomniaHeaders(raw.headers || []),
     params: convertInsomniaParams(raw.parameters || []),
@@ -348,6 +348,10 @@ function convertInsomniaAuth(
   if (!auth || !auth.type) return { type: 'none' };
 
   switch (auth.type) {
+    case 'none':
+      // Explicit no-auth (our own exporter and some Insomnia versions emit
+      // this) — not an unsupported scheme, so no warning.
+      return { type: 'none' };
     case 'basic':
       return {
         type: 'basic',

@@ -13,6 +13,7 @@ import type {
   ReflectionServiceInfo,
 } from '@/types';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import {
   getMethodTypeDescription,
   GrpcClientError,
@@ -31,6 +32,7 @@ import {
 } from '@/features/grpc/lib/grpcValidation';
 import { isElectron } from '@/lib/shared/platform';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
+import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
 import {
   generateRequestTemplate,
   generateProtoFromReflection,
@@ -418,9 +420,35 @@ function GrpcRequestBuilder() {
       }
 
       setCurrentResponse(grpcResponse);
-      // The runner already pushed scriptResult into the active tab via
-      // ctx.onScriptResult — no additional setScriptResult call needed.
-      void scriptResult;
+
+      // Mirror the final attempt into the unified console (interactive sends
+      // previously only appeared when run via a collection). Retried attempts
+      // are intentionally not mirrored — one entry per user action.
+      const consoleLogs = [
+        ...(scriptResult?.preRequest?.logs ?? []),
+        ...(scriptResult?.test?.logs ?? []),
+      ];
+      const consoleTests = (scriptResult?.test?.tests ?? []).map((t) => ({
+        name: t.name,
+        passed: t.passed,
+        ...(t.error ? { error: t.error } : {}),
+      }));
+      const sentMetadata: Record<string, string> = {};
+      for (const m of grpcRequest.metadata) {
+        if (m.enabled && m.key) sentMetadata[m.key] = m.value;
+      }
+      useConsoleStore.getState().addEntry(
+        createProtocolConsoleEntry({
+          protocol: 'grpc',
+          method: `${grpcRequest.service}/${grpcRequest.method}`,
+          url: grpcRequest.url,
+          headers: sentMetadata,
+          ...(grpcRequest.message ? { body: grpcRequest.message } : {}),
+          response: grpcResponse,
+          ...(consoleLogs.length > 0 && { scriptLogs: consoleLogs }),
+          ...(consoleTests.length > 0 && { tests: consoleTests }),
+        })
+      );
 
       if (grpcResponse.grpcStatus === 0) {
         toast.success('Request completed', {
@@ -634,6 +662,7 @@ function GrpcRequestBuilder() {
                 <p className="text-sp-11 text-sp-muted font-mono">
                   Authentication will be automatically converted to gRPC metadata.
                 </p>
+                <InheritedAuthHint request={grpcRequest} />
                 <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
               </div>
             )}

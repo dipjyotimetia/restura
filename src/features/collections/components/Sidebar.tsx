@@ -13,13 +13,6 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
 import { useShallow } from 'zustand/react/shallow';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
@@ -43,11 +36,12 @@ import {
   Folder,
   FilePlus,
   Copy,
+  Settings2,
   Workflow as WorkflowIcon,
   Activity,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import type { ActivePanel, AuthConfig, Collection, CollectionItem, Workflow } from '@/types';
+import type { ActivePanel, Collection, CollectionItem, Workflow } from '@/types';
 import {
   exportToPostman,
   exportToInsomnia,
@@ -55,20 +49,16 @@ import {
   downloadJSON,
   downloadText,
 } from '@/features/collections/lib/exporters';
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import AuthConfigComponent from '@/features/auth/components/AuthConfig';
+  redactCollectionSecrets,
+  countCollectionInlineSecrets,
+} from '@/lib/shared/collection-secret-redaction';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { cn } from '@/lib/shared/utils';
 import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
 import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
 import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
-import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
+import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
@@ -79,7 +69,21 @@ import DocsViewer from './DocsViewer';
 import GitDialog from '@/components/shared/GitDialog';
 import RunsPanel from '@/components/shared/RunsPanel';
 import { CollectionRunnerDialog, type RunnerScope } from './CollectionRunnerDialog';
-import { makeFolderItem, makeRequestItem, duplicateRequestItem } from '../lib/itemFactory';
+import { CollectionSettingsDialog, type SettingsTarget } from './CollectionSettingsDialog';
+import { ExportSecretsDialog } from './ExportSecretsDialog';
+import {
+  CollectionTreeItems,
+  handleTreeKeyDown,
+  selectionKey,
+  type TreeActions,
+  type TreeState,
+} from './CollectionTree';
+import {
+  makeFolderItem,
+  makeRequestItem,
+  duplicateRequestItem,
+  duplicateCollection,
+} from '../lib/itemFactory';
 import { buildMockRoutes } from '../lib/mockRoutes';
 import { useMockStore } from '@/store/useMockStore';
 import { getElectronAPI } from '@/lib/shared/platform';
@@ -96,6 +100,8 @@ interface SidebarProps {
 }
 
 const HISTORY_PAGE_SIZE = 20;
+
+type ExportFormat = 'postman' | 'insomnia' | 'opencollection' | 'bruno';
 
 function Sidebar({ onClose, activePanel }: SidebarProps) {
   const {
@@ -128,7 +134,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const favorites = useHistoryStore(useShallow(selectFavoriteIds));
   const totalHistoryCount = useHistoryStore(selectHistoryCount);
 
-  const tabs = useRequestStore((s) => s.tabs);
+  // Tabs are read at event time via getState() (see handleOpenCollectionItem)
+  // — subscribing here would re-render the whole sidebar on every tab change.
   const openTab = useRequestStore((s) => s.openTab);
   const switchTab = useRequestStore((s) => s.switchTab);
   const [activeTab, setActiveTab] = useState<string>(activePanel ?? 'collections');
@@ -141,13 +148,18 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   }, [activePanel]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<string | null>(null);
-  const [settingsDialogCollection, setSettingsDialogCollection] = useState<Collection | null>(null);
+  const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(null);
   const [docsCollection, setDocsCollection] = useState<Collection | null>(null);
   const [gitTarget, setGitTarget] = useState<{
     collection: Collection;
     directoryPath: string;
   } | null>(null);
-  const [settingsDraftAuth, setSettingsDraftAuth] = useState<AuthConfig>({ type: 'none' });
+  // Export held pending the include-vs-redact secrets choice.
+  const [exportPrompt, setExportPrompt] = useState<{
+    collection: Collection;
+    format: ExportFormat;
+    secretCount: number;
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(HISTORY_PAGE_SIZE);
@@ -174,14 +186,23 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   // Collection / folder runner dialog scope (null = closed).
   const [runnerScope, setRunnerScope] = useState<RunnerScope | null>(null);
 
-  // Item-delete confirmation (folders + requests inside a collection).
-  const [itemToDelete, setItemToDelete] = useState<{ collectionId: string; itemId: string } | null>(
-    null
-  );
+  // Item-delete confirmation — one or many (multi-select bulk delete).
+  const [itemToDelete, setItemToDelete] = useState<{
+    collectionId: string;
+    itemIds: string[];
+  } | null>(null);
 
   // Drag-and-drop: the item being dragged + the row currently hovered (for highlight).
   const dragItemRef = useRef<{ collectionId: string; itemId: string } | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  // Collapsed folder ids (session-local; collections default to expanded).
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+
+  // Multi-select: `${collectionId}:${itemId}` keys, toggled by cmd/ctrl-click.
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const selectedKeysRef = useRef(selectedKeys);
+  selectedKeysRef.current = selectedKeys;
 
   // File collection state
   const conflicts = useFileCollectionStore((state) => state.conflicts);
@@ -259,43 +280,62 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     addCollection(newCollection);
   }, [collections, createNewCollection, addCollection]);
 
+  const performExport = useCallback(async (collection: Collection, format: ExportFormat) => {
+    if (format === 'postman') {
+      const postmanData = exportToPostman(collection);
+      downloadJSON(postmanData, `${collection.name}.postman_collection.json`);
+    } else if (format === 'insomnia') {
+      const insomniaData = exportToInsomnia(collection);
+      downloadJSON(insomniaData, `${collection.name}.insomnia.json`);
+    } else if (format === 'bruno') {
+      // Lazy import — keeps @usebruno/lang out of the main bundle.
+      const { exportBrunoCollection } = await import('../lib/bruno-exporter');
+      const exported = await exportBrunoCollection(collection);
+      if (exported.kind !== 'directory') return;
+      // Package the directory as a single archive JSON so a web user can
+      // download it; an Electron-aware "save to folder" UX lands with the
+      // git-native collections milestone.
+      downloadJSON(
+        { format: 'bruno-archive/v1', files: exported.entries },
+        `${collection.name}.bruno-archive.json`
+      );
+      // Surface lossy-export warnings so users discover non-HTTP downgrades
+      // at export time rather than later when Bruno fails to run the request.
+      if (exported.warnings.length > 0) {
+        const first = exported.warnings[0]!;
+        const extra =
+          exported.warnings.length > 1 ? ` (+${exported.warnings.length - 1} more)` : '';
+        toast.warning(`Bruno export: ${first.message}${extra}`);
+      }
+    } else {
+      const yamlText = exportToOpenCollection(collection);
+      downloadText(yamlText, `${collection.name}.opencollection.yaml`, 'application/x-yaml');
+    }
+  }, []);
+
   const handleExportCollection = useCallback(
-    async (collectionId: string, format: 'postman' | 'insomnia' | 'opencollection' | 'bruno') => {
+    async (collectionId: string, format: ExportFormat) => {
       const collection = collections.find((c) => c.id === collectionId);
       if (!collection) return;
-
-      if (format === 'postman') {
-        const postmanData = exportToPostman(collection);
-        downloadJSON(postmanData, `${collection.name}.postman_collection.json`);
-      } else if (format === 'insomnia') {
-        const insomniaData = exportToInsomnia(collection);
-        downloadJSON(insomniaData, `${collection.name}.insomnia.json`);
-      } else if (format === 'bruno') {
-        // Lazy import — keeps @usebruno/lang out of the main bundle.
-        const { exportBrunoCollection } = await import('../lib/bruno-exporter');
-        const exported = await exportBrunoCollection(collection);
-        if (exported.kind !== 'directory') return;
-        // Package the directory as a single archive JSON so a web user can
-        // download it; an Electron-aware "save to folder" UX lands with the
-        // git-native collections milestone.
-        downloadJSON(
-          { format: 'bruno-archive/v1', files: exported.entries },
-          `${collection.name}.bruno-archive.json`
-        );
-        // Surface lossy-export warnings so users discover non-HTTP downgrades
-        // at export time rather than later when Bruno fails to run the request.
-        if (exported.warnings.length > 0) {
-          const first = exported.warnings[0]!;
-          const extra =
-            exported.warnings.length > 1 ? ` (+${exported.warnings.length - 1} more)` : '';
-          toast.warning(`Bruno export: ${first.message}${extra}`);
-        }
-      } else {
-        const yamlText = exportToOpenCollection(collection);
-        downloadText(yamlText, `${collection.name}.opencollection.yaml`, 'application/x-yaml');
+      // Plaintext secrets need an explicit include-vs-redact choice before
+      // they land in a shareable file. Handle-based secrets are always safe.
+      const secretCount = countCollectionInlineSecrets(collection);
+      if (secretCount > 0) {
+        setExportPrompt({ collection, format, secretCount });
+        return;
       }
+      await performExport(collection, format);
     },
-    [collections]
+    [collections, performExport]
+  );
+
+  const handleDuplicateCollection = useCallback(
+    (collectionId: string) => {
+      const collection = collections.find((c) => c.id === collectionId);
+      if (!collection) return;
+      addCollection(duplicateCollection(collection));
+    },
+    [collections, addCollection]
   );
 
   const mockStatus = useMockStore((s) => s.status);
@@ -415,27 +455,29 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       if (!item) return;
       // Focus an existing tab linked to this saved request, otherwise open a new tab.
       // History items aren't saved requests themselves, so we always open a fresh tab.
-      const existing = tabs.find((t) => t.savedRequestId === item.request.id);
+      const existing = useRequestStore
+        .getState()
+        .tabs.find((t) => t.savedRequestId === item.request.id);
       if (existing) {
         switchTab(existing.id);
         return;
       }
       openTab(item.request, { savedRequestId: item.request.id });
     },
-    [getHistoryById, tabs, openTab, switchTab]
+    [getHistoryById, openTab, switchTab]
   );
 
   const handleOpenCollectionItem = useCallback(
     (item: CollectionItem) => {
       if (item.type !== 'request' || !item.request) return;
-      const existing = tabs.find((t) => t.savedRequestId === item.id);
+      const existing = useRequestStore.getState().tabs.find((t) => t.savedRequestId === item.id);
       if (existing) {
         switchTab(existing.id);
         return;
       }
       openTab(item.request, { savedRequestId: item.id });
     },
-    [tabs, openTab, switchTab]
+    [openTab, switchTab]
   );
 
   const handleAddFolder = useCallback(
@@ -466,10 +508,47 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
   const handleConfirmItemDelete = useCallback(() => {
     if (itemToDelete) {
-      removeCollectionItem(itemToDelete.collectionId, itemToDelete.itemId);
+      for (const itemId of itemToDelete.itemIds) {
+        removeCollectionItem(itemToDelete.collectionId, itemId);
+      }
+      setSelectedKeys((prev) => (prev.size === 0 ? prev : new Set()));
       setItemToDelete(null);
     }
   }, [itemToDelete, removeCollectionItem]);
+
+  // --- Tree state: collapse + multi-select -----------------------------------
+  const toggleCollapse = useCallback((folderId: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }, []);
+
+  const toggleSelect = useCallback((collectionId: string, itemId: string) => {
+    setSelectedKeys((prev) => {
+      const key = selectionKey(collectionId, itemId);
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedKeys((prev) => (prev.size === 0 ? prev : new Set()));
+  }, []);
+
+  const handleDeleteSelected = useCallback((collectionId: string) => {
+    // Read via ref so this callback (and the actions bundle) stays stable
+    // across selection changes.
+    const prefix = `${collectionId}:`;
+    const itemIds = [...selectedKeysRef.current]
+      .filter((k) => k.startsWith(prefix))
+      .map((k) => k.slice(prefix.length));
+    if (itemIds.length > 0) setItemToDelete({ collectionId, itemIds });
+  }, []);
 
   // --- Drag and drop ---------------------------------------------------------
   const handleItemDragStart = useCallback(
@@ -524,215 +603,62 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     [moveCollectionItem]
   );
 
-  const renderCollectionItems = useCallback(
-    (items: CollectionItem[], collectionId: string, depth = 0) =>
-      items.map((item) => {
-        const indent = Math.min(depth, 3) * 10;
-        const isRenamingThis = item.id === renamingItemId;
-        const isDropTarget = item.id === dropTargetId;
-
-        if (item.type === 'folder') {
-          return (
-            <div key={item.id} className="space-y-1">
-              <ContextMenu>
-                <ContextMenuTrigger asChild>
-                  <div
-                    draggable={!isRenamingThis}
-                    onDragStart={(e) => handleItemDragStart(e, collectionId, item.id)}
-                    onDragEnd={handleItemDragEnd}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      // Stop the bubble so the collection root strip's
-                      // onDragOver doesn't overwrite this row's drop highlight.
-                      e.stopPropagation();
-                      e.dataTransfer.dropEffect = 'move';
-                      if (dropTargetId !== item.id) setDropTargetId(item.id);
-                    }}
-                    onDragLeave={() => setDropTargetId((id) => (id === item.id ? null : id))}
-                    onDrop={(e) => handleDropIntoFolder(e, collectionId, item.id)}
-                    className={cn(
-                      'group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent cursor-grab active:cursor-grabbing',
-                      isDropTarget && 'ring-1 ring-primary bg-primary/5'
-                    )}
-                    style={{ marginLeft: indent }}
-                  >
-                    <FolderPlus className="h-3 w-3 shrink-0 text-primary/60" />
-                    {isRenamingThis ? (
-                      <input
-                        ref={itemRenameRef}
-                        value={itemRenameValue}
-                        onChange={(e) => setItemRenameValue(e.target.value)}
-                        onBlur={() => commitItemRename(collectionId, item.id)}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                          if (e.key === 'Enter') commitItemRename(collectionId, item.id);
-                          if (e.key === 'Escape') setRenamingItemId(null);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex-1 bg-transparent border-b border-primary outline-none text-[11px] text-foreground"
-                        aria-label="Rename folder"
-                      />
-                    ) : (
-                      <span className="truncate">{item.name}</span>
-                    )}
-                  </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem
-                    className="text-xs"
-                    onClick={() => setRunnerScope({ collectionId, folderId: item.id })}
-                  >
-                    <Play className="mr-2 h-3.5 w-3.5" />
-                    Run folder
-                  </ContextMenuItem>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem
-                    className="text-xs"
-                    onClick={() => handleAddRequest(collectionId, item.id)}
-                  >
-                    <FilePlus className="mr-2 h-3.5 w-3.5" />
-                    New request
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    className="text-xs"
-                    onClick={() => handleAddFolder(collectionId, item.id)}
-                  >
-                    <FolderPlus className="mr-2 h-3.5 w-3.5" />
-                    New subfolder
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    className="text-xs"
-                    onClick={() => startItemRename(item.id, item.name)}
-                  >
-                    <Pencil className="mr-2 h-3.5 w-3.5" />
-                    Rename
-                  </ContextMenuItem>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem
-                    className="text-destructive focus:text-destructive text-xs"
-                    onClick={() => setItemToDelete({ collectionId, itemId: item.id })}
-                  >
-                    <Trash2 className="mr-2 h-3.5 w-3.5" />
-                    Delete
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-              {item.items &&
-                item.items.length > 0 &&
-                renderCollectionItems(item.items, collectionId, depth + 1)}
-            </div>
-          );
-        }
-
-        const request = item.request;
-        const label =
-          request?.type === 'http'
-            ? request.method
-            : (PROTOCOL_LABELS[request?.type ?? ''] ?? 'REQ');
-        const color =
-          request?.type === 'http'
-            ? METHOD_COLORS[request.method]
-            : PROTOCOL_COLORS[request?.type ?? ''];
-
-        return (
-          <ContextMenu key={item.id}>
-            <ContextMenuTrigger asChild>
-              <button
-                type="button"
-                draggable={!isRenamingThis}
-                onDragStart={(e) => handleItemDragStart(e, collectionId, item.id)}
-                onDragEnd={handleItemDragEnd}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  // Stop the bubble so the collection root strip's onDragOver
-                  // doesn't overwrite this row's drop highlight.
-                  e.stopPropagation();
-                  e.dataTransfer.dropEffect = 'move';
-                  if (dropTargetId !== item.id) setDropTargetId(item.id);
-                }}
-                onDragLeave={() => setDropTargetId((id) => (id === item.id ? null : id))}
-                onDrop={(e) => handleDropBeforeItem(e, collectionId, item.id)}
-                className={cn(
-                  'flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-grab active:cursor-grabbing',
-                  isDropTarget && 'border-t-2 border-primary'
-                )}
-                style={{ marginLeft: indent }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (!isRenamingThis) handleOpenCollectionItem(item);
-                }}
-              >
-                <span
-                  className={cn(
-                    'shrink-0 rounded px-1 py-0.5 text-[9px] font-mono font-medium leading-none',
-                    color ?? 'bg-muted text-muted-foreground border border-border'
-                  )}
-                >
-                  {label}
-                </span>
-                {isRenamingThis ? (
-                  <input
-                    ref={itemRenameRef}
-                    value={itemRenameValue}
-                    onChange={(e) => setItemRenameValue(e.target.value)}
-                    onBlur={() => commitItemRename(collectionId, item.id)}
-                    onKeyDown={(e) => {
-                      e.stopPropagation();
-                      if (e.key === 'Enter') commitItemRename(collectionId, item.id);
-                      if (e.key === 'Escape') setRenamingItemId(null);
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex-1 bg-transparent border-b border-primary outline-none text-[11px] text-foreground"
-                    aria-label="Rename request"
-                  />
-                ) : (
-                  <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
-                )}
-              </button>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem
-                className="text-xs"
-                onClick={() => startItemRename(item.id, item.name)}
-              >
-                <Pencil className="mr-2 h-3.5 w-3.5" />
-                Rename
-              </ContextMenuItem>
-              <ContextMenuItem
-                className="text-xs"
-                onClick={() => handleDuplicateItem(collectionId, item)}
-              >
-                <Copy className="mr-2 h-3.5 w-3.5" />
-                Duplicate
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                className="text-destructive focus:text-destructive text-xs"
-                onClick={() => setItemToDelete({ collectionId, itemId: item.id })}
-              >
-                <Trash2 className="mr-2 h-3.5 w-3.5" />
-                Delete
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-        );
-      }),
+  // Stable callback bundle for the memoized tree rows. Everything in here is
+  // a stable useCallback (selection reads go through refs), so the bundle's
+  // identity never changes and row memoization holds.
+  const treeActions: TreeActions = useMemo(
+    () => ({
+      openItem: handleOpenCollectionItem,
+      addRequest: handleAddRequest,
+      addFolder: handleAddFolder,
+      duplicateItem: handleDuplicateItem,
+      deleteItem: (collectionId: string, itemId: string) =>
+        setItemToDelete({ collectionId, itemIds: [itemId] }),
+      deleteSelected: handleDeleteSelected,
+      runFolder: (collectionId: string, folderId: string) =>
+        setRunnerScope({ collectionId, folderId }),
+      openFolderSettings: (collectionId: string, item: CollectionItem) =>
+        setSettingsTarget({ scope: 'folder', collectionId, item }),
+      startRename: startItemRename,
+      commitRename: commitItemRename,
+      cancelRename: () => setRenamingItemId(null),
+      setRenameValue: setItemRenameValue,
+      renameInputRef: itemRenameRef,
+      toggleCollapse,
+      toggleSelect,
+      clearSelection,
+      dragStart: handleItemDragStart,
+      dragEnd: handleItemDragEnd,
+      setDropTarget: setDropTargetId,
+      dropIntoFolder: handleDropIntoFolder,
+      dropBeforeItem: handleDropBeforeItem,
+    }),
     [
       handleOpenCollectionItem,
-      renamingItemId,
-      itemRenameValue,
-      commitItemRename,
+      handleAddRequest,
+      handleAddFolder,
+      handleDuplicateItem,
+      handleDeleteSelected,
       startItemRename,
-      dropTargetId,
+      commitItemRename,
+      toggleCollapse,
+      toggleSelect,
+      clearSelection,
       handleItemDragStart,
       handleItemDragEnd,
       handleDropIntoFolder,
       handleDropBeforeItem,
-      handleAddFolder,
-      handleAddRequest,
-      handleDuplicateItem,
     ]
   );
+
+  // Volatile tree state, fanned out to per-row booleans inside the tree.
+  const treeState: TreeState = {
+    renamingItemId,
+    renameValue: itemRenameValue,
+    dropTargetId,
+    collapsedFolders,
+    selectedKeys,
+  };
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -934,6 +860,13 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                               Rename
                             </DropdownMenuItem>
                             <DropdownMenuItem
+                              onClick={() => handleDuplicateCollection(collection.id)}
+                              className="text-xs"
+                            >
+                              <Copy className="mr-2 h-3.5 w-3.5" />
+                              Duplicate
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
                               onClick={() => setDocsCollection(collection)}
                               className="text-xs"
                             >
@@ -1038,12 +971,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                             )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              onClick={() => {
-                                setSettingsDraftAuth(collection.auth ?? { type: 'none' });
-                                setSettingsDialogCollection(collection);
-                              }}
+                              onClick={() => setSettingsTarget({ scope: 'collection', collection })}
                               className="text-xs"
                             >
+                              <Settings2 className="mr-2 h-3.5 w-3.5" />
                               Collection settings
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
@@ -1073,10 +1004,16 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                           setDropTargetId((id) => (id === `root:${collection.id}` ? null : id))
                         }
                         onDrop={(e) => handleDropToRoot(e, collection.id)}
+                        onKeyDown={(e) => handleTreeKeyDown(e, treeActions, collapsedFolders)}
                       >
                         {collection.items.length > 0 ? (
                           <div className="space-y-0.5">
-                            {renderCollectionItems(collection.items, collection.id)}
+                            <CollectionTreeItems
+                              collectionId={collection.id}
+                              items={collection.items}
+                              state={treeState}
+                              actions={treeActions}
+                            />
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 py-1">
@@ -1323,8 +1260,16 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
           onOpenChange={(open) => {
             if (!open) setItemToDelete(null);
           }}
-          title="Delete item"
-          description="Delete this item and everything inside it? This action cannot be undone."
+          title={
+            itemToDelete && itemToDelete.itemIds.length > 1
+              ? `Delete ${itemToDelete.itemIds.length} items`
+              : 'Delete item'
+          }
+          description={
+            itemToDelete && itemToDelete.itemIds.length > 1
+              ? `Delete ${itemToDelete.itemIds.length} selected items and everything inside them? This action cannot be undone.`
+              : 'Delete this item and everything inside it? This action cannot be undone.'
+          }
           confirmText="Delete"
           cancelText="Cancel"
           onConfirm={handleConfirmItemDelete}
@@ -1334,39 +1279,22 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
       <CollectionRunnerDialog scope={runnerScope} onClose={() => setRunnerScope(null)} />
 
-      <Dialog
-        open={!!settingsDialogCollection}
-        onOpenChange={(open) => {
-          if (!open) setSettingsDialogCollection(null);
+      <CollectionSettingsDialog target={settingsTarget} onClose={() => setSettingsTarget(null)} />
+
+      <ExportSecretsDialog
+        open={exportPrompt !== null}
+        secretCount={exportPrompt?.secretCount ?? 0}
+        onCancel={() => setExportPrompt(null)}
+        onExport={(includeSecrets) => {
+          if (!exportPrompt) return;
+          const { collection, format } = exportPrompt;
+          setExportPrompt(null);
+          void performExport(
+            includeSecrets ? collection : redactCollectionSecrets(collection),
+            format
+          );
         }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Collection settings — {settingsDialogCollection?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Default Auth</label>
-              <AuthConfigComponent auth={settingsDraftAuth} onChange={setSettingsDraftAuth} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setSettingsDialogCollection(null)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (settingsDialogCollection) {
-                  updateCollection(settingsDialogCollection.id, { auth: settingsDraftAuth });
-                }
-                setSettingsDialogCollection(null);
-              }}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      />
 
       <DocsViewer collection={docsCollection} onClose={() => setDocsCollection(null)} />
 

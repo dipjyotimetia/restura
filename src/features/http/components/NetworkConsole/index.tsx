@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useMemo, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -6,7 +7,18 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Cable, Download, HardDrive, Network, Terminal, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  Cable,
+  Download,
+  HardDrive,
+  Network,
+  Pause,
+  Play,
+  Terminal,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -36,7 +48,9 @@ const CLEAR_LABELS: Record<ConsoleTabId, string> = {
 // Disk tab is Electron-only — lazy so the web bundle never imports it.
 const DiskTab = lazyComponent(
   () => import('./DiskTab'),
-  <div className="h-full flex items-center justify-center text-muted-foreground text-xs">Loading…</div>
+  <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
+    Loading…
+  </div>
 );
 
 // Vertical space reserved for app chrome (top bar, tab strip, status bar) plus
@@ -57,14 +71,23 @@ interface NetworkConsoleProps {
   onClearScripts?: () => void;
 }
 
-export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts }: NetworkConsoleProps) {
+export default function NetworkConsole({
+  scriptLogs = [],
+  tests,
+  onClearScripts,
+}: NetworkConsoleProps) {
+  // Scoped subscriptions — an unscoped useConsoleStore() here would re-render
+  // the whole panel (header, toolbar, resize handle, both tab portals) on
+  // every streamed frame. The frames array is only needed for the badge
+  // count, so subscribe to its length alone; FramesTab owns the list.
+  const framesCount = useConsoleStore((s) => s.frames.length);
   const {
     entries,
-    frames,
     isExpanded,
     panelHeight,
     activeTab,
     preserveOnSend,
+    captureEnabled,
     searchFilter,
     statusFilter,
     protocolFilter,
@@ -73,35 +96,59 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
     setPanelHeight,
     setActiveTab,
     setPreserveOnSend,
+    setCaptureEnabled,
     clearEntries,
     clearFrames,
-  } = useConsoleStore();
+  } = useConsoleStore(
+    useShallow((s) => ({
+      entries: s.entries,
+      isExpanded: s.isExpanded,
+      panelHeight: s.panelHeight,
+      activeTab: s.activeTab,
+      preserveOnSend: s.preserveOnSend,
+      captureEnabled: s.captureEnabled,
+      searchFilter: s.searchFilter,
+      statusFilter: s.statusFilter,
+      protocolFilter: s.protocolFilter,
+      runFilter: s.runFilter,
+      setExpanded: s.setExpanded,
+      setPanelHeight: s.setPanelHeight,
+      setActiveTab: s.setActiveTab,
+      setPreserveOnSend: s.setPreserveOnSend,
+      setCaptureEnabled: s.setCaptureEnabled,
+      clearEntries: s.clearEntries,
+      clearFrames: s.clearFrames,
+    }))
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
 
-    const handleMove = (moveEvent: MouseEvent) => {
-      if (!containerRef.current) return;
-      const containerBottom = containerRef.current.getBoundingClientRect().bottom;
-      const newHeight = containerBottom - moveEvent.clientY;
-      const clampedHeight = Math.min(maxConsoleHeight(), Math.max(CONSOLE_MIN_PX, newHeight));
-      setPanelHeight(clampedHeight);
-    };
+      const handleMove = (moveEvent: MouseEvent) => {
+        if (!containerRef.current) return;
+        const containerBottom = containerRef.current.getBoundingClientRect().bottom;
+        const newHeight = containerBottom - moveEvent.clientY;
+        const clampedHeight = Math.min(maxConsoleHeight(), Math.max(CONSOLE_MIN_PX, newHeight));
+        setPanelHeight(clampedHeight);
+      };
 
-    const handleEnd = () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-    };
+      const handleEnd = () => {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', handleMove);
+        window.removeEventListener('mouseup', handleEnd);
+      };
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-  }, [setPanelHeight]);
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleEnd);
+    },
+    [setPanelHeight]
+  );
 
   // Keyboard shortcut for toggling console — uses getState() to avoid stale closure
   useEffect(() => {
@@ -141,19 +188,20 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
 
   const clearDisabled =
     (activeTab === 'network' && entries.length === 0) ||
-    (activeTab === 'frames' && frames.length === 0) ||
+    (activeTab === 'frames' && framesCount === 0) ||
     (activeTab === 'scripts' && scriptLogs.length === 0 && (!tests || tests.length === 0));
 
   // Filtered set mirrors what NetworkTab currently shows. Computed here too so
   // the export menu — which lives in the panel header, not inside NetworkTab —
   // can offer "Export filtered" without prop-drilling through the tab stack.
   const filteredEntries = useMemo(
-    () => filterEntries(entries, {
-      query: searchFilter,
-      statusFilter,
-      protocolFilter,
-      runFilter,
-    }),
+    () =>
+      filterEntries(entries, {
+        query: searchFilter,
+        statusFilter,
+        protocolFilter,
+        runFilter,
+      }),
     [entries, searchFilter, statusFilter, protocolFilter, runFilter]
   );
   const filtersActive =
@@ -170,7 +218,9 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
     }
     const file = buildExportFile(format, list);
     downloadExportFile(file);
-    toast.success(`Exported ${list.length} ${scope === 'filtered' ? 'filtered ' : ''}entries to ${file.filename}`);
+    toast.success(
+      `Exported ${list.length} ${scope === 'filtered' ? 'filtered ' : ''}entries to ${file.filename}`
+    );
   };
 
   const passedTests = tests?.filter((t) => t.passed).length ?? 0;
@@ -243,10 +293,8 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
                   <TabsTrigger value="frames" className="text-[11px] h-7 px-2 font-medium">
                     <Cable className="h-3 w-3 mr-1.5" />
                     Frames
-                    {frames.length > 0 && (
-                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1">
-                        {frames.length}
-                      </Badge>
+                    {framesCount > 0 && (
+                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1"></Badge>
                     )}
                   </TabsTrigger>
                   {showDiskTab && (
@@ -287,6 +335,38 @@ export default function NetworkConsole({ scriptLogs = [], tests, onClearScripts 
           </div>
 
           <div className="flex items-center gap-2">
+            {!captureEnabled && (
+              <Badge
+                variant="outline"
+                className="text-[9px] h-4 px-1.5 bg-amber-500/10 text-amber-500 border-amber-500/30"
+              >
+                Paused
+              </Badge>
+            )}
+            {isExpanded && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setCaptureEnabled(!captureEnabled)}
+                    className={cn('h-5 w-5', !captureEnabled && 'text-amber-500')}
+                    aria-label={captureEnabled ? 'Pause capture' : 'Resume capture'}
+                    aria-pressed={!captureEnabled}
+                  >
+                    {captureEnabled ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>
+                    {captureEnabled
+                      ? 'Pause capture — new entries and frames are dropped while paused'
+                      : 'Resume capture'}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+
             {isExpanded && activeTab === 'network' && (
               <Tooltip>
                 <TooltipTrigger asChild>

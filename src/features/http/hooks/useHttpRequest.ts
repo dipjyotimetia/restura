@@ -11,6 +11,8 @@ import { executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/
 import { isElectron } from '@/lib/shared/platform';
 import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 
 interface UseHttpRequestReturn {
   request: HttpRequest | null;
@@ -31,7 +33,8 @@ interface UseHttpRequestReturn {
 export function useHttpRequest(): UseHttpRequestReturn {
   const httpRequest = useActiveRequest('http');
   const currentResponse = useActiveResponse();
-  const { announceRequestSent, announceRequestComplete, announceRequestFailed } = useRequestAnnouncements();
+  const { announceRequestSent, announceRequestComplete, announceRequestFailed } =
+    useRequestAnnouncements();
   const storeUpdateRequest = useRequestStore((s) => s.updateRequest);
   const setLoading = useRequestStore((s) => s.setLoading);
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
@@ -66,9 +69,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
     (id: string, updates: Partial<KeyValue>) => {
       if (!httpRequest) return;
       updateRequest({
-        params: httpRequest.params.map((p) =>
-          p.id === id ? { ...p, ...updates } : p
-        ),
+        params: httpRequest.params.map((p) => (p.id === id ? { ...p, ...updates } : p)),
       });
     },
     [httpRequest, updateRequest]
@@ -99,9 +100,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
     (id: string, updates: Partial<KeyValue>) => {
       if (!httpRequest) return;
       updateRequest({
-        headers: httpRequest.headers.map((h) =>
-          h.id === id ? { ...h, ...updates } : h
-        ),
+        headers: httpRequest.headers.map((h) => (h.id === id ? { ...h, ...updates } : h)),
       });
     },
     [httpRequest, updateRequest]
@@ -171,8 +170,15 @@ export function useHttpRequest(): UseHttpRequestReturn {
               envVars[v.key] = v.value;
             });
         }
+        // Folder/collection auth inheritance — the streaming executor builds
+        // its own headers from request.auth, so resolve before dispatch (the
+        // buffered path below gets this inside the registry runner).
+        const inherited = resolveInheritedAuthFor(httpRequest);
+        const streamingRequest = inherited
+          ? withEffectiveAuth(httpRequest, inherited.auth)
+          : httpRequest;
         const { events } = await executeStreamingRequest({
-          request: httpRequest,
+          request: streamingRequest,
           envVars,
           globalSettings,
           resolveVariables,

@@ -11,6 +11,9 @@ import type {
   RequestBody,
   GrpcMethodType,
 } from '@/types';
+import type { SecretValue } from '@/lib/shared/secretRef';
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
+import { authToInternal } from './to-internal';
 import type { OpenCollection } from './schemas';
 
 /**
@@ -53,8 +56,16 @@ import type { OpenCollection } from './schemas';
 type WithOC<T> = T & { _oc?: unknown };
 
 export function internalToOC(c: WithOC<Collection>): OpenCollection {
-  // Strategy 1 — whole-collection shortcut.
-  if (c._oc && allItemsHaveOcBag(c.items)) {
+  // Strategy 1 — whole-collection shortcut. Gated on auth freshness too:
+  // collection/folder default auth lives on the root/folder bags, so an
+  // in-app auth edit must defeat the verbatim shortcut or the export would
+  // carry the stale credentials shape.
+  if (
+    c._oc &&
+    allItemsHaveOcBag(c.items) &&
+    authUnchanged(c._oc, c.auth) &&
+    allFolderAuthsUnchanged(c.items)
+  ) {
     return c._oc as OpenCollection;
   }
 
@@ -100,6 +111,13 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     if (Object.keys(merged).length > 0) oc.extensions = merged;
     else delete oc.extensions;
 
+    // Collection-level default auth: keep the cached `request` bag verbatim
+    // when the auth is unchanged (byte-stable); otherwise merge the fresh
+    // auth over it so an in-app edit reaches the export.
+    if (!authUnchanged(cached, c.auth)) {
+      applyRequestDefaultsAuth(oc as Record<string, unknown>, c.auth);
+    }
+
     return oc;
   }
 
@@ -112,6 +130,9 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     },
     items,
   };
+
+  const rootAuth = authFromInternal(c.auth);
+  if (rootAuth) oc.request = { auth: rootAuth };
 
   const extensions: Record<string, unknown> = {};
   if (sseItems.length > 0) extensions['x-restura-sse'] = sseItems;
@@ -151,17 +172,45 @@ function allItemsHaveOcBag(items: CollectionItem[] | undefined): boolean {
   });
 }
 
+/**
+ * Merge a node's internal auth into its OC `request` (RequestDefaults) bag,
+ * preserving any other defaults the bag carried. Removes the bag entirely
+ * when the result would be empty so the YAML stays compact.
+ */
+function applyRequestDefaultsAuth(
+  node: Record<string, unknown>,
+  auth: AuthConfig | undefined
+): void {
+  const fresh = authFromInternal(auth);
+  const cachedRequest =
+    node.request && typeof node.request === 'object'
+      ? { ...(node.request as Record<string, unknown>) }
+      : {};
+  if (fresh) {
+    node.request = { ...cachedRequest, auth: fresh };
+    return;
+  }
+  delete cachedRequest.auth;
+  if (Object.keys(cachedRequest).length > 0) node.request = cachedRequest;
+  else delete node.request;
+}
+
 function folderFromInternal(it: WithOC<CollectionItem>): unknown {
-  if (it._oc) return it._oc;
-  return {
-    info: { name: it.name },
-    items: (it.items ?? []).map((child) => {
-      const wchild = child as WithOC<CollectionItem>;
-      if (child.type === 'folder') return folderFromInternal(wchild);
-      if (!child.request) return wchild._oc ?? { info: { name: child.name } };
-      return wchild._oc ?? requestFromInternal(child.name, child.request);
-    }),
-  };
+  // Verbatim shortcut only while the folder's default auth still matches the
+  // cached bag — an in-app auth edit forces a rebuild (children still fall
+  // back to their own _oc bags below, so unmodified requests stay verbatim).
+  if (it._oc && authUnchanged(it._oc, it.auth)) return it._oc;
+  const out: Record<string, unknown> = it._oc
+    ? { ...(it._oc as Record<string, unknown>) }
+    : { info: { name: it.name } };
+  out.items = (it.items ?? []).map((child) => {
+    const wchild = child as WithOC<CollectionItem>;
+    if (child.type === 'folder') return folderFromInternal(wchild);
+    if (!child.request) return wchild._oc ?? { info: { name: child.name } };
+    return wchild._oc ?? requestFromInternal(child.name, child.request);
+  });
+  applyRequestDefaultsAuth(out, it.auth);
+  return out;
 }
 
 function requestFromInternal(name: string, r: Request): unknown {
@@ -173,14 +222,10 @@ function requestFromInternal(name: string, r: Request): unknown {
         url: hr.url,
       };
       if (hr.headers?.length) {
-        http.headers = hr.headers
-          .filter((h) => h.enabled !== false)
-          .map(kvFromInternal);
+        http.headers = hr.headers.filter((h) => h.enabled !== false).map(kvFromInternal);
       }
       if (hr.params?.length) {
-        http.params = hr.params
-          .filter((p) => p.enabled !== false)
-          .map(kvFromInternal);
+        http.params = hr.params.filter((p) => p.enabled !== false).map(kvFromInternal);
       }
       if (hr.body && hr.body.type !== 'none') {
         const body = bodyFromInternal(hr.body);
@@ -203,9 +248,7 @@ function requestFromInternal(name: string, r: Request): unknown {
       };
       if (gr.message) grpc.message = gr.message;
       if (gr.metadata?.length) {
-        grpc.metadata = gr.metadata
-          .filter((m) => m.enabled !== false)
-          .map(kvFromInternal);
+        grpc.metadata = gr.metadata.filter((m) => m.enabled !== false).map(kvFromInternal);
       }
       const auth = authFromInternal(gr.auth);
       if (auth) grpc.auth = auth;
@@ -275,6 +318,24 @@ function bodyFromInternal(body: RequestBody): unknown {
   }
 }
 
+/**
+ * Render a SecretValue for the OC text format. Inline values become plaintext
+ * (the document is a portable file; redaction is the export dialog's job),
+ * handles become a `{{handle:<label>}}` placeholder — the keychain plaintext
+ * never leaves the machine. Mirrors `exportSecretValue` in the Postman/
+ * Insomnia exporters. Without this, post-ADR-0007 auth (SecretValue objects)
+ * would serialize as `{kind: inline, value: …}` blobs into the YAML.
+ */
+function secretToString(value: SecretValue | undefined): string {
+  if (value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (value.kind === 'inline') return value.value;
+  return `{{handle:${value.label ?? value.id}}}`;
+}
+
+/** oauth2 fields that hold SecretValues and need unwrapping on export. */
+const OAUTH2_SECRET_FIELDS = new Set(['accessToken', 'refreshToken', 'clientSecret', 'password']);
+
 function authFromInternal(a?: AuthConfig): unknown {
   if (!a || a.type === 'none') return undefined;
   switch (a.type) {
@@ -282,22 +343,22 @@ function authFromInternal(a?: AuthConfig): unknown {
       return {
         type: 'basic',
         username: a.basic?.username ?? '',
-        password: a.basic?.password ?? '',
+        password: secretToString(a.basic?.password),
       };
     case 'bearer':
-      return { type: 'bearer', token: a.bearer?.token ?? '' };
+      return { type: 'bearer', token: secretToString(a.bearer?.token) };
     case 'api-key':
       return {
         type: 'apikey',
         key: a.apiKey?.key ?? '',
-        value: a.apiKey?.value ?? '',
+        value: secretToString(a.apiKey?.value),
         placement: a.apiKey?.in ?? 'header',
       };
     case 'aws-signature':
       return {
         type: 'awsv4',
         accessKeyId: a.awsSignature?.accessKey ?? '',
-        secretAccessKey: a.awsSignature?.secretKey ?? '',
+        secretAccessKey: secretToString(a.awsSignature?.secretKey),
         region: a.awsSignature?.region ?? '',
         service: a.awsSignature?.service ?? '',
       };
@@ -305,13 +366,14 @@ function authFromInternal(a?: AuthConfig): unknown {
       return {
         type: 'digest',
         username: a.digest?.username ?? '',
-        password: a.digest?.password ?? '',
+        password: secretToString(a.digest?.password),
       };
     case 'oauth2': {
       const out: Record<string, unknown> = { type: 'oauth2' };
       const o = a.oauth2 ?? {};
       for (const [k, v] of Object.entries(o)) {
-        if (v !== undefined) out[k] = v;
+        if (v === undefined) continue;
+        out[k] = OAUTH2_SECRET_FIELDS.has(k) ? secretToString(v as SecretValue) : v;
       }
       return out;
     }
@@ -321,11 +383,78 @@ function authFromInternal(a?: AuthConfig): unknown {
 }
 
 /**
+ * Flatten every SecretValue in an AuthConfig to its exportable string form so
+ * both compare-sides live in the same space: cached OC auth holds plain
+ * strings, post-ADR-0007 internal auth holds SecretValue objects. (A local
+ * walk over the shared field map rather than `migrateAuthConfigToSecretRef`
+ * — that module pulls in `platform.ts`, which the CLI tsconfig can't compile.)
+ */
+function unwrapAuthForCompare(a: AuthConfig): AuthConfig {
+  const out = { ...a };
+  for (const [block, fields] of Object.entries(SECRET_FIELDS_BY_AUTH_BLOCK)) {
+    const cur = out[block as keyof AuthConfig];
+    if (!cur || typeof cur !== 'object') continue;
+    const copy = { ...cur } as Record<string, unknown>;
+    for (const f of fields) {
+      if (f in copy) copy[f] = secretToString(copy[f] as SecretValue | undefined);
+    }
+    (out as unknown as Record<string, unknown>)[block as string] = copy;
+  }
+  return out;
+}
+
+/**
+ * Export-time staleness check for collection/folder default auth. The cached
+ * `_oc` bag predates any in-app edit, so before trusting it we convert its
+ * `request.auth` through the SAME import pipeline (authToInternal) and
+ * deep-compare against the current internal auth (secrets flattened to their
+ * exportable strings on both sides). Equal → cached bytes are still true;
+ * different → the auth was edited in-app and the cached doc must not be
+ * emitted verbatim.
+ *
+ * The JSON comparison is order-sensitive, which is safe by construction: a
+ * false "changed" verdict merely costs byte-stability (we rebuild), while
+ * false "unchanged" would require structurally different auth to serialize
+ * identically — impossible.
+ *
+ * Known blind spot: auth types with no internal representation (OAuth1/NTLM/
+ * WSSE) degrade to 'none' through authToInternal, so cached-vs-current
+ * compares none === none and the gate reports "unchanged" no matter what.
+ * Untouched documents round-trip byte-stably (desired), but clearing such an
+ * auth in-app resurrects the original block on an include-secrets export.
+ * Redacted exports are NOT affected — redactCollectionSecrets drops the root
+ * `_oc` bag outright, so this tier always rebuilds there. The real fix is
+ * native internal support for these types (Phase 4); a treat-degraded-as-
+ * changed heuristic would instead drop their auth on every round-trip.
+ */
+function authUnchanged(cachedNode: unknown, internalAuth: AuthConfig | undefined): boolean {
+  const cachedRequest = (cachedNode as { request?: unknown } | undefined)?.request;
+  const cachedAuth = (cachedRequest as { auth?: unknown } | undefined)?.auth;
+  const cachedInternal = unwrapAuthForCompare(authToInternal(cachedAuth));
+  const currentInternal = unwrapAuthForCompare(internalAuth ?? { type: 'none' });
+  return JSON.stringify(cachedInternal) === JSON.stringify(currentInternal);
+}
+
+/** Recursively true when every folder's auth still matches its cached bag. */
+function allFolderAuthsUnchanged(items: CollectionItem[] | undefined): boolean {
+  if (!items) return true;
+  return items.every((it) => {
+    if (it.type !== 'folder') return true;
+    const wit = it as WithOC<CollectionItem>;
+    if (wit._oc !== undefined && !authUnchanged(wit._oc, it.auth)) return false;
+    return allFolderAuthsUnchanged(it.items);
+  });
+}
+
+/**
  * Build a `runtime` object with `scripts: Script[]` from the internal
  * preRequestScript / testScript fields. Returns undefined if neither is set,
  * so the caller can omit the `runtime` key entirely and keep YAML compact.
  */
-function runtimeFromInternal(preRequest?: string, test?: string): Record<string, unknown> | undefined {
+function runtimeFromInternal(
+  preRequest?: string,
+  test?: string
+): Record<string, unknown> | undefined {
   const scripts: Array<{ type: string; code: string }> = [];
   if (preRequest && preRequest.trim().length > 0) {
     scripts.push({ type: 'before-request', code: preRequest });

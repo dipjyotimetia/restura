@@ -70,7 +70,7 @@ Restura is a multi-protocol API client for developers who are tired of switching
 | **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff.                            |
 | **Import everything**  | Postman v2.1, Insomnia, and OpenAPI / Swagger — drop it in and start testing.                                                      |
 | **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                        |
-| **Auth built-in**      | Basic, Bearer, API Key, OAuth 2.0, Digest, AWS SigV4, mTLS — per request or inherited from a collection.                           |
+| **Auth built-in**      | Basic, Bearer, API Key, OAuth 2.0, Digest, AWS SigV4, mTLS — per request or inherited from a collection or folder.                 |
 | **Proxy support**      | HTTP/HTTPS proxies, proxy chaining, client certificates.                                                                           |
 | **Private by default** | Everything stored locally. No accounts, no cloud sync.                                                                             |
 

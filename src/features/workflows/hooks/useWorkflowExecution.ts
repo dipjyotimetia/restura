@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useFlowRunStore } from '../store/useFlowRunStore';
 import { findRequestInItems } from '../lib/collectionHelpers';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 
 interface UseWorkflowExecutionOptions {
   onComplete?: (execution: WorkflowExecution) => void;
@@ -69,6 +70,17 @@ export function useWorkflowExecution(
       return undefined;
     },
     [collections]
+  );
+
+  // Folder/collection auth the request inherits when its own auth is 'none' —
+  // the executors apply it per step via withEffectiveAuth (own auth wins).
+  const getInheritedAuth = useCallback(
+    (requestId: string) => {
+      const request = getRequestById(requestId);
+      if (!request) return undefined;
+      return resolveInheritedAuthFor({ id: requestId, auth: request.auth })?.auth;
+    },
+    [getRequestById]
   );
 
   const run = useCallback(
@@ -145,6 +157,7 @@ export function useWorkflowExecution(
               workflow,
               getRequestById,
               getWorkflowById,
+              getInheritedAuth,
               envVars: { ...getActiveEnvironmentVars },
               onStepStart,
               onStepComplete,
@@ -154,6 +167,7 @@ export function useWorkflowExecution(
           : await executeWorkflow({
               workflow,
               getRequestById,
+              getInheritedAuth,
               envVars: { ...getActiveEnvironmentVars },
               globalSettings,
               resolveVariables,
@@ -190,6 +204,7 @@ export function useWorkflowExecution(
     [
       getRequestById,
       getWorkflowById,
+      getInheritedAuth,
       getActiveEnvironmentVars,
       globalSettings,
       resolveVariables,

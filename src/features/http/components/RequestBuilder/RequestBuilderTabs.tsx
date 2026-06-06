@@ -6,6 +6,7 @@ import { cn } from '@/lib/shared/utils';
 import { ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/components/ui/spatial';
 import RequestBodyEditor from '@/features/http/components/RequestBodyEditor';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
 import { STANDARD_HTTP_HEADERS, getHeaderDef } from '@/lib/shared/http-headers';
@@ -311,6 +312,7 @@ export function RequestBuilderTabs({
               ))}
             </div>
             <div className="p-5 overflow-auto">
+              <InheritedAuthHint request={request} />
               <AuthConfiguration auth={request.auth} onChange={handlers.changeAuth} />
             </div>
           </div>

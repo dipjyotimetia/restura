@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { useConsoleStore } from '@/store/useConsoleStore';
 
 export type SseConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -25,9 +26,7 @@ export interface SseSystemMessage {
   timestamp: number;
 }
 
-export type SseLogEntry =
-  | ({ kind: 'event' } & SseEventRecord)
-  | SseSystemMessage;
+export type SseLogEntry = ({ kind: 'event' } & SseEventRecord) | SseSystemMessage;
 
 export interface SseConnection {
   id: string;
@@ -183,6 +182,17 @@ export const useSseStore = create<SseState>()(
           };
           let log = [...c.log, record];
           if (log.length > MAX_LOG_PER_CONNECTION) log = log.slice(-MAX_LOG_PER_CONNECTION);
+          // Mirror to the unified console so SSE events show up alongside
+          // WS/Kafka frames in the Frames tab (same pattern as useWebSocketStore).
+          useConsoleStore.getState().addFrame({
+            timestamp: record.timestamp,
+            protocol: 'sse',
+            direction: 'in',
+            connectionId,
+            ...(event.event ? { label: event.event } : {}),
+            payload: event.data,
+            bytes: new TextEncoder().encode(event.data).length,
+          });
           // Persist most-recent lastEventId for resume
           const next: SseConnection = {
             ...c,
@@ -204,6 +214,13 @@ export const useSseStore = create<SseState>()(
           };
           let log = [...c.log, entry];
           if (log.length > MAX_LOG_PER_CONNECTION) log = log.slice(-MAX_LOG_PER_CONNECTION);
+          useConsoleStore.getState().addFrame({
+            timestamp: entry.timestamp,
+            protocol: 'sse',
+            direction: 'system',
+            connectionId,
+            payload: message,
+          });
           return { connections: { ...s.connections, [connectionId]: { ...c, log } } };
         }),
 
@@ -256,7 +273,7 @@ export const useSseStore = create<SseState>()(
 
       getActiveConnection: () => {
         const { connections, activeConnectionId } = get();
-        return activeConnectionId ? connections[activeConnectionId] ?? null : null;
+        return activeConnectionId ? (connections[activeConnectionId] ?? null) : null;
       },
 
       getFilteredLog: (connectionId) => {

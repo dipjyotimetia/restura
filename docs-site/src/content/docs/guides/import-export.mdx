@@ -40,7 +40,7 @@ Auth schemes that exist in Restura but not in the target format are persisted vi
 
 ## Secret redaction on export
 
-Exports run through a redactor that strips inline secret values, replacing them with environment placeholders where possible (`{{api_token}}`). `SecretRef` handles, by definition, never carry plaintext, so they export safely. Always re-check an export before committing it to a public repo.
+Exports are **redacted by default**. When a collection contains inline (plaintext) credentials, Restura warns before exporting and you choose **Export redacted** (the default — blanks every token, password, and key while keeping the auth shape: usernames, regions, key names, scopes) or explicitly opt in to **Include secrets**. `SecretRef` handles never carry plaintext and export as opaque `{{handle:label}}` placeholders. Always re-check an export before committing it to a public repo.
 
 ## OpenCollection — why it exists
 

@@ -25,9 +25,11 @@ import {
   type SubscriptionMessage,
 } from '@/features/graphql/lib/subscriptionClient';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
+import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { Floater, SubTabBar, type SubTab } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
@@ -205,8 +207,34 @@ function GraphQLRequestBuilder() {
     };
 
     try {
-      const { response } = await runViaRegistry(wireRequest, 'graphql');
+      const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql');
       setCurrentResponse(response);
+
+      // Mirror interactive GraphQL sends into the unified console (previously
+      // only collection runs landed there).
+      const sentHeaders: Record<string, string> = {};
+      for (const h of wireHeaders) if (h.enabled && h.key) sentHeaders[h.key] = h.value;
+      const consoleLogs = [
+        ...(runScripts?.preRequest?.logs ?? []),
+        ...(runScripts?.test?.logs ?? []),
+      ];
+      const consoleTests = (runScripts?.test?.tests ?? []).map((t) => ({
+        name: t.name,
+        passed: t.passed,
+        ...(t.error ? { error: t.error } : {}),
+      }));
+      useConsoleStore.getState().addEntry(
+        createProtocolConsoleEntry({
+          protocol: 'graphql',
+          method: 'POST',
+          url: wireRequest.url,
+          headers: sentHeaders,
+          body: wireBody,
+          response,
+          ...(consoleLogs.length > 0 && { scriptLogs: consoleLogs }),
+          ...(consoleTests.length > 0 && { tests: consoleTests }),
+        })
+      );
 
       const graphqlErrors = extractGraphQLErrors(response.body);
       if (response.status < 200 || response.status >= 300) {
@@ -483,6 +511,7 @@ function GraphQLRequestBuilder() {
                 <p className="text-sp-11 text-sp-muted font-mono mb-4">
                   For subscriptions, credentials are sent as WebSocket connection params.
                 </p>
+                <InheritedAuthHint request={httpRequest} />
                 <AuthConfiguration auth={httpRequest.auth} onChange={handleAuthChange} />
               </div>
             )}

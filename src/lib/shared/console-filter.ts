@@ -27,7 +27,13 @@ import type { ConsoleEntry, ConsoleStatusFilter } from '@/store/useConsoleStore'
 
 type FieldKey = 'status' | 'method' | 'url' | 'protocol' | 'host' | 'has' | 'run';
 const FIELD_KEYS: ReadonlySet<string> = new Set([
-  'status', 'method', 'url', 'protocol', 'host', 'has', 'run',
+  'status',
+  'method',
+  'url',
+  'protocol',
+  'host',
+  'has',
+  'run',
 ]);
 
 /**
@@ -56,9 +62,15 @@ function lex(input: string): string[] {
   let inQuotes = false;
   for (let i = 0; i < input.length; i++) {
     const ch = input[i]!;
-    if (ch === '"') { inQuotes = !inQuotes; continue; }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
     if (!inQuotes && /\s/.test(ch)) {
-      if (buf) { out.push(buf); buf = ''; }
+      if (buf) {
+        out.push(buf);
+        buf = '';
+      }
       continue;
     }
     buf += ch;
@@ -72,7 +84,10 @@ export function parseQuery(input: string): FilterToken[] {
   for (const raw of lex(input.trim())) {
     let s = raw;
     let negated = false;
-    if (s.startsWith('-') && s.length > 1) { negated = true; s = s.slice(1); }
+    if (s.startsWith('-') && s.length > 1) {
+      negated = true;
+      s = s.slice(1);
+    }
     const colon = s.indexOf(':');
     let field: FieldKey | undefined;
     let value = s;
@@ -85,13 +100,12 @@ export function parseQuery(input: string): FilterToken[] {
     }
     const tok: FilterToken = { negated, value };
     if (field) tok.field = field;
-    if (
-      value.startsWith('~') &&
-      value.length > 1 &&
-      value.length - 1 <= MAX_REGEX_LENGTH
-    ) {
-      try { tok.regex = new RegExp(value.slice(1), 'i'); }
-      catch { /* fall through — literal match on the raw value */ }
+    if (value.startsWith('~') && value.length > 1 && value.length - 1 <= MAX_REGEX_LENGTH) {
+      try {
+        tok.regex = new RegExp(value.slice(1), 'i');
+      } catch {
+        /* fall through — literal match on the raw value */
+      }
     }
     tokens.push(tok);
   }
@@ -122,7 +136,11 @@ function statusToken(status: number, raw: string): boolean {
 }
 
 function hostOf(url: string): string {
-  try { return new URL(url).host.toLowerCase(); } catch { return ''; }
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
 function headerHit(h: Record<string, string | string[]>, needle: string): boolean {
@@ -153,7 +171,10 @@ function tokenMatches(entry: ConsoleEntry, t: FilterToken): boolean {
 
   // Field-scoped tokens.
   if (t.field === 'status') return statusToken(entry.response.status, t.value);
-  if (t.field === 'method') return entry.request.method.toLowerCase() === v || entry.request.method.toLowerCase().includes(v);
+  if (t.field === 'method')
+    return (
+      entry.request.method.toLowerCase() === v || entry.request.method.toLowerCase().includes(v)
+    );
   if (t.field === 'protocol') return (entry.protocol ?? 'http').toLowerCase() === v;
   if (t.field === 'host') return hostOf(entry.request.url).includes(v);
   if (t.field === 'run') {
@@ -166,8 +187,11 @@ function tokenMatches(entry: ConsoleEntry, t: FilterToken): boolean {
   }
   if (t.field === 'has') {
     if (v === 'body') return !!entry.request.body || entry.response.body.length > 0;
-    if (v === 'cookie') return hasCookieHeader(entry.request.headers as Record<string, string | string[]>) ||
-                                hasCookieHeader(entry.response.headers);
+    if (v === 'cookie')
+      return (
+        hasCookieHeader(entry.request.headers as Record<string, string | string[]>) ||
+        hasCookieHeader(entry.response.headers)
+      );
     if (v === 'test') return (entry.tests?.length ?? 0) > 0;
     if (v === 'script') return (entry.scriptLogs?.length ?? 0) > 0;
     return false;
@@ -213,7 +237,7 @@ export interface FilterCriteria {
   query: string;
   statusFilter: ConsoleStatusFilter;
   protocolFilter: string; // ConsoleProtocol | 'all'
-  runFilter: string;      // run id or 'all'
+  runFilter: string; // run id or 'all'
 }
 
 /** Apply all four console filters (text query + status class + protocol + run).
@@ -229,11 +253,37 @@ export function filterEntries(entries: ConsoleEntry[], c: FilterCriteria): Conso
   });
 }
 
+export type ConsoleSortBy = 'recent' | 'time' | 'size' | 'status';
+
+/** View-only sort for the Network tab. Pinned entries always group first
+ *  (Array.sort is stable, so order within the pinned/unpinned groups is
+ *  preserved); 'recent' keeps arrival order within each group. */
+export function sortEntries(entries: ConsoleEntry[], sortBy: ConsoleSortBy): ConsoleEntry[] {
+  const compare = (a: ConsoleEntry, b: ConsoleEntry): number => {
+    if (sortBy === 'time') return b.response.time - a.response.time;
+    if (sortBy === 'size') return b.response.size - a.response.size;
+    if (sortBy === 'status') return b.response.status - a.response.status;
+    return 0; // 'recent' — keep arrival order
+  };
+  const sorted = [...entries];
+  sorted.sort((a, b) => {
+    const pinDelta = Number(b.pinned ?? false) - Number(a.pinned ?? false);
+    if (pinDelta !== 0) return pinDelta;
+    return compare(a, b);
+  });
+  return sorted;
+}
+
 /** Counts per status class, computed once from the unfiltered list — used to
  *  badge the status filter chips so the chips double as a histogram. */
 export function statusClassCounts(entries: ConsoleEntry[]): Record<ConsoleStatusFilter, number> {
   const out: Record<ConsoleStatusFilter, number> = {
-    all: entries.length, '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0, errored: 0,
+    all: entries.length,
+    '2xx': 0,
+    '3xx': 0,
+    '4xx': 0,
+    '5xx': 0,
+    errored: 0,
   };
   for (const e of entries) {
     const s = e.response.status;

@@ -3,6 +3,7 @@ import {
   parseQuery,
   matchesQuery,
   filterEntries,
+  sortEntries,
   statusClassCounts,
   statusMatchesClass,
 } from '@/lib/shared/console-filter';
@@ -19,10 +20,15 @@ const make = (overrides: Partial<ConsoleEntry> = {}): ConsoleEntry => ({
     ...(overrides.request ?? {}),
   },
   response: {
-    id: 'r1', requestId: overrides.id ?? 'e1',
-    status: 200, statusText: 'OK',
+    id: 'r1',
+    requestId: overrides.id ?? 'e1',
+    status: 200,
+    statusText: 'OK',
     headers: { 'content-type': 'application/json' },
-    body: '{"ok":true}', size: 11, time: 100, timestamp: 1,
+    body: '{"ok":true}',
+    size: 11,
+    time: 100,
+    timestamp: 1,
     ...(overrides.response ?? {}),
   },
   ...(overrides.runId !== undefined && { runId: overrides.runId }),
@@ -86,9 +92,18 @@ describe('matchesQuery — field tokens', () => {
   const e = make();
 
   it('status:200 matches exact', () => expect(matchesQuery(e, 'status:200')).toBe(true));
-  it('status:5 prefix-matches 5xx', () => expect(matchesQuery(make({ response: { ...e.response, status: 503 } }), 'status:5')).toBe(true));
-  it('status:5xx matches via class', () => expect(matchesQuery(make({ response: { ...e.response, status: 503 } }), 'status:5xx')).toBe(true));
-  it('status:errored matches status=0', () => expect(matchesQuery(make({ response: { ...e.response, status: 0 } }), 'status:errored')).toBe(true));
+  it('status:5 prefix-matches 5xx', () =>
+    expect(matchesQuery(make({ response: { ...e.response, status: 503 } }), 'status:5')).toBe(
+      true
+    ));
+  it('status:5xx matches via class', () =>
+    expect(matchesQuery(make({ response: { ...e.response, status: 503 } }), 'status:5xx')).toBe(
+      true
+    ));
+  it('status:errored matches status=0', () =>
+    expect(matchesQuery(make({ response: { ...e.response, status: 0 } }), 'status:errored')).toBe(
+      true
+    ));
 
   it('method:POST is exact-ish (case-insensitive)', () => {
     const post = make({ request: { ...e.request, method: 'POST' } });
@@ -112,7 +127,12 @@ describe('matchesQuery — field tokens', () => {
   it('has:body / has:test / has:script', () => {
     expect(matchesQuery(e, 'has:body')).toBe(true);
     expect(matchesQuery(make({ tests: [{ name: 't', passed: true }] }), 'has:test')).toBe(true);
-    expect(matchesQuery(make({ scriptLogs: [{ type: 'log', message: 'x', timestamp: 1 }] }), 'has:script')).toBe(true);
+    expect(
+      matchesQuery(
+        make({ scriptLogs: [{ type: 'log', message: 'x', timestamp: 1 }] }),
+        'has:script'
+      )
+    ).toBe(true);
   });
 
   it('has:cookie matches either a request Cookie or a response Set-Cookie', () => {
@@ -145,13 +165,27 @@ describe('matchesQuery — field tokens', () => {
 
 describe('matchesQuery — composition', () => {
   const list = [
-    make({ id: 'a', request: { ...make().request, method: 'POST', url: 'https://api.example.com/login' }, response: { ...make().response, status: 200 } }),
-    make({ id: 'b', request: { ...make().request, method: 'GET',  url: 'https://api.example.com/health' }, response: { ...make().response, status: 200 } }),
-    make({ id: 'c', request: { ...make().request, method: 'POST', url: 'https://api.example.com/users' }, response: { ...make().response, status: 500 } }),
+    make({
+      id: 'a',
+      request: { ...make().request, method: 'POST', url: 'https://api.example.com/login' },
+      response: { ...make().response, status: 200 },
+    }),
+    make({
+      id: 'b',
+      request: { ...make().request, method: 'GET', url: 'https://api.example.com/health' },
+      response: { ...make().response, status: 200 },
+    }),
+    make({
+      id: 'c',
+      request: { ...make().request, method: 'POST', url: 'https://api.example.com/users' },
+      response: { ...make().response, status: 500 },
+    }),
   ];
 
   it('ANDs multiple tokens', () => {
-    expect(list.filter((e) => matchesQuery(e, 'status:5xx method:POST')).map((e) => e.id)).toEqual(['c']);
+    expect(list.filter((e) => matchesQuery(e, 'status:5xx method:POST')).map((e) => e.id)).toEqual([
+      'c',
+    ]);
   });
 
   it('negation excludes', () => {
@@ -177,10 +211,20 @@ describe('filterEntries — multi-criteria', () => {
 
   it('combines text query + status filter + protocol + run', () => {
     expect(
-      filterEntries(entries, { query: '', statusFilter: '5xx', protocolFilter: 'graphql', runFilter: 'all' }).map((e) => e.id)
+      filterEntries(entries, {
+        query: '',
+        statusFilter: '5xx',
+        protocolFilter: 'graphql',
+        runFilter: 'all',
+      }).map((e) => e.id)
     ).toEqual(['b']);
     expect(
-      filterEntries(entries, { query: '', statusFilter: 'all', protocolFilter: 'all', runFilter: 'run-1' }).map((e) => e.id)
+      filterEntries(entries, {
+        query: '',
+        statusFilter: 'all',
+        protocolFilter: 'all',
+        runFilter: 'run-1',
+      }).map((e) => e.id)
     ).toEqual(['c']);
   });
 });
@@ -195,7 +239,12 @@ describe('statusClassCounts', () => {
       make({ id: 'e', response: { ...make().response, status: 0 } }),
     ];
     expect(statusClassCounts(entries)).toEqual({
-      all: 5, '2xx': 1, '3xx': 1, '4xx': 1, '5xx': 1, errored: 2,
+      all: 5,
+      '2xx': 1,
+      '3xx': 1,
+      '4xx': 1,
+      '5xx': 1,
+      errored: 2,
     });
   });
 });
@@ -206,5 +255,58 @@ describe('statusMatchesClass (re-exported)', () => {
     expect(statusMatchesClass(0, 'errored')).toBe(true);
     expect(statusMatchesClass(404, 'errored')).toBe(false);
     expect(statusMatchesClass(404, '4xx')).toBe(true);
+  });
+});
+
+describe('sortEntries — pinned-first grouping', () => {
+  const withResponse = (id: string, r: Partial<ConsoleEntry['response']>, pinned?: boolean) => ({
+    ...make({ id, response: { ...make().response, ...r } }),
+    ...(pinned !== undefined && { pinned }),
+  });
+
+  it("'recent' keeps arrival order but groups pinned entries first", () => {
+    const entries = [
+      withResponse('a', {}),
+      withResponse('b', {}, true),
+      withResponse('c', {}),
+      withResponse('d', {}, true),
+    ];
+    expect(sortEntries(entries, 'recent').map((e) => e.id)).toEqual(['b', 'd', 'a', 'c']);
+  });
+
+  it('pinned-first holds under a sort key — pins never scatter', () => {
+    const entries = [
+      withResponse('slow-unpinned', { time: 900 }),
+      withResponse('fast-pinned', { time: 10 }, true),
+      withResponse('mid-unpinned', { time: 500 }),
+    ];
+    // Even though 'time' sorts descending, the pinned entry stays on top.
+    expect(sortEntries(entries, 'time').map((e) => e.id)).toEqual([
+      'fast-pinned',
+      'slow-unpinned',
+      'mid-unpinned',
+    ]);
+  });
+
+  it('sorts within each group by the chosen key', () => {
+    const entries = [
+      withResponse('p-small', { size: 5 }, true),
+      withResponse('u-big', { size: 100 }),
+      withResponse('p-big', { size: 50 }, true),
+      withResponse('u-small', { size: 1 }),
+    ];
+    expect(sortEntries(entries, 'size').map((e) => e.id)).toEqual([
+      'p-big',
+      'p-small',
+      'u-big',
+      'u-small',
+    ]);
+  });
+
+  it('does not mutate the input array', () => {
+    const entries = [withResponse('a', {}), withResponse('b', {}, true)];
+    const ids = entries.map((e) => e.id);
+    sortEntries(entries, 'status');
+    expect(entries.map((e) => e.id)).toEqual(ids);
   });
 });

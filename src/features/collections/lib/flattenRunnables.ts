@@ -1,4 +1,5 @@
-import type { CollectionItem, Request } from '@/types';
+import type { AuthConfig, CollectionItem, Request } from '@/types';
+import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 
 /**
  * A single executable leaf extracted from a collection tree, preserving the
@@ -10,17 +11,31 @@ import type { CollectionItem, Request } from '@/types';
  * request's own, in Postman's parent-to-child order (collection -> folder(s) ->
  * request), so the runner can execute them in a single pass without knowing the
  * tree shape.
+ *
+ * `inheritedAuth` is the auth a request with `auth.type === 'none'` should
+ * fall back to: the nearest ancestor folder's auth, else the collection-level
+ * auth (Postman folder-auth semantics). The runner applies it via
+ * `withEffectiveAuth`.
  */
 export interface RunnableRequest {
   itemId: string;
   name: string;
   request: Request;
+  inheritedAuth?: AuthConfig;
 }
 
 /** Collection-scope (root) scripts, applied to every request in the run. */
 export interface RootScripts {
   preRequestScript?: string;
   testScript?: string;
+}
+
+/** Nearest-ancestor-wins: a configured folder auth replaces the inherited one. */
+function effectiveFolderAuth(
+  item: CollectionItem,
+  current: AuthConfig | undefined
+): AuthConfig | undefined {
+  return isConfiguredAuth(item.auth) ? item.auth : current;
 }
 
 /** Join non-empty script fragments in order; undefined when nothing applies. */
@@ -40,11 +55,12 @@ function withEffectiveScripts(
   return { ...request, preRequestScript, testScript } as Request;
 }
 
-/** Depth-first preorder flatten of request leaves, threading ancestor scripts. */
+/** Depth-first preorder flatten of request leaves, threading ancestor scripts + auth. */
 function flatten(
   items: CollectionItem[],
   inheritedPre: Array<string | undefined>,
-  inheritedTest: Array<string | undefined>
+  inheritedTest: Array<string | undefined>,
+  inheritedAuth: AuthConfig | undefined
 ): RunnableRequest[] {
   const out: RunnableRequest[] = [];
   for (const item of items) {
@@ -53,13 +69,15 @@ function flatten(
         itemId: item.id,
         name: item.name,
         request: withEffectiveScripts(item.request, inheritedPre, inheritedTest),
+        inheritedAuth,
       });
     } else if (item.items) {
       out.push(
         ...flatten(
           item.items,
           [...inheritedPre, item.preRequestScript],
-          [...inheritedTest, item.testScript]
+          [...inheritedTest, item.testScript],
+          effectiveFolderAuth(item, inheritedAuth)
         )
       );
     }
@@ -100,26 +118,36 @@ export function findFolderPath(
 /**
  * Flatten a collection (or, when `folderId` is given, a single folder subtree)
  * into an ordered list of runnable requests, each carrying its effective
- * combined scripts. Returns `[]` when the folder isn't found.
+ * combined scripts and inherited auth (nearest folder auth, else `rootAuth` —
+ * the collection-level auth). Returns `[]` when the folder isn't found.
  */
 export function flattenRunnables(
   items: CollectionItem[],
   folderId?: string,
-  rootScripts?: RootScripts
+  rootScripts?: RootScripts,
+  rootAuth?: AuthConfig
 ): RunnableRequest[] {
   const rootPre: Array<string | undefined> = [rootScripts?.preRequestScript];
   const rootTest: Array<string | undefined> = [rootScripts?.testScript];
 
-  if (!folderId) return flatten(items, rootPre, rootTest);
+  if (!folderId) return flatten(items, rootPre, rootTest, rootAuth);
 
   const path = findFolderPath(items, folderId);
   if (!path || path.length === 0) return [];
   const target = path[path.length - 1];
   if (!target?.items) return [];
 
+  // A folder run still inherits auth from folders above the target, so walk
+  // the path applying the same nearest-ancestor-wins rule.
+  const pathAuth = path.reduce<AuthConfig | undefined>(
+    (current, folder) => effectiveFolderAuth(folder, current),
+    rootAuth
+  );
+
   return flatten(
     target.items,
     [...rootPre, ...path.map((f) => f.preRequestScript)],
-    [...rootTest, ...path.map((f) => f.testScript)]
+    [...rootTest, ...path.map((f) => f.testScript)],
+    pathAuth
   );
 }

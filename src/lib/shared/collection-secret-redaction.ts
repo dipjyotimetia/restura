@@ -1,0 +1,155 @@
+import type { AuthConfig, Collection, CollectionItem } from '@/types';
+import {
+  isSecretHandle,
+  redactSecret,
+  unwrapSecret,
+  type SecretValue,
+} from '@/lib/shared/secretRef';
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
+
+/**
+ * Redacts secret-bearing auth fields from a collection before it goes through
+ * a renderer-side exporter (Postman / Insomnia / OpenCollection / Bruno).
+ * Without this, a plaintext bearer token / API key / AWS secret key lands in
+ * the file the user shares with a teammate, commits to git, or pastes into a
+ * chat tool.
+ *
+ * Semantics (via `redactSecret`):
+ *  - Inline plaintext (`string` or `{ kind: 'inline', value }`) → empty.
+ *  - Handle references (`{ kind: 'handle', id }`) → preserved; the id is
+ *    opaque on its own and the exporters render it as a `{{handle:label}}`
+ *    placeholder.
+ *
+ * Non-secret fields (username, region, key name, URLs, scopes…) are kept so
+ * a redacted export still round-trips the auth *shape* — only the credential
+ * material is dropped. The Electron file-collection redactor
+ * (`electron/main/collection-export-redactor.ts`) implements the same policy
+ * for untyped auth blobs; both consume `SECRET_FIELDS_BY_AUTH_BLOCK`.
+ */
+
+/** True for a non-empty plaintext secret (inline or bare string) — handles never count. */
+function isInlineWithValue(value: SecretValue | undefined): boolean {
+  return !isSecretHandle(value) && unwrapSecret(value) !== '';
+}
+
+/** Returns a copy of `auth` with every known secret-bearing field redacted. */
+export function redactAuthConfigSecrets(auth: AuthConfig): AuthConfig {
+  const next: AuthConfig = { ...auth };
+  for (const [block, fields] of Object.entries(SECRET_FIELDS_BY_AUTH_BLOCK)) {
+    const current = next[block as keyof AuthConfig];
+    if (!current || typeof current !== 'object') continue;
+    const copy = { ...current } as Record<string, unknown>;
+    for (const field of fields) {
+      if (field in copy) {
+        copy[field] = redactSecret(copy[field] as SecretValue | undefined);
+      }
+    }
+    (next as unknown as Record<string, unknown>)[block] = copy;
+  }
+  return next;
+}
+
+function countAuthInlineSecrets(auth: AuthConfig | undefined): number {
+  if (!auth) return 0;
+  let count = 0;
+  for (const [block, fields] of Object.entries(SECRET_FIELDS_BY_AUTH_BLOCK)) {
+    const current = auth[block as keyof AuthConfig] as Record<string, unknown> | undefined;
+    if (!current || typeof current !== 'object') continue;
+    for (const field of fields) {
+      if (isInlineWithValue(current[field] as SecretValue | undefined)) count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * True when an OpenCollection `_oc` passthrough bag contains an `auth` block
+ * anywhere in its tree (item auth, folder request-defaults auth, or any
+ * descendant's). Used to decide whether the bag is safe to keep on a
+ * redacted export.
+ */
+function ocBagHasAuth(node: unknown): boolean {
+  if (!node || typeof node !== 'object') return false;
+  if (Array.isArray(node)) return node.some(ocBagHasAuth);
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'auth' && value && typeof value === 'object') return true;
+    if (ocBagHasAuth(value)) return true;
+  }
+  return false;
+}
+
+function redactItem(item: CollectionItem): CollectionItem {
+  const next: CollectionItem = { ...item };
+  // The _oc passthrough bag holds the verbatim imported node — including any
+  // plaintext auth from the source document — and the OC exporter prefers
+  // per-item bags verbatim with no auth gate at the request tier. Drop the
+  // bag when it carries an auth block anywhere (the rebuild loses
+  // byte-stability but never leaks). Auth-free bags are kept deliberately:
+  // GraphQL items and WebSocket placeholders survive OC export *only*
+  // through their bag, so dropping those unconditionally would degrade them
+  // to plain-HTTP / empty-folder shapes.
+  if (ocBagHasAuth((next as { _oc?: unknown })._oc)) {
+    delete (next as { _oc?: unknown })._oc;
+  }
+  if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
+  if (next.items) next.items = next.items.map(redactItem);
+  if (next.request && 'auth' in next.request) {
+    next.request = {
+      ...next.request,
+      auth: redactAuthConfigSecrets(next.request.auth),
+    } as typeof next.request;
+  }
+  return next;
+}
+
+/**
+ * Returns a copy of the collection with every inline secret blanked —
+ * collection-level auth, folder-level auth, and each request's auth.
+ * Handle references are preserved. The original is not mutated.
+ *
+ * OpenCollection `_oc` passthrough bags are dropped on every item whose bag
+ * carries an auth block: per-item bags are emitted verbatim by the OC
+ * exporter with no auth gate at the request tier, so a surviving
+ * auth-bearing bag would leak the original (pre-redaction) plaintext.
+ * Auth-free item bags are kept: they carry fidelity that can't be rebuilt
+ * (GraphQL/WebSocket shapes).
+ *
+ * The collection-level `_oc` bag is dropped unconditionally. It holds the
+ * entire pre-redaction document, and the exporter's root staleness gate
+ * (`authUnchanged`) compares in *internal* space — blind to auth types that
+ * degrade to 'none' on import (OAuth1/NTLM/WSSE) and to root config secrets
+ * the internal model never sees (proxy passwords, cert passphrases). With
+ * the bag gone, the exporter rebuilds the root tier from the redacted model
+ * (Strategy 3); per-item bags still apply, so item fidelity is unaffected.
+ * Redacted exports trade byte-stability for "never leaks" by design.
+ */
+export function redactCollectionSecrets(collection: Collection): Collection {
+  const next = { ...collection } as Collection & { _oc?: unknown };
+  delete next._oc;
+  return {
+    ...next,
+    ...(collection.auth ? { auth: redactAuthConfigSecrets(collection.auth) } : {}),
+    items: collection.items.map(redactItem),
+  };
+}
+
+/**
+ * Counts non-empty inline (plaintext) secrets across the collection's auth
+ * configs. Used by the export flow to decide whether to warn the user before
+ * writing plaintext credentials into an export file. Handle references don't
+ * count — they never expose plaintext.
+ */
+export function countCollectionInlineSecrets(collection: Collection): number {
+  let count = countAuthInlineSecrets(collection.auth);
+  const walk = (items: CollectionItem[]) => {
+    for (const item of items) {
+      count += countAuthInlineSecrets(item.auth);
+      if (item.request && 'auth' in item.request) {
+        count += countAuthInlineSecrets(item.request.auth);
+      }
+      if (item.items) walk(item.items);
+    }
+  };
+  walk(collection.items);
+  return count;
+}

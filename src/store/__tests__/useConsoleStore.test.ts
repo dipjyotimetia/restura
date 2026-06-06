@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useConsoleStore, createConsoleEntry, entryToCurl } from '../useConsoleStore';
+import {
+  useConsoleStore,
+  createConsoleEntry,
+  createProtocolConsoleEntry,
+  entryToCurl,
+} from '../useConsoleStore';
 import type { HttpRequest, Response as ApiResponse } from '@/types';
 
 describe('useConsoleStore', () => {
@@ -16,6 +21,7 @@ describe('useConsoleStore', () => {
       statusFilter: 'all',
       protocolFilter: 'all',
       preserveOnSend: true,
+      captureEnabled: true,
     });
   });
 
@@ -87,9 +93,59 @@ describe('useConsoleStore', () => {
       expect(state.entries[99]?.request.url).toBe('https://api.example.com/users/5');
 
       // Verify that entries 0-4 (oldest) were removed
-      const urls = state.entries.map(e => e.request.url);
+      const urls = state.entries.map((e) => e.request.url);
       expect(urls).not.toContain('https://api.example.com/users/0');
       expect(urls).not.toContain('https://api.example.com/users/4');
+    });
+
+    it('keeps the previous selection when the new entry is evicted at insert (all slots pinned)', () => {
+      const { addEntry, togglePin } = useConsoleStore.getState();
+
+      // Fill the console and pin every entry — zero room for unpinned ones.
+      for (let i = 0; i < 100; i++) {
+        addEntry({
+          timestamp: Date.now() + i,
+          request: { method: 'GET', url: `https://api.example.com/p/${i}`, headers: {} },
+          response: {
+            id: `resp-${i}`,
+            requestId: `req-${i}`,
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            body: '',
+            size: 0,
+            time: 100,
+            timestamp: Date.now() + i,
+          },
+        });
+      }
+      for (const e of useConsoleStore.getState().entries) togglePin(e.id);
+      const selectedBefore = useConsoleStore.getState().selectedEntryId;
+
+      addEntry({
+        timestamp: Date.now(),
+        request: { method: 'GET', url: 'https://api.example.com/evicted', headers: {} },
+        response: {
+          id: 'resp-evicted',
+          requestId: 'req-evicted',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 100,
+          timestamp: Date.now(),
+        },
+      });
+
+      const state = useConsoleStore.getState();
+      // The new entry was evicted immediately (no unpinned room)…
+      expect(state.entries.map((e) => e.request.url)).not.toContain(
+        'https://api.example.com/evicted'
+      );
+      // …so the selection must not dangle on its id.
+      expect(state.selectedEntryId).toBe(selectedBefore);
+      expect(state.entries.some((e) => e.id === state.selectedEntryId)).toBe(true);
     });
   });
 
@@ -184,8 +240,15 @@ describe('useConsoleStore', () => {
         timestamp: Date.now(),
         request: { method: 'GET', url: 'https://a.example.com', headers: {} },
         response: {
-          id: 'r1', requestId: 'req-1', status: 200, statusText: 'OK',
-          headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+          id: 'r1',
+          requestId: 'req-1',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 10,
+          timestamp: Date.now(),
         },
       });
       expect(useConsoleStore.getState().entries).toHaveLength(1);
@@ -195,8 +258,15 @@ describe('useConsoleStore', () => {
         timestamp: Date.now(),
         request: { method: 'GET', url: 'https://b.example.com', headers: {} },
         response: {
-          id: 'r2', requestId: 'req-2', status: 200, statusText: 'OK',
-          headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+          id: 'r2',
+          requestId: 'req-2',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 10,
+          timestamp: Date.now(),
         },
       });
       const state = useConsoleStore.getState();
@@ -212,8 +282,15 @@ describe('useConsoleStore', () => {
         timestamp: Date.now(),
         request: { method: 'GET', url: 'https://a.example.com', headers: {} },
         response: {
-          id: 'r1', requestId: 'req-1', status: 200, statusText: 'OK',
-          headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+          id: 'r1',
+          requestId: 'req-1',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 10,
+          timestamp: Date.now(),
         },
       });
       const id = useConsoleStore.getState().entries[0]?.id ?? '';
@@ -235,6 +312,180 @@ describe('useConsoleStore', () => {
       expect(state.protocolFilter).toBe('grpc');
     });
   });
+
+  describe('captureEnabled (pause/resume)', () => {
+    const sampleEntry = () => ({
+      timestamp: Date.now(),
+      request: { method: 'GET', url: 'https://x.test', headers: {} },
+      response: {
+        id: 'r',
+        requestId: 'q',
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: '',
+        size: 0,
+        time: 1,
+        timestamp: Date.now(),
+      },
+    });
+
+    it('drops entries and frames while paused; resumes capture when re-enabled', () => {
+      const store = useConsoleStore.getState();
+      store.setCaptureEnabled(false);
+      useConsoleStore.getState().addEntry(sampleEntry());
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'sse',
+        direction: 'in',
+        payload: 'hello',
+      });
+      useConsoleStore
+        .getState()
+        .addFrames([
+          { timestamp: Date.now(), protocol: 'websocket', direction: 'out', payload: 'x' },
+        ]);
+      expect(useConsoleStore.getState().entries).toHaveLength(0);
+      expect(useConsoleStore.getState().frames).toHaveLength(0);
+
+      useConsoleStore.getState().setCaptureEnabled(true);
+      useConsoleStore.getState().addEntry(sampleEntry());
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'sse',
+        direction: 'in',
+        payload: 'hello',
+      });
+      expect(useConsoleStore.getState().entries).toHaveLength(1);
+      expect(useConsoleStore.getState().frames).toHaveLength(1);
+    });
+
+    it('clears still work while paused', () => {
+      useConsoleStore.getState().addEntry(sampleEntry());
+      useConsoleStore.getState().setCaptureEnabled(false);
+      useConsoleStore.getState().clearEntries();
+      expect(useConsoleStore.getState().entries).toHaveLength(0);
+    });
+  });
+
+  describe('live body cap', () => {
+    it('truncates oversized response bodies at capture and flags the entry', () => {
+      const huge = 'x'.repeat(5 * 1024 * 1024 + 100);
+      useConsoleStore.getState().addEntry({
+        timestamp: Date.now(),
+        request: { method: 'GET', url: 'https://x.test', headers: {} },
+        response: {
+          id: 'r',
+          requestId: 'q',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: huge,
+          size: huge.length,
+          time: 1,
+          timestamp: Date.now(),
+        },
+      });
+      const entry = useConsoleStore.getState().entries[0]!;
+      expect(entry.bodyTruncated).toBe(true);
+      expect(entry.response.body.length).toBeLessThan(huge.length);
+      expect(entry.response.body).toContain('[truncated');
+    });
+
+    it('leaves normal-sized bodies untouched', () => {
+      useConsoleStore.getState().addEntry({
+        timestamp: Date.now(),
+        request: { method: 'GET', url: 'https://x.test', headers: {} },
+        response: {
+          id: 'r',
+          requestId: 'q',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '{"ok":true}',
+          size: 11,
+          time: 1,
+          timestamp: Date.now(),
+        },
+      });
+      const entry = useConsoleStore.getState().entries[0]!;
+      expect(entry.bodyTruncated).toBeUndefined();
+      expect(entry.response.body).toBe('{"ok":true}');
+    });
+  });
+
+  describe('frame payload cap', () => {
+    it('truncates oversized frame payloads at capture (addFrame)', () => {
+      const huge = 'x'.repeat(64 * 1024 + 100);
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'sse',
+        direction: 'in',
+        payload: huge,
+        bytes: huge.length,
+      });
+      const frame = useConsoleStore.getState().frames[0]!;
+      expect(frame.payload.length).toBeLessThan(huge.length);
+      expect(frame.payload).toContain('[truncated');
+      // True size survives in `bytes` even though the preview is cut.
+      expect(frame.bytes).toBe(huge.length);
+    });
+
+    it('truncates oversized payloads in batch appends (addFrames)', () => {
+      const huge = 'y'.repeat(64 * 1024 + 1);
+      useConsoleStore.getState().addFrames([
+        { timestamp: Date.now(), protocol: 'websocket', direction: 'in', payload: huge },
+        { timestamp: Date.now(), protocol: 'websocket', direction: 'in', payload: 'small' },
+      ]);
+      const frames = useConsoleStore.getState().frames;
+      expect(frames[0]!.payload).toContain('[truncated');
+      expect(frames[1]!.payload).toBe('small');
+    });
+
+    it('leaves normal-sized payloads untouched', () => {
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'sse',
+        direction: 'in',
+        payload: 'data: {"ok":true}',
+      });
+      expect(useConsoleStore.getState().frames[0]!.payload).toBe('data: {"ok":true}');
+    });
+  });
+});
+
+describe('createProtocolConsoleEntry', () => {
+  it('builds a console entry for non-HTTP protocols with provenance', () => {
+    const response: ApiResponse = {
+      id: 'r1',
+      requestId: 'q1',
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      body: '{}',
+      size: 2,
+      time: 12,
+      timestamp: Date.now(),
+    };
+    const entry = createProtocolConsoleEntry({
+      protocol: 'grpc',
+      method: 'pkg.Service/GetThing',
+      url: 'grpc://localhost:50051',
+      headers: { 'x-meta': '1' },
+      body: '{"id":1}',
+      response,
+      tests: [{ name: 'status ok', passed: true }],
+      extra: { runId: 'run-1', runLabel: 'Workflow: W' },
+    });
+    expect(entry.protocol).toBe('grpc');
+    expect(entry.request.method).toBe('pkg.Service/GetThing');
+    expect(entry.request.url).toBe('grpc://localhost:50051');
+    expect(entry.request.body).toBe('{"id":1}');
+    expect(entry.tests).toEqual([{ name: 'status ok', passed: true }]);
+    expect(entry.runId).toBe('run-1');
+    expect(entry.runLabel).toBe('Workflow: W');
+    expect(entry.requestSize).toBeGreaterThan(0);
+  });
 });
 
 describe('entryToCurl', () => {
@@ -250,8 +501,15 @@ describe('entryToCurl', () => {
         body: '{"name":"John"}',
       },
       response: {
-        id: 'r', requestId: 'q', status: 201, statusText: 'Created',
-        headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+        id: 'r',
+        requestId: 'q',
+        status: 201,
+        statusText: 'Created',
+        headers: {},
+        body: '',
+        size: 0,
+        time: 10,
+        timestamp: Date.now(),
       },
     });
 
@@ -270,8 +528,15 @@ describe('entryToCurl', () => {
         headers: {},
       },
       response: {
-        id: 'r', requestId: 'q', status: 200, statusText: 'OK',
-        headers: {}, body: '', size: 0, time: 10, timestamp: Date.now(),
+        id: 'r',
+        requestId: 'q',
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: '',
+        size: 0,
+        time: 10,
+        timestamp: Date.now(),
       },
     });
     // Single quote replaced by '\''
@@ -310,7 +575,7 @@ describe('createConsoleEntry', () => {
 
     const sentHeaders = {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer token123',
+      Authorization: 'Bearer token123',
     };
 
     const entry = createConsoleEntry(request, response, sentHeaders);
