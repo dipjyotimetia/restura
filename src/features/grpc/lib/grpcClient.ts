@@ -18,6 +18,7 @@ import {
 } from '@/lib/shared/platform';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { generateTraceparent } from '@/lib/shared/utils';
+import { resolveGrpcTls } from './grpcTls';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {
@@ -467,7 +468,11 @@ export async function makeElectronGrpcRequest(
   protoFileName: string,
   resolveVariables: (text: string) => string,
   timeoutMs: number = 30000,
-  useCompression: boolean = false
+  useCompression: boolean = false,
+  // Base64 binary FileDescriptorProtos from reflection. When present the main
+  // process loads the complete descriptor set (lossless) and ignores the
+  // reconstructed `protoContent` text.
+  descriptors?: string[]
 ): Promise<GrpcResponse> {
   if (!isElectron()) {
     throw new Error('Electron environment required for full gRPC support');
@@ -480,6 +485,10 @@ export async function makeElectronGrpcRequest(
     const api = getElectronAPI();
     if (!api) throw new Error('Electron API not available');
 
+    // Per-host TLS trust / mTLS material so a self-signed / private-CA / mTLS
+    // gRPC server connects instead of failing the handshake.
+    const tls = resolveGrpcTls(prepared.url);
+
     const response = await api.grpc.request({
       url: prepared.url,
       service: request.service,
@@ -489,11 +498,14 @@ export async function makeElectronGrpcRequest(
       message: prepared.message,
       protoContent,
       protoFileName,
+      ...(descriptors?.length ? { descriptors } : {}),
       timeoutMs,
       useCompression,
       // Hand the descriptor to the main process only when it holds a handle the
       // renderer couldn't resolve; inline/plain creds are already in `metadata`.
       ...(grpcAuthNeedsMainSideApply(request.auth) ? { auth: request.auth } : {}),
+      // resolveGrpcTls already omits absent keys, so spread it whole.
+      ...(tls ?? {}),
     });
 
     const endTime = Date.now();

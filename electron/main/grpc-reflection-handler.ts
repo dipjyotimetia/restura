@@ -10,6 +10,7 @@ import {
 import { assertUrlHostnameSafe } from './dns-guard';
 import { IPC } from '../shared/channels';
 import { getGrpc, getProtoLoader } from './grpc-lazy';
+import { buildGrpcCredentials } from './grpc-credentials';
 
 // gRPC schemes accepted by the SSRF guard. Reflection URLs are routinely
 // passed as grpc:// or grpcs:// in addition to http(s)://.
@@ -91,13 +92,17 @@ interface GrpcReflectionResponse {
   [key: string]: unknown;
 }
 
-function parseTargetAddress(url: string): { address: string; useTls: boolean } {
+export function parseTargetAddress(url: string): { address: string; useTls: boolean } {
   const withScheme = url.includes('://') ? url : `grpc://${url}`;
   const parsed = new URL(withScheme);
-  const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+  // `grpcs:` is the standard gRPC TLS scheme — treat it as TLS (and default to
+  // 443), same as the call path. Previously only `https:` was checked, so a
+  // `grpcs://` reflection target dialed plaintext on port 80 and failed.
+  const useTls = parsed.protocol === 'https:' || parsed.protocol === 'grpcs:';
+  const port = parsed.port || (useTls ? '443' : '80');
   return {
     address: `${parsed.hostname}:${port}`,
-    useTls: parsed.protocol === 'https:',
+    useTls,
   };
 }
 
@@ -136,10 +141,14 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
   });
 
   const { address, useTls } = parseTargetAddress(url);
-  const grpcLib = getGrpc();
-  const credentials = useTls
-    ? grpcLib.credentials.createSsl()
-    : grpcLib.credentials.createInsecure();
+  // Same TLS trust material as the call path — otherwise Discover silently
+  // fails against a self-signed / private-CA / mTLS server while a call with
+  // the right cert would have worked.
+  const credentials = buildGrpcCredentials(useTls, {
+    verifySsl: config.verifySsl,
+    clientCert: config.clientCert,
+    caCert: config.caCert,
+  });
 
   const ClientConstructor = loadServiceClient(version);
   const client = new ClientConstructor(address, credentials, {

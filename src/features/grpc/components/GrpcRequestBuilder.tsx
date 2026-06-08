@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Loader2, Radio } from 'lucide-react';
+import { AlertCircle, Loader2, Radio } from 'lucide-react';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
@@ -309,11 +309,17 @@ function GrpcRequestBuilder() {
     try {
       let protoContent: string;
       let protoFileName: string;
+      // Raw reflection descriptors (Electron only) — preferred over the
+      // reconstructed `.proto` text, which is lossy (drops enums / well-known
+      // types / maps / oneofs). The text is still generated for display + the
+      // web Connect path; Electron loads the descriptor set instead.
+      let descriptors: string[] | undefined;
 
       if (protoFile) {
         protoContent = await protoFile.text();
         protoFileName = protoFile.name;
       } else if (reflection.result?.success && reflection.selectedService) {
+        descriptors = reflection.selectedService.descriptors;
         protoContent = generateProtoFromReflection(grpcRequest.service, reflection.selectedService);
         protoFileName = 'generated.proto';
       } else {
@@ -342,6 +348,7 @@ function GrpcRequestBuilder() {
           resolveVariables,
           protoContent,
           protoFileName,
+          ...(descriptors?.length ? { descriptors } : {}),
           timeoutMs,
           useCompression,
         });
@@ -393,6 +400,7 @@ function GrpcRequestBuilder() {
       const protocolOptions = {
         protoContent,
         protoFileName,
+        ...(descriptors?.length ? { descriptors } : {}),
         timeoutMs,
         useCompression,
       };
@@ -613,6 +621,17 @@ function GrpcRequestBuilder() {
               onMethodTypeChange={handleMethodTypeChange}
             />
           </div>
+
+          {reflectionResult && !reflectionResult.success && (
+            <div className="mx-3 mt-2 p-2 rounded-sp-btn bg-red-500/10 text-destructive text-sp-11 font-mono flex items-start gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span className="break-words">
+                Reflection failed: {reflectionResult.error || 'Could not reach the gRPC server.'}
+                {/^https:\/\//i.test(grpcRequest.url) &&
+                  ' — if the server uses a self-signed or private-CA certificate, add its CA in Settings → Certificates.'}
+              </span>
+            </div>
+          )}
 
           <div className="text-sp-11 font-mono text-sp-muted px-3 py-1.5 border-b border-sp-line">
             {getMethodTypeDescription(grpcRequest.methodType)}
