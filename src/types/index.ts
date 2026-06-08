@@ -519,6 +519,13 @@ export interface ReflectionServiceInfo {
   name: string;
   fullName: string;
   methods: ReflectionMethodInfo[];
+  /**
+   * Base64 binary FileDescriptorProtos (the file containing this service plus
+   * its transitive imports) as returned by reflection. Threaded to the Electron
+   * gRPC call so it loads the complete descriptor set via proto-loader instead
+   * of lossy reconstructed `.proto` text. Electron-only — undefined on web.
+   */
+  descriptors?: string[];
 }
 
 export interface ReflectionMethodInfo {
@@ -750,7 +757,7 @@ export interface CaCert {
 // Per-domain certificate entries (Postman / Insomnia parity). Each is scoped
 // to a host pattern (`api.example.com`, `*.example.com`, `.example.com`) with
 // an optional port. Selection is most-specific-wins; see
-// `src/features/http/lib/certMatcher.ts`. Desktop-only (mTLS / custom CA need
+// `src/lib/shared/certMatcher.ts`. Desktop-only (mTLS / custom CA need
 // Node TLS — the web build never applies these).
 export interface HostClientCert {
   /** Stable id for list editing. */

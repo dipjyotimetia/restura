@@ -33,6 +33,7 @@ import {
   validateMethodName,
 } from './grpcClient';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { resolveGrpcTls } from './grpcTls';
 
 export interface GrpcStreamFinal {
   headers: Record<string, string>;
@@ -72,10 +73,15 @@ export interface StartGrpcStreamArgs {
   fetcher?: StreamFetcher;
   /** Connection timeout in ms. */
   timeoutMs?: number;
-  /** Proto file content — required for Electron IPC streaming. */
+  /** Proto file content (uploaded `.proto`). Use this OR `descriptors`. */
   protoContent?: string;
-  /** Proto file name — required for Electron IPC streaming. */
+  /** Proto file name — paired with `protoContent`. */
   protoFileName?: string;
+  /**
+   * Base64 binary FileDescriptorProtos from reflection (preferred over
+   * `protoContent` — lossless). Loaded via proto-loader's descriptor-set loader.
+   */
+  descriptors?: string[];
   /** Enable gzip compression on the Electron IPC streaming call. */
   useCompression?: boolean;
 }
@@ -424,6 +430,10 @@ function startElectronInteractiveStream<TIn, TOut>(
   api.grpc.on(`grpc:error:${requestId}`, onError);
   api.grpc.on(`grpc:status:${requestId}`, onStatus);
 
+  // Per-host TLS trust / mTLS material so a self-signed / private-CA / mTLS
+  // gRPC server connects instead of failing the handshake.
+  const tls = resolveGrpcTls(prepared.url);
+
   try {
     api.grpc.startStream({
       id: requestId,
@@ -433,11 +443,16 @@ function startElectronInteractiveStream<TIn, TOut>(
       methodType: args.request.methodType,
       metadata: { ...prepared.metadata, ...authMetadata },
       message: prepared.message,
-      protoContent: args.protoContent ?? '',
-      protoFileName: args.protoFileName ?? 'request.proto',
+      // Send descriptors (reflection) and/or proto text (upload); the main
+      // process prefers descriptors. One of them must be present.
+      ...(args.descriptors?.length ? { descriptors: args.descriptors } : {}),
+      ...(args.protoContent ? { protoContent: args.protoContent } : {}),
+      ...(args.protoFileName ? { protoFileName: args.protoFileName } : {}),
       ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
       ...(args.useCompression !== undefined ? { useCompression: args.useCompression } : {}),
       ...(grpcAuthNeedsMainSideApply(args.request.auth) ? { auth: args.request.auth } : {}),
+      // resolveGrpcTls already omits absent keys, so spread it whole.
+      ...(tls ?? {}),
     });
   } catch (err) {
     cleanup();

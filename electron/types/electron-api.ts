@@ -215,6 +215,11 @@ interface GrpcReflectionConfig {
   reflectionService: string;
   request: Record<string, unknown>;
   timeout?: number;
+  // TLS trust / mTLS material (resolved per-host from cert-override settings),
+  // so Discover reaches a self-signed / private-CA / mTLS server.
+  verifySsl?: boolean;
+  clientCert?: { pfx?: string; cert?: string; key?: string; passphrase?: unknown };
+  caCert?: { pem: string };
 }
 
 interface GrpcRawReflectionResponse {

@@ -20,6 +20,7 @@ import { resolveUrlHostnameSafe } from './dns-guard';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { getGrpc, getProtoLoader } from './grpc-lazy';
+import { buildGrpcCredentials, type GrpcTlsConfig } from './grpc-credentials';
 import { createLogger } from '../../src/lib/shared/logger';
 
 const log = createLogger('grpc');
@@ -381,23 +382,86 @@ function validateProtoContent(content: string): void {
   }
 }
 
-// Helper to load proto
+// keepCase: true matches both the uploaded-`.proto` path and the historical
+// text-reconstruction reflection path — proto-loader's descriptor-set loader
+// keys messages by the original (snake_case) field names. NOTE: the renderer
+// request template emits canonical gRPC-JSON `jsonName` (camelCase), so a
+// snake_case field is currently sent under the wrong key and serialises empty.
+// This is a pre-existing, platform-divergent template-naming issue (web/Connect
+// wants camelCase; native proto-loader wants the original name), tracked
+// separately — it is NOT introduced by descriptor loading.
+const PROTO_LOADER_OPTIONS = {
+  keepCase: true,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true,
+} as const;
+
+// Encode an unsigned int as a protobuf base-128 varint.
+function encodeVarint(n: number): Buffer {
+  const bytes: number[] = [];
+  let v = n >>> 0;
+  while (v > 0x7f) {
+    bytes.push((v & 0x7f) | 0x80);
+    v >>>= 7;
+  }
+  bytes.push(v);
+  return Buffer.from(bytes);
+}
+
+// Assemble a serialized `google.protobuf.FileDescriptorSet` from the raw
+// base64-encoded FileDescriptorProtos returned by server reflection. A
+// FileDescriptorSet is `repeated FileDescriptorProto file = 1;`, so each entry
+// is field #1 / wire-type 2 (length-delimited): tag 0x0A, varint length, then
+// the descriptor bytes. Concatenated, that's a valid FileDescriptorSet — no
+// extra proto library needed. Fed to proto-loader's descriptor-set loader.
+export function buildFileDescriptorSet(base64Descriptors: string[]): Buffer {
+  const chunks: Buffer[] = [];
+  for (const b64 of base64Descriptors) {
+    const fd = Buffer.from(b64, 'base64');
+    chunks.push(Buffer.from([0x0a]), encodeVarint(fd.length), fd);
+  }
+  return Buffer.concat(chunks);
+}
+
+// Helper to load proto. Two sources:
+//  - `descriptors`: the binary FileDescriptorSet from reflection — loaded
+//    directly via proto-loader (lossless: enums / WKT / maps / oneofs /
+//    cross-package refs all survive). Preferred path for reflection.
+//  - `protoContent`: hand-written `.proto` text from an uploaded file.
 const loadProto = (config: GrpcRequestConfig, tempDir: string) => {
+  if (config.descriptors && config.descriptors.length > 0) {
+    const fdSet = buildFileDescriptorSet(config.descriptors);
+    const packageDefinition = getProtoLoader().loadFileDescriptorSetFromBuffer(
+      fdSet,
+      PROTO_LOADER_OPTIONS
+    );
+    return getGrpc().loadPackageDefinition(packageDefinition);
+  }
+
+  if (!config.protoContent) {
+    throw new Error('No proto source: provide proto content or reflection descriptors');
+  }
   validateProtoContent(config.protoContent);
   const sanitizedFileName = sanitizeProtoFileName(config.protoFileName || 'service.proto');
   const protoPath = path.join(tempDir, sanitizedFileName);
   fs.writeFileSync(protoPath, config.protoContent);
 
-  const packageDefinition = getProtoLoader().loadSync(protoPath, {
-    keepCase: true,
-    longs: String,
-    enums: String,
-    defaults: true,
-    oneofs: true,
-  });
+  const packageDefinition = getProtoLoader().loadSync(protoPath, PROTO_LOADER_OPTIONS);
 
   return getGrpc().loadPackageDefinition(packageDefinition);
 };
+
+// Pull the TLS trust / mTLS material out of a request config for the
+// credentials builder (shared by the unary + streaming call paths).
+function tlsFromConfig(config: GrpcRequestConfig): GrpcTlsConfig {
+  return {
+    verifySsl: config.verifySsl,
+    clientCert: config.clientCert,
+    caCert: config.caCert,
+  };
+}
 
 // Build a grpc-js client from the loaded package definition
 function buildGrpcClient(
@@ -405,7 +469,8 @@ function buildGrpcClient(
   serviceName: string,
   url: string,
   pinned: GrpcDialAddress,
-  useCompression: boolean
+  useCompression: boolean,
+  tls?: GrpcTlsConfig
 ): grpc.Client {
   const parts = serviceName.split('.');
   let obj: Record<string, unknown> = protoDef as Record<string, unknown>;
@@ -423,10 +488,10 @@ function buildGrpcClient(
   // resolver can't be rebound between our check and the connect. Authority +
   // SSL target name stay on the original hostname (see computeGrpcDial).
   const { target, useTls, channelOptions: authorityOptions } = computeGrpcDial(url, pinned);
-  const grpcLib = getGrpc();
-  const credentials = useTls
-    ? grpcLib.credentials.createSsl()
-    : grpcLib.credentials.createInsecure();
+  // Honour the request's TLS trust material (custom CA / mTLS / verify toggle)
+  // so self-signed and private-CA servers connect instead of failing the
+  // handshake against the OS root store only. See buildGrpcCredentials.
+  const credentials = buildGrpcCredentials(useTls, tls);
   const channelOptions: grpc.ChannelOptions = {
     ...authorityOptions,
     ...(useCompression
@@ -495,7 +560,8 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       config.service,
       config.url,
       grpcDial,
-      !!config.useCompression
+      !!config.useCompression,
+      tlsFromConfig(config)
     );
     const metadata = buildMetadata(mergeMainSideAuth(config.metadata, config.auth));
     const method = config.method;
@@ -714,7 +780,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             config.service,
             config.url,
             grpcDial,
-            !!config.useCompression
+            !!config.useCompression,
+            tlsFromConfig(config)
           );
           const metadata = buildMetadata(mergeMainSideAuth(config.metadata, config.auth));
           const method = config.method;

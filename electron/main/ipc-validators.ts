@@ -43,6 +43,17 @@ const CaCertSchema = z.object({
   pem: z.string().min(1),
 });
 
+// TLS material for gRPC over `https://` / `grpcs://`. Mirrors HTTP's
+// verifySsl / clientCert / caCert so a self-signed, private-CA, or mTLS gRPC
+// server can be reached from desktop (native `@grpc/grpc-js` otherwise trusts
+// only the OS root store). Resolved per-host in the renderer from the same
+// certificate-override settings HTTP uses, then applied at credential build.
+const GrpcTlsFields = {
+  verifySsl: z.boolean().optional(),
+  clientCert: ClientCertSchema.optional(),
+  caCert: CaCertSchema.optional(),
+} as const;
+
 // Auth carried across the IPC boundary. The shared core's `applyAuth` signs
 // the sign-at-wire types (aws-signature, oauth1, wsse) with a resolver; the
 // Electron handler also resolves+applies non-sign-at-wire types (basic, bearer,
@@ -174,33 +185,56 @@ export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
 // gRPC Request Schemas
 // ===========================
 
-export const GrpcRequestConfigSchema = z.object({
-  id: z
-    .string()
-    .regex(/^[a-zA-Z0-9_-]+$/, 'id must be alphanumeric with dashes/underscores')
-    .max(64, 'id too long')
-    .optional(),
-  url: z.url('Invalid gRPC URL'),
-  service: z.string().min(1, 'Service name is required'),
-  method: z.string().min(1, 'Method name is required'),
-  methodType: z.enum(['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming']),
-  metadata: z.record(z.string(), z.string()),
-  message: z.unknown(),
-  protoContent: z
-    .string()
-    .min(1, 'Proto content is required')
-    .max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit'),
-  protoFileName: z.string().min(1, 'Proto file name is required'),
-  useCompression: z.boolean().optional(),
-  // Per-call deadline in ms. Applied as a grpc-js `deadline` on unary and
-  // streaming invocations; omitted → grpc-js channel defaults. Capped at 10min.
-  timeoutMs: z.number().int().positive().max(600_000).optional(),
-  // Present only when a credential carries a SecretRef handle the renderer
-  // cannot resolve (ADR-0007). The handler resolves it main-side via the OS
-  // keychain and merges it into the metadata. Inline/plain creds are already
-  // in `metadata`, so `auth` is omitted for them.
-  auth: AuthConfigSchema.optional(),
-});
+export const GrpcRequestConfigSchema = z
+  .object({
+    id: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]+$/, 'id must be alphanumeric with dashes/underscores')
+      .max(64, 'id too long')
+      .optional(),
+    url: z.url('Invalid gRPC URL'),
+    service: z.string().min(1, 'Service name is required'),
+    method: z.string().min(1, 'Method name is required'),
+    methodType: z.enum([
+      'unary',
+      'server-streaming',
+      'client-streaming',
+      'bidirectional-streaming',
+    ]),
+    metadata: z.record(z.string(), z.string()),
+    message: z.unknown(),
+    // Proto source — EITHER hand-written `.proto` text OR `descriptors` (below).
+    // Optional individually; the refine enforces that at least one is present.
+    protoContent: z
+      .string()
+      .max(MAX_PROTO_CONTENT_BYTES, 'Proto content exceeds 1MB limit')
+      .optional(),
+    protoFileName: z.string().min(1, 'Proto file name is required').optional(),
+    // Base64-encoded binary FileDescriptorProtos from server reflection (the
+    // complete set incl. transitive deps). Preferred over `protoContent` for the
+    // reflection path — loaded via proto-loader's `loadFileDescriptorSetFromBuffer`
+    // so enums / well-known types / maps / oneofs / cross-package refs survive
+    // (text reconstruction dropped them). See grpc-handler `loadProto`.
+    descriptors: z
+      .array(z.string().max(MAX_PROTO_CONTENT_BYTES, 'Descriptor too large'))
+      .max(1024, 'Too many descriptors')
+      .optional(),
+    useCompression: z.boolean().optional(),
+    // Per-call deadline in ms. Applied as a grpc-js `deadline` on unary and
+    // streaming invocations; omitted → grpc-js channel defaults. Capped at 10min.
+    timeoutMs: z.number().int().positive().max(600_000).optional(),
+    // Present only when a credential carries a SecretRef handle the renderer
+    // cannot resolve (ADR-0007). The handler resolves it main-side via the OS
+    // keychain and merges it into the metadata. Inline/plain creds are already
+    // in `metadata`, so `auth` is omitted for them.
+    auth: AuthConfigSchema.optional(),
+    // TLS trust / mTLS material for https:// / grpcs:// (see GrpcTlsFields).
+    ...GrpcTlsFields,
+  })
+  .refine((c) => Boolean(c.protoContent) || Boolean(c.descriptors?.length), {
+    message: 'Either protoContent or descriptors is required',
+    path: ['protoContent'],
+  });
 
 export type GrpcRequestConfig = z.infer<typeof GrpcRequestConfigSchema>;
 
@@ -307,6 +341,10 @@ export const ReflectionIpcConfigSchema = z.object({
   reflectionService: z.string().min(1, 'Reflection service name is required'),
   request: z.record(z.string(), z.unknown()),
   timeout: z.number().int().positive().optional(),
+  // Reflection dials the same TLS endpoint as the call, so it needs the same
+  // trust material (otherwise Discover silently fails against a self-signed /
+  // private-CA / mTLS server while the call would have worked).
+  ...GrpcTlsFields,
 });
 
 export type ReflectionIpcConfig = z.infer<typeof ReflectionIpcConfigSchema>;

@@ -36,7 +36,7 @@ import {
   type DesktopTransportConfig,
 } from '@/lib/shared/transport';
 import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
-import { selectCertForUrl } from '@/features/http/lib/certMatcher';
+import { selectCertForUrl } from '@/lib/shared/certMatcher';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 
 export interface RequestExecutionResult {

@@ -55,10 +55,12 @@ function defaultResolveVariables(text: string, vars: Record<string, string>): st
 }
 
 interface GrpcProtocolOptions {
-  /** Raw proto file contents (required for Electron unary). */
+  /** Raw proto file contents (uploaded `.proto`; or reconstructed fallback). */
   protoContent?: string;
   /** Proto file name for Electron logging / cache keying. */
   protoFileName?: string;
+  /** Base64 binary FileDescriptorProtos from reflection (preferred, lossless). */
+  descriptors?: string[];
   /** Per-request timeout override in ms (defaults to 30s). */
   timeoutMs?: number;
   /** Send gzip-compressed payloads (Electron only — web path ignores). */
@@ -70,6 +72,9 @@ function readProtocolOptions(raw: Record<string, unknown> | undefined): GrpcProt
   const out: GrpcProtocolOptions = {};
   if (typeof raw.protoContent === 'string') out.protoContent = raw.protoContent;
   if (typeof raw.protoFileName === 'string') out.protoFileName = raw.protoFileName;
+  if (Array.isArray(raw.descriptors) && raw.descriptors.every((d) => typeof d === 'string')) {
+    out.descriptors = raw.descriptors as string[];
+  }
   if (typeof raw.timeoutMs === 'number') out.timeoutMs = raw.timeoutMs;
   if (typeof raw.useCompression === 'boolean') out.useCompression = raw.useCompression;
   return out;
@@ -152,18 +157,20 @@ export const grpcProtocol: ProtocolModule = {
 
     let response: GrpcResponse;
     if (isElectron()) {
-      if (!opts.protoContent || !opts.protoFileName) {
+      const hasDescriptors = !!opts.descriptors && opts.descriptors.length > 0;
+      if (!hasDescriptors && (!opts.protoContent || !opts.protoFileName)) {
         throw new Error(
-          'gRPC Electron unary requires `protoContent` and `protoFileName` via protocolOptions.'
+          'gRPC Electron unary requires reflection `descriptors` or `protoContent` + `protoFileName` via protocolOptions.'
         );
       }
       response = await makeElectronGrpcRequest(
         request,
-        opts.protoContent,
-        opts.protoFileName,
+        opts.protoContent ?? '',
+        opts.protoFileName ?? 'generated.proto',
         resolve,
         timeoutMs,
-        opts.useCompression ?? false
+        opts.useCompression ?? false,
+        opts.descriptors
       );
     } else {
       response = await makeProxyGrpcRequest(request, resolve, timeoutMs);

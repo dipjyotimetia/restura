@@ -70,7 +70,13 @@ export interface UseGrpcReflectionResult {
  *    the same URL — prevents thrashing when the parent re-renders.
  */
 export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcReflectionResult {
-  const { url, resolveVariables, autoDiscover = true, onServiceSelected, onMethodSelected } = options;
+  const {
+    url,
+    resolveVariables,
+    autoDiscover = true,
+    onServiceSelected,
+    onMethodSelected,
+  } = options;
 
   const [result, setResult] = useState<ReflectionResult | null>(null);
   const [selectedService, setSelectedService] = useState<ReflectionServiceInfo | null>(null);
@@ -153,10 +159,12 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
               }
             }
           }
-        } else if (!silent) {
-          toast.error('Discovery failed', {
-            description: discoveryResult.error || 'Failed to discover services via reflection',
-          });
+        } else {
+          // Record the failure even on the silent auto-discover path so the
+          // persistent reflection banner shows *why* (e.g. a TLS / certificate
+          // error) instead of nothing. Recording the URL also stops the
+          // auto-discover effect from re-firing against the same failing URL.
+          // The toast stays manual-only to avoid spam while the user types.
           setResult({
             success: false,
             services: [],
@@ -164,18 +172,23 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
             serverUrl: rawUrl,
             timestamp: Date.now(),
           });
+          if (!silent) {
+            toast.error('Discovery failed', {
+              description: discoveryResult.error || 'Failed to discover services via reflection',
+            });
+          }
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        setResult({
+          success: false,
+          services: [],
+          error: errorMessage,
+          serverUrl: rawUrl,
+          timestamp: Date.now(),
+        });
         if (!silent) {
           toast.error('Discovery failed', { description: errorMessage });
-          setResult({
-            success: false,
-            services: [],
-            error: errorMessage,
-            serverUrl: rawUrl,
-            timestamp: Date.now(),
-          });
         }
       } finally {
         setLoading(false);
