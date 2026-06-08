@@ -48,9 +48,9 @@ import {
 import { useTheme } from 'next-themes';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import { toast } from 'sonner';
 import { withViewTransition } from '@/lib/shared/viewTransition';
+import { ReleaseNotes } from './ReleaseNotes';
 
 const ProviderSettings = lazyComponent(async () => {
   const m = await import('@/features/ai/components/ProviderSettings');
@@ -1728,19 +1728,7 @@ function UpdatesSection() {
         <section className="mt-5">
           <SectionLabel>What&apos;s new{latestVersion ? ` in v${latestVersion}` : ''}</SectionLabel>
           <Floater radius="panel" elevation="inset" className="p-4">
-            <div className="text-sp-12 text-sp-muted break-words [&_a]:text-sp-accent [&_a]:underline [&_code]:font-mono [&_h1]:text-sp-13 [&_h1]:font-semibold [&_h1]:text-sp-text [&_h1]:mb-1 [&_h1]:mt-3 [&_h2]:text-sp-13 [&_h2]:font-semibold [&_h2]:text-sp-text [&_h2]:mb-1 [&_h2]:mt-3 [&_h3]:font-semibold [&_h3]:text-sp-text [&_li]:my-0.5 [&_p]:my-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 first:[&>*]:mt-0">
-              <ReactMarkdown
-                components={{
-                  a: ({ href, children }) => (
-                    <a href={href} target="_blank" rel="noreferrer noopener">
-                      {children}
-                    </a>
-                  ),
-                }}
-              >
-                {releaseNotes}
-              </ReactMarkdown>
-            </div>
+            <ReleaseNotes html={releaseNotes} />
           </Floater>
         </section>
       )}
