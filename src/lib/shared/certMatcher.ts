@@ -83,7 +83,11 @@ export function selectCertForUrl<T extends HostScopedEntry>(
     return undefined;
   }
   const hostname = parsed.hostname;
-  const port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80;
+  // `grpcs:` is gRPC-over-TLS — default it to 443 like `https:`, so a host
+  // entry pinned to :443 still matches a `grpcs://host` URL with no explicit
+  // port. (The gRPC TLS resolver passes grpcs/https URLs through here.)
+  const isTls = parsed.protocol === 'https:' || parsed.protocol === 'grpcs:';
+  const port = parsed.port ? Number(parsed.port) : isTls ? 443 : 80;
 
   let best: T | undefined;
   let bestSpec: Specificity | undefined;

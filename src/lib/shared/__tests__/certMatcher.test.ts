@@ -46,6 +46,12 @@ describe('selectCertForUrl', () => {
     expect(selectCertForUrl('http://example.com', [e('1', 'example.com', 80)])?.id).toBe('1');
   });
 
+  it('defaults grpcs:// to 443 (gRPC over TLS) so a :443 entry matches', () => {
+    expect(selectCertForUrl('grpcs://example.com', [e('1', 'example.com', 443)])?.id).toBe('1');
+    // grpc:// is plaintext → defaults to 80, not 443
+    expect(selectCertForUrl('grpc://example.com', [e('1', 'example.com', 443)])).toBeUndefined();
+  });
+
   it('prefers an exact host over a wildcard', () => {
     const list = [e('wild', '*.example.com'), e('exact', 'api.example.com')];
     expect(selectCertForUrl('https://api.example.com', list)?.id).toBe('exact');
