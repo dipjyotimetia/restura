@@ -40,6 +40,7 @@
     "capabilities:matrix": "node scripts/generate-capability-matrix.mjs",
     "capabilities:check": "node scripts/generate-capability-matrix.mjs --check",
     "build:sandbox-libs": "node scripts/build-sandbox-libs.mjs",
+    "grpc:server": "node scripts/grpc-dev-server.mjs",
     "validate": "npm run type-check:all && npm run lint && npm run verify:opencollection-types && npm run capabilities:check && npm run test:run",
     "size": "size-limit",
     "prepare": "husky",
