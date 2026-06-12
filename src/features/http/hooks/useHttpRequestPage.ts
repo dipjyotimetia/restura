@@ -17,6 +17,9 @@ import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/app
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { unwrapSecret } from '@/lib/shared/secretRef';
+import { isElectron } from '@/lib/shared/platform';
+import { executeProxiedRequest } from '@/lib/shared/transport';
+import { buildDesktopTransportConfig } from '@/features/http/lib/requestExecutor';
 
 /**
  * Capture the headers the request actually went out with for the Console.
@@ -192,17 +195,47 @@ export function useHttpRequestPage() {
         };
       }
 
-      const response = await axios({
-        method: httpRequest.method,
-        url: resolvedUrl,
-        params,
-        headers,
-        data: httpRequest.body.type !== 'none' ? httpRequest.body.raw : undefined,
-        timeout: effectiveSettings.timeout,
-        maxRedirects: effectiveSettings.followRedirects ? effectiveSettings.maxRedirects : 0,
-        proxy: proxyConfig,
-        validateStatus: () => true,
-      });
+      // Desktop sends via IPC → main-process undici (CSP forbids renderer-
+      // direct connections in the packaged app; the IPC path also applies
+      // desktop transport config and resolves SecretRef auth main-side).
+      // Web keeps the renderer axios path.
+      let response: {
+        status: number;
+        statusText: string;
+        headers: Record<string, string | string[]>;
+        data: unknown;
+        config?: { headers?: unknown; url?: string };
+      };
+      if (isElectron()) {
+        const desktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, resolvedUrl);
+        response = await executeProxiedRequest(
+          {
+            method: httpRequest.method,
+            url: resolvedUrl,
+            params,
+            headers,
+            bodyType: httpRequest.body.type !== 'none' ? 'raw' : 'none',
+            ...(httpRequest.body.type !== 'none' ? { data: httpRequest.body.raw } : {}),
+            ...(effectiveSettings.timeout !== undefined
+              ? { timeout: effectiveSettings.timeout }
+              : {}),
+          },
+          {},
+          desktop
+        );
+      } else {
+        response = await axios({
+          method: httpRequest.method,
+          url: resolvedUrl,
+          params,
+          headers,
+          data: httpRequest.body.type !== 'none' ? httpRequest.body.raw : undefined,
+          timeout: effectiveSettings.timeout,
+          maxRedirects: effectiveSettings.followRedirects ? effectiveSettings.maxRedirects : 0,
+          proxy: proxyConfig,
+          validateStatus: () => true,
+        });
+      }
 
       const endTime = Date.now();
       const bodyContent =
@@ -310,6 +343,7 @@ export function useHttpRequestPage() {
     setCurrentResponse,
     addHistoryItem,
     getEffectiveSettings,
+    globalSettings,
     addEntry,
   ]);
 
