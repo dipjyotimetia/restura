@@ -1,5 +1,3 @@
-import { createConnectTransport } from '@connectrpc/connect-web';
-import type { Transport, Interceptor } from '@connectrpc/connect';
 import type {
   AuthConfig,
   GrpcRequest,
@@ -93,28 +91,6 @@ export function grpcAuthNeedsMainSideApply(auth: AuthConfig): boolean {
     buildAuthCredential(auth, { headerCase: 'lower', basicRequiresPassword: true })
       .requiresMainSideApply === true
   );
-}
-
-// Create gRPC Interceptor for metadata injection
-export function createMetadataInterceptor(metadata: Record<string, string>): Interceptor {
-  return (next) => async (req) => {
-    // Add metadata to request headers
-    Object.entries(metadata).forEach(([key, value]) => {
-      req.header.set(key, value);
-    });
-
-    return await next(req);
-  };
-}
-
-// Create timeout interceptor
-export function createTimeoutInterceptor(timeoutMs: number): Interceptor {
-  return (next) => async (req) => {
-    // Set deadline using seconds format (more reliable for larger values)
-    const timeoutSec = Math.ceil(timeoutMs / 1000);
-    req.header.set('grpc-timeout', `${timeoutSec}S`);
-    return await next(req);
-  };
 }
 
 // Proto File Parser (Basic implementation)
@@ -309,29 +285,6 @@ export function validateMethodName(method: string): { valid: boolean; error?: st
   }
 
   return { valid: true };
-}
-
-// Create gRPC Transport
-export function createGrpcTransport(
-  baseUrl: string,
-  metadata: Record<string, string> = {},
-  timeoutMs: number = 30000
-): Transport {
-  const interceptors: Interceptor[] = [];
-
-  // Add metadata interceptor if we have metadata
-  if (Object.keys(metadata).length > 0) {
-    interceptors.push(createMetadataInterceptor(metadata));
-  }
-
-  // Add timeout interceptor
-  interceptors.push(createTimeoutInterceptor(timeoutMs));
-
-  return createConnectTransport({
-    baseUrl,
-    interceptors,
-    useBinaryFormat: false, // Use JSON for easier debugging
-  });
 }
 
 // Convert HTTP status to gRPC status

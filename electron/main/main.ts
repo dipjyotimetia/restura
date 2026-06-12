@@ -42,6 +42,15 @@ import { readConsentSync, registerTelemetryConsentIPC } from './telemetry-consen
 
 const isDev = process.env.NODE_ENV === 'development';
 
+// Test harnesses (Playwright _electron) point this at a temp dir so test runs
+// get isolated storage AND their own single-instance lock (the lock is keyed
+// on the userData path, so a developer's running Restura won't kill the test
+// launch). Must run before anything touches userData — logging, electron-store,
+// and requestSingleInstanceLock below all derive from it.
+if (process.env.RESTURA_USER_DATA_DIR) {
+  app.setPath('userData', process.env.RESTURA_USER_DATA_DIR);
+}
+
 // Wire the shared logger to electron-log before anything logs, so module-init
 // warnings and the global error handlers below are persisted from line one.
 initLogging(isDev);

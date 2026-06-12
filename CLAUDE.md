@@ -30,6 +30,7 @@ npm run test:coverage          # Coverage report
 npm run test:e2e               # Playwright (boots dev server via webServer; needs .dev.vars)
 npm run test:e2e:ui            # Playwright UI mode
 npm run test:e2e:headed        # Playwright headed
+npm run test:e2e:electron:build && npm run test:e2e:electron   # Desktop e2e: _electron launch of the unpacked prod build (e2e-electron/), per-protocol smoke vs local mocks + native gRPC dev server
 npm run test:contract          # Contract tests (vitest run tests/contract)
 vitest run path/to/file.test.ts                  # Run a single Vitest file
 vitest run -t "test name pattern"                # Filter by test name

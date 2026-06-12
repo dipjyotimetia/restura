@@ -1,27 +1,20 @@
 /**
- * gRPC streaming client (Plan 4 / Task 8).
+ * gRPC streaming client.
  *
- * Implementation note:
- * Connect-Web v2 (`@connectrpc/connect@^2`) requires generated Bufbuild
- * descriptors (`DescMethodStreaming<I,O>`) for its `transport.stream()` API.
- * Because Restura uses runtime proto reflection — users upload a `.proto` or
- * hit a reflection endpoint at runtime — we don't have generated client code.
- * Constructing valid `DescMethodStreaming` objects without the bufbuild
- * compile-time machinery is brittle and fragile.
+ * Two transports behind one `GrpcStreamingHandle`:
+ *  - Web: `@connectrpc/connect-web` driven by a runtime descriptor registry
+ *    (built from reflection descriptors or uploaded `.proto` text — see
+ *    `shared/protocol/grpc-registry`). Browser fetch can't duplex a request
+ *    body, so only `server-streaming` runs here; client/bidi are desktop-only.
+ *  - Electron: the IPC bridge → connect-node in the main process, which handles
+ *    all four call types (see `startElectronInteractiveStream`).
  *
- * So we take the manual-fetch approach: open a `POST` against
- * `${baseUrl}/${service}/${method}` with the Connect streaming headers
- * (`application/connect+json`, `Connect-Protocol-Version: 1`), serialise the
- * single input message with the Connect envelope framing, and parse the
- * streaming response (length-prefixed envelopes) ourselves. This mirrors the
- * approach in `worker/handlers/grpc.ts` for the unary case, just extended to
- * length-prefixed streams.
- *
- * Currently supports `server-streaming`. `client-streaming` and
- * `bidirectional-streaming` are stubbed — `send()` throws with a clear
- * message until those are wired up in a follow-up task.
+ * Both expose the same async-iterator handle so the UI is transport-agnostic.
  */
 
+import { createClient, ConnectError, type Transport } from '@connectrpc/connect';
+import { createConnectTransport } from '@connectrpc/connect-web';
+import type { DescMethod, DescService } from '@bufbuild/protobuf';
 import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
@@ -32,6 +25,15 @@ import {
   validateServiceName,
   validateMethodName,
 } from './grpcClient';
+import {
+  registryFromDescriptors,
+  registryFromProtoText,
+  resolveMethod,
+  callKindOf,
+  inputFromJson,
+  outputToJson,
+} from '@shared/protocol/grpc-registry';
+import { flattenHeaders } from '@shared/protocol/header-utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { resolveGrpcTls } from './grpcTls';
 
@@ -55,22 +57,11 @@ export interface GrpcStreamingHandle<TIn = unknown, TOut = unknown> {
   done: Promise<GrpcStreamFinal>;
 }
 
-/** Minimal injectable transport surface — used for testing without real fetch. */
-export type StreamFetcher = (
-  url: string,
-  init: RequestInit
-) => Promise<{
-  ok: boolean;
-  status: number;
-  headers: Headers;
-  body: ReadableStream<Uint8Array> | null;
-}>;
-
 export interface StartGrpcStreamArgs {
   request: GrpcRequest;
   resolveVariables: (text: string) => string;
-  /** Override fetch for tests. */
-  fetcher?: StreamFetcher;
+  /** Inject a ConnectRPC transport for tests (e.g. createRouterTransport). */
+  transport?: Transport;
   /** Connection timeout in ms. */
   timeoutMs?: number;
   /** Proto file content (uploaded `.proto`). Use this OR `descriptors`. */
@@ -79,7 +70,7 @@ export interface StartGrpcStreamArgs {
   protoFileName?: string;
   /**
    * Base64 binary FileDescriptorProtos from reflection (preferred over
-   * `protoContent` — lossless). Loaded via proto-loader's descriptor-set loader.
+   * `protoContent` — lossless). Built into a runtime registry via bufbuild.
    */
   descriptors?: string[];
   /** Enable gzip compression on the Electron IPC streaming call. */
@@ -89,8 +80,9 @@ export interface StartGrpcStreamArgs {
 const DEFAULT_TIMEOUT = 30_000;
 
 /**
- * Start a gRPC stream against the request's method. Currently only
- * `server-streaming` is wired through — client-streaming and bidi throw.
+ * Start a gRPC stream against the request's method. Electron handles all four
+ * call types via IPC; the web path supports `server-streaming` only (browser
+ * fetch can't duplex), so client/bidi throw a desktop-only error there.
  */
 export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   args: StartGrpcStreamArgs
@@ -119,9 +111,9 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     );
   }
 
-  // Electron: every streaming type goes through the IPC → grpc-js transport
+  // Electron: every streaming type goes through the IPC → connect-node transport
   // (real HTTP/2 gRPC, works against any gRPC server, resolves secret handles
-  // main-side). The connect-fetch path below is the web-only fallback and only
+  // main-side). The connect-web path below is the web-only fallback and only
   // speaks the Connect/gRPC-Web protocol.
   if (isElectron()) {
     return startElectronInteractiveStream<TIn, TOut>(args) as GrpcStreamingHandle<TIn, TOut>;
@@ -139,9 +131,9 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     );
   }
 
-  // Resolve variables and build metadata; prepareGrpcRequest also parses the
-  // message JSON. It throws GrpcClientError("Invalid JSON message") on bad JSON
-  // — re-surface as a plain Error with the substring expected by callers.
+  // Resolve variables; prepareGrpcRequest also parses the message JSON. It
+  // throws GrpcClientError("Invalid JSON message") on bad JSON — re-surface as
+  // a plain Error with the substring expected by callers.
   let prepared;
   try {
     prepared = prepareGrpcRequest(args.request, args.resolveVariables);
@@ -153,18 +145,9 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     throw err;
   }
 
-  const authMetadata = buildAuthMetadata(args.request.auth);
-  const headers = new Headers();
-  headers.set('Content-Type', 'application/connect+json');
-  headers.set('Connect-Protocol-Version', '1');
-  for (const [k, v] of Object.entries({ ...prepared.metadata, ...authMetadata })) {
-    headers.set(k, v);
-  }
-
-  // The web server-streaming path is a direct connect-web fetch, so a stored
-  // secret handle can't be resolved at the wire (unlike the Electron IPC path,
-  // which resolves handles main-side). Reject clearly instead of sending an
-  // unauthenticated stream that 401s upstream.
+  // The web path is a direct connection to the upstream, so a stored secret
+  // handle can't be resolved at the wire (the Electron IPC path resolves it
+  // main-side). Reject clearly instead of sending an unauthenticated stream.
   if (grpcAuthNeedsMainSideApply(args.request.auth)) {
     throw new Error(
       'This credential uses a stored secret handle. Server-streaming uses a direct ' +
@@ -172,125 +155,121 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     );
   }
 
+  // Build a runtime registry from reflection descriptors (preferred — lossless)
+  // or uploaded `.proto` text. ConnectRPC needs the schema to (de)serialise,
+  // unlike the old hand-rolled JSON relay.
+  const registry = args.descriptors?.length
+    ? registryFromDescriptors(args.descriptors)
+    : args.protoContent
+      ? registryFromProtoText(args.protoContent)
+      : null;
+  if (!registry) {
+    throw new Error(
+      'Server-streaming needs a schema — upload a .proto or use server reflection first.'
+    );
+  }
+  const { service, method } = resolveMethod(registry, args.request.service, args.request.method);
+  if (callKindOf(method) !== 'server-streaming') {
+    throw new Error(`Method "${args.request.method}" is not a server-streaming method.`);
+  }
+
   const baseUrl = prepared.url.endsWith('/') ? prepared.url.slice(0, -1) : prepared.url;
-  const url = `${baseUrl}/${args.request.service}/${args.request.method}`;
+  const transport = args.transport ?? createConnectTransport({ baseUrl, useBinaryFormat: false });
 
-  const fetcher: StreamFetcher = args.fetcher ?? defaultFetcher;
-  const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT;
-
-  return startServerStream<TIn, TOut>({
-    url,
-    headers,
-    input: prepared.message,
-    fetcher,
-    timeoutMs,
+  return startConnectServerStream<TIn, TOut>({
+    transport,
+    service,
+    method,
+    input: inputFromJson(method, prepared.message),
+    headers: { ...prepared.metadata, ...buildAuthMetadata(args.request.auth) },
+    timeoutMs: args.timeoutMs ?? DEFAULT_TIMEOUT,
   });
 }
 
-interface ServerStreamArgs {
-  url: string;
-  headers: Headers;
+interface ConnectServerStreamArgs {
+  transport: Transport;
+  service: DescService;
+  method: DescMethod;
+  /** The request message, already parsed into a schema message via inputFromJson. */
   input: unknown;
-  fetcher: StreamFetcher;
+  headers: Record<string, string>;
   timeoutMs: number;
 }
 
-function startServerStream<TIn, TOut>(args: ServerStreamArgs): GrpcStreamingHandle<TIn, TOut> {
+/**
+ * Drive a server-streaming RPC through a ConnectRPC client. Mirrors the Electron
+ * handle's contract: inbound messages flow through the async iterator; a gRPC
+ * error surfaces as an iterator throw; `done` ALWAYS resolves (never rejects)
+ * carrying the final status + headers + trailers, so a caller that doesn't await
+ * it after the iterator throws can't trigger an unhandled rejection.
+ */
+function startConnectServerStream<TIn, TOut>(
+  args: ConnectServerStreamArgs
+): GrpcStreamingHandle<TIn, TOut> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), args.timeoutMs);
 
   let resolveDone!: (v: GrpcStreamFinal) => void;
-  let rejectDone!: (reason: Error) => void;
-  const done = new Promise<GrpcStreamFinal>((res, rej) => {
+  const done = new Promise<GrpcStreamFinal>((res) => {
     resolveDone = res;
-    rejectDone = rej;
   });
 
+  let header: Headers | undefined;
+  let trailer: Headers | undefined;
   let consumed = false;
 
   async function* iterate(): AsyncIterable<TOut> {
-    if (consumed) {
-      throw new Error('Stream messages can only be iterated once');
-    }
+    if (consumed) throw new Error('Stream messages can only be iterated once');
     consumed = true;
 
-    const final: GrpcStreamFinal = {
-      headers: {},
-      trailers: {},
-      status: GrpcStatusCode.OK,
-    };
-
-    try {
-      const envelope = encodeEnvelope(0, jsonBytes(args.input));
-      const response = await args.fetcher(args.url, {
-        method: 'POST',
-        headers: args.headers,
-        // Cast — Uint8Array is a valid BodyInit at runtime but the lib types
-        // for fetch don't always reflect that (depending on lib.dom version).
-        body: envelope as unknown as BodyInit,
-        signal: controller.signal,
-      });
-
-      final.headers = headersToObject(response.headers);
-      const grpcEncoding = (response.headers.get('grpc-encoding') ?? 'identity').toLowerCase();
-
-      if (!response.body) {
-        // No body — synthesise UNKNOWN if the HTTP status was bad; otherwise OK.
-        if (!response.ok) {
-          final.status = GrpcStatusCode.UNKNOWN;
-          final.statusMessage = `HTTP ${response.status} with empty body`;
-        }
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new EnvelopeStreamDecoder();
-      try {
-        while (true) {
-          const { value, done: readerDone } = await reader.read();
-          if (readerDone) break;
-          if (!value) continue;
-          const envelopes = decoder.feed(value);
-          for (const env of envelopes) {
-            if ((env.flags & 0x02) !== 0) {
-              // End-of-stream envelope — payload is JSON with `error` and `metadata`.
-              const trailerInfo = parseEndStream(env.data);
-              for (const [k, v] of Object.entries(trailerInfo.trailers)) {
-                final.trailers[k] = v;
-              }
-              if (trailerInfo.status !== undefined) {
-                final.status = trailerInfo.status;
-                if (trailerInfo.message) final.statusMessage = trailerInfo.message;
-              }
-              continue;
-            }
-            // Regular message envelope. Compression bit 0x01 means the payload
-            // is compressed with the codec named in the `grpc-encoding` header.
-            const data =
-              (env.flags & 0x01) !== 0 ? await inflateEnvelope(env.data, grpcEncoding) : env.data;
-            yield decodeJson(data) as TOut;
-          }
-        }
-      } finally {
-        reader.releaseLock();
-      }
-    } catch (err) {
-      if (controller.signal.aborted) {
-        // Cancellation is not a hard error — finalise with CANCELLED.
-        final.status = GrpcStatusCode.CANCELLED;
-        final.statusMessage = 'Stream cancelled';
-        clearTimeout(timer);
-        resolveDone(final);
-        return;
-      }
-      clearTimeout(timer);
-      const e = err instanceof Error ? err : new Error(String(err));
-      rejectDone(e);
-      throw e;
+    const client = createClient(args.service, args.transport) as Record<
+      string,
+      (input: unknown, options: unknown) => AsyncIterable<unknown>
+    >;
+    const invoke = client[args.method.localName];
+    if (typeof invoke !== 'function') {
+      throw new Error(`gRPC client has no method "${args.method.localName}"`);
     }
 
-    clearTimeout(timer);
-    resolveDone(final);
+    try {
+      const stream = invoke(args.input, {
+        headers: args.headers,
+        signal: controller.signal,
+        timeoutMs: args.timeoutMs,
+        onHeader: (h: Headers) => {
+          header = h;
+        },
+        onTrailer: (t: Headers) => {
+          trailer = t;
+        },
+      });
+      for await (const msg of stream) {
+        yield outputToJson(args.method, msg) as TOut;
+      }
+      resolveDone({
+        headers: flattenHeaders(header),
+        trailers: flattenHeaders(trailer),
+        status: GrpcStatusCode.OK,
+      });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        resolveDone({
+          headers: flattenHeaders(header),
+          trailers: flattenHeaders(trailer),
+          status: GrpcStatusCode.CANCELLED,
+          statusMessage: 'Stream cancelled',
+        });
+        return; // cancellation is not surfaced as an iterator error
+      }
+      // Connect's Code enum is numerically identical to the gRPC status codes.
+      const ce = ConnectError.from(err);
+      resolveDone({
+        headers: flattenHeaders(header),
+        trailers: flattenHeaders(trailer ?? ce.metadata),
+        status: ce.code as unknown as GrpcStatusCode,
+        statusMessage: ce.rawMessage,
+      });
+      throw new Error(ce.rawMessage);
+    }
   }
 
   return {
@@ -303,7 +282,12 @@ function startServerStream<TIn, TOut>(args: ServerStreamArgs): GrpcStreamingHand
     },
     cancel() {
       controller.abort();
-      clearTimeout(timer);
+      resolveDone({
+        headers: {},
+        trailers: {},
+        status: GrpcStatusCode.CANCELLED,
+        statusMessage: 'Stream cancelled',
+      });
     },
     done,
   };
@@ -530,250 +514,4 @@ export function createInteractiveGrpcStreamForTest<TIn = unknown, TOut = unknown
     },
     done,
   };
-}
-
-const defaultFetcher: StreamFetcher = async (url, init) => {
-  const r = await fetch(url, init);
-  return {
-    ok: r.ok,
-    status: r.status,
-    headers: r.headers,
-    body: r.body,
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Connect envelope framing (https://connectrpc.com/docs/protocol#streaming-rpcs)
-//
-// Each enveloped message is laid out as:
-//   1 byte:  flags  (bit 0 = compressed; bit 1 = end-of-stream)
-//   4 bytes: length (big-endian, payload size in bytes)
-//   N bytes: payload
-// ---------------------------------------------------------------------------
-
-interface DecodedEnvelope {
-  flags: number;
-  // Always a freshly-allocated, ArrayBuffer-backed copy (see feed()), so it can
-  // be enqueued straight into a DecompressionStream without re-copying.
-  data: Uint8Array<ArrayBuffer>;
-}
-
-/**
- * Streaming envelope decoder — buffers partial chunks across reads.
- *
- * Implementation: holds a single growable Uint8Array with an offset cursor
- * (`cursor` = next byte to parse) and a write offset (`writeOffset` = end of
- * valid data). feed() copies the chunk into the buffer at `writeOffset`,
- * advances the cursor as envelopes are consumed, and periodically compacts
- * the buffer in place once consumed bytes exceed retained bytes.
- *
- * This makes feed amortised O(1) per envelope rather than O(n) (the previous
- * `new Uint8Array + set` per feed and `buffer.slice(totalLen)` per envelope
- * was quadratic on high-rate streams). Mirrors the SSE/NDJSON parser pattern
- * in `shared/protocol/`.
- */
-export class EnvelopeStreamDecoder {
-  private buffer: Uint8Array = new Uint8Array(8192);
-  private cursor = 0;
-  private writeOffset = 0;
-
-  feed(chunk: Uint8Array): DecodedEnvelope[] {
-    // Ensure capacity for the incoming chunk, compacting / growing as needed.
-    if (this.writeOffset + chunk.length > this.buffer.length) {
-      this.compactOrGrow(chunk.length);
-    }
-    this.buffer.set(chunk, this.writeOffset);
-    this.writeOffset += chunk.length;
-
-    const out: DecodedEnvelope[] = [];
-    while (this.writeOffset - this.cursor >= 5) {
-      const flags = this.buffer[this.cursor]!;
-      const view = new DataView(this.buffer.buffer, this.buffer.byteOffset + this.cursor + 1, 4);
-      const length = view.getUint32(0, false); // big-endian
-      const totalLen = 5 + length;
-      if (this.writeOffset - this.cursor < totalLen) break;
-      // Copy the payload — consumers may retain it past the next feed (which
-      // could compact the buffer and invalidate a subarray reference).
-      const data = new Uint8Array(this.buffer.subarray(this.cursor + 5, this.cursor + totalLen));
-      out.push({ flags, data });
-      this.cursor += totalLen;
-    }
-
-    // Periodic compaction — once consumed bytes exceed retained, shift the
-    // remaining bytes back to the start so the buffer doesn't grow unboundedly.
-    if (this.cursor > this.buffer.length / 2) {
-      const remaining = this.writeOffset - this.cursor;
-      if (remaining > 0) {
-        this.buffer.copyWithin(0, this.cursor, this.writeOffset);
-      }
-      this.cursor = 0;
-      this.writeOffset = remaining;
-    }
-
-    return out;
-  }
-
-  private compactOrGrow(needed: number): void {
-    const remaining = this.writeOffset - this.cursor;
-    const required = remaining + needed;
-    if (required <= this.buffer.length) {
-      // Compact in place — the existing buffer is large enough.
-      if (remaining > 0 && this.cursor > 0) {
-        this.buffer.copyWithin(0, this.cursor, this.writeOffset);
-      }
-      this.cursor = 0;
-      this.writeOffset = remaining;
-      return;
-    }
-    // Grow — double until we have capacity.
-    let newSize = this.buffer.length * 2;
-    while (newSize < required) newSize *= 2;
-    const next = new Uint8Array(newSize);
-    if (remaining > 0) {
-      next.set(this.buffer.subarray(this.cursor, this.writeOffset));
-    }
-    this.buffer = next;
-    this.cursor = 0;
-    this.writeOffset = remaining;
-  }
-}
-
-/** Encode a single Connect envelope with the given flags + payload. */
-export function encodeEnvelope(flags: number, payload: Uint8Array): Uint8Array {
-  const out = new Uint8Array(5 + payload.length);
-  out[0] = flags & 0xff;
-  const view = new DataView(out.buffer);
-  view.setUint32(1, payload.length, false); // big-endian
-  out.set(payload, 5);
-  return out;
-}
-
-function jsonBytes(value: unknown): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify(value ?? {}));
-}
-
-function decodeJson(bytes: Uint8Array): unknown {
-  const text = new TextDecoder().decode(bytes);
-  if (text.length === 0) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { __raw: text };
-  }
-}
-
-/**
- * Decompress a compressed gRPC-web message frame (envelope flag 0x01) using the
- * codec named in the `grpc-encoding` response header. Browsers/Electron expose
- * gzip and deflate via the native DecompressionStream — no extra dependency.
- */
-async function inflateEnvelope(
-  data: Uint8Array<ArrayBuffer>,
-  encoding: string
-): Promise<Uint8Array> {
-  const format = encoding === 'gzip' ? 'gzip' : encoding === 'deflate' ? 'deflate' : null;
-  if (format === null) {
-    throw new Error(`Unsupported gRPC message encoding: ${encoding || 'unknown'}`);
-  }
-  const source = new ReadableStream<Uint8Array<ArrayBuffer>>({
-    start(controller) {
-      // `data` is already an owned ArrayBuffer-backed copy (DecodedEnvelope.data),
-      // so it can be enqueued directly — no re-copy needed.
-      controller.enqueue(data);
-      controller.close();
-    },
-  });
-  const buffer = await new Response(
-    source.pipeThrough(new DecompressionStream(format))
-  ).arrayBuffer();
-  return new Uint8Array(buffer);
-}
-
-function headersToObject(h: Headers): Record<string, string> {
-  const out: Record<string, string> = {};
-  h.forEach((value, key) => {
-    out[key] = value;
-  });
-  return out;
-}
-
-interface EndStreamInfo {
-  status?: GrpcStatusCode;
-  message?: string;
-  trailers: Record<string, string>;
-}
-
-/**
- * Parse a Connect end-of-stream envelope. Per spec, the payload is a JSON
- * object with optional `error` (with `code` + `message`) and `metadata`
- * (header-style key→string[] map of trailers).
- */
-function parseEndStream(payload: Uint8Array): EndStreamInfo {
-  const trailers: Record<string, string> = {};
-  const out: EndStreamInfo = { trailers };
-  if (payload.length === 0) return out;
-
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>;
-  } catch {
-    return out;
-  }
-
-  const error = parsed['error'] as { code?: string; message?: string } | undefined;
-  if (error?.code) {
-    out.status = connectCodeToStatus(error.code);
-    out.message = error.message ?? GrpcStatusCodeName[out.status];
-  }
-
-  const metadata = parsed['metadata'] as Record<string, string[]> | undefined;
-  if (metadata && typeof metadata === 'object') {
-    for (const [k, v] of Object.entries(metadata)) {
-      if (Array.isArray(v)) {
-        trailers[k.toLowerCase()] = v.join(', ');
-      }
-    }
-  }
-
-  return out;
-}
-
-/** Map a Connect string code to the gRPC numeric status code. */
-function connectCodeToStatus(code: string): GrpcStatusCode {
-  switch (code) {
-    case 'canceled':
-      return GrpcStatusCode.CANCELLED;
-    case 'unknown':
-      return GrpcStatusCode.UNKNOWN;
-    case 'invalid_argument':
-      return GrpcStatusCode.INVALID_ARGUMENT;
-    case 'deadline_exceeded':
-      return GrpcStatusCode.DEADLINE_EXCEEDED;
-    case 'not_found':
-      return GrpcStatusCode.NOT_FOUND;
-    case 'already_exists':
-      return GrpcStatusCode.ALREADY_EXISTS;
-    case 'permission_denied':
-      return GrpcStatusCode.PERMISSION_DENIED;
-    case 'resource_exhausted':
-      return GrpcStatusCode.RESOURCE_EXHAUSTED;
-    case 'failed_precondition':
-      return GrpcStatusCode.FAILED_PRECONDITION;
-    case 'aborted':
-      return GrpcStatusCode.ABORTED;
-    case 'out_of_range':
-      return GrpcStatusCode.OUT_OF_RANGE;
-    case 'unimplemented':
-      return GrpcStatusCode.UNIMPLEMENTED;
-    case 'internal':
-      return GrpcStatusCode.INTERNAL;
-    case 'unavailable':
-      return GrpcStatusCode.UNAVAILABLE;
-    case 'data_loss':
-      return GrpcStatusCode.DATA_LOSS;
-    case 'unauthenticated':
-      return GrpcStatusCode.UNAUTHENTICATED;
-    default:
-      return GrpcStatusCode.UNKNOWN;
-  }
 }

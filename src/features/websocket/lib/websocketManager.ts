@@ -30,7 +30,12 @@ class WebSocketManager {
     }
   }
 
-  connect(connectionId: string, url: string, protocols?: string[], headers?: Record<string, string>): void {
+  connect(
+    connectionId: string,
+    url: string,
+    protocols?: string[],
+    headers?: Record<string, string>
+  ): void {
     // Close existing connection if any
     this.disconnect(connectionId, false);
 
@@ -44,9 +49,11 @@ class WebSocketManager {
       return;
     }
 
-    // Use Electron IPC bridge when headers are required (browser WebSocket doesn't support headers)
-    if (isElectron() && headers && Object.keys(headers).length > 0) {
-      this.connectViaElectron(connectionId, url, headers, protocols);
+    // Desktop always uses the IPC bridge (`ws` in the main process): the
+    // renderer's CSP forbids direct ws: connections in the packaged app, and
+    // the main-process path adds custom headers + the DNS-pinned SSRF guard.
+    if (isElectron()) {
+      this.connectViaElectron(connectionId, url, headers ?? {}, protocols);
       return;
     }
 
@@ -54,9 +61,7 @@ class WebSocketManager {
     store.setReconnectAttempts(connectionId, 0);
 
     try {
-      const ws = protocols?.length
-        ? new WebSocket(url, protocols)
-        : new WebSocket(url);
+      const ws = protocols?.length ? new WebSocket(url, protocols) : new WebSocket(url);
 
       // Set connection timeout
       const timeoutId = setTimeout(() => {
@@ -105,13 +110,7 @@ class WebSocketManager {
         if (event.data instanceof ArrayBuffer) {
           // Binary message
           const hexString = this.arrayBufferToHex(event.data);
-          state.addMessage(
-            connectionId,
-            'received',
-            hexString,
-            'binary',
-            event.data
-          );
+          state.addMessage(connectionId, 'received', hexString, 'binary', event.data);
         } else {
           // Text message
           state.addMessage(connectionId, 'received', event.data, 'text');
@@ -300,28 +299,37 @@ class WebSocketManager {
     api.websocket.on(`ws:close:${connectionId}`, (payload: unknown) => {
       const ev = payload as { code: number; reason: string };
       const s = useWebSocketStore.getState();
-      s.addMessage(connectionId, 'system', `Connection closed (code: ${ev.code}, reason: ${ev.reason || 'No reason provided'})`);
+      s.addMessage(
+        connectionId,
+        'system',
+        `Connection closed (code: ${ev.code}, reason: ${ev.reason || 'No reason provided'})`
+      );
       s.updateConnectionStatus(connectionId, 'disconnected');
       this.electronConnections.delete(connectionId);
       this.cleanupElectronListeners(connectionId, api);
     });
 
-    api.websocket.connect({
-      connectionId,
-      url,
-      headers,
-      ...(protocols !== undefined ? { protocols } : {}),
-    }).catch((err: unknown) => {
-      const errMsg = err instanceof Error ? err.message : 'Connection failed';
-      const s = useWebSocketStore.getState();
-      s.addMessage(connectionId, 'system', `Failed to connect: ${errMsg}`);
-      s.updateConnectionStatus(connectionId, 'disconnected');
-      this.electronConnections.delete(connectionId);
-      this.cleanupElectronListeners(connectionId, api);
-    });
+    api.websocket
+      .connect({
+        connectionId,
+        url,
+        headers,
+        ...(protocols !== undefined ? { protocols } : {}),
+      })
+      .catch((err: unknown) => {
+        const errMsg = err instanceof Error ? err.message : 'Connection failed';
+        const s = useWebSocketStore.getState();
+        s.addMessage(connectionId, 'system', `Failed to connect: ${errMsg}`);
+        s.updateConnectionStatus(connectionId, 'disconnected');
+        this.electronConnections.delete(connectionId);
+        this.cleanupElectronListeners(connectionId, api);
+      });
   }
 
-  private cleanupElectronListeners(connectionId: string, api: ReturnType<typeof getElectronAPI>): void {
+  private cleanupElectronListeners(
+    connectionId: string,
+    api: ReturnType<typeof getElectronAPI>
+  ): void {
     api?.websocket?.removeAllListeners(`ws:open:${connectionId}`);
     api?.websocket?.removeAllListeners(`ws:message:${connectionId}`);
     api?.websocket?.removeAllListeners(`ws:error:${connectionId}`);
@@ -377,7 +385,8 @@ class WebSocketManager {
       const currentState = useWebSocketStore.getState();
       const currentConnection = currentState.connections[connectionId];
       if (currentConnection) {
-        const protocols = currentConnection.protocols.length > 0 ? currentConnection.protocols : undefined;
+        const protocols =
+          currentConnection.protocols.length > 0 ? currentConnection.protocols : undefined;
         this.connect(connectionId, currentConnection.url, protocols);
       }
     }, delay);
