@@ -719,6 +719,9 @@ function GrpcRequestBuilder() {
                 request={grpcRequest}
                 {...(resolvedProto?.content ? { protoContent: resolvedProto.content } : {})}
                 {...(resolvedProto?.fileName ? { protoFileName: resolvedProto.fileName } : {})}
+                {...(reflection.selectedService?.descriptors?.length
+                  ? { descriptors: reflection.selectedService.descriptors }
+                  : {})}
               />
             )}
           </div>

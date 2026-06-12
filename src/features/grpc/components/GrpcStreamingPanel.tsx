@@ -9,6 +9,8 @@ export interface GrpcStreamingPanelProps {
   request: GrpcRequest;
   protoContent?: string;
   protoFileName?: string;
+  /** Lossless reflection descriptors — preferred over the reconstructed proto text. */
+  descriptors?: string[];
 }
 
 type Status = 'idle' | 'streaming' | 'awaiting-response' | 'closed' | 'error';
@@ -24,10 +26,14 @@ const MAX_MESSAGES = 500;
 const isInteractive = (methodType: GrpcRequest['methodType']) =>
   methodType === 'client-streaming' || methodType === 'bidirectional-streaming';
 
-const isClientStream = (methodType: GrpcRequest['methodType']) =>
-  methodType === 'client-streaming';
+const isClientStream = (methodType: GrpcRequest['methodType']) => methodType === 'client-streaming';
 
-export function GrpcStreamingPanel({ request, protoContent, protoFileName }: GrpcStreamingPanelProps) {
+export function GrpcStreamingPanel({
+  request,
+  protoContent,
+  protoFileName,
+  descriptors,
+}: GrpcStreamingPanelProps) {
   const [frames, setFrames] = useState<FrameEntry[]>([]);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +60,13 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
     setSendEnded(false);
     setStatus('streaming');
     try {
-      const handle = await startGrpcStream({ request, resolveVariables, protoContent, protoFileName });
+      const handle = await startGrpcStream({
+        request,
+        resolveVariables,
+        protoContent,
+        protoFileName,
+        ...(descriptors?.length ? { descriptors } : {}),
+      });
       handleRef.current = handle;
 
       void (async () => {
@@ -181,12 +193,7 @@ export function GrpcStreamingPanel({ request, protoContent, protoFileName }: Grp
           </Button>
         )}
         {streaming && (
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={cancel}
-            aria-label="cancel stream"
-          >
+          <Button size="sm" variant="destructive" onClick={cancel} aria-label="cancel stream">
             <Square className="size-4" />
             <span className="ml-1">Cancel</span>
           </Button>
