@@ -2,8 +2,8 @@
  * Resolve desktop TLS material (verify toggle / mTLS client cert / custom CA)
  * for a gRPC URL from the global certificate-override settings — the same
  * store HTTP uses. Threaded into the Electron IPC call + reflection payloads so
- * native `@grpc/grpc-js` can reach a self-signed / private-CA / mTLS server
- * (its default SSL credentials trust only the OS root store).
+ * the connect-node transport can reach a self-signed / private-CA / mTLS server
+ * (the default TLS trust is the OS root store only).
  *
  * Web build never calls this — cert material must never leave the machine, and
  * the Worker has no per-request TLS control. Returns `undefined` when nothing

@@ -45,9 +45,9 @@ const CaCertSchema = z.object({
 
 // TLS material for gRPC over `https://` / `grpcs://`. Mirrors HTTP's
 // verifySsl / clientCert / caCert so a self-signed, private-CA, or mTLS gRPC
-// server can be reached from desktop (native `@grpc/grpc-js` otherwise trusts
-// only the OS root store). Resolved per-host in the renderer from the same
-// certificate-override settings HTTP uses, then applied at credential build.
+// server can be reached from desktop. Resolved per-host in the renderer from
+// the same certificate-override settings HTTP uses, then mapped onto Node's
+// http2/tls options by the connect-node transport builder (grpc-connect.ts).
 const GrpcTlsFields = {
   verifySsl: z.boolean().optional(),
   clientCert: ClientCertSchema.optional(),
@@ -212,16 +212,16 @@ export const GrpcRequestConfigSchema = z
     protoFileName: z.string().min(1, 'Proto file name is required').optional(),
     // Base64-encoded binary FileDescriptorProtos from server reflection (the
     // complete set incl. transitive deps). Preferred over `protoContent` for the
-    // reflection path — loaded via proto-loader's `loadFileDescriptorSetFromBuffer`
-    // so enums / well-known types / maps / oneofs / cross-package refs survive
-    // (text reconstruction dropped them). See grpc-handler `loadProto`.
+    // reflection path — built into a runtime registry via bufbuild so enums /
+    // well-known types / maps / oneofs / cross-package refs survive (text
+    // reconstruction dropped them). See shared/protocol/grpc-registry.
     descriptors: z
       .array(z.string().max(MAX_PROTO_CONTENT_BYTES, 'Descriptor too large'))
       .max(1024, 'Too many descriptors')
       .optional(),
     useCompression: z.boolean().optional(),
-    // Per-call deadline in ms. Applied as a grpc-js `deadline` on unary and
-    // streaming invocations; omitted → grpc-js channel defaults. Capped at 10min.
+    // Per-call deadline in ms. Applied as the ConnectRPC `timeoutMs` call option
+    // on unary and streaming invocations; omitted → no deadline. Capped at 10min.
     timeoutMs: z.number().int().positive().max(600_000).optional(),
     // Present only when a credential carries a SecretRef handle the renderer
     // cannot resolve (ADR-0007). The handler resolves it main-side via the OS

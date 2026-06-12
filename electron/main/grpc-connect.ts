@@ -12,7 +12,7 @@
 //  - SSRF IP-pinning is a `nodeOptions.lookup` that returns the pre-validated
 //    IP; the authority/SNI stay on the hostname so cert validation is unchanged.
 import { createClient, ConnectError, type Transport } from '@connectrpc/connect';
-import { createGrpcTransport } from '@connectrpc/connect-node';
+import { createGrpcTransport, compressionGzip } from '@connectrpc/connect-node';
 import type { DescMethod, Registry } from '@bufbuild/protobuf';
 import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
@@ -87,7 +87,13 @@ function pinnedLookup(dial: PinnedDial) {
 // Build a connect-node gRPC transport that dials the pinned IP. For TLS the
 // request's trust material (custom CA / mTLS / verify toggle) maps onto Node's
 // http2/tls options, with SNI + cert hostname check kept on the real hostname.
-function buildConnectTransport(url: string, dial: PinnedDial, tls?: GrpcTlsConfig): Transport {
+// Exported for tests (transport options aren't observable through a live call).
+export function buildConnectTransport(
+  url: string,
+  dial: PinnedDial,
+  tls?: GrpcTlsConfig,
+  useCompression?: boolean
+): Transport {
   const host = new URL(url).hostname;
   const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
   const baseUrl = `${useTls ? 'https' : 'http'}://${host}:${dial.port}`;
@@ -98,7 +104,13 @@ function buildConnectTransport(url: string, dial: PinnedDial, tls?: GrpcTlsConfi
     if (tls?.caCert?.pem) nodeOptions.ca = tls.caCert.pem;
     if (tls?.verifySsl === false) nodeOptions.rejectUnauthorized = false;
     const cc = tls?.clientCert;
-    if (cc?.cert && cc.key) {
+    if (cc?.pfx) {
+      // mTLS via PKCS#12 — Node TLS takes the bundle directly (grpc-js could
+      // not; it only warned and dialed without the client cert).
+      nodeOptions.pfx = Buffer.from(cc.pfx, 'base64');
+      const passphrase = unwrapSecretValueMain(cc.passphrase);
+      if (passphrase) nodeOptions.passphrase = passphrase;
+    } else if (cc?.cert && cc.key) {
       // mTLS — Node TLS accepts an encrypted key + passphrase directly (no need
       // to pre-decrypt as the grpc-js path did).
       nodeOptions.cert = cc.cert;
@@ -107,7 +119,12 @@ function buildConnectTransport(url: string, dial: PinnedDial, tls?: GrpcTlsConfi
       if (passphrase) nodeOptions.passphrase = passphrase;
     }
   }
-  return createGrpcTransport({ baseUrl, nodeOptions });
+  return createGrpcTransport({
+    baseUrl,
+    nodeOptions,
+    // Parity with the old grpc.default_compression_algorithm=gzip channel arg.
+    ...(useCompression ? { sendCompression: compressionGzip } : {}),
+  });
 }
 
 function buildRegistry(descriptors?: string[], protoContent?: string): Registry {
@@ -120,6 +137,8 @@ interface TransportArgs {
   url: string;
   dial: PinnedDial;
   tls?: GrpcTlsConfig;
+  /** Gzip-compress outbound messages (`sendCompression: compressionGzip`). */
+  useCompression?: boolean;
   /** Inject a transport for tests (e.g. createRouterTransport). */
   transport?: Transport;
 }
@@ -134,7 +153,7 @@ function resolveInvoker(
   t: TransportArgs
 ): { method: DescMethod; invoke: (input: unknown, options: unknown) => unknown } {
   const { service, method } = resolveMethod(registry, serviceName, methodName);
-  const transport = t.transport ?? buildConnectTransport(t.url, t.dial, t.tls);
+  const transport = t.transport ?? buildConnectTransport(t.url, t.dial, t.tls, t.useCompression);
   const client = createClient(service, transport) as Record<
     string,
     (input: unknown, options: unknown) => unknown
@@ -157,6 +176,8 @@ export interface ConnectUnaryArgs {
   message: unknown;
   metadata: Record<string, string>;
   timeoutMs?: number;
+  /** Gzip-compress outbound messages. */
+  useCompression?: boolean;
   /** Inject a transport for tests (e.g. createRouterTransport). */
   transport?: Transport;
 }
@@ -279,6 +300,8 @@ export interface ConnectStreamArgs {
   message: unknown;
   metadata: Record<string, string>;
   timeoutMs?: number;
+  /** Gzip-compress outbound messages. */
+  useCompression?: boolean;
   /** Inject a transport for tests (e.g. createRouterTransport). */
   transport?: Transport;
 }

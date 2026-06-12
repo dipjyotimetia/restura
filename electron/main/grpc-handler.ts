@@ -231,6 +231,7 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
     message: config.message,
     metadata: mergeMainSideAuth(config.metadata, config.auth),
     timeoutMs: config.timeoutMs,
+    useCompression: config.useCompression,
   };
 }
 
