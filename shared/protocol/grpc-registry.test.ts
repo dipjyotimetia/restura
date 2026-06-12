@@ -106,4 +106,27 @@ describe('grpc-registry: registryFromDescriptors', () => {
   it('throws when given no descriptors', () => {
     expect(() => registryFromDescriptors([])).toThrow(/no reflection descriptors/i);
   });
+
+  it('repairs explicit-empty json_name from proto-loader-style reflection descriptors', () => {
+    // The base64 descriptors above come from protobufjs toDescriptor WITHOUT
+    // repair — the same shape @grpc/proto-loader-based servers serve over
+    // reflection, where every field carries `json_name: ""`. bufbuild reads a
+    // present json_name verbatim, so without the fix every output field
+    // serialises under the key "" (regression: desktop Discover → invoke
+    // rendered `{"": 0}` instead of the reply).
+    const registry = registryFromDescriptors(echoFileDescriptorsBase64());
+    const { method } = resolveMethod(registry, SERVICE, 'UnaryEcho');
+    expect(method.output.fields.map((f) => f.jsonName)).toEqual(['message', 'index']);
+
+    const reply = create(method.output, { message: 'echo: ping', index: 0 });
+    expect(outputToJson(method, reply)).toEqual({ message: 'echo: ping', index: 0 });
+  });
+
+  it('derives camelCase json names for snake_case fields in reflection descriptors', () => {
+    const registry = registryFromDescriptors(echoFileDescriptorsBase64());
+    const { method } = resolveMethod(registry, SERVICE, 'ClientStreamingEcho');
+    // EchoSummary has `message_count`; proto3 JSON must emit `messageCount`.
+    const summary = create(method.output, { messageCount: 3, concatenated: 'a|b|c' });
+    expect(outputToJson(method, summary)).toEqual({ messageCount: 3, concatenated: 'a|b|c' });
+  });
 });

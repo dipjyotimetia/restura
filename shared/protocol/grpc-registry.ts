@@ -142,12 +142,32 @@ export function registryFromDescriptors(base64Descriptors: string[]): Registry {
     throw new Error('No reflection descriptors provided');
   }
   return cachedRegistry(`d:${base64Descriptors.join('\x00')}`, () => {
-    const file = base64Descriptors.map((b64) =>
-      fromBinary(FileDescriptorProtoSchema, base64ToBytes(b64))
-    );
+    const file = base64Descriptors.map((b64) => {
+      const fd = fromBinary(FileDescriptorProtoSchema, base64ToBytes(b64));
+      fixEmptyJsonNames(fd.messageType as DescriptorLike[]);
+      return fd;
+    });
     const set = create(FileDescriptorSetSchema, { file });
     return createFileRegistry(set);
   });
+}
+
+/**
+ * Reflection descriptors from some servers — notably Node servers built on
+ * `@grpc/proto-loader` (which generates descriptors via protobufjs) — carry an
+ * explicit EMPTY `json_name` on every field. bufbuild treats a present
+ * `json_name` as authoritative, so every field would serialise under the key
+ * `""` (and collide with each other). Restore the canonical camelCase name so
+ * `toJson`/`fromJson` map fields correctly. A non-empty custom `json_name` is
+ * preserved untouched.
+ */
+function fixEmptyJsonNames(messageTypes: DescriptorLike[] = []): void {
+  for (const mt of messageTypes) {
+    for (const f of mt.field ?? []) {
+      if (f.name && !f.jsonName) f.jsonName = toJsonName(f.name);
+    }
+    fixEmptyJsonNames(mt.nestedType);
+  }
 }
 
 /**
