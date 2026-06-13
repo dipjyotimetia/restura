@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
-import { Floater } from '@/components/ui/spatial';
+import { Floater, Stat } from '@/components/ui/spatial';
 import {
   Select,
   SelectContent,
@@ -17,6 +17,8 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRun } from '../hooks/useEvalRun';
+import { ModelChecklist } from './ModelChecklist';
+import { StatusChip } from './StatusChip';
 import type { AiLabProviderConfig, EvalConfig, ModelRef, ScorerConfig, ScorerKind } from '../types';
 
 interface ModelOption {
@@ -37,6 +39,10 @@ const SCORER_KINDS: Array<{ kind: ScorerKind; label: string }> = [
   { kind: 'script', label: 'Script (pm.test)' },
   { kind: 'judge', label: 'LLM-as-judge' },
 ];
+
+const SCORER_LABEL: Record<ScorerKind, string> = Object.fromEntries(
+  SCORER_KINDS.map((s) => [s.kind, s.label])
+) as Record<ScorerKind, string>;
 
 function defaultScorer(kind: ScorerKind, judgeModel: ModelRef | undefined): ScorerConfig {
   const id = uuidv4();
@@ -151,74 +157,71 @@ export function EvalBuilder() {
   const passCount = progress?.cells.filter((c) => c.passed).length ?? 0;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
-        <div className="space-y-1">
-          <label className="text-sp-11 text-sp-muted font-mono">Eval name</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+    <div className="flex h-full">
+      {/* Config pane — fixed, readable measure; scrolls independently. */}
+      <div className="w-[400px] shrink-0 overflow-auto border-r border-sp-line p-4">
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <span className="sp-label">Eval name</span>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <span className="sp-label">System</span>
+            <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2} />
+          </div>
+          <div className="space-y-1.5">
+            <span className="sp-label">User prompt ({'{{var}}'} from dataset)</span>
+            <Textarea value={user} onChange={(e) => setUser(e.target.value)} rows={3} />
+          </div>
+          <div className="space-y-1.5">
+            <span className="sp-label">Dataset</span>
+            <Select value={datasetId} onValueChange={setDatasetId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a dataset" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.values(datasets).map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.name} ({d.cases.length})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <span className="sp-label">Models</span>
+            <ModelChecklist
+              models={modelOptions}
+              selected={selected}
+              onToggle={toggle}
+              emptyText="Add providers + discover models first."
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="sp-label">Concurrency</span>
+            <Input
+              type="number"
+              min={1}
+              max={16}
+              value={concurrency}
+              onChange={(e) => setConcurrency(Number(e.target.value) || 1)}
+              className="w-20"
+            />
+          </div>
         </div>
-        <div className="space-y-1">
-          <label className="text-sp-11 text-sp-muted font-mono">System</label>
-          <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sp-11 text-sp-muted font-mono">
-            User prompt ({'{{var}}'} from dataset)
-          </label>
-          <Textarea value={user} onChange={(e) => setUser(e.target.value)} rows={3} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sp-11 text-sp-muted font-mono">Dataset</label>
-          <Select value={datasetId} onValueChange={setDatasetId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select a dataset" />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.values(datasets).map((d) => (
-                <SelectItem key={d.id} value={d.id}>
-                  {d.name} ({d.cases.length})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-sp-11 text-sp-muted font-mono">Models</label>
-          <Floater radius="btn" elevation="inset" className="max-h-40 space-y-1 overflow-auto p-2">
-            {modelOptions.length === 0 && (
-              <p className="text-sp-12 text-sp-muted">Add providers + discover models first.</p>
-            )}
-            {modelOptions.map((m) => (
-              <label key={m.key} className="flex items-center gap-2 text-sp-12 text-sp-text">
-                <Checkbox checked={selected.has(m.key)} onCheckedChange={() => toggle(m.key)} />
-                {m.label}
-              </label>
-            ))}
-          </Floater>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sp-11 text-sp-muted font-mono">Concurrency</label>
-          <Input
-            type="number"
-            min={1}
-            max={16}
-            value={concurrency}
-            onChange={(e) => setConcurrency(Number(e.target.value) || 1)}
-            className="w-20"
-          />
-        </div>
-      </Floater>
+      </div>
 
-      <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
-        <div className="flex items-center justify-between">
-          <label className="text-sp-11 text-sp-muted font-mono">Scorers</label>
+      {/* Scorers + run — fills the window. */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-auto p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="sp-label">Scorers</span>
           <Select
             value=""
             onValueChange={(k) =>
               setScorers((p) => [...p, defaultScorer(k as ScorerKind, firstModelRef)])
             }
           >
-            <SelectTrigger className="h-7 w-36 text-xs">
+            <SelectTrigger className="w-44">
               <SelectValue placeholder="Add scorer" />
             </SelectTrigger>
             <SelectContent>
@@ -241,30 +244,42 @@ export function EvalBuilder() {
             />
           ))}
           {scorers.length === 0 && (
-            <p className="text-sp-12 text-sp-muted">No scorers — cells will record output only.</p>
+            <Floater
+              radius="panel"
+              elevation="inset"
+              className="px-3 py-4 text-center text-sp-12 text-sp-muted"
+            >
+              No scorers yet — cells will record output only. Add one above.
+            </Floater>
           )}
         </div>
 
-        {running ? (
-          <Button variant="destructive" size="cta" onClick={stop}>
-            <Square className="h-3.5 w-3.5" /> Stop
-          </Button>
-        ) : (
-          <Button variant="cta" size="cta" onClick={run}>
-            <Play className="h-3.5 w-3.5" /> Run eval
-          </Button>
-        )}
-        {error && <p className="text-sp-12 text-destructive">{error}</p>}
-        {progress && (
-          <div className="space-y-1">
-            <Progress value={(progress.completed / Math.max(1, progress.total)) * 100} />
-            <p className="text-sp-12 text-sp-muted">
-              {progress.completed}/{progress.total} cells · {passCount} passed
-              {progress.done && ' · done — see Reports'}
-            </p>
-          </div>
-        )}
-      </Floater>
+        <div className="mt-4 space-y-3 border-t border-sp-line pt-4">
+          {running ? (
+            <Button variant="destructive" size="cta" onClick={stop}>
+              <Square className="h-3.5 w-3.5" /> Stop
+            </Button>
+          ) : (
+            <Button variant="cta" size="cta" onClick={run}>
+              <Play className="h-3.5 w-3.5" /> Run eval
+            </Button>
+          )}
+          {error && <p className="text-sp-12 text-destructive">{error}</p>}
+          {progress && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <StatusChip state={progress.done ? 'done' : 'running'} />
+                <div className="flex gap-6">
+                  <Stat label="Cells" value={`${progress.completed}/${progress.total}`} />
+                  <Stat label="Passed" value={passCount} />
+                </div>
+              </div>
+              <Progress value={(progress.completed / Math.max(1, progress.total)) * 100} />
+              {progress.done && <p className="text-sp-11 text-sp-muted">Done — see Reports.</p>}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -281,81 +296,85 @@ function ScorerRow({
   onRemove: () => void;
 }) {
   return (
-    <Floater radius="btn" elevation="inset" className="flex items-start gap-2 p-2">
-      <div className="flex-1 space-y-1">
-        <div className="text-sp-12 font-medium text-sp-text">{scorer.kind}</div>
-        {scorer.kind === 'contains' && (
-          <Input
-            className="h-7 text-xs"
-            placeholder="text to find"
-            value={scorer.needle}
-            onChange={(e) => onChange({ needle: e.target.value })}
-          />
-        )}
-        {scorer.kind === 'regex' && (
-          <Input
-            className="h-7 text-xs"
-            placeholder="pattern"
-            value={scorer.pattern}
-            onChange={(e) => onChange({ pattern: e.target.value })}
-          />
-        )}
-        {scorer.kind === 'exact-match' && (
-          <Select
-            value={scorer.expectedFrom}
-            onValueChange={(v) => onChange({ expectedFrom: v as 'expected' | 'reference' })}
-          >
-            <SelectTrigger className="h-7 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="expected">vs case.expected</SelectItem>
-              <SelectItem value="reference">vs case.reference</SelectItem>
-            </SelectContent>
-          </Select>
-        )}
-        {scorer.kind === 'json-schema' && (
-          <Textarea
-            className="font-mono text-xs"
-            rows={3}
-            value={scorer.schema}
-            onChange={(e) => onChange({ schema: e.target.value })}
-          />
-        )}
-        {scorer.kind === 'latency' && (
-          <Input
-            className="h-7 w-24 text-xs"
-            type="number"
-            value={scorer.maxMs}
-            onChange={(e) => onChange({ maxMs: Number(e.target.value) || 0 })}
-          />
-        )}
-        {scorer.kind === 'cost' && (
-          <Input
-            className="h-7 w-28 text-xs"
-            type="number"
-            step={0.001}
-            min={0}
-            value={scorer.maxUSD}
-            onChange={(e) => onChange({ maxUSD: Number(e.target.value) || 0 })}
-          />
-        )}
-        {scorer.kind === 'script' && (
-          <Textarea
-            className="font-mono text-xs"
-            rows={3}
-            placeholder="pm.test('...', () => pm.expect(pm.response.text()).to.include('...'))"
-            value={scorer.code}
-            onChange={(e) => onChange({ code: e.target.value })}
-          />
-        )}
-        {scorer.kind === 'judge' && (
-          <JudgeScorerEditor scorer={scorer} modelOptions={modelOptions} onChange={onChange} />
-        )}
+    <Floater radius="panel" elevation="inset" className="space-y-2 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sp-12 font-semibold text-sp-text">{SCORER_LABEL[scorer.kind]}</span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Remove scorer"
+          title="Remove scorer"
+          onClick={onRemove}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
       </div>
-      <Button variant="ghost" size="sm" onClick={onRemove} className="h-6 w-6 p-0">
-        <X className="h-3 w-3" />
-      </Button>
+      {scorer.kind === 'contains' && (
+        <Input
+          placeholder="text to find"
+          value={scorer.needle}
+          onChange={(e) => onChange({ needle: e.target.value })}
+        />
+      )}
+      {scorer.kind === 'regex' && (
+        <Input
+          placeholder="pattern"
+          value={scorer.pattern}
+          onChange={(e) => onChange({ pattern: e.target.value })}
+        />
+      )}
+      {scorer.kind === 'exact-match' && (
+        <Select
+          value={scorer.expectedFrom}
+          onValueChange={(v) => onChange({ expectedFrom: v as 'expected' | 'reference' })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="expected">vs case.expected</SelectItem>
+            <SelectItem value="reference">vs case.reference</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+      {scorer.kind === 'json-schema' && (
+        <Textarea
+          className="font-mono text-sp-13"
+          rows={3}
+          value={scorer.schema}
+          onChange={(e) => onChange({ schema: e.target.value })}
+        />
+      )}
+      {scorer.kind === 'latency' && (
+        <Input
+          className="w-32"
+          type="number"
+          value={scorer.maxMs}
+          onChange={(e) => onChange({ maxMs: Number(e.target.value) || 0 })}
+        />
+      )}
+      {scorer.kind === 'cost' && (
+        <Input
+          className="w-32"
+          type="number"
+          step={0.001}
+          min={0}
+          value={scorer.maxUSD}
+          onChange={(e) => onChange({ maxUSD: Number(e.target.value) || 0 })}
+        />
+      )}
+      {scorer.kind === 'script' && (
+        <Textarea
+          className="font-mono text-sp-13"
+          rows={3}
+          placeholder="pm.test('...', () => pm.expect(pm.response.text()).to.include('...'))"
+          value={scorer.code}
+          onChange={(e) => onChange({ code: e.target.value })}
+        />
+      )}
+      {scorer.kind === 'judge' && (
+        <JudgeScorerEditor scorer={scorer} modelOptions={modelOptions} onChange={onChange} />
+      )}
     </Floater>
   );
 }
@@ -387,7 +406,7 @@ function JudgeScorerEditor({
     onChange({ criteria: criteria.filter((_, idx) => idx !== i) });
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-3">
       <Select
         value={`${scorer.judgeModel.providerConfigId}:${scorer.judgeModel.model}`}
         onValueChange={(v) => {
@@ -397,7 +416,7 @@ function JudgeScorerEditor({
           onChange({ judgeModel: { providerConfigId: v.slice(0, i), model: v.slice(i + 1) } });
         }}
       >
-        <SelectTrigger className="h-7 text-xs">
+        <SelectTrigger>
           <SelectValue placeholder="Judge model" />
         </SelectTrigger>
         <SelectContent>
@@ -409,87 +428,92 @@ function JudgeScorerEditor({
         </SelectContent>
       </Select>
 
-      {criteria.map((c, i) => (
-        <Floater key={i} radius="btn" elevation="inset" className="space-y-1 p-1.5">
-          <div className="flex items-center gap-1">
-            <Input
-              className="h-6 flex-1 text-xs"
-              placeholder="criterion name"
-              value={c.name}
-              onChange={(e) => setCriterion(i, { name: e.target.value })}
-            />
-            <Input
-              className="h-6 w-14 text-xs"
-              type="number"
-              step={0.5}
-              min={0}
-              title="weight in the aggregate score"
-              value={c.weight ?? 1}
-              onChange={(e) => setCriterion(i, { weight: Number(e.target.value) || 1 })}
-            />
-            <label
-              className="flex items-center gap-1 text-sp-11 text-sp-muted"
-              title="A failing gate criterion fails the cell regardless of the weighted score"
-            >
-              <Checkbox
-                checked={!!c.gate}
-                onCheckedChange={(v) => setCriterion(i, { gate: v === true })}
+      <div className="space-y-2.5">
+        {criteria.map((c, i) => (
+          <div key={i} className="space-y-1.5 border-l-2 border-sp-line pl-3">
+            <div className="flex items-center gap-2">
+              <Input
+                className="flex-1"
+                placeholder="criterion name"
+                value={c.name}
+                onChange={(e) => setCriterion(i, { name: e.target.value })}
               />
-              gate
-            </label>
-            {criteria.length > 1 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => removeCriterion(i)}
+              <Input
+                className="w-16"
+                type="number"
+                step={0.5}
+                min={0}
+                title="weight in the aggregate score"
+                value={c.weight ?? 1}
+                onChange={(e) => setCriterion(i, { weight: Number(e.target.value) || 1 })}
+              />
+              <label
+                className="flex shrink-0 items-center gap-1.5 text-sp-12 text-sp-muted"
+                title="A failing gate criterion fails the cell regardless of the weighted score"
               >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
+                <Checkbox
+                  checked={!!c.gate}
+                  onCheckedChange={(v) => setCriterion(i, { gate: v === true })}
+                />
+                gate
+              </label>
+              {criteria.length > 1 && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Remove criterion"
+                  title="Remove criterion"
+                  onClick={() => removeCriterion(i)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+            <Textarea
+              rows={2}
+              placeholder="rubric for this criterion"
+              value={c.rubric}
+              onChange={(e) => setCriterion(i, { rubric: e.target.value })}
+            />
           </div>
-          <Textarea
-            className="text-xs"
-            rows={2}
-            placeholder="rubric for this criterion"
-            value={c.rubric}
-            onChange={(e) => setCriterion(i, { rubric: e.target.value })}
-          />
-        </Floater>
-      ))}
-      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={addCriterion}>
-        <Plus className="h-3 w-3" /> Add criterion
+        ))}
+      </div>
+      <Button variant="ghost" size="sm" onClick={addCriterion}>
+        <Plus className="h-3.5 w-3.5" /> Add criterion
       </Button>
 
-      <div className="flex items-center gap-2">
-        <label className="text-sp-11 text-sp-muted font-mono" title="Per-criterion score bar (0–1)">
-          pass ≥
-        </label>
-        <Input
-          className="h-7 w-16 text-xs"
-          type="number"
-          step={0.05}
-          min={0}
-          max={1}
-          value={scorer.passThreshold}
-          onChange={(e) => onChange({ passThreshold: Number(e.target.value) || 0 })}
-        />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <label
-          className="text-sp-11 text-sp-muted font-mono"
+          className="flex items-center gap-2 text-sp-12 text-sp-muted"
+          title="Per-criterion score bar (0–1)"
+        >
+          pass ≥
+          <Input
+            className="w-16"
+            type="number"
+            step={0.05}
+            min={0}
+            max={1}
+            value={scorer.passThreshold}
+            onChange={(e) => onChange({ passThreshold: Number(e.target.value) || 0 })}
+          />
+        </label>
+        <label
+          className="flex items-center gap-2 text-sp-12 text-sp-muted"
           title="Self-consistency: run the judge N times, take the median, report variance"
         >
           samples
+          <Input
+            className="w-16"
+            type="number"
+            min={1}
+            max={5}
+            value={samples}
+            onChange={(e) =>
+              onChange({ samples: Math.max(1, Math.min(5, Number(e.target.value) || 1)) })
+            }
+          />
         </label>
-        <Input
-          className="h-7 w-16 text-xs"
-          type="number"
-          min={1}
-          max={5}
-          value={samples}
-          onChange={(e) =>
-            onChange({ samples: Math.max(1, Math.min(5, Number(e.target.value) || 1)) })
-          }
-        />
       </div>
       {samples > 1 && (
         <p className="text-sp-11 text-sp-muted">

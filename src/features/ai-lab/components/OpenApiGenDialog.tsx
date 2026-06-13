@@ -106,7 +106,7 @@ export function OpenApiGenDialog({ onCreated }: { onCreated?: (datasetId: string
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outline" className="w-full">
           <Sparkles className="mr-2 h-3.5 w-3.5" /> From OpenAPI
         </Button>
       </DialogTrigger>
@@ -121,13 +121,13 @@ export function OpenApiGenDialog({ onCreated }: { onCreated?: (datasetId: string
           <Textarea
             value={specText}
             onChange={(e) => setSpecText(e.target.value)}
-            rows={8}
-            className="font-mono text-xs"
+            rows={10}
+            className="font-mono text-sp-13"
             placeholder='{ "openapi": "3.0.0", "info": {...}, "paths": {...} }'
           />
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Generate with</Label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="sp-label">Generate with</Label>
               <Select value={modelKey} onValueChange={setModelKey}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a model" />
@@ -141,8 +141,8 @@ export function OpenApiGenDialog({ onCreated }: { onCreated?: (datasetId: string
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs"># cases</Label>
+            <div className="space-y-1.5">
+              <Label className="sp-label"># cases</Label>
               <Input
                 type="number"
                 min={1}
@@ -152,8 +152,8 @@ export function OpenApiGenDialog({ onCreated }: { onCreated?: (datasetId: string
               />
             </div>
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Extra instructions (optional)</Label>
+          <div className="space-y-1.5">
+            <Label className="sp-label">Extra instructions (optional)</Label>
             <Input
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}

@@ -1,12 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
-import { Play, Square } from 'lucide-react';
+import { Play, Sparkles, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Floater } from '@/components/ui/spatial';
+import { Floater, Stat } from '@/components/ui/spatial';
 import { renderTemplate, extractVars } from '../lib/promptTemplate';
 import { specFor, streamLlm, type StreamHandle } from '../lib/llmClient';
 import { useAiLabStore } from '../store/useAiLabStore';
+import { EmptyState } from './EmptyState';
+import { ModelChecklist } from './ModelChecklist';
+import { StatusChip } from './StatusChip';
 import type { AiLabProviderConfig } from '../types';
 
 interface ModelOption {
@@ -154,111 +156,114 @@ export function Playground() {
   const hasResults = Object.keys(cells).length > 0;
 
   return (
-    <div
-      className={
-        hasResults ? 'grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]' : 'mx-auto w-full max-w-2xl'
-      }
-    >
-      <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
-        <div className="space-y-1">
-          <label className="text-sp-11 text-sp-muted font-mono">System</label>
-          <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={3} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sp-11 text-sp-muted font-mono">User prompt</label>
-          <Textarea value={user} onChange={(e) => setUser(e.target.value)} rows={4} />
-        </div>
-        {promptVars.length > 0 && (
-          <div className="space-y-1">
-            <label className="text-sp-11 text-sp-muted font-mono">
-              Variables ({promptVars.join(', ')})
-            </label>
-            <Textarea
-              value={varsText}
-              onChange={(e) => setVarsText(e.target.value)}
-              rows={4}
-              className="font-mono text-xs"
+    <div className="flex h-full">
+      {/* Config pane — fixed, readable measure; scrolls independently. */}
+      <div className="flex w-[400px] shrink-0 flex-col overflow-auto border-r border-sp-line p-4">
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <span className="sp-label">System</span>
+            <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={3} />
+          </div>
+          <div className="space-y-1.5">
+            <span className="sp-label">User prompt</span>
+            <Textarea value={user} onChange={(e) => setUser(e.target.value)} rows={5} />
+          </div>
+          {promptVars.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="sp-label">Variables ({promptVars.join(', ')})</span>
+              <Textarea
+                value={varsText}
+                onChange={(e) => setVarsText(e.target.value)}
+                rows={4}
+                className="font-mono text-sp-13"
+              />
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <span className="sp-label">Models</span>
+            <ModelChecklist
+              models={modelOptions}
+              selected={selected}
+              onToggle={toggle}
+              emptyText="No models. Add a provider and discover its models in the Providers tab."
             />
           </div>
-        )}
-        <div className="space-y-1">
-          <label className="text-sp-11 text-sp-muted font-mono">Models</label>
-          {modelOptions.length === 0 ? (
-            <p className="text-sp-12 text-sp-muted">
-              No models. Add a provider and discover its models in the Providers tab.
-            </p>
+          {activeCount > 0 ? (
+            <Button variant="destructive" size="cta" onClick={stop} className="w-full">
+              <Square className="h-3.5 w-3.5" /> Stop
+            </Button>
           ) : (
-            <Floater
-              radius="btn"
-              elevation="inset"
-              className="max-h-48 space-y-1 overflow-auto p-2"
+            <Button
+              variant="cta"
+              size="cta"
+              onClick={() => void run()}
+              disabled={selected.size === 0}
+              className="w-full"
             >
-              {modelOptions.map((m) => (
-                <label key={m.key} className="flex items-center gap-2 text-sp-12 text-sp-text">
-                  <Checkbox checked={selected.has(m.key)} onCheckedChange={() => toggle(m.key)} />
-                  {m.label}
-                </label>
-              ))}
-            </Floater>
+              <Play className="h-3.5 w-3.5" /> Run on {selected.size} model(s)
+            </Button>
           )}
         </div>
-        {activeCount > 0 ? (
-          <Button variant="destructive" size="cta" onClick={stop}>
-            <Square className="h-3.5 w-3.5" /> Stop
-          </Button>
-        ) : (
-          <Button
-            variant="cta"
-            size="cta"
-            onClick={() => void run()}
-            disabled={selected.size === 0}
-          >
-            <Play className="h-3.5 w-3.5" /> Run on {selected.size} model(s)
-          </Button>
-        )}
-      </Floater>
+      </div>
 
-      {hasResults && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {modelOptions
-            .filter((m) => cells[m.key])
-            .map((m) => {
-              const cell = cells[m.key]!;
-              return (
-                <Floater
-                  key={m.key}
-                  radius="panel"
-                  elevation="float"
-                  className="flex flex-col bg-sp-surface p-3"
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="truncate text-sp-12 font-medium text-sp-text">{m.label}</span>
-                    <span className="text-[10px] text-sp-muted">
-                      {cell.status === 'streaming' ? '…' : cell.status}
-                    </span>
-                  </div>
-                  <div className="min-h-[6rem] whitespace-pre-wrap text-sp-13 text-sp-text">
-                    {cell.error ? (
-                      <span className="text-destructive">{cell.error}</span>
-                    ) : (
-                      cell.text
-                    )}
-                  </div>
-                  {cell.completionTokens !== undefined && (
-                    <div className="mt-2 border-t border-sp-line pt-2 text-[10px] text-sp-muted">
-                      {cell.promptTokens}+{cell.completionTokens} tok ·{' '}
-                      {cell.cost == null
-                        ? 'cost unknown'
-                        : cell.cost === 0
-                          ? 'free'
-                          : `$${cell.cost.toFixed(5)}`}
+      {/* Results pane — fills the window. */}
+      <div className="min-w-0 flex-1 overflow-auto p-4">
+        {hasResults ? (
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]">
+            {modelOptions
+              .filter((m) => cells[m.key])
+              .map((m) => {
+                const cell = cells[m.key]!;
+                return (
+                  <Floater
+                    key={m.key}
+                    radius="panel"
+                    elevation="float"
+                    className="flex flex-col bg-sp-surface p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="truncate text-sp-12 font-medium text-sp-text">
+                        {m.label}
+                      </span>
+                      <StatusChip state={cell.status} className="shrink-0" />
                     </div>
-                  )}
-                </Floater>
-              );
-            })}
-        </div>
-      )}
+                    <div className="min-h-[6rem] whitespace-pre-wrap text-sp-13 text-sp-text">
+                      {cell.error ? (
+                        <span className="text-destructive">{cell.error}</span>
+                      ) : (
+                        cell.text
+                      )}
+                    </div>
+                    {cell.completionTokens !== undefined && (
+                      <div className="mt-3 flex gap-6 border-t border-sp-line pt-2.5">
+                        <Stat
+                          label="Tokens"
+                          value={`${cell.promptTokens}+${cell.completionTokens}`}
+                        />
+                        <Stat
+                          label="Cost"
+                          value={
+                            cell.cost == null
+                              ? 'unknown'
+                              : cell.cost === 0
+                                ? 'free'
+                                : `$${cell.cost.toFixed(5)}`
+                          }
+                        />
+                      </div>
+                    )}
+                  </Floater>
+                );
+              })}
+          </div>
+        ) : (
+          <EmptyState
+            fill
+            icon={Sparkles}
+            message="Compose a prompt, pick one or more models, and run to compare their outputs side by side."
+          />
+        )}
+      </div>
     </div>
   );
 }

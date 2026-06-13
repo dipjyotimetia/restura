@@ -1,24 +1,35 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { cn } from '@/lib/shared/utils';
 
 /**
  * Centered placeholder for AI Lab panes with nothing to show yet (no dataset
  * selected, no runs, no providers). Replaces the bare top-left muted text that
  * read as unstyled, and keeps those states consistent across tabs.
+ *
+ * `fill` centers it over the full pane height (detail panes); without it the
+ * placeholder reserves a fixed minimum (inline use, e.g. a list section).
  */
 export function EmptyState({
   icon: Icon,
   message,
   action,
+  fill,
 }: {
   icon?: LucideIcon;
   message: string;
   action?: ReactNode;
+  fill?: boolean;
 }) {
   return (
-    <div className="flex min-h-[14rem] flex-col items-center justify-center gap-3 px-6 text-center">
-      {Icon && <Icon className="h-8 w-8 text-sp-dim" />}
-      <p className="text-sp-13 text-sp-muted">{message}</p>
+    <div
+      className={cn(
+        'flex flex-col items-center justify-center gap-3 px-6 text-center',
+        fill ? 'h-full' : 'min-h-[14rem]'
+      )}
+    >
+      {Icon && <Icon className="h-9 w-9 text-sp-muted/70" />}
+      <p className="max-w-xs text-sp-13 text-sp-muted">{message}</p>
       {action}
     </div>
   );

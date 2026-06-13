@@ -69,14 +69,15 @@ export default function AiLabWorkspace() {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <SubTabBar<AiLabTab> tabs={TABS} value={tab} onChange={setTab} />
-          <div className="min-h-0 flex-1 overflow-auto">
-            <div className="mx-auto w-full max-w-6xl p-4 sm:p-6">
-              {tab === 'playground' && <Playground />}
-              {tab === 'datasets' && <DatasetEditor />}
-              {tab === 'evals' && <EvalBuilder />}
-              {tab === 'reports' && <ReportView />}
-              {tab === 'providers' && <ProviderManager />}
-            </div>
+          {/* Each tab owns its own full-height layout + scroll: master-detail
+              panes fill the window; form/config tabs scroll within a readable
+              measure. No outer max-width centering (which left dead margins). */}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {tab === 'playground' && <Playground />}
+            {tab === 'datasets' && <DatasetEditor />}
+            {tab === 'evals' && <EvalBuilder />}
+            {tab === 'reports' && <ReportView />}
+            {tab === 'providers' && <ProviderManager />}
           </div>
         </div>
       )}

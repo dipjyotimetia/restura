@@ -65,67 +65,78 @@ export function DatasetEditor() {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
-      <div className="space-y-2">
+    <div className="flex h-full">
+      {/* Dataset list — master pane. */}
+      <div className="flex w-[280px] shrink-0 flex-col gap-2 overflow-auto border-r border-sp-line p-3">
         <Button variant="secondary" size="sm" onClick={createNew} className="w-full">
           <Plus className="mr-2 h-3.5 w-3.5" /> New dataset
         </Button>
-        <div className="flex justify-center">
-          <OpenApiGenDialog onCreated={(id) => setActiveId(id)} />
-        </div>
+        <OpenApiGenDialog onCreated={(id) => setActiveId(id)} />
         {Object.values(datasets).map((d) => (
           <button
             key={d.id}
             onClick={() => setActiveId(d.id)}
             className={cn(
-              'flex w-full items-center justify-between rounded-sp-btn border px-3 py-2 text-left text-sp-13 transition-colors',
+              'flex w-full items-center justify-between gap-2 rounded-sp-btn border px-3 py-2.5 text-left text-sp-13 transition-colors',
               activeId === d.id
                 ? 'border-sp-accent bg-[var(--sp-accent-glow-15)] text-sp-text'
                 : 'border-sp-line text-sp-text hover:bg-sp-hover'
             )}
           >
             <span className="truncate">{d.name}</span>
-            <span className="text-sp-12 text-sp-muted">{d.cases.length}</span>
+            <span className="shrink-0 text-sp-12 text-sp-muted tabular-nums">{d.cases.length}</span>
           </button>
         ))}
       </div>
 
-      {active ? (
-        <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
-          <div className="flex items-end gap-2">
-            <div className="flex-1 space-y-1">
-              <label className="text-sp-11 text-sp-muted font-mono">Name</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
+      {/* Editor — detail pane, fills the window. */}
+      <div className="min-w-0 flex-1 overflow-auto p-4">
+        {active ? (
+          <Floater
+            radius="panel"
+            elevation="float"
+            className="flex h-full flex-col gap-3 bg-sp-surface p-4"
+          >
+            <div className="flex items-end gap-2">
+              <div className="flex-1 space-y-1.5">
+                <span className="sp-label">Name</span>
+                <Input value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Delete dataset"
+                title="Delete dataset"
+                onClick={() => {
+                  removeDataset(active.id);
+                  setActiveId(null);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              </Button>
             </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                removeDataset(active.id);
-                setActiveId(null);
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+              <span className="sp-label">
+                Cases — JSON array of {'{ vars, expected?, reference? }'}
+              </span>
+              <Textarea
+                value={casesText}
+                onChange={(e) => setCasesText(e.target.value)}
+                className="min-h-[16rem] flex-1 resize-none font-mono text-sp-13"
+              />
+            </div>
+            <Button variant="secondary" size="sm" onClick={save} className="self-start">
+              Save dataset
             </Button>
-          </div>
-          <div className="space-y-1">
-            <label className="text-sp-11 text-sp-muted font-mono">
-              Cases — JSON array of {'{ vars, expected?, reference? }'}
-            </label>
-            <Textarea
-              value={casesText}
-              onChange={(e) => setCasesText(e.target.value)}
-              rows={16}
-              className="font-mono text-xs"
-            />
-          </div>
-          <Button variant="secondary" size="sm" onClick={save}>
-            Save dataset
-          </Button>
-        </Floater>
-      ) : (
-        <EmptyState icon={Database} message="Select or create a dataset." />
-      )}
+          </Floater>
+        ) : (
+          <EmptyState
+            fill
+            icon={Database}
+            message="Select or create a dataset to edit its cases."
+          />
+        )}
+      </div>
     </div>
   );
 }
