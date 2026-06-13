@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRouterTransport, ConnectError, Code, type Transport } from '@connectrpc/connect';
@@ -18,8 +18,12 @@ import {
   executeConnectServerStreamCollect,
   executeConnectReflection,
   reflectionProto,
+  isProtocolRejectionError,
+  resetProtocolFallbackStateForTests,
   type ConnectStreamHandlers,
 } from '../grpc-connect';
+
+beforeEach(resetProtocolFallbackStateForTests);
 
 const ECHO_PROTO = readFileSync(resolve(__dirname, '../../../e2e/mocks/proto/echo.proto'), 'utf8');
 const SERVICE = 'echo.v1.EchoService';
@@ -442,5 +446,237 @@ describe('executeConnectReflection', () => {
       transport,
     });
     expect(r.errorResponse).toEqual({ errorCode: 5, errorMessage: 'not found' });
+  });
+});
+
+// --- Connect-protocol fallback ----------------------------------------------
+
+describe('isProtocolRejectionError', () => {
+  it('matches the HTTP-status rejection thrown by connect protocol validation', () => {
+    expect(isProtocolRejectionError(new ConnectError('HTTP 403', Code.PermissionDenied))).toBe(
+      true
+    );
+    expect(isProtocolRejectionError(new ConnectError('HTTP 502', Code.Unavailable))).toBe(true);
+  });
+
+  it('matches the unsupported-content-type rejection', () => {
+    expect(
+      isProtocolRejectionError(new ConnectError('unsupported content type text/html', Code.Unknown))
+    ).toBe(true);
+  });
+
+  it('does NOT match a genuine gRPC status from server trailers', () => {
+    expect(isProtocolRejectionError(new ConnectError('access denied', Code.PermissionDenied))).toBe(
+      false
+    );
+  });
+
+  it('does NOT match non-ConnectError or embedded mentions of HTTP statuses', () => {
+    expect(isProtocolRejectionError(new Error('HTTP 403'))).toBe(false);
+    expect(
+      isProtocolRejectionError(new ConnectError('server said HTTP 403 today', Code.Unknown))
+    ).toBe(false);
+  });
+});
+
+function rejectingUnaryTransport(): Transport {
+  return echoTransport(() => {
+    throw new ConnectError('HTTP 403', Code.PermissionDenied);
+  });
+}
+
+describe('Connect fallback: unary', () => {
+  it('retries over the fallback transport on an HTTP-level rejection', async () => {
+    const fallbackTransport = echoTransport((req) => ({
+      message: `connect: ${req.message}`,
+      index: 0,
+    }));
+    const r = await executeConnectUnary({
+      ...baseArgs,
+      transport: rejectingUnaryTransport(),
+      fallbackTransport,
+    });
+    expect(r.status).toBe(0);
+    expect(r.message).toEqual({ message: 'connect: hi', index: 0 });
+  });
+
+  it('does NOT retry a genuine PERMISSION_DENIED status', async () => {
+    let fallbackCalled = false;
+    const fallbackTransport = echoTransport(() => {
+      fallbackCalled = true;
+      return { message: 'should not happen', index: 0 };
+    });
+    const r = await executeConnectUnary({
+      ...baseArgs,
+      transport: echoTransport(() => {
+        throw new ConnectError('access denied', Code.PermissionDenied);
+      }),
+      fallbackTransport,
+    });
+    expect(r.status).toBe(Code.PermissionDenied);
+    expect(r.error).toBe('access denied');
+    expect(fallbackCalled).toBe(false);
+  });
+
+  it('combines both messages when the fallback also fails', async () => {
+    const fallbackTransport = echoTransport(() => {
+      throw new ConnectError('still broken', Code.Unavailable);
+    });
+    const r = await executeConnectUnary({
+      ...baseArgs,
+      transport: rejectingUnaryTransport(),
+      fallbackTransport,
+    });
+    expect(r.status).toBe(Code.Unavailable);
+    expect(r.error).toBe(
+      'Server rejected native gRPC (HTTP 403); Connect protocol fallback also failed: still broken'
+    );
+  });
+});
+
+describe('Connect fallback: reflection', () => {
+  function rejectingReflectionTransport(): Transport {
+    // eslint-disable-next-line require-yield
+    return reflectionTransport(async function* () {
+      throw new ConnectError('HTTP 403', Code.PermissionDenied);
+    });
+  }
+
+  it('retries with a fresh request stream and returns the fallback response', async () => {
+    const fallbackTransport = reflectionTransport(async function* (reqs) {
+      for await (const _req of reqs) {
+        yield {
+          messageResponse: {
+            case: 'listServicesResponse',
+            value: { service: [{ name: 'echo.v1.EchoService' }] },
+          },
+        };
+      }
+    });
+    const r = await executeConnectReflection({
+      ...reflBase,
+      request: { listServices: '*' },
+      transport: rejectingReflectionTransport(),
+      fallbackTransport,
+    });
+    expect(r.listServicesResponse?.service).toEqual([{ name: 'echo.v1.EchoService' }]);
+  });
+
+  it('throws the combined message when both attempts fail', async () => {
+    // eslint-disable-next-line require-yield
+    const fallbackTransport = reflectionTransport(async function* () {
+      throw new ConnectError('connect refused too', Code.Unimplemented);
+    });
+    await expect(
+      executeConnectReflection({
+        ...reflBase,
+        request: { listServices: '*' },
+        transport: rejectingReflectionTransport(),
+        fallbackTransport,
+      })
+    ).rejects.toThrow(
+      'Server rejected native gRPC (HTTP 403); Connect protocol fallback also failed: connect refused too'
+    );
+  });
+});
+
+describe('Connect fallback: streams', () => {
+  it('server-streaming: retries and delivers the fallback stream', async () => {
+    const { sink, handlers } = makeSink();
+    const transport = echoStreamTransport({
+      // eslint-disable-next-line require-yield
+      serverStreamingEcho: async function* () {
+        throw new ConnectError('HTTP 403', Code.PermissionDenied);
+      },
+    });
+    const fallbackTransport = echoStreamTransport({
+      serverStreamingEcho: async function* (req: { message: string; count: number }) {
+        for (let i = 0; i < req.count; i++) yield { message: `connect: ${req.message}`, index: i };
+      },
+    });
+    runConnectStream(
+      {
+        ...streamBase,
+        method: 'ServerStreamingEcho',
+        message: { message: 'hi', count: 2 },
+        transport,
+        fallbackTransport,
+      },
+      handlers
+    );
+    await vi.waitFor(() => {
+      if (!sink.closed) throw new Error('pending');
+    });
+    expect(sink.messages).toEqual([
+      { message: 'connect: hi', index: 0 },
+      { message: 'connect: hi', index: 1 },
+    ]);
+    expect(sink.closed).toEqual({ code: 0, details: 'OK' });
+    expect(sink.cancelled).toBe(false);
+  });
+
+  it('client-streaming: replays writes made before the rejection', async () => {
+    const { sink, handlers } = makeSink();
+    const transport = echoStreamTransport({
+      clientStreamingEcho: async (reqs: AsyncIterable<{ message: string }>) => {
+        // Consume everything the renderer wrote, then reject at the protocol level.
+        for await (const _r of reqs) {
+          /* drain */
+        }
+        throw new ConnectError('HTTP 403', Code.PermissionDenied);
+      },
+    });
+    const fallbackTransport = echoStreamTransport({
+      clientStreamingEcho: async (reqs: AsyncIterable<{ message: string }>) => {
+        const parts: string[] = [];
+        for await (const r of reqs) parts.push(r.message);
+        return { messageCount: parts.length, concatenated: parts.join('|') };
+      },
+    });
+    const controls = runConnectStream(
+      { ...streamBase, method: 'ClientStreamingEcho', transport, fallbackTransport },
+      handlers
+    );
+    controls.write({ message: 'a' });
+    controls.write({ message: 'b' });
+    controls.end();
+    await vi.waitFor(() => {
+      if (!sink.closed) throw new Error('pending');
+    });
+    expect(sink.messages).toEqual([{ messageCount: 2, concatenated: 'a|b' }]);
+    expect(sink.closed?.code).toBe(0);
+  });
+
+  it('does NOT retry once an inbound message was delivered', async () => {
+    const { sink, handlers } = makeSink();
+    let fallbackCalled = false;
+    const transport = echoStreamTransport({
+      serverStreamingEcho: async function* () {
+        yield { message: 'first', index: 0 };
+        throw new ConnectError('HTTP 403', Code.PermissionDenied);
+      },
+    });
+    const fallbackTransport = echoStreamTransport({
+      serverStreamingEcho: async function* () {
+        fallbackCalled = true;
+        yield { message: 'nope', index: 0 };
+      },
+    });
+    runConnectStream(
+      {
+        ...streamBase,
+        method: 'ServerStreamingEcho',
+        message: { message: 'x', count: 1 },
+        transport,
+        fallbackTransport,
+      },
+      handlers
+    );
+    await vi.waitFor(() => {
+      if (!sink.closed) throw new Error('pending');
+    });
+    expect(sink.messages).toEqual([{ message: 'first', index: 0 }]);
+    expect(sink.closed?.code).toBe(Code.PermissionDenied);
+    expect(fallbackCalled).toBe(false);
   });
 });

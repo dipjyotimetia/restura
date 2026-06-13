@@ -627,7 +627,9 @@ function GrpcRequestBuilder() {
               <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               <span className="break-words">
                 Reflection failed: {reflectionResult.error || 'Could not reach the gRPC server.'}
-                {/^https:\/\//i.test(grpcRequest.url) &&
+                {/certificate|self.?signed|unable to (get|verify)|\btls\b|\bssl\b/i.test(
+                  reflectionResult.error ?? ''
+                ) &&
                   ' — if the server uses a self-signed or private-CA certificate, add its CA in Settings → Certificates.'}
               </span>
             </div>

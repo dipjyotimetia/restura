@@ -27,7 +27,7 @@ rather than discover it experimentally.
 | SSE with custom headers | ❌ | ✅ | EventSource API in browsers has no headers option |
 | MCP streamable-http / http-sse | ✅ | ✅ |  |
 | MCP stdio (local subprocess) | ❌ | ✅ |  |
-| gRPC unary + streaming | ✅ | ✅ | Web uses Connect transport over HTTP/2 |
+| gRPC unary + streaming | ✅ | ✅ | Web uses Connect transport over HTTP/2; desktop uses native gRPC with automatic Connect-protocol fallback |
 | gRPC reflection | ✅ | ✅ |  |
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
 | MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
