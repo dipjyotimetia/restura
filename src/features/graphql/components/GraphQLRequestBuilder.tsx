@@ -6,7 +6,12 @@ import { Input } from '@/components/ui/input';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
+import {
+  buildDesktopTransportConfig,
+  resolveEffectiveSettings,
+} from '@/features/http/lib/requestExecutor';
 import { CheckCircle, Download, PanelLeft, Plug, PlugZap, Send, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { HttpRequest, AuthConfig as AuthConfigType } from '@/types';
@@ -297,7 +302,18 @@ function GraphQLRequestBuilder() {
       toast.error('Set a URL first');
       return;
     }
-    void fetchSchema(url);
+    // Carry the request's auth + TLS/proxy config so introspection behaves like
+    // a query against the same endpoint (and works on desktop, where a direct
+    // fetch is CSP-blocked). Header auth (basic/bearer/api-key) rides in headers;
+    // sign-at-wire auth (sigv4/oauth1/wsse) rides in the auth field.
+    const globalSettings = useSettingsStore.getState().settings;
+    const effectiveSettings = resolveEffectiveSettings(httpRequest.settings, globalSettings);
+    const desktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, url);
+    void fetchSchema(url, {
+      headers: buildHeaders(),
+      auth: httpRequest.auth,
+      ...(desktop ? { desktop } : {}),
+    });
   };
 
   const renderSendButton = () => {

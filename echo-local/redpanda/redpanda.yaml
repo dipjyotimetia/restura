@@ -1,0 +1,88 @@
+# Redpanda node config for the echo stack's SASL/SSL + Schema Registry broker.
+# Mounted read-only at /etc/redpanda/redpanda.yaml. Cluster-level SASL settings
+# (enable_sasl, mechanisms) live in .bootstrap.yaml; the SASL user is created by
+# the kafka-setup init service. See echo-local/docker-compose.yml.
+#
+# Five Kafka listeners — one per security protocol the desktop client supports
+# (PLAINTEXT / SSL / SASL_PLAINTEXT / SASL_SSL) plus an internal PLAINTEXT
+# listener used by the in-cluster Schema Registry, the healthcheck, and rpk.
+redpanda:
+  data_directory: /var/lib/redpanda/data
+  developer_mode: true
+  empty_seed_starts_cluster: true
+  seed_servers: []
+  rpc_server:
+    address: 0.0.0.0
+    port: 33145
+  advertised_rpc_api:
+    address: kafka
+    port: 33145
+  admin:
+    - address: 0.0.0.0
+      port: 9644
+
+  kafka_api:
+    - name: internal
+      address: 0.0.0.0
+      port: 29092
+      authentication_method: none
+    - name: plaintext
+      address: 0.0.0.0
+      port: 9092
+      authentication_method: none
+    - name: sasl
+      address: 0.0.0.0
+      port: 9094
+      authentication_method: sasl
+    - name: ssl
+      address: 0.0.0.0
+      port: 9093
+      authentication_method: none
+    - name: sasl_ssl
+      address: 0.0.0.0
+      port: 9095
+      authentication_method: sasl
+
+  advertised_kafka_api:
+    - name: internal
+      address: kafka
+      port: 29092
+    - name: plaintext
+      address: localhost
+      port: 9092
+    - name: sasl
+      address: localhost
+      port: 9094
+    - name: ssl
+      address: localhost
+      port: 9093
+    - name: sasl_ssl
+      address: localhost
+      port: 9095
+
+  # TLS only on the ssl + sasl_ssl listeners. The cert is self-signed (generated
+  # by the kafka-certs service) — connect with verify-SSL OFF, exactly like mqtts.
+  kafka_api_tls:
+    - name: ssl
+      enabled: true
+      cert_file: /etc/redpanda/certs/broker.crt
+      key_file: /etc/redpanda/certs/broker.key
+      require_client_auth: false
+    - name: sasl_ssl
+      enabled: true
+      cert_file: /etc/redpanda/certs/broker.crt
+      key_file: /etc/redpanda/certs/broker.key
+      require_client_auth: false
+
+pandaproxy:
+  pandaproxy_api:
+    - address: 0.0.0.0
+      port: 8082
+  advertised_pandaproxy_api:
+    - address: localhost
+      port: 8082
+
+schema_registry:
+  schema_registry_api:
+    - address: 0.0.0.0
+      port: 8081

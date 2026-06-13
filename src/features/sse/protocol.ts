@@ -19,12 +19,10 @@
  * so the Worker's SSRF/header/auth pipeline applies uniformly.
  */
 import { v4 as uuidv4 } from 'uuid';
-import type {
-  ProtocolModule,
-  ProtocolStreamHandle,
-} from '@/features/registry/types';
+import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 import type { SseRequest } from '@/types';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { SseParser, type ParsedSseEvent } from './lib/sseParser';
 
 function createDefaultSseRequest(): SseRequest {
@@ -40,21 +38,28 @@ function createDefaultSseRequest(): SseRequest {
   };
 }
 
-function flattenHeaders(req: SseRequest): Record<string, string> {
+function flattenHeaders(
+  req: SseRequest,
+  authHeaders: Record<string, string>
+): Record<string, string> {
   const out: Record<string, string> = { Accept: 'text/event-stream' };
   for (const h of req.headers) {
     if (h.enabled !== false && h.key) out[h.key] = h.value;
   }
+  // Header-based auth (basic/bearer/api-key/oauth2). Sign-at-wire types no-op.
+  Object.assign(out, authHeaders);
   return out;
 }
 
-function buildUrlWithParams(req: SseRequest): string {
-  if (!req.params.length) return req.url;
+function buildUrlWithParams(req: SseRequest, authParams: Record<string, string>): string {
+  const hasAuthParams = Object.keys(authParams).length > 0;
+  if (!req.params.length && !hasAuthParams) return req.url;
   try {
     const u = new URL(req.url);
     for (const p of req.params) {
       if (p.enabled !== false && p.key) u.searchParams.set(p.key, p.value);
     }
+    for (const [k, v] of Object.entries(authParams)) u.searchParams.set(k, v);
     return u.toString();
   } catch {
     return req.url;
@@ -95,8 +100,10 @@ async function sseStartStream(
   if (ctx.signal.aborted) ourCtrl.abort();
   else ctx.signal.addEventListener('abort', linkAbort, { once: true });
 
-  const url = buildUrlWithParams(sseReq);
-  const headers = flattenHeaders(sseReq);
+  // Header-based auth (basic/bearer/api-key/oauth2); sign-at-wire types no-op.
+  const credential = buildAuthCredential(sseReq.auth);
+  const url = buildUrlWithParams(sseReq, credential.params);
+  const headers = flattenHeaders(sseReq, credential.headers);
 
   const response = await executeProxiedStreamingRequest(
     {

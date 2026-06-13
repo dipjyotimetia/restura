@@ -21,6 +21,7 @@ import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from './request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import type { BodyType, FormField } from '@shared/protocol/body-builder';
 import type {
   Fetcher,
   FetcherRequest,
@@ -140,6 +141,9 @@ export interface HttpRequestConfig {
   headers?: Record<string, string>;
   params?: Record<string, string>;
   data?: string;
+  // Structured body (drives the shared body-builder); falls back to raw-when-data.
+  bodyType?: BodyType;
+  formData?: FormField[];
   timeout?: number;
   maxRedirects?: number;
   proxy?: ProxyConfig;
@@ -511,7 +515,9 @@ function createSocksDispatcher(
 // header sanitisation, and body building. All Electron-specific transport concerns
 // (undici dispatcher choice, SOCKS tunnel splice, mTLS, CA, connection timer, abort
 // propagation, ALPN capture) live inside this closure.
-function buildElectronFetcher(
+// Exported as a test seam so the full form-data/binary/gzip round-trip can be
+// exercised against a local mock upstream without standing up IPC.
+export function buildElectronFetcher(
   electronConfig: HttpRequestConfig,
   socksSocket: net.Socket | null
 ): Fetcher {
@@ -656,6 +662,12 @@ function buildElectronFetcher(
       });
     };
 
+    // undici accepts plain-object headers; the redirect-follower hands us a
+    // Headers instance on follow-up hops, so flatten when needed. Spread-clone
+    // so the FormData branch below can set Content-Type without mutating the
+    // caller's headers object (flattenHeaders may return it by reference).
+    const outHeaders = { ...flattenHeaders(req.headers) };
+
     // Convert the FetcherRequest body (BodyInit | undefined) into something
     // undici accepts (string | Uint8Array | Readable | null | undefined).
     let undiciBody: string | Uint8Array | Readable | null | undefined;
@@ -667,14 +679,25 @@ function buildElectronFetcher(
       undiciBody = req.body;
     } else if (req.body instanceof ArrayBuffer) {
       undiciBody = new Uint8Array(req.body);
+    } else if (typeof FormData !== 'undefined' && req.body instanceof FormData) {
+      // The shared body-builder produces a web FormData for multipart bodies;
+      // undici.request can't consume it directly. Serialize via the platform's
+      // multipart encoder (Response) to get the bytes AND the boundary'd
+      // Content-Type, then set that header — the builder left it unset because
+      // the boundary isn't known until encoding.
+      const encoded = new Response(req.body);
+      const ct = encoded.headers.get('content-type');
+      undiciBody = new Uint8Array(await encoded.arrayBuffer());
+      for (const key of Object.keys(outHeaders)) {
+        if (key.toLowerCase() === 'content-type') delete outHeaders[key];
+      }
+      if (ct) outHeaders['content-type'] = ct;
     } else {
-      // Other BodyInit variants (Blob, FormData, URLSearchParams, ReadableStream)
-      // aren't produced by the Electron IPC code path today.
+      // Other BodyInit variants (Blob, URLSearchParams, ReadableStream) aren't
+      // produced by the Electron IPC code path.
       throw new Error('Unsupported body type for Electron fetcher');
     }
 
-    // undici accepts plain-object headers; the redirect-follower hands us
-    // a Headers instance on follow-up hops, so flatten when needed.
     let response: Awaited<ReturnType<typeof undiciRequest>>;
     try {
       response = await undiciRequest(req.url, {
@@ -683,7 +706,7 @@ function buildElectronFetcher(
             ? M
             : never
           : never,
-        headers: flattenHeaders(req.headers),
+        headers: outHeaders,
         body: undiciBody,
         signal: req.signal,
         dispatcher,
@@ -879,8 +902,11 @@ async function makeHttpRequest(
         url: interceptedConfig.url,
         headers: mergedHeaders,
         params: mergedParams,
-        bodyType: interceptedConfig.data ? 'raw' : 'none',
+        // Honour an explicit bodyType (form-data/binary/etc.); legacy callers that
+        // only send `data` keep the raw-when-present default.
+        bodyType: interceptedConfig.bodyType ?? (interceptedConfig.data ? 'raw' : 'none'),
         ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
+        ...(interceptedConfig.formData ? { formData: interceptedConfig.formData } : {}),
         ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
         ...(interceptedConfig.auth ? { auth: interceptedConfig.auth } : {}),
         ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),

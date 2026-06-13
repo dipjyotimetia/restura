@@ -31,8 +31,16 @@ export const PORTS = {
   mqtts: 8883,
   /** EMQX dashboard (admin / public). */
   mqttDashboard: 18083,
-  /** Kafka API (Apache Kafka KRaft via docker-compose — not started in-process). */
+  /** Kafka PLAINTEXT (Redpanda via docker-compose — not started in-process). */
   kafka: 9092,
+  /** Kafka SSL (TLS, no SASL — self-signed cert, verify-SSL off). */
+  kafkaSsl: 9093,
+  /** Kafka SASL_PLAINTEXT (SCRAM-SHA-256/512). */
+  kafkaSasl: 9094,
+  /** Kafka SASL_SSL (SCRAM over TLS — self-signed cert, verify-SSL off). */
+  kafkaSaslSsl: 9095,
+  /** Confluent-compatible Schema Registry (bundled with Redpanda). */
+  schemaRegistry: 8081,
 } as const;
 
 /** Services the launcher can start in-process (Kafka + MQTT are Docker-only). */

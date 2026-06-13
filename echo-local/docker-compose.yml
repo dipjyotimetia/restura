@@ -1,13 +1,24 @@
-# The Docker brokers of the echo stack — Kafka and MQTT. Everything else runs
-# in-process via `npm run echo:local`.
+# The Docker brokers of the echo stack — Kafka (Redpanda) and MQTT (EMQX).
+# Everything else runs in-process via `npm run echo:local`.
 #
-#   docker compose -f echo-local/docker-compose.yml up -d     # start both
+#   docker compose -f echo-local/docker-compose.yml up -d     # start all
 #   docker compose -f echo-local/docker-compose.yml down -v   # stop + wipe
 #
-# Why Apache Kafka and not Redpanda: the desktop Kafka handler uses
-# @platformatic/kafka, which speaks Metadata API v9+ only. Redpanda caps Metadata
-# at v8, so the client fails with "No usable implementation found for API
-# Metadata". Apache Kafka (KRaft) supports v12+ and works. Verified end-to-end.
+# Kafka = Redpanda: a single binary that also bundles the Schema Registry (:8081)
+# and HTTP proxy (:8082), so the "Kafka + Schema Registry" surface needs no extra
+# container. It exposes one listener per security protocol the desktop client
+# supports: PLAINTEXT (:9092), SSL (:9093), SASL_PLAINTEXT (:9094), SASL_SSL
+# (:9095); listener/TLS config is in redpanda/redpanda.yaml, SASL in
+# redpanda/bootstrap.yaml. SASL is SCRAM-SHA-256/512 (Redpanda has no SASL/PLAIN),
+# user restura / restura-secret. The SSL listeners use a self-signed cert — connect
+# with verify-SSL OFF (like mqtts); customCa + mTLS stay covered by HTTPS :8443/:8444.
+#
+# Metadata API note: the desktop Kafka handler uses @platformatic/kafka, which
+# needs Kafka Metadata API v9+. Verified end-to-end against Redpanda v26.1.10 —
+# @platformatic/kafka connects over all four protocols (PLAINTEXT/SSL/
+# SASL_PLAINTEXT/SASL_SSL). (An older note claimed Redpanda capped Metadata at v8;
+# that is no longer true on current images.) If a future image regresses and you
+# see "No usable implementation found for API Metadata", fall back to Apache Kafka.
 #
 # Why EMQX and not in-process Aedes for MQTT: the desktop MQTT client defaults to
 # MQTT 5, but Aedes (the only maintained pure-JS broker) is MQTT 3.1.1 only and
@@ -17,31 +28,96 @@
 # HTTPS :8443/:8444 services instead.
 
 services:
+  # Self-signed broker cert for the SSL / SASL_SSL listeners, generated into a
+  # shared volume before the broker starts. Not from the local CA (EMQX precedent)
+  # — connect with verify-SSL OFF.
+  kafka-certs:
+    image: alpine:3
+    container_name: restura-echo-kafka-certs
+    volumes:
+      - kafka-certs:/certs
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ ! -f /certs/broker.crt ]; then
+          apk add --no-cache openssl >/dev/null
+          openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout /certs/broker.key -out /certs/broker.crt \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+          chmod 0644 /certs/broker.key /certs/broker.crt
+        fi
+
+  # Stages the (rpk-managed) config into a WRITABLE volume. rpk rewrites
+  # redpanda.yaml on boot, which a read-only single-file bind-mount forbids
+  # ("device or resource busy"). Copying into a volume lets rpk own the file while
+  # our repo copies stay pristine. Listener + TLS topology lives in redpanda.yaml;
+  # cluster SASL config in .bootstrap.yaml.
+  kafka-config:
+    image: alpine:3
+    container_name: restura-echo-kafka-config
+    volumes:
+      - kafka-config:/etc/redpanda
+      - ./redpanda:/config-src:ro
+    command:
+      - sh
+      - -c
+      - |
+        cp /config-src/redpanda.yaml /etc/redpanda/redpanda.yaml
+        cp /config-src/bootstrap.yaml /etc/redpanda/.bootstrap.yaml
+        # Own the config dir as the redpanda user (uid 101) so rpk can rewrite
+        # redpanda.yaml on boot (it chowns its temp file to itself).
+        chown -R 101:101 /etc/redpanda
+
   kafka:
     image: redpandadata/redpanda:latest
     container_name: kafka
+    depends_on:
+      kafka-certs:
+        condition: service_completed_successfully
+      kafka-config:
+        condition: service_completed_successfully
     command:
-      - redpanda start
-      - --smp 1
-      - --memory 1G
-      - --reserve-memory 0M
-      - --overprovisioned
-      - --node-id 0
-      - --check=false
-      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
-      - --advertise-kafka-addr PLAINTEXT://kafka:29092,OUTSIDE://localhost:9092
-      - --pandaproxy-addr 0.0.0.0:8082
-      - --advertise-pandaproxy-addr localhost:8082
+      - redpanda
+      - start
+    volumes:
+      - kafka-config:/etc/redpanda
+      - kafka-certs:/etc/redpanda/certs:ro
     ports:
-      - "8081:8081"
-      - "8082:8082"
-      - "9092:9092"
-      - "29092:29092"
+      - "8081:8081" # Schema Registry
+      - "8082:8082" # HTTP proxy (pandaproxy)
+      - "9092:9092" # Kafka PLAINTEXT
+      - "9093:9093" # Kafka SSL
+      - "9094:9094" # Kafka SASL_PLAINTEXT
+      - "9095:9095" # Kafka SASL_SSL
+      - "9644:9644" # Admin API
     healthcheck:
+      # The internal listener (:29092) is anonymous, so this works pre-SASL-setup.
       test: ["CMD", "rpk", "cluster", "info", "--brokers", "localhost:29092"]
       interval: 5s
       timeout: 5s
-      retries: 24  
+      retries: 24
+
+  # Creates the SASL user once the broker is healthy. The Admin API (:9644) needs
+  # no auth, so this runs without credentials. Redpanda stores a single SCRAM
+  # credential per user (create/update set one mechanism, not both), so we
+  # provision SCRAM-SHA-256 — the broker still advertises SCRAM-SHA-512, but this
+  # user authenticates with 256.
+  kafka-setup:
+    image: redpandadata/redpanda:latest
+    container_name: restura-echo-kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      - sh
+      - -c
+      - |
+        rpk security user create restura -p restura-secret \
+          --mechanism SCRAM-SHA-256 -X admin.hosts=kafka:9644 || true
 
   # Full MQTT 5 broker (also speaks 3.1.1). Anonymous connections are allowed on
   # both listeners so the desktop client connects with no credentials. Dashboard
@@ -65,3 +141,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 24
+
+volumes:
+  kafka-certs:
+  kafka-config:

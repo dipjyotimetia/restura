@@ -2,7 +2,7 @@
 
 import { FileText } from 'lucide-react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
-import type { RequestBody } from '@/types';
+import type { FormDataItem, RequestBody } from '@/types';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
 
@@ -13,11 +13,14 @@ const CodeEditor = lazyComponent(
 const GraphQLBodyEditor = lazyComponent(
   () => import('@/features/graphql/components/GraphQLBodyEditor')
 );
+const FormDataEditor = lazyComponent(() => import('@/features/http/components/FormDataEditor'));
+const BinaryBodyPicker = lazyComponent(() => import('@/features/http/components/BinaryBodyPicker'));
 
 interface RequestBodyEditorProps {
   body: RequestBody;
   onBodyTypeChange: (type: RequestBody['type']) => void;
   onBodyContentChange: (content: string) => void;
+  onFormDataChange?: (items: FormDataItem[]) => void;
   url?: string;
   graphqlVariables?: string;
   onGraphQLVariablesChange?: (variables: string) => void;
@@ -26,6 +29,7 @@ interface RequestBodyEditorProps {
 export default function RequestBodyEditor({
   body,
   onBodyContentChange,
+  onFormDataChange,
   url = '',
   graphqlVariables = '{}',
   onGraphQLVariablesChange,
@@ -54,6 +58,14 @@ export default function RequestBodyEditor({
         onVariablesChange={onGraphQLVariablesChange || (() => {})}
       />
     );
+  }
+
+  if (body.type === 'form-data') {
+    return <FormDataEditor items={body.formData ?? []} onChange={onFormDataChange ?? (() => {})} />;
+  }
+
+  if (body.type === 'binary') {
+    return <BinaryBodyPicker base64={body.raw || ''} onChange={onBodyContentChange} />;
   }
 
   return (

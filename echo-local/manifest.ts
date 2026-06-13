@@ -38,8 +38,8 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
       https,
       mtls: `https://${host}:${PORTS.mtls}  (requires client cert)`,
       'mtls.whoami': `https://${host}:${PORTS.mtls}/mtls/whoami`,
-      graphql: `${http}/graphql  (POST; query/mutation — Query.users, hello, user, boom)`,
-      sse: `${http}/stream/sse  (also /stream/sse-named /stream/sse-resume /stream/sse-comments)`,
+      graphql: `${http}/graphql  (POST query/mutation — Query.users, hello, user, boom; introspection / "Refresh Schema" works on desktop)`,
+      sse: `${http}/stream/sse  (also /stream/sse-named /stream/sse-resume /stream/sse-comments; structured auth + per-connection event-name filter configurable in the UI — local routes are open, no auth required)`,
       proxy: `http://${host}:${PORTS.proxy}  (HTTP forward + CONNECT)`,
       grpc: `grpc://${host}:${PORTS.grpc}  (echo.v1.EchoService, reflection on)`,
       ws: `ws://${host}:${PORTS.ws}/echo  (also /chat /graphql sub /ping /close)`,
@@ -49,7 +49,8 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
       mqtt: `mqtt://${host}:${PORTS.mqtt}  (EMQX MQTT 5 — start via docker compose)`,
       mqtts: `mqtts://${host}:${PORTS.mqtts}  (EMQX self-signed cert — verify-SSL off)`,
       mqttDashboard: `http://${host}:${PORTS.mqttDashboard}  (EMQX dashboard — admin / public)`,
-      kafka: `${host}:${PORTS.kafka}  (Apache Kafka KRaft — start via docker compose)`,
+      kafka: `${host}:${PORTS.kafka}  (Redpanda PLAINTEXT — also SSL :${PORTS.kafkaSsl}, SASL_PLAINTEXT :${PORTS.kafkaSasl}, SASL_SSL :${PORTS.kafkaSaslSsl}; start via docker compose)`,
+      schemaRegistry: `http://${host}:${PORTS.schemaRegistry}  (Confluent-compatible, bundled with Redpanda)`,
       'oauth.wellKnown': `${http}/.well-known/openid-configuration`,
       'oauth.token': `${http}/oauth/token`,
       'oauth.authorize': `${http}/oauth/authorize`,
@@ -71,21 +72,24 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
       : null,
     manual: {
       websocket: {
-        note: 'WebSocket is connection-based — connect manually (not a collection request). Both ws:// and wss:// (CA-signed) are served; the packaged desktop CSP allows wss: only, so use wss for packaged-build testing.',
+        note: 'WebSocket is connection-based — connect manually (not a collection request). Both ws:// and wss:// (CA-signed) are served; the packaged desktop CSP allows wss: only, so use wss for packaged-build testing. Subprotocols + handshake headers are editable in the UI while disconnected (e.g. subprotocol "restura.echo.v1").',
         echo: `ws://${host}:${PORTS.ws}/echo`,
         echoSecure: `wss://${host}:${PORTS.wss}/echo  (import the CA, or verify-SSL off)`,
         chat: `ws://${host}:${PORTS.ws}/chat  (broadcasts to OTHER peers — open two connections to observe)`,
         ping: `ws://${host}:${PORTS.ws}/ping  (send "PING_ME" then "REPORT")`,
         close: `ws://${host}:${PORTS.ws}/close?code=4001&reason=bye`,
-        graphqlSubscriptions: `ws://${host}:${PORTS.ws}/graphql`,
+        graphqlSubscriptions: `ws://${host}:${PORTS.ws}/graphql  (subscription { tick(count) { n timestamp } } — works on desktop via the WS IPC bridge)`,
       },
       socketio: {
         url: `http://${host}:${PORTS.socketio}`,
         namespaces: {
           default: '/',
           chat: '/chat (broadcasts to other peers)',
-          admin: '/admin (auth.token=admin-token)',
+          admin:
+            '/admin (set Auth key "token" = "admin-token" in the connection config to pass the guard)',
         },
+        config:
+          'Auth (handshake payload) + query params are editable in the UI while disconnected; the Compose "Ack" toggle requests an acknowledgement for emitted events.',
       },
       mqtt: {
         url: `mqtt://${host}:${PORTS.mqtt}`,
@@ -99,16 +103,37 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
           'mqtts (:8883) presents EMQX’s built-in self-signed cert (not the local CA) — connect with verify-SSL off. Custom-CA + mTLS are covered by the HTTPS :8443/:8444 services.',
       },
       kafka: {
-        bootstrap: `${host}:${PORTS.kafka}`,
-        group: 'echo-group',
         start: 'docker compose -f echo-local/docker-compose.yml up -d',
-        try: 'create topic "echo", produce, then consume from earliest.',
-        caveat:
-          'PLAINTEXT only, no Schema Registry. SASL (PLAIN/SCRAM), SSL/SASL_SSL, and Avro/Protobuf/JSON-via-registry cannot be tested against this broker.',
+        group: 'echo-group',
+        // One bootstrap address per security protocol the desktop client supports.
+        bootstrap: {
+          plaintext: `${host}:${PORTS.kafka}`,
+          ssl: `${host}:${PORTS.kafkaSsl}`,
+          saslPlaintext: `${host}:${PORTS.kafkaSasl}`,
+          saslSsl: `${host}:${PORTS.kafkaSaslSsl}`,
+        },
+        sasl: {
+          mechanism:
+            'SCRAM-SHA-256 (the restura user is provisioned for 256; the broker also advertises SCRAM-SHA-512 but Redpanda stores one SCRAM credential per user. Redpanda has no SASL/PLAIN.)',
+          username: 'restura',
+          password: 'restura-secret',
+        },
+        tls: 'SSL/SASL_SSL use a self-signed broker cert — set verify-SSL OFF (like mqtts). customCa + mTLS are covered by the HTTPS :8443/:8444 services.',
+        schemaRegistry: {
+          url: `http://${host}:${PORTS.schemaRegistry}`,
+          note: 'Bundled with Redpanda, no auth. Set it as the connection Schema Registry URL to test Avro/Protobuf/JSON encode/decode.',
+        },
+        validate: [
+          `1. PLAINTEXT ${host}:${PORTS.kafka} — create topic "echo", produce, consume from earliest. (Verified: @platformatic/kafka connects to Redpanda v26.1.10 over all four protocols. If a future image regresses with "No usable implementation found for API Metadata", fall back to a Metadata-v9+ broker like Apache Kafka KRaft.)`,
+          `2. SASL_PLAINTEXT ${host}:${PORTS.kafkaSasl} — securityProtocol SASL_PLAINTEXT, SCRAM-SHA-256, restura / restura-secret.`,
+          `3. SASL_SSL ${host}:${PORTS.kafkaSaslSsl} — securityProtocol SASL_SSL, verify-SSL OFF, SCRAM-SHA-256, same creds.`,
+          `4. SSL ${host}:${PORTS.kafkaSsl} — securityProtocol SSL, verify-SSL OFF, no SASL.`,
+          `5. Schema Registry http://${host}:${PORTS.schemaRegistry} — produce/consume an Avro or JSON-schema message and confirm decode.`,
+        ],
       },
-      httpLimitations: {
-        multipartAndBinary:
-          'form-data (multipart) and binary request bodies are not sendable from the desktop UI today — /upload and binary-echo are not exercisable.',
+      multipartAndBinary: {
+        upload: `${http}/upload  (POST multipart/form-data — echoes back the parsed fields)`,
+        note: 'form-data (text + file fields) and binary request bodies are sendable from the desktop UI — pick the body type, add fields / choose a file, Send.',
       },
       lossyAuth: {
         oauth1:
