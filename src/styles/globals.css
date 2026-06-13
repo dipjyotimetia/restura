@@ -626,6 +626,17 @@
   scrollbar-color: var(--sp-line-strong) transparent;
 }
 
+/* Opt-out for chrome surfaces that hide their scrollbar entirely (tab strips).
+   Must be an unlayered class: the Tailwind arbitrary-property utility
+   `[scrollbar-width:none]` sits in @layer utilities and loses to the
+   unlayered `*` rule above. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 button,
 a,
 input,
