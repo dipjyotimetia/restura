@@ -132,7 +132,9 @@ export function authMetrics(): {
 // ---------------------------------------------------------------------------
 
 function mainContentType(req: IncomingMessage): string {
-  return String(req.headers['content-type'] ?? '').split(';')[0]!.trim();
+  return String(req.headers['content-type'] ?? '')
+    .split(';')[0]!
+    .trim();
 }
 
 function parseTokenRequest(req: IncomingMessage, body: string): Record<string, string | undefined> {
@@ -194,7 +196,10 @@ function verifyJwt(token: string): JwtVerifyResult {
   const expected = b64url(createHmac('sha256', HMAC_SECRET).update(`${h}.${p}`).digest());
   if (!constantTimeEq(s, expected)) return { ok: false, reason: 'bad-signature' };
   try {
-    const payload = JSON.parse(Buffer.from(p, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const payload = JSON.parse(Buffer.from(p, 'base64url').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
     if (typeof payload['exp'] === 'number' && payload['exp'] * 1000 < Date.now()) {
       return { ok: false, reason: 'expired', payload };
     }
@@ -257,7 +262,12 @@ function hmac(key: string | Buffer, data: string): Buffer {
   return createHmac('sha256', key).update(data).digest();
 }
 
-function awsSigningKey(secretKey: string, dateStamp: string, region: string, service: string): Buffer {
+function awsSigningKey(
+  secretKey: string,
+  dateStamp: string,
+  region: string,
+  service: string
+): Buffer {
   const kDate = hmac(`AWS4${secretKey}`, dateStamp);
   const kRegion = hmac(kDate, region);
   const kService = hmac(kRegion, service);
@@ -272,7 +282,10 @@ interface SigV4Header {
 }
 
 function parseSigV4Header(header: string): SigV4Header | null {
-  const m = /^(AWS4-HMAC-SHA256)\s+Credential=([^,]+),\s*SignedHeaders=([^,]+),\s*Signature=([0-9a-f]+)/.exec(header);
+  const m =
+    /^(AWS4-HMAC-SHA256)\s+Credential=([^,]+),\s*SignedHeaders=([^,]+),\s*Signature=([0-9a-f]+)/.exec(
+      header
+    );
   if (!m) return null;
   return { algorithm: m[1]!, credential: m[2]!, signedHeaders: m[3]!, signature: m[4]! };
 }
@@ -297,7 +310,9 @@ function verifySigV4(req: IncomingMessage, body: string): { ok: boolean; reason?
   const canonicalHeaders =
     headerNames
       .map((name) => {
-        const value = String(req.headers[name] ?? '').trim().replace(/\s+/g, ' ');
+        const value = String(req.headers[name] ?? '')
+          .trim()
+          .replace(/\s+/g, ' ');
         return `${name}:${value}\n`;
       })
       .join('') || '\n';
@@ -321,7 +336,12 @@ function verifySigV4(req: IncomingMessage, body: string): { ok: boolean; reason?
   ].join('\n');
 
   const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, hexHash(canonicalRequest)].join('\n');
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    amzDate,
+    credentialScope,
+    hexHash(canonicalRequest),
+  ].join('\n');
   const signingKey = awsSigningKey(AWS.secretKey, dateStamp, region, service);
   const expected = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
 
@@ -367,6 +387,61 @@ function verifyDigest(req: IncomingMessage, expectedUser: string, expectedPass: 
   return constantTimeEq(params['response'] ?? '', expected);
 }
 
+/** Parse `Key="value"` pairs out of an X-WSSE UsernameToken header value. */
+function parseWsseAttrs(s: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const re = /(\w+)="((?:[^"\\]|\\.)*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    out[m[1]!] = m[2]!.replace(/\\(.)/g, '$1');
+  }
+  return out;
+}
+
+/**
+ * Verify a WS-Security UsernameToken (WSSE) header against the wire format
+ * produced by shared/protocol/wsse-header.ts — the one source of truth for the
+ * client side. Supports both PasswordDigest (default) and PasswordText.
+ *
+ *   digest = base64( sha1( rawNonceBytes + created + password ) )
+ *
+ * The header's Nonce is base64; decode it to raw bytes before hashing (WSSE 1.1
+ * §3.1) — matching `concatBytes(nonce, utf8(created), utf8(password))` on the
+ * signer side.
+ */
+export function verifyWsse(
+  req: IncomingMessage,
+  expectedUser: string,
+  expectedPass: string
+): { ok: boolean; reason?: string } {
+  const header = String(req.headers['x-wsse'] ?? '').trim();
+  const m = /^UsernameToken\s+(.+)$/s.exec(header);
+  if (!m) return { ok: false, reason: 'missing or malformed X-WSSE header' };
+
+  const attrs = parseWsseAttrs(m[1]!);
+  if (attrs['Username'] !== expectedUser) return { ok: false, reason: 'username mismatch' };
+
+  // PasswordText form (verbatim password — discouraged outside TLS).
+  if (attrs['PasswordText'] !== undefined) {
+    return constantTimeEq(attrs['PasswordText'], expectedPass)
+      ? { ok: true }
+      : { ok: false, reason: 'password mismatch' };
+  }
+
+  const digest = attrs['PasswordDigest'];
+  const nonce = attrs['Nonce'];
+  const created = attrs['Created'];
+  if (!digest || !nonce || created === undefined) {
+    return { ok: false, reason: 'missing PasswordDigest/Nonce/Created' };
+  }
+  const expected = createHash('sha1')
+    .update(
+      Buffer.concat([Buffer.from(nonce, 'base64'), Buffer.from(created + expectedPass, 'utf8')])
+    )
+    .digest('base64');
+  return constantTimeEq(digest, expected) ? { ok: true } : { ok: false, reason: 'digest mismatch' };
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -384,11 +459,11 @@ const tokenEndpoint: AuthRoute = {
 
     const grant = params['grant_type'];
     // Public clients (PKCE) skip secret check.
-    const isPublicClient = grant === 'authorization_code' && !clientSecret && !!params['code_verifier'];
-    const credsOk =
-      isPublicClient
-        ? clientId === CLIENT.id
-        : clientId === CLIENT.id && clientSecret === CLIENT.secret;
+    const isPublicClient =
+      grant === 'authorization_code' && !clientSecret && !!params['code_verifier'];
+    const credsOk = isPublicClient
+      ? clientId === CLIENT.id
+      : clientId === CLIENT.id && clientSecret === CLIENT.secret;
 
     if (!credsOk) {
       state.challengeCount += 1;
@@ -444,7 +519,11 @@ const tokenEndpoint: AuthRoute = {
         json(res, 400, { error: 'invalid_grant', error_description: 'code expired' });
         return;
       }
-      if (code.redirectUri && params['redirect_uri'] && code.redirectUri !== params['redirect_uri']) {
+      if (
+        code.redirectUri &&
+        params['redirect_uri'] &&
+        code.redirectUri !== params['redirect_uri']
+      ) {
         json(res, 400, { error: 'invalid_grant', error_description: 'redirect_uri mismatch' });
         return;
       }
@@ -792,6 +871,20 @@ const awsProtectedEndpoint: AuthRoute = {
   },
 };
 
+const wsseProtectedEndpoint: AuthRoute = {
+  method: 'GET',
+  test: '/wsse/protected',
+  handle: ({ req, res }) => {
+    const result = verifyWsse(req, USER.username, USER.password);
+    if (!result.ok) {
+      state.challengeCount += 1;
+      json(res, 401, { authenticated: false, reason: result.reason });
+      return;
+    }
+    json(res, 200, { authenticated: true, user: USER.username });
+  },
+};
+
 const jwksEndpoint: AuthRoute = {
   method: 'GET',
   test: '/.well-known/jwks.json',
@@ -835,6 +928,7 @@ export const authRoutes: AuthRoute[] = [
   apiKeyQueryEndpoint,
   digestEndpoint,
   awsProtectedEndpoint,
+  wsseProtectedEndpoint,
   tokenEndpoint,
   authorizeEndpoint,
   deviceAuthorizationEndpoint,

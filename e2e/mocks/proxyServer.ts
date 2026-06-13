@@ -23,7 +23,9 @@ interface Closable {
   once(event: 'close', cb: () => void): unknown;
 }
 
-export async function startMockProxyServer(): Promise<MockProxyServerHandle> {
+export async function startMockProxyServer(
+  opts: { port?: number } = {}
+): Promise<MockProxyServerHandle> {
   let connectCount = 0;
   let forwardCount = 0;
   let authChallengeCount = 0;
@@ -145,14 +147,18 @@ export async function startMockProxyServer(): Promise<MockProxyServerHandle> {
     clientSocket.on('error', () => upstream.destroy());
   });
 
-  const port = await bindLocalhost(server);
+  const port = await bindLocalhost(server, opts.port);
 
   return {
     port,
     url: `http://127.0.0.1:${port}`,
     close: async () => {
       for (const s of liveSockets) {
-        try { s.destroy(); } catch { /* already gone */ }
+        try {
+          s.destroy();
+        } catch {
+          /* already gone */
+        }
       }
       liveSockets.clear();
       await closeServer(server);

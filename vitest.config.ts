@@ -23,6 +23,9 @@ export default defineConfig({
       exclude: [
         'node_modules/',
         'tests/',
+        // Dev/test tooling, not production code: e2e mocks + the local echo stack.
+        'e2e/',
+        'echo-local/',
         '**/*.d.ts',
         '**/*.config.*',
         '**/types/',

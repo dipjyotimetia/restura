@@ -40,7 +40,9 @@ export interface MockSocketIOServerHandle {
  * natively (no Node http.Server, no long-lived per-client state outside of Durable
  * Objects). The wsServer / grpcServer / mcpServer mocks follow the same pattern.
  */
-export async function startMockSocketIOServer(): Promise<MockSocketIOServerHandle> {
+export async function startMockSocketIOServer(
+  opts: { port?: number } = {}
+): Promise<MockSocketIOServerHandle> {
   let connectionCount = 0;
   const received: SocketIOReceivedEvent[] = [];
   let lastAuthSnapshot: Record<string, unknown> | null = null;
@@ -57,7 +59,9 @@ export async function startMockSocketIOServer(): Promise<MockSocketIOServerHandl
     pingTimeout: 5_000,
   });
 
-  const captureHandshake = (socket: Socket): { auth: Record<string, unknown>; query: Record<string, string | string[]> } => {
+  const captureHandshake = (
+    socket: Socket
+  ): { auth: Record<string, unknown>; query: Record<string, string | string[]> } => {
     const auth = (socket.handshake.auth ?? {}) as Record<string, unknown>;
     lastAuthSnapshot = auth;
     return { auth, query: socket.handshake.query as Record<string, string | string[]> };
@@ -77,7 +81,9 @@ export async function startMockSocketIOServer(): Promise<MockSocketIOServerHandl
       const tail = args[args.length - 1];
       if (typeof tail === 'function') {
         const userArgs = args.slice(0, -1);
-        (tail as (...replyArgs: unknown[]) => void)(...userArgs.map((a) => ({ ack: true, original: a })));
+        (tail as (...replyArgs: unknown[]) => void)(
+          ...userArgs.map((a) => ({ ack: true, original: a }))
+        );
         return;
       }
 
@@ -116,7 +122,7 @@ export async function startMockSocketIOServer(): Promise<MockSocketIOServerHandl
     });
   });
 
-  const port = await bindLocalhost(httpServer);
+  const port = await bindLocalhost(httpServer, opts.port);
 
   return {
     port,

@@ -7,8 +7,8 @@ interface CloseableServer {
   closeAllConnections?: () => void;
 }
 
-export async function bindLocalhost(server: CloseableServer): Promise<number> {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+export async function bindLocalhost(server: CloseableServer, port = 0): Promise<number> {
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
   const addr = server.address();
   if (!addr || typeof addr === 'string') {
     throw new Error('Failed to bind on 127.0.0.1');

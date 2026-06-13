@@ -1,0 +1,67 @@
+# The Docker brokers of the echo stack — Kafka and MQTT. Everything else runs
+# in-process via `npm run echo:local`.
+#
+#   docker compose -f echo-local/docker-compose.yml up -d     # start both
+#   docker compose -f echo-local/docker-compose.yml down -v   # stop + wipe
+#
+# Why Apache Kafka and not Redpanda: the desktop Kafka handler uses
+# @platformatic/kafka, which speaks Metadata API v9+ only. Redpanda caps Metadata
+# at v8, so the client fails with "No usable implementation found for API
+# Metadata". Apache Kafka (KRaft) supports v12+ and works. Verified end-to-end.
+#
+# Why EMQX and not in-process Aedes for MQTT: the desktop MQTT client defaults to
+# MQTT 5, but Aedes (the only maintained pure-JS broker) is MQTT 3.1.1 only and
+# rejects v5 at CONNECT. EMQX is a full MQTT 5 broker, so the client's default
+# protocol works. mqtts (:8883) uses EMQX's built-in TLS cert (self-signed, not
+# the local CA) — connect with verify-SSL off; custom-CA/mTLS is covered by the
+# HTTPS :8443/:8444 services instead.
+
+services:
+  kafka:
+    image: redpandadata/redpanda:latest
+    container_name: kafka
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --check=false
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://kafka:29092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr localhost:8082
+    ports:
+      - "8081:8081"
+      - "8082:8082"
+      - "9092:9092"
+      - "29092:29092"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info", "--brokers", "localhost:29092"]
+      interval: 5s
+      timeout: 5s
+      retries: 24  
+
+  # Full MQTT 5 broker (also speaks 3.1.1). Anonymous connections are allowed on
+  # both listeners so the desktop client connects with no credentials. Dashboard
+  # on :18083 (admin / public).
+  emqx:
+    image: emqx/emqx:latest
+    container_name: restura-echo-emqx
+    environment:
+      EMQX_NODE__COOKIE: "restura-echo"
+      EMQX_DASHBOARD__DEFAULT_USERNAME: "admin"
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: "public"
+      # Allow anonymous connect on the plaintext + TLS listeners (test broker).
+      EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN: "false"
+      EMQX_LISTENERS__SSL__DEFAULT__ENABLE_AUTHN: "false"
+    ports:
+      - "1883:1883" # MQTT
+      - "8883:8883" # MQTTS (EMQX built-in self-signed cert)
+      - "18083:18083" # dashboard
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 24

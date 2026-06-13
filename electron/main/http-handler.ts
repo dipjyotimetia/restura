@@ -4,7 +4,12 @@ import * as net from 'net';
 import * as tls from 'tls';
 import * as dns from 'dns';
 import * as diagnosticsChannel from 'node:diagnostics_channel';
-import { Readable } from 'node:stream';
+import { Readable, Transform, pipeline } from 'node:stream';
+import {
+  text as readStreamText,
+  arrayBuffer as readStreamArrayBuffer,
+} from 'node:stream/consumers';
+import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
 import {
   HttpRequestConfigSchema,
@@ -15,7 +20,7 @@ import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
 import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from './request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
-import { executeHttpProxy } from '@shared/protocol/http-proxy';
+import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import type {
   Fetcher,
   FetcherRequest,
@@ -57,6 +62,51 @@ const log = createLogger('http');
 // =============================================================================
 
 export const httpRateLimiter = createKeyedRateLimiter(60, 60_000);
+
+/**
+ * Bring the undici fetcher to parity with the `fetch`-based backends (Worker /
+ * Node self-host), which auto-decompress responses. `undici.request` does NOT —
+ * it hands back the raw compressed bytes — so without this the renderer shows
+ * garbage for any `Content-Encoding: gzip|br|deflate` upstream.
+ *
+ * The cap is enforced on the DECOMPRESSED output as it streams (a small gzip
+ * bomb expands to gigabytes): bytes are counted through the chain and it is torn
+ * down past MAX_RESPONSE_SIZE, so the decompressed body is never fully buffered
+ * before the limit fires. Returns the source unchanged when there is nothing to
+ * decode, leaving non-encoded bodies on their existing (shared-proxy) cap path.
+ */
+export function decodeBodyStream(source: Readable, encoding: string | undefined): Readable {
+  const enc = encoding?.trim().toLowerCase();
+  const decompressor =
+    enc === 'gzip' || enc === 'x-gzip'
+      ? createGunzip()
+      : enc === 'br'
+        ? createBrotliDecompress()
+        : enc === 'deflate'
+          ? createInflate()
+          : undefined;
+  if (!decompressor) return source;
+
+  let total = 0;
+  const cap = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      total += chunk.length;
+      if (total > MAX_RESPONSE_SIZE) {
+        cb(new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+
+  // pipeline tears down every stream (incl. the undici source, firing its
+  // 'close' → dispatcher cleanup) if decompression or the cap errors; the error
+  // surfaces on `cap`, so text()/arrayBuffer()/body all reject.
+  pipeline(source, decompressor, cap, () => {
+    /* errors surface on `cap`; nothing to do here */
+  });
+  return cap;
+}
 
 export interface ProxyConfig {
   enabled: boolean;
@@ -670,6 +720,20 @@ function buildElectronFetcher(
       if (v !== undefined) headersOut[k.toLowerCase()] = v as string | string[];
     }
 
+    // Decompress to match the fetch-based backends. When we decode, the original
+    // content-encoding/content-length no longer describe the body the caller
+    // reads, so drop them.
+    const contentEncoding = headersOut['content-encoding'];
+    const bodyStream = decodeBodyStream(
+      response.body,
+      Array.isArray(contentEncoding) ? contentEncoding[0] : contentEncoding
+    );
+    const decoded = bodyStream !== response.body;
+    if (decoded) {
+      delete headersOut['content-encoding'];
+      delete headersOut['content-length'];
+    }
+
     // Determine ALPN. Prefer explicit holder; for SOCKS we re-read the holder we attached.
     let negotiatedAlpn: 'h1.1' | 'h2' | undefined;
     let raw = alpnHolder.alpn;
@@ -692,12 +756,14 @@ function buildElectronFetcher(
       // for display; nothing branches on its value.
       statusText: '',
       headers: headersOut,
-      text: () => response.body.text(),
-      arrayBuffer: () => response.body.arrayBuffer(),
-      contentLengthHeader: (response.headers['content-length'] as string | undefined) ?? null,
+      text: () => readStreamText(bodyStream),
+      arrayBuffer: () => readStreamArrayBuffer(bodyStream),
+      contentLengthHeader: decoded
+        ? null
+        : ((response.headers['content-length'] as string | undefined) ?? null),
       // Web stream interop — undici body is a Node Readable, expose as a web ReadableStream
       // so streaming consumers (StreamingResponseViewer) can read incrementally if desired.
-      body: Readable.toWeb(response.body) as ReadableStream<Uint8Array>,
+      body: Readable.toWeb(bodyStream) as ReadableStream<Uint8Array>,
     };
     if (negotiatedAlpn) result.negotiatedAlpn = negotiatedAlpn;
     return result;

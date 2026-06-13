@@ -1,4 +1,9 @@
-import { createServer as createHttpServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import {
+  createServer as createHttpServer,
+  type Server as HttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
 import { gzipSync } from 'node:zlib';
 import { URL } from 'node:url';
@@ -88,7 +93,9 @@ const routes: Route[] = [
     test: '/query',
     handle: ({ res, url }) => {
       const params: Record<string, string> = {};
-      url.searchParams.forEach((v, k) => { params[k] = v; });
+      url.searchParams.forEach((v, k) => {
+        params[k] = v;
+      });
       json(res, 200, { params });
     },
   },
@@ -96,7 +103,12 @@ const routes: Route[] = [
     method: '*',
     test: '/echo',
     handle: ({ res, req, url, body }) =>
-      json(res, 200, { method: req.method, path: url.pathname + url.search, headers: req.headers, body }),
+      json(res, 200, {
+        method: req.method,
+        path: url.pathname + url.search,
+        headers: req.headers,
+        body,
+      }),
   },
   {
     method: 'GET',
@@ -151,7 +163,9 @@ const routes: Route[] = [
         connection: 'keep-alive',
       });
       let aborted = false;
-      req.on('close', () => { aborted = true; });
+      req.on('close', () => {
+        aborted = true;
+      });
       // Suggest 50ms reconnect delay via the SSE retry directive.
       res.write('retry: 50\n\n');
       for (let i = startId + 1; i <= startId + 3; i += 1) {
@@ -173,7 +187,9 @@ const routes: Route[] = [
         connection: 'keep-alive',
       });
       let aborted = false;
-      req.on('close', () => { aborted = true; });
+      req.on('close', () => {
+        aborted = true;
+      });
       res.write(': heartbeat\n\n');
       res.write('retry: 5000\n\n');
       // Multi-line data field — EventSource concatenates with `\n`.
@@ -276,6 +292,32 @@ const routes: Route[] = [
         return;
       }
       json(res, 200, { authenticated: true, token: m[1] });
+    },
+  },
+  // mTLS introspection: reports the client certificate the TLS layer accepted.
+  // On a plain HTTP/HTTPS server (no `requestCert`) the peer cert is empty, so
+  // this returns `mtls:false` + 401 — which is exactly how you tell a real
+  // mutual-TLS handshake from an ordinary one.
+  {
+    method: 'GET',
+    test: '/mtls/whoami',
+    handle: ({ res, req }) => {
+      const sock = req.socket as {
+        getPeerCertificate?: (detailed?: boolean) => {
+          subject?: Record<string, string>;
+          issuer?: Record<string, string>;
+          fingerprint?: string;
+          valid_to?: string;
+        };
+      };
+      const cert = sock.getPeerCertificate?.();
+      const hasCert = !!cert && Object.keys(cert).length > 0;
+      json(res, hasCert ? 200 : 401, {
+        mtls: hasCert,
+        subject: hasCert ? cert!.subject : null,
+        issuer: hasCert ? cert!.issuer : null,
+        fingerprint: hasCert ? cert!.fingerprint : null,
+      });
     },
   },
 
@@ -389,7 +431,10 @@ const routes: Route[] = [
   },
 ];
 
-function matchRoute(req: IncomingMessage, path: string): { route: Route; match: RegExpExecArray | null } | null {
+function matchRoute(
+  req: IncomingMessage,
+  path: string
+): { route: Route; match: RegExpExecArray | null } | null {
   for (const r of routes) {
     if (r.method !== '*' && r.method !== req.method) continue;
     if (typeof r.test === 'string') {
@@ -444,7 +489,9 @@ async function pushSseEvents(
   eventName: string | undefined
 ): Promise<void> {
   let aborted = false;
-  req.on('close', () => { aborted = true; });
+  req.on('close', () => {
+    aborted = true;
+  });
   for (let i = 1; i <= 3; i += 1) {
     await new Promise((r) => setTimeout(r, 10));
     if (aborted || !session.isConnected) return;
@@ -460,7 +507,11 @@ interface GraphQLBody {
 
 interface GraphQLPayload {
   data?: unknown;
-  errors?: Array<{ message: string; path?: ReadonlyArray<string | number>; extensions?: Record<string, unknown> }>;
+  errors?: Array<{
+    message: string;
+    path?: ReadonlyArray<string | number>;
+    extensions?: Record<string, unknown>;
+  }>;
 }
 
 async function executeOne(op: GraphQLBody): Promise<GraphQLPayload> {
@@ -517,7 +568,24 @@ async function handleGraphQL(rawBody: string): Promise<{ status: number; body: u
   };
 }
 
-async function startServer(server: HttpServer | HttpsServer, scheme: 'http' | 'https'): Promise<MockHttpServerHandle> {
+/** Optional overrides. `port` lets a standalone launcher pin a stable port; the
+ * default `0` preserves the ephemeral-port behavior the e2e fixtures rely on. */
+export interface StartHttpOptions {
+  port?: number;
+}
+
+export interface StartHttpsOptions extends StartHttpOptions {
+  /** Override the default self-signed leaf — e.g. a CA-signed server cert. */
+  tls?: { key: string | Buffer; cert: string | Buffer; ca?: string | Buffer };
+  /** Demand (and require) a client certificate — turns this into an mTLS server. */
+  requestCert?: boolean;
+}
+
+async function startServer(
+  server: HttpServer | HttpsServer,
+  scheme: 'http' | 'https',
+  port?: number
+): Promise<MockHttpServerHandle> {
   const recorder: RecordedRequest[] = [];
   server.on('request', (req: IncomingMessage, res: ServerResponse) => {
     handle(req, res, recorder).catch((err) => {
@@ -525,10 +593,10 @@ async function startServer(server: HttpServer | HttpsServer, scheme: 'http' | 'h
       res.end(JSON.stringify({ error: (err as Error).message }));
     });
   });
-  const port = await bindLocalhost(server);
+  const boundPort = await bindLocalhost(server, port);
   return {
-    port,
-    url: `${scheme}://127.0.0.1:${port}`,
+    port: boundPort,
+    url: `${scheme}://127.0.0.1:${boundPort}`,
     close: () => closeServer(server),
     requestCount: () => recorder.length,
     requests: () => recorder.slice(),
@@ -539,11 +607,17 @@ async function startServer(server: HttpServer | HttpsServer, scheme: 'http' | 'h
   };
 }
 
-export function startMockHttpServer(): Promise<MockHttpServerHandle> {
-  return startServer(createHttpServer(), 'http');
+export function startMockHttpServer(opts: StartHttpOptions = {}): Promise<MockHttpServerHandle> {
+  return startServer(createHttpServer(), 'http', opts.port);
 }
 
-export function startMockHttpsServer(): Promise<MockHttpServerHandle> {
-  const { key, cert } = getSelfSignedCert();
-  return startServer(createHttpsServer({ key, cert }), 'https');
+export function startMockHttpsServer(opts: StartHttpsOptions = {}): Promise<MockHttpServerHandle> {
+  const tls = opts.tls ?? getSelfSignedCert();
+  const serverOpts: Parameters<typeof createHttpsServer>[0] = { key: tls.key, cert: tls.cert };
+  if (opts.tls?.ca) serverOpts.ca = opts.tls.ca;
+  if (opts.requestCert) {
+    serverOpts.requestCert = true;
+    serverOpts.rejectUnauthorized = true;
+  }
+  return startServer(createHttpsServer(serverOpts), 'https', opts.port);
 }
