@@ -1,0 +1,76 @@
+// The canonical gRPC server-reflection protocol (grpc.reflection.v1), vendored
+// so the echo worker can serve real Connect-framed reflection to the desktop
+// client. Mirrors the proto bundled in electron/main/grpc-connect.ts.
+syntax = "proto3";
+
+package grpc.reflection.v1;
+
+service ServerReflection {
+  // The reflection service is structured as a bidirectional stream, ensuring
+  // all related requests go to a single server.
+  rpc ServerReflectionInfo(stream ServerReflectionRequest)
+      returns (stream ServerReflectionResponse);
+}
+
+message ServerReflectionRequest {
+  string host = 1;
+  // To use reflection service, the client should set one of the following
+  // fields in message_request. The server distinguishes requests by their
+  // defined field and then handles them using corresponding methods.
+  oneof message_request {
+    string file_by_filename = 3;
+    string file_containing_symbol = 4;
+    ExtensionRequest file_containing_extension = 5;
+    string all_extension_numbers_of_type = 6;
+    string list_services = 7;
+  }
+}
+
+message ExtensionRequest {
+  // Fully-qualified type name. The format should be <package>.<type>
+  string containing_type = 1;
+  int32 extension_number = 2;
+}
+
+message ServerReflectionResponse {
+  string valid_host = 1;
+  ServerReflectionRequest original_request = 2;
+  oneof message_response {
+    FileDescriptorResponse file_descriptor_response = 4;
+    ExtensionNumberResponse all_extension_numbers_response = 5;
+    ListServiceResponse list_services_response = 6;
+    ErrorResponse error_response = 7;
+  }
+}
+
+message FileDescriptorResponse {
+  // Serialized FileDescriptorProto messages. We avoid taking a dependency on
+  // descriptor.proto, which uses proto2 only features, by making them opaque
+  // bytes instead.
+  repeated bytes file_descriptor_proto = 1;
+}
+
+message ExtensionNumberResponse {
+  // Full name of the base type, including the package name. The format
+  // is <package>.<type>
+  string base_type_name = 1;
+  repeated int32 extension_number = 2;
+}
+
+message ListServiceResponse {
+  // The information of each service may be expanded in the future, so we use
+  // ServiceResponse message to encapsulate it.
+  repeated ServiceResponse service = 1;
+}
+
+message ServiceResponse {
+  // Full name of a registered service, including its package name. The format
+  // is <package>.<service>
+  string name = 1;
+}
+
+message ErrorResponse {
+  // This field uses the error codes defined in grpc::StatusCode.
+  int32 error_code = 1;
+  string error_message = 2;
+}

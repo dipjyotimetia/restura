@@ -1,5 +1,36 @@
 import { type ClassValue, clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { extendTailwindMerge } from 'tailwind-merge';
+
+/**
+ * tailwind-merge can't classify custom `text-sp-*` tokens: by default every
+ * unknown `text-*` class lands in the text-COLOR group, so a size like
+ * `text-sp-12` "conflicts" with a color like `text-sp-muted` and gets dropped
+ * (the element then inherits 16px). Declaring the Spatial Depth font-size
+ * scale (globals.css `--text-sp-*`) keeps sizes and colors in separate groups.
+ */
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      'font-size': [
+        {
+          text: [
+            'sp-9',
+            'sp-10',
+            'sp-10-5',
+            'sp-11',
+            'sp-11-5',
+            'sp-12',
+            'sp-12-5',
+            'sp-13',
+            'sp-14',
+            'sp-16',
+            'sp-22',
+          ],
+        },
+      ],
+    },
+  },
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

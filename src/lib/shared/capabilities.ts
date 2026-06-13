@@ -131,7 +131,8 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     label: 'gRPC unary + streaming',
     web: true,
     desktop: true,
-    notes: 'Web uses Connect transport over HTTP/2',
+    notes:
+      'Web uses Connect transport over HTTP/2; desktop uses native gRPC with automatic Connect-protocol fallback',
   },
   'grpc.reflection': { label: 'gRPC reflection', web: true, desktop: true },
   'kafka.basic': {

@@ -32,7 +32,7 @@ export function SubTabBar<T extends string>({
           // tabs scroll horizontally when the row overflows; scrollbar hidden —
           // overflow is signalled by the cropped tab. overflow-y-hidden keeps the
           // active underline (bottom-0) from spawning a vertical scrollbar.
-          'overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none]'
+          'overflow-x-auto overflow-y-hidden no-scrollbar'
         )}
       >
         {tabs.map((t) => {

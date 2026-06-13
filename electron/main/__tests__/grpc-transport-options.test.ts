@@ -3,8 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Capture the options buildConnectTransport hands to connect-node — the TLS /
 // compression / lookup mapping isn't observable through a live call.
 const createGrpcTransportMock = vi.fn((_opts: unknown) => ({ kind: 'mock-transport' }));
+const createConnectTransportMock = vi.fn((_opts: unknown) => ({ kind: 'mock-connect-transport' }));
 vi.mock('@connectrpc/connect-node', () => ({
   createGrpcTransport: (opts: unknown) => createGrpcTransportMock(opts),
+  createConnectTransport: (opts: unknown) => createConnectTransportMock(opts),
   compressionGzip: { name: 'gzip' },
 }));
 
@@ -12,10 +14,15 @@ vi.mock('../secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown) => (typeof v === 'string' ? v : undefined),
 }));
 
-import { buildConnectTransport, type PinnedDial } from '../grpc-connect';
+import {
+  buildConnectTransport,
+  buildConnectFallbackTransport,
+  type PinnedDial,
+} from '../grpc-connect';
 
 interface CapturedOptions {
   baseUrl: string;
+  httpVersion?: string;
   nodeOptions: Record<string, unknown> & {
     lookup: (
       hostname: string,
@@ -36,6 +43,7 @@ function lastOptions(): CapturedOptions {
 
 beforeEach(() => {
   createGrpcTransportMock.mockClear();
+  createConnectTransportMock.mockClear();
 });
 
 describe('buildConnectTransport', () => {
@@ -110,5 +118,48 @@ describe('buildConnectTransport', () => {
   it('enables gzip send compression when useCompression is set', () => {
     buildConnectTransport('grpc://api.example.com:50051', DIAL, undefined, true);
     expect(lastOptions().sendCompression).toEqual({ name: 'gzip' });
+  });
+});
+
+describe('buildConnectFallbackTransport', () => {
+  function lastConnectOptions(): CapturedOptions {
+    const call = createConnectTransportMock.mock.calls.at(-1);
+    if (!call) throw new Error('createConnectTransport was not called');
+    return call[0] as unknown as CapturedOptions;
+  }
+
+  it('uses the Connect protocol over HTTP/2 with the same baseUrl', () => {
+    buildConnectFallbackTransport('https://echo.restura.dev', { ...DIAL, port: 443 });
+    const opts = lastConnectOptions();
+    expect(opts.httpVersion).toBe('2');
+    expect(opts.baseUrl).toBe('https://echo.restura.dev:443');
+    expect(createGrpcTransportMock).not.toHaveBeenCalled();
+  });
+
+  it('carries the same pinned lookup and TLS material as the native transport', () => {
+    buildConnectFallbackTransport('grpcs://api.example.com:50051', DIAL, {
+      caCert: { pem: 'CA-PEM' },
+      verifySsl: false,
+      clientCert: { cert: 'CERT-PEM', key: 'KEY-PEM', passphrase: 'hunter2' },
+    });
+    const { nodeOptions } = lastConnectOptions();
+    expect(nodeOptions.servername).toBe('api.example.com');
+    expect(nodeOptions.ca).toBe('CA-PEM');
+    expect(nodeOptions.rejectUnauthorized).toBe(false);
+    expect(nodeOptions.cert).toBe('CERT-PEM');
+    expect(nodeOptions.key).toBe('KEY-PEM');
+    expect(nodeOptions.passphrase).toBe('hunter2');
+
+    const all = vi.fn();
+    nodeOptions.lookup('api.example.com', { all: true }, all);
+    expect(all).toHaveBeenCalledWith(null, [{ address: DIAL.ip, family: 4 }]);
+    const single = vi.fn();
+    nodeOptions.lookup('api.example.com', {}, single);
+    expect(single).toHaveBeenCalledWith(null, DIAL.ip, 4);
+  });
+
+  it('enables gzip send compression when useCompression is set', () => {
+    buildConnectFallbackTransport('grpc://api.example.com:50051', DIAL, undefined, true);
+    expect(lastConnectOptions().sendCompression).toEqual({ name: 'gzip' });
   });
 });

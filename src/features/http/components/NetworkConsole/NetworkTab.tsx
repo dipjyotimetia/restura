@@ -228,8 +228,14 @@ export default function NetworkTab() {
   const classCounts = useMemo(() => statusClassCounts(entries), [entries]);
 
   // Slowest response in the current view — scales every row's waterfall bar.
+  // With a single entry the bar is always full-width (and amber past 200ms),
+  // which reads as a warning when there's nothing to compare against — so the
+  // waterfall only renders once there are 2+ entries.
   const maxTime = useMemo(
-    () => filteredEntries.reduce((m, e) => Math.max(m, e.response.time), 0),
+    () =>
+      filteredEntries.length > 1
+        ? filteredEntries.reduce((m, e) => Math.max(m, e.response.time), 0)
+        : 0,
     [filteredEntries]
   );
 

@@ -129,8 +129,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             // Horizontal scroll fallback when many tabs are open. We
             // intentionally hide the scrollbar — overflow is signalled by
             // the tabs themselves being cropped at the floater edge.
-            'overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden',
-            '[scrollbar-width:none]'
+            'overflow-x-auto overflow-y-hidden no-scrollbar'
           )}
           role="tablist"
           aria-label="Request tabs"
@@ -342,25 +341,47 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                 <Plus className="size-3.5" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleNewTab('http')}>HTTP request</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('graphql')}>
+            {/* align="start" drops the menu away from the method/URL row;
+                sideOffset clears the floater's bottom edge (trigger sits 8px
+                above it) so the menu never overlaps the strip. */}
+            <DropdownMenuContent align="start" sideOffset={10}>
+              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('http')}>
+                <ProtoChip protocol="HTTP" className="w-12 justify-center" />
+                HTTP request
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('graphql')}>
+                <ProtoChip protocol="GQL" className="w-12 justify-center" />
                 GraphQL request
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('grpc')}>gRPC request</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('websocket')}>WS</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('socketio')}>
+              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('grpc')}>
+                <ProtoChip protocol="GRPC" className="w-12 justify-center" />
+                gRPC request
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('websocket')}>
+                <ProtoChip protocol="WS" className="w-12 justify-center" />
+                WebSocket
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('socketio')}>
+                <ProtoChip protocol="SOCKETIO" className="w-12 justify-center" />
                 Socket.IO
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('sse')}>SSE stream</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNewTab('mcp')}>MCP request</DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('sse')}>
+                <ProtoChip protocol="SSE" className="w-12 justify-center" />
+                SSE stream
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('mcp')}>
+                <ProtoChip protocol="MCP" className="w-12 justify-center" />
+                MCP request
+              </DropdownMenuItem>
               {isElectron() && (
-                <DropdownMenuItem onClick={() => handleNewTab('kafka')}>
+                <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('kafka')}>
+                  <ProtoChip protocol="KAFKA" className="w-12 justify-center" />
                   Kafka consumer
                 </DropdownMenuItem>
               )}
               {isElectron() && (
-                <DropdownMenuItem onClick={() => handleNewTab('mqtt')}>
+                <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('mqtt')}>
+                  <ProtoChip protocol="MQTT" className="w-12 justify-center" />
                   MQTT client
                 </DropdownMenuItem>
               )}
