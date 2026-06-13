@@ -29,7 +29,7 @@ function withAlpha(hex: string, alpha: number): string {
  * Bottom status bar — 28px, hairline border-top, all mono 11.
  *
  * Left cluster:  env dot + name · ⚡ + today's request count · "Auto-save"
- * Right cluster: "HTTP/2 · TLS 1.3" · version · ⌘K Palette
+ * Right cluster: version · ⌘K Palette
  *
  * Heavy state (active env, history count) reads through Zustand selectors so
  * the bar stays cheap to re-render — no per-second tickers, no resize listeners.
@@ -107,7 +107,9 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
 
         <div className="flex items-center gap-1.5">
           <Zap className="h-3 w-3" aria-hidden="true" />
-          <span>{todayCount} requests</span>
+          <span>
+            {todayCount} {todayCount === 1 ? 'request' : 'requests'}
+          </span>
         </div>
 
         <span className="text-sp-dim" aria-hidden="true">
@@ -119,10 +121,6 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
 
       {/* Right cluster */}
       <div className="flex items-center gap-3">
-        <span>HTTP/2 · TLS 1.3</span>
-        <span className="text-sp-dim" aria-hidden="true">
-          ·
-        </span>
         <span>{version}</span>
         <span className="text-sp-dim" aria-hidden="true">
           ·

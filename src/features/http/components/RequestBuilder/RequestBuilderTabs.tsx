@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
-import { ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/components/ui/spatial';
+import { ComboboxInput, ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/components/ui/spatial';
 import RequestBodyEditor from '@/features/http/components/RequestBodyEditor';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
@@ -402,7 +402,9 @@ function ParamHeaderTable({
   }
 
   function handleGhostKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') {
+    // A defaultPrevented Enter means a ComboboxInput consumed it to pick a
+    // suggestion — the user is still composing the row, so don't commit yet.
+    if (e.key === 'Enter' && !e.defaultPrevented) {
       e.preventDefault();
       commitDraft(true);
     }
@@ -455,10 +457,10 @@ function ParamHeaderTable({
         </div>
 
         {/*
-          Ghost row — always-visible add affordance. Uses plain <input> rather
-          than VariableInput/ComboboxInput by design: a draft has no variable
-          highlighting or key autocomplete. Those features apply the moment it's
-          committed and becomes a real ParamRow above.
+          Ghost row — always-visible add affordance. Drafts get the same
+          key/value autocomplete as committed rows (that's when suggestions
+          matter most — while typing the new header); variable highlighting
+          still applies only once the row is committed above.
         */}
         <div
           className="grid items-stretch border-b border-sp-line/50 opacity-40 focus-within:opacity-75 transition-opacity"
@@ -469,17 +471,36 @@ function ParamHeaderTable({
           <div className="flex items-center justify-center">
             <span aria-hidden="true" className="h-3 w-3 rounded-full border border-sp-line/60" />
           </div>
-          {GHOST_FIELDS.map(({ label, field, extraClass }) => (
-            <div key={field} className="border-l border-sp-line/40 min-w-0">
-              <input
-                value={draft[field]}
-                onChange={(e) => setDraft((d) => ({ ...d, [field]: e.target.value }))}
-                placeholder={label}
-                className={cn(ghostInput, extraClass)}
-                aria-label={`New entry ${label.toLowerCase()}`}
-              />
-            </div>
-          ))}
+          {GHOST_FIELDS.map(({ label, field, extraClass }) => {
+            const suggestions =
+              field === 'key'
+                ? keySuggestions
+                : field === 'value'
+                  ? valueSuggestionsFor?.(draft.key)?.map((v) => ({ value: v }))
+                  : undefined;
+            return (
+              <div key={field} className="border-l border-sp-line/40 min-w-0">
+                {suggestions && suggestions.length > 0 ? (
+                  <ComboboxInput
+                    value={draft[field]}
+                    onChange={(val) => setDraft((d) => ({ ...d, [field]: val }))}
+                    suggestions={suggestions}
+                    placeholder={label}
+                    inputClassName={cn(ghostInput, extraClass)}
+                    aria-label={`New entry ${label.toLowerCase()}`}
+                  />
+                ) : (
+                  <input
+                    value={draft[field]}
+                    onChange={(e) => setDraft((d) => ({ ...d, [field]: e.target.value }))}
+                    placeholder={label}
+                    className={cn(ghostInput, extraClass)}
+                    aria-label={`New entry ${label.toLowerCase()}`}
+                  />
+                )}
+              </div>
+            );
+          })}
           <div />
         </div>
       </div>
