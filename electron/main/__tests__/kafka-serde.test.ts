@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { valueToString, parseSchemaJson, isConfluentEncoded } from '../kafka-serde';
+import {
+  valueToString,
+  parseSchemaJson,
+  isConfluentEncoded,
+  encodeSchemaField,
+  decodeField,
+} from '../kafka-serde';
 
 describe('valueToString', () => {
   it('passes a plain string through unchanged (string consumer path)', () => {
@@ -63,5 +69,62 @@ describe('isConfluentEncoded', () => {
 
   it('is false for a buffer shorter than the 5-byte header', () => {
     expect(isConfluentEncoded(Buffer.from([0x00, 0x00]))).toBe(false);
+  });
+});
+
+describe('encodeSchemaField', () => {
+  const okRegistry = {
+    encode: async (id: number, payload: unknown) =>
+      Buffer.from(`enc:${id}:${JSON.stringify(payload)}`),
+  };
+
+  it('parses JSON and encodes with the schema id', async () => {
+    const r = await encodeSchemaField(okRegistry, 7, '{"id":1}', 'value');
+    expect(r).toEqual({ value: Buffer.from('enc:7:{"id":1}') });
+  });
+
+  it('errors on non-JSON input (field-shaped message)', async () => {
+    expect(await encodeSchemaField(okRegistry, 7, 'nope', 'key')).toEqual({
+      error: 'Schema-encoded key must be valid JSON.',
+    });
+  });
+
+  it('wraps a registry encode failure with the field label', async () => {
+    const badRegistry = {
+      encode: async () => {
+        throw new Error('schema 9 not found');
+      },
+    };
+    expect(await encodeSchemaField(badRegistry, 9, '{"a":1}', 'value')).toEqual({
+      error: 'Value schema encode failed: schema 9 not found',
+    });
+  });
+});
+
+describe('decodeField', () => {
+  const registry = { decode: async (_buf: Buffer) => ({ decoded: true }) };
+
+  it('registry-decodes a Confluent-framed buffer to its JSON string', async () => {
+    const framed = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x07, 0x42]);
+    expect(await decodeField(registry, framed)).toBe('{"decoded":true}');
+  });
+
+  it('reads a plain buffer as UTF-8 (no registry)', async () => {
+    expect(await decodeField(undefined, Buffer.from('hello', 'utf-8'))).toBe('hello');
+  });
+
+  it('passes a non-framed buffer through as text even with a registry', async () => {
+    expect(await decodeField(registry, Buffer.from('plain', 'utf-8'))).toBe('plain');
+  });
+
+  it('falls back to raw text when decode throws (schema missing)', async () => {
+    const failing = {
+      decode: async () => {
+        throw new Error('schema missing');
+      },
+    };
+    const framed = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x07, 0x68, 0x69]);
+    // Falls back to the UTF-8 reading of the framed bytes (best-effort display).
+    expect(await decodeField(failing, framed)).toBe(framed.toString('utf-8'));
   });
 });

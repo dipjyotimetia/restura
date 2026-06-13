@@ -1237,42 +1237,42 @@ function KafkaClient() {
                   rows={8}
                 />
               </div>
-              {connection.registry && (
-                <div className="space-y-2">
-                  <Label className="text-xs sp-label">Value schema ID (optional)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={produceSchemaId}
-                    onChange={(e) => setProduceSchemaId(e.target.value)}
-                    placeholder="e.g. 1 — encode the value with this registry schema"
-                    className="h-8 text-xs font-mono"
-                  />
-                  <p className="text-sp-11 text-sp-muted">
-                    {produceSchemaId.trim()
-                      ? 'Value is parsed as JSON and Confluent-encoded with this schema (decoded on consume).'
-                      : 'No schema ID — the value is sent as a plain string.'}
-                  </p>
-                </div>
-              )}
-              {connection.registry && (
-                <div className="space-y-2">
-                  <Label className="text-xs sp-label">Key schema ID (optional)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={produceKeySchemaId}
-                    onChange={(e) => setProduceKeySchemaId(e.target.value)}
-                    placeholder="e.g. 2 — encode the key with this registry schema"
-                    className="h-8 text-xs font-mono"
-                  />
-                  <p className="text-sp-11 text-sp-muted">
-                    {produceKeySchemaId.trim()
-                      ? 'Key is parsed as JSON and Confluent-encoded with this schema (requires a key; decoded on consume).'
-                      : 'No schema ID — the key is sent as a plain string.'}
-                  </p>
-                </div>
-              )}
+              {connection.registry &&
+                [
+                  {
+                    label: 'Value schema ID (optional)',
+                    value: produceSchemaId,
+                    onChange: setProduceSchemaId,
+                    placeholder: 'e.g. 1 — encode the value with this registry schema',
+                    encodedHint:
+                      'Value is parsed as JSON and Confluent-encoded with this schema (decoded on consume).',
+                    plainHint: 'No schema ID — the value is sent as a plain string.',
+                  },
+                  {
+                    label: 'Key schema ID (optional)',
+                    value: produceKeySchemaId,
+                    onChange: setProduceKeySchemaId,
+                    placeholder: 'e.g. 2 — encode the key with this registry schema',
+                    encodedHint:
+                      'Key is parsed as JSON and Confluent-encoded with this schema (requires a key; decoded on consume).',
+                    plainHint: 'No schema ID — the key is sent as a plain string.',
+                  },
+                ].map((f) => (
+                  <div key={f.label} className="space-y-2">
+                    <Label className="text-xs sp-label">{f.label}</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={f.value}
+                      onChange={(e) => f.onChange(e.target.value)}
+                      placeholder={f.placeholder}
+                      className="h-8 text-xs font-mono"
+                    />
+                    <p className="text-sp-11 text-sp-muted">
+                      {f.value.trim() ? f.encodedHint : f.plainHint}
+                    </p>
+                  </div>
+                ))}
               <Button
                 onClick={handleProduce}
                 disabled={

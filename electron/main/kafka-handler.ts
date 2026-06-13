@@ -18,7 +18,7 @@ import { emitTo, errorMessage } from './ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
 import { IPC } from '../shared/channels';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from './kafka-broker-guard';
-import { parseSchemaJson, isConfluentEncoded, valueToString } from './kafka-serde';
+import { encodeSchemaField, decodeField } from './kafka-serde';
 import type { LogEntry } from './request-logger';
 import {
   KafkaConnectSchema,
@@ -56,7 +56,7 @@ const getSchemaRegistryLib = (): typeof import('@kafkajs/confluent-schema-regist
 // string (plain — utf8-encoded here); consumer deserializers hand back the raw
 // Buffer so the handler can decode via the registry off the wire framing.
 const bufferOrStringSerializer = (data: string | Buffer | undefined): Buffer | undefined =>
-  data == null ? undefined : Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'utf-8');
+  data == null ? undefined : Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf-8');
 const stringFieldSerializer = (data: string | undefined): Buffer | undefined =>
   typeof data === 'string' ? Buffer.from(data, 'utf-8') : undefined;
 const rawDeserializer = (data: Buffer): Buffer | undefined =>
@@ -202,23 +202,9 @@ async function closeConnection(entry: ActiveKafka): Promise<void> {
   }
 }
 
-// Decode a consumed key/value Buffer: registry-decode when it carries the
-// Confluent wire framing (and a registry is configured), else read as UTF-8.
-// Falls back to raw text if decode throws (e.g. schema fetch fails).
-async function decodeField(entry: ActiveKafka, buf: Buffer): Promise<string> {
-  if (entry.registry && isConfluentEncoded(buf)) {
-    try {
-      return valueToString(await entry.registry.decode(buf));
-    } catch {
-      /* not registry-encoded after all / schema missing — fall through to text */
-    }
-  }
-  return valueToString(buf);
-}
-
 async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise<void> {
-  const key = msg.key == null ? undefined : await decodeField(entry, msg.key);
-  const value = msg.value == null ? '' : await decodeField(entry, msg.value);
+  const key = msg.key == null ? undefined : await decodeField(entry.registry, msg.key);
+  const value = msg.value == null ? '' : await decodeField(entry.registry, msg.value);
   emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.MESSAGE, entry.connectionId), {
     topic: msg.topic,
     partition: msg.partition,
@@ -422,25 +408,17 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         let messageKey: ProduceKV | undefined = cfg.key;
         let messageValue: ProduceKV = cfg.value;
         if (registry && cfg.valueSchemaId !== undefined) {
-          const parsed = parseSchemaJson(cfg.value, 'value');
-          if ('error' in parsed) return { success: false, error: parsed.error };
-          try {
-            messageValue = await registry.encode(cfg.valueSchemaId, parsed.value);
-          } catch (err) {
-            return { success: false, error: `Value schema encode failed: ${errorMessage(err)}` };
-          }
+          const r = await encodeSchemaField(registry, cfg.valueSchemaId, cfg.value, 'value');
+          if ('error' in r) return { success: false, error: r.error };
+          messageValue = r.value;
         }
         if (registry && cfg.keySchemaId !== undefined) {
           if (cfg.key === undefined) {
             return { success: false, error: 'A key schema ID requires a message key.' };
           }
-          const parsed = parseSchemaJson(cfg.key, 'key');
-          if ('error' in parsed) return { success: false, error: parsed.error };
-          try {
-            messageKey = await registry.encode(cfg.keySchemaId, parsed.value);
-          } catch (err) {
-            return { success: false, error: `Key schema encode failed: ${errorMessage(err)}` };
-          }
+          const r = await encodeSchemaField(registry, cfg.keySchemaId, cfg.key, 'key');
+          if ('error' in r) return { success: false, error: r.error };
+          messageKey = r.value;
         }
         try {
           const result = await entry.producer.send({
