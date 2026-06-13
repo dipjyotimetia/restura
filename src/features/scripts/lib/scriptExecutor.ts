@@ -7,7 +7,12 @@ import { getQuickJS } from 'quickjs-emscripten';
 import { PM_EXPECT_BOOTSTRAP } from './pmExpect';
 import { loadSandboxLibraries, buildRequireShimSource } from './sandboxLibraries';
 import type { PmCookieAdapter, PmCookieRecord } from './pmCookieAdapter';
-import type { JudgeRequestInput, JudgeVerdict } from '@shared/protocol/ai/judge';
+import type {
+  JudgeAnchor,
+  JudgeCriterion,
+  JudgeRequestInput,
+  JudgeVerdict,
+} from '@shared/protocol/ai/judge';
 export type { PmCookieAdapter, PmCookieRecord };
 
 export interface PmRequestInfo {
@@ -963,9 +968,19 @@ class ScriptExecutor {
       const rubric = typeof opts.rubric === 'string' ? opts.rubric : '';
       const reference = typeof opts.reference === 'string' ? opts.reference : undefined;
       const passThreshold = typeof opts.passThreshold === 'number' ? opts.passThreshold : undefined;
+      // Hardened judge knobs: multi-criteria rubric, self-consistency sampling,
+      // calibration anchors. vm.dump deep-copies these into plain JS objects.
+      const criteria = Array.isArray(opts.criteria)
+        ? (opts.criteria as JudgeCriterion[])
+        : undefined;
+      const anchors = Array.isArray(opts.anchors) ? (opts.anchors as JudgeAnchor[]) : undefined;
+      const samples = typeof opts.samples === 'number' ? opts.samples : undefined;
       const input: JudgeRequestInput = {
         output,
         rubric,
+        ...(criteria && { criteria }),
+        ...(samples !== undefined && { samples }),
+        ...(anchors && { anchors }),
         ...(reference !== undefined && { reference }),
         ...(passThreshold !== undefined && { passThreshold }),
       };

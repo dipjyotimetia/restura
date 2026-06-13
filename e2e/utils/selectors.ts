@@ -17,7 +17,10 @@ export type Mode = keyof typeof modes;
 
 export async function switchMode(page: Page, mode: Mode): Promise<void> {
   await page.getByRole('button', { name: 'new request', exact: true }).click();
-  await page.getByRole('menuitem', { name: modes[mode], exact: true }).click();
+  // Each item renders a decorative <ProtoChip> whose label (e.g. "GQL", "WS")
+  // prefixes the menuitem's accessible name — "GQL GraphQL request". Match on
+  // the (unique) text label as a substring rather than an exact string.
+  await page.getByRole('menuitem', { name: modes[mode] }).click();
 }
 
 export function sendButton(page: Page): Locator {

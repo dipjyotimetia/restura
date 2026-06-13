@@ -129,109 +129,123 @@ export function ProviderManager() {
   };
 
   return (
-    <div className="space-y-6">
-      <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
-        <h2 className="text-sp-13 font-semibold text-sp-text">Add a provider</h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <label className="text-sp-11 text-sp-muted font-mono">Type</label>
-            <Select value={provider} onValueChange={(v) => onProviderChange(v as Provider)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PROVIDER_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-sp-11 text-sp-muted font-mono">Name</label>
-            <Input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Local Ollama"
-            />
-          </div>
-          {(opt.needsBaseUrl || isLocalProvider(provider)) && (
-            <div className="space-y-1">
-              <label className="text-sp-11 text-sp-muted font-mono">Base URL</label>
+    <div className="h-full overflow-auto">
+      <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
+        <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
+          <h2 className="text-sp-13 font-semibold text-sp-text">Add a provider</h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <span className="sp-label">Type</span>
+              <Select value={provider} onValueChange={(v) => onProviderChange(v as Provider)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROVIDER_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <span className="sp-label">Name</span>
               <Input
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="http://localhost:11434"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. Local Ollama"
               />
             </div>
-          )}
-          <div className="space-y-1">
-            <label className="text-sp-11 text-sp-muted font-mono">
-              API key {isLocalProvider(provider) ? '(optional)' : ''}
-            </label>
-            <Input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={isLocalProvider(provider) ? 'usually not required' : 'sk-…'}
-            />
+            {(opt.needsBaseUrl || isLocalProvider(provider)) && (
+              <div className="space-y-1.5">
+                <span className="sp-label">Base URL</span>
+                <Input
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="http://localhost:11434"
+                />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <span className="sp-label">
+                API key {isLocalProvider(provider) ? '(optional)' : ''}
+              </span>
+              <Input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={isLocalProvider(provider) ? 'usually not required' : 'sk-…'}
+              />
+            </div>
           </div>
-        </div>
-        <Button onClick={() => void add()} variant="secondary" size="sm">
-          Add provider
-        </Button>
-      </Floater>
+          <Button onClick={() => void add()} variant="secondary" size="sm">
+            Add provider
+          </Button>
+        </Floater>
 
-      <section className="space-y-2">
-        <h2 className="text-sp-13 font-semibold text-sp-text">Providers</h2>
-        {Object.values(providers).length === 0 && (
-          <EmptyState icon={Server} message="No providers yet. Add one above." />
-        )}
-        {Object.values(providers).map((cfg) => (
-          <Floater
-            key={cfg.id}
-            radius="panel"
-            elevation="inset"
-            className="flex items-center justify-between p-3"
-          >
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sp-13 font-medium text-sp-text">{cfg.label}</span>
-                <span className="text-[10px] uppercase tracking-wide text-sp-muted">
-                  {cfg.provider}
-                </span>
-                {cfg.isLocal && <span className="text-[10px] text-emerald-500">local</span>}
+        <section className="space-y-2">
+          <h2 className="text-sp-13 font-semibold text-sp-text">Providers</h2>
+          {Object.values(providers).length === 0 && (
+            <EmptyState icon={Server} message="No providers yet. Add one above." />
+          )}
+          {Object.values(providers).map((cfg) => (
+            <Floater
+              key={cfg.id}
+              radius="panel"
+              elevation="inset"
+              className="flex items-center justify-between gap-3 p-3"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sp-13 font-medium text-sp-text">{cfg.label}</span>
+                  <span className="shrink-0 rounded-sp-chip bg-sp-surface-hi px-1.5 py-0.5 text-sp-11 font-medium uppercase tracking-wide text-sp-muted">
+                    {cfg.provider}
+                  </span>
+                  {cfg.isLocal && (
+                    <span className="shrink-0 text-sp-11 font-medium text-emerald-500">local</span>
+                  )}
+                </div>
+                <div className="mt-0.5 truncate text-sp-12 text-sp-muted">
+                  {effectiveBaseUrl(cfg)} · {cfg.models.length} model(s)
+                  {!cfg.pricingKnown && ' · cost unknown'}
+                </div>
               </div>
-              <div className="truncate text-sp-12 text-sp-muted">
-                {effectiveBaseUrl(cfg)} · {cfg.models.length} model(s)
-                {!cfg.pricingKnown && ' · cost unknown'}
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Test connection"
+                  title="Test connection"
+                  disabled={busy === cfg.id}
+                  onClick={() => void test(cfg)}
+                >
+                  <Wifi className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Discover models"
+                  title="Discover models"
+                  disabled={busy === cfg.id}
+                  onClick={() => void discover(cfg)}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${busy === cfg.id ? 'animate-spin' : ''}`} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Remove provider"
+                  title="Remove provider"
+                  onClick={() => removeProvider(cfg.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </Button>
               </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy === cfg.id}
-                onClick={() => void test(cfg)}
-              >
-                <Wifi className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy === cfg.id}
-                onClick={() => void discover(cfg)}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${busy === cfg.id ? 'animate-spin' : ''}`} />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => removeProvider(cfg.id)}>
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-              </Button>
-            </div>
-          </Floater>
-        ))}
-      </section>
+            </Floater>
+          ))}
+        </section>
+      </div>
     </div>
   );
 }

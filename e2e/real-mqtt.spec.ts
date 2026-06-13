@@ -15,14 +15,12 @@ import { test, expect, openMqttTab } from './fixtures/mqtt';
 webTest.describe('MQTT — web build gating', () => {
   webTest('is not offered in the web new-request menu', async ({ app: page }) => {
     await page.getByRole('button', { name: 'new request', exact: true }).click();
-    await webExpect(page.getByRole('menuitem', { name: 'MQTT client', exact: true })).toHaveCount(
-      0
-    );
+    // Menu items render a decorative <ProtoChip> that prefixes the accessible
+    // name ("MQTT MQTT client"), so match the label as a substring, not exact.
+    await webExpect(page.getByRole('menuitem', { name: 'MQTT client' })).toHaveCount(0);
     // Kafka (the other desktop-only protocol) is likewise absent — sanity that
     // the gate isn't simply hiding everything.
-    await webExpect(
-      page.getByRole('menuitem', { name: 'HTTP request', exact: true })
-    ).toBeVisible();
+    await webExpect(page.getByRole('menuitem', { name: 'HTTP request' })).toBeVisible();
     await page.keyboard.press('Escape');
   });
 

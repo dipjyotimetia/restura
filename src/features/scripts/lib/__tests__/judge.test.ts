@@ -86,6 +86,29 @@ describe('rs.judge — host bridge', () => {
     expect(input.passThreshold).toBe(0.8);
   });
 
+  it('forwards multi-criteria, samples, and anchors into the JudgeRequestInput', async () => {
+    const judge = passingJudge();
+    const ex = new ScriptExecutor({ host: { judge } });
+    await ex.executeScript(
+      `
+      (async function () {
+        await rs.judge('candidate', {
+          criteria: [{ name: 'correctness', rubric: 'right?', weight: 2, gate: true }],
+          samples: 3,
+          anchors: [{ output: 'bad', score: 0.1, note: 'too short' }],
+        });
+      })();
+    `,
+      {}
+    );
+    const input = judge.mock.calls[0]![0];
+    expect(input.criteria).toEqual([
+      { name: 'correctness', rubric: 'right?', weight: 2, gate: true },
+    ]);
+    expect(input.samples).toBe(3);
+    expect(input.anchors).toEqual([{ output: 'bad', score: 0.1, note: 'too short' }]);
+  });
+
   it('no host.judge wired: rs.judge rejects with a clean message', async () => {
     const ex = new ScriptExecutor({});
     const r = await ex.executeScript(

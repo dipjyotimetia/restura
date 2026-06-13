@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { BarChart3, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, BarChart3, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Floater } from '@/components/ui/spatial';
+import { Floater, Stat } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
 import { percentile } from '@/lib/shared/loadStats';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import { EmptyState } from './EmptyState';
+import { StatusChip } from './StatusChip';
 import type { EvalCellResult, EvalRun } from '../types';
 
 interface ModelStats {
@@ -45,6 +46,43 @@ function statsByModel(run: EvalRun): ModelStats[] {
   });
 }
 
+interface JudgeStats {
+  /** Number of judge score instances across the run's cells. */
+  judged: number;
+  /** Mean variance of judge scores across self-consistency samples (null if none sampled). */
+  avgVariance: number | null;
+  criteria: { name: string; passed: number; total: number }[];
+}
+
+/** Aggregate per-criterion pass rates + judge stability across a run's judge scores. */
+export function judgeStats(run: EvalRun): JudgeStats {
+  const byCriterion = new Map<string, { passed: number; total: number }>();
+  let varSum = 0;
+  let varCount = 0;
+  let judged = 0;
+  for (const cell of run.cells) {
+    for (const s of cell.scores) {
+      if (s.kind !== 'judge') continue;
+      judged++;
+      if (typeof s.variance === 'number') {
+        varSum += s.variance;
+        varCount++;
+      }
+      for (const pc of s.perCriterion ?? []) {
+        const e = byCriterion.get(pc.name) ?? { passed: 0, total: 0 };
+        e.total++;
+        if (pc.pass) e.passed++;
+        byCriterion.set(pc.name, e);
+      }
+    }
+  }
+  return {
+    judged,
+    avgVariance: varCount ? varSum / varCount : null,
+    criteria: [...byCriterion.entries()].map(([name, v]) => ({ name, ...v })),
+  };
+}
+
 export function ReportView() {
   const runs = useEvalRunStore((s) => s.runs);
   const deleteRun = useEvalRunStore((s) => s.deleteRun);
@@ -65,110 +103,169 @@ export function ReportView() {
 
   const current = active ? statsByModel(active) : [];
   const prevStats = previous ? statsByModel(previous) : [];
+  const judge = useMemo(() => (active ? judgeStats(active) : null), [active]);
 
   if (sorted.length === 0) {
-    return <EmptyState icon={BarChart3} message="No runs yet. Run an eval first." />;
+    return (
+      <EmptyState
+        fill
+        icon={BarChart3}
+        message="No runs yet. Configure an eval and run it first."
+      />
+    );
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
-      <div className="space-y-2">
+    <div className="flex h-full">
+      {/* Run list — master pane. */}
+      <div className="flex w-[280px] shrink-0 flex-col gap-2 overflow-auto border-r border-sp-line p-3">
         {sorted.map((r) => (
           <button
             key={r.id}
             onClick={() => setActiveId(r.id)}
             className={cn(
-              'flex w-full items-center justify-between rounded-sp-btn border px-3 py-2 text-left text-sp-13 transition-colors',
+              'w-full rounded-sp-btn border px-3 py-2.5 text-left transition-colors',
               active?.id === r.id
-                ? 'border-sp-accent bg-[var(--sp-accent-glow-15)] text-sp-text'
-                : 'border-sp-line text-sp-text hover:bg-sp-hover'
+                ? 'border-sp-accent bg-[var(--sp-accent-glow-15)]'
+                : 'border-sp-line hover:bg-sp-hover'
             )}
           >
-            <span className="truncate">
-              {r.configName}
-              <span className="ml-1 text-[10px] text-sp-muted">{r.status}</span>
-            </span>
-            <span className="text-sp-12 text-sp-muted">
-              {r.cells.length}/{r.totalCells}
-            </span>
+            <div className="truncate text-sp-13 text-sp-text">{r.configName}</div>
+            <div className="mt-1 flex items-center justify-between">
+              <StatusChip state={r.status} />
+              <span className="text-sp-11 text-sp-muted tabular-nums">
+                {r.cells.length}/{r.totalCells}
+              </span>
+            </div>
           </button>
         ))}
       </div>
 
-      {active ? (
-        <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sp-13 font-semibold text-sp-text">{active.configName}</h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                deleteRun(active.id);
-                setActiveId(null);
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5 text-destructive" />
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sp-12">
-              <thead className="text-sp-muted">
-                <tr className="border-b border-sp-line text-left">
-                  <th className="py-1 pr-3">Model</th>
-                  <th className="py-1 pr-3">Pass rate</th>
-                  <th className="py-1 pr-3">Δ vs prev</th>
-                  <th className="py-1 pr-3">p50</th>
-                  <th className="py-1 pr-3">p95</th>
-                  <th className="py-1 pr-3">Cost</th>
-                </tr>
-              </thead>
-              <tbody className="text-sp-text">
-                {current
-                  .slice()
-                  .sort((a, b) => b.passRate - a.passRate)
-                  .map((m) => {
-                    const prev = prevStats.find((p) => p.label === m.label);
-                    const delta = prev ? m.passRate - prev.passRate : null;
+      {/* Report — detail pane, fills the window. */}
+      <div className="min-w-0 flex-1 overflow-auto p-4">
+        {active ? (
+          <Floater radius="panel" elevation="float" className="space-y-4 bg-sp-surface p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="truncate text-sp-13 font-semibold text-sp-text">
+                {active.configName}
+              </h2>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Delete run"
+                title="Delete run"
+                onClick={() => {
+                  deleteRun(active.id);
+                  setActiveId(null);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              </Button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sp-12">
+                <thead>
+                  <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wide text-sp-muted">
+                    <th className="py-2 pr-3 font-medium">Model</th>
+                    <th className="py-2 pr-3 font-medium">Pass rate</th>
+                    <th className="py-2 pr-3 font-medium">Δ vs prev</th>
+                    <th className="py-2 pr-3 font-medium">p50</th>
+                    <th className="py-2 pr-3 font-medium">p95</th>
+                    <th className="py-2 pr-3 font-medium">Cost</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sp-text">
+                  {current
+                    .slice()
+                    .sort((a, b) => b.passRate - a.passRate)
+                    .map((m) => {
+                      const prev = prevStats.find((p) => p.label === m.label);
+                      const delta = prev ? m.passRate - prev.passRate : null;
+                      return (
+                        <tr key={m.label} className="border-b border-sp-line">
+                          <td className="py-2 pr-3 font-medium">{m.label}</td>
+                          <td className="py-2 pr-3 tabular-nums">
+                            {(m.passRate * 100).toFixed(0)}% ({m.passed}/{m.total})
+                          </td>
+                          <td className="py-2 pr-3">
+                            {delta === null || delta === 0 ? (
+                              <span className="text-sp-muted">—</span>
+                            ) : (
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-0.5 tabular-nums',
+                                  delta > 0 ? 'text-emerald-500' : 'text-destructive'
+                                )}
+                              >
+                                {delta > 0 ? (
+                                  <ArrowUp className="h-3 w-3" />
+                                ) : (
+                                  <ArrowDown className="h-3 w-3" />
+                                )}
+                                {Math.abs(delta * 100).toFixed(0)}%
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 tabular-nums">{Math.round(m.p50)}ms</td>
+                          <td className="py-2 pr-3 tabular-nums">{Math.round(m.p95)}ms</td>
+                          <td className="py-2 pr-3 tabular-nums">
+                            {m.cost === null
+                              ? '—'
+                              : m.cost === 0
+                                ? 'free'
+                                : `$${m.cost.toFixed(4)}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+            {judge && judge.judged > 0 && judge.criteria.length > 0 && (
+              <div className="space-y-2 border-t border-sp-line pt-3">
+                <h3 className="sp-label">Judge criteria</h3>
+                <div className="flex flex-wrap gap-x-6 gap-y-3">
+                  {judge.criteria.map((c) => {
+                    const rate = c.total ? c.passed / c.total : 0;
                     return (
-                      <tr key={m.label} className="border-b border-sp-line">
-                        <td className="py-1 pr-3 font-medium">{m.label}</td>
-                        <td className="py-1 pr-3">
-                          {(m.passRate * 100).toFixed(0)}% ({m.passed}/{m.total})
-                        </td>
-                        <td className="py-1 pr-3">
-                          {delta === null ? (
-                            '—'
-                          ) : (
-                            <span
-                              className={
-                                delta > 0 ? 'text-emerald-500' : delta < 0 ? 'text-destructive' : ''
-                              }
-                            >
-                              {delta > 0 ? '+' : ''}
-                              {(delta * 100).toFixed(0)}%
+                      <Stat
+                        key={c.name}
+                        label={c.name}
+                        value={
+                          <span
+                            className={
+                              rate >= 1 ? 'text-emerald-500' : rate === 0 ? 'text-destructive' : ''
+                            }
+                          >
+                            {(rate * 100).toFixed(0)}%{' '}
+                            <span className="text-sp-muted">
+                              ({c.passed}/{c.total})
                             </span>
-                          )}
-                        </td>
-                        <td className="py-1 pr-3">{Math.round(m.p50)}ms</td>
-                        <td className="py-1 pr-3">{Math.round(m.p95)}ms</td>
-                        <td className="py-1 pr-3">
-                          {m.cost === null ? '—' : m.cost === 0 ? 'free' : `$${m.cost.toFixed(4)}`}
-                        </td>
-                      </tr>
+                          </span>
+                        }
+                      />
                     );
                   })}
-              </tbody>
-            </table>
-          </div>
-          {previous && (
-            <p className="text-[10px] text-sp-muted">
-              Δ compares against the previous run of this eval.
-            </p>
-          )}
-        </Floater>
-      ) : (
-        <EmptyState message="Select a run." />
-      )}
+                  {judge.avgVariance !== null && (
+                    <Stat
+                      label="Avg variance"
+                      value={judge.avgVariance.toFixed(3)}
+                      title="Mean variance of judge scores across self-consistency samples (lower = more stable)"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+            {previous && (
+              <p className="text-sp-11 text-sp-muted">
+                Δ compares against the previous run of this eval.
+              </p>
+            )}
+          </Floater>
+        ) : (
+          <EmptyState fill message="Select a run to view its report." />
+        )}
+      </div>
     </div>
   );
 }

@@ -66,16 +66,19 @@ describe('makeRendererJudge', () => {
   it('returns the parsed verdict on success', async () => {
     const judge = makeRendererJudge(CLOUD_CFG);
     const verdict = await judge({ output: 'answer', rubric: 'is it good?' });
-    expect(verdict).toEqual({ score: 0.9, reasoning: 'good', pass: true });
+    expect(verdict).toMatchObject({ score: 0.9, reasoning: 'good', pass: true });
+    expect(verdict.samples).toBe(1);
+    expect(verdict.perCriterion).toHaveLength(1);
     expect(complete).toHaveBeenCalledOnce();
   });
 
-  it('builds a well-formed spec (tools include JUDGE_TOOL, rawMode true)', async () => {
+  it('builds a well-formed spec (per-criterion judge tool, rawMode true)', async () => {
     const judge = makeRendererJudge(CLOUD_CFG);
     await judge({ output: 'answer', rubric: 'rubric' });
     const spec = lastSpec();
     expect(spec.rawMode).toBe(true);
-    expect(spec.tools).toContainEqual(JUDGE_TOOL);
+    expect(spec.tools?.[0]?.name).toBe(JUDGE_TOOL.name);
+    expect(spec.tools?.[0]?.inputSchema).toHaveProperty('properties.criteria');
     expect(spec.provider).toBe('openai');
     expect(spec.model).toBe('gpt-judge');
     expect(spec.apiKeyHandleId).toBe('h1');
