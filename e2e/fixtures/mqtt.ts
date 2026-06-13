@@ -225,5 +225,7 @@ export { expect };
 /** Open a fresh MQTT client tab from the new-request menu. */
 export async function openMqttTab(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'new request', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'MQTT client', exact: true }).click();
+  // The decorative <ProtoChip> prefixes the menuitem's accessible name
+  // ("MQTT MQTT client"), so match the label as a substring, not exact.
+  await page.getByRole('menuitem', { name: 'MQTT client' }).click();
 }
