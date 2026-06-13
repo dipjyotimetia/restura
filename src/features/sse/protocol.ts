@@ -20,9 +20,10 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
-import type { SseRequest } from '@/types';
+import type { Request, SseRequest } from '@/types';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { SseParser, type ParsedSseEvent } from './lib/sseParser';
 
 function createDefaultSseRequest(): SseRequest {
@@ -35,6 +36,24 @@ function createDefaultSseRequest(): SseRequest {
     params: [],
     auth: { type: 'none' },
     reconnectOnResume: true,
+  };
+}
+
+// Resolve {{var}} references in the SSE request shape before a workflow run —
+// parity with injectHttpVariables/injectGraphQLVariables. Without this hook the
+// DAG executor (sseSubscribe node) would stream the raw request with literal
+// placeholders in url/headers/params. Auth credential values are resolved at the
+// wire (the interactive client) but not here, matching HTTP's injectVariables
+// (which also leaves auth untouched).
+function injectSseVariables(request: Request, variables: Record<string, string>): Request {
+  if (request.type !== 'sse') return request;
+  const sse = request as SseRequest;
+  const inject = (text: string) => injectString(text, variables);
+  return {
+    ...sse,
+    url: inject(sse.url),
+    headers: sse.headers.map((h) => ({ ...h, key: inject(h.key), value: inject(h.value) })),
+    params: sse.params.map((p) => ({ ...p, key: inject(p.key), value: inject(p.value) })),
   };
 }
 
@@ -214,6 +233,7 @@ export const sseProtocol: ProtocolModule = {
   label: 'SSE',
   tabType: 'sse',
   defaultRequest: createDefaultSseRequest,
+  injectVariables: injectSseVariables,
   runRequest: async () => {
     // The interactive SseClient still owns its store-coupled lifecycle.
     // Graph workflows use sseSubscribe nodes which call startStream.

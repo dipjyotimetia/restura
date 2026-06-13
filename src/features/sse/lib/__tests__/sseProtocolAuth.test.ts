@@ -71,3 +71,30 @@ describe('sseProtocol.startStream auth', () => {
     expect(new URL(spec.url).searchParams.get('token')).toBe('k123');
   });
 });
+
+describe('sseProtocol.injectVariables', () => {
+  it('resolves {{vars}} in url, headers, and params (workflow parity)', () => {
+    const req = baseRequest({
+      url: 'https://{{host}}/stream',
+      headers: [{ id: 'h1', key: 'X-{{hk}}', value: '{{hv}}', enabled: true }],
+      params: [{ id: 'p1', key: 'q', value: '{{pv}}', enabled: true }],
+    });
+    const out = sseProtocol.injectVariables!(req, {
+      host: 'api.example.com',
+      hk: 'Trace',
+      hv: 'abc',
+      pv: '42',
+    }) as SseRequest;
+
+    expect(out.url).toBe('https://api.example.com/stream');
+    expect(out.headers[0]).toMatchObject({ key: 'X-Trace', value: 'abc' });
+    expect(out.params[0]).toMatchObject({ key: 'q', value: '42' });
+  });
+
+  it('returns non-SSE requests untouched', () => {
+    const notSse = { type: 'http', url: '{{host}}' } as unknown as Parameters<
+      NonNullable<typeof sseProtocol.injectVariables>
+    >[0];
+    expect(sseProtocol.injectVariables!(notSse, { host: 'x' })).toBe(notSse);
+  });
+});

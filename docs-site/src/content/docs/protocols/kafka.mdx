@@ -1,6 +1,6 @@
 ---
 title: Kafka
-description: Produce and consume Kafka topics with SASL authentication and TLS. Desktop only.
+description: Produce and consume Kafka topics with SASL authentication, TLS, and Confluent Schema Registry. Desktop only.
 ---
 
 import { Badge } from '@astrojs/starlight/components';
@@ -12,9 +12,10 @@ import { Badge } from '@astrojs/starlight/components';
 - **Produce** — pick a topic, set headers, send a key + value (text, JSON, or binary).
 - **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp.
 - **Multiple brokers** — bootstrap list, broker discovery happens through the cluster.
-- **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`.
+- **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`.
 - **TLS** — server certificate validation, optional client certificate (mTLS).
 - **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
+- **Confluent Schema Registry** — point a connection at a registry URL (optional Basic / Bearer auth); produce schema-encoded values by schema ID and consume with automatic Avro / Protobuf / JSON decode.
 
 ## Broker guard
 
@@ -23,7 +24,7 @@ The Electron Kafka handler runs every broker address through the same [SSRF guar
 ## Tips
 
 - Set the **client ID** (defaults to `restura`) to make your activity easy to spot in broker logs.
-- For schema-encoded payloads, decode in a [test script](/guides/scripts/) — Restura doesn't bundle a Schema Registry client (yet).
+- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a value **schema ID** when producing — consumed messages decode automatically. (Value schemas today; key schemas aren't wired yet.)
 
 ## Related
 
