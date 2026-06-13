@@ -718,9 +718,11 @@ export const KafkaProduceSchema = z.object({
   partition: z.number().int().nonnegative().max(2_147_483_647).optional(),
   acks: KafkaAcksSchema,
   compression: KafkaCompressionSchema.optional(),
-  // Confluent Schema Registry value schema id. When set (registry connections
-  // only), the value is parsed as JSON and encoded with this schema.
+  // Confluent Schema Registry schema ids. When set (registry connections only),
+  // that field is parsed as JSON and encoded with the given schema. Key and value
+  // are independent.
   valueSchemaId: z.number().int().positive().optional(),
+  keySchemaId: z.number().int().positive().optional(),
 });
 
 // Per-partition starting offset for MANUAL consume mode. `offset` is a numeric

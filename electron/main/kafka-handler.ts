@@ -3,7 +3,6 @@ import type { WebContents } from 'electron';
 import type {
   Admin,
   AdminOptions,
-  ConfluentSchemaRegistry,
   Consumer,
   ConsumerOptions,
   Message,
@@ -12,13 +11,14 @@ import type {
   ProducerOptions,
   TopicWithPartitionAndOffset,
 } from '@platformatic/kafka';
+import type { SchemaRegistry } from '@kafkajs/confluent-schema-registry';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { emitTo, errorMessage } from './ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../shared/kafka-channels';
 import { IPC } from '../shared/channels';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from './kafka-broker-guard';
-import { buildSchemaValue, valueToString } from './kafka-serde';
+import { parseSchemaJson, isConfluentEncoded, valueToString } from './kafka-serde';
 import type { LogEntry } from './request-logger';
 import {
   KafkaConnectSchema,
@@ -46,19 +46,40 @@ let _kafka: typeof import('@platformatic/kafka') | undefined;
 const getKafka = (): typeof import('@platformatic/kafka') =>
   (_kafka ??= require('@platformatic/kafka'));
 
+// Confluent Schema Registry client (key + value encode/decode). Also lazy — only
+// constructed when a connection configures a registry URL.
+let _schemaRegistryLib: typeof import('@kafkajs/confluent-schema-registry') | undefined;
+const getSchemaRegistryLib = (): typeof import('@kafkajs/confluent-schema-registry') =>
+  (_schemaRegistryLib ??= require('@kafkajs/confluent-schema-registry'));
+
+// Producer serializers accept either a Buffer (already registry-encoded) or a
+// string (plain — utf8-encoded here); consumer deserializers hand back the raw
+// Buffer so the handler can decode via the registry off the wire framing.
+const bufferOrStringSerializer = (data: string | Buffer | undefined): Buffer | undefined =>
+  data == null ? undefined : Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'utf-8');
+const stringFieldSerializer = (data: string | undefined): Buffer | undefined =>
+  typeof data === 'string' ? Buffer.from(data, 'utf-8') : undefined;
+const rawDeserializer = (data: Buffer): Buffer | undefined =>
+  Buffer.isBuffer(data) ? data : undefined;
+const stringFieldDeserializer = (data: Buffer): string | undefined =>
+  Buffer.isBuffer(data) ? data.toString('utf-8') : undefined;
+
 export const kafkaRateLimiter = createKeyedRateLimiter(120, 60_000);
 
 const MAX_CONCURRENT_KAFKA_CONNECTIONS = 20;
 
-type StringProducer = Producer<string, string, string, string>;
-type StringConsumer = Consumer<string, string, string, string>;
-type StringStream = MessagesStream<string, string, string, string>;
-type StringMessage = Message<string, string, string, string>;
+// Produce accepts string (plain) or Buffer (registry-encoded); consume yields raw
+// Buffers that the handler decodes via the registry (or reads as UTF-8).
+type ProduceKV = string | Buffer;
+type AppProducer = Producer<ProduceKV, ProduceKV, string, string>;
+type AppConsumer = Consumer<Buffer, Buffer, string, string>;
+type AppStream = MessagesStream<Buffer, Buffer, string, string>;
+type AppMessage = Message<Buffer, Buffer, string, string>;
 
 interface ActiveKafka {
-  producer: StringProducer;
-  consumer?: StringConsumer;
-  stream?: StringStream;
+  producer: AppProducer;
+  consumer?: AppConsumer;
+  stream?: AppStream;
   clientOptions: KafkaClientOptions;
   connectionId: string;
   webContentsId: number;
@@ -70,11 +91,17 @@ interface ActiveKafka {
    */
   idempotent: boolean;
   /**
-   * Confluent Schema Registry, built at connect when configured. When set, the
-   * consumer decodes Avro/Protobuf/JSON via it (the produce path stays string
-   * until Phase 2 wires schema selection).
+   * Confluent Schema Registry client, built at connect when a registry URL is
+   * configured. Encodes the key/value on produce (by schema id) and decodes them
+   * on consume (key + value symmetrically, off the Confluent wire framing).
    */
-  registry?: ConfluentSchemaRegistry;
+  registry?: SchemaRegistry;
+  /**
+   * Serializes consumed-message emits. Decode is async (registry HTTP/CPU) but
+   * `stream.on('data')` is sync, so we chain emits through this promise to
+   * preserve message order.
+   */
+  emitChain: Promise<void>;
   /** Cached at connect — avoids a `webContents.fromId()` lookup per message. */
   wc?: WebContents;
   createdAt: number;
@@ -175,17 +202,39 @@ async function closeConnection(entry: ActiveKafka): Promise<void> {
   }
 }
 
-function bindStreamListeners(entry: ActiveKafka, stream: StringStream): void {
-  stream.on('data', (msg: StringMessage) => {
-    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.MESSAGE, entry.connectionId), {
-      topic: msg.topic,
-      partition: msg.partition,
-      offset: msg.offset.toString(),
-      key: msg.key == null ? undefined : valueToString(msg.key),
-      value: valueToString(msg.value),
-      headers: headersFromMap(msg.headers as Map<string, string> | undefined),
-      timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
-    });
+// Decode a consumed key/value Buffer: registry-decode when it carries the
+// Confluent wire framing (and a registry is configured), else read as UTF-8.
+// Falls back to raw text if decode throws (e.g. schema fetch fails).
+async function decodeField(entry: ActiveKafka, buf: Buffer): Promise<string> {
+  if (entry.registry && isConfluentEncoded(buf)) {
+    try {
+      return valueToString(await entry.registry.decode(buf));
+    } catch {
+      /* not registry-encoded after all / schema missing — fall through to text */
+    }
+  }
+  return valueToString(buf);
+}
+
+async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise<void> {
+  const key = msg.key == null ? undefined : await decodeField(entry, msg.key);
+  const value = msg.value == null ? '' : await decodeField(entry, msg.value);
+  emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.MESSAGE, entry.connectionId), {
+    topic: msg.topic,
+    partition: msg.partition,
+    offset: msg.offset.toString(),
+    key,
+    value,
+    headers: headersFromMap(msg.headers as Map<string, string> | undefined),
+    timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
+  });
+}
+
+function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
+  stream.on('data', (msg: AppMessage) => {
+    // Chain so async decodes emit in arrival order; swallow per-message failures
+    // so one bad message can't wedge the chain.
+    entry.emitChain = entry.emitChain.then(() => emitConsumedMessage(entry, msg)).catch(() => {});
   });
 
   stream.on('error', (err: Error) => {
@@ -268,28 +317,42 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       const clientOptions = buildClientOptions(cfg);
       const kafka = getKafka();
 
-      // Schema Registry (optional): used by BOTH the consumer (decode) and the
-      // producer (encode). Construction is cheap and lazy — it fetches schemas
-      // on demand, not now.
-      const registry = cfg.registry
-        ? new kafka.ConfluentSchemaRegistry({
-            url: cfg.registry.url,
-            ...(cfg.registry.auth ? { auth: cfg.registry.auth } : {}),
-          })
-        : undefined;
+      // Schema Registry (optional): encodes on produce, decodes on consume — for
+      // BOTH key and value. Construction is cheap; schemas are fetched on demand.
+      // Auth is HTTP Basic (username/password); bearer tokens aren't supported by
+      // the registry client — warn rather than silently send unauthenticated.
+      let registry: SchemaRegistry | undefined;
+      if (cfg.registry) {
+        const auth = cfg.registry.auth;
+        if (auth?.token && !auth.username) {
+          console.warn(
+            '[kafka] Schema Registry bearer-token auth is not supported by the registry client; connecting without auth.'
+          );
+        }
+        registry = new (getSchemaRegistryLib().SchemaRegistry)({
+          host: cfg.registry.url,
+          ...(auth?.username
+            ? { auth: { username: auth.username, password: auth.password ?? '' } }
+            : {}),
+        });
+      }
 
-      // With a registry, pass `registry` and OMIT `serializers` (the lib throws
-      // if both are set). A registry producer schema-encodes a message when it
-      // carries `metadata.schemas`, and JSON-encodes via the fallback serializer
-      // otherwise — so plain produce still works (as JSON, not raw string).
+      // The platformatic Producer transports raw bytes; registry encode/decode is
+      // done in this handler, so the producer always uses our Buffer-or-string
+      // serializers (a Buffer passes through, a plain string is utf8-encoded).
       const producerOptions = {
         ...clientOptions,
-        ...(registry ? { registry } : { serializers: kafka.stringSerializers }),
+        serializers: {
+          key: bufferOrStringSerializer,
+          value: bufferOrStringSerializer,
+          headerKey: stringFieldSerializer,
+          headerValue: stringFieldSerializer,
+        },
         // Idempotent producer dedups retries per-partition. The broker requires
         // acks=all(-1) for it; the produce handler enforces that override.
         ...(cfg.idempotent ? { idempotent: true } : {}),
-      } as unknown as ProducerOptions<string, string, string, string>;
-      const producer = new kafka.Producer<string, string, string, string>(producerOptions);
+      } as unknown as ProducerOptions<ProduceKV, ProduceKV, string, string>;
+      const producer = new kafka.Producer<ProduceKV, ProduceKV, string, string>(producerOptions);
 
       // @platformatic/kafka producers connect lazily; auth/TLS/host errors
       // surface on the first send rather than here. Metadata pre-fetch was
@@ -301,6 +364,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         connectionId,
         webContentsId,
         idempotent: cfg.idempotent ?? false,
+        emitChain: Promise.resolve(),
         ...(registry ? { registry } : {}),
         ...(wc ? { wc } : {}),
         createdAt: Date.now(),
@@ -345,38 +409,49 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         // also locks the acks picker to -1 when idempotent is on).
         const acks = entry.idempotent ? -1 : cfg.acks;
 
-        // Schema-encode the value when a schema id is supplied. On a registry
-        // connection the value serializer falls back to JSON when no schema is
-        // set; the key serializer falls back to the string serializer, so plain
-        // keys pass through unchanged.
-        let messageValue: unknown = cfg.value;
-        let metadata: { schemas: { value: number } } | undefined;
-        if (cfg.valueSchemaId !== undefined) {
-          if (!entry.registry) {
-            return {
-              success: false,
-              error: 'A value schema ID requires a Schema Registry on this connection.',
-            };
+        // Schema-encode the key and/or value when a schema id is supplied — the
+        // registry returns a Confluent-framed Buffer; plain fields pass through as
+        // strings (the producer serializer utf8-encodes them).
+        const { registry } = entry;
+        if ((cfg.valueSchemaId !== undefined || cfg.keySchemaId !== undefined) && !registry) {
+          return {
+            success: false,
+            error: 'A schema ID requires a Schema Registry on this connection.',
+          };
+        }
+        let messageKey: ProduceKV | undefined = cfg.key;
+        let messageValue: ProduceKV = cfg.value;
+        if (registry && cfg.valueSchemaId !== undefined) {
+          const parsed = parseSchemaJson(cfg.value, 'value');
+          if ('error' in parsed) return { success: false, error: parsed.error };
+          try {
+            messageValue = await registry.encode(cfg.valueSchemaId, parsed.value);
+          } catch (err) {
+            return { success: false, error: `Value schema encode failed: ${errorMessage(err)}` };
           }
-          const built = buildSchemaValue(cfg.value, cfg.valueSchemaId);
-          if ('error' in built) {
-            return { success: false, error: built.error };
+        }
+        if (registry && cfg.keySchemaId !== undefined) {
+          if (cfg.key === undefined) {
+            return { success: false, error: 'A key schema ID requires a message key.' };
           }
-          messageValue = built.value;
-          metadata = built.metadata;
+          const parsed = parseSchemaJson(cfg.key, 'key');
+          if ('error' in parsed) return { success: false, error: parsed.error };
+          try {
+            messageKey = await registry.encode(cfg.keySchemaId, parsed.value);
+          } catch (err) {
+            return { success: false, error: `Key schema encode failed: ${errorMessage(err)}` };
+          }
         }
         try {
           const result = await entry.producer.send({
             messages: [
               {
                 topic: cfg.topic,
-                ...(cfg.key !== undefined ? { key: cfg.key } : {}),
-                // String for the plain path; a parsed object for the schema path
-                // (the registry serializer accepts it — the producer is string-
-                // typed only because the registry generics are loose).
-                value: messageValue as string,
+                // string (plain) or Buffer (registry-encoded) — the producer's
+                // Buffer-or-string serializer handles both.
+                ...(cfg.key !== undefined ? { key: messageKey } : {}),
+                value: messageValue,
                 ...(cfg.partition !== undefined ? { partition: cfg.partition } : {}),
-                ...(metadata ? { metadata } : {}),
                 ...(cfg.headers
                   ? {
                       headers: Object.entries(cfg.headers).reduce<Map<string, string>>(
@@ -433,17 +508,20 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       }
       try {
         const kafka = getKafka();
-        // With a registry, pass `registry` and OMIT `deserializers` — the lib
-        // throws if both are set, and derives deserializers from the registry
-        // (decoded values arrive as objects; `valueToString` serializes them).
+        // Always hand back raw Buffers for key/value; the handler decodes them via
+        // the registry (off the Confluent wire framing) in bindStreamListeners, so
+        // key and value are decoded symmetrically (headers stay UTF-8 strings).
         const consumerOptions = {
           ...entry.clientOptions,
           groupId: cfg.groupId,
-          ...(entry.registry
-            ? { registry: entry.registry }
-            : { deserializers: kafka.stringDeserializers }),
-        } as unknown as ConsumerOptions<string, string, string, string>;
-        const consumer = new kafka.Consumer<string, string, string, string>(consumerOptions);
+          deserializers: {
+            key: rawDeserializer,
+            value: rawDeserializer,
+            headerKey: stringFieldDeserializer,
+            headerValue: stringFieldDeserializer,
+          },
+        } as unknown as ConsumerOptions<Buffer, Buffer, string, string>;
+        const consumer = new kafka.Consumer<Buffer, Buffer, string, string>(consumerOptions);
 
         // Start-position precedence:
         //   1. explicit per-partition `offsets` → MANUAL seek (offset is bigint)
@@ -476,7 +554,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           topics: cfg.topics,
           mode,
           ...(offsets ? { offsets } : {}),
-        }) as Promise<StringStream>);
+        }) as Promise<AppStream>);
 
         bindStreamListeners(entry, stream);
         entry.consumer = consumer;

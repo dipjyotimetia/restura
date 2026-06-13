@@ -15,7 +15,7 @@ import { Badge } from '@astrojs/starlight/components';
 - **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`.
 - **TLS** — server certificate validation, optional client certificate (mTLS).
 - **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
-- **Confluent Schema Registry** — point a connection at a registry URL (optional Basic / Bearer auth); produce schema-encoded values by schema ID and consume with automatic Avro / Protobuf / JSON decode.
+- **Confluent Schema Registry** — point a connection at a registry URL (optional Basic auth); produce schema-encoded **keys and values** by schema ID, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`.
 
 ## Broker guard
 
@@ -24,7 +24,7 @@ The Electron Kafka handler runs every broker address through the same [SSRF guar
 ## Tips
 
 - Set the **client ID** (defaults to `restura`) to make your activity easy to spot in broker logs.
-- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a value **schema ID** when producing — consumed messages decode automatically. (Value schemas today; key schemas aren't wired yet.)
+- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a **value** and/or **key schema ID** when producing — the field is parsed as JSON, Confluent-encoded, and decoded again automatically on consume.
 
 ## Related
 

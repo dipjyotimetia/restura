@@ -216,8 +216,9 @@ function KafkaClient() {
   const [topicDraft, setTopicDraft] = useState('');
   const [produceKey, setProduceKey] = useState('');
   const [produceValue, setProduceValue] = useState('');
-  // Optional Confluent value schema id (registry connections) — empty = plain.
+  // Optional Confluent schema ids (registry connections) — empty = plain.
   const [produceSchemaId, setProduceSchemaId] = useState('');
+  const [produceKeySchemaId, setProduceKeySchemaId] = useState('');
   const [activeTab, setActiveTab] = useState('messages');
   // UI-only — does not affect store/subscription. Visually parks the log.
   const [paused, setPaused] = useState(false);
@@ -395,8 +396,13 @@ function KafkaClient() {
   const handleProduce = async (): Promise<void> => {
     if (!connection) return;
     if (!produceValue || !connection.defaultTopic) return;
-    const schemaId =
-      connection.registry && produceSchemaId.trim() ? Number(produceSchemaId) : undefined;
+    const toSchemaId = (raw: string): number | undefined => {
+      if (!connection.registry || !raw.trim()) return undefined;
+      const n = Number(raw);
+      return Number.isInteger(n) && n > 0 ? n : undefined;
+    };
+    const valueSchemaId = toSchemaId(produceSchemaId);
+    const keySchemaId = toSchemaId(produceKeySchemaId);
     await kafkaManager.produce({
       connectionId: connection.id,
       topic: connection.defaultTopic,
@@ -404,9 +410,8 @@ function KafkaClient() {
       value: produceValue,
       acks: connection.acks,
       ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
-      ...(schemaId !== undefined && Number.isInteger(schemaId) && schemaId > 0
-        ? { valueSchemaId: schemaId }
-        : {}),
+      ...(valueSchemaId !== undefined ? { valueSchemaId } : {}),
+      ...(keySchemaId !== undefined ? { keySchemaId } : {}),
     });
     setProduceValue('');
   };
@@ -1245,8 +1250,26 @@ function KafkaClient() {
                   />
                   <p className="text-sp-11 text-sp-muted">
                     {produceSchemaId.trim()
-                      ? 'Value is parsed as JSON and encoded with this schema.'
-                      : 'No schema ID — the value is sent as JSON via the registry.'}
+                      ? 'Value is parsed as JSON and Confluent-encoded with this schema (decoded on consume).'
+                      : 'No schema ID — the value is sent as a plain string.'}
+                  </p>
+                </div>
+              )}
+              {connection.registry && (
+                <div className="space-y-2">
+                  <Label className="text-xs sp-label">Key schema ID (optional)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={produceKeySchemaId}
+                    onChange={(e) => setProduceKeySchemaId(e.target.value)}
+                    placeholder="e.g. 2 — encode the key with this registry schema"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <p className="text-sp-11 text-sp-muted">
+                    {produceKeySchemaId.trim()
+                      ? 'Key is parsed as JSON and Confluent-encoded with this schema (requires a key; decoded on consume).'
+                      : 'No schema ID — the key is sent as a plain string.'}
                   </p>
                 </div>
               )}
