@@ -1,9 +1,10 @@
 // Host-side LLM-as-judge bridge for the script sandbox.
 //
 // `makeRendererJudge(cfg)` returns the closure the QuickJS script sandbox calls
-// (via `rs.judge`). It builds a judge prompt with the shared judge engine,
-// optionally redacts the candidate output, calls the Electron non-streaming
-// completion IPC, and parses the verdict. Electron-only — the web build has no
+// (via `rs.judge`). It optionally redacts the candidate output/reference, then
+// delegates the entire judging algorithm (criteria, self-consistency sampling,
+// aggregation) to the shared `runJudge` engine — injecting only transport (the
+// Electron non-streaming completion IPC). Electron-only — the web build has no
 // AI Lab `complete` IPC, so the closure throws there.
 //
 // Depends only on @shared/protocol/ai/* and @/lib/shared/platform — no
@@ -11,17 +12,15 @@
 import { isElectron } from '@/lib/shared/platform';
 import type { JudgeSettings } from '@/types';
 import {
-  JUDGE_TOOL,
-  buildJudgeMessages,
-  parseJudgment,
+  runJudge,
+  type JudgeComplete,
   type JudgeRequestInput,
   type JudgeVerdict,
 } from '@shared/protocol/ai/judge';
 import { redactBody } from '@shared/protocol/ai/redaction';
 import { isLocalProvider } from '@shared/protocol/ai/types';
 
-/** Default pass bar when the caller doesn't supply one. Matches buildJudgeMessages' framing. */
-const DEFAULT_PASS_THRESHOLD = 0.5;
+type JudgeTool = { name: string; description: string; inputSchema: Record<string, unknown> };
 
 /**
  * Build the host-side judge closure. The returned function takes a
@@ -38,7 +37,7 @@ export function makeRendererJudge(
     // Local runtimes (ollama / openai-compatible) require a base URL — the IPC's
     // Zod refine rejects the call otherwise. Cloud providers require an API key
     // handle, or the secret resolver fails downstream with a cryptic error.
-    // Fail fast, with an actionable message, before building the prompt.
+    // Fail fast, with an actionable message, before doing any work.
     if (isLocalProvider(cfg.provider)) {
       if (!cfg.baseUrl) {
         throw new Error('rs.judge requires a base URL for local providers');
@@ -47,48 +46,42 @@ export function makeRendererJudge(
       throw new Error('rs.judge: set an API key for the judge provider in Settings → AI');
     }
 
-    const passThreshold = input.passThreshold ?? DEFAULT_PASS_THRESHOLD;
-
     // The candidate output (and the reference, often pulled from an env var) may
     // carry secrets echoed from a response body. When configured, scrub both
     // before they reach the judge model — rawMode disables the backend pass, so
-    // this is the only redaction on the prompt content.
+    // this is the only redaction on the prompt content. Rubric/criteria/anchor
+    // text is user-authored, not response data, so it is not redacted.
     const redact = (s: string): string => (cfg.redactBeforeJudge ? redactBody(s, 'default') : s);
-    const output = redact(input.output);
-    const reference = input.reference !== undefined ? redact(input.reference) : undefined;
-
-    const messages = buildJudgeMessages({
-      rubric: input.rubric,
-      output,
-      ...(reference !== undefined ? { reference } : {}),
-      passThreshold,
-    });
+    const redactedInput: JudgeRequestInput = {
+      ...input,
+      output: redact(input.output),
+      ...(input.reference !== undefined ? { reference: redact(input.reference) } : {}),
+    };
 
     // rawMode: true — we own and (optionally) redact the prompt content here, so
     // the backend paranoia pass would only false-positive on legitimate rubric
     // text (e.g. a rubric that mentions "token"). The local-provider SSRF
     // carve-out still requires baseUrlOverride to be present.
-    const spec = {
-      provider: cfg.provider,
-      model: cfg.model,
-      messages,
-      rawMode: true,
-      tools: [JUDGE_TOOL],
-      ...(cfg.apiKeyHandleId !== undefined ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
-      ...(cfg.baseUrl !== undefined ? { baseUrlOverride: cfg.baseUrl } : {}),
+    const runComplete: JudgeComplete = async (messages, tools) => {
+      const spec = {
+        provider: cfg.provider,
+        model: cfg.model,
+        messages,
+        rawMode: true as const,
+        tools: tools as JudgeTool[],
+        ...(cfg.apiKeyHandleId !== undefined ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
+        ...(cfg.baseUrl !== undefined ? { baseUrlOverride: cfg.baseUrl } : {}),
+      };
+      const res = await complete(spec);
+      if (!res.ok) {
+        throw new Error(res.error);
+      }
+      // The IPC envelope succeeding doesn't mean the model call did — a provider
+      // error (5xx, rate limit, bad/empty model) returns ok:true with an inner
+      // failed CompletionResult. Return it; runJudge surfaces the inner error.
+      return res.result;
     };
 
-    const res = await complete(spec);
-    if (!res.ok) {
-      throw new Error(res.error);
-    }
-    // The IPC envelope succeeding doesn't mean the model call did — a provider
-    // error (5xx, rate limit, bad/empty model) returns ok:true with an inner
-    // failed CompletionResult. Surface it instead of letting parseJudgment turn
-    // an empty completion into a silent score:0 / pass:false verdict.
-    if (!res.result.ok) {
-      throw new Error(res.result.error?.message ?? 'rs.judge: judge model call failed');
-    }
-    return parseJudgment(res.result, passThreshold);
+    return runJudge(redactedInput, runComplete);
   };
 }

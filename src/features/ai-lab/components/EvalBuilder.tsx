@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Play, Square, X } from 'lucide-react';
+import { Play, Plus, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -68,8 +68,11 @@ function defaultScorer(kind: ScorerKind, judgeModel: ModelRef | undefined): Scor
         id,
         kind,
         judgeModel: judgeModel ?? { providerConfigId: '', model: '' },
-        rubric: 'Is the answer correct and complete?',
+        criteria: [
+          { name: 'correctness', rubric: 'Is the answer correct and complete?', weight: 1 },
+        ],
         passThreshold: 0.7,
+        samples: 1,
       };
   }
 }
@@ -347,51 +350,152 @@ function ScorerRow({
           />
         )}
         {scorer.kind === 'judge' && (
-          <div className="space-y-1">
-            <Select
-              value={`${scorer.judgeModel.providerConfigId}:${scorer.judgeModel.model}`}
-              onValueChange={(v) => {
-                // Split on the FIRST colon only: the provider id is a UUID (no
-                // colons) but model ids can contain them (Ollama `llama3.2:latest`).
-                const i = v.indexOf(':');
-                onChange({
-                  judgeModel: { providerConfigId: v.slice(0, i), model: v.slice(i + 1) },
-                });
-              }}
-            >
-              <SelectTrigger className="h-7 text-xs">
-                <SelectValue placeholder="Judge model" />
-              </SelectTrigger>
-              <SelectContent>
-                {modelOptions.map((m) => (
-                  <SelectItem key={m.key} value={m.key}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Textarea
-              className="text-xs"
-              rows={2}
-              placeholder="rubric"
-              value={scorer.rubric}
-              onChange={(e) => onChange({ rubric: e.target.value })}
-            />
-            <Input
-              className="h-7 w-28 text-xs"
-              type="number"
-              step={0.05}
-              min={0}
-              max={1}
-              value={scorer.passThreshold}
-              onChange={(e) => onChange({ passThreshold: Number(e.target.value) || 0 })}
-            />
-          </div>
+          <JudgeScorerEditor scorer={scorer} modelOptions={modelOptions} onChange={onChange} />
         )}
       </div>
       <Button variant="ghost" size="sm" onClick={onRemove} className="h-6 w-6 p-0">
         <X className="h-3 w-3" />
       </Button>
     </Floater>
+  );
+}
+
+/**
+ * Judge scorer editor: a judge model, a list of weighted criteria (each scored
+ * independently; `gate` criteria fail the cell regardless of the weighted
+ * score), a pass bar, and a self-consistency sample count. The whole judging
+ * algorithm runs in the shared runJudge engine.
+ */
+function JudgeScorerEditor({
+  scorer,
+  modelOptions,
+  onChange,
+}: {
+  scorer: Extract<ScorerConfig, { kind: 'judge' }>;
+  modelOptions: ModelOption[];
+  onChange: (patch: Partial<ScorerConfig>) => void;
+}) {
+  const criteria = scorer.criteria ?? [];
+  const samples = scorer.samples ?? 1;
+  const setCriterion = (i: number, patch: Partial<(typeof criteria)[number]>) =>
+    onChange({ criteria: criteria.map((c, idx) => (idx === i ? { ...c, ...patch } : c)) });
+  const addCriterion = () =>
+    onChange({
+      criteria: [...criteria, { name: `criterion ${criteria.length + 1}`, rubric: '', weight: 1 }],
+    });
+  const removeCriterion = (i: number) =>
+    onChange({ criteria: criteria.filter((_, idx) => idx !== i) });
+
+  return (
+    <div className="space-y-1.5">
+      <Select
+        value={`${scorer.judgeModel.providerConfigId}:${scorer.judgeModel.model}`}
+        onValueChange={(v) => {
+          // Split on the FIRST colon only: the provider id is a UUID (no colons)
+          // but model ids can contain them (Ollama `llama3.2:latest`).
+          const i = v.indexOf(':');
+          onChange({ judgeModel: { providerConfigId: v.slice(0, i), model: v.slice(i + 1) } });
+        }}
+      >
+        <SelectTrigger className="h-7 text-xs">
+          <SelectValue placeholder="Judge model" />
+        </SelectTrigger>
+        <SelectContent>
+          {modelOptions.map((m) => (
+            <SelectItem key={m.key} value={m.key}>
+              {m.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {criteria.map((c, i) => (
+        <Floater key={i} radius="btn" elevation="inset" className="space-y-1 p-1.5">
+          <div className="flex items-center gap-1">
+            <Input
+              className="h-6 flex-1 text-xs"
+              placeholder="criterion name"
+              value={c.name}
+              onChange={(e) => setCriterion(i, { name: e.target.value })}
+            />
+            <Input
+              className="h-6 w-14 text-xs"
+              type="number"
+              step={0.5}
+              min={0}
+              title="weight in the aggregate score"
+              value={c.weight ?? 1}
+              onChange={(e) => setCriterion(i, { weight: Number(e.target.value) || 1 })}
+            />
+            <label
+              className="flex items-center gap-1 text-sp-11 text-sp-muted"
+              title="A failing gate criterion fails the cell regardless of the weighted score"
+            >
+              <Checkbox
+                checked={!!c.gate}
+                onCheckedChange={(v) => setCriterion(i, { gate: v === true })}
+              />
+              gate
+            </label>
+            {criteria.length > 1 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={() => removeCriterion(i)}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+          <Textarea
+            className="text-xs"
+            rows={2}
+            placeholder="rubric for this criterion"
+            value={c.rubric}
+            onChange={(e) => setCriterion(i, { rubric: e.target.value })}
+          />
+        </Floater>
+      ))}
+      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={addCriterion}>
+        <Plus className="h-3 w-3" /> Add criterion
+      </Button>
+
+      <div className="flex items-center gap-2">
+        <label className="text-sp-11 text-sp-muted font-mono" title="Per-criterion score bar (0–1)">
+          pass ≥
+        </label>
+        <Input
+          className="h-7 w-16 text-xs"
+          type="number"
+          step={0.05}
+          min={0}
+          max={1}
+          value={scorer.passThreshold}
+          onChange={(e) => onChange({ passThreshold: Number(e.target.value) || 0 })}
+        />
+        <label
+          className="text-sp-11 text-sp-muted font-mono"
+          title="Self-consistency: run the judge N times, take the median, report variance"
+        >
+          samples
+        </label>
+        <Input
+          className="h-7 w-16 text-xs"
+          type="number"
+          min={1}
+          max={5}
+          value={samples}
+          onChange={(e) =>
+            onChange({ samples: Math.max(1, Math.min(5, Number(e.target.value) || 1)) })
+          }
+        />
+      </div>
+      {samples > 1 && (
+        <p className="text-sp-11 text-sp-muted">
+          ×{samples} judge calls per cell (self-consistency).
+        </p>
+      )}
+    </div>
   );
 }

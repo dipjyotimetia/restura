@@ -2,6 +2,9 @@
 // shared/protocol/ai; these are the renderer-side workbench models persisted in
 // the aiLab / evalRuns Dexie tables.
 import type { Provider } from '@shared/protocol/ai/types';
+import type { CriterionVerdict, JudgeAnchor, JudgeCriterion } from '@shared/protocol/ai/judge';
+
+export type { CriterionVerdict, JudgeAnchor, JudgeCriterion };
 
 /**
  * A user-configured provider instance. One row per endpoint the user adds —
@@ -96,7 +99,19 @@ export type ScorerConfig =
   | (ScorerBase & { kind: 'latency'; maxMs: number })
   | (ScorerBase & { kind: 'cost'; maxUSD: number })
   | (ScorerBase & { kind: 'script'; code: string })
-  | (ScorerBase & { kind: 'judge'; judgeModel: ModelRef; rubric: string; passThreshold: number });
+  | (ScorerBase & {
+      kind: 'judge';
+      judgeModel: ModelRef;
+      passThreshold: number;
+      /** Legacy single-criterion rubric. Ignored when `criteria` is set. */
+      rubric?: string;
+      /** Multi-criteria weighted rubric (each criterion scored independently). */
+      criteria?: JudgeCriterion[];
+      /** Self-consistency: run the judge N times and aggregate (median + variance). */
+      samples?: number;
+      /** Calibration examples that pin the 0–1 scale. */
+      anchors?: JudgeAnchor[];
+    });
 
 export interface EvalConfig {
   id: string;
@@ -119,6 +134,10 @@ export interface ScoreResult {
   /** Numeric score where meaningful (judge 0–1, others omit). */
   score?: number;
   detail?: string;
+  /** Per-criterion breakdown (judge scorer with criteria). */
+  perCriterion?: CriterionVerdict[];
+  /** Population variance of the judge score across self-consistency samples. */
+  variance?: number;
 }
 
 export interface EvalCellResult {

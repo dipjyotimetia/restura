@@ -12,10 +12,11 @@ import type {
   PromptTemplate,
   ScorerConfig,
 } from '../types';
-import { completeLlm, specFor, type ChatMessage } from './llmClient';
+import { runJudge, type JudgeComplete } from '@shared/protocol/ai/judge';
+import { completeLlm, specFor, type ChatMessage, type LlmCallSpec } from './llmClient';
 import { renderTemplate } from './promptTemplate';
 import { runScorer, type ScorerContext } from './scorers';
-import { buildJudgeMessages, JUDGE_TOOL, parseJudgment } from './judgePrompt';
+import { completeWithRetry } from '@/lib/shared/completeRetry';
 
 export interface EvalRunInput {
   prompt: PromptTemplate;
@@ -82,14 +83,20 @@ async function scoreCell(
   ctx: Omit<ScorerContext, 'judge' | 'runScript'>,
   providers: Record<string, AiLabProviderConfig>
 ): Promise<EvalCellResult['scores']> {
-  const judge: ScorerContext['judge'] = async (a) => {
-    const cfg = providers[a.judgeModel.providerConfigId];
+  const judge: ScorerContext['judge'] = async ({ judgeModel, input }) => {
+    const cfg = providers[judgeModel.providerConfigId];
     if (!cfg) throw new Error('judge provider not configured');
-    const completion = await completeLlm(
-      specFor(cfg, a.judgeModel.model, buildJudgeMessages(a), { tools: [JUDGE_TOOL] })
-    );
-    if (!completion.ok) throw new Error(completion.error?.message ?? 'judge call failed');
-    return parseJudgment(completion, a.passThreshold);
+    // The judge algorithm (criteria, sampling, aggregation) lives in shared
+    // runJudge; we inject only transport — a retry-wrapped completeLlm.
+    const complete: JudgeComplete = (messages, tools) =>
+      completeWithRetry(() =>
+        completeLlm(
+          specFor(cfg, judgeModel.model, messages as ChatMessage[], {
+            tools: tools as LlmCallSpec['tools'],
+          })
+        )
+      );
+    return runJudge(input, complete);
   };
   const full: ScorerContext = { ...ctx, judge, runScript: runScriptScorer };
   return Promise.all(scorers.map((s) => runScorer(s, full)));
@@ -119,7 +126,9 @@ async function runCell(
   const startedAt = performance.now();
   let completion;
   try {
-    completion = await completeLlm(specFor(cfg, modelRef.model, buildMessages(prompt, c)));
+    completion = await completeWithRetry(() =>
+      completeLlm(specFor(cfg, modelRef.model, buildMessages(prompt, c)))
+    );
   } catch (e) {
     return {
       ...base,

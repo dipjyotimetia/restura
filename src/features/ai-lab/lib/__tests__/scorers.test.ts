@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { JudgeRequestInput, JudgeVerdict } from '@shared/protocol/ai/judge';
 import { runScorer, type ScorerContext } from '../scorers';
-import type { DatasetCase, ScorerConfig } from '../../types';
+import type { DatasetCase, ModelRef, ScorerConfig } from '../../types';
 
 const CASE: DatasetCase = {
   id: 'c1',
@@ -102,5 +103,35 @@ describe('judge scorer (structured, injected)', () => {
       passThreshold: 0.5,
     };
     expect((await runScorer(s, ctx())).passed).toBe(false);
+  });
+
+  it('forwards criteria/samples/anchors (+ case reference/vars) and maps perCriterion/variance', async () => {
+    const judge = vi.fn(
+      async (_a: { judgeModel: ModelRef; input: JudgeRequestInput }): Promise<JudgeVerdict> => ({
+        score: 0.8,
+        reasoning: 'ok',
+        pass: true,
+        perCriterion: [{ name: 'correctness', score: 0.8, pass: true, reasoning: 'ok' }],
+        variance: 0.01,
+      })
+    );
+    const s: ScorerConfig = {
+      id: 's',
+      kind: 'judge',
+      judgeModel: { providerConfigId: 'p1', model: 'm' },
+      passThreshold: 0.6,
+      criteria: [{ name: 'correctness', rubric: 'is it correct', weight: 2 }],
+      samples: 3,
+      anchors: [{ output: 'bad', score: 0.1 }],
+    };
+    const r = await runScorer(s, ctx({ judge }));
+    const input = judge.mock.calls[0]![0].input;
+    expect(input.criteria).toEqual([{ name: 'correctness', rubric: 'is it correct', weight: 2 }]);
+    expect(input.samples).toBe(3);
+    expect(input.anchors).toEqual([{ output: 'bad', score: 0.1 }]);
+    expect(input.reference).toBe(CASE.reference);
+    expect(input.vars).toEqual(CASE.vars);
+    expect(r.perCriterion).toHaveLength(1);
+    expect(r.variance).toBe(0.01);
   });
 });

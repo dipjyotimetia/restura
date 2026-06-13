@@ -45,6 +45,43 @@ function statsByModel(run: EvalRun): ModelStats[] {
   });
 }
 
+interface JudgeStats {
+  /** Number of judge score instances across the run's cells. */
+  judged: number;
+  /** Mean variance of judge scores across self-consistency samples (null if none sampled). */
+  avgVariance: number | null;
+  criteria: { name: string; passed: number; total: number }[];
+}
+
+/** Aggregate per-criterion pass rates + judge stability across a run's judge scores. */
+export function judgeStats(run: EvalRun): JudgeStats {
+  const byCriterion = new Map<string, { passed: number; total: number }>();
+  let varSum = 0;
+  let varCount = 0;
+  let judged = 0;
+  for (const cell of run.cells) {
+    for (const s of cell.scores) {
+      if (s.kind !== 'judge') continue;
+      judged++;
+      if (typeof s.variance === 'number') {
+        varSum += s.variance;
+        varCount++;
+      }
+      for (const pc of s.perCriterion ?? []) {
+        const e = byCriterion.get(pc.name) ?? { passed: 0, total: 0 };
+        e.total++;
+        if (pc.pass) e.passed++;
+        byCriterion.set(pc.name, e);
+      }
+    }
+  }
+  return {
+    judged,
+    avgVariance: varCount ? varSum / varCount : null,
+    criteria: [...byCriterion.entries()].map(([name, v]) => ({ name, ...v })),
+  };
+}
+
 export function ReportView() {
   const runs = useEvalRunStore((s) => s.runs);
   const deleteRun = useEvalRunStore((s) => s.deleteRun);
@@ -65,6 +102,7 @@ export function ReportView() {
 
   const current = active ? statsByModel(active) : [];
   const prevStats = previous ? statsByModel(previous) : [];
+  const judge = useMemo(() => (active ? judgeStats(active) : null), [active]);
 
   if (sorted.length === 0) {
     return <EmptyState icon={BarChart3} message="No runs yet. Run an eval first." />;
@@ -160,6 +198,45 @@ export function ReportView() {
               </tbody>
             </table>
           </div>
+          {judge && judge.judged > 0 && judge.criteria.length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sp-12 font-semibold text-sp-text">Judge criteria</h3>
+                {judge.avgVariance !== null && (
+                  <span
+                    className="text-sp-11 text-sp-muted"
+                    title="Mean variance of judge scores across self-consistency samples (lower = more stable)"
+                  >
+                    avg variance {judge.avgVariance.toFixed(3)}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {judge.criteria.map((c) => {
+                  const rate = c.total ? c.passed / c.total : 0;
+                  return (
+                    <span
+                      key={c.name}
+                      className="rounded-sp-btn border border-sp-line px-2 py-0.5 text-sp-11 text-sp-text"
+                    >
+                      {c.name}:{' '}
+                      <span
+                        className={
+                          rate >= 1 ? 'text-emerald-500' : rate === 0 ? 'text-destructive' : ''
+                        }
+                      >
+                        {(rate * 100).toFixed(0)}%
+                      </span>
+                      <span className="text-sp-muted">
+                        {' '}
+                        ({c.passed}/{c.total})
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {previous && (
             <p className="text-[10px] text-sp-muted">
               Δ compares against the previous run of this eval.

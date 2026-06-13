@@ -5,13 +5,8 @@
 // External capabilities the judge + script scorers need (an LLM call, the
 // QuickJS sandbox) are injected via ScorerContext rather than imported here, so
 // the deterministic scorers stay pure and unit-testable with no mocks.
+import type { JudgeRequestInput, JudgeVerdict } from '@shared/protocol/ai/judge';
 import type { DatasetCase, ModelRef, ScorerConfig, ScoreResult } from '../types';
-
-export interface JudgeResult {
-  score: number; // 0..1
-  reasoning: string;
-  pass: boolean;
-}
 
 export interface ScriptScoreResult {
   passed: boolean;
@@ -25,14 +20,8 @@ export interface ScorerContext {
   /** USD cost; null = unknown (unpriced model). */
   cost: number | null;
   usage?: { promptTokens: number; completionTokens: number };
-  /** Provided by the runner for `judge` scorers. */
-  judge?: (args: {
-    judgeModel: ModelRef;
-    rubric: string;
-    passThreshold: number;
-    output: string;
-    testCase: DatasetCase;
-  }) => Promise<JudgeResult>;
+  /** Provided by the runner for `judge` scorers. Returns the aggregated verdict. */
+  judge?: (args: { judgeModel: ModelRef; input: JudgeRequestInput }) => Promise<JudgeVerdict>;
   /** Provided by the runner for `script` scorers (wraps QuickJS ScriptExecutor). */
   runScript?: (args: {
     code: string;
@@ -115,14 +104,26 @@ export async function runScorer(scorer: ScorerConfig, ctx: ScorerContext): Promi
     case 'judge': {
       if (!ctx.judge) return pass(scorer, false, 'judge runner unavailable');
       try {
-        const r = await ctx.judge({
-          judgeModel: scorer.judgeModel,
-          rubric: scorer.rubric,
-          passThreshold: scorer.passThreshold,
+        const input: JudgeRequestInput = {
           output: ctx.output,
-          testCase: ctx.testCase,
-        });
-        return pass(scorer, r.pass, r.reasoning, r.score);
+          passThreshold: scorer.passThreshold,
+          ...(scorer.rubric !== undefined ? { rubric: scorer.rubric } : {}),
+          ...(scorer.criteria ? { criteria: scorer.criteria } : {}),
+          ...(scorer.samples !== undefined ? { samples: scorer.samples } : {}),
+          ...(scorer.anchors ? { anchors: scorer.anchors } : {}),
+          ...(ctx.testCase.reference !== undefined ? { reference: ctx.testCase.reference } : {}),
+          vars: ctx.testCase.vars,
+        };
+        const v = await ctx.judge({ judgeModel: scorer.judgeModel, input });
+        return {
+          scorerId: scorer.id,
+          kind: scorer.kind,
+          passed: v.pass,
+          score: v.score,
+          ...(v.reasoning ? { detail: v.reasoning } : {}),
+          ...(v.perCriterion ? { perCriterion: v.perCriterion } : {}),
+          ...(v.variance !== undefined ? { variance: v.variance } : {}),
+        };
       } catch (e) {
         return pass(scorer, false, `judge failed: ${e instanceof Error ? e.message : String(e)}`);
       }
