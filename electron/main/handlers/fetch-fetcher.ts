@@ -1,4 +1,5 @@
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
+import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 
 /**
  * Build a Node-`fetch`-backed {@link Fetcher} adapter mapping native `fetch`
@@ -39,4 +40,26 @@ export function makeFetchFetcher(
       text: () => res.text(),
     } satisfies FetcherResponse;
   };
+}
+
+/**
+ * Build a {@link Fetcher} pinned to a once-resolved, SSRF-validated IP for `url`:
+ * resolve + validate the host (per `allowLocalhost`), then dial that exact IP with
+ * `redirect: 'manual'` so a 3xx can't bounce to a private/metadata host and the
+ * DNS-rebind window stays closed. Throws on any policy violation.
+ *
+ * `allowLocalhost` is the caller's policy and is intentionally required (no
+ * default): cloud-only callers pass `false`; local-runtime callers derive it per
+ * provider. Shared by the AI chat + AI Lab handlers so the SSRF/redirect wire
+ * mechanics live in one place.
+ */
+export async function makePinnedFetcher(
+  url: string,
+  options: { allowLocalhost: boolean }
+): Promise<Fetcher> {
+  const pinned = await resolveSafeAddress(url, { allowLocalhost: options.allowLocalhost });
+  return makeFetchFetcher({
+    redirect: 'manual',
+    fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
+  });
 }

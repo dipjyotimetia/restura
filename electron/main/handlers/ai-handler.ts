@@ -18,7 +18,6 @@ import type { Fetcher } from '@shared/protocol/types';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
-import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import { resolveSecretHandle } from '../security/secret-handle-store';
 import {
   AiChatRequestSchema,
@@ -29,7 +28,7 @@ import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import type { ChatRequestSpec, Provider } from '@shared/protocol/ai/types';
-import { makeFetchFetcher } from './fetch-fetcher';
+import { makePinnedFetcher } from './fetch-fetcher';
 
 const rateLimiter = createKeyedRateLimiter(30, 60_000); // 30 chat msgs / min / webContents
 const MAX_CONCURRENT_STREAMS = 5;
@@ -43,22 +42,13 @@ interface ActiveStream {
 const active = new Map<string, ActiveStream>();
 
 /**
- * Validate + DNS-pin the host the chat request will reach and return a Fetcher
- * locked to it. Mirrors ai-lab-handler.ts's `buildSafeFetcher` (the chat and lab
- * paths are kept separate by design) — but chat is CLOUD-ONLY: AiChatRequestSchema
- * permits only openai/anthropic/openrouter, so `allowLocalhost` is hardcoded false
- * (the AI Lab owns the localhost carve-out for local runtimes). `redirect:'manual'`
- * stops a malicious upstream from 3xx-redirecting to a private/metadata host (the
- * bypass a bare `redirect:'follow'` fetcher allowed); the pinned IP closes the
- * DNS-rebind window a pre-flight string check leaves open.
+ * Resolve the chat provider's base URL and return a DNS-pinned, manual-redirect
+ * Fetcher locked to it (wire mechanics in {@link makePinnedFetcher}). Chat is
+ * CLOUD-ONLY — AiChatRequestSchema permits only openai/anthropic/openrouter — so
+ * localhost is never allowed; the AI Lab owns the local-runtime carve-out.
  */
 async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
-  const effectiveBase = resolveBaseUrl(provider, baseUrlOverride);
-  const pinned = await resolveSafeAddress(effectiveBase, { allowLocalhost: false });
-  return makeFetchFetcher({
-    redirect: 'manual',
-    fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
-  });
+  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), { allowLocalhost: false });
 }
 
 async function resolveSecretFn(handleId: string): Promise<string | undefined> {

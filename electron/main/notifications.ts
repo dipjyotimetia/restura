@@ -15,6 +15,9 @@ import { IPC } from '../shared/channels';
 
 export const notificationRateLimiter = createKeyedRateLimiter(10, 60_000);
 
+// NOTE: keep this module at electron/main/ root — the `__dirname`-relative dev
+// path below is calibrated to the compiled dist/electron/electron/main/ location;
+// moving it into a subdirectory breaks resource resolution at runtime.
 function getResourcePath(resource: string, isDev: boolean): string {
   if (isDev) {
     return path.join(__dirname, '../../../electron/resources', resource);

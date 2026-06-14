@@ -112,6 +112,11 @@ export function saveWindowState(win: BrowserWindow): void {
   }
 }
 
+// NOTE: this module MUST stay at electron/main/ root. The `__dirname`-relative
+// paths here (resources, preload.js, web/index.html) are calibrated to the
+// compiled location dist/electron/electron/main/; moving this file into a
+// subdirectory adds a path segment and breaks them at runtime — and neither tsc
+// nor the unit tests catch it (only a packaged/e2e run would).
 export function getResourcePath(resource: string, isDev: boolean): string {
   if (isDev) {
     return path.join(__dirname, '../../../electron/resources', resource);

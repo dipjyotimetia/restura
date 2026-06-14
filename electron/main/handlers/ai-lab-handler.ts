@@ -21,7 +21,6 @@ import type { Fetcher } from '@shared/protocol/types';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
-import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import { resolveSecretHandle } from '../security/secret-handle-store';
 import {
   AiLabCompleteSchema,
@@ -36,7 +35,7 @@ import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
-import { makeFetchFetcher } from './fetch-fetcher';
+import { makePinnedFetcher } from './fetch-fetcher';
 
 // Evals fan out into many completes; the per-minute budget is generous but still
 // an abuse ceiling. Concurrency (not rate) is the real throttle — see semaphore.
@@ -84,22 +83,14 @@ const activeStreams = new Map<string, ActiveAbort & { streamId: string }>();
 const activeCompletes = new Map<string, ActiveAbort>();
 
 /**
- * Validate + DNS-pin the host we're about to reach and return a Fetcher locked
- * to it. `resolveSafeAddress` applies the SAME shared SSRF policy (allowLocalhost
- * gated by provider kind; private/metadata always blocked) and returns the
- * resolved IP; `createPinnedFetch` dials exactly that IP (closing the DNS-rebind
- * window a pre-flight string check leaves open); `redirect: 'manual'` stops the
- * fetch from following a 3xx to a private/metadata host (the bypass a bare
- * `redirect: 'follow'` fetcher would allow). Throws on any policy violation.
+ * Resolve the provider's base URL and return a DNS-pinned, manual-redirect
+ * Fetcher locked to it (wire mechanics in {@link makePinnedFetcher}).
+ * `allowLocalhost` is gated by provider kind — true only for local runtimes
+ * (Ollama, openai-compatible), never for cloud providers.
  */
 async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
-  const effectiveBase = resolveBaseUrl(provider, baseUrlOverride);
-  const pinned = await resolveSafeAddress(effectiveBase, {
+  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), {
     allowLocalhost: isLocalProvider(provider),
-  });
-  return makeFetchFetcher({
-    redirect: 'manual',
-    fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
   });
 }
 

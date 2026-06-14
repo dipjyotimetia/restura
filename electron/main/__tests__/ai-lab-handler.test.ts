@@ -43,7 +43,8 @@ vi.mock('../ipc/connection-cleanup', () => ({
 vi.mock('../ipc/ipc-rate-limiter', () => ({
   createKeyedRateLimiter: () => ({ check: () => true }),
 }));
-vi.mock('../handlers/fetch-fetcher', () => ({ makeFetchFetcher: () => vi.fn() }));
+// fetch-fetcher is left REAL so `makePinnedFetcher` forwards to the mocked
+// safe-connect below — that's what the resolveSafeAddress assertions verify.
 vi.mock('@shared/protocol/ai/ai-complete', () => ({ runToCompletion: mockRunToCompletion }));
 vi.mock('@shared/protocol/ai/ai-proxy', () => ({ executeAiChat: vi.fn() }));
 vi.mock('@shared/protocol/ai/model-discovery', () => ({
