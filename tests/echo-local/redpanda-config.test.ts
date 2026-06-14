@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse } from 'yaml';
+import { load } from 'js-yaml';
 
 // The Redpanda echo broker has several NON-OBVIOUS, load-bearing config settings
 // that nothing else in CI exercises (the broker only runs under Docker). A silent
@@ -19,7 +19,7 @@ interface Listener {
 
 describe('echo-local Redpanda config invariants', () => {
   it('bootstrap.yaml enables SASL without ACL authorization, mechanism family SCRAM', () => {
-    const boot = parse(read('redpanda/bootstrap.yaml')) as {
+    const boot = load(read('redpanda/bootstrap.yaml')) as {
       enable_sasl: boolean;
       kafka_enable_authorization: boolean;
       sasl_mechanisms: string[];
@@ -35,7 +35,7 @@ describe('echo-local Redpanda config invariants', () => {
   });
 
   it('redpanda.yaml exposes one listener per client security protocol with correct auth', () => {
-    const node = parse(read('redpanda/redpanda.yaml')) as {
+    const node = load(read('redpanda/redpanda.yaml')) as {
       redpanda: { kafka_api: Listener[]; kafka_api_tls: { name: string; enabled: boolean }[] };
       schema_registry: { schema_registry_api: { port: number }[] };
     };
@@ -58,7 +58,7 @@ describe('echo-local Redpanda config invariants', () => {
   });
 
   it('docker-compose wires the cert/config/setup init services for Kafka', () => {
-    const compose = parse(read('docker-compose.yml')) as {
+    const compose = load(read('docker-compose.yml')) as {
       services: Record<string, { depends_on?: unknown }>;
     };
     for (const svc of ['kafka', 'kafka-certs', 'kafka-config', 'kafka-setup']) {

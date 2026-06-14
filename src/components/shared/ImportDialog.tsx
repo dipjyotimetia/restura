@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type DragEvent } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X, Upload, CheckCircle2, AlertCircle, Lock, Download, Check } from 'lucide-react';
-import YAML from 'yaml';
+import yaml from 'js-yaml';
 import { Floater } from '@/components/ui/spatial';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -348,7 +348,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
 
   const parseFileContent = (text: string, fileName: string): unknown => {
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
-      return YAML.parse(text);
+      return yaml.load(text);
     }
     if (fileName.endsWith('.bru')) {
       return text;
@@ -362,7 +362,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     try {
       return JSON.parse(text);
     } catch {
-      return YAML.parse(text);
+      return yaml.load(text);
     }
   };
 
