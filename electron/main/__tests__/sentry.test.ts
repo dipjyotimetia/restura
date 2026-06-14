@@ -8,7 +8,7 @@ vi.mock('@sentry/electron/main', () => ({
 }));
 
 import * as Sentry from '@sentry/electron/main';
-import { scrubEvent, initSentry, setSentryEnabled, isSentryEnabled } from '../sentry';
+import { scrubEvent, initSentry, setSentryEnabled, isSentryEnabled } from '../lifecycle/sentry';
 
 const initMock = Sentry.init as unknown as Mock;
 

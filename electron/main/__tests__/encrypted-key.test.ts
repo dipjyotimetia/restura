@@ -21,7 +21,7 @@ vi.mock('fs', () => ({
 
 import * as fs from 'fs';
 import { safeStorage } from 'electron';
-import { getOrCreateEncryptedKey, getKeyStoreStatus } from '../encrypted-key';
+import { getOrCreateEncryptedKey, getKeyStoreStatus } from '../security/encrypted-key';
 
 const enoent = (): NodeJS.ErrnoException => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
 const HEX64 = /^[0-9a-f]{64}$/;

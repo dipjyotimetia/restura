@@ -10,14 +10,14 @@ const mockDispose = vi.hoisted(() => vi.fn());
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: mockRemoveHandler },
 }));
-vi.mock('../secret-handle-store', () => ({ resolveSecretHandle: mockResolveSecret }));
-vi.mock('../ipc-utils', () => ({ emitTo: mockEmitTo }));
-vi.mock('../connection-cleanup', () => ({
+vi.mock('../security/secret-handle-store', () => ({ resolveSecretHandle: mockResolveSecret }));
+vi.mock('../ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));
+vi.mock('../ipc/connection-cleanup', () => ({
   bindRendererCleanup: mockBindCleanup,
   disposeByOwner: mockDispose,
 }));
 
-import { registerAiHandlers, unregisterAiHandlers, __testing } from '../ai-handler';
+import { registerAiHandlers, unregisterAiHandlers, __testing } from '../handlers/ai-handler';
 
 describe('ai-handler', () => {
   beforeEach(() => {

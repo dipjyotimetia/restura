@@ -33,7 +33,7 @@ vi.mock('electron', () => ({
 }));
 
 import { describe, it, expect } from 'vitest';
-import { isPathSafe } from '../../electron/main/file-operations';
+import { isPathSafe } from '../../electron/main/storage/file-operations';
 
 describe('isPathSafe', () => {
   it('path traversal ../../etc/passwd relative to allowed dir is blocked', () => {

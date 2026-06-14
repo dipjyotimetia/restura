@@ -20,7 +20,7 @@ import {
   CHANNEL_PREFIXES,
   VALID_EVENT_CHANNELS,
 } from '../shared/channels';
-import { channelEventBridge } from './channel-event-bridge';
+import { channelEventBridge } from './handlers/channel-event-bridge';
 
 const validEventChannels: readonly string[] = VALID_EVENT_CHANNELS;
 

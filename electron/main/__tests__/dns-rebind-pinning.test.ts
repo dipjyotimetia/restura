@@ -11,7 +11,7 @@
 // `nodeOptions.lookup` (covered by the TLS + live integration checks).
 
 import { describe, it, expect } from 'vitest';
-import { createPinnedLookup } from '../safe-connect';
+import { createPinnedLookup } from '../security/safe-connect';
 
 describe('createPinnedLookup', () => {
   it('returns the pinned IP for the pinned host (all: false form)', () => {

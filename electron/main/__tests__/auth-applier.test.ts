@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 // Isolate auth-applier from the secret-handle store (which pulls in electron +
 // electron-store). The real `unwrapSecretValueMain` passes plain strings through
 // and resolves inline SecretRefs to their value — mirror exactly that.
-vi.mock('../secret-handle-store', () => ({
+vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown): string | undefined => {
     if (typeof v === 'string') return v;
     if (v && typeof v === 'object' && (v as { kind?: string }).kind === 'inline') {
@@ -14,7 +14,7 @@ vi.mock('../secret-handle-store', () => ({
   },
 }));
 
-import { applyNonSignAtWireAuth } from '../auth-applier';
+import { applyNonSignAtWireAuth } from '../security/auth-applier';
 
 // The descriptor shapes are intentionally partial; the helper only reads the
 // fields relevant to each `type`. Cast through the real parameter type.

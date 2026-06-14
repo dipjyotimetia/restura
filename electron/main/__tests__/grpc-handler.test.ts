@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 // Resolve handle ids deterministically so the gRPC auth merge is testable
 // without the real OS-keychain-backed store.
-vi.mock('../secret-handle-store', () => ({
+vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown) =>
     v && typeof v === 'object' && (v as { kind?: string }).kind === 'handle'
       ? 'resolved-secret'
@@ -13,7 +13,7 @@ vi.mock('../secret-handle-store', () => ({
         : v,
 }));
 
-import { mergeMainSideAuth } from '../grpc-handler';
+import { mergeMainSideAuth } from '../handlers/grpc-handler';
 
 describe('mergeMainSideAuth (SecretRef handle resolution)', () => {
   it('returns metadata unchanged when no auth descriptor is present', () => {

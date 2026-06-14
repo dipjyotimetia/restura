@@ -12,7 +12,7 @@ import {
   gitStatus,
   gitLog,
   gitBranchList,
-} from '../git-handler';
+} from '../handlers/git-handler';
 
 let gitAvailable = true;
 try {

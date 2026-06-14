@@ -8,7 +8,7 @@ import { registryFromProtoText } from '@shared/protocol/grpc-registry';
 // at module init). The executor only needs unwrapSecretValueMain on the TLS
 // path, which these injected-transport tests never hit — stub it out so the
 // import chain stays clean.
-vi.mock('../secret-handle-store', () => ({
+vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown) => (typeof v === 'string' ? v : undefined),
 }));
 
@@ -21,7 +21,7 @@ import {
   isProtocolRejectionError,
   resetProtocolFallbackStateForTests,
   type ConnectStreamHandlers,
-} from '../grpc-connect';
+} from '../handlers/grpc-connect';
 
 beforeEach(resetProtocolFallbackStateForTests);
 

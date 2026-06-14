@@ -6,7 +6,7 @@ import {
   isConfluentEncoded,
   encodeSchemaField,
   decodeField,
-} from '../kafka-serde';
+} from '../handlers/kafka-serde';
 
 describe('valueToString', () => {
   it('passes a plain string through unchanged (string consumer path)', () => {

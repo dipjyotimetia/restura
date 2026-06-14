@@ -10,7 +10,7 @@ vi.mock('@connectrpc/connect-node', () => ({
   compressionGzip: { name: 'gzip' },
 }));
 
-vi.mock('../secret-handle-store', () => ({
+vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown) => (typeof v === 'string' ? v : undefined),
 }));
 
@@ -18,7 +18,7 @@ import {
   buildConnectTransport,
   buildConnectFallbackTransport,
   type PinnedDial,
-} from '../grpc-connect';
+} from '../handlers/grpc-connect';
 
 interface CapturedOptions {
   baseUrl: string;

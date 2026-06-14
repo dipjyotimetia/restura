@@ -3,7 +3,7 @@ import {
   SocketIoConnectSchema,
   SocketIoEmitSchema,
   SocketIoDisconnectSchema,
-} from '../ipc-validators';
+} from '../ipc/ipc-validators';
 
 describe('SocketIoConnectSchema', () => {
   it('accepts a minimal http(s) URL', () => {
@@ -142,9 +142,9 @@ describe('SocketIoEmitSchema', () => {
 
   it('rejects more than 32 args', () => {
     const args = new Array(33).fill(0);
-    expect(
-      SocketIoEmitSchema.safeParse({ connectionId: 'c', eventName: 'x', args }).success
-    ).toBe(false);
+    expect(SocketIoEmitSchema.safeParse({ connectionId: 'c', eventName: 'x', args }).success).toBe(
+      false
+    );
   });
 
   it('rejects ackTimeoutMs above 60s', () => {
@@ -167,8 +167,6 @@ describe('SocketIoDisconnectSchema', () => {
 
   it('rejects missing or invalid connection ID', () => {
     expect(SocketIoDisconnectSchema.safeParse({}).success).toBe(false);
-    expect(
-      SocketIoDisconnectSchema.safeParse({ connectionId: 'has spaces' }).success
-    ).toBe(false);
+    expect(SocketIoDisconnectSchema.safeParse({ connectionId: 'has spaces' }).success).toBe(false);
   });
 });

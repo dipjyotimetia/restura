@@ -1,7 +1,7 @@
 // @vitest-environment node
 import './setup';
 import { describe, it, expect } from 'vitest';
-import { parseTargetAddress } from '../grpc-reflection-handler';
+import { parseTargetAddress } from '../handlers/grpc-reflection-handler';
 
 describe('parseTargetAddress', () => {
   it('treats grpcs:// as TLS and defaults to port 443', () => {

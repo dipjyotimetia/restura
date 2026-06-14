@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchRoute, expandTemplate, type MockRoute } from '../mock-server-handler';
+import { matchRoute, expandTemplate, type MockRoute } from '../handlers/mock-server-handler';
 
 const route = (over: Partial<MockRoute> & Pick<MockRoute, 'method' | 'path'>): MockRoute => ({
   status: 200,

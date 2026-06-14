@@ -9,8 +9,8 @@ import {
   NotificationMessageSchema,
   NoInputSchema,
   createValidatedHandler,
-} from './ipc-validators';
-import { createKeyedRateLimiter, rateLimited } from './ipc-rate-limiter';
+} from './ipc/ipc-validators';
+import { createKeyedRateLimiter, rateLimited } from './ipc/ipc-rate-limiter';
 import { IPC } from '../shared/channels';
 
 export const notificationRateLimiter = createKeyedRateLimiter(10, 60_000);

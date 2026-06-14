@@ -1,44 +1,44 @@
 import { app, BrowserWindow, session } from 'electron';
-import { setupAutoUpdater, registerAutoUpdaterIPC } from './auto-updater';
+import { setupAutoUpdater, registerAutoUpdaterIPC } from './lifecycle/auto-updater';
 import { createMainWindow, getActiveWindow, registerNewWindowIPC } from './window-manager';
-import { registerFileOperationsIPC } from './file-operations';
-import { registerHttpHandlerIPC } from './http-handler';
-import { registerGrpcHandlerIPC, stopStreamCleanup } from './grpc-handler';
-import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './websocket-handler';
-import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './socketio-handler';
-import { registerSseHandlerIPC, stopSseCleanup } from './sse-handler';
-import { registerMcpHandlerIPC, stopMcpCleanup } from './mcp-handler';
-import { registerKafkaHandlerIPC, stopKafkaCleanup } from './kafka-handler';
-import { registerMqttHandlerIPC, stopMqttCleanup } from './mqtt-handler';
-import { registerGrpcReflectionIPC } from './grpc-reflection-handler';
-import { logRequest, registerRequestLoggerIPC } from './request-logger';
-import { registerWindowControlsIPC } from './window-controls';
-import { createSystemTray, destroyTray } from './system-tray';
+import { registerFileOperationsIPC } from './storage/file-operations';
+import { registerHttpHandlerIPC } from './handlers/http-handler';
+import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handler';
+import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
+import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './handlers/socketio-handler';
+import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
+import { registerMcpHandlerIPC, stopMcpCleanup } from './handlers/mcp-handler';
+import { registerKafkaHandlerIPC, stopKafkaCleanup } from './handlers/kafka-handler';
+import { registerMqttHandlerIPC, stopMqttCleanup } from './handlers/mqtt-handler';
+import { registerGrpcReflectionIPC } from './handlers/grpc-reflection-handler';
+import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
+import { registerWindowControlsIPC } from './lifecycle/window-controls';
+import { createSystemTray, destroyTray } from './lifecycle/system-tray';
 import { registerNotificationIPC } from './notifications';
 import {
   registerCollectionManagerIPC,
   cleanupCollectionWatchers,
   isRegisteredCollectionDirectory,
-} from './collection-manager';
-import { registerStoreHandlerIPC } from './store-handler';
-import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './secret-handle-store';
-import { registerVaultHandlers, unregisterVaultHandlers } from './vault-handler';
-import { registerKeychainStatusIPC } from './keychain-status-handler';
-import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './git-handler';
-import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
-import { registerAiLabHandlers, unregisterAiLabHandlers } from './ai-lab-handler';
+} from './storage/collection-manager';
+import { registerStoreHandlerIPC } from './storage/store-handler';
+import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
+import { registerVaultHandlers, unregisterVaultHandlers } from './storage/vault-handler';
+import { registerKeychainStatusIPC } from './security/keychain-status-handler';
+import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './handlers/git-handler';
+import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
+import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
 import {
   registerMockServerIPC,
   unregisterMockServerIPC,
   stopMockServer,
-} from './mock-server-handler';
-import { registerDeepLinkHandler } from './deep-link-handler';
-import { startStdioMcpServer } from './mcp-server-handler';
-import { loadMcpDispatchContext } from './mcp-context-loader';
+} from './handlers/mock-server-handler';
+import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
+import { startStdioMcpServer } from './handlers/mcp-server-handler';
+import { loadMcpDispatchContext } from './handlers/mcp-context-loader';
 import { createLogger } from '../../src/lib/shared/logger';
-import { initLogging } from './logging';
-import { initSentry } from './sentry';
-import { readConsentSync, registerTelemetryConsentIPC } from './telemetry-consent';
+import { initLogging } from './lifecycle/logging';
+import { initSentry } from './lifecycle/sentry';
+import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/telemetry-consent';
 
 const isDev = process.env.NODE_ENV === 'development';
 
