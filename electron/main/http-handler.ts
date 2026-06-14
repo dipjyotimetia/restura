@@ -838,8 +838,12 @@ async function makeHttpRequest(
         }
       }
       // If DIRECT, proceed without proxy
-    } catch {
-      // PAC resolution failed — proceed without proxy
+    } catch (e) {
+      // PAC resolution failed — proceed without proxy, but warn so a user who
+      // configured auto-proxy (PAC) isn't silently bypassed to a direct request.
+      log.warn('PAC proxy resolution failed; proceeding without proxy', {
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 

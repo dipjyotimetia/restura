@@ -496,6 +496,15 @@ function unwatchCollectionDirectory(directoryPath: string): { success: boolean }
     watcher.close();
     activeWatchers.delete(directoryPath);
   }
+  // Evict this directory's debounced senders and file mtimes so the registries
+  // don't accumulate entries across repeated watch/unwatch cycles.
+  for (const key of debouncedSenders.keys()) {
+    if (key.startsWith(`${directoryPath}::`)) debouncedSenders.delete(key);
+  }
+  const filePrefix = directoryPath + path.sep;
+  for (const key of fileModTimes.keys()) {
+    if (key === directoryPath || key.startsWith(filePrefix)) fileModTimes.delete(key);
+  }
   return { success: true };
 }
 
@@ -627,4 +636,5 @@ export function cleanupCollectionWatchers(): void {
   }
   activeWatchers.clear();
   fileModTimes.clear();
+  debouncedSenders.clear();
 }

@@ -14,15 +14,17 @@
  */
 
 import { ipcMain } from 'electron';
+import type { Fetcher } from '@shared/protocol/types';
 import { createKeyedRateLimiter } from './ipc-rate-limiter';
 import { emitTo } from './ipc-utils';
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
-import { assertUrlHostnameSafe } from './dns-guard';
+import { resolveSafeAddress, createPinnedFetch } from './safe-connect';
 import { resolveSecretHandle } from './secret-handle-store';
 import { AiChatRequestSchema, AiChatCancelSchema, assertTrustedSender } from './ipc-validators';
 import { IPC, EVENT_PREFIX, eventChannel } from '../shared/channels';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
-import type { ChatRequestSpec } from '@shared/protocol/ai/types';
+import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
+import type { ChatRequestSpec, Provider } from '@shared/protocol/ai/types';
 import { makeFetchFetcher } from './fetch-fetcher';
 
 const rateLimiter = createKeyedRateLimiter(30, 60_000); // 30 chat msgs / min / webContents
@@ -36,7 +38,24 @@ interface ActiveStream {
 
 const active = new Map<string, ActiveStream>();
 
-const nodeFetcher = makeFetchFetcher();
+/**
+ * Validate + DNS-pin the host the chat request will reach and return a Fetcher
+ * locked to it. Mirrors ai-lab-handler.ts's `buildSafeFetcher` (the chat and lab
+ * paths are kept separate by design) — but chat is CLOUD-ONLY: AiChatRequestSchema
+ * permits only openai/anthropic/openrouter, so `allowLocalhost` is hardcoded false
+ * (the AI Lab owns the localhost carve-out for local runtimes). `redirect:'manual'`
+ * stops a malicious upstream from 3xx-redirecting to a private/metadata host (the
+ * bypass a bare `redirect:'follow'` fetcher allowed); the pinned IP closes the
+ * DNS-rebind window a pre-flight string check leaves open.
+ */
+async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
+  const effectiveBase = resolveBaseUrl(provider, baseUrlOverride);
+  const pinned = await resolveSafeAddress(effectiveBase, { allowLocalhost: false });
+  return makeFetchFetcher({
+    redirect: 'manual',
+    fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
+  });
+}
 
 async function resolveSecretFn(handleId: string): Promise<string | undefined> {
   const v = resolveSecretHandle(handleId);
@@ -45,6 +64,7 @@ async function resolveSecretFn(handleId: string): Promise<string | undefined> {
 
 async function runChat(
   spec: ChatRequestSpec,
+  fetcher: Fetcher,
   streamId: string,
   webContentsId: number,
   abort: AbortController
@@ -54,7 +74,7 @@ async function runChat(
   try {
     for await (const ev of executeAiChat(
       { ...spec, signal: abort.signal },
-      nodeFetcher,
+      fetcher,
       resolveSecretFn
     )) {
       emitTo(webContentsId, chunkChannel, ev);
@@ -93,13 +113,15 @@ export function registerAiHandlers(): void {
 
     const data = parsed.data;
 
-    // Base-URL override SSRF check (default provider URLs are hardcoded safe hosts).
-    if (data.baseUrlOverride) {
-      try {
-        await assertUrlHostnameSafe(data.baseUrlOverride, { allowLocalhost: false });
-      } catch (e) {
-        return { ok: false as const, error: (e as Error).message };
-      }
+    // Validate + DNS-pin the (default or overridden) provider host and get a
+    // fetcher locked to it. Replaces the old pre-flight-only string check, which
+    // left the default-provider path unpinned and let an overridden host follow a
+    // 3xx to a private/metadata address.
+    let fetcher: Fetcher;
+    try {
+      fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message };
     }
 
     const abort = new AbortController();
@@ -120,7 +142,7 @@ export function registerAiHandlers(): void {
     };
 
     // Kick off the stream — do NOT await; the renderer receives events via channels.
-    void runChat(spec, data.streamId, senderId, abort);
+    void runChat(spec, fetcher, data.streamId, senderId, abort);
 
     return { ok: true as const, streamId: data.streamId };
   });

@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockRemoveHandler = vi.hoisted(() => vi.fn());
 const mockResolveSecret = vi.hoisted(() => vi.fn());
-const mockAssertSafe = vi.hoisted(() => vi.fn(async () => undefined));
 const mockEmitTo = vi.hoisted(() => vi.fn());
 const mockBindCleanup = vi.hoisted(() => vi.fn());
 const mockDispose = vi.hoisted(() => vi.fn());
@@ -12,7 +11,6 @@ vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: mockRemoveHandler },
 }));
 vi.mock('../secret-handle-store', () => ({ resolveSecretHandle: mockResolveSecret }));
-vi.mock('../dns-guard', () => ({ assertUrlHostnameSafe: mockAssertSafe }));
 vi.mock('../ipc-utils', () => ({ emitTo: mockEmitTo }));
 vi.mock('../connection-cleanup', () => ({
   bindRendererCleanup: mockBindCleanup,

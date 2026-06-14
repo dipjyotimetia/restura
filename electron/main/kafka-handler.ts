@@ -36,6 +36,9 @@ import {
   type KafkaConnectConfig,
   type KafkaProduceConfig,
 } from './ipc-validators';
+import { createLogger } from '../../src/lib/shared/logger';
+
+const log = createLogger('kafka');
 
 // @platformatic/kafka is heavy to evaluate and most sessions never open a Kafka
 // connection. Load it lazily on first use rather than at module load (which ran
@@ -311,8 +314,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       if (cfg.registry) {
         const auth = cfg.registry.auth;
         if (auth?.token && !auth.username) {
-          console.warn(
-            '[kafka] Schema Registry bearer-token auth is not supported by the registry client; connecting without auth.'
+          log.warn(
+            'Schema Registry bearer-token auth is not supported by the registry client; connecting without auth.'
           );
         }
         registry = new (getSchemaRegistryLib().SchemaRegistry)({

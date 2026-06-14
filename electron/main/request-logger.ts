@@ -64,7 +64,31 @@ async function getLogFilePath(): Promise<string> {
   return logFilePath;
 }
 
+/**
+ * Strip secrets from a URL before it is persisted to the on-disk request log:
+ *  - query string (api keys / tokens frequently ride in `?api_key=…`)
+ *  - userinfo (`https://user:pass@host` → `https://host`)
+ *
+ * Best-effort: a target that doesn't parse as a URL (e.g. a bare gRPC
+ * `host:port`) is returned with any `?…` suffix dropped.
+ */
+function redactLogUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.search = '';
+    u.username = '';
+    u.password = '';
+    return u.toString();
+  } catch {
+    const q = url.indexOf('?');
+    return q === -1 ? url : url.slice(0, q);
+  }
+}
+
 export function logRequest(entry: LogEntry): void {
+  // Redact at the single choke point so every protocol caller is covered and a
+  // secret in a query param / userinfo never reaches the plaintext log file.
+  const safeEntry: LogEntry = { ...entry, url: redactLogUrl(entry.url) };
   writeChain = writeChain.then(async () => {
     try {
       const filePath = await getLogFilePath();
@@ -74,7 +98,7 @@ export function logRequest(entry: LogEntry): void {
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
       }
-      await fsp.appendFile(filePath, JSON.stringify(entry) + '\n', 'utf8');
+      await fsp.appendFile(filePath, JSON.stringify(safeEntry) + '\n', 'utf8');
     } catch {
       // Silently ignore logging errors — never crash the app
     }

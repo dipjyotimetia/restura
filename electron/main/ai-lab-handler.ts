@@ -276,14 +276,18 @@ export function registerAiLabHandlers(): void {
     } catch (e) {
       return { ok: false as const, error: (e as Error).message };
     }
-    const apiKey = apiKeyHandleId ? await resolveSecretFn(apiKeyHandleId) : undefined;
-    const result = await testConnection({
-      provider,
-      baseUrl,
-      fetcher,
-      ...(apiKey ? { apiKey } : {}),
-    });
-    return result;
+    try {
+      const apiKey = apiKeyHandleId ? await resolveSecretFn(apiKeyHandleId) : undefined;
+      const result = await testConnection({
+        provider,
+        baseUrl,
+        fetcher,
+        ...(apiKey ? { apiKey } : {}),
+      });
+      return result;
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+    }
   });
 }
 
