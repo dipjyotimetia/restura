@@ -103,8 +103,6 @@ interface UpdaterStatus {
   version?: string;
   /** Download completion 0–100, present for `downloading`. */
   percent?: number;
-  /** Normalized release notes (string), present for `available` / `downloaded`. */
-  releaseNotes?: string;
   /** Human-readable detail for `error` / `not-available`. */
   message?: string;
 }

@@ -56,21 +56,6 @@ function broadcast(status: UpdaterStatus): void {
 }
 
 /**
- * electron-updater's `releaseNotes` is `string | Array<{version, note}>` (the
- * array form when `fullChangelog` is on). Collapse both to a single string the
- * renderer can render verbatim.
- */
-function normalizeReleaseNotes(info: UpdateInfo): string | undefined {
-  const notes = info.releaseNotes;
-  if (!notes) return undefined;
-  if (typeof notes === 'string') return notes;
-  return notes
-    .map((n) => (n.version ? `## ${n.version}\n${n.note ?? ''}` : (n.note ?? '')))
-    .join('\n\n')
-    .trim();
-}
-
-/**
  * Apply the user's update preferences to the live autoUpdater. `channel: beta`
  * maps to `allowPrerelease` (the GitHub-provider lever); `channel` is also set
  * for providers that key off the channel name. Persisted/synced from the
@@ -108,7 +93,6 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
     broadcast({
       state: 'available',
       version: info.version,
-      releaseNotes: normalizeReleaseNotes(info),
     });
     // If the window is backgrounded the user won't see the in-app banner, so
     // also fire a native OS notification (wires the previously-dead
@@ -144,7 +128,6 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
     broadcast({
       state: 'downloaded',
       version: info.version,
-      releaseNotes: normalizeReleaseNotes(info),
     });
   });
 
@@ -228,7 +211,6 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
               broadcast({
                 state: 'available',
                 version: lastUpdateInfo.version,
-                releaseNotes: normalizeReleaseNotes(lastUpdateInfo),
               });
             }
             return { ok: false, error: 'cancelled' };

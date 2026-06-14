@@ -59,7 +59,7 @@
     "docs:check": "npm --prefix docs-site run check",
     "deploy:docs": "npm run docs:build && wrangler pages deploy docs-site/dist --project-name=restura-docs --branch=main",
     "deploy:docs:preview": "npm run docs:build && wrangler pages deploy docs-site/dist --project-name=restura-docs",
-    "electron:compile": "tsc -p electron/tsconfig.json && tsc-alias -p electron/tsconfig.json && npm run electron:bundle-preload",
+    "electron:compile": "node scripts/clean-electron-dist.mjs && tsc -p electron/tsconfig.json && tsc-alias -p electron/tsconfig.json && npm run electron:bundle-preload",
     "electron:bundle-preload": "esbuild electron/main/preload.ts --bundle --platform=node --format=cjs --target=es2022 --external:electron --outfile=dist/electron/electron/main/preload.js --log-level=warning",
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron:compile && cross-env NODE_ENV=development electron .\"",
     "electron:build:web": "cross-env VITE_IS_ELECTRON_BUILD=true vite build",
