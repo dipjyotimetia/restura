@@ -27,8 +27,9 @@ import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore'
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { cn } from '@/lib/shared/utils';
+import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
 
 type SendFormat = 'json' | 'text' | 'binary';
 
@@ -129,6 +130,10 @@ function WebSocketClient() {
     setSearchQuery,
     getFilteredMessages,
     addMessage,
+    addHeader,
+    updateHeader,
+    removeHeader,
+    setProtocols,
   } = useWebSocketStore(
     useShallow((s) => ({
       ensureConnectionForTab: s.ensureConnectionForTab,
@@ -139,6 +144,10 @@ function WebSocketClient() {
       setSearchQuery: s.setSearchQuery,
       getFilteredMessages: s.getFilteredMessages,
       addMessage: s.addMessage,
+      addHeader: s.addHeader,
+      updateHeader: s.updateHeader,
+      removeHeader: s.removeHeader,
+      setProtocols: s.setProtocols,
     }))
   );
 
@@ -179,10 +188,12 @@ function WebSocketClient() {
   const handleConnect = () => {
     try {
       const resolvedUrl = resolveVariables(connection.url);
+      const headers = keyValuePairsToRecord(connection.headers);
       websocketManager.connect(
         activeConnectionId,
         resolvedUrl,
-        connection.protocols.length > 0 ? connection.protocols : undefined
+        connection.protocols.length > 0 ? connection.protocols : undefined,
+        Object.keys(headers).length > 0 ? headers : undefined
       );
     } catch (error) {
       console.error('Failed to connect:', error);
@@ -337,6 +348,45 @@ function WebSocketClient() {
           </Button>
         )}
       </Floater>
+
+      {/* Connection config (handshake headers + subprotocols) — only while disconnected */}
+      {!isConnected && !isConnecting && (
+        <Floater radius="panel" className="flex flex-col gap-3 px-3 py-3 shrink-0">
+          <div>
+            <label className="text-sp-11 font-medium text-sp-muted">Subprotocols</label>
+            <Input
+              value={connection.protocols.join(', ')}
+              onChange={(e) =>
+                setProtocols(
+                  activeConnectionId,
+                  e.target.value
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                )
+              }
+              placeholder="comma-separated, e.g. graphql-transport-ws"
+              className="h-7 mt-1 font-mono text-sp-12"
+              aria-label="WebSocket subprotocols"
+            />
+          </div>
+          <div>
+            <label className="text-sp-11 font-medium text-sp-muted">Handshake headers</label>
+            <div className="mt-1">
+              <KeyValueEditor
+                items={connection.headers}
+                onAdd={() => addHeader(activeConnectionId)}
+                onUpdate={(id, updates) => updateHeader(activeConnectionId, id, updates)}
+                onDelete={(id) => removeHeader(activeConnectionId, id)}
+                keyPlaceholder="Header"
+                valuePlaceholder="Value"
+                addButtonText="Add header"
+                itemType="header"
+              />
+            </div>
+          </div>
+        </Floater>
+      )}
 
       {/* Stats row */}
       <div className="flex items-center gap-6 px-1 shrink-0">

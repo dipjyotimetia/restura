@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { buildSchema, getIntrospectionQuery, introspectionFromSchema, printSchema } from 'graphql';
+
+// introspectSchema routes through the shared proxy transport (never a raw fetch —
+// CSP-blocked on desktop, SSRF/auth-bypassing on web). Mock that boundary.
+const mockExecute = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/shared/transport', () => ({ executeProxiedRequest: mockExecute }));
+
 import { introspectSchema, buildSchemaFromIntrospection } from '../introspection';
 import type { IntrospectionResult } from '../../types';
+import type { AuthConfig } from '@/types';
 
 const SAMPLE_SDL = /* GraphQL */ `
   type Query {
@@ -18,32 +25,64 @@ const SAMPLE_SDL = /* GraphQL */ `
 describe('introspectSchema', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    mockExecute.mockReset();
   });
 
-  it('posts the official getIntrospectionQuery() as the request body', async () => {
+  it('posts the official getIntrospectionQuery() through the proxy and threads auth', async () => {
     const introspection = introspectionFromSchema(buildSchema(SAMPLE_SDL));
+    mockExecute.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { data: introspection }, // desktop path returns the parsed body
+    });
 
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ data: introspection }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
+    const auth: AuthConfig = { type: 'bearer', token: 'tok' } as AuthConfig;
+    const result = await introspectSchema('https://example.test/graphql', {
+      headers: { 'X-Trace': '1' },
+      auth,
+    });
 
-    const result = await introspectSchema('https://example.test/graphql');
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const [spec] = mockExecute.mock.calls[0]!;
+    expect(spec.method).toBe('POST');
+    expect(spec.url).toBe('https://example.test/graphql');
+    expect(spec.headers).toMatchObject({ 'X-Trace': '1', 'Content-Type': 'application/json' });
+    expect(spec.auth).toMatchObject({ type: 'bearer' }); // sign-at-wire/auth carried to the proxy
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0]!;
-    const sentBody = JSON.parse(String(init?.body));
-
-    // The query must be the official one, not a hand-rolled string.
+    const sentBody = JSON.parse(String(spec.data));
     expect(sentBody.query).toBe(getIntrospectionQuery());
     expect(sentBody.query).toContain('query IntrospectionQuery');
     expect(sentBody.query).toContain('__schema');
 
     expect(result.success).toBe(true);
-    expect(result.introspection).toBeDefined();
     expect(result.introspection?.__schema).toBeDefined();
+  });
+
+  it('coerces a string body (web proxy path) before parsing __schema', async () => {
+    const introspection = introspectionFromSchema(buildSchema(SAMPLE_SDL));
+    mockExecute.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: JSON.stringify({ data: introspection }), // some web paths return a string
+    });
+
+    const result = await introspectSchema('https://example.test/graphql');
+    expect(result.success).toBe(true);
+    expect(result.introspection?.__schema).toBeDefined();
+  });
+
+  it('reports an upstream non-2xx as a failure', async () => {
+    mockExecute.mockResolvedValue({
+      status: 401,
+      statusText: 'Unauthorized',
+      headers: {},
+      data: '',
+    });
+    const result = await introspectSchema('https://example.test/graphql');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('401');
   });
 });
 

@@ -1,0 +1,4 @@
+# Generated at runtime by `npm run echo:local` — not source.
+certs/
+manifest.json
+*.collection.json

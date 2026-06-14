@@ -1,4 +1,6 @@
 import { createClient, type Client, type Sink } from 'graphql-ws';
+import { isElectron } from '@/lib/shared/platform';
+import { createElectronGraphQLSocketClass } from './electronGraphQLSocket';
 
 export interface SubscriptionMessage {
   id: string;
@@ -59,9 +61,15 @@ export class GraphQLSubscriptionClient {
     this.client = createClient({
       url: wsUrl,
       connectionParams: Object.keys(this.headers).length > 0 ? this.headers : undefined,
+      // Desktop: a renderer-direct WebSocket is CSP-blocked, so tunnel graphql-ws
+      // over the WebSocket IPC bridge. Web keeps the native WebSocket.
+      ...(isElectron() ? { webSocketImpl: createElectronGraphQLSocketClass(this.headers) } : {}),
       on: {
         connected: () => {
-          if (this.timeoutId !== null) { clearTimeout(this.timeoutId); this.timeoutId = null; }
+          if (this.timeoutId !== null) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+          }
           options.onMessage({
             id: makeId(),
             type: 'connected',
@@ -70,7 +78,10 @@ export class GraphQLSubscriptionClient {
           options.onConnected?.();
         },
         error: (err) => {
-          if (this.timeoutId !== null) { clearTimeout(this.timeoutId); this.timeoutId = null; }
+          if (this.timeoutId !== null) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+          }
           options.onMessage({
             id: makeId(),
             type: 'error',
@@ -95,11 +106,12 @@ export class GraphQLSubscriptionClient {
         options.onMessage({
           id: makeId(),
           type: 'error',
-          error: err instanceof Error
-            ? err.message
-            : Array.isArray(err)
-              ? err.map((e) => (e instanceof Error ? e.message : String(e))).join(', ')
-              : 'Subscription error',
+          error:
+            err instanceof Error
+              ? err.message
+              : Array.isArray(err)
+                ? err.map((e) => (e instanceof Error ? e.message : String(e))).join(', ')
+                : 'Subscription error',
           timestamp: Date.now(),
         });
         options.onError?.(err);
@@ -124,7 +136,10 @@ export class GraphQLSubscriptionClient {
   }
 
   disconnect(): void {
-    if (this.timeoutId !== null) { clearTimeout(this.timeoutId); this.timeoutId = null; }
+    if (this.timeoutId !== null) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.client?.dispose();

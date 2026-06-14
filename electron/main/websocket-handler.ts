@@ -96,7 +96,11 @@ export function registerWebSocketHandlerIPC(): void {
       };
 
       ws.on('open', () => {
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.open, connectionId));
+        // Surface the negotiated subprotocol so the renderer can satisfy callers
+        // that verify it (graphql-transport-ws requires socket.protocol to match).
+        emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.open, connectionId), {
+          protocol: ws.protocol ?? '',
+        });
       });
 
       ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {

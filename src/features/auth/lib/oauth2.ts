@@ -37,7 +37,10 @@ export class OAuth2TokenError extends Error {
   }
 }
 
-async function postToken(tokenUrl: string, params: Record<string, string>): Promise<OAuth2TokenResponse> {
+async function postToken(
+  tokenUrl: string,
+  params: Record<string, string>
+): Promise<OAuth2TokenResponse> {
   const body = new URLSearchParams(params).toString();
   const response = await fetch(tokenUrl, {
     method: 'POST',
@@ -45,7 +48,7 @@ async function postToken(tokenUrl: string, params: Record<string, string>): Prom
     body,
   });
 
-  const json = await response.json() as OAuth2TokenResponse | OAuth2Error;
+  const json = (await response.json()) as OAuth2TokenResponse | OAuth2Error;
 
   if (!response.ok || 'error' in json) {
     const err = json as OAuth2Error;
@@ -58,7 +61,9 @@ async function postToken(tokenUrl: string, params: Record<string, string>): Prom
   return json as OAuth2TokenResponse;
 }
 
-export async function fetchClientCredentialsToken(config: OAuth2FlowConfig): Promise<OAuth2TokenResponse> {
+export async function fetchClientCredentialsToken(
+  config: OAuth2FlowConfig
+): Promise<OAuth2TokenResponse> {
   const params: Record<string, string> = {
     grant_type: 'client_credentials',
     client_id: config.clientId,
@@ -105,7 +110,9 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
     .replace(/=/g, '');
 }
 
-export async function buildAuthorizationUrl(config: OAuth2FlowConfig): Promise<{ url: string; codeVerifier: string; state: string }> {
+export async function buildAuthorizationUrl(
+  config: OAuth2FlowConfig
+): Promise<{ url: string; codeVerifier: string; state: string }> {
   if (!config.authorizationUrl) throw new Error('Authorization URL is required');
   if (!config.redirectUri) throw new Error('Redirect URI is required');
 
@@ -232,7 +239,7 @@ export async function pollForDeviceToken(
     await new Promise((r) => setTimeout(r, intervalSeconds * 1000));
 
     const params: Record<string, string> = {
-      grant_type: 'urn:ietf:params:oauth2:grant-type:device_code',
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       client_id: config.clientId,
       device_code: deviceCode,
     };

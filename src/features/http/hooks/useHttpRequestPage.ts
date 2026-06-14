@@ -6,7 +6,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpMethod, AuthConfig, RequestSettings, RequestBody } from '@/types';
+import type { HttpMethod, AuthConfig, RequestSettings, RequestBody, FormDataItem } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import type { AxiosProxyConfig } from 'axios';
 import axios, { isAxiosError } from 'axios';
@@ -19,7 +19,10 @@ import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAut
 import { unwrapSecret } from '@/lib/shared/secretRef';
 import { isElectron } from '@/lib/shared/platform';
 import { executeProxiedRequest } from '@/lib/shared/transport';
-import { buildDesktopTransportConfig } from '@/features/http/lib/requestExecutor';
+import {
+  buildDesktopTransportConfig,
+  resolveEffectiveSettings,
+} from '@/features/http/lib/requestExecutor';
 
 /**
  * Capture the headers the request actually went out with for the Console.
@@ -87,17 +90,10 @@ export function useHttpRequestPage() {
     handleDelete: removeHeader,
   } = useKeyValueCollection(httpRequest?.headers ?? [], (headers) => updateRequest({ headers }));
 
-  const getEffectiveSettings = useCallback((): RequestSettings => {
-    return (
-      httpRequest?.settings || {
-        timeout: globalSettings.defaultTimeout,
-        followRedirects: globalSettings.followRedirects,
-        maxRedirects: globalSettings.maxRedirects,
-        verifySsl: globalSettings.verifySsl,
-        proxy: globalSettings.proxy,
-      }
-    );
-  }, [httpRequest?.settings, globalSettings]);
+  const getEffectiveSettings = useCallback(
+    (): RequestSettings => resolveEffectiveSettings(httpRequest?.settings, globalSettings),
+    [httpRequest?.settings, globalSettings]
+  );
 
   const sendRequest = useCallback(async () => {
     if (!httpRequest || !httpRequest.url || isLoading) return;
@@ -400,11 +396,20 @@ export function useHttpRequestPage() {
     changeAuth: (auth: AuthConfig) => updateRequest({ auth }),
     changeBodyType: (type: RequestBody['type']) => {
       if (!httpRequest) return;
-      updateRequest({ body: { ...httpRequest.body, type } });
+      // `raw` is reused for binary base64; reset it crossing the binary boundary
+      // so base64 never renders in the text editor and text is never base64-decoded.
+      const crossesBinary = type === 'binary' || httpRequest.body.type === 'binary';
+      updateRequest({
+        body: { ...httpRequest.body, type, ...(crossesBinary ? { raw: '' } : {}) },
+      });
     },
     changeBodyContent: (raw: string) => {
       if (!httpRequest) return;
       updateRequest({ body: { ...httpRequest.body, raw } });
+    },
+    changeFormData: (formData: FormDataItem[]) => {
+      if (!httpRequest) return;
+      updateRequest({ body: { ...httpRequest.body, formData } });
     },
     changePreRequestScript: (script: string) => updateRequest({ preRequestScript: script }),
     changeTestScript: (script: string) => updateRequest({ testScript: script }),

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { KeyValue } from '@/types';
+import type { AuthConfig, KeyValue } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { useConsoleStore } from '@/store/useConsoleStore';
@@ -34,8 +34,10 @@ export interface SseConnection {
   status: SseConnectionStatus;
   log: SseLogEntry[];
   headers: KeyValue[];
-  /** UI-side filter on event names; empty = include all */
-  eventFilter: string[];
+  /** Structured auth applied as headers (basic/bearer/api-key/oauth2) at connect time. */
+  auth: AuthConfig;
+  /** Per-connection event-name filter; 'all' = include every event. */
+  eventNameFilter: string;
   /** Reconnect using Last-Event-ID on disconnect */
   reconnectOnResume: boolean;
   /** Last-Event-ID seen, surfaced in the UI and used by the manager on reconnect */
@@ -52,7 +54,6 @@ interface SseState {
   activeConnectionId: string | null;
 
   searchQuery: string;
-  eventNameFilter: string; // 'all' | specific event name
 
   createConnection: (url?: string) => string;
   removeConnection: (id: string) => void;
@@ -72,9 +73,10 @@ interface SseState {
   addHeader: (connectionId: string) => void;
   updateHeader: (connectionId: string, headerId: string, updates: Partial<KeyValue>) => void;
   removeHeader: (connectionId: string, headerId: string) => void;
+  setAuth: (connectionId: string, auth: AuthConfig) => void;
 
   setSearchQuery: (q: string) => void;
-  setEventNameFilter: (f: string) => void;
+  setEventNameFilter: (connectionId: string, f: string) => void;
 
   getActiveConnection: () => SseConnection | null;
   getFilteredLog: (connectionId: string) => SseLogEntry[];
@@ -90,7 +92,6 @@ export const useSseStore = create<SseState>()(
       connections: {},
       activeConnectionId: null,
       searchQuery: '',
-      eventNameFilter: 'all',
 
       createConnection: (url = '') => {
         const id = uuidv4();
@@ -100,7 +101,8 @@ export const useSseStore = create<SseState>()(
           status: 'disconnected',
           log: [],
           headers: [],
-          eventFilter: [],
+          auth: { type: 'none' },
+          eventNameFilter: 'all',
           reconnectOnResume: true,
           reconnectAttempts: 0,
           maxReconnectAttempts: DEFAULT_MAX_RECONNECT_ATTEMPTS,
@@ -268,8 +270,22 @@ export const useSseStore = create<SseState>()(
           };
         }),
 
+      setAuth: (connectionId, auth) =>
+        set((s) => {
+          const c = s.connections[connectionId];
+          if (!c) return s;
+          return { connections: { ...s.connections, [connectionId]: { ...c, auth } } };
+        }),
+
       setSearchQuery: (q) => set({ searchQuery: q }),
-      setEventNameFilter: (f) => set({ eventNameFilter: f }),
+      setEventNameFilter: (connectionId, f) =>
+        set((s) => {
+          const c = s.connections[connectionId];
+          if (!c) return s;
+          return {
+            connections: { ...s.connections, [connectionId]: { ...c, eventNameFilter: f } },
+          };
+        }),
 
       getActiveConnection: () => {
         const { connections, activeConnectionId } = get();
@@ -277,12 +293,12 @@ export const useSseStore = create<SseState>()(
       },
 
       getFilteredLog: (connectionId) => {
-        const { connections, searchQuery, eventNameFilter } = get();
+        const { connections, searchQuery } = get();
         const c = connections[connectionId];
         if (!c) return [];
         let log = c.log;
-        if (eventNameFilter !== 'all') {
-          log = log.filter((e) => e.kind === 'event' && e.event === eventNameFilter);
+        if (c.eventNameFilter !== 'all') {
+          log = log.filter((e) => e.kind === 'event' && e.event === c.eventNameFilter);
         }
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
@@ -306,6 +322,9 @@ export const useSseStore = create<SseState>()(
               ...conn,
               status: 'disconnected' as const,
               log: [],
+              // Filter resets with the transient log so a stale filter never
+              // hides the (now-empty) view after a reload.
+              eventNameFilter: 'all',
               reconnectAttempts: 0,
             },
           ])

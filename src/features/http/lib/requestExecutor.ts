@@ -4,6 +4,7 @@ import type {
   RequestSettings,
   AppSettings,
   BodyType as RendererBodyType,
+  FormDataItem,
 } from '@/types';
 import type { BodyType as ProxyBodyType } from '@shared/protocol/body-builder';
 import { v4 as uuidv4 } from 'uuid';
@@ -85,6 +86,26 @@ interface BuiltSpec {
  * Exported for unit testing — this is the precedence logic (per-request >
  * per-domain match > global) that the type system can't verify end-to-end.
  */
+/**
+ * Per-request settings with a global-settings fallback. Used by every transport
+ * entry point (HTTP executor, the request page, GraphQL introspection) so the
+ * fallback shape stays in one place.
+ */
+export function resolveEffectiveSettings(
+  requestSettings: RequestSettings | undefined,
+  globalSettings: AppSettings
+): RequestSettings {
+  return (
+    requestSettings ?? {
+      timeout: globalSettings.defaultTimeout,
+      followRedirects: globalSettings.followRedirects,
+      maxRedirects: globalSettings.maxRedirects,
+      verifySsl: globalSettings.verifySsl,
+      proxy: globalSettings.proxy,
+    }
+  );
+}
+
 export function buildDesktopTransportConfig(
   effectiveSettings: RequestSettings,
   globalSettings: AppSettings,
@@ -185,13 +206,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
 
   Object.assign(params, applyApiKeyQueryParam(effectiveAuth, params));
 
-  const effectiveSettings: RequestSettings = request.settings ?? {
-    timeout: globalSettings.defaultTimeout,
-    followRedirects: globalSettings.followRedirects,
-    maxRedirects: globalSettings.maxRedirects,
-    verifySsl: globalSettings.verifySsl,
-    proxy: globalSettings.proxy,
-  };
+  const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
 
   // Cookie jar bypass: if disabled per-request, skip cookie reads entirely so
   // the request goes out with no Cookie header even if the jar has entries
@@ -222,15 +237,19 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   }
 
   const proxyBodyType = mapBodyType(request.body.type);
+  // form-data carries structured fields (with base64 file content) instead of a
+  // raw string; everything else (incl. binary, whose base64 lives in `raw`) uses `data`.
+  const formFields = proxyBodyType === 'form-data' ? buildFormFields(request.body.formData) : [];
   const spec: ProxyRequestBody = {
     method: request.method,
     url: resolvedUrl,
     headers,
     params,
     bodyType: proxyBodyType,
-    ...(proxyBodyType !== 'none' && request.body.raw !== undefined
+    ...(proxyBodyType !== 'none' && proxyBodyType !== 'form-data' && request.body.raw !== undefined
       ? { data: request.body.raw }
       : {}),
+    ...(formFields.length > 0 ? { formData: formFields } : {}),
     ...(effectiveSettings.timeout !== undefined ? { timeout: effectiveSettings.timeout } : {}),
     ...(effectiveAuth && effectiveAuth.type !== 'none' ? { auth: effectiveAuth } : {}),
     ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
@@ -270,6 +289,30 @@ function persistResponseCookies(response: ProxyJsonResponse, resolvedUrl: string
 // Renderer's BodyType is wider than the proxy's (xml/protobuf/graphql/
 // multipart-mixed). Renderer-only types fall back to 'raw' so the
 // user-supplied Content-Type header is preserved verbatim.
+type ProxyFormField = NonNullable<ProxyRequestBody['formData']>[number];
+
+/**
+ * Map the renderer's FormDataItem[] to the proxy FormField[] the shared
+ * body-builder consumes. File rows carry the base64 bytes in `value` plus the
+ * multipart filename + MIME; text rows are plain name/value pairs.
+ */
+export function buildFormFields(items?: FormDataItem[]): ProxyFormField[] {
+  if (!items) return [];
+  return items
+    .filter((it) => it.enabled && it.key)
+    .map(
+      (it): ProxyFormField =>
+        it.type === 'file'
+          ? {
+              name: it.key,
+              value: it.value,
+              filename: it.fileName ?? 'file',
+              contentType: it.contentType ?? 'application/octet-stream',
+            }
+          : { name: it.key, value: it.value }
+    );
+}
+
 function mapBodyType(rendererType: RendererBodyType): ProxyBodyType {
   switch (rendererType) {
     case 'none':

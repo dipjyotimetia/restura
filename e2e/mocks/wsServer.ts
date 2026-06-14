@@ -1,4 +1,5 @@
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer, type Server as HttpServer, type RequestListener } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { useServer as useGraphqlWsServer } from 'graphql-ws/use/ws';
 import { schema as graphqlSchema } from './graphqlSchema';
@@ -22,16 +23,27 @@ export interface MockWsServerHandle {
  *   /graphql  — graphql-transport-ws via the SDK's `useServer` adapter,
  *               backed by the same schema as the HTTP `/graphql` endpoint.
  */
-export async function startMockWsServer(): Promise<MockWsServerHandle> {
+export async function startMockWsServer(
+  opts: { port?: number; tls?: { key: string | Buffer; cert: string | Buffer } } = {}
+): Promise<MockWsServerHandle> {
   let connectionCount = 0;
   const received: Array<{ kind: 'text' | 'binary'; payload: string }> = [];
   const graphqlSubscribePayloads: Array<Record<string, unknown>> = [];
   const chatPeers = new Set<WebSocket>();
 
-  const httpServer: HttpServer = createServer((_req, res) => {
+  // wss:// when given cert material — the WebSocket upgrade logic is identical
+  // over an https server; only the listening socket differs.
+  const requestListener: RequestListener = (_req, res) => {
     res.writeHead(426, { 'content-type': 'text/plain' });
     res.end('upgrade required');
-  });
+  };
+  const httpServer: HttpServer = opts.tls
+    ? (createHttpsServer(
+        { key: opts.tls.key, cert: opts.tls.cert },
+        requestListener
+      ) as unknown as HttpServer)
+    : createServer(requestListener);
+  const scheme = opts.tls ? 'wss' : 'ws';
 
   // graphql-ws's `useServer` registers its own message handlers, so its
   // upgrades need a dedicated WebSocketServer; mixing them with our manual
@@ -139,13 +151,15 @@ export async function startMockWsServer(): Promise<MockWsServerHandle> {
   });
 
   // Track graphql-ws connections for the connectionCount metric.
-  wssGraphql.on('connection', () => { connectionCount += 1; });
+  wssGraphql.on('connection', () => {
+    connectionCount += 1;
+  });
 
-  const port = await bindLocalhost(httpServer);
+  const port = await bindLocalhost(httpServer, opts.port);
 
   return {
     port,
-    url: `ws://127.0.0.1:${port}`,
+    url: `${scheme}://127.0.0.1:${port}`,
     connectionCount: () => connectionCount,
     receivedMessages: () => received.slice(),
     graphqlSubscribePayloads: () => graphqlSubscribePayloads.slice(),
@@ -166,9 +180,16 @@ export async function startMockWsServer(): Promise<MockWsServerHandle> {
       const terminated = [...wss.clients, ...wssGraphql.clients].map(
         (client) =>
           new Promise<void>((resolve) => {
-            if (client.readyState === client.CLOSED) { resolve(); return; }
+            if (client.readyState === client.CLOSED) {
+              resolve();
+              return;
+            }
             client.once('close', resolve);
-            try { client.terminate(); } catch { resolve(); }
+            try {
+              client.terminate();
+            } catch {
+              resolve();
+            }
           })
       );
       chatPeers.clear();

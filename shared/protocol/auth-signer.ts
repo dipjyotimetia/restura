@@ -87,10 +87,7 @@ async function sha256HexFromString(s: string): Promise<string> {
 }
 
 async function hmacSha256(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
-  const keyBuf =
-    key instanceof Uint8Array
-      ? (key.slice().buffer as ArrayBuffer)
-      : key;
+  const keyBuf = key instanceof Uint8Array ? (key.slice().buffer as ArrayBuffer) : key;
   const importedKey = await crypto.subtle.importKey(
     'raw',
     keyBuf,
@@ -141,9 +138,7 @@ async function hashBody(body: BodyInit | undefined): Promise<string> {
   // instanceof check while still being valid Uint8Arrays structurally.
   if (ArrayBuffer.isView(body)) {
     const view = body as ArrayBufferView;
-    return sha256HexFromBytes(
-      new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
-    );
+    return sha256HexFromBytes(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
   }
   if (body instanceof ArrayBuffer) {
     return sha256HexFromBytes(new Uint8Array(body));
@@ -182,20 +177,18 @@ async function signSigV4(
 
   // Build canonical headers (must be sorted, lowercase keys, trimmed values).
   // host + x-amz-date + x-amz-content-sha256 are always part of the signed set.
+  // Use `host` (not `hostname`) so a non-default port is included — the signed
+  // value must match the wire `Host` header, which carries the port (e.g.
+  // `localhost:8080`). URL.host omits the port only for default 80/443.
   const canonicalHeadersMap: Record<string, string> = {
-    host: parsedUrl.hostname,
+    host: parsedUrl.host,
     'x-amz-content-sha256': bodyHash,
     'x-amz-date': amzDate,
   };
 
   // Skip headers that AWS doesn't expect to see in the signed set, plus any
   // that fetch/undici may rewrite mid-flight (content-length, user-agent).
-  const skipHeaders = new Set([
-    'authorization',
-    'content-length',
-    'user-agent',
-    'accept-encoding',
-  ]);
+  const skipHeaders = new Set(['authorization', 'content-length', 'user-agent', 'accept-encoding']);
   for (const [k, v] of Object.entries(args.headers)) {
     const lk = k.toLowerCase();
     if (!skipHeaders.has(lk) && !(lk in canonicalHeadersMap)) {
@@ -318,7 +311,9 @@ export async function applyAuth(
       consumerKey: o1.consumerKey,
       consumerSecret: resolve(o1.consumerSecret),
       ...(o1.accessToken !== undefined ? { accessToken: resolve(o1.accessToken) } : {}),
-      ...(o1.accessTokenSecret !== undefined ? { accessTokenSecret: resolve(o1.accessTokenSecret) } : {}),
+      ...(o1.accessTokenSecret !== undefined
+        ? { accessTokenSecret: resolve(o1.accessTokenSecret) }
+        : {}),
       ...(o1.signatureMethod !== undefined ? { signatureMethod: o1.signatureMethod } : {}),
       ...(o1.realm !== undefined ? { realm: o1.realm } : {}),
       ...(o1.nonce !== undefined ? { nonce: o1.nonce } : {}),

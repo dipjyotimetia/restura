@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
+import { FormFieldSchema } from '@shared/protocol/proxy-schema';
 import { createLogger } from '../../src/lib/shared/logger';
 
 const log = createLogger('ipc');
@@ -161,6 +162,13 @@ export const HttpRequestConfigSchema = z.object({
   headers: z.record(z.string(), z.string()).optional(),
   params: z.record(z.string(), z.string()).optional(),
   data: z.string().max(MAX_HTTP_BODY_BYTES, 'Request body exceeds 50MB limit').optional(),
+  // Structured body: `bodyType` drives the shared body-builder (binary base64 in
+  // `data`, multipart fields in `formData`). Absent bodyType falls back to the
+  // legacy raw-when-data behaviour in the handler.
+  bodyType: z
+    .enum(['none', 'json', 'text', 'raw', 'form-urlencoded', 'form-data', 'binary'])
+    .optional(),
+  formData: z.array(FormFieldSchema).optional(),
   timeout: z.number().int().positive().optional(),
   maxRedirects: z.number().int().min(0).optional(),
   proxy: ProxyConfigSchema.optional(),
@@ -710,9 +718,11 @@ export const KafkaProduceSchema = z.object({
   partition: z.number().int().nonnegative().max(2_147_483_647).optional(),
   acks: KafkaAcksSchema,
   compression: KafkaCompressionSchema.optional(),
-  // Confluent Schema Registry value schema id. When set (registry connections
-  // only), the value is parsed as JSON and encoded with this schema.
+  // Confluent Schema Registry schema ids. When set (registry connections only),
+  // that field is parsed as JSON and encoded with the given schema. Key and value
+  // are independent.
   valueSchemaId: z.number().int().positive().optional(),
+  keySchemaId: z.number().int().positive().optional(),
 });
 
 // Per-partition starting offset for MANUAL consume mode. `offset` is a numeric

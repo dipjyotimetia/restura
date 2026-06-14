@@ -1,0 +1,20 @@
+# Cluster configuration seeded on the broker's FIRST boot (mounted at
+# /etc/redpanda/.bootstrap.yaml). The data dir is ephemeral, so this is applied
+# on every `docker compose up`.
+#
+# Scope is authentication only — SASL/SCRAM. kafka_enable_authorization is set
+# false EXPLICITLY: when left unset it defaults to the value of enable_sasl, so
+# enabling SASL would silently turn on ACLs and the anonymous principal on the
+# none-auth listeners (PLAINTEXT/SSL/internal) — plus the in-cluster Schema
+# Registry — would get TOPIC_AUTHORIZATION_FAILED. With authorization off, any
+# connection (anonymous or SASL-authenticated) has full access. Redpanda supports
+# SCRAM only (no SASL/PLAIN), so those are the two mechanisms offered; the desktop
+# client's PLAIN option won't authenticate here.
+#
+# NOTE: sasl_mechanisms takes Redpanda's FAMILY name "SCRAM" — not the full
+# Kafka mechanism strings. "SCRAM" advertises BOTH SCRAM-SHA-256 and
+# SCRAM-SHA-512 to clients; listing "SCRAM-SHA-256" here is rejected as invalid.
+enable_sasl: true
+kafka_enable_authorization: false
+sasl_mechanisms:
+  - SCRAM

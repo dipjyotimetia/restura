@@ -133,12 +133,12 @@ function mapAxiosError(err: unknown): ProxyTransportError {
   return new ProxyTransportError(err instanceof Error ? err.message : 'Proxy request failed');
 }
 
-// Electron's `http:request` IPC schema is narrower than ProxyRequestBody:
-// bodyType / formData / streamingMode aren't accepted; the handler
-// hard-codes bodyType:'raw' when data is present (the user's
-// Content-Type header carries the format). Also: the .d.ts type omits
-// `auth` even though the runtime Zod schema accepts it — passed through
-// via a typed intersection until the .d.ts is regenerated.
+// Electron's `http:request` IPC schema accepts bodyType + formData (so the
+// shared body-builder runs the same as on the web path); streamingMode is still
+// not modeled here. The handler falls back to raw-when-data only when bodyType
+// is absent. Note: the generated .d.ts may lag the runtime Zod schema for
+// `auth` / `bodyType` / `formData` — they're threaded via a typed intersection
+// until the .d.ts is regenerated.
 async function executeViaElectronIpc(
   spec: ProxyRequestBody,
   desktop?: DesktopTransportConfig
@@ -148,6 +148,8 @@ async function executeViaElectronIpc(
     throw new ProxyTransportError('Electron HTTP IPC is not available in this context.');
   }
 
+  // The IPC schema accepts bodyType + formData (electron-api.ts); only `auth` is
+  // still absent from the .d.ts, so it's threaded via a typed intersection.
   type IpcConfig = Parameters<typeof api.http.request>[0] & {
     auth?: ProxyRequestBody['auth'];
   };
@@ -169,6 +171,10 @@ async function executeViaElectronIpc(
     ...(spec.headers ? { headers: spec.headers } : {}),
     ...(spec.params ? { params: spec.params } : {}),
     ...(spec.data !== undefined ? { data: spec.data } : {}),
+    // bodyType + formData carry structured bodies (form-data / binary) to the
+    // handler so the shared body-builder runs the same as on the web path.
+    ...(spec.bodyType !== undefined ? { bodyType: spec.bodyType } : {}),
+    ...(spec.formData !== undefined ? { formData: spec.formData } : {}),
     ...(spec.timeout !== undefined ? { timeout: spec.timeout } : {}),
     ...(spec.auth ? { auth: spec.auth } : {}),
     // Desktop-only transport config (proxy / mTLS / CA / verifySsl / TLS knobs).

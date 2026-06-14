@@ -6,6 +6,8 @@ import { useSseStore } from '@/features/sse/store/useSseStore';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 
 import SseUrlBar from './SseUrlBar';
 import SseStatsRow from './SseStatsRow';
@@ -38,10 +40,10 @@ export default function SseClient() {
     addHeader,
     updateHeader,
     removeHeader,
+    setAuth,
     setSearchQuery,
     setEventNameFilter,
     searchQuery,
-    eventNameFilter,
     getActiveConnection,
     getFilteredLog,
   } = useSseStore();
@@ -79,7 +81,28 @@ export default function SseClient() {
     const headers = keyValuePairsToRecord(active.headers);
     const resolvedHeaders: Record<string, string> = {};
     for (const [k, v] of Object.entries(headers)) resolvedHeaders[k] = resolveVariables(v);
-    sseManager.connect(active.id, resolveVariables(active.url), resolvedHeaders);
+
+    // Header-based auth (basic/bearer/api-key/oauth2). Sign-at-wire types
+    // (sigv4/oauth1/wsse) aren't applied to SSE streams — buildAuthCredential
+    // no-ops them and the SSE handler doesn't sign.
+    const credential = buildAuthCredential(active.auth);
+    for (const [k, v] of Object.entries(credential.headers))
+      resolvedHeaders[k] = resolveVariables(v);
+
+    let url = resolveVariables(active.url);
+    if (Object.keys(credential.params).length > 0) {
+      try {
+        const u = new URL(url);
+        for (const [k, v] of Object.entries(credential.params))
+          u.searchParams.set(k, resolveVariables(v));
+        url = u.toString();
+      } catch {
+        // Leave the URL untouched if it isn't yet a valid absolute URL;
+        // sseManager.connect surfaces the validation error.
+      }
+    }
+
+    sseManager.connect(active.id, url, resolvedHeaders);
   };
 
   const handleDisconnect = () => {
@@ -228,6 +251,10 @@ export default function SseClient() {
             valuePlaceholder="Header value"
             addButtonText="Add header"
           />
+          <div className="pt-3 mt-3 border-t border-sp-line">
+            <Label className="text-sp-11 text-sp-muted mb-2 block">Auth</Label>
+            <AuthConfiguration auth={active.auth} onChange={(a) => setAuth(active.id, a)} />
+          </div>
           <div className="flex items-center gap-2 pt-3 mt-3 border-t border-sp-line">
             <Switch
               id="resume"
@@ -256,8 +283,8 @@ export default function SseClient() {
           log={filtered}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          eventNameFilter={eventNameFilter}
-          onEventNameFilterChange={setEventNameFilter}
+          eventNameFilter={active.eventNameFilter}
+          onEventNameFilterChange={(v) => setEventNameFilter(active.id, v)}
           eventNames={eventNames}
           onClearLog={() => clearLog(active.id)}
         />

@@ -191,6 +191,7 @@ class KafkaManager {
     acks: 0 | 1 | -1;
     compression?: KafkaCompression;
     valueSchemaId?: number;
+    keySchemaId?: number;
   }): Promise<
     | { ok: true; ack: { topic: string; partition: number; offset: string; timestamp: number } }
     | { ok: false; error: string }
@@ -212,6 +213,7 @@ class KafkaManager {
         ? { compression: params.compression }
         : {}),
       ...(params.valueSchemaId !== undefined ? { valueSchemaId: params.valueSchemaId } : {}),
+      ...(params.keySchemaId !== undefined ? { keySchemaId: params.keySchemaId } : {}),
     });
 
     if (!result.success || !result.ack) {

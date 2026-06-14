@@ -3,7 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { applyCors, bindLocalhost, closeServer, handlePreflight, readJson } from '../utils/serverHelpers';
+import {
+  applyCors,
+  bindLocalhost,
+  closeServer,
+  handlePreflight,
+  readJson,
+} from '../utils/serverHelpers';
 
 export interface MockMcpServerHandle {
   port: number;
@@ -88,7 +94,9 @@ const SERVER_OPTIONS = {
  * its transport binding "connected" after the first call and refuses
  * re-connect — so a shared server across requests breaks the second one.
  */
-export async function startMockMcpServer(): Promise<MockMcpServerHandle> {
+export async function startMockMcpServer(
+  opts: { port?: number } = {}
+): Promise<MockMcpServerHandle> {
   const methodsReceived: string[] = [];
   let initializeCount = 0;
   let toolCallCount = 0;
@@ -179,7 +187,7 @@ export async function startMockMcpServer(): Promise<MockMcpServerHandle> {
     });
   });
 
-  const port = await bindLocalhost(server);
+  const port = await bindLocalhost(server, opts.port);
 
   return {
     port,

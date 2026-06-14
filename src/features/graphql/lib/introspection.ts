@@ -1,4 +1,5 @@
 import type { GraphQLSchema, IntrospectionResult } from '../types';
+import type { AuthConfig } from '@/types';
 import {
   buildClientSchema,
   getIntrospectionQuery,
@@ -6,6 +7,8 @@ import {
   type GraphQLSchema as GQLSchema,
   type IntrospectionQuery,
 } from 'graphql';
+import { executeProxiedRequest, type DesktopTransportConfig } from '@/lib/shared/transport';
+import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 
 // Standard GraphQL introspection query (spec-compliant, from the official `graphql` library)
 const INTROSPECTION_QUERY = getIntrospectionQuery();
@@ -13,34 +16,36 @@ const INTROSPECTION_QUERY = getIntrospectionQuery();
 export interface IntrospectionOptions {
   headers?: Record<string, string>;
   timeout?: number;
+  /** Sign-at-wire auth (sigv4/oauth1/wsse), applied in the proxy/main. */
+  auth?: AuthConfig;
+  /** Desktop TLS/proxy config so introspecting custom-CA/mTLS/proxied endpoints
+   *  behaves identically to running a query against them. */
+  desktop?: DesktopTransportConfig;
 }
 
 export async function introspectSchema(
   endpoint: string,
   options: IntrospectionOptions = {}
 ): Promise<IntrospectionResult> {
-  const { headers = {}, timeout = 30000 } = options;
+  const { headers = {}, timeout = 30000, auth, desktop } = options;
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    const response = await fetch(endpoint, {
+    // Route through the shared proxy (IPC on desktop, Worker on web) — never a
+    // renderer-direct fetch: the packaged-build CSP blocks it, and it would
+    // bypass the SSRF guard, header policy, and sign-at-wire auth.
+    const spec: ProxyRequestBody = {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        ...headers,
-      },
-      body: JSON.stringify({
-        query: INTROSPECTION_QUERY,
-      }),
-      signal: controller.signal,
-    });
+      url: endpoint,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
+      bodyType: 'json',
+      data: JSON.stringify({ query: INTROSPECTION_QUERY }),
+      timeout,
+      ...(auth && auth.type !== 'none' ? { auth: auth as ProxyRequestBody['auth'] } : {}),
+    };
 
-    clearTimeout(timeoutId);
+    const response = await executeProxiedRequest(spec, {}, desktop);
 
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       return {
         success: false,
         schema: null,
@@ -50,7 +55,10 @@ export async function introspectSchema(
       };
     }
 
-    const raw: unknown = await response.json();
+    // The proxy returns the upstream body under `data` — already JSON-parsed on
+    // the desktop path, a string on some web paths; coerce either to an object.
+    const raw: unknown =
+      typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
     const json = raw as {
       data?: { __schema: GraphQLSchema } | null;
       errors?: Array<{ message: string }>;

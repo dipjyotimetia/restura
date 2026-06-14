@@ -10,10 +10,10 @@ Socket.IO isn't plain WebSocket — it has its own framing, namespacing, ack cal
 ## What works
 
 - **Connect** to any Socket.IO server, with or without namespacing (`/admin`, etc.).
-- **Auth payload** on connect — sent in the `auth` field of the handshake.
+- **Auth payload + query params** on connect — editable while disconnected; the auth map is sent in the handshake `auth` field, query params on the connection URL.
 - **Emit events** — pick an event name, send a JSON / string / number payload.
 - **Listen** — subscribe to event names; live messages stream into the transcript.
-- **Acks** <Badge text="desktop only" variant="caution" /> — the callback-based response pattern needs the desktop transport.
+- **Acks** <Badge text="desktop only" variant="caution" /> — toggle **Ack** in the compose bar to request the callback-based response; needs the desktop transport.
 - **Reconnect** — on/off, with backoff settings.
 
 ## Why ack is desktop-only

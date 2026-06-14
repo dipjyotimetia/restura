@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "noEmit": true,
+    "isolatedModules": true,
+    "exactOptionalPropertyTypes": false,
+    "baseUrl": ".."
+  },
+  "include": ["**/*.ts", "../e2e/mocks/**/*.ts", "../e2e/utils/**/*.ts"],
+  "exclude": ["node_modules"]
+}

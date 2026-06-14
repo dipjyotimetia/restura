@@ -8,6 +8,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
+    // Inline graphql-ws so vite (with resolve.dedupe below) gives it the SAME
+    // graphql copy as our in-process mock schema — otherwise the server-side
+    // validate throws "Duplicate graphql modules" on cross-realm schemas.
+    server: { deps: { inline: ['graphql-ws'] } },
     include: [
       'src/**/*.{test,spec}.{ts,tsx}',
       'tests/**/*.{test,spec}.{ts,tsx}',
@@ -23,6 +27,9 @@ export default defineConfig({
       exclude: [
         'node_modules/',
         'tests/',
+        // Dev/test tooling, not production code: e2e mocks + the local echo stack.
+        'e2e/',
+        'echo-local/',
         '**/*.d.ts',
         '**/*.config.*',
         '**/types/',
@@ -65,5 +72,9 @@ export default defineConfig({
       // cloudflare:sockets is a runtime-only Cloudflare Workers API; stub it in tests
       'cloudflare:sockets': path.resolve(__dirname, './tests/__mocks__/cloudflare-sockets.ts'),
     },
+    // graphql is instanceof-sensitive (assertValidSchema cross-instance throws).
+    // Force a single copy so in-process graphql-ws and our mock schema agree —
+    // matches the single-instance resolution of the real Node runtime.
+    dedupe: ['graphql'],
   },
 });

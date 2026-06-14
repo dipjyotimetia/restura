@@ -156,12 +156,25 @@ interface ElectronHttpCaCert {
   pem: string;
 }
 
+interface ElectronHttpFormField {
+  name: string;
+  value: string;
+  // `| undefined` (not bare `?`) so the Zod-inferred ProxyRequestBody.formData
+  // assigns cleanly under exactOptionalPropertyTypes.
+  filename?: string | undefined;
+  contentType?: string | undefined;
+}
+
 interface ElectronHttpRequestConfig {
   method: string;
   url: string;
   headers?: Record<string, string>;
   params?: Record<string, string>;
   data?: string;
+  // Structured body (drives the shared body-builder): binary base64 rides in
+  // `data` with bodyType:'binary'; multipart fields ride in `formData`.
+  bodyType?: 'none' | 'json' | 'text' | 'raw' | 'form-urlencoded' | 'form-data' | 'binary';
+  formData?: ElectronHttpFormField[];
   timeout?: number;
   maxRedirects?: number;
   proxy?: ElectronHttpProxyConfig;
@@ -404,6 +417,8 @@ interface ElectronKafkaAPI {
     compression?: 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd';
     /** Confluent value schema id — encodes the (JSON) value via the registry. */
     valueSchemaId?: number;
+    /** Confluent key schema id — encodes the (JSON) key via the registry. */
+    keySchemaId?: number;
   }) => Promise<{ success: boolean; ack?: KafkaAck; error?: string }>;
   subscribe: (config: {
     connectionId: string;

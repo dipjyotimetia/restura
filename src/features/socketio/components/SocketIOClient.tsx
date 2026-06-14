@@ -15,7 +15,6 @@ import {
   Stat,
   Kbd,
   ToggleField,
-  Segmented,
   TextField,
   VariableText,
   CodeEditorFrame,
@@ -29,10 +28,9 @@ import {
 } from '@/features/socketio/store/useSocketIOStore';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { cn } from '@/lib/shared/utils';
 import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
-
-type SendFormat = 'json' | 'text' | 'binary';
 
 const formatDuration = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
@@ -164,6 +162,9 @@ function SocketIOClient() {
     setEventFilter,
     setSearchQuery,
     getFilteredEvents,
+    addKv,
+    updateKv,
+    removeKv,
   } = useSocketIOStore(
     useShallow((s) => ({
       ensureConnectionForTab: s.ensureConnectionForTab,
@@ -173,6 +174,9 @@ function SocketIOClient() {
       setEventFilter: s.setEventFilter,
       setSearchQuery: s.setSearchQuery,
       getFilteredEvents: s.getFilteredEvents,
+      addKv: s.addKv,
+      updateKv: s.updateKv,
+      removeKv: s.removeKv,
     }))
   );
 
@@ -181,7 +185,7 @@ function SocketIOClient() {
   const [emitEventName, setEmitEventName] = useState('message');
   const [emitArgsText, setEmitArgsText] = useState('"hello"');
   const [emitError, setEmitError] = useState<string | null>(null);
-  const [sendFormat, setSendFormat] = useState<SendFormat>('json');
+  const [requestAck, setRequestAck] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -253,7 +257,12 @@ function SocketIOClient() {
       return;
     }
     setEmitError(null);
-    socketioManager.emit(activeConnectionId, emitEventName.trim() || 'message', parsed.args, false);
+    socketioManager.emit(
+      activeConnectionId,
+      emitEventName.trim() || 'message',
+      parsed.args,
+      requestAck
+    );
   };
 
   const handleClear = () => {
@@ -380,6 +389,42 @@ function SocketIOClient() {
           </Button>
         )}
       </Floater>
+
+      {/* Connection config (handshake auth + query) — only while disconnected */}
+      {!isConnected && !isConnecting && (
+        <Floater radius="panel" className="flex flex-col gap-3 px-3 py-3 shrink-0">
+          <div>
+            <label className="text-sp-11 font-medium text-sp-muted">Auth (handshake payload)</label>
+            <div className="mt-1">
+              <KeyValueEditor
+                items={connection.auth}
+                onAdd={() => addKv(activeConnectionId, 'auth')}
+                onUpdate={(id, updates) => updateKv(activeConnectionId, 'auth', id, updates)}
+                onDelete={(id) => removeKv(activeConnectionId, 'auth', id)}
+                keyPlaceholder="Key"
+                valuePlaceholder="Value (e.g. admin-token)"
+                addButtonText="Add auth field"
+                itemType="auth field"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-sp-11 font-medium text-sp-muted">Query params</label>
+            <div className="mt-1">
+              <KeyValueEditor
+                items={connection.query}
+                onAdd={() => addKv(activeConnectionId, 'query')}
+                onUpdate={(id, updates) => updateKv(activeConnectionId, 'query', id, updates)}
+                onDelete={(id) => removeKv(activeConnectionId, 'query', id)}
+                keyPlaceholder="Key"
+                valuePlaceholder="Value"
+                addButtonText="Add query param"
+                itemType="query param"
+              />
+            </div>
+          </div>
+        </Floater>
+      )}
 
       {/* Stats row */}
       <div className="flex items-center gap-6 px-1 shrink-0">
@@ -567,16 +612,12 @@ function SocketIOClient() {
             <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
               <span className="text-sp-13 font-medium text-sp-text">Compose</span>
               <div className="flex-1" />
-              <Segmented<SendFormat>
+              <span className="text-sp-11 text-sp-muted">Ack</span>
+              <ToggleField
                 size="sm"
-                value={sendFormat}
-                onChange={setSendFormat}
-                ariaLabel="Args format"
-                options={[
-                  { value: 'json', label: 'json' },
-                  { value: 'text', label: 'text' },
-                  { value: 'binary', label: 'binary' },
-                ]}
+                checked={requestAck}
+                onChange={setRequestAck}
+                ariaLabel="Request acknowledgement for emitted events"
               />
             </div>
             <div className="px-2 pt-2 shrink-0">

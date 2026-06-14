@@ -127,7 +127,10 @@ export interface KeyValue {
 // Form Data
 export interface FormDataItem extends KeyValue {
   type: 'text' | 'file';
-  file?: File;
+  // For `type: 'file'`, the picked file's base64-encoded bytes live in `value`;
+  // these carry the multipart filename + MIME so the built wire body is correct.
+  fileName?: string;
+  contentType?: string;
 }
 
 // Authentication Configuration
