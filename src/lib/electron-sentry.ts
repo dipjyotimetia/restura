@@ -9,7 +9,7 @@
  * main-process SDK over IPC (via the `@sentry/electron/preload` shim), so the
  * sandboxed renderer never makes a direct network call. Scrubbing, the opt-in
  * gate, release/environment, and the actual upload all live in the main process
- * (electron/main/sentry.ts).
+ * (electron/main/lifecycle/sentry.ts).
  *
  * Crash/error reporting only — no performance tracing. We init without a tracing
  * integration so the renderer emits no spans (a request span would leak the

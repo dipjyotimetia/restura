@@ -19,7 +19,7 @@ import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema'
  *
  * This module is the renderer-safe surface — types + predicates + a sync
  * `unwrapSecret()` helper for renderer code that needs the inline value.
- * Main-process resolution lives in `electron/main/secret-handle-store.ts`
+ * Main-process resolution lives in `electron/main/security/secret-handle-store.ts`
  * and is invoked at the IPC boundary, never via IPC back to the renderer.
  *
  * Adoption is gradual. Existing `AuthConfig` fields stay as `string` for
@@ -50,13 +50,27 @@ export type SecretRef =
 export type SecretValue = string | SecretRef;
 
 /** Type guard: is this a handle reference (vs. inline / plain string)? */
-export function isSecretHandle(value: SecretValue | undefined): value is { kind: 'handle'; id: string; label?: string } {
-  return value !== undefined && typeof value === 'object' && value !== null && (value as SecretRef).kind === 'handle';
+export function isSecretHandle(
+  value: SecretValue | undefined
+): value is { kind: 'handle'; id: string; label?: string } {
+  return (
+    value !== undefined &&
+    typeof value === 'object' &&
+    value !== null &&
+    (value as SecretRef).kind === 'handle'
+  );
 }
 
 /** Type guard: is this an inline SecretRef wrapper? */
-export function isInlineSecretRef(value: SecretValue | undefined): value is { kind: 'inline'; value: string } {
-  return value !== undefined && typeof value === 'object' && value !== null && (value as SecretRef).kind === 'inline';
+export function isInlineSecretRef(
+  value: SecretValue | undefined
+): value is { kind: 'inline'; value: string } {
+  return (
+    value !== undefined &&
+    typeof value === 'object' &&
+    value !== null &&
+    (value as SecretRef).kind === 'inline'
+  );
 }
 
 /**
@@ -70,7 +84,7 @@ export const SECRET_HANDLE_PLACEHOLDER = '••••••••';
 /**
  * Renderer-safe unwrap: returns plaintext for inline values, the masked
  * placeholder for handles. Main-process callers MUST NOT use this — they
- * should call `resolveSecretHandle()` from `electron/main/secret-handle-store`
+ * should call `resolveSecretHandle()` from `electron/main/security/secret-handle-store`
  * to obtain the real value before signing.
  *
  * Accepts plain strings too, for callers that haven't migrated yet.
@@ -89,7 +103,8 @@ export function unwrapSecret(value: SecretValue | undefined): string {
 export function describeSecret(value: SecretValue | undefined): string {
   if (value === undefined) return '(empty)';
   if (typeof value === 'string') return value.length === 0 ? '(empty)' : SECRET_HANDLE_PLACEHOLDER;
-  if (value.kind === 'inline') return value.value.length === 0 ? '(empty)' : SECRET_HANDLE_PLACEHOLDER;
+  if (value.kind === 'inline')
+    return value.value.length === 0 ? '(empty)' : SECRET_HANDLE_PLACEHOLDER;
   return value.label ? `Handle: ${value.label}` : `Handle: ${value.id.slice(0, 8)}…`;
 }
 

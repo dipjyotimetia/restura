@@ -5,7 +5,7 @@ import type { AuthConfig } from '@/types';
  * for every redactor that strips credential material before it crosses a
  * leakage boundary. Imported by:
  *  - `src/lib/shared/collection-secret-redaction.ts` (renderer export flow)
- *  - `electron/main/collection-export-redactor.ts` (file-collection writes)
+ *  - `electron/main/security/collection-export-redactor.ts` (file-collection writes)
  *
  * When adding an auth method, add its secret fields HERE — both redactors
  * pick the change up automatically. A field missed here is a plaintext

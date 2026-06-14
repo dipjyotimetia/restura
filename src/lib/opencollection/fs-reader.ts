@@ -13,7 +13,7 @@ const FOLDER_META = '_folder.yaml';
  * **Caller MUST validate that `path` is in an allowed directory.** This
  * function does no path-traversal checking; that responsibility lives
  * with the IPC handler / file picker that produced the path. See
- * `electron/main/file-operations.ts:isPathSafe` for the canonical check.
+ * `electron/main/storage/file-operations.ts:isPathSafe` for the canonical check.
  */
 export async function loadCollectionFromFile(path: string): Promise<OpenCollection> {
   const raw = await readFile(path, 'utf8');
@@ -28,7 +28,7 @@ export async function loadCollectionFromFile(path: string): Promise<OpenCollecti
  * **Caller MUST validate that `dir` is in an allowed directory.** Subdirectory
  * traversal during the walk is bounded by the on-disk layout (no symlink
  * resolution), but if `dir` itself is attacker-controlled, every path under
- * it becomes readable. See `electron/main/file-operations.ts:isPathSafe`.
+ * it becomes readable. See `electron/main/storage/file-operations.ts:isPathSafe`.
  */
 export async function loadCollectionFromDir(dir: string): Promise<OpenCollection> {
   const rootPath = await findRootFile(dir);

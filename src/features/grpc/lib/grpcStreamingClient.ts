@@ -360,7 +360,7 @@ function startElectronInteractiveStream<TIn, TOut>(
   let cancelled = false;
 
   // The main process sends `{ status, details, headers, trailers }` on both the
-  // status and error channels (see electron/main/grpc-handler.ts). Read those
+  // status and error channels (see electron/main/handlers/grpc-handler.ts). Read those
   // keys — the previous code read `s.code` / `err.message`, which never matched
   // the payload, so the real status was lost and headers/trailers were dropped.
   type StreamEventPayload = {

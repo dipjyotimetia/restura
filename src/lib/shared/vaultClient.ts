@@ -2,7 +2,7 @@
  * Renderer-side wrapper for `pm.vault.{get,set,unset}` (Phase D).
  *
  * On desktop: routes through `window.electron.vault.*` IPC → encrypted
- * electron-store in the main process (`electron/main/vault-handler.ts`).
+ * electron-store in the main process (`electron/main/storage/vault-handler.ts`).
  * The renderer never sees the encryption key.
  *
  * On web: rejects with a documented error. The Worker is stateless and

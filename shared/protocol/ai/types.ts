@@ -17,7 +17,7 @@ export type CloudProvider = 'openai' | 'anthropic' | 'openrouter';
  * user-supplied base URL. `ollama` defaults to http://localhost:11434;
  * `openai-compatible` covers LM Studio, vLLM, llama.cpp, Together, Groq, etc.
  * These are Electron-only (the AI Lab) and drive the localhost SSRF carve-out —
- * see electron/main/ai-lab-handler.ts.
+ * see electron/main/handlers/ai-lab-handler.ts.
  */
 export type LocalProvider = 'ollama' | 'openai-compatible';
 

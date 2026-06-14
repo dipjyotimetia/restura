@@ -21,7 +21,7 @@ import { test as base, expect, type Page } from '@playwright/test';
  *
  * The full TCP/TLS path (real `mqtt.connect` against a broker) is Electron-only
  * and would need Playwright's `_electron` launcher; it's covered at the unit
- * layer (electron/main/mqtt-handler, mqttManager.electron.test). This fixture
+ * layer (electron/main/handlers/mqtt-handler, mqttManager.electron.test). This fixture
  * covers the renderer + DOM that unit tests can't.
  */
 

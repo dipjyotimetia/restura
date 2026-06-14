@@ -72,7 +72,7 @@ export async function executeProxiedRequest(
 
 /**
  * Web only — Electron's SSE feature owns long-lived streaming via the
- * `sse:connect` IPC channel (see `electron/main/sse-handler.ts`); other
+ * `sse:connect` IPC channel (see `electron/main/handlers/sse-handler.ts`); other
  * streaming protocols on desktop must add their own IPC.
  */
 export async function executeProxiedStreamingRequest(

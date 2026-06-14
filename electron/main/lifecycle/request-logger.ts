@@ -72,9 +72,11 @@ async function getLogFilePath(): Promise<string> {
  * Strip secrets from a URL before it is persisted to the on-disk request log:
  *  - query string (api keys / tokens frequently ride in `?api_key=…`)
  *  - userinfo (`https://user:pass@host` → `https://host`)
+ *  - fragment (not sent upstream, but redacted for parity with the renderer's
+ *    sanitizeURL and to avoid logging anything secret-shaped)
  *
  * Best-effort: a target that doesn't parse as a URL (e.g. a bare gRPC
- * `host:port`) is returned with any `?…` suffix dropped.
+ * `host:port`) is returned with any `?…`/`#…` suffix dropped.
  */
 function redactLogUrl(url: string): string {
   try {
@@ -82,10 +84,11 @@ function redactLogUrl(url: string): string {
     u.search = '';
     u.username = '';
     u.password = '';
+    u.hash = '';
     return u.toString();
   } catch {
-    const q = url.indexOf('?');
-    return q === -1 ? url : url.slice(0, q);
+    const cut = url.search(/[?#]/);
+    return cut === -1 ? url : url.slice(0, cut);
   }
 }
 

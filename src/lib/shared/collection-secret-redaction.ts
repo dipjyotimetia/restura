@@ -23,7 +23,7 @@ import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
  * Non-secret fields (username, region, key name, URLs, scopes…) are kept so
  * a redacted export still round-trips the auth *shape* — only the credential
  * material is dropped. The Electron file-collection redactor
- * (`electron/main/collection-export-redactor.ts`) implements the same policy
+ * (`electron/main/security/collection-export-redactor.ts`) implements the same policy
  * for untyped auth blobs; both consume `SECRET_FIELDS_BY_AUTH_BLOCK`.
  */
 

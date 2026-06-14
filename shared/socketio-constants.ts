@@ -32,7 +32,7 @@ export const socketioChannels = {
   reconnectFailed: (id: string) => `socketio:reconnect_failed:${id}` as const,
 } as const;
 
-/** URL schemes a Socket.IO server may legitimately use. Mirror in `electron/main/ipc-validators.ts`. */
+/** URL schemes a Socket.IO server may legitimately use. Mirror in `electron/main/ipc/ipc-validators.ts`. */
 export const SOCKETIO_VALID_SCHEMES: ReadonlySet<string> = new Set([
   'http:',
   'https:',

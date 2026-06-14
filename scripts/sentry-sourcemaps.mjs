@@ -5,7 +5,7 @@
  * `electron-builder` packages — so the exact JS that ships carries the same
  * debug IDs as the uploaded maps (the only way crash stacks reliably
  * symbolicate). The release must match the SDK's `restura@<version>`
- * (electron/main/sentry.ts), so we derive it from package.json.
+ * (electron/main/lifecycle/sentry.ts), so we derive it from package.json.
  *
  * No-ops when SENTRY_AUTH_TOKEN is unset (local builds, or before a Sentry
  * project is provisioned). Each release runs this on every desktop OS leg;
