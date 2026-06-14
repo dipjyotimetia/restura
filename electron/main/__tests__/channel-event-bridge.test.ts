@@ -21,7 +21,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { channelEventBridge } from '../channel-event-bridge';
+import { channelEventBridge } from '../handlers/channel-event-bridge';
 
 const grpc = channelEventBridge('grpc:');
 

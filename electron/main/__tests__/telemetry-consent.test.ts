@@ -15,11 +15,11 @@ vi.mock('electron', () => ({
 }));
 
 // Spy on the Sentry gate without loading the real SDK.
-vi.mock('../sentry', () => ({ setSentryEnabled: vi.fn() }));
+vi.mock('../lifecycle/sentry', () => ({ setSentryEnabled: vi.fn() }));
 
-import { readConsentSync, registerTelemetryConsentIPC } from '../telemetry-consent';
+import { readConsentSync, registerTelemetryConsentIPC } from '../lifecycle/telemetry-consent';
 import { ipcMain } from 'electron';
-import { setSentryEnabled } from '../sentry';
+import { setSentryEnabled } from '../lifecycle/sentry';
 
 const handleMock = ipcMain.handle as unknown as Mock;
 const setEnabledMock = setSentryEnabled as unknown as Mock;

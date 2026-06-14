@@ -5,15 +5,11 @@ import {
   parseCommitLog,
   parsePorcelainV2,
   sanitiseRefName,
-} from '../git-handler';
+} from '../handlers/git-handler';
 
 describe('parsePorcelainV2', () => {
   it('marks a clean tree', () => {
-    const raw = [
-      '# branch.oid 1234abcd',
-      '# branch.head main',
-      '',
-    ].join('\n');
+    const raw = ['# branch.oid 1234abcd', '# branch.head main', ''].join('\n');
     const r = parsePorcelainV2(raw);
     expect(r.clean).toBe(true);
     expect(r.branch).toBe('main');
@@ -21,10 +17,9 @@ describe('parsePorcelainV2', () => {
   });
 
   it('parses modified file with index/working-tree distinction', () => {
-    const raw = [
-      '# branch.head main',
-      '1 .M N... 100644 100644 100644 1111 2222 src/foo.ts',
-    ].join('\n');
+    const raw = ['# branch.head main', '1 .M N... 100644 100644 100644 1111 2222 src/foo.ts'].join(
+      '\n'
+    );
     const r = parsePorcelainV2(raw);
     expect(r.clean).toBe(false);
     expect(r.files).toHaveLength(1);
@@ -32,10 +27,7 @@ describe('parsePorcelainV2', () => {
   });
 
   it('parses untracked files', () => {
-    const raw = [
-      '# branch.head main',
-      '? new-file.txt',
-    ].join('\n');
+    const raw = ['# branch.head main', '? new-file.txt'].join('\n');
     const r = parsePorcelainV2(raw);
     expect(r.files).toHaveLength(1);
     expect(r.files[0]?.staged).toBe('?');
@@ -43,10 +35,7 @@ describe('parsePorcelainV2', () => {
   });
 
   it('extracts ahead/behind counters', () => {
-    const raw = [
-      '# branch.head main',
-      '# branch.ab +2 -3',
-    ].join('\n');
+    const raw = ['# branch.head main', '# branch.ab +2 -3'].join('\n');
     const r = parsePorcelainV2(raw);
     expect(r.ahead).toBe(2);
     expect(r.behind).toBe(3);

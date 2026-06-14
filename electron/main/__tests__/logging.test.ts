@@ -24,7 +24,7 @@ const { scopedLogger, mockLog } = vi.hoisted(() => {
 });
 vi.mock('electron-log/main', () => ({ default: mockLog }));
 
-import { electronLogSink, initLogging } from '../logging';
+import { electronLogSink, initLogging } from '../lifecycle/logging';
 import type { LogRecord } from '../../../src/lib/shared/logger';
 
 function record(partial: Partial<LogRecord>): LogRecord {

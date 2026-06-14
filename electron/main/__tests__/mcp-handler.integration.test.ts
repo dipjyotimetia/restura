@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import type * as IpcUtils from '../ipc/ipc-utils';
 
 /**
  * Integration test: the SDK-backed MCP IPC handler against a REAL MCP server
@@ -13,12 +14,12 @@ const mockEmitTo = vi.hoisted(() => vi.fn());
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: vi.fn() },
 }));
-vi.mock('../ipc-utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../ipc-utils')>();
+vi.mock('../ipc/ipc-utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof IpcUtils>();
   return { ...actual, emitTo: mockEmitTo };
 });
 
-import { registerMcpHandlerIPC, stopMcpCleanup } from '../mcp-handler';
+import { registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
 import { startMockMcpServer, type MockMcpServerHandle } from '../../../e2e/mocks/mcpServer';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;

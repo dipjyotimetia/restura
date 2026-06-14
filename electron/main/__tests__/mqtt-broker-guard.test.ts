@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { assertMqttBrokerSafe } from '../mqtt-broker-guard';
+import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
 
 describe('assertMqttBrokerSafe', () => {
   it('accepts public mqtt:// and mqtts:// broker URLs', () => {

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   redactAuthForExport,
   authHasPlaintextSecret,
-} from '../collection-export-redactor';
+} from '../security/collection-export-redactor';
 
 describe('redactAuthForExport', () => {
   it('returns non-object inputs unchanged', () => {

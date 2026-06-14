@@ -13,7 +13,7 @@ import { test, expect } from '@playwright/test';
  * Electron-only: it needs Playwright's `_electron` launcher (to get
  * `window.electron.ai` + the OS-keychain secret store), which this config does
  * not yet provide. That path is covered at the unit/integration layer
- * (shared/protocol/ai/* decoders + ai-proxy, electron/main/ai-handler) and is
+ * (shared/protocol/ai/* decoders + ai-proxy, electron/main/handlers/ai-handler) and is
  * left here as a documented, skipped follow-up.
  */
 

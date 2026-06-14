@@ -26,20 +26,20 @@ const mockIo = vi.hoisted(() => vi.fn());
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: vi.fn() },
 }));
-vi.mock('../../electron/main/safe-connect', () => ({
+vi.mock('../../electron/main/security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafe,
   createPinnedLookup: mockCreatePinnedLookup,
 }));
 vi.mock('socket.io-client', () => ({ io: mockIo }));
-vi.mock('../../electron/main/ipc-utils', () => ({ emitTo: vi.fn() }));
-vi.mock('../../electron/main/connection-cleanup', () => ({
+vi.mock('../../electron/main/ipc/ipc-utils', () => ({ emitTo: vi.fn() }));
+vi.mock('../../electron/main/ipc/connection-cleanup', () => ({
   bindRendererCleanup: vi.fn(),
   disposeByOwner: vi.fn(),
 }));
-vi.mock('../../electron/main/ipc-rate-limiter', () => ({
+vi.mock('../../electron/main/ipc/ipc-rate-limiter', () => ({
   createKeyedRateLimiter: () => ({ check: () => true }),
 }));
-vi.mock('../../electron/main/ipc-validators', () => ({
+vi.mock('../../electron/main/ipc/ipc-validators', () => ({
   // Pass the payload straight through — schema validation isn't under test here.
   validateIpcInput: (_schema: unknown, raw: unknown) => raw,
   assertTrustedSender: () => {},
@@ -51,7 +51,7 @@ vi.mock('../../electron/main/ipc-validators', () => ({
   SocketIoDisconnectSchema: {},
 }));
 
-import { registerSocketIoHandlerIPC } from '../../electron/main/socketio-handler';
+import { registerSocketIoHandlerIPC } from '../../electron/main/handlers/socketio-handler';
 import { IPC } from '../../electron/shared/channels';
 
 function makeFakeSocket() {

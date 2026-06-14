@@ -11,7 +11,7 @@ vi.mock('node:dns/promises', () => ({
   lookup: mockLookup,
 }));
 
-import { assertHostnameSafe, assertUrlHostnameSafe } from '../dns-guard';
+import { assertHostnameSafe, assertUrlHostnameSafe } from '../security/dns-guard';
 
 describe('dns-guard', () => {
   beforeEach(() => {
@@ -20,9 +20,7 @@ describe('dns-guard', () => {
 
   describe('assertHostnameSafe', () => {
     it('passes an IP literal without DNS lookup when the literal is public', async () => {
-      await expect(
-        assertHostnameSafe('1.2.3.4', { allowLocalhost: false })
-      ).resolves.toBeDefined();
+      await expect(assertHostnameSafe('1.2.3.4', { allowLocalhost: false })).resolves.toBeDefined();
       expect(mockLookup).not.toHaveBeenCalled();
     });
 
@@ -76,7 +74,7 @@ describe('dns-guard', () => {
       // record is bad, not just the first. This is a documented invariant.
       mockLookup.mockResolvedValueOnce([
         { address: '93.184.216.34', family: 4 }, // public — fine
-        { address: '10.0.0.5', family: 4 },      // private — must reject the lookup
+        { address: '10.0.0.5', family: 4 }, // private — must reject the lookup
       ]);
       await expect(
         assertHostnameSafe('mixed.example.com', { allowLocalhost: false })
@@ -100,9 +98,7 @@ describe('dns-guard', () => {
     it('ACCEPTS IPv6 ULA literal hostnames (user-typed literal exception, parallel to private-v4 literals)', async () => {
       // ULA `fc00::/7` is private. As a literal the user explicitly typed,
       // the guard allows it (same as private v4 literal).
-      await expect(
-        assertHostnameSafe('fc00::1', { allowLocalhost: false })
-      ).resolves.toBeDefined();
+      await expect(assertHostnameSafe('fc00::1', { allowLocalhost: false })).resolves.toBeDefined();
     });
   });
 

@@ -1,8 +1,8 @@
 /**
- * Opt-in renderer telemetry. Sends `{ requestId, message, stack, build, ua }`
+ * Opt-out renderer telemetry. Sends `{ requestId, message, stack, build, ua }`
  * to the Worker at `/api/telemetry/error`. Gated on
- * `useSettingsStore.getState().settings.telemetry?.errorsEnabled` — default
- * false; no request fires until the user explicitly enables it.
+ * `useSettingsStore.getState().settings.telemetry?.errorsEnabled` — seeded `true`
+ * (on by default); no request fires once the user disables it in Settings.
  *
  * Never sends headers, response bodies, request payloads, or any field
  * outside the allowlist below.
@@ -45,18 +45,26 @@ export function reportError(payload: ErrorPayload): void {
   };
   // sendBeacon survives page unload; preferred for unhandledrejection.
   try {
-    if (typeof navigator !== 'undefined' && navigator.sendBeacon && payload.source !== 'error-boundary') {
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.sendBeacon &&
+      payload.source !== 'error-boundary'
+    ) {
       const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
       navigator.sendBeacon(url, blob);
       return;
     }
-  } catch { /* fall through to fetch */ }
+  } catch {
+    /* fall through to fetch */
+  }
   void fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
     body: JSON.stringify(body),
     keepalive: true,
-  }).catch(() => { /* swallow — telemetry must never throw at the call site */ });
+  }).catch(() => {
+    /* swallow — telemetry must never throw at the call site */
+  });
 }
 
 let installed = false;

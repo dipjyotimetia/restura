@@ -1,6 +1,6 @@
 // The canonical gRPC server-reflection protocol (grpc.reflection.v1), vendored
 // so the echo worker can serve real Connect-framed reflection to the desktop
-// client. Mirrors the proto bundled in electron/main/grpc-connect.ts.
+// client. Mirrors the proto bundled in electron/main/handlers/grpc-connect.ts.
 syntax = "proto3";
 
 package grpc.reflection.v1;

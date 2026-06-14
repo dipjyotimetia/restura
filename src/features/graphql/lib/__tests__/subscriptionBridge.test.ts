@@ -5,7 +5,7 @@ import { GraphQLSubscriptionClient, type SubscriptionMessage } from '../subscrip
 
 // Drives the REAL ElectronGraphQLSocket bridge end-to-end. The Electron WS IPC
 // API is faked, but backed by a real `ws` connection to the mock graphql-ws
-// server — mirroring electron/main/websocket-handler.ts's relay. So the path is:
+// server — mirroring electron/main/handlers/websocket-handler.ts's relay. So the path is:
 // graphql-ws client → bridge → (fake IPC) → real ws → mock graphql-ws server →
 // Subscription.tick. This proves the graphql-transport-ws handshake (incl. the
 // `socket.protocol` check) works over the IPC bridge, not just a primitive.

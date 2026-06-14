@@ -2,7 +2,7 @@
  * Two `Fetcher` implementations for contract tests:
  *
  *   - workerFetcher  — `globalThis.fetch` (mirrors `worker/handlers/proxy.ts`)
- *   - electronFetcher — undici-backed, the same client `electron/main/http-handler.ts`
+ *   - electronFetcher — undici-backed, the same client `electron/main/handlers/http-handler.ts`
  *                       uses for real upstream calls
  *
  * Both implement `Fetcher` from `shared/protocol/types.ts`. They run against
@@ -32,10 +32,12 @@ export const workerFetcher: Fetcher = async (req: FetcherRequest): Promise<Fetch
 };
 
 export const electronFetcher: Fetcher = async (req: FetcherRequest): Promise<FetcherResponse> => {
-  // Adapt undici → Fetcher shape. Matches electron/main/http-handler.ts.
+  // Adapt undici → Fetcher shape. Matches electron/main/handlers/http-handler.ts.
   const headerEntries: Record<string, string> = {};
   if (req.headers instanceof Headers) {
-    req.headers.forEach((v, k) => { headerEntries[k] = v; });
+    req.headers.forEach((v, k) => {
+      headerEntries[k] = v;
+    });
   } else {
     for (const [k, v] of Object.entries(req.headers)) headerEntries[k] = v;
   }
@@ -65,7 +67,12 @@ export const electronFetcher: Fetcher = async (req: FetcherRequest): Promise<Fet
     statusText: '',
     headers: headersOut,
     text: async () => res.body.text(),
-    contentLengthHeader: typeof contentLength === 'string' ? contentLength : (Array.isArray(contentLength) ? contentLength[0] ?? null : null),
+    contentLengthHeader:
+      typeof contentLength === 'string'
+        ? contentLength
+        : Array.isArray(contentLength)
+          ? (contentLength[0] ?? null)
+          : null,
   };
 };
 

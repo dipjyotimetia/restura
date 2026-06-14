@@ -30,20 +30,21 @@ const mockResolveSafe = vi.hoisted(() =>
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: mockRemoveHandler },
 }));
-vi.mock('../secret-handle-store', () => ({ resolveSecretHandle: mockResolveSecret }));
-vi.mock('../safe-connect', () => ({
+vi.mock('../security/secret-handle-store', () => ({ resolveSecretHandle: mockResolveSecret }));
+vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafe,
   createPinnedFetch: () => vi.fn(),
 }));
-vi.mock('../ipc-utils', () => ({ emitTo: mockEmitTo }));
-vi.mock('../connection-cleanup', () => ({
+vi.mock('../ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));
+vi.mock('../ipc/connection-cleanup', () => ({
   bindRendererCleanup: mockBindCleanup,
   disposeByOwner: mockDispose,
 }));
-vi.mock('../ipc-rate-limiter', () => ({
+vi.mock('../ipc/ipc-rate-limiter', () => ({
   createKeyedRateLimiter: () => ({ check: () => true }),
 }));
-vi.mock('../fetch-fetcher', () => ({ makeFetchFetcher: () => vi.fn() }));
+// fetch-fetcher is left REAL so `makePinnedFetcher` forwards to the mocked
+// safe-connect below — that's what the resolveSafeAddress assertions verify.
 vi.mock('@shared/protocol/ai/ai-complete', () => ({ runToCompletion: mockRunToCompletion }));
 vi.mock('@shared/protocol/ai/ai-proxy', () => ({ executeAiChat: vi.fn() }));
 vi.mock('@shared/protocol/ai/model-discovery', () => ({
@@ -51,7 +52,7 @@ vi.mock('@shared/protocol/ai/model-discovery', () => ({
   testConnection: mockTestConnection,
 }));
 
-import { registerAiLabHandlers, unregisterAiLabHandlers } from '../ai-lab-handler';
+import { registerAiLabHandlers, unregisterAiLabHandlers } from '../handlers/ai-lab-handler';
 
 const TRUSTED = {
   sender: { id: 1, isDestroyed: () => false },

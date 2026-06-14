@@ -11,7 +11,7 @@ vi.mock('electron', () => ({
   session: { defaultSession: { resolveProxy: vi.fn() } },
 }));
 
-import { buildElectronFetcher, type HttpRequestConfig } from '../http-handler';
+import { buildElectronFetcher, type HttpRequestConfig } from '../handlers/http-handler';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import { startMockHttpServer, type MockHttpServerHandle } from '../../../e2e/mocks/httpServer';
 

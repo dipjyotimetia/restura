@@ -2,17 +2,17 @@ import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { z } from 'zod';
-import { createApplicationMenu } from './menu';
-import { SAFE_OPEN_PROTOCOLS, createValidatedHandler, NoInputSchema } from './ipc-validators';
+import { createApplicationMenu } from './lifecycle/menu';
+import { SAFE_OPEN_PROTOCOLS, createValidatedHandler, NoInputSchema } from './ipc/ipc-validators';
 import { IPC } from '../shared/channels';
-import { bindLimiterToWebContents } from './rate-limiter-cleanup';
-import { httpRateLimiter } from './http-handler';
-import { grpcRateLimiter } from './grpc-handler';
-import { wsRateLimiter } from './websocket-handler';
-import { socketIoRateLimiter } from './socketio-handler';
-import { sseRateLimiter } from './sse-handler';
-import { mcpRateLimiter } from './mcp-handler';
-import { kafkaRateLimiter } from './kafka-handler';
+import { bindLimiterToWebContents } from './ipc/rate-limiter-cleanup';
+import { httpRateLimiter } from './handlers/http-handler';
+import { grpcRateLimiter } from './handlers/grpc-handler';
+import { wsRateLimiter } from './handlers/websocket-handler';
+import { socketIoRateLimiter } from './handlers/socketio-handler';
+import { sseRateLimiter } from './handlers/sse-handler';
+import { mcpRateLimiter } from './handlers/mcp-handler';
+import { kafkaRateLimiter } from './handlers/kafka-handler';
 import { notificationRateLimiter } from './notifications';
 import { createLogger } from '../../src/lib/shared/logger';
 
@@ -112,6 +112,11 @@ export function saveWindowState(win: BrowserWindow): void {
   }
 }
 
+// NOTE: this module MUST stay at electron/main/ root. The `__dirname`-relative
+// paths here (resources, preload.js, web/index.html) are calibrated to the
+// compiled location dist/electron/electron/main/; moving this file into a
+// subdirectory adds a path segment and breaks them at runtime — and neither tsc
+// nor the unit tests catch it (only a packaged/e2e run would).
 export function getResourcePath(resource: string, isDev: boolean): string {
   if (isDev) {
     return path.join(__dirname, '../../../electron/resources', resource);

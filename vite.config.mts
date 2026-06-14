@@ -71,10 +71,9 @@ export default defineConfig({
           manualChunks(id: string) {
             if (!id.includes('node_modules')) return undefined;
             // React core only — the `[\\/]…[\\/]` boundaries match these exact
-            // package dirs. Peripheral `react-*` libs (react-hotkeys-hook,
-            // react-resizable-panels, react-syntax-highlighter) deliberately
-            // fall through to Vite's default splitting; they're small or already
-            // route-lazy, so bucketing them here would buy nothing.
+            // package dirs. Other `react-*` libs deliberately fall through to
+            // Vite's default splitting; they're small or already route-lazy, so
+            // bucketing them here would buy nothing.
             if (
               /[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom)[\\/]/.test(
                 id

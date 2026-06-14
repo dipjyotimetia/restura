@@ -5,7 +5,7 @@ import {
   McpConnectSchema,
   McpRequestSchema,
   McpDisconnectSchema,
-} from '../ipc-validators';
+} from '../ipc/ipc-validators';
 
 describe('SseConnectSchema', () => {
   it('accepts a well-formed http URL with no headers', () => {
@@ -132,9 +132,7 @@ describe('McpRequestSchema', () => {
   });
 
   it('rejects empty method names', () => {
-    expect(
-      McpRequestSchema.safeParse({ connectionId: 'abc', method: '' }).success
-    ).toBe(false);
+    expect(McpRequestSchema.safeParse({ connectionId: 'abc', method: '' }).success).toBe(false);
   });
 
   it('rejects timeouts above the cap', () => {

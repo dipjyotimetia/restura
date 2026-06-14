@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../kafka-broker-guard';
+import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 
 describe('assertKafkaBrokersSafe', () => {
   it('accepts public broker addresses with default port', () => {

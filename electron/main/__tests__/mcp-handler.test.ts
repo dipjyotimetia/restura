@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { McpError, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+import type * as IpcUtils from '../ipc/ipc-utils';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
@@ -14,15 +15,15 @@ const mockCreatePinnedFetch = vi.hoisted(() => vi.fn(() => mockPinnedFetch));
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: vi.fn() },
 }));
-vi.mock('../ipc-utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../ipc-utils')>();
+vi.mock('../ipc/ipc-utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof IpcUtils>();
   return { ...actual, emitTo: mockEmitTo };
 });
-vi.mock('../connection-cleanup', () => ({
+vi.mock('../ipc/connection-cleanup', () => ({
   bindRendererCleanup: mockBindCleanup,
   disposeByOwner: mockDisposeByOwner,
 }));
-vi.mock('../safe-connect', () => ({
+vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafeAddress,
   createPinnedFetch: mockCreatePinnedFetch,
 }));
@@ -101,7 +102,7 @@ vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
   },
 }));
 
-import { registerMcpHandlerIPC, stopMcpCleanup } from '../mcp-handler';
+import { registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
 

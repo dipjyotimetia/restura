@@ -1,7 +1,7 @@
 /**
  * Cross-backend contract test for `executeHttpProxyStreaming` — the rail SSE,
  * NDJSON and chunked downloads ride on (worker/handlers/proxy.ts streaming
- * branch + electron/main/sse-handler.ts both call it). The buffered contract
+ * branch + electron/main/handlers/sse-handler.ts both call it). The buffered contract
  * test (`http-proxy.contract.test.ts`) never exercises the streaming path, so a
  * parity break in stream framing/decoding between the Worker (globalThis.fetch)
  * and Electron (undici) rails would go uncaught until e2e.

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { debounce } from '../watcher-utils';
+import { debounce } from '../util/debounce';
 
 describe('debounce', () => {
   it('coalesces multiple calls within the window into one trailing invocation', async () => {

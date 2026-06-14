@@ -13,7 +13,7 @@ import {
   createValidatedHandler,
   MAX_HTTP_BODY_BYTES,
   MAX_PROTO_CONTENT_BYTES,
-} from '../ipc-validators';
+} from '../ipc/ipc-validators';
 
 // validateIpcInput logs at error level before throwing, which produces JSON
 // lines on stderr. GitHub Actions issue-matcher regexes backtrack

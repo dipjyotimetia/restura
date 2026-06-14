@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { VaultGetSchema, VaultSetSchema, VaultUnsetSchema } from '../vault-handler';
+import { VaultGetSchema, VaultSetSchema, VaultUnsetSchema } from '../storage/vault-handler';
 
 /**
  * Phase D — `pm.vault` key/value validation.

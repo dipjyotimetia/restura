@@ -693,7 +693,7 @@ export interface HistoryItem {
 /**
  * A single route served by the desktop mock server (record-and-replay). Built
  * from a collection + history by `buildMockRoutes`, then sent over IPC to
- * `electron/main/mock-server-handler.ts`. Mock is desktop-only (see
+ * `electron/main/handlers/mock-server-handler.ts`. Mock is desktop-only (see
  * capabilities `mock.localServer`) — web can't bind a local listener.
  */
 export interface MockRoute {
@@ -888,7 +888,7 @@ export interface AppSettings {
   // error sink (web) and, on desktop, Sentry crash/error reporting (native
   // minidumps + main/renderer JS errors) — never request payloads, headers, or
   // response bodies. The flag is mirrored to the Electron main process so it can
-  // gate Sentry; see electron/main/sentry.ts and electron/main/telemetry-consent.ts.
+  // gate Sentry; see electron/main/lifecycle/sentry.ts and electron/main/lifecycle/telemetry-consent.ts.
   telemetry?: {
     errorsEnabled: boolean;
   };

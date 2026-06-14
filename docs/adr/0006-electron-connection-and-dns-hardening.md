@@ -80,6 +80,20 @@ pinned address rather than letting the transport re-resolve the hostname:
   `electron/main/__tests__/dns-rebind-pinning.test.ts`; a live TLS handshake is
   not exercised by the suite, so the authority-override path carries some
   residual untested risk.
+- **AI chat + AI Lab** (`ai-handler.ts`, `ai-lab-handler.ts`, via `makePinnedFetcher`
+  in `fetch-fetcher.ts`): both build the provider fetcher with
+  `createPinnedFetch(host, ip)` + `redirect: 'manual'`, so the request dials the
+  validated IP and a 3xx can't bounce to a private/metadata host. Chat is
+  cloud-only (`allowLocalhost: false`); AI Lab gates `allowLocalhost` on provider
+  kind for local runtimes (Ollama / openai-compatible).
+
+**Pinning tradeoff (every `createPinnedFetch` / `createPinnedLookup` consumer):**
+resolution pins to the _first_ validated record (`resolveSafeAddress` →
+`records[0]`), so the connector dials a single IP. This intentionally forgoes
+Happy-Eyeballs / `autoSelectFamily` IPv6↔IPv4 fallback: on a host whose first
+record is an unreachable AAAA, the pinned dial fails where an unpinned fetch
+would have fallen back. Accepted as the cost of closing the rebind window;
+multi-record pinning is possible future work (see below).
 
 **Still pre-flight only:** `mcp-handler.ts`, `socketio-handler.ts` (socket.io-client
 exposes no `lookup` hook), `grpc-reflection-handler.ts`, and `kafka-handler.ts`
@@ -90,6 +104,7 @@ limitations and are the next candidates for the same treatment.
 
 - Connect-time pinning for the remaining transports (mcp, socketio, grpc-reflection, kafka).
 - Per-transport custom dispatchers with `lookup` hooks for true DNS-rebind protection.
+- Multi-record pinning (validate every resolved record, hand the connector the full set) to restore Happy-Eyeballs IPv6↔IPv4 fallback for the pinned transports.
 - A unified "destination policy" that takes both the URL-string check and the resolved-address check into one decision point shared with the renderer (currently the renderer has its own less-strict policy because it doesn't have `dns.lookup`).
 - Metrics on DNS-guard rejections — observability for "how often does this fire in production" is unwritten.
 

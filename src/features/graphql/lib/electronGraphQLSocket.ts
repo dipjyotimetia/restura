@@ -3,7 +3,7 @@ import { getElectronAPI } from '@/lib/shared/platform';
 // graphql-ws drives a standard WebSocket. On desktop the renderer can't open one
 // directly (packaged CSP blocks ws:/wss:), so this adapter implements the slice
 // of the WebSocket interface graphql-ws needs on top of the WebSocket IPC bridge
-// (electron/main/websocket-handler.ts). graphql-ws verifies `socket.protocol`
+// (electron/main/handlers/websocket-handler.ts). graphql-ws verifies `socket.protocol`
 // after open, so we surface the negotiated subprotocol from the ws:open payload.
 //
 // graphql-ws constructs the impl as `new Impl(url, GRAPHQL_TRANSPORT_WS_PROTOCOL)`,

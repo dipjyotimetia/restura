@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createKeyedRateLimiter } from '../ipc-rate-limiter';
+import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 
 describe('createKeyedRateLimiter', () => {
   beforeEach(() => {
@@ -59,4 +59,3 @@ describe('createKeyedRateLimiter', () => {
     expect(limiter.check(1)).toBe(false);
   });
 });
-

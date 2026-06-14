@@ -50,7 +50,6 @@ import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { withViewTransition } from '@/lib/shared/viewTransition';
-import { ReleaseNotes } from './ReleaseNotes';
 
 const ProviderSettings = lazyComponent(async () => {
   const m = await import('@/features/ai/components/ProviderSettings');
@@ -1603,22 +1602,6 @@ function UpdatesSection() {
 
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
-  const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
-
-  // Mirror the live updater status so the panel can show release notes and the
-  // most recent check outcome even when triggered from the banner or tray.
-  useEffect(() => {
-    if (!isElectron()) return;
-    const api = getElectronAPI();
-    if (!api) return;
-    return api.updater.onStatus((status) => {
-      if (status.state === 'available' || status.state === 'downloaded') {
-        setReleaseNotes(status.releaseNotes ?? null);
-        setLatestVersion(status.version ?? null);
-      }
-    });
-  }, []);
 
   const handleCheck = useCallback(async () => {
     const api = getElectronAPI();
@@ -1723,15 +1706,6 @@ function UpdatesSection() {
           }
         />
       </FieldGroup>
-
-      {releaseNotes && (
-        <section className="mt-5">
-          <SectionLabel>What&apos;s new{latestVersion ? ` in v${latestVersion}` : ''}</SectionLabel>
-          <Floater radius="panel" elevation="inset" className="p-4">
-            <ReleaseNotes html={releaseNotes} />
-          </Floater>
-        </section>
-      )}
     </>
   );
 }

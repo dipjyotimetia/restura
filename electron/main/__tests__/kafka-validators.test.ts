@@ -9,7 +9,7 @@ import {
   KafkaProduceSchema,
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
-} from '../ipc-validators';
+} from '../ipc/ipc-validators';
 
 describe('Kafka IPC validators', () => {
   describe('KafkaConnectSchema', () => {

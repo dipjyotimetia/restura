@@ -7,7 +7,7 @@ import type { OpenCollection } from './schemas';
  * Write a bundled OpenCollection YAML file.
  *
  * **Caller MUST validate that `path` is in an allowed directory.** This
- * function does no path-traversal checking. See `electron/main/file-operations.ts:isPathSafe`.
+ * function does no path-traversal checking. See `electron/main/storage/file-operations.ts:isPathSafe`.
  */
 export async function saveCollectionToFile(oc: OpenCollection, path: string): Promise<void> {
   const compacted = (compact(oc) ?? {}) as Record<string, unknown>;
@@ -22,7 +22,7 @@ export async function saveCollectionToFile(oc: OpenCollection, path: string): Pr
  *
  * **Caller MUST validate that `dir` is in an allowed directory.** This
  * function will create subdirectories and files freely under `dir`. See
- * `electron/main/file-operations.ts:isPathSafe`.
+ * `electron/main/storage/file-operations.ts:isPathSafe`.
  */
 export async function saveCollectionToDir(oc: OpenCollection, dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });

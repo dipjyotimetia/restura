@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { __test_handleDeepLink } from '../deep-link-handler';
+import { __test_handleDeepLink } from '../lifecycle/deep-link-handler';
 
 type Sent = { host: string; params: Record<string, string> };
 
@@ -35,10 +35,7 @@ describe('handleDeepLink url-param validation', () => {
 
   it('preserves a valid public url', () => {
     const { sent, getWin } = makeWin();
-    __test_handleDeepLink(
-      'restura://import?url=https://example.com/foo.json',
-      getWin
-    );
+    __test_handleDeepLink('restura://import?url=https://example.com/foo.json', getWin);
     expect(sent[0]!.params.url).toBe('https://example.com/foo.json');
   });
 
@@ -51,10 +48,7 @@ describe('handleDeepLink url-param validation', () => {
   it('truncates non-URL params to 1024 chars', () => {
     const { sent, getWin } = makeWin();
     const longValue = 'a'.repeat(2000);
-    __test_handleDeepLink(
-      `restura://collection?name=${longValue}`,
-      getWin
-    );
+    __test_handleDeepLink(`restura://collection?name=${longValue}`, getWin);
     expect(sent[0]!.params.name?.length).toBe(1024);
   });
 });

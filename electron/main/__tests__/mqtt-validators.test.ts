@@ -5,7 +5,7 @@ import {
   MqttSubscribeSchema,
   MqttUnsubscribeSchema,
   MqttDisconnectSchema,
-} from '../ipc-validators';
+} from '../ipc/ipc-validators';
 
 const baseConnect = {
   connectionId: 'conn-1',
