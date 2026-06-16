@@ -558,6 +558,9 @@ interface ElectronStoreAPI {
  * are gated main-side by collection-manager's directory allowlist.
  */
 interface ElectronGitAPI {
+  init: (
+    directoryPath: string
+  ) => Promise<{ ok: true; initialized: true } | { ok: false; error: string }>;
   status: (directoryPath: string) => Promise<
     | {
         ok: true;
@@ -569,7 +572,9 @@ interface ElectronGitAPI {
           clean: boolean;
         };
       }
-    | { ok: false; error: string }
+    // `code` carries a stable GitError code (e.g. 'not-a-repo') so callers can
+    // branch without string-matching git's localized error message.
+    | { ok: false; error: string; code?: string }
   >;
   log: (
     directoryPath: string,

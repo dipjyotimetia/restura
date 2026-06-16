@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+type WindowWithElectron = {
+  electron?: { collections?: { watchDirectory: ReturnType<typeof vi.fn> } };
+};
 
 describe('useFileCollectionStore persistence', () => {
   beforeEach(() => {
@@ -37,5 +41,59 @@ describe('useFileCollectionStore persistence', () => {
     const partialized = opts.partialize ? opts.partialize(fullState) : fullState;
     const keys = Object.keys(partialized as object).sort();
     expect(keys).toEqual(['defaultDirectory', 'fileCollections']);
+  });
+});
+
+describe('restoreFileCollectionWatchers', () => {
+  beforeEach(async () => {
+    // Clean slate: the store is a module singleton shared across tests.
+    const { useFileCollectionStore } = await import('../useFileCollectionStore');
+    useFileCollectionStore.setState({ fileCollections: {}, conflicts: [] });
+  });
+
+  afterEach(() => {
+    delete (window as unknown as WindowWithElectron).electron;
+  });
+
+  it('re-watches every persisted collection and reflects watch success in isWatching', async () => {
+    const { useFileCollectionStore, restoreFileCollectionWatchers } =
+      await import('../useFileCollectionStore');
+    const watchDirectory = vi.fn().mockResolvedValue({ success: true });
+    (window as unknown as WindowWithElectron).electron = { collections: { watchDirectory } };
+
+    const store = useFileCollectionStore.getState();
+    store.registerFileCollection('col-a', '/tmp/a');
+    store.registerFileCollection('col-b', '/tmp/b');
+    // registerFileCollection seeds isWatching: false — the post-restart state.
+    expect(useFileCollectionStore.getState().fileCollections['col-a']?.isWatching).toBe(false);
+
+    await restoreFileCollectionWatchers();
+
+    expect(watchDirectory).toHaveBeenCalledTimes(2);
+    expect(watchDirectory).toHaveBeenCalledWith('/tmp/a');
+    expect(watchDirectory).toHaveBeenCalledWith('/tmp/b');
+    const after = useFileCollectionStore.getState().fileCollections;
+    expect(after['col-a']?.isWatching).toBe(true);
+    expect(after['col-b']?.isWatching).toBe(true);
+  });
+
+  it('leaves isWatching false when a directory can no longer be watched', async () => {
+    const { useFileCollectionStore, restoreFileCollectionWatchers } =
+      await import('../useFileCollectionStore');
+    const watchDirectory = vi
+      .fn()
+      .mockResolvedValueOnce({ success: false, error: 'gone' }) // col-a: dir unsafe/missing
+      .mockRejectedValueOnce(new Error('boom')); // col-b: IPC rejected
+    (window as unknown as WindowWithElectron).electron = { collections: { watchDirectory } };
+
+    const store = useFileCollectionStore.getState();
+    store.registerFileCollection('col-a', '/tmp/a');
+    store.registerFileCollection('col-b', '/tmp/b');
+
+    await restoreFileCollectionWatchers();
+
+    const after = useFileCollectionStore.getState().fileCollections;
+    expect(after['col-a']?.isWatching).toBe(false);
+    expect(after['col-b']?.isWatching).toBe(false);
   });
 });

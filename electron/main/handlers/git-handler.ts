@@ -4,18 +4,28 @@
  * Read operations:
  *   - git:status   → modified / untracked / staged file lists
  *   - git:log      → recent commits
- *   - git:diff     → unified diff for a single file (HEAD vs working tree)
+ *   - git:diff     → unified diff for a single file (working tree vs index, i.e.
+ *                    unstaged changes)
  *   - git:branch:list → branches + current
  *
  * Local write operations (no remote):
+ *   - git:init            → initialise a repo in a registered collection dir
  *   - git:add             → stage files
  *   - git:commit          → commit staged (optionally stage-all first)
  *   - git:branch:create   → create + switch to a branch
- *   - git:branch:checkout → switch branch (triggers a collection reload via the
- *                           file watcher)
+ *   - git:branch:checkout → switch branch. The renderer reloads the collection
+ *                           from disk afterwards (see useGit.checkout) — the
+ *                           file watcher is best-effort and not relied upon.
  *
- * Deferred: remote fetch/push/pull — needs a credential model (SSH key vs
+ * Deferred: remote fetch/push/pull/clone — needs a credential model (SSH key vs
  * HTTPS token + SecretRef), a bigger conversation.
+ *
+ * Hardening: every invocation neutralises repo-local `core.fsmonitor`
+ * (`-c core.fsmonitor=`) so merely opening a hostile repo can't run an
+ * attacker-supplied program during the auto-polled `git status`; `git diff`
+ * additionally passes `--no-ext-diff --no-textconv`. Repo hooks are deliberately
+ * NOT disabled — a user committing to their own repo expects their
+ * pre-commit/commit-msg hooks (secret scanners, linters) to run.
  *
  * Security:
  *  - Directory paths are validated against a whitelist (provided by the
@@ -35,6 +45,7 @@
  */
 
 import { execFile } from 'child_process';
+import { existsSync } from 'fs';
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
 import { assertTrustedSender } from '../ipc/ipc-validators';
@@ -232,8 +243,16 @@ export function parseCommitLog(raw: string): GitCommit[] {
 }
 
 /**
- * Parse `git branch --list --all --format='%(refname:short)\t%(upstream:short)'`
+ * Parse `git branch --list --all --format='%(refname)\t%(upstream:short)'`
  * preceded by HEAD detection via a separate `--show-current` call.
+ *
+ * We use the FULL refname (`refs/heads/x`, `refs/remotes/origin/x`) rather than
+ * `%(refname:short)` because the short form is the only signal of remoteness and
+ * it is ambiguous: `git branch --all` emits a remote `origin/main` as the bare
+ * `origin/main`, indistinguishable from a (legal) local branch literally named
+ * `origin/main`. With the full refname, `refs/remotes/` is an unambiguous remote
+ * marker. The symbolic `refs/remotes/<remote>/HEAD` pointer is dropped — it's not
+ * a checkout target, and surfacing it produced a phantom bare `origin` entry.
  */
 export function parseBranchList(raw: string, currentBranch: string | null): GitBranch[] {
   const out: GitBranch[] = [];
@@ -242,8 +261,24 @@ export function parseBranchList(raw: string, currentBranch: string | null): GitB
     const [refRaw, upstreamRaw] = line.split('\t');
     const ref = refRaw?.trim();
     if (!ref) continue;
-    const isRemote = ref.startsWith('remotes/');
-    const name = isRemote ? ref.replace(/^remotes\//, '') : ref;
+
+    let name: string;
+    let isRemote: boolean;
+    if (ref.startsWith('refs/remotes/')) {
+      isRemote = true;
+      name = ref.slice('refs/remotes/'.length);
+      // Skip the symbolic `<remote>/HEAD` pointer (e.g. refs/remotes/origin/HEAD).
+      if (name.endsWith('/HEAD')) continue;
+    } else if (ref.startsWith('refs/heads/')) {
+      isRemote = false;
+      name = ref.slice('refs/heads/'.length);
+    } else {
+      // Defensive: an unexpected ref category (tags shouldn't appear under
+      // `branch --all`). Treat as a local-ish ref keyed on its raw name.
+      isRemote = false;
+      name = ref;
+    }
+
     out.push({
       name,
       isCurrent: !isRemote && currentBranch !== null && name === currentBranch,
@@ -263,12 +298,18 @@ const dirLocks = new Map<string, Promise<unknown>>();
 function withLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   const prev = dirLocks.get(dir) ?? Promise.resolve();
   const next = prev.catch(() => undefined).then(fn);
-  dirLocks.set(
-    dir,
-    next.finally(() => {
+  // Store `next` itself as the lock head so the self-clean below can identity-
+  // match it. (Storing `next.finally(...)` — a distinct promise — made the
+  // `=== next` check always false, so the entry was never evicted and one
+  // settled promise leaked per directory.)
+  dirLocks.set(dir, next);
+  void next
+    .catch(() => undefined)
+    .finally(() => {
+      // Only the most-recent op clears the entry; if a newer op already
+      // replaced the head, leave it for that op to clean up.
       if (dirLocks.get(dir) === next) dirLocks.delete(dir);
-    })
-  );
+    });
   return next;
 }
 
@@ -288,24 +329,49 @@ export class GitError extends Error {
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', args, {
-      cwd,
-      maxBuffer: MAX_OUTPUT_BYTES,
-      timeout: COMMAND_TIMEOUT_MS,
-      // Force UTF-8 + no pager.
-      env: { ...process.env, LANG: 'C.UTF-8', GIT_PAGER: 'cat', PAGER: 'cat' },
-    });
+    const { stdout } = await execFileAsync(
+      'git',
+      // `-c core.fsmonitor=` (before the subcommand) neutralises a repo-local
+      // `core.fsmonitor = <program>`, which git would otherwise execute during
+      // `git status` — the auto-polled, zero-interaction path. Empirically the
+      // empty value disables both the program and boolean forms (git 2.x).
+      ['-c', 'core.fsmonitor=', ...args],
+      {
+        cwd,
+        maxBuffer: MAX_OUTPUT_BYTES,
+        timeout: COMMAND_TIMEOUT_MS,
+        // Force UTF-8 + no pager.
+        env: { ...process.env, LANG: 'C.UTF-8', GIT_PAGER: 'cat', PAGER: 'cat' },
+      }
+    );
     return stdout;
   } catch (err) {
     if (err && typeof err === 'object') {
       const e = err as { code?: string; stderr?: string; message?: string };
       if (e.code === 'ENOENT') {
+        // ENOENT is ambiguous: a missing `git` binary AND a missing `cwd` both
+        // surface it. Disambiguate so a deleted/unmounted collection directory
+        // doesn't masquerade as "git is not installed".
+        if (!existsSync(cwd)) {
+          throw new GitError(
+            'Collection directory no longer exists. Re-open it to continue.',
+            'directory-missing'
+          );
+        }
         throw new GitError(
           'git is not installed or not on PATH. Install git to use git-native collections.',
           'git-missing'
         );
       }
-      throw new GitError(e.stderr?.trim() || e.message || 'git command failed', 'git-error');
+      const message = e.stderr?.trim() || e.message || 'git command failed';
+      // git has no distinct exit code for "outside a repo" — it's a generic
+      // fatal (128). Match its stderr ONCE here, at the boundary, and raise a
+      // stable `not-a-repo` code so the renderer never has to string-match
+      // localized git output to offer "Initialize repository".
+      if (/not a git repository/i.test(message)) {
+        throw new GitError(message, 'not-a-repo');
+      }
+      throw new GitError(message, 'git-error');
     }
     throw new GitError(String(err), 'git-error');
   }
@@ -343,7 +409,16 @@ export async function gitDiff(directoryPath: string, filePath: string): Promise<
     throw new GitError(`File path escapes the collection directory: ${filePath}`, 'invalid-input');
   }
   return withLock(dir, async () => {
-    const raw = await runGit(dir, ['diff', '--no-color', '--', filePath]);
+    // --no-ext-diff / --no-textconv stop a repo-local `.gitattributes` from
+    // routing the diff through an attacker-supplied external program.
+    const raw = await runGit(dir, [
+      'diff',
+      '--no-color',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--',
+      filePath,
+    ]);
     return raw;
   });
 }
@@ -353,7 +428,7 @@ export async function gitBranchList(directoryPath: string): Promise<GitBranch[]>
   return withLock(dir, async () => {
     const [current, list] = await Promise.all([
       runGit(dir, ['branch', '--show-current']).then((s) => s.trim() || null),
-      runGit(dir, ['branch', '--list', '--all', '--format=%(refname:short)\t%(upstream:short)']),
+      runGit(dir, ['branch', '--list', '--all', '--format=%(refname)\t%(upstream:short)']),
     ]);
     return parseBranchList(list, current);
   });
@@ -363,6 +438,20 @@ export async function gitBranchList(directoryPath: string): Promise<GitBranch[]>
 // Write operations (local only — no remote/push/pull; that needs a credential
 // model and lands in a later milestone). All reuse the allowlist + per-dir lock.
 // ---------------------------------------------------------------------------
+
+/**
+ * Initialise a git repository in a registered collection directory. Idempotent —
+ * `git init` on an existing repo simply re-initialises it. This is the local
+ * "spinup" path: a file-backed collection created in a plain directory becomes
+ * git-backed without leaving the app. Remote `clone` stays deferred (credentials).
+ */
+export async function gitInit(directoryPath: string): Promise<true> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  return withLock(dir, async () => {
+    await runGit(dir, ['init']);
+    return true as const;
+  });
+}
 
 /** Resolve a file path and assert it stays within the collection directory. */
 function resolveWithin(dir: string, filePath: string): string {
@@ -454,12 +543,19 @@ function ipcCommand<T, R>(
     try {
       return { ok: true, [resultKey]: await run(parsed.data) };
     } catch (err) {
-      return { ok: false, error: errorMessage(err) };
+      // Carry the structured GitError.code (e.g. 'not-a-repo', 'directory-missing')
+      // so the renderer can branch on a stable signal instead of the message.
+      const code = errorCode(err);
+      return { ok: false, error: errorMessage(err), ...(code ? { code } : {}) };
     }
   };
 }
 
 export function registerGitHandlerIPC(): void {
+  ipcMain.handle(
+    IPC.git.init,
+    ipcCommand(DirectoryInputSchema, 'initialized', ({ directoryPath }) => gitInit(directoryPath))
+  );
   ipcMain.handle(
     IPC.git.status,
     ipcCommand(DirectoryInputSchema, 'status', ({ directoryPath }) => gitStatus(directoryPath))
@@ -512,6 +608,7 @@ export function registerGitHandlerIPC(): void {
 }
 
 export function unregisterGitHandlerIPC(): void {
+  ipcMain.removeHandler(IPC.git.init);
   ipcMain.removeHandler(IPC.git.status);
   ipcMain.removeHandler(IPC.git.log);
   ipcMain.removeHandler(IPC.git.diff);
@@ -526,6 +623,10 @@ function errorMessage(err: unknown): string {
   if (err instanceof GitError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function errorCode(err: unknown): string | undefined {
+  return err instanceof GitError ? err.code : undefined;
 }
 
 // Surface the sanitiser so tests can exercise it without a real git repo.

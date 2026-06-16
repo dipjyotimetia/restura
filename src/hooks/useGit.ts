@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getElectronAPI } from '@/lib/shared/platform';
+import { loadCollectionFromDirectory } from '@/store/useFileCollectionStore';
 
 export interface GitStatusFile {
   path: string;
@@ -34,6 +35,8 @@ interface GitState {
   log: GitCommit[];
   loading: boolean;
   error: string | null;
+  /** True when the directory isn't a git repo yet — offer `init()`. */
+  notARepo: boolean;
 }
 
 /**
@@ -49,6 +52,7 @@ export function useGit(directoryPath: string | null) {
     log: [],
     loading: false,
     error: null,
+    notARepo: false,
   });
 
   const refresh = useCallback(async () => {
@@ -64,12 +68,19 @@ export function useGit(directoryPath: string | null) {
         api.git.branchList(directoryPath),
         api.git.log(directoryPath, 20),
       ]);
+      const statusError = statusRes.ok ? null : statusRes.error;
+      // The main process tags the "outside a repo" failure with a stable code,
+      // so we branch on that instead of matching git's (localized) message.
+      const notARepo = !statusRes.ok && statusRes.code === 'not-a-repo';
       setState({
         status: statusRes.ok ? statusRes.status : null,
         branches: branchRes.ok ? branchRes.branches : [],
         log: logRes.ok ? logRes.commits : [],
         loading: false,
-        error: !statusRes.ok ? statusRes.error : null,
+        // When the dir simply isn't a repo yet, surface that via `notARepo` (the
+        // UI offers Init) rather than as a raw error banner.
+        error: notARepo ? null : statusError,
+        notARepo,
       });
     } catch (err) {
       // An IPC invoke can reject during teardown / missing handler — never leave
@@ -84,6 +95,14 @@ export function useGit(directoryPath: string | null) {
 
   useEffect(() => {
     if (directoryPath) void refresh();
+  }, [directoryPath, refresh]);
+
+  const init = useCallback(async (): Promise<string | null> => {
+    const api = getElectronAPI();
+    if (!api?.git || !directoryPath) return 'Git unavailable';
+    const res = await api.git.init(directoryPath);
+    await refresh();
+    return res.ok ? null : res.error;
   }, [directoryPath, refresh]);
 
   const commit = useCallback(
@@ -123,11 +142,20 @@ export function useGit(directoryPath: string | null) {
       const api = getElectronAPI();
       if (!api?.git || !directoryPath) return 'Git unavailable';
       const res = await api.git.checkoutBranch(directoryPath, name);
+      if (res.ok) {
+        // A branch switch rewrites the collection files on disk. Reload from
+        // disk explicitly so the in-memory collection reflects the new branch —
+        // the chokidar watcher is best-effort and doesn't drive a reload.
+        // Best-effort: the branch already switched, so a reload failure must not
+        // turn a successful checkout into an error (or escape and stick the
+        // caller's spinner). `refresh()` below re-reads git state regardless.
+        await loadCollectionFromDirectory(directoryPath).catch(() => null);
+      }
       await refresh();
       return res.ok ? null : res.error;
     },
     [directoryPath, refresh]
   );
 
-  return { ...state, refresh, commit, createBranch, checkout };
+  return { ...state, refresh, init, commit, createBranch, checkout };
 }

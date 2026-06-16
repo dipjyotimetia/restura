@@ -480,6 +480,11 @@ const electronAPI = {
   // All operations are gated by collection-manager's directory allowlist
   // so an attacker cannot point these at arbitrary directories.
   git: {
+    init: (
+      directoryPath: string
+    ): Promise<{ ok: true; initialized: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.git.init, { directoryPath }),
+
     status: (
       directoryPath: string
     ): Promise<
@@ -493,7 +498,7 @@ const electronAPI = {
             clean: boolean;
           };
         }
-      | { ok: false; error: string }
+      | { ok: false; error: string; code?: string }
     > => ipcRenderer.invoke(IPC.git.status, { directoryPath }),
 
     log: (

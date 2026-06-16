@@ -120,6 +120,7 @@ export const IPC = {
     unset: 'vault:unset',
   },
   git: {
+    init: 'git:init',
     status: 'git:status',
     log: 'git:log',
     diff: 'git:diff',

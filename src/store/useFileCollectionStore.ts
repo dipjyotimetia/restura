@@ -153,7 +153,8 @@ export const useFileCollectionStore = create<FileCollectionState>()(
       removeConflict: (collectionId, itemId) =>
         set((state) => ({
           conflicts: state.conflicts.filter(
-            (c) => !(c.collectionId === collectionId && (itemId === undefined || c.itemId === itemId))
+            (c) =>
+              !(c.collectionId === collectionId && (itemId === undefined || c.itemId === itemId))
           ),
         })),
 
@@ -185,9 +186,8 @@ export const useFileCollectionStore = create<FileCollectionState>()(
           (typeof persistedState === 'object' &&
             Object.keys(persistedState as object).length === 0);
         if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<FileCollectionState>>(
-            'file-collection-storage'
-          );
+          const legacy =
+            migrateLegacyLocalStorage<Partial<FileCollectionState>>('file-collection-storage');
           if (legacy) return legacy as FileCollectionState;
         }
         return persistedState as FileCollectionState;
@@ -210,6 +210,19 @@ function getElectronCollections(): ElectronAPI['collections'] | null {
 
 export { isElectron as isElectronEnvironment };
 
+/**
+ * Register a main-process file watcher for a collection directory and reflect
+ * the result in the store. The active-watcher set IS the git allowlist (see
+ * `restoreFileCollectionWatchers`), so `isWatching` tracks whether the watch
+ * actually took. Rejects only if the IPC invoke itself fails.
+ */
+async function startWatching(collectionId: string, directoryPath: string): Promise<void> {
+  const electron = getElectronCollections();
+  if (!electron) return;
+  const res = await electron.watchDirectory(directoryPath);
+  useFileCollectionStore.getState().setWatching(collectionId, res?.success !== false);
+}
+
 // Load collection from directory
 export async function loadCollectionFromDirectory(directoryPath: string): Promise<{
   success: boolean;
@@ -225,17 +238,23 @@ export async function loadCollectionFromDirectory(directoryPath: string): Promis
   if (result.success && result.collection) {
     const collection = result.collection as Collection;
 
-    // Add to collection store
+    // Upsert into the collection store. This is also the reload primitive
+    // (ConflictDialog "Load external", post-checkout reload), so it MUST replace
+    // an existing collection rather than append — `addCollection` appends, which
+    // would duplicate the collection in the sidebar on every reload.
     const collectionStore = useCollectionStore.getState();
-    collectionStore.addCollection(collection);
+    if (collectionStore.getCollectionById(collection.id)) {
+      collectionStore.updateCollection(collection.id, collection);
+    } else {
+      collectionStore.addCollection(collection);
+    }
 
     // Register as file collection
     const fileStore = useFileCollectionStore.getState();
     fileStore.registerFileCollection(collection.id, directoryPath);
 
-    // Start watching
-    await electron.watchDirectory(directoryPath);
-    fileStore.setWatching(collection.id, true);
+    // Start watching (the active-watcher set is the git allowlist).
+    await startWatching(collection.id, directoryPath);
 
     return { success: true, collection };
   }
@@ -323,18 +342,36 @@ export async function exportCollectionToFiles(
   const result = await saveCollectionToDirectory(collection, directoryPath);
   if (result.success) {
     // Register as file collection
-    const fileStore = useFileCollectionStore.getState();
-    fileStore.registerFileCollection(collectionId, directoryPath);
+    useFileCollectionStore.getState().registerFileCollection(collectionId, directoryPath);
 
-    // Start watching
-    const electron = getElectronCollections();
-    if (electron) {
-      await electron.watchDirectory(directoryPath);
-      fileStore.setWatching(collectionId, true);
-    }
+    // Start watching (the active-watcher set is the git allowlist).
+    await startWatching(collectionId, directoryPath);
   }
 
   return result;
+}
+
+/**
+ * Re-register a chokidar watcher for every persisted file collection.
+ *
+ * The git allowlist in the main process IS the set of active watchers, and that
+ * set lives only in memory — it is wiped on every app restart while the
+ * collections themselves persist. Without this, after a restart every git
+ * operation on a previously-opened collection fails with "Directory not allowed"
+ * until the user manually re-opens the folder. Call once at startup, after the
+ * store has hydrated. Idempotent: `watchDirectory` replaces any existing watcher.
+ */
+export async function restoreFileCollectionWatchers(): Promise<void> {
+  const { fileCollections, setWatching } = useFileCollectionStore.getState();
+  await Promise.all(
+    Object.values(fileCollections).map((info) =>
+      // A directory deleted/unmounted since last session rejects — leave
+      // isWatching false so the UI reflects that it isn't git-eligible.
+      startWatching(info.collectionId, info.directoryPath).catch(() =>
+        setWatching(info.collectionId, false)
+      )
+    )
+  );
 }
 
 // Initialize file watcher event handler
@@ -347,7 +384,8 @@ export function initFileCollectionWatcher(): void {
 
     // Find which collection this file belongs to
     const fileInfo = Object.values(fileStore.fileCollections).find(
-      (info) => event.directoryPath === info.directoryPath || event.filePath.startsWith(info.directoryPath)
+      (info) =>
+        event.directoryPath === info.directoryPath || event.filePath.startsWith(info.directoryPath)
     );
 
     if (!fileInfo) return;
