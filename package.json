@@ -221,7 +221,7 @@
   },
   "optionalDependencies": {
     "png-to-ico": "^3.0.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.1"
   },
   "engines": {
     "node": ">=24"
