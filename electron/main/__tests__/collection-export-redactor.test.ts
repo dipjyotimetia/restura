@@ -3,7 +3,30 @@ import { describe, it, expect } from 'vitest';
 import {
   redactAuthForExport,
   authHasPlaintextSecret,
+  redactSecretVariablesForExport,
 } from '../security/collection-export-redactor';
+
+describe('redactSecretVariablesForExport', () => {
+  it('returns undefined for undefined input', () => {
+    expect(redactSecretVariablesForExport(undefined)).toBeUndefined();
+  });
+
+  it('blanks the value of secret-flagged variables but keeps the flag', () => {
+    const out = redactSecretVariablesForExport([
+      { id: '1', key: 'API_KEY', value: 'sk-secret-123', enabled: true, secret: true },
+      { id: '2', key: 'BASE_URL', value: 'https://api.example.com', enabled: true },
+    ]);
+    expect(out?.[0]).toMatchObject({ key: 'API_KEY', value: '', secret: true });
+    // Non-secret variables pass through unchanged so the shared file stays useful.
+    expect(out?.[1]).toMatchObject({ key: 'BASE_URL', value: 'https://api.example.com' });
+  });
+
+  it('does not mutate the input array', () => {
+    const input = [{ id: '1', key: 'TOKEN', value: 'sk-secret', enabled: true, secret: true }];
+    redactSecretVariablesForExport(input);
+    expect(input[0]!.value).toBe('sk-secret');
+  });
+});
 
 describe('redactAuthForExport', () => {
   it('returns non-object inputs unchanged', () => {

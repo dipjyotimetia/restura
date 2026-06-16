@@ -59,6 +59,9 @@ export const fileKeyValueSchema = z.object({
   value: z.string(),
   enabled: z.boolean().default(true),
   description: z.string().optional(),
+  // Secret variables are written value-less (see collection-export-redactor);
+  // preserve the flag so they re-import as secret rather than empty plaintext.
+  secret: z.boolean().optional(),
 });
 
 export type FileKeyValue = z.infer<typeof fileKeyValueSchema>;
@@ -191,7 +194,9 @@ export const FILE_EXTENSIONS = {
 
 // Helper to determine request type from filename
 // Order matters: longer/more-specific suffixes are checked first.
-export function getRequestTypeFromFilename(filename: string): 'http' | 'grpc' | 'sse' | 'mcp' | null {
+export function getRequestTypeFromFilename(
+  filename: string
+): 'http' | 'grpc' | 'sse' | 'mcp' | null {
   if (filename.endsWith(FILE_EXTENSIONS.HTTP_REQUEST)) return 'http';
   if (filename.endsWith(FILE_EXTENSIONS.GRPC_REQUEST)) return 'grpc';
   if (filename.endsWith(FILE_EXTENSIONS.SSE_REQUEST)) return 'sse';
@@ -206,10 +211,13 @@ export function getFilenameForRequest(name: string, type: 'http' | 'grpc' | 'sse
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
   const extension =
-    type === 'http' ? FILE_EXTENSIONS.HTTP_REQUEST :
-    type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST :
-    type === 'sse' ? FILE_EXTENSIONS.SSE_REQUEST :
-    FILE_EXTENSIONS.MCP_REQUEST;
+    type === 'http'
+      ? FILE_EXTENSIONS.HTTP_REQUEST
+      : type === 'grpc'
+        ? FILE_EXTENSIONS.GRPC_REQUEST
+        : type === 'sse'
+          ? FILE_EXTENSIONS.SSE_REQUEST
+          : FILE_EXTENSIONS.MCP_REQUEST;
   return `${sanitized}${extension}`;
 }
 

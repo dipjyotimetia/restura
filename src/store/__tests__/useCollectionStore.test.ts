@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCollectionStore } from '../useCollectionStore';
-import type { CollectionItem } from '@/types';
+import { internalToOC } from '@/lib/opencollection/from-internal';
+import type { Collection, CollectionItem } from '@/types';
 
 describe('useCollectionStore', () => {
   beforeEach(() => {
@@ -39,6 +40,276 @@ describe('useCollectionStore', () => {
       const state = useCollectionStore.getState();
       expect(state.collections).toHaveLength(1);
       expect(state.collections[0]).toEqual(collection);
+    });
+  });
+
+  describe('updateCollectionItem defeats a stale _oc bag on edit (audit Fix 7)', () => {
+    it('re-exports a folder-nested request with the edit, not the stale imported bag', () => {
+      const { addCollection, updateCollectionItem } = useCollectionStore.getState();
+
+      // Simulate an imported OpenCollection: the request and its parent folder
+      // both carry verbatim `_oc` passthrough bags (method GET).
+      const reqOc = {
+        info: { type: 'http', name: 'Get Thing' },
+        http: { method: 'GET', url: 'https://api.example.com/thing' },
+      };
+      const reqItem = {
+        id: 'req-1',
+        type: 'request' as const,
+        name: 'Get Thing',
+        _oc: reqOc,
+        request: {
+          id: 'req-1',
+          name: 'Get Thing',
+          type: 'http' as const,
+          method: 'GET' as const,
+          url: 'https://api.example.com/thing',
+          headers: [],
+          params: [],
+          body: { type: 'none' as const },
+          auth: { type: 'none' as const },
+        },
+      };
+      const folderItem = {
+        id: 'folder-1',
+        type: 'folder' as const,
+        name: 'Folder',
+        _oc: { info: { name: 'Folder' }, items: [reqOc] },
+        items: [reqItem],
+      };
+      const collection = {
+        id: 'col-1',
+        name: 'Imported',
+        _oc: { opencollection: '1.0.0', info: { name: 'Imported' }, items: [folderItem._oc] },
+        items: [folderItem],
+      } as unknown as Collection;
+      addCollection(collection);
+
+      // Edit the nested request in-app: GET -> POST.
+      updateCollectionItem('col-1', 'req-1', {
+        request: { ...reqItem.request, method: 'POST' },
+      });
+
+      const edited = useCollectionStore.getState().collections.find((c) => c.id === 'col-1')!;
+      const oc = internalToOC(edited as Collection & { _oc?: unknown }) as {
+        items: Array<{ items: Array<{ http: { method: string } }> }>;
+      };
+      expect(oc.items[0]!.items[0]!.http.method).toBe('POST');
+    });
+  });
+
+  describe('moveCollectionItem defeats stale _oc bags on move (audit Fix 7, move path)', () => {
+    it('re-exports a moved request in its new folder, not the pre-move layout', () => {
+      const { addCollection, moveCollectionItem } = useCollectionStore.getState();
+
+      const reqOc = {
+        info: { type: 'http', name: 'A' },
+        http: { method: 'GET', url: 'https://api.example.com/a' },
+      };
+      const reqA = {
+        id: 'a',
+        type: 'request' as const,
+        name: 'A',
+        _oc: reqOc,
+        request: {
+          id: 'a',
+          name: 'A',
+          type: 'http' as const,
+          method: 'GET' as const,
+          url: 'https://api.example.com/a',
+          headers: [],
+          params: [],
+          body: { type: 'none' as const },
+          auth: { type: 'none' as const },
+        },
+      };
+      const f1 = {
+        id: 'f1',
+        type: 'folder' as const,
+        name: 'F1',
+        _oc: { info: { name: 'F1' }, items: [reqOc] },
+        items: [reqA],
+      };
+      const f2 = {
+        id: 'f2',
+        type: 'folder' as const,
+        name: 'F2',
+        _oc: { info: { name: 'F2' }, items: [] },
+        items: [],
+      };
+      const collection = {
+        id: 'c',
+        name: 'Imp',
+        _oc: { opencollection: '1.0.0', info: { name: 'Imp' }, items: [f1._oc, f2._oc] },
+        items: [f1, f2],
+      } as unknown as Collection;
+      addCollection(collection);
+
+      moveCollectionItem('c', 'a', { parentId: 'f2' });
+
+      const edited = useCollectionStore.getState().collections.find((c) => c.id === 'c')!;
+      const oc = internalToOC(edited as Collection & { _oc?: unknown }) as {
+        items: Array<{ info: { name: string }; items: Array<{ info: { name: string } }> }>;
+      };
+      const ocF1 = oc.items.find((i) => i.info.name === 'F1')!;
+      const ocF2 = oc.items.find((i) => i.info.name === 'F2')!;
+      expect(ocF1.items).toHaveLength(0);
+      expect(ocF2.items).toHaveLength(1);
+      expect(ocF2.items[0]!.info.name).toBe('A');
+    });
+
+    it('handles a beforeId reorder into another folder (parentId undefined)', () => {
+      const { addCollection, moveCollectionItem } = useCollectionStore.getState();
+
+      const mk = (id: string, name: string) => ({
+        id,
+        type: 'request' as const,
+        name,
+        _oc: {
+          info: { type: 'http', name },
+          http: { method: 'GET', url: `https://api.example.com/${id}` },
+        },
+        request: {
+          id,
+          name,
+          type: 'http' as const,
+          method: 'GET' as const,
+          url: `https://api.example.com/${id}`,
+          headers: [],
+          params: [],
+          body: { type: 'none' as const },
+          auth: { type: 'none' as const },
+        },
+      });
+      const a = mk('a', 'A');
+      const b = mk('b', 'B');
+      const f1 = {
+        id: 'f1',
+        type: 'folder' as const,
+        name: 'F1',
+        _oc: { info: { name: 'F1' }, items: [a._oc] },
+        items: [a],
+      };
+      const f2 = {
+        id: 'f2',
+        type: 'folder' as const,
+        name: 'F2',
+        _oc: { info: { name: 'F2' }, items: [b._oc] },
+        items: [b],
+      };
+      const collection = {
+        id: 'c',
+        name: 'Imp',
+        _oc: { opencollection: '1.0.0', info: { name: 'Imp' }, items: [f1._oc, f2._oc] },
+        items: [f1, f2],
+      } as unknown as Collection;
+      addCollection(collection);
+
+      // Drag A to sit before B (which lives in F2) — parentId is undefined.
+      moveCollectionItem('c', 'a', { beforeId: 'b' });
+
+      const edited = useCollectionStore.getState().collections.find((c) => c.id === 'c')!;
+      const oc = internalToOC(edited as Collection & { _oc?: unknown }) as {
+        items: Array<{ info: { name: string }; items: Array<{ info: { name: string } }> }>;
+      };
+      const ocF2 = oc.items.find((i) => i.info.name === 'F2')!;
+      expect(ocF2.items.map((i) => i.info.name)).toEqual(['A', 'B']);
+    });
+  });
+
+  describe('add/remove also defeat stale _oc bags (audit Fix 7, completeness)', () => {
+    const mkReq = (id: string, name: string, method: 'GET' | 'POST' = 'GET') => ({
+      id,
+      type: 'request' as const,
+      name,
+      _oc: {
+        info: { type: 'http', name },
+        http: { method, url: `https://api.example.com/${id}` },
+      },
+      request: {
+        id,
+        name,
+        type: 'http' as const,
+        method,
+        url: `https://api.example.com/${id}`,
+        headers: [],
+        params: [],
+        body: { type: 'none' as const },
+        auth: { type: 'none' as const },
+      },
+    });
+
+    it('a request added to an imported folder appears on re-export', () => {
+      const { addCollection, addItemToCollection } = useCollectionStore.getState();
+      const a = mkReq('a', 'A');
+      const f1 = {
+        id: 'f1',
+        type: 'folder' as const,
+        name: 'F1',
+        _oc: { info: { name: 'F1' }, items: [a._oc] },
+        items: [a],
+      };
+      const collection = {
+        id: 'c',
+        name: 'Imp',
+        _oc: { opencollection: '1.0.0', info: { name: 'Imp' }, items: [f1._oc] },
+        items: [f1],
+      } as unknown as Collection;
+      addCollection(collection);
+
+      const newReq = {
+        id: 'b',
+        type: 'request' as const,
+        name: 'B',
+        request: {
+          id: 'b',
+          name: 'B',
+          type: 'http' as const,
+          method: 'POST' as const,
+          url: 'https://api.example.com/b',
+          headers: [],
+          params: [],
+          body: { type: 'none' as const },
+          auth: { type: 'none' as const },
+        },
+      } as unknown as CollectionItem;
+      addItemToCollection('c', newReq, 'f1');
+
+      const edited = useCollectionStore.getState().collections.find((c) => c.id === 'c')!;
+      const oc = internalToOC(edited as Collection & { _oc?: unknown }) as {
+        items: Array<{ info: { name: string }; items: Array<{ info: { name: string } }> }>;
+      };
+      const ocF1 = oc.items.find((i) => i.info.name === 'F1')!;
+      expect(ocF1.items.map((i) => i.info.name)).toEqual(['A', 'B']);
+    });
+
+    it('a request removed from an imported folder stays removed on re-export', () => {
+      const { addCollection, removeCollectionItem } = useCollectionStore.getState();
+      const a = mkReq('a', 'A');
+      const b = mkReq('b', 'B');
+      const f1 = {
+        id: 'f1',
+        type: 'folder' as const,
+        name: 'F1',
+        _oc: { info: { name: 'F1' }, items: [a._oc, b._oc] },
+        items: [a, b],
+      };
+      const collection = {
+        id: 'c',
+        name: 'Imp',
+        _oc: { opencollection: '1.0.0', info: { name: 'Imp' }, items: [f1._oc] },
+        items: [f1],
+      } as unknown as Collection;
+      addCollection(collection);
+
+      removeCollectionItem('c', 'b');
+
+      const edited = useCollectionStore.getState().collections.find((c) => c.id === 'c')!;
+      const oc = internalToOC(edited as Collection & { _oc?: unknown }) as {
+        items: Array<{ info: { name: string }; items: Array<{ info: { name: string } }> }>;
+      };
+      const ocF1 = oc.items.find((i) => i.info.name === 'F1')!;
+      expect(ocF1.items.map((i) => i.info.name)).toEqual(['A']);
     });
   });
 

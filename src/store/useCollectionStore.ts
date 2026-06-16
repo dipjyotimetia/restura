@@ -106,6 +106,42 @@ function insertIntoTree(
   return [...items, node];
 }
 
+/**
+ * Drop the OpenCollection `_oc` passthrough bag from an item. The bag holds the
+ * verbatim imported node; once the item (or a descendant) changes, the cached
+ * OC subtree is stale and must be rebuilt from the live model on re-export.
+ */
+function stripOcBag(item: CollectionItem): CollectionItem {
+  if (!('_oc' in item)) return item;
+  const next = { ...item } as CollectionItem & { _oc?: unknown };
+  delete next._oc;
+  return next;
+}
+
+/** Ancestor folder ids on the path from the root to `itemId` (excludes the item). */
+function ancestorPath(
+  items: CollectionItem[],
+  itemId: string,
+  acc: string[] = []
+): string[] | null {
+  for (const i of items) {
+    if (i.id === itemId) return acc;
+    if (i.items) {
+      const found = ancestorPath(i.items, itemId, [...acc, i.id]);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Strip the `_oc` bag from every item whose id is in `ids` (recursive). */
+function stripOcByIds(items: CollectionItem[], ids: Set<string>): CollectionItem[] {
+  return items.map((i) => {
+    const withChildren = i.items ? { ...i, items: stripOcByIds(i.items, ids) } : i;
+    return ids.has(i.id) ? stripOcBag(withChildren) : withChildren;
+  });
+}
+
 interface CollectionState {
   collections: Collection[];
   activeCollectionId: string | null;
@@ -170,6 +206,9 @@ export const useCollectionStore = create<CollectionState>()(
             if (col.id !== collectionId) return col;
 
             if (!parentId) {
+              // Root add: the new item has no `_oc` bag, which already defeats
+              // the root Strategy-1 shortcut, so re-export rebuilds and the
+              // item appears.
               return { ...col, items: [...col.items, item] };
             }
 
@@ -184,7 +223,13 @@ export const useCollectionStore = create<CollectionState>()(
                 return i;
               });
 
-            return { ...col, items: addToParent(col.items) };
+            // Strip the target folder's `_oc` bag (and its ancestors') — its
+            // cached child list is now stale, and the folder verbatim shortcut
+            // in from-internal.ts would otherwise re-export it without the new
+            // child. See the `_oc` staleness note on `updateCollectionItem`.
+            const withItem = addToParent(col.items);
+            const staleIds = new Set<string>(ancestorPath(withItem, item.id) ?? []);
+            return { ...col, items: stripOcByIds(withItem, staleIds) };
           }),
         })),
 
@@ -193,18 +238,36 @@ export const useCollectionStore = create<CollectionState>()(
           collections: state.collections.map((col) => {
             if (col.id !== collectionId) return col;
 
-            const updateItem = (items: CollectionItem[]): CollectionItem[] =>
-              items.map((i) => {
+            // Strip the OpenCollection `_oc` passthrough bag from the edited
+            // item and every ancestor folder on its path. The bag holds the
+            // verbatim imported node; once a descendant changes, the cached
+            // subtree is stale and re-export must rebuild it from the live
+            // model — otherwise the edit is silently lost. The root Strategy-1
+            // shortcut and the folder verbatim shortcut in from-internal.ts
+            // both short-circuit on these bags, so an ancestor bag left in
+            // place would still emit the pre-edit subtree.
+            const updateItem = (
+              items: CollectionItem[]
+            ): { items: CollectionItem[]; changed: boolean } => {
+              let changed = false;
+              const next = items.map((i) => {
                 if (i.id === itemId) {
-                  return { ...i, ...updates };
+                  changed = true;
+                  return stripOcBag({ ...i, ...updates });
                 }
                 if (i.items) {
-                  return { ...i, items: updateItem(i.items) };
+                  const res = updateItem(i.items);
+                  if (res.changed) {
+                    changed = true;
+                    return stripOcBag({ ...i, items: res.items });
+                  }
                 }
                 return i;
               });
+              return { items: next, changed };
+            };
 
-            return { ...col, items: updateItem(col.items) };
+            return { ...col, items: updateItem(col.items).items };
           }),
         })),
 
@@ -218,7 +281,15 @@ export const useCollectionStore = create<CollectionState>()(
                 .filter((i) => i.id !== itemId)
                 .map((i) => (i.items ? { ...i, items: removeItem(i.items) } : i));
 
-            return { ...col, items: removeItem(col.items) };
+            // Strip the removed item's ancestor-folder `_oc` bags (computed
+            // before removal) — those cached child lists are now stale and the
+            // folder verbatim shortcut in from-internal.ts would otherwise
+            // resurrect the removed item on re-export. (A root-level removal
+            // where every surviving sibling keeps its bag is not fully covered
+            // here — that needs a Strategy-1 staleness change; tracked
+            // separately.)
+            const staleIds = new Set<string>(ancestorPath(col.items, itemId) ?? []);
+            return { ...col, items: stripOcByIds(removeItem(col.items), staleIds) };
           }),
         })),
 
@@ -252,11 +323,24 @@ export const useCollectionStore = create<CollectionState>()(
               }
             }
 
+            // A move restructures the tree, so every cached `_oc` bag for the
+            // source and target ancestor chains (and the collection's
+            // Strategy-1 shortcut, which requires *all* items to have bags)
+            // goes stale. Collect those folder ids — plus the moved item — and
+            // strip their bags from the final tree so re-export rebuilds the
+            // moved subtree in its new home instead of emitting the pre-move
+            // layout. The moved node's own content is unchanged, but its bag is
+            // dropped too so a folder-nested SSE/MCP rebuilds via the extension
+            // hoist path rather than surfacing as an invalid folder item.
+            const sourceAncestors = ancestorPath(col.items, itemId) ?? [];
             const pruned = removeFromTree(col.items, itemId);
-            return {
-              ...col,
-              items: insertIntoTree(pruned, node, target.parentId, target.beforeId),
-            };
+            const inserted = insertIntoTree(pruned, node, target.parentId, target.beforeId);
+            // Derive target ancestors from the *post-move* tree so parentId,
+            // beforeId (which can land the item in another folder with
+            // parentId undefined), and root drops all resolve uniformly.
+            const targetAncestors = ancestorPath(inserted, itemId) ?? [];
+            const staleIds = new Set<string>([itemId, ...sourceAncestors, ...targetAncestors]);
+            return { ...col, items: stripOcByIds(inserted, staleIds) };
           }),
         })),
 

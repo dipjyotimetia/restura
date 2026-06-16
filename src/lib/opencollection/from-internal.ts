@@ -76,7 +76,7 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
   for (const it of c.items ?? []) {
     const wit = it as WithOC<CollectionItem>;
     if (it.type === 'folder') {
-      items.push(folderFromInternal(wit));
+      items.push(folderFromInternal(wit, sseItems, mcpItems));
       continue;
     }
     const r = it.request;
@@ -144,16 +144,19 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
       environments: [
         {
           name: 'default',
-          variables: (c.variables ?? [])
-            .filter((v) => v.enabled !== false)
-            .map((v) => {
-              const variable: { name: string; value: string; description?: string } = {
-                name: v.key,
-                value: v.value,
-              };
-              if (v.description) variable.description = v.description;
-              return variable;
-            }),
+          variables: (c.variables ?? []).map((v) => {
+            const common: { description?: string; disabled?: boolean } = {};
+            if (v.description) common.description = v.description;
+            if (v.enabled === false) common.disabled = true;
+            // Secret-flagged variables emit as the spec `secretVariable` shape
+            // — name only, no value — so a credential stashed in a collection
+            // variable never lands in the shared/committed file; the recipient
+            // fills the value in. (Structural: holds for both "redacted" and
+            // "include secrets" exports.)
+            return v.secret
+              ? { secret: true as const, name: v.key, ...common }
+              : { name: v.key, value: v.value, ...common };
+          }),
         },
       ],
     };
@@ -195,7 +198,11 @@ function applyRequestDefaultsAuth(
   else delete node.request;
 }
 
-function folderFromInternal(it: WithOC<CollectionItem>): unknown {
+function folderFromInternal(
+  it: WithOC<CollectionItem>,
+  sseItems: unknown[],
+  mcpItems: unknown[]
+): unknown {
   // Verbatim shortcut only while the folder's default auth still matches the
   // cached bag — an in-app auth edit forces a rebuild (children still fall
   // back to their own _oc bags below, so unmodified requests stay verbatim).
@@ -203,12 +210,34 @@ function folderFromInternal(it: WithOC<CollectionItem>): unknown {
   const out: Record<string, unknown> = it._oc
     ? { ...(it._oc as Record<string, unknown>) }
     : { info: { name: it.name } };
-  out.items = (it.items ?? []).map((child) => {
+  const childItems: unknown[] = [];
+  for (const child of it.items ?? []) {
     const wchild = child as WithOC<CollectionItem>;
-    if (child.type === 'folder') return folderFromInternal(wchild);
-    if (!child.request) return wchild._oc ?? { info: { name: child.name } };
-    return wchild._oc ?? requestFromInternal(child.name, child.request);
-  });
+    if (child.type === 'folder') {
+      childItems.push(folderFromInternal(wchild, sseItems, mcpItems));
+      continue;
+    }
+    const r = child.request;
+    if (!r) {
+      childItems.push(wchild._oc ?? { info: { name: child.name } });
+      continue;
+    }
+    // SSE / MCP aren't valid folder items in OpenCollection — they live in
+    // root `extensions`. Hoist a folder-nested one rather than throwing (a
+    // user can drag an SSE/MCP request into a folder). Folder grouping isn't
+    // representable in the extension model, so it lands at the root, matching
+    // how root-level SSE/MCP are emitted.
+    if (r.type === 'sse') {
+      sseItems.push(wchild._oc ?? sseToOC(child.name, r as SseRequest));
+      continue;
+    }
+    if (r.type === 'mcp') {
+      mcpItems.push(wchild._oc ?? mcpToOC(child.name, r as McpRequest));
+      continue;
+    }
+    childItems.push(wchild._oc ?? requestFromInternal(child.name, r));
+  }
+  out.items = childItems;
   applyRequestDefaultsAuth(out, it.auth);
   return out;
 }
@@ -222,10 +251,10 @@ function requestFromInternal(name: string, r: Request): unknown {
         url: hr.url,
       };
       if (hr.headers?.length) {
-        http.headers = hr.headers.filter((h) => h.enabled !== false).map(kvFromInternal);
+        http.headers = hr.headers.map(kvFromInternal);
       }
       if (hr.params?.length) {
-        http.params = hr.params.filter((p) => p.enabled !== false).map(kvFromInternal);
+        http.params = hr.params.map(kvFromInternal);
       }
       if (hr.body && hr.body.type !== 'none') {
         const body = bodyFromInternal(hr.body);
@@ -248,7 +277,7 @@ function requestFromInternal(name: string, r: Request): unknown {
       };
       if (gr.message) grpc.message = gr.message;
       if (gr.metadata?.length) {
-        grpc.metadata = gr.metadata.filter((m) => m.enabled !== false).map(kvFromInternal);
+        grpc.metadata = gr.metadata.map(kvFromInternal);
       }
       const auth = authFromInternal(gr.auth);
       if (auth) grpc.auth = auth;
@@ -269,7 +298,7 @@ function requestFromInternal(name: string, r: Request): unknown {
 function sseToOC(name: string, r: SseRequest): unknown {
   const sse: Record<string, unknown> = { url: r.url };
   if (r.headers?.length) {
-    sse.headers = r.headers.filter((h) => h.enabled !== false).map(kvFromInternal);
+    sse.headers = r.headers.map(kvFromInternal);
   }
   if (r.eventFilter?.length) sse.eventFilter = r.eventFilter;
   const auth = authFromInternal(r.auth);
@@ -280,7 +309,7 @@ function sseToOC(name: string, r: SseRequest): unknown {
 function mcpToOC(name: string, r: McpRequest): unknown {
   const mcp: Record<string, unknown> = { url: r.url, transport: r.transport };
   if (r.headers?.length) {
-    mcp.headers = r.headers.filter((h) => h.enabled !== false).map(kvFromInternal);
+    mcp.headers = r.headers.map(kvFromInternal);
   }
   const auth = authFromInternal(r.auth);
   if (auth) mcp.auth = auth;
@@ -292,6 +321,10 @@ function kvFromInternal(k: KeyValue): unknown {
     name: k.key,
     value: k.value,
   };
+  // Emit `enabled: false` so a disabled header/param/metadata round-trips as
+  // disabled rather than vanishing on re-import. (The OC httpHeader/httpParam
+  // schema carries `enabled`, defaulting to true.)
+  if (k.enabled === false) out.enabled = false;
   if (k.description) out.description = k.description;
   return out;
 }
@@ -311,8 +344,18 @@ function bodyFromInternal(body: RequestBody): unknown {
       return { multipartForm: { parts: body.formData ?? [] } };
     case 'x-www-form-urlencoded':
       return { formUrlEncoded: { parts: body.formData ?? [] } };
-    case 'binary':
-      return body.binary ? { file: body.binary } : undefined;
+    case 'binary': {
+      if (!body.binary) return undefined;
+      // A live DOM `File` is not YAML-serializable — dumping it throws and
+      // takes the whole export down. Emit a portable descriptor (name + MIME)
+      // instead so the export never crashes. The raw bytes aren't carried in
+      // the shared text document by design.
+      const f = body.binary;
+      if (typeof File !== 'undefined' && f instanceof File) {
+        return { file: { name: f.name, ...(f.type ? { contentType: f.type } : {}) } };
+      }
+      return { file: f };
+    }
     default:
       return undefined;
   }

@@ -44,7 +44,10 @@ const environment = z.object({
   name: z.string().min(1),
   color: z.string().optional(),
   description: description.optional(),
-  variables: z.array(z.union([variable, secretVariable])).optional(),
+  // secretVariable must come first: it requires `secret: true`, so ordinary
+  // variables still fall through to `variable`. With `variable` first, Zod
+  // matched it for secret variables too and stripped the `secret` flag.
+  variables: z.array(z.union([secretVariable, variable])).optional(),
   clientCertificates: z.array(z.unknown()).optional(),
   extends: z.string().optional(),
   dotEnvFilePath: z.string().optional(),
@@ -141,9 +144,14 @@ const grpcRequest = z.object({
     method: z.string(),
     methodType: z.enum(['unary', 'serverStreaming', 'clientStreaming', 'bidirectional']).optional(),
     message: z.union([z.string(), z.array(z.unknown())]).optional(),
-    metadata: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+    // metadata mirrors httpHeader so `enabled`/`description` survive the
+    // roundtrip (a bare {name,value} schema silently stripped them).
+    metadata: z.array(httpHeader).optional(),
     auth: auth.optional(),
   }),
+  // Canonical OC models GrpcRequestRuntime; without this field the parser
+  // stripped gRPC pre-request/test scripts before the importer could read them.
+  runtime: z.object({}).passthrough().optional(),
 });
 
 const graphqlRequest = z.object({
