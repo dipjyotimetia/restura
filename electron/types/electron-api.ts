@@ -558,6 +558,9 @@ interface ElectronStoreAPI {
  * are gated main-side by collection-manager's directory allowlist.
  */
 interface ElectronGitAPI {
+  init: (
+    directoryPath: string
+  ) => Promise<{ ok: true; initialized: true } | { ok: false; error: string }>;
   status: (directoryPath: string) => Promise<
     | {
         ok: true;

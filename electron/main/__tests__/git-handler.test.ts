@@ -94,19 +94,41 @@ describe('parseCommitLog', () => {
 });
 
 describe('parseBranchList', () => {
+  // Fixtures use the FULL refname (`%(refname)`) — what git actually emits for
+  // `branch --all --format=%(refname)`. The previous fixtures used a `remotes/`
+  // prefix git never produces, which is exactly why the isRemote bug shipped.
   it('identifies current branch and upstream', () => {
     const raw = [
-      'main\torigin/main',
-      'feature/new\torigin/feature/new',
-      'remotes/origin/main\t',
+      'refs/heads/main\torigin/main',
+      'refs/heads/feature/new\torigin/feature/new',
+      'refs/remotes/origin/main\t',
     ].join('\n');
     const branches = parseBranchList(raw, 'main');
     expect(branches).toHaveLength(3);
     const main = branches.find((b) => b.name === 'main' && !b.isRemote);
     expect(main?.isCurrent).toBe(true);
     expect(main?.upstream).toBe('origin/main');
-    const remote = branches.find((b) => b.name === 'origin/main' && b.isRemote);
+  });
+
+  it('classifies remote-tracking branches as remote (not local checkout targets)', () => {
+    const raw = ['refs/heads/main\torigin/main', 'refs/remotes/origin/main\t'].join('\n');
+    const branches = parseBranchList(raw, 'main');
+    const remote = branches.find((b) => b.name === 'origin/main');
+    expect(remote?.isRemote).toBe(true);
     expect(remote?.isCurrent).toBe(false);
+    // Local list (what the checkout UI shows) must exclude it.
+    expect(branches.filter((b) => !b.isRemote).map((b) => b.name)).toEqual(['main']);
+  });
+
+  it('drops the symbolic <remote>/HEAD pointer (no phantom bare "origin")', () => {
+    const raw = [
+      'refs/heads/main\torigin/main',
+      'refs/remotes/origin/HEAD\t',
+      'refs/remotes/origin/main\t',
+    ].join('\n');
+    const branches = parseBranchList(raw, 'main');
+    expect(branches.map((b) => b.name)).toEqual(['main', 'origin/main']);
+    expect(branches.some((b) => b.name === 'origin')).toBe(false);
   });
 
   it('returns empty array on empty input', () => {
