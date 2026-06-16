@@ -419,29 +419,34 @@ function methodTypeToInternal(t?: string): GrpcMethodType {
 function extractRootVariables(oc: OpenCollection): KeyValue[] {
   const env = oc.config?.environments?.[0];
   if (!env?.variables) return [];
-  return env.variables
-    .filter((v) => !('secret' in v))
-    .map((v) => {
-      const variable = v as {
-        name: string;
-        value?: unknown;
-        description?: unknown;
-        disabled?: boolean;
-      };
-      const out: KeyValue = {
-        id: uuid(),
-        key: variable.name,
-        value:
-          typeof variable.value === 'string'
-            ? variable.value
-            : variable.value == null
-              ? ''
-              : JSON.stringify(variable.value),
-        enabled: !variable.disabled,
-      };
-      if (typeof variable.description === 'string') out.description = variable.description;
-      return out;
-    });
+  return env.variables.map((v) => {
+    const variable = v as {
+      name: string;
+      value?: unknown;
+      description?: unknown;
+      disabled?: boolean;
+      secret?: boolean;
+    };
+    // Secret variables carry no value in OC. Preserve them as value-less
+    // entries (with the flag) rather than dropping them — the recipient needs
+    // to see that e.g. `API_KEY` exists so they can fill it in.
+    const isSecret = variable.secret === true;
+    const out: KeyValue = {
+      id: uuid(),
+      key: variable.name,
+      value: isSecret
+        ? ''
+        : typeof variable.value === 'string'
+          ? variable.value
+          : variable.value == null
+            ? ''
+            : JSON.stringify(variable.value),
+      enabled: !variable.disabled,
+    };
+    if (isSecret) out.secret = true;
+    if (typeof variable.description === 'string') out.description = variable.description;
+    return out;
+  });
 }
 
 function extensionItems(ext: Record<string, unknown> | undefined): WithOC<CollectionItem>[] {

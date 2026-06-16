@@ -19,6 +19,7 @@ import { isPathSafe } from './file-operations';
 import {
   redactAuthForExport,
   authHasPlaintextSecret,
+  redactSecretVariablesForExport,
 } from '../security/collection-export-redactor';
 import { createLogger } from '../../../src/lib/shared/logger';
 
@@ -151,18 +152,27 @@ function addIdsToKeyValues(items: unknown) {
     value: item.value,
     enabled: item.enabled ?? true,
     description: item.description,
+    ...(item.secret ? { secret: true } : {}),
   }));
 }
 
 // Strip IDs from key-value items for file storage
 function stripIdsFromKeyValues(
-  items?: Array<{ id: string; key: string; value: string; enabled?: boolean; description?: string }>
+  items?: Array<{
+    id: string;
+    key: string;
+    value: string;
+    enabled?: boolean;
+    description?: string;
+    secret?: boolean;
+  }>
 ) {
   if (!items) return undefined;
-  return items.map(({ key, value, enabled, description }) => ({
+  return items.map(({ key, value, enabled, description, secret }) => ({
     key,
     value,
     enabled: enabled ?? true,
+    ...(secret ? { secret: true } : {}),
     ...(description ? { description } : {}),
   }));
 }
@@ -359,7 +369,7 @@ async function saveCollectionToDirectory(
       ...(collection.description ? { description: collection.description } : {}),
       ...(collection.auth ? { auth: redactAuthForExport(collection.auth) } : {}),
       ...(collection.variables?.length
-        ? { variables: stripIdsFromKeyValues(collection.variables) }
+        ? { variables: stripIdsFromKeyValues(redactSecretVariablesForExport(collection.variables)) }
         : {}),
     };
 

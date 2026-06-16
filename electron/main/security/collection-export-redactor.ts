@@ -80,6 +80,23 @@ export function redactAuthForExport(auth: unknown): unknown {
 }
 
 /**
+ * Blanks the value of any variable flagged `secret: true` before the
+ * collection is written to disk. A credential stashed in a collection
+ * variable must never leave the machine as plaintext — the recipient
+ * re-enters it after import. Non-secret variables (base URLs, etc.) pass
+ * through unchanged so the shared collection stays useful. The `secret` flag
+ * is preserved so the variable still reads as secret on re-import. Mirrors the
+ * renderer-side OpenCollection export, which emits secret variables as the
+ * value-less `secretVariable` shape.
+ */
+export function redactSecretVariablesForExport<T extends { secret?: boolean; value?: unknown }>(
+  variables: readonly T[] | undefined
+): T[] | undefined {
+  if (!variables) return undefined;
+  return variables.map((v) => (v.secret ? { ...v, value: '' } : { ...v }));
+}
+
+/**
  * True iff the auth descriptor contains at least one plaintext secret that
  * `redactAuthForExport` will drop. Callers use this to surface a per-export
  * warning so the user knows the imported collection will be missing those
