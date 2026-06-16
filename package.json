@@ -191,7 +191,7 @@
     "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
     "crypto-js": "^4.2.0",
-    "csv-parse": "^6.2.1",
+    "csv-parse": "^7.0.0",
     "electron": "^42.3.3",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
