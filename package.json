@@ -184,7 +184,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.2",
-    "@vitest/coverage-v8": "^4.1.6",
+    "@vitest/coverage-v8": "^4.1.9",
     "better-sse": "^0.16.1",
     "chai": "^6.2.2",
     "cheerio": "^1.2.0",
