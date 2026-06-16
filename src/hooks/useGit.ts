@@ -2,9 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { loadCollectionFromDirectory } from '@/store/useFileCollectionStore';
 
-/** git's "fatal: not a git repository …" surfaced when a dir isn't yet a repo. */
-const NOT_A_REPO_RE = /not a git repository/i;
-
 export interface GitStatusFile {
   path: string;
   staged: string;
@@ -72,7 +69,9 @@ export function useGit(directoryPath: string | null) {
         api.git.log(directoryPath, 20),
       ]);
       const statusError = statusRes.ok ? null : statusRes.error;
-      const notARepo = statusError != null && NOT_A_REPO_RE.test(statusError);
+      // The main process tags the "outside a repo" failure with a stable code,
+      // so we branch on that instead of matching git's (localized) message.
+      const notARepo = !statusRes.ok && statusRes.code === 'not-a-repo';
       setState({
         status: statusRes.ok ? statusRes.status : null,
         branches: branchRes.ok ? branchRes.branches : [],
@@ -147,7 +146,10 @@ export function useGit(directoryPath: string | null) {
         // A branch switch rewrites the collection files on disk. Reload from
         // disk explicitly so the in-memory collection reflects the new branch —
         // the chokidar watcher is best-effort and doesn't drive a reload.
-        await loadCollectionFromDirectory(directoryPath);
+        // Best-effort: the branch already switched, so a reload failure must not
+        // turn a successful checkout into an error (or escape and stick the
+        // caller's spinner). `refresh()` below re-reads git state regardless.
+        await loadCollectionFromDirectory(directoryPath).catch(() => null);
       }
       await refresh();
       return res.ok ? null : res.error;

@@ -572,7 +572,9 @@ interface ElectronGitAPI {
           clean: boolean;
         };
       }
-    | { ok: false; error: string }
+    // `code` carries a stable GitError code (e.g. 'not-a-repo') so callers can
+    // branch without string-matching git's localized error message.
+    | { ok: false; error: string; code?: string }
   >;
   log: (
     directoryPath: string,

@@ -363,7 +363,15 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
           'git-missing'
         );
       }
-      throw new GitError(e.stderr?.trim() || e.message || 'git command failed', 'git-error');
+      const message = e.stderr?.trim() || e.message || 'git command failed';
+      // git has no distinct exit code for "outside a repo" — it's a generic
+      // fatal (128). Match its stderr ONCE here, at the boundary, and raise a
+      // stable `not-a-repo` code so the renderer never has to string-match
+      // localized git output to offer "Initialize repository".
+      if (/not a git repository/i.test(message)) {
+        throw new GitError(message, 'not-a-repo');
+      }
+      throw new GitError(message, 'git-error');
     }
     throw new GitError(String(err), 'git-error');
   }
@@ -535,7 +543,10 @@ function ipcCommand<T, R>(
     try {
       return { ok: true, [resultKey]: await run(parsed.data) };
     } catch (err) {
-      return { ok: false, error: errorMessage(err) };
+      // Carry the structured GitError.code (e.g. 'not-a-repo', 'directory-missing')
+      // so the renderer can branch on a stable signal instead of the message.
+      const code = errorCode(err);
+      return { ok: false, error: errorMessage(err), ...(code ? { code } : {}) };
     }
   };
 }
@@ -612,6 +623,10 @@ function errorMessage(err: unknown): string {
   if (err instanceof GitError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function errorCode(err: unknown): string | undefined {
+  return err instanceof GitError ? err.code : undefined;
 }
 
 // Surface the sanitiser so tests can exercise it without a real git repo.

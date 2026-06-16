@@ -498,7 +498,7 @@ const electronAPI = {
             clean: boolean;
           };
         }
-      | { ok: false; error: string }
+      | { ok: false; error: string; code?: string }
     > => ipcRenderer.invoke(IPC.git.status, { directoryPath }),
 
     log: (

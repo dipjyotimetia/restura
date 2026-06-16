@@ -125,8 +125,12 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
     const plainDir = mkdtempSync(path.join(tmpdir(), 'restura-git-plain-'));
     try {
       setGitDirectoryAllowlist((p) => p === plainDir);
-      // Not a repo yet — status fails.
-      await expect(gitStatus(plainDir)).rejects.toThrow(/not a git repository/i);
+      // Not a repo yet — status fails with the stable not-a-repo code (the
+      // renderer keys off this to offer "Initialize repository").
+      await expect(gitStatus(plainDir)).rejects.toMatchObject({
+        code: 'not-a-repo',
+        message: expect.stringMatching(/not a git repository/i),
+      });
       await gitInit(plainDir);
       expect(existsSync(path.join(plainDir, '.git'))).toBe(true);
       // Now status works.
@@ -135,6 +139,20 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
     } finally {
       setGitDirectoryAllowlist((p) => p === dir);
       rmSync(plainDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a missing collection directory distinctly from a missing git binary', async () => {
+    // Allowlisted but never created → execFile resolves cwd to a missing path
+    // (ENOENT), which must surface as 'directory-missing', not 'git-missing'.
+    const parent = mkdtempSync(path.join(tmpdir(), 'restura-git-gone-'));
+    const goneDir = path.join(parent, 'does-not-exist');
+    setGitDirectoryAllowlist((p) => p === goneDir);
+    try {
+      await expect(gitStatus(goneDir)).rejects.toMatchObject({ code: 'directory-missing' });
+    } finally {
+      setGitDirectoryAllowlist((p) => p === dir);
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 });
