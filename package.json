@@ -168,7 +168,7 @@
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
     "@grpc/reflection": "^1.0.4",
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.61.0",
     "@sentry/cli": "^3.5.0",
     "@size-limit/file": "^12.1.0",
     "@tailwindcss/vite": "^4.3.0",
