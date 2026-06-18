@@ -56,15 +56,24 @@ import type { OpenCollection } from './schemas';
 type WithOC<T> = T & { _oc?: unknown };
 
 export function internalToOC(c: WithOC<Collection>): OpenCollection {
-  // Strategy 1 — whole-collection shortcut. Gated on auth freshness too:
-  // collection/folder default auth lives on the root/folder bags, so an
-  // in-app auth edit must defeat the verbatim shortcut or the export would
-  // carry the stale credentials shape.
+  // Strategy 1 — whole-collection shortcut. Gated on three kinds of freshness:
+  //  - bag presence (allItemsHaveOcBag): an edited/added item drops its bag,
+  //    and `useCollectionStore` strips the `_oc` bag of every ancestor folder
+  //    on edit/add/remove/move — so any nested change defeats this.
+  //  - auth (authUnchanged / allFolderAuthsUnchanged): default auth lives on the
+  //    root/folder bags, so an in-app auth edit must defeat the shortcut.
+  //  - root structure (rootStructureUnchanged): a ROOT-level removal strips no
+  //    bag (the store's ancestorPath is empty at root) and every survivor keeps
+  //    its bag, so only a root count reconciliation sees the deletion. Without
+  //    it the cached document re-emits the removed item (GH #278). Nested
+  //    removals are already covered by the ancestor-strip above, so no folder
+  //    structural check is needed here.
   if (
     c._oc &&
     allItemsHaveOcBag(c.items) &&
     authUnchanged(c._oc, c.auth) &&
-    allFolderAuthsUnchanged(c.items)
+    allFolderAuthsUnchanged(c.items) &&
+    rootStructureUnchanged(c)
   ) {
     return c._oc as OpenCollection;
   }
@@ -487,6 +496,34 @@ function allFolderAuthsUnchanged(items: CollectionItem[] | undefined): boolean {
     if (wit._oc !== undefined && !authUnchanged(wit._oc, it.auth)) return false;
     return allFolderAuthsUnchanged(it.items);
   });
+}
+
+/**
+ * Root-level structural staleness check (GH #278). `allItemsHaveOcBag` only sees
+ * bag *presence*, so a root-level removal — where every survivor keeps its bag
+ * and the store strips nothing (ancestorPath is empty at the root) — slips past
+ * it and the cached document re-emits the deleted item. A count reconciliation
+ * catches it. The root carries the sse/mcp ↔ extensions asymmetry: sse/mcp
+ * requests live in `c.items` internally but under
+ * `extensions['x-restura-sse'|'x-restura-mcp']` in `c._oc` (NOT `c._oc.items`),
+ * so the two partitions reconcile separately. Opaque extensions
+ * (x-restura-socketio/kafka/mqtt) have no live counterpart and are not counted.
+ * Count is sufficient: adds are already caught by `allItemsHaveOcBag` (the new
+ * item lacks a bag); only a removal strictly drops the count. Nested removals
+ * are handled by ancestor `_oc`-stripping in the store, so this stays root-only.
+ */
+function rootStructureUnchanged(c: WithOC<Collection>): boolean {
+  const cached = c._oc as OpenCollection | undefined;
+  if (!cached) return true;
+  const live = c.items ?? [];
+  const liveStream = live.filter(
+    (it) => it.type === 'request' && (it.request?.type === 'sse' || it.request?.type === 'mcp')
+  ).length;
+  const liveNonStream = live.length - liveStream;
+  const ext = (cached.extensions ?? {}) as Record<string, unknown>;
+  const cachedSse = (ext['x-restura-sse'] as unknown[] | undefined)?.length ?? 0;
+  const cachedMcp = (ext['x-restura-mcp'] as unknown[] | undefined)?.length ?? 0;
+  return liveNonStream === (cached.items ?? []).length && liveStream === cachedSse + cachedMcp;
 }
 
 /**
