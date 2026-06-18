@@ -61,6 +61,11 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
   // internal model, mirroring isConfiguredAuth semantics.
   const rootAuth = authToInternal(requestDefaultsAuth(oc.request));
   if (rootAuth.type !== 'none') collection.auth = rootAuth;
+  // Collection-level scripts — OC models them as `request.scripts`
+  // (RequestDefaults). They run against every descendant request on a run.
+  const rootScripts = requestDefaultsScripts(oc.request, oc.info.name);
+  if (rootScripts.preRequest) collection.preRequestScript = rootScripts.preRequest;
+  if (rootScripts.test) collection.testScript = rootScripts.test;
   collection._oc = oc;
   return collection;
 }
@@ -87,6 +92,11 @@ function itemToInternal(item: unknown): WithOC<CollectionItem>[] {
     // no auth of their own inherit it (nearest folder wins).
     const folderAuth = authToInternal(requestDefaultsAuth(it.request));
     if (folderAuth.type !== 'none') out.auth = folderAuth;
+    // Folder-level scripts (OC folder `request.scripts`) — run against every
+    // descendant request, after the collection script and before the request's.
+    const folderScripts = requestDefaultsScripts(it.request, out.name);
+    if (folderScripts.preRequest) out.preRequestScript = folderScripts.preRequest;
+    if (folderScripts.test) out.testScript = folderScripts.test;
     out._oc = it;
     return [out];
   }
@@ -222,25 +232,27 @@ function grpcToInternal(item: Record<string, unknown>): GrpcRequest {
   };
 }
 
+const SCRIPT_SEP = '\n\n// --- next script ---\n\n';
+
 /**
- * Pull `scripts: Script[]` out of an OpenCollection request item's `runtime`
- * field and group them by lifecycle stage. Multiple scripts of the same
- * type concatenate with a clear separator. Unsupported types
- * (`after-response`, `hooks`) increment the unrecognized-script counter.
+ * Group an OpenCollection `Script[]` by lifecycle stage into Restura's
+ * `preRequest` / `test` strings. Multiple scripts of the same type concatenate
+ * with a clear separator. Unsupported types (`after-response`, `hooks`) are
+ * returned in `unrecognized` for the caller to surface — kept side-effect-free
+ * so `from-internal.ts` can reuse it for export-time staleness comparison
+ * without polluting the import counters. Shared by both the request-level
+ * `runtime.scripts` and the collection/folder-level `request.scripts`
+ * (RequestDefaults) containers.
  */
-function extractScripts(
-  item: Record<string, unknown>,
-  requestName: string
-): {
+export function groupScripts(scripts: unknown): {
   preRequest?: string;
   test?: string;
+  unrecognized: string[];
 } {
-  const runtime = (item.runtime ?? {}) as Record<string, unknown>;
-  const scripts = runtime.scripts;
-  if (!Array.isArray(scripts)) return {};
-
+  if (!Array.isArray(scripts)) return { unrecognized: [] };
   const pre: string[] = [];
   const test: string[] = [];
+  const unrecognized: string[] = [];
   for (const s of scripts) {
     const script = (s ?? {}) as { type?: string; code?: string; file?: { path?: string } };
     const code = typeof script.code === 'string' ? script.code : '';
@@ -254,15 +266,51 @@ function extractScripts(
         break;
       case 'after-response':
       case 'hooks':
-        unrecognizedScriptDetails.push({ type: script.type, requestName });
+        unrecognized.push(script.type);
         break;
     }
   }
-  const SEP = '\n\n// --- next script ---\n\n';
   return {
-    ...(pre.length > 0 ? { preRequest: pre.join(SEP) } : {}),
-    ...(test.length > 0 ? { test: test.join(SEP) } : {}),
+    ...(pre.length > 0 ? { preRequest: pre.join(SCRIPT_SEP) } : {}),
+    ...(test.length > 0 ? { test: test.join(SCRIPT_SEP) } : {}),
+    unrecognized,
   };
+}
+
+/**
+ * Import-side wrapper over the pure {@link groupScripts}: groups an
+ * OpenCollection `Script[]` and records any unsupported types (`after-response`,
+ * `hooks`) against the unrecognized-script counter under `contextName`.
+ */
+function collectScripts(
+  scripts: unknown,
+  contextName: string
+): { preRequest?: string; test?: string } {
+  const { unrecognized, ...grouped } = groupScripts(scripts);
+  for (const type of unrecognized)
+    unrecognizedScriptDetails.push({ type, requestName: contextName });
+  return grouped;
+}
+
+/** Pull request-level scripts from an item's `runtime.scripts`, labelled by request name. */
+function extractScripts(
+  item: Record<string, unknown>,
+  requestName: string
+): { preRequest?: string; test?: string } {
+  return collectScripts((item.runtime as { scripts?: unknown } | undefined)?.scripts, requestName);
+}
+
+/**
+ * Pull collection/folder-level scripts from an OpenCollection RequestDefaults
+ * (`request.scripts`) bag — the spec-clean home for scripts that run against
+ * every descendant request. `contextName` (collection or folder name) labels
+ * any unsupported types in the unrecognized-script counter.
+ */
+function requestDefaultsScripts(
+  request: unknown,
+  contextName: string
+): { preRequest?: string; test?: string } {
+  return collectScripts((request as { scripts?: unknown } | undefined)?.scripts, contextName);
 }
 
 function kvToInternal(kv: unknown): KeyValue {

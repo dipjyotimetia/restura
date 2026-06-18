@@ -68,6 +68,42 @@ describe('fs-writer', () => {
     expect(reloaded).toEqual(original);
   });
 
+  it('carries collection- and folder-level request.scripts through the dir layout', async () => {
+    const oc: OpenCollection = {
+      opencollection: '1.0.0',
+      info: { name: 'Scripted' },
+      request: { scripts: [{ type: 'before-request', code: 'rs.root.pre()' }] },
+      items: [
+        {
+          info: { name: 'users' },
+          request: { scripts: [{ type: 'tests', code: 'rs.folder.test()' }] },
+          items: [
+            {
+              info: { type: 'http', name: 'Get User' },
+              http: { method: 'GET', url: '/u/1' },
+            },
+          ],
+        },
+      ],
+    } as OpenCollection;
+    await saveCollectionToDir(oc, tmp);
+
+    // Scripts land in the on-disk root + folder metadata files.
+    const root = await readFile(join(tmp, 'opencollection.yml'), 'utf8');
+    expect(root).toContain('rs.root.pre()');
+    const folderMeta = await readFile(join(tmp, 'users', '_folder.yaml'), 'utf8');
+    expect(folderMeta).toContain('rs.folder.test()');
+
+    // ...and survive the reload symmetrically.
+    const reloaded = await loadCollectionFromDir(tmp);
+    expect((reloaded.request as { scripts?: Array<{ code: string }> }).scripts?.[0]?.code).toBe(
+      'rs.root.pre()'
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Item is folder|request union
+    const folder = (reloaded.items ?? [])[0] as any;
+    expect(folder.request.scripts[0].code).toBe('rs.folder.test()');
+  });
+
   it('cleans up empty trailing arrays so YAML stays compact', async () => {
     const oc: OpenCollection = {
       opencollection: '1.0.0',

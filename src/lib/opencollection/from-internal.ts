@@ -13,7 +13,7 @@ import type {
 } from '@/types';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
-import { authToInternal } from './to-internal';
+import { authToInternal, groupScripts } from './to-internal';
 import type { OpenCollection } from './schemas';
 
 /**
@@ -68,12 +68,18 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
   //    it the cached document re-emits the removed item (GH #278). Nested
   //    removals are already covered by the ancestor-strip above, so no folder
   //    structural check is needed here.
+  //  - scripts (scriptsUnchanged / allFolderScriptsUnchanged): collection/folder
+  //    pre-request/test scripts live on the root/folder bags, so an in-app
+  //    script edit must defeat the shortcut — gated independently of auth so a
+  //    script-only edit never recomputes un-modellable auth.
   if (
     c._oc &&
     allItemsHaveOcBag(c.items) &&
     authUnchanged(c._oc, c.auth) &&
     allFolderAuthsUnchanged(c.items) &&
-    rootStructureUnchanged(c)
+    rootStructureUnchanged(c) &&
+    scriptsUnchanged(c._oc, c.preRequestScript, c.testScript) &&
+    allFolderScriptsUnchanged(c.items)
   ) {
     return c._oc as OpenCollection;
   }
@@ -126,6 +132,11 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     if (!authUnchanged(cached, c.auth)) {
       applyRequestDefaultsAuth(oc as Record<string, unknown>, c.auth);
     }
+    // Collection-level scripts: same treatment, gated independently so a
+    // script-only edit never recomputes auth (preserves un-modellable types).
+    if (!scriptsUnchanged(cached, c.preRequestScript, c.testScript)) {
+      applyRequestDefaultsScripts(oc as Record<string, unknown>, c.preRequestScript, c.testScript);
+    }
 
     return oc;
   }
@@ -141,7 +152,13 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
   };
 
   const rootAuth = authFromInternal(c.auth);
-  if (rootAuth) oc.request = { auth: rootAuth };
+  const rootScripts = buildScripts(c.preRequestScript, c.testScript);
+  if (rootAuth || rootScripts) {
+    oc.request = {
+      ...(rootAuth ? { auth: rootAuth } : {}),
+      ...(rootScripts ? { scripts: rootScripts } : {}),
+    };
+  }
 
   const extensions: Record<string, unknown> = {};
   if (sseItems.length > 0) extensions['x-restura-sse'] = sseItems;
@@ -185,26 +202,42 @@ function allItemsHaveOcBag(items: CollectionItem[] | undefined): boolean {
 }
 
 /**
- * Merge a node's internal auth into its OC `request` (RequestDefaults) bag,
- * preserving any other defaults the bag carried. Removes the bag entirely
- * when the result would be empty so the YAML stays compact.
+ * Set or clear a single key in a node's OC `request` (RequestDefaults) bag,
+ * preserving every other default the bag carried and dropping the bag entirely
+ * when the result would be empty (so the YAML stays compact). `fresh ===
+ * undefined` clears the key. Shared by the auth and scripts appliers — they are
+ * gated independently at the call sites, so this never recomputes one from the
+ * other (load-bearing for un-modellable auth, see callers).
  */
-function applyRequestDefaultsAuth(
-  node: Record<string, unknown>,
-  auth: AuthConfig | undefined
-): void {
-  const fresh = authFromInternal(auth);
+function setRequestDefault(node: Record<string, unknown>, key: string, fresh: unknown): void {
   const cachedRequest =
     node.request && typeof node.request === 'object'
       ? { ...(node.request as Record<string, unknown>) }
       : {};
-  if (fresh) {
-    node.request = { ...cachedRequest, auth: fresh };
+  if (fresh !== undefined) {
+    node.request = { ...cachedRequest, [key]: fresh };
     return;
   }
-  delete cachedRequest.auth;
+  delete cachedRequest[key];
   if (Object.keys(cachedRequest).length > 0) node.request = cachedRequest;
   else delete node.request;
+}
+
+/** Merge a node's internal auth into its OC `request` (RequestDefaults) bag. */
+function applyRequestDefaultsAuth(
+  node: Record<string, unknown>,
+  auth: AuthConfig | undefined
+): void {
+  setRequestDefault(node, 'auth', authFromInternal(auth));
+}
+
+/** Merge a node's internal pre-request / test scripts into its `request` bag. */
+function applyRequestDefaultsScripts(
+  node: Record<string, unknown>,
+  preRequest: string | undefined,
+  test: string | undefined
+): void {
+  setRequestDefault(node, 'scripts', buildScripts(preRequest, test));
 }
 
 function folderFromInternal(
@@ -212,10 +245,13 @@ function folderFromInternal(
   sseItems: unknown[],
   mcpItems: unknown[]
 ): unknown {
-  // Verbatim shortcut only while the folder's default auth still matches the
-  // cached bag — an in-app auth edit forces a rebuild (children still fall
-  // back to their own _oc bags below, so unmodified requests stay verbatim).
-  if (it._oc && authUnchanged(it._oc, it.auth)) return it._oc;
+  // Verbatim shortcut only while the folder's default auth AND scripts still
+  // match the cached bag — an in-app edit to either forces a rebuild (children
+  // still fall back to their own _oc bags below, so unmodified requests stay
+  // verbatim).
+  const authSame = authUnchanged(it._oc, it.auth);
+  const scriptsSame = scriptsUnchanged(it._oc, it.preRequestScript, it.testScript);
+  if (it._oc && authSame && scriptsSame) return it._oc;
   const out: Record<string, unknown> = it._oc
     ? { ...(it._oc as Record<string, unknown>) }
     : { info: { name: it.name } };
@@ -247,7 +283,11 @@ function folderFromInternal(
     childItems.push(wchild._oc ?? requestFromInternal(child.name, r));
   }
   out.items = childItems;
-  applyRequestDefaultsAuth(out, it.auth);
+  // Apply each independently and only when it actually changed: rebuilding for
+  // a script edit must not recompute auth (would drop OAuth1/NTLM/WSSE, which
+  // survive only via the cached _oc bytes), and vice versa.
+  if (!authSame) applyRequestDefaultsAuth(out, it.auth);
+  if (!scriptsSame) applyRequestDefaultsScripts(out, it.preRequestScript, it.testScript);
   return out;
 }
 
@@ -527,14 +567,47 @@ function rootStructureUnchanged(c: WithOC<Collection>): boolean {
 }
 
 /**
- * Build a `runtime` object with `scripts: Script[]` from the internal
- * preRequestScript / testScript fields. Returns undefined if neither is set,
- * so the caller can omit the `runtime` key entirely and keep YAML compact.
+ * Export-time staleness check for collection/folder scripts, mirroring
+ * {@link authUnchanged}. Converts the cached `_oc` bag's `request.scripts`
+ * through the SAME import grouping (`groupScripts`) and compares the resulting
+ * pre/test strings against the current internal fields. Equal → cached bytes
+ * are still true (emit verbatim); different → scripts were edited in-app and
+ * the cached doc must be rebuilt. `groupScripts` is side-effect-free, so this
+ * never touches the import-time unrecognized-script counters.
  */
-function runtimeFromInternal(
+function scriptsUnchanged(
+  cachedNode: unknown,
+  preRequest: string | undefined,
+  test: string | undefined
+): boolean {
+  const cachedRequest = (cachedNode as { request?: unknown } | undefined)?.request;
+  const cached = groupScripts((cachedRequest as { scripts?: unknown } | undefined)?.scripts);
+  return (cached.preRequest ?? '') === (preRequest ?? '') && (cached.test ?? '') === (test ?? '');
+}
+
+/** Recursively true when every folder's scripts still match its cached bag. */
+function allFolderScriptsUnchanged(items: CollectionItem[] | undefined): boolean {
+  if (!items) return true;
+  return items.every((it) => {
+    if (it.type !== 'folder') return true;
+    const wit = it as WithOC<CollectionItem>;
+    if (wit._oc !== undefined && !scriptsUnchanged(wit._oc, it.preRequestScript, it.testScript)) {
+      return false;
+    }
+    return allFolderScriptsUnchanged(it.items);
+  });
+}
+
+/**
+ * Build an OpenCollection `Script[]` from the internal preRequestScript /
+ * testScript fields. Returns undefined when neither is set so callers can omit
+ * the container (request `runtime` or collection/folder `request.scripts`)
+ * entirely and keep the YAML compact.
+ */
+function buildScripts(
   preRequest?: string,
   test?: string
-): Record<string, unknown> | undefined {
+): Array<{ type: string; code: string }> | undefined {
   const scripts: Array<{ type: string; code: string }> = [];
   if (preRequest && preRequest.trim().length > 0) {
     scripts.push({ type: 'before-request', code: preRequest });
@@ -542,8 +615,20 @@ function runtimeFromInternal(
   if (test && test.trim().length > 0) {
     scripts.push({ type: 'tests', code: test });
   }
-  if (scripts.length === 0) return undefined;
-  return { scripts };
+  return scripts.length === 0 ? undefined : scripts;
+}
+
+/**
+ * Build a request-level `runtime` object with `scripts: Script[]` from the
+ * internal preRequestScript / testScript fields. Returns undefined if neither
+ * is set, so the caller can omit the `runtime` key entirely.
+ */
+function runtimeFromInternal(
+  preRequest?: string,
+  test?: string
+): Record<string, unknown> | undefined {
+  const scripts = buildScripts(preRequest, test);
+  return scripts ? { scripts } : undefined;
 }
 
 function methodTypeFromInternal(t: GrpcMethodType): string {
