@@ -423,6 +423,9 @@ function KafkaClient() {
     const useTimestamp = consumeMode === 'from-timestamp';
     const partition = Number(offsetPartition);
     const offsetsValid = useManual && offsetSpecValid;
+    // Only send a timestamp once it parses to a real epoch-ms (Subscribe is
+    // disabled until then) — never forward "NaN" to the backend.
+    const timestampMs = useTimestamp ? new Date(timestampDraft).getTime() : NaN;
     let mode: 'manual' | 'timestamp' | 'earliest' | 'latest';
     if (useManual) mode = 'manual';
     else if (useTimestamp) mode = 'timestamp';
@@ -442,9 +445,7 @@ function KafkaClient() {
             })),
           }
         : {}),
-      ...(useTimestamp && timestampDraft.trim() !== ''
-        ? { timestamp: String(new Date(timestampDraft).getTime()) }
-        : {}),
+      ...(useTimestamp && !Number.isNaN(timestampMs) ? { timestamp: String(timestampMs) } : {}),
     });
   };
 
@@ -580,8 +581,12 @@ function KafkaClient() {
   // else MANUAL seek can't be built — block Subscribe rather than silently
   // falling back to LATEST.
   const offsetSpecInvalid = consumeMode === 'from-offset' && !offsetSpecValid;
-  // from-timestamp needs a chosen time — block Subscribe until one is set.
-  const timestampInvalid = consumeMode === 'from-timestamp' && timestampDraft.trim() === '';
+  // from-timestamp needs a parseable time — block Subscribe until one is set.
+  // `new Date('')`/unparseable → NaN, so this covers both empty and (defensively,
+  // since the datetime-local input already constrains it) malformed values, and
+  // guarantees we never send "NaN" to the backend.
+  const timestampInvalid =
+    consumeMode === 'from-timestamp' && Number.isNaN(new Date(timestampDraft).getTime());
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
