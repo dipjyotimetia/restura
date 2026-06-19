@@ -11,8 +11,12 @@ import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
 import type {
   KafkaAuthIpc,
+  KafkaGroupDescription,
   KafkaGroupInfo,
+  KafkaPartitionLag,
+  KafkaPartitionWatermark,
   KafkaRegistryIpc,
+  KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 
 type KafkaSecretField = 'sasl-password' | 'tls-passphrase' | 'registry-password' | 'registry-token';
@@ -244,8 +248,9 @@ class KafkaManager {
     groupId: string;
     topics: string[];
     fromBeginning: boolean;
-    mode?: 'latest' | 'earliest' | 'manual';
+    mode?: 'latest' | 'earliest' | 'manual' | 'timestamp';
     offsets?: Array<{ topic: string; partition: number; offset: string }>;
+    timestamp?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) return { ok: false, error: 'Kafka is desktop-only.' };
     const api = getElectronAPI();
@@ -357,6 +362,63 @@ class KafkaManager {
       return { ok: false, error: result.error ?? 'List groups failed' };
     }
     return { ok: true, groups: result.groups };
+  }
+
+  async inspectTopic(
+    connectionId: string,
+    topic: string
+  ): Promise<
+    | { ok: true; partitions: KafkaPartitionWatermark[]; config: KafkaTopicConfigEntry[] }
+    | { ok: false; error: string }
+  > {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.inspectTopic({ connectionId, topic });
+    if (!result.success || !result.partitions || !result.config) {
+      return { ok: false, error: result.error ?? 'Inspect topic failed' };
+    }
+    return { ok: true, partitions: result.partitions, config: result.config };
+  }
+
+  async inspectGroup(
+    connectionId: string,
+    groupId: string
+  ): Promise<
+    | { ok: true; group: KafkaGroupDescription | null; offsets: KafkaPartitionLag[] }
+    | { ok: false; error: string }
+  > {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.inspectGroup({ connectionId, groupId });
+    if (!result.success || !result.offsets) {
+      return { ok: false, error: result.error ?? 'Inspect group failed' };
+    }
+    return { ok: true, group: result.group ?? null, offsets: result.offsets };
+  }
+
+  async resetGroupOffsets(params: {
+    connectionId: string;
+    groupId: string;
+    topic: string;
+    to: 'earliest' | 'latest' | 'specific';
+    partitions?: Array<{ partition: number; offset: string }>;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.resetGroupOffsets(params);
+    if (!result.success) return { ok: false, error: result.error ?? 'Reset offsets failed' };
+    return { ok: true };
+  }
+
+  async deleteGroup(
+    connectionId: string,
+    groupId: string
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.deleteGroup({ connectionId, groupId });
+    if (!result.success) return { ok: false, error: result.error ?? 'Delete group failed' };
+    return { ok: true };
   }
 
   private bindLifecycleListeners(connectionId: string): void {

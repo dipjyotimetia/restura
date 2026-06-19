@@ -82,6 +82,10 @@ export const IPC = {
     createTopic: 'kafka:create-topic',
     deleteTopic: 'kafka:delete-topic',
     listGroups: 'kafka:list-groups',
+    inspectTopic: 'kafka:inspect-topic',
+    inspectGroup: 'kafka:inspect-group',
+    resetGroupOffsets: 'kafka:reset-group-offsets',
+    deleteGroup: 'kafka:delete-group',
   },
   mqtt: {
     connect: 'mqtt:connect',

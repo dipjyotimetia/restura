@@ -10,7 +10,11 @@ import { Badge } from '@astrojs/starlight/components';
 ## What works
 
 - **Produce** — pick a topic, set headers, send a key + value (text, JSON, or binary).
-- **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp.
+- **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp. Start from **latest**, **earliest**, a specific **offset**, or a **timestamp** (seeks each partition to its first message at or after the chosen time).
+- **Topic inspector** — per-partition earliest/latest watermarks (and the approximate message count) plus the topic's broker config.
+- **Consumer-group inspector** — members and state, committed offset per partition, and **consumer lag** (topic log-end minus the group's committed offset) — computed on demand for any group, no active subscription needed.
+- **Reset consumer-group offsets** — to earliest, latest, or specific per-partition offsets (the group must be inactive).
+- **Delete consumer group** — for empty/inactive groups.
 - **Multiple brokers** — bootstrap list, broker discovery happens through the cluster.
 - **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`.
 - **TLS** — server certificate validation, optional client certificate (mTLS).

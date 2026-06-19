@@ -14,13 +14,21 @@ import type {
 import type { SchemaRegistry } from '@kafkajs/confluent-schema-registry';
 import type * as KafkaLib from '@platformatic/kafka';
 import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
-import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
+import type { ZodSchema } from 'zod';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
 import { IPC } from '../../shared/channels';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
-import { encodeSchemaField, decodeField } from './kafka-serde';
+import {
+  encodeSchemaField,
+  decodeField,
+  topicWatermarks,
+  flattenConfigDescriptions,
+  flattenGroup,
+  computeGroupLag,
+} from './kafka-serde';
 import type { LogEntry } from '../lifecycle/request-logger';
 import {
   KafkaConnectSchema,
@@ -32,6 +40,10 @@ import {
   KafkaCreateTopicSchema,
   KafkaDeleteTopicSchema,
   KafkaListGroupsSchema,
+  KafkaInspectTopicSchema,
+  KafkaInspectGroupSchema,
+  KafkaResetGroupOffsetsSchema,
+  KafkaDeleteGroupSchema,
   validateIpcInput,
   createValidatedHandler,
   assertTrustedSender,
@@ -194,6 +206,17 @@ async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
       /* ignore */
     }
     entry.consumer = undefined;
+  }
+}
+
+// Best-effort close of a consumer that was created but not yet tracked on the
+// entry (e.g. a subscribe that bails before assigning entry.consumer), so it
+// doesn't leak a broker socket.
+async function closeConsumerQuietly(consumer: AppConsumer): Promise<void> {
+  try {
+    await Promise.resolve(consumer.close(true));
+  } catch {
+    /* ignore — best-effort socket release */
   }
 }
 
@@ -488,6 +511,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       if (entry.consumer) {
         return { success: false, error: 'Already subscribed — unsubscribe first' };
       }
+      // Hoisted so the catch can release a consumer that threw before it was
+      // attached to `entry` (the timestamp path connects to a broker via
+      // listOffsetsWithTimestamps before consume(), widening that window).
+      let consumer: AppConsumer | undefined;
       try {
         const kafka = getKafka();
         // Always hand back raw Buffers for key/value; the handler decodes them via
@@ -503,12 +530,14 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             headerValue: stringFieldDeserializer,
           },
         } as unknown as ConsumerOptions<Buffer, Buffer, string, string>;
-        const consumer = new kafka.Consumer<Buffer, Buffer, string, string>(consumerOptions);
+        consumer = new kafka.Consumer<Buffer, Buffer, string, string>(consumerOptions);
 
         // Start-position precedence:
         //   1. explicit per-partition `offsets` → MANUAL seek (offset is bigint)
-        //   2. explicit `mode` (latest/earliest/manual)
-        //   3. legacy `fromBeginning` (EARLIEST vs LATEST)
+        //   2. 'timestamp' → resolve each partition's first offset at/after the
+        //      timestamp, then MANUAL seek (the lib has no live seek())
+        //   3. explicit `mode` (latest/earliest/manual)
+        //   4. legacy `fromBeginning` (EARLIEST vs LATEST)
         // MANUAL requires the caller to know partition numbers; the lib seeks to
         // each (topic, partition) → offset triple supplied in `offsets`.
         const M = kafka.MessagesStreamModes;
@@ -521,6 +550,32 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             partition: o.partition,
             offset: BigInt(o.offset),
           }));
+        } else if (cfg.mode === 'timestamp') {
+          if (!cfg.timestamp) {
+            await closeConsumerQuietly(consumer);
+            return { success: false, error: 'A timestamp is required for timestamp mode' };
+          }
+          // Resolve the first offset at/after the timestamp for every partition of
+          // the subscribed topics, then seek there via the MANUAL path. Partitions
+          // with no message at/after the timestamp return offset -1 and are skipped.
+          const resolved = await consumer.listOffsetsWithTimestamps({
+            topics: cfg.topics,
+            timestamp: BigInt(cfg.timestamp),
+          });
+          offsets = [];
+          for (const [topic, partitions] of resolved) {
+            for (const [partition, { offset }] of partitions) {
+              if (offset >= 0n) offsets.push({ topic, partition, offset });
+            }
+          }
+          if (offsets.length === 0) {
+            await closeConsumerQuietly(consumer);
+            return {
+              success: false,
+              error: 'No messages at or after that timestamp on the subscribed topic(s).',
+            };
+          }
+          mode = M.MANUAL;
         } else if (cfg.mode === 'manual') {
           // 'manual' with no offsets is meaningless — fall back to LATEST.
           mode = M.LATEST;
@@ -543,6 +598,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         entry.stream = stream;
         return { success: true };
       } catch (err) {
+        // Release the consumer if it threw before being attached to `entry`
+        // (otherwise it's unreachable by bindRendererCleanup/disposeByOwner).
+        if (consumer) await closeConsumerQuietly(consumer);
         return { success: false, error: errorMessage(err) };
       }
     })
@@ -577,54 +635,178 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
   // a finally so broker sockets are released. Brokers were SSRF-guarded at
   // connect, so we don't re-run assertKafkaBrokersSafe here.
 
-  ipcMain.handle(
-    IPC.kafka.listTopics,
-    createValidatedHandler(IPC.kafka.listTopics, KafkaListTopicsSchema, (cfg) =>
-      withAdmin(cfg.connectionId, async (admin) => ({ topics: await admin.listTopics() }))
-    )
+  // Every admin op goes through adminHandle → per-webContents rate limit + Zod
+  // validation, so the whole admin surface is throttled uniformly (vs. wiring
+  // rateLimited per op). Each builds a short-lived Admin from the connection's
+  // already-validated auth/TLS via withAdmin and closes it in a finally.
+
+  adminHandle(IPC.kafka.listTopics, KafkaListTopicsSchema, (cfg) =>
+    withAdmin(cfg.connectionId, async (admin) => ({ topics: await admin.listTopics() }))
   );
 
-  ipcMain.handle(
-    IPC.kafka.createTopic,
-    createValidatedHandler(IPC.kafka.createTopic, KafkaCreateTopicSchema, (cfg) =>
-      withAdmin(cfg.connectionId, async (admin) => {
-        await admin.createTopics({
-          topics: [cfg.topic],
-          partitions: cfg.partitions,
-          replicas: cfg.replicationFactor,
-        });
-        return {};
-      })
-    )
+  adminHandle(IPC.kafka.createTopic, KafkaCreateTopicSchema, (cfg) =>
+    withAdmin(cfg.connectionId, async (admin) => {
+      await admin.createTopics({
+        topics: [cfg.topic],
+        partitions: cfg.partitions,
+        replicas: cfg.replicationFactor,
+      });
+      return {};
+    })
   );
 
-  ipcMain.handle(
-    IPC.kafka.deleteTopic,
-    createValidatedHandler(IPC.kafka.deleteTopic, KafkaDeleteTopicSchema, (cfg) =>
-      withAdmin(cfg.connectionId, async (admin) => {
-        await admin.deleteTopics({ topics: [cfg.topic] });
-        return {};
-      })
-    )
+  adminHandle(IPC.kafka.deleteTopic, KafkaDeleteTopicSchema, (cfg) =>
+    withAdmin(cfg.connectionId, async (admin) => {
+      await admin.deleteTopics({ topics: [cfg.topic] });
+      return {};
+    })
   );
 
-  ipcMain.handle(
-    IPC.kafka.listGroups,
-    createValidatedHandler(IPC.kafka.listGroups, KafkaListGroupsSchema, (cfg) =>
-      withAdmin(cfg.connectionId, async (admin) => {
-        const groupsMap = await admin.listGroups();
-        // listGroups returns a Map keyed by group id — flatten to a serializable
-        // array for the renderer (Maps don't survive structured clone usefully).
-        const groups = Array.from(groupsMap.values()).map((g) => ({
-          id: g.id,
-          state: String(g.state),
-          groupType: g.groupType,
-          protocolType: g.protocolType,
+  adminHandle(IPC.kafka.listGroups, KafkaListGroupsSchema, (cfg) =>
+    withAdmin(cfg.connectionId, async (admin) => {
+      const groupsMap = await admin.listGroups();
+      // listGroups returns a Map keyed by group id — flatten to a serializable
+      // array for the renderer (Maps don't survive structured clone usefully).
+      const groups = Array.from(groupsMap.values()).map((g) => ({
+        id: g.id,
+        state: String(g.state),
+        groupType: g.groupType,
+        protocolType: g.protocolType,
+      }));
+      return { groups };
+    })
+  );
+
+  // Topic inspector: per-partition earliest/latest watermarks + topic config.
+  adminHandle(IPC.kafka.inspectTopic, KafkaInspectTopicSchema, (cfg) =>
+    withAdmin(cfg.connectionId, async (admin) => {
+      const kafka = getKafka();
+      // Partition discovery (metadata) and config don't depend on each other —
+      // one round-trip. listOffsets then needs the discovered partition indexes.
+      const [indexes, configs] = await Promise.all([
+        topicPartitionIndexes(admin, cfg.topic),
+        admin.describeConfigs({
+          resources: [{ resourceType: kafka.ConfigResourceTypes.TOPIC, resourceName: cfg.topic }],
+        }),
+      ]);
+      let partitions: ReturnType<typeof topicWatermarks> = [];
+      if (indexes.length > 0) {
+        const T = kafka.ListOffsetTimestamps;
+        const [earliest, latest] = await Promise.all([
+          admin.listOffsets(listOffsetsRequest(cfg.topic, indexes, T.EARLIEST)),
+          admin.listOffsets(listOffsetsRequest(cfg.topic, indexes, T.LATEST)),
+        ]);
+        partitions = topicWatermarks(earliest[0]?.partitions ?? [], latest[0]?.partitions ?? []);
+      }
+      return { partitions, config: flattenConfigDescriptions(configs) };
+    })
+  );
+
+  // Consumer-group inspector: members/state + committed offsets + computed lag
+  // (lag = topic LATEST watermark − committed offset, per partition).
+  adminHandle(IPC.kafka.inspectGroup, KafkaInspectGroupSchema, (cfg) =>
+    withAdmin(cfg.connectionId, async (admin) => {
+      const kafka = getKafka();
+      const [describeMap, committedGroups] = await Promise.all([
+        admin.describeGroups({ groups: [cfg.groupId] }),
+        admin.listConsumerGroupOffsets({ groups: [{ groupId: cfg.groupId }] }),
+      ]);
+      const raw = describeMap.get(cfg.groupId);
+      const group = raw ? flattenGroup(raw) : null;
+
+      const committed = committedGroups.find((g) => g.groupId === cfg.groupId)?.topics ?? [];
+      const T = kafka.ListOffsetTimestamps;
+      const latestReq = committed
+        .filter((t) => t.partitions.length > 0)
+        .map((t) => ({
+          name: t.name,
+          partitions: t.partitions.map((p) => ({
+            partitionIndex: p.partitionIndex,
+            timestamp: T.LATEST,
+          })),
         }));
-        return { groups };
-      })
-    )
+      const latest = latestReq.length > 0 ? await admin.listOffsets({ topics: latestReq }) : [];
+      return { group, offsets: computeGroupLag(committed, latest) };
+    })
   );
+
+  // Reset a consumer group's committed offsets for one topic. Kafka rejects this
+  // unless the group is inactive (no members) — that error surfaces to the UI.
+  adminHandle(IPC.kafka.resetGroupOffsets, KafkaResetGroupOffsetsSchema, (cfg) =>
+    withAdmin(cfg.connectionId, async (admin) => {
+      const kafka = getKafka();
+      let partitionOffsets: { partition: number; offset: bigint }[];
+      if (cfg.to === 'specific') {
+        partitionOffsets = (cfg.partitions ?? []).map((p) => ({
+          partition: p.partition,
+          offset: BigInt(p.offset),
+        }));
+      } else {
+        const indexes = await topicPartitionIndexes(admin, cfg.topic);
+        if (indexes.length === 0) {
+          throw new Error(`Topic "${cfg.topic}" has no partitions or does not exist.`);
+        }
+        const ts =
+          cfg.to === 'earliest'
+            ? kafka.ListOffsetTimestamps.EARLIEST
+            : kafka.ListOffsetTimestamps.LATEST;
+        const listed = await admin.listOffsets(listOffsetsRequest(cfg.topic, indexes, ts));
+        partitionOffsets = (listed[0]?.partitions ?? []).map((p) => ({
+          partition: p.partitionIndex,
+          offset: p.offset,
+        }));
+      }
+      await admin.alterConsumerGroupOffsets({
+        groupId: cfg.groupId,
+        topics: [{ name: cfg.topic, partitionOffsets }],
+      });
+      return {};
+    })
+  );
+
+  // Delete a consumer group. Kafka rejects this unless the group is empty/inactive
+  // — that error surfaces to the UI.
+  adminHandle(IPC.kafka.deleteGroup, KafkaDeleteGroupSchema, (cfg) =>
+    withAdmin(cfg.connectionId, async (admin) => {
+      await admin.deleteGroups({ groups: [cfg.groupId] });
+      return {};
+    })
+  );
+}
+
+// Register an admin IPC op behind the per-webContents rate limiter + Zod
+// validation, so the whole admin surface is throttled uniformly by construction.
+function adminHandle<TInput, TOutput>(
+  channel: string,
+  schema: ZodSchema<TInput>,
+  handler: (input: TInput) => Promise<TOutput> | TOutput
+): void {
+  ipcMain.handle(
+    channel,
+    rateLimited(kafkaRateLimiter, createValidatedHandler(channel, schema, handler))
+  );
+}
+
+// Resolve a topic's partition indexes [0..count-1] from broker metadata — the
+// shared first step of the topic inspector and offset-reset listOffsets calls.
+async function topicPartitionIndexes(admin: Admin, topic: string): Promise<number[]> {
+  const meta = await admin.metadata({
+    topics: [topic],
+    autocreateTopics: false,
+    forceUpdate: true,
+  });
+  const count = meta.topics.get(topic)?.partitionsCount ?? 0;
+  return Array.from({ length: count }, (_, i) => i);
+}
+
+// Build an Admin.listOffsets request for the given partitions at one timestamp
+// sentinel (ListOffsetTimestamps.EARLIEST/LATEST).
+function listOffsetsRequest(topic: string, indexes: number[], timestamp: bigint) {
+  return {
+    topics: [
+      { name: topic, partitions: indexes.map((partitionIndex) => ({ partitionIndex, timestamp })) },
+    ],
+  };
 }
 
 /**

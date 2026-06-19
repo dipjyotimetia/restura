@@ -328,8 +328,9 @@ const electronAPI = {
       groupId: string;
       topics: string[];
       fromBeginning: boolean;
-      mode?: 'latest' | 'earliest' | 'manual';
+      mode?: 'latest' | 'earliest' | 'manual' | 'timestamp';
       offsets?: Array<{ topic: string; partition: number; offset: string }>;
+      timestamp?: string;
     }): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.kafka.subscribe, config),
 
@@ -367,6 +368,65 @@ const electronAPI = {
       groups?: Array<{ id: string; state: string; groupType: string; protocolType: string }>;
       error?: string;
     }> => ipcRenderer.invoke(IPC.kafka.listGroups, config),
+
+    inspectTopic: (config: {
+      connectionId: string;
+      topic: string;
+    }): Promise<{
+      success: boolean;
+      partitions?: Array<{ partition: number; low: string; high: string; count: string }>;
+      config?: Array<{
+        name: string;
+        value: string | null;
+        source: string;
+        isDefault: boolean;
+        isSensitive: boolean;
+        readOnly: boolean;
+      }>;
+      error?: string;
+    }> => ipcRenderer.invoke(IPC.kafka.inspectTopic, config),
+
+    inspectGroup: (config: {
+      connectionId: string;
+      groupId: string;
+    }): Promise<{
+      success: boolean;
+      group?: {
+        id: string;
+        state: string;
+        protocol: string;
+        protocolType: string;
+        members: Array<{
+          memberId: string;
+          clientId: string;
+          clientHost: string;
+          assignments: Array<{ topic: string; partitions: number[] }>;
+        }>;
+      } | null;
+      offsets?: Array<{
+        topic: string;
+        partition: number;
+        committed: string | null;
+        logEnd: string;
+        lag: string;
+      }>;
+      error?: string;
+    }> => ipcRenderer.invoke(IPC.kafka.inspectGroup, config),
+
+    resetGroupOffsets: (config: {
+      connectionId: string;
+      groupId: string;
+      topic: string;
+      to: 'earliest' | 'latest' | 'specific';
+      partitions?: Array<{ partition: number; offset: string }>;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.kafka.resetGroupOffsets, config),
+
+    deleteGroup: (config: {
+      connectionId: string;
+      groupId: string;
+    }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.kafka.deleteGroup, config),
 
     ...channelEventBridge(CHANNEL_PREFIXES.kafka),
   },

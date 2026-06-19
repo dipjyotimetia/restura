@@ -734,16 +734,29 @@ const KafkaPartitionOffsetSchema = z.object({
   offset: z.string().min(1).max(20).regex(/^\d+$/, 'Offset must be a non-negative integer string'),
 });
 
+// Consumer-group id — reused by subscribe and the group admin ops.
+const KafkaGroupIdSchema = z.string().min(1).max(256);
+
 export const KafkaSubscribeSchema = z.object({
   connectionId: KafkaConnectionIdSchema,
-  groupId: z.string().min(1).max(256),
+  groupId: KafkaGroupIdSchema,
   topics: z.array(KafkaTopicSchema).min(1).max(50),
   // Start position. 'latest'/'earliest' map to the lib's stream modes;
-  // 'manual' seeks to the explicit per-partition `offsets` below. `fromBeginning`
-  // is kept for back-compat and used only when `mode` is omitted.
+  // 'manual' seeks to the explicit per-partition `offsets` below; 'timestamp'
+  // resolves each partition's first offset at/after `timestamp` (epoch ms) and
+  // then seeks there via the MANUAL path. `fromBeginning` is kept for back-compat
+  // and used only when `mode` is omitted.
   fromBeginning: z.boolean(),
-  mode: z.enum(['latest', 'earliest', 'manual']).optional(),
+  mode: z.enum(['latest', 'earliest', 'manual', 'timestamp']).optional(),
   offsets: z.array(KafkaPartitionOffsetSchema).min(1).max(200).optional(),
+  // Epoch-millis as a numeric string (bigint at the wire). Required when
+  // mode === 'timestamp'; ignored otherwise.
+  timestamp: z
+    .string()
+    .min(1)
+    .max(20)
+    .regex(/^\d+$/, 'Timestamp must be a non-negative integer string (epoch ms)')
+    .optional(),
 });
 
 export const KafkaUnsubscribeSchema = z.object({
@@ -782,6 +795,45 @@ export const KafkaListGroupsSchema = z.object({
   connectionId: KafkaConnectionIdSchema,
 });
 
+// Topic inspector: partition watermarks (earliest/latest) + topic config.
+export const KafkaInspectTopicSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+  topic: KafkaTopicSchema,
+});
+
+// Consumer-group inspector: members/state + committed offsets + computed lag.
+export const KafkaInspectGroupSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+  groupId: KafkaGroupIdSchema,
+});
+
+// Reset a consumer group's committed offsets for one topic. 'earliest'/'latest'
+// resolve the target offsets broker-side; 'specific' takes explicit per-partition
+// offsets (required in that case). Kafka rejects this unless the group is inactive.
+export const KafkaResetGroupOffsetsSchema = z
+  .object({
+    connectionId: KafkaConnectionIdSchema,
+    groupId: KafkaGroupIdSchema,
+    topic: KafkaTopicSchema,
+    to: z.enum(['earliest', 'latest', 'specific']),
+    // Same per-partition offset shape as the MANUAL-seek spec, minus the topic
+    // (the topic is a top-level field here).
+    partitions: z
+      .array(KafkaPartitionOffsetSchema.omit({ topic: true }))
+      .min(1)
+      .max(1000)
+      .optional(),
+  })
+  .refine((v) => v.to !== 'specific' || (v.partitions?.length ?? 0) > 0, {
+    message: "partitions (with offsets) are required when to === 'specific'",
+    path: ['partitions'],
+  });
+
+export const KafkaDeleteGroupSchema = z.object({
+  connectionId: KafkaConnectionIdSchema,
+  groupId: KafkaGroupIdSchema,
+});
+
 export type KafkaConnectConfig = z.infer<typeof KafkaConnectSchema>;
 export type KafkaProduceConfig = z.infer<typeof KafkaProduceSchema>;
 export type KafkaSubscribeConfig = z.infer<typeof KafkaSubscribeSchema>;
@@ -791,6 +843,10 @@ export type KafkaListTopicsConfig = z.infer<typeof KafkaListTopicsSchema>;
 export type KafkaCreateTopicConfig = z.infer<typeof KafkaCreateTopicSchema>;
 export type KafkaDeleteTopicConfig = z.infer<typeof KafkaDeleteTopicSchema>;
 export type KafkaListGroupsConfig = z.infer<typeof KafkaListGroupsSchema>;
+export type KafkaInspectTopicConfig = z.infer<typeof KafkaInspectTopicSchema>;
+export type KafkaInspectGroupConfig = z.infer<typeof KafkaInspectGroupSchema>;
+export type KafkaResetGroupOffsetsConfig = z.infer<typeof KafkaResetGroupOffsetsSchema>;
+export type KafkaDeleteGroupConfig = z.infer<typeof KafkaDeleteGroupSchema>;
 
 // ===========================
 // MQTT Schemas
