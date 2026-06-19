@@ -106,6 +106,19 @@ interface FileCollection {
 // Track active file watchers
 const activeWatchers = new Map<string, FSWatcher>();
 
+/**
+ * Canonical key for the active-watcher set. The git handler (and
+ * `openInExplorer`) check this allowlist after `path.resolve`, so the set must
+ * be keyed by the canonical path too — otherwise a non-canonical directory
+ * string (trailing slash, `..`, mixed separators) registers under one key but is
+ * checked under another, and every git op false-denies. Only the Map key is
+ * canonicalised; chokidar still watches, and file-change events still report,
+ * the original string, so the renderer's own (raw) bookkeeping is untouched.
+ */
+function watcherKey(directoryPath: string): string {
+  return path.resolve(directoryPath);
+}
+
 // Track file modification times for conflict detection
 const fileModTimes = new Map<string, number>();
 
@@ -445,8 +458,9 @@ function watchCollectionDirectory(
     }
 
     // Stop existing watcher if any
-    if (activeWatchers.has(directoryPath)) {
-      activeWatchers.get(directoryPath)?.close();
+    const dirKey = watcherKey(directoryPath);
+    if (activeWatchers.has(dirKey)) {
+      activeWatchers.get(dirKey)?.close();
     }
 
     const watcher = chokidar.watch(directoryPath, {
@@ -495,7 +509,7 @@ function watchCollectionDirectory(
         });
       });
 
-    activeWatchers.set(directoryPath, watcher);
+    activeWatchers.set(dirKey, watcher);
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };
@@ -504,13 +518,16 @@ function watchCollectionDirectory(
 
 // Stop watching a collection directory
 function unwatchCollectionDirectory(directoryPath: string): { success: boolean } {
-  const watcher = activeWatchers.get(directoryPath);
+  const dirKey = watcherKey(directoryPath);
+  const watcher = activeWatchers.get(dirKey);
   if (watcher) {
     watcher.close();
-    activeWatchers.delete(directoryPath);
+    activeWatchers.delete(dirKey);
   }
   // Evict this directory's debounced senders and file mtimes so the registries
-  // don't accumulate entries across repeated watch/unwatch cycles.
+  // don't accumulate entries across repeated watch/unwatch cycles. These are
+  // keyed by the raw payload path (what sendFileChange reports), not the
+  // canonical watcher key, so they stay keyed on `directoryPath`.
   for (const key of debouncedSenders.keys()) {
     if (key.startsWith(`${directoryPath}::`)) debouncedSenders.delete(key);
   }
@@ -639,7 +656,7 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
  * directories, keeping the trust boundary tight.
  */
 export function isRegisteredCollectionDirectory(directoryPath: string): boolean {
-  return activeWatchers.has(directoryPath);
+  return activeWatchers.has(watcherKey(directoryPath));
 }
 
 // Cleanup on app quit

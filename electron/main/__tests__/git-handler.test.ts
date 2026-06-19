@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   GitError,
+  gitRateLimiter,
   parseBranchList,
   parseCommitLog,
   parsePorcelainV2,
@@ -168,5 +169,18 @@ describe('sanitiseRefName', () => {
 
   it('rejects empty input', () => {
     expect(() => sanitiseRefName('')).toThrow(GitError);
+  });
+});
+
+describe('gitRateLimiter', () => {
+  it('enforces a per-key budget of 120 requests/min', () => {
+    const key = 'wc-git-test';
+    for (let i = 0; i < 120; i++) {
+      expect(gitRateLimiter.check(key)).toBe(true);
+    }
+    // 121st request in the window is rejected. (Per-key independence is covered
+    // by ipc-rate-limiter.test.ts; here we only pin git's specific 120 budget.)
+    expect(gitRateLimiter.check(key)).toBe(false);
+    gitRateLimiter.dispose(key);
   });
 });
