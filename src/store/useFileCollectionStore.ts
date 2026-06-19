@@ -238,6 +238,19 @@ export async function loadCollectionFromDirectory(directoryPath: string): Promis
   if (result.success && result.collection) {
     const collection = result.collection as Collection;
 
+    // The main process mints a fresh collection id on every load, so the upsert
+    // below can't match an already-open collection by id alone — it would always
+    // take the `addCollection` branch. A file collection's identity is its
+    // directory, so reuse the id already registered for this directory (if any).
+    // Without this, every reload (ConflictDialog "Load external", post-checkout
+    // reload) duplicates the collection in the sidebar and orphans the prior
+    // fileCollections entry.
+    const fileStore = useFileCollectionStore.getState();
+    const existing = Object.values(fileStore.fileCollections).find(
+      (info) => info.directoryPath === directoryPath
+    );
+    if (existing) collection.id = existing.collectionId;
+
     // Upsert into the collection store. This is also the reload primitive
     // (ConflictDialog "Load external", post-checkout reload), so it MUST replace
     // an existing collection rather than append — `addCollection` appends, which
@@ -250,7 +263,6 @@ export async function loadCollectionFromDirectory(directoryPath: string): Promis
     }
 
     // Register as file collection
-    const fileStore = useFileCollectionStore.getState();
     fileStore.registerFileCollection(collection.id, directoryPath);
 
     // Start watching (the active-watcher set is the git allowlist).

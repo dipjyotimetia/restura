@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 type WindowWithElectron = {
-  electron?: { collections?: { watchDirectory: ReturnType<typeof vi.fn> } };
+  electron?: {
+    collections?: {
+      watchDirectory: ReturnType<typeof vi.fn>;
+      loadFromDirectory?: ReturnType<typeof vi.fn>;
+    };
+  };
 };
 
 describe('useFileCollectionStore persistence', () => {
@@ -75,6 +80,41 @@ describe('restoreFileCollectionWatchers', () => {
     const after = useFileCollectionStore.getState().fileCollections;
     expect(after['col-a']?.isWatching).toBe(true);
     expect(after['col-b']?.isWatching).toBe(true);
+  });
+
+  it('reloading a directory replaces the open collection instead of duplicating it', async () => {
+    const { useFileCollectionStore, loadCollectionFromDirectory } =
+      await import('../useFileCollectionStore');
+    const { useCollectionStore } = await import('../useCollectionStore');
+    useCollectionStore.setState({ collections: [] });
+
+    // The main process mints a NEW id on each load — simulate that to prove the
+    // upsert keys on directory identity, not the (unstable) id.
+    const loadFromDirectory = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        collection: { id: 'gen-1', name: 'Demo', items: [] },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        collection: { id: 'gen-2', name: 'Demo (branch)', items: [] },
+      });
+    const watchDirectory = vi.fn().mockResolvedValue({ success: true });
+    (window as unknown as WindowWithElectron).electron = {
+      collections: { watchDirectory, loadFromDirectory },
+    };
+
+    await loadCollectionFromDirectory('/tmp/demo');
+    await loadCollectionFromDirectory('/tmp/demo'); // e.g. post-checkout reload
+
+    const collections = useCollectionStore.getState().collections;
+    expect(collections).toHaveLength(1);
+    expect(collections[0]?.name).toBe('Demo (branch)'); // replaced, not appended
+    // The fileCollections registry stays single-entry (no orphaned id).
+    const fileCollections = useFileCollectionStore.getState().fileCollections;
+    const forDir = Object.values(fileCollections).filter((i) => i.directoryPath === '/tmp/demo');
+    expect(forDir).toHaveLength(1);
   });
 
   it('leaves isWatching false when a directory can no longer be watched', async () => {
