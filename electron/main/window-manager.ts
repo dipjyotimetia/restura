@@ -13,6 +13,7 @@ import { socketIoRateLimiter } from './handlers/socketio-handler';
 import { sseRateLimiter } from './handlers/sse-handler';
 import { mcpRateLimiter } from './handlers/mcp-handler';
 import { kafkaRateLimiter } from './handlers/kafka-handler';
+import { gitRateLimiter } from './handlers/git-handler';
 import { notificationRateLimiter } from './notifications';
 import { createLogger } from '../../src/lib/shared/logger';
 
@@ -223,6 +224,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       sseRateLimiter,
       mcpRateLimiter,
       kafkaRateLimiter,
+      gitRateLimiter,
       notificationRateLimiter,
     ],
     mainWindow.webContents

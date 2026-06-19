@@ -169,6 +169,42 @@ items: []
     expect(unrecognized).toContainEqual({ type: 'after-response', requestName: 'Hooks Demo' });
   });
 
+  // Sibling-script analogue of the auth trap: after-response/hooks have no
+  // internal representation, so editing the before-request script must NOT drop
+  // them — only the before-request/tests entries are rebuilt, the rest survive.
+  it('editing a script preserves un-modellable sibling scripts (after-response)', () => {
+    const yaml = `opencollection: 1.0.0
+info:
+  name: Preserve
+request:
+  scripts:
+    - type: before-request
+      code: rs.original()
+    - type: after-response
+      code: rs.afterResponse()
+items:
+  - info:
+      type: http
+      name: Only
+    http:
+      method: GET
+      url: https://api.example.com/x
+`;
+    const oc = parseOpenCollectionYAML(yaml);
+    const internal = ocToInternal(oc) as Collection & { _oc?: unknown };
+    // after-response has no internal field → only before-request is imported.
+    expect(internal.preRequestScript).toBe('rs.original()');
+
+    internal.preRequestScript = 'rs.edited()';
+    const out = internalToOC(internal);
+
+    const scripts = (out.request as { scripts?: Array<{ type: string; code: string }> }).scripts;
+    // Edit reached the output...
+    expect(scripts?.find((s) => s.type === 'before-request')?.code).toBe('rs.edited()');
+    // ...and the un-modellable after-response survived the rebuild.
+    expect(scripts?.find((s) => s.type === 'after-response')?.code).toBe('rs.afterResponse()');
+  });
+
   // The trap (advisor-flagged): OAuth1/NTLM/WSSE degrade to 'none' through
   // authToInternal, so cached auth survives ONLY via the verbatim _oc bytes.
   // Editing just a script must NOT recompute (and thereby delete) that auth.

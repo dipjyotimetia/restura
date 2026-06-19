@@ -49,6 +49,7 @@ import { existsSync } from 'fs';
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
 import { assertTrustedSender } from '../ipc/ipc-validators';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { promisify } from 'util';
 import * as path from 'path';
 import { z } from 'zod';
@@ -60,6 +61,15 @@ const execFileAsync = promisify(execFile);
 
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024; // 2MB per command output
 const COMMAND_TIMEOUT_MS = 15_000;
+
+/**
+ * Per-webContents rate limiter shared across every git channel (parity with the
+ * other protocol handlers). A `refresh()` in the renderer fires 3 read calls at
+ * once and writes add a few more, so 120/min is generous headroom for active use
+ * while still bounding a runaway/compromised renderer from pinning a core
+ * spawning git processes. Registered for cleanup in window-manager.ts.
+ */
+export const gitRateLimiter = createKeyedRateLimiter(120, 60_000);
 
 // ---------------------------------------------------------------------------
 // Whitelist — only operate against directories the renderer has registered.
@@ -552,58 +562,46 @@ function ipcCommand<T, R>(
 }
 
 export function registerGitHandlerIPC(): void {
-  ipcMain.handle(
-    IPC.git.init,
-    ipcCommand(DirectoryInputSchema, 'initialized', ({ directoryPath }) => gitInit(directoryPath))
+  // Every git command runs behind the shared per-webContents rate limiter
+  // (defense-in-depth: git ops are already allowlist-gated + per-dir serialised).
+  const handle = <T>(
+    channel: string,
+    schema: z.ZodType<T>,
+    resultKey: string,
+    run: (data: T) => Promise<unknown>
+  ): void => {
+    ipcMain.handle(channel, rateLimited(gitRateLimiter, ipcCommand(schema, resultKey, run)));
+  };
+
+  handle(IPC.git.init, DirectoryInputSchema, 'initialized', ({ directoryPath }) =>
+    gitInit(directoryPath)
   );
-  ipcMain.handle(
-    IPC.git.status,
-    ipcCommand(DirectoryInputSchema, 'status', ({ directoryPath }) => gitStatus(directoryPath))
+  handle(IPC.git.status, DirectoryInputSchema, 'status', ({ directoryPath }) =>
+    gitStatus(directoryPath)
   );
-  ipcMain.handle(
-    IPC.git.log,
-    ipcCommand(LogInputSchema, 'commits', ({ directoryPath, limit }) =>
-      gitLog(directoryPath, limit ?? 50)
-    )
+  handle(IPC.git.log, LogInputSchema, 'commits', ({ directoryPath, limit }) =>
+    gitLog(directoryPath, limit ?? 50)
   );
-  ipcMain.handle(
-    IPC.git.diff,
-    ipcCommand(DiffInputSchema, 'diff', ({ directoryPath, filePath }) =>
-      gitDiff(directoryPath, filePath)
-    )
+  handle(IPC.git.diff, DiffInputSchema, 'diff', ({ directoryPath, filePath }) =>
+    gitDiff(directoryPath, filePath)
   );
-  ipcMain.handle(
-    IPC.git.branchList,
-    ipcCommand(DirectoryInputSchema, 'branches', ({ directoryPath }) =>
-      gitBranchList(directoryPath)
-    )
+  handle(IPC.git.branchList, DirectoryInputSchema, 'branches', ({ directoryPath }) =>
+    gitBranchList(directoryPath)
   );
-  ipcMain.handle(
-    IPC.git.add,
-    ipcCommand(AddFilesInputSchema, 'staged', ({ directoryPath, filePaths }) =>
-      gitAddFiles(directoryPath, filePaths)
-    )
+  handle(IPC.git.add, AddFilesInputSchema, 'staged', ({ directoryPath, filePaths }) =>
+    gitAddFiles(directoryPath, filePaths)
   );
-  ipcMain.handle(
-    IPC.git.commit,
-    ipcCommand(CommitInputSchema, 'commit', ({ directoryPath, message, all, paths }) =>
-      gitCommit(directoryPath, message, {
-        ...(all !== undefined ? { all } : {}),
-        ...(paths !== undefined ? { paths } : {}),
-      })
-    )
+  handle(IPC.git.commit, CommitInputSchema, 'commit', ({ directoryPath, message, all, paths }) =>
+    gitCommit(directoryPath, message, {
+      ...(all !== undefined ? { all } : {}),
+      ...(paths !== undefined ? { paths } : {}),
+    })
   );
-  ipcMain.handle(
-    IPC.git.createBranch,
-    ipcCommand(RefInputSchema, 'branch', ({ directoryPath, name }) =>
-      gitCreateBranch(directoryPath, name)
-    )
+  handle(IPC.git.createBranch, RefInputSchema, 'branch', ({ directoryPath, name }) =>
+    gitCreateBranch(directoryPath, name)
   );
-  ipcMain.handle(
-    IPC.git.checkoutBranch,
-    ipcCommand(RefInputSchema, 'branch', ({ directoryPath, name }) =>
-      gitCheckoutBranch(directoryPath, name)
-    )
+  handle(IPC.git.checkoutBranch, RefInputSchema, 'branch', ({ directoryPath, name }) =>
+    gitCheckoutBranch(directoryPath, name)
   );
 }
 
