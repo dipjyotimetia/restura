@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   KafkaConnectSchema,
   KafkaCreateTopicSchema,
+  KafkaDeleteGroupSchema,
   KafkaDeleteTopicSchema,
   KafkaDisconnectSchema,
+  KafkaInspectGroupSchema,
+  KafkaInspectTopicSchema,
   KafkaListGroupsSchema,
   KafkaListTopicsSchema,
   KafkaProduceSchema,
+  KafkaResetGroupOffsetsSchema,
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
 } from '../ipc/ipc-validators';
@@ -296,6 +300,30 @@ describe('Kafka IPC validators', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('accepts the timestamp mode with an epoch-ms numeric string', () => {
+      const result = KafkaSubscribeSchema.safeParse({
+        connectionId: 'c',
+        groupId: 'g',
+        topics: ['orders'],
+        fromBeginning: false,
+        mode: 'timestamp',
+        timestamp: '1718800000000',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects a non-numeric timestamp', () => {
+      const result = KafkaSubscribeSchema.safeParse({
+        connectionId: 'c',
+        groupId: 'g',
+        topics: ['orders'],
+        fromBeginning: false,
+        mode: 'timestamp',
+        timestamp: 'yesterday',
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('Unsubscribe/Disconnect', () => {
@@ -377,6 +405,79 @@ describe('Kafka IPC validators', () => {
       expect(KafkaDeleteTopicSchema.safeParse({ connectionId: 'c', topic: 'orders' }).success).toBe(
         true
       );
+    });
+
+    it('accepts inspect-topic / inspect-group / delete-group configs', () => {
+      expect(
+        KafkaInspectTopicSchema.safeParse({ connectionId: 'c', topic: 'orders' }).success
+      ).toBe(true);
+      expect(KafkaInspectGroupSchema.safeParse({ connectionId: 'c', groupId: 'g' }).success).toBe(
+        true
+      );
+      expect(KafkaDeleteGroupSchema.safeParse({ connectionId: 'c', groupId: 'g' }).success).toBe(
+        true
+      );
+    });
+
+    it('rejects an invalid topic name in inspect-topic', () => {
+      expect(
+        KafkaInspectTopicSchema.safeParse({ connectionId: 'c', topic: 'has spaces' }).success
+      ).toBe(false);
+    });
+
+    it('rejects an empty group id in inspect/delete group', () => {
+      expect(KafkaInspectGroupSchema.safeParse({ connectionId: 'c', groupId: '' }).success).toBe(
+        false
+      );
+      expect(KafkaDeleteGroupSchema.safeParse({ connectionId: 'c', groupId: '' }).success).toBe(
+        false
+      );
+    });
+
+    it('accepts reset-group-offsets to earliest/latest without explicit partitions', () => {
+      expect(
+        KafkaResetGroupOffsetsSchema.safeParse({
+          connectionId: 'c',
+          groupId: 'g',
+          topic: 'orders',
+          to: 'latest',
+        }).success
+      ).toBe(true);
+    });
+
+    it('accepts reset-group-offsets to specific with per-partition offsets', () => {
+      expect(
+        KafkaResetGroupOffsetsSchema.safeParse({
+          connectionId: 'c',
+          groupId: 'g',
+          topic: 'orders',
+          to: 'specific',
+          partitions: [{ partition: 0, offset: '100' }],
+        }).success
+      ).toBe(true);
+    });
+
+    it('rejects reset-group-offsets to specific without partitions', () => {
+      expect(
+        KafkaResetGroupOffsetsSchema.safeParse({
+          connectionId: 'c',
+          groupId: 'g',
+          topic: 'orders',
+          to: 'specific',
+        }).success
+      ).toBe(false);
+    });
+
+    it('rejects a non-numeric offset in reset-group-offsets', () => {
+      expect(
+        KafkaResetGroupOffsetsSchema.safeParse({
+          connectionId: 'c',
+          groupId: 'g',
+          topic: 'orders',
+          to: 'specific',
+          partitions: [{ partition: 0, offset: 'latest' }],
+        }).success
+      ).toBe(false);
     });
   });
 });

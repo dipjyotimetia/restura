@@ -52,6 +52,9 @@ import type {
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
+import { KAFKA_PINK, partitionColor } from './shared';
+import { KafkaTopicInspector } from './KafkaTopicInspector';
+import { KafkaGroupInspector } from './KafkaGroupInspector';
 
 const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
   'PLAINTEXT',
@@ -62,30 +65,14 @@ const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
 const SASL_MECHANISMS: KafkaSaslMechanism[] = ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'];
 const COMPRESSION: KafkaCompression[] = ['none', 'gzip', 'snappy', 'lz4', 'zstd'];
 
-type ConsumeMode = 'latest' | 'earliest' | 'from-offset';
+type ConsumeMode = 'latest' | 'earliest' | 'from-offset' | 'from-timestamp';
 
 const CONSUME_MODE_OPTIONS = [
   { value: 'latest' as const, label: 'latest' },
   { value: 'earliest' as const, label: 'earliest' },
   { value: 'from-offset' as const, label: 'from-offset' },
+  { value: 'from-timestamp' as const, label: 'from-time' },
 ];
-
-const KAFKA_PINK = '#f472b6';
-
-// Rotated palette for per-partition pills + PART column.
-const PARTITION_COLORS = [
-  '#22c55e', // P0
-  '#3b82f6', // P1
-  '#a855f7', // P2
-  '#f59e0b', // P3
-  '#06b6d4', // P4
-  '#ef4444', // P5
-] as const;
-
-function partitionColor(p: number | undefined): string {
-  if (p === undefined || p < 0) return '#94a3b8';
-  return PARTITION_COLORS[p % PARTITION_COLORS.length] ?? '#94a3b8';
-}
 
 function PartitionPill({ partition, count }: { partition: number; count?: number }) {
   const color = partitionColor(partition);
@@ -229,6 +216,8 @@ function KafkaClient() {
   // from-offset consume inputs (MANUAL mode). The user must know partition numbers.
   const [offsetPartition, setOffsetPartition] = useState('0');
   const [offsetValue, setOffsetValue] = useState('0');
+  // from-timestamp consume input — a datetime-local value resolved to epoch ms.
+  const [timestampDraft, setTimestampDraft] = useState('');
 
   // A valid MANUAL-seek spec: partition is a 0..2^31-1 integer and offset a
   // non-negative integer. Shared by the Subscribe guard and the seek payload so
@@ -246,6 +235,9 @@ function KafkaClient() {
   const [newTopicName, setNewTopicName] = useState('');
   const [newTopicPartitions, setNewTopicPartitions] = useState('1');
   const [newTopicReplication, setNewTopicReplication] = useState('1');
+  // Admin tab — which topic/group is open in its inspector (null = none).
+  const [inspectTopicName, setInspectTopicName] = useState<string | null>(null);
+  const [inspectGroupId, setInspectGroupId] = useState<string | null>(null);
 
   // Reset drafts when switching connections
   useEffect(() => {
@@ -257,10 +249,13 @@ function KafkaClient() {
     setProduceValue('');
     setSelectedMessageId(null);
     setPaused(false);
+    setTimestampDraft('');
     setAdminTopics(null);
     setAdminGroups(null);
     setAdminError(null);
     setNewTopicName('');
+    setInspectTopicName(null);
+    setInspectGroupId(null);
   }, [activeConnectionId]);
 
   // Narrow scalar locals — the underlying `connection` reference can swap on
@@ -422,15 +417,22 @@ function KafkaClient() {
     // 'from-offset' seeks every subscribed topic to (partition, offset) via the
     // MANUAL stream mode. The user supplies one partition/offset pair applied to
     // all subscribed topics — they must know the partition number.
+    // 'from-timestamp' resolves each partition's first offset at/after the chosen
+    // time (epoch ms) main-side and seeks there.
     const useManual = consumeMode === 'from-offset';
+    const useTimestamp = consumeMode === 'from-timestamp';
     const partition = Number(offsetPartition);
     const offsetsValid = useManual && offsetSpecValid;
+    let mode: 'manual' | 'timestamp' | 'earliest' | 'latest';
+    if (useManual) mode = 'manual';
+    else if (useTimestamp) mode = 'timestamp';
+    else mode = connection.consumer.fromBeginning ? 'earliest' : 'latest';
     await kafkaManager.subscribe({
       connectionId: connection.id,
       groupId: connection.consumer.groupId,
       topics: connection.consumer.topics,
       fromBeginning: connection.consumer.fromBeginning,
-      mode: useManual ? 'manual' : connection.consumer.fromBeginning ? 'earliest' : 'latest',
+      mode,
       ...(offsetsValid
         ? {
             offsets: connection.consumer.topics.map((topic) => ({
@@ -439,6 +441,9 @@ function KafkaClient() {
               offset: offsetValue.trim(),
             })),
           }
+        : {}),
+      ...(useTimestamp && timestampDraft.trim() !== ''
+        ? { timestamp: String(new Date(timestampDraft).getTime()) }
         : {}),
     });
   };
@@ -567,6 +572,7 @@ function KafkaClient() {
       setAdminError(result.error);
       return;
     }
+    if (inspectTopicName === topic) setInspectTopicName(null);
     await refreshAdminTopics();
   };
 
@@ -574,6 +580,8 @@ function KafkaClient() {
   // else MANUAL seek can't be built — block Subscribe rather than silently
   // falling back to LATEST.
   const offsetSpecInvalid = consumeMode === 'from-offset' && !offsetSpecValid;
+  // from-timestamp needs a chosen time — block Subscribe until one is set.
+  const timestampInvalid = consumeMode === 'from-timestamp' && timestampDraft.trim() === '';
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
@@ -1333,7 +1341,7 @@ function KafkaClient() {
                   onCheckedChange={(checked) =>
                     updateConsumer(connection.id, { fromBeginning: checked })
                   }
-                  disabled={consumeMode === 'from-offset'}
+                  disabled={consumeMode === 'from-offset' || consumeMode === 'from-timestamp'}
                 />
                 <Label className="text-xs">Read from beginning (EARLIEST)</Label>
               </div>
@@ -1374,6 +1382,20 @@ function KafkaClient() {
                     </p>
                   </div>
                 )}
+                {consumeMode === 'from-timestamp' && (
+                  <div className="space-y-1 pt-1">
+                    <Label className="text-xs sp-label">Start time</Label>
+                    <Input
+                      type="datetime-local"
+                      value={timestampDraft}
+                      onChange={(e) => setTimestampDraft(e.target.value)}
+                      className="h-8 text-xs font-mono"
+                    />
+                    <p className="text-sp-11 text-sp-dim">
+                      Seeks each partition to its first message at or after this time.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2">
@@ -1383,7 +1405,8 @@ function KafkaClient() {
                     disabled={
                       connection.status !== 'connected' ||
                       connection.consumer.topics.length === 0 ||
-                      offsetSpecInvalid
+                      offsetSpecInvalid ||
+                      timestampInvalid
                     }
                   >
                     Subscribe
@@ -1483,6 +1506,17 @@ function KafkaClient() {
                         <Button
                           size="sm"
                           variant="ghost"
+                          onClick={() => setInspectTopicName((cur) => (cur === t ? null : t))}
+                          disabled={connection.status !== 'connected'}
+                          className="h-6 w-6 p-0 ml-auto"
+                          title={`Inspect topic ${t}`}
+                          aria-label={`Inspect topic ${t}`}
+                        >
+                          <Search className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
                           onClick={() => handleDeleteTopic(t)}
                           disabled={adminBusy}
                           className="h-6 w-6 p-0"
@@ -1494,6 +1528,13 @@ function KafkaClient() {
                       </li>
                     ))}
                   </ul>
+                )}
+                {inspectTopicName !== null && (
+                  <KafkaTopicInspector
+                    connectionId={connection.id}
+                    topic={inspectTopicName}
+                    onClose={() => setInspectTopicName(null)}
+                  />
                 )}
               </div>
 
@@ -1532,9 +1573,31 @@ function KafkaClient() {
                             {g.protocolType}
                           </Badge>
                         )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setInspectGroupId((cur) => (cur === g.id ? null : g.id))}
+                          disabled={connection.status !== 'connected'}
+                          className="h-6 w-6 p-0"
+                          title={`Inspect group ${g.id}`}
+                          aria-label={`Inspect group ${g.id}`}
+                        >
+                          <Search className="h-3.5 w-3.5" />
+                        </Button>
                       </li>
                     ))}
                   </ul>
+                )}
+                {inspectGroupId !== null && (
+                  <KafkaGroupInspector
+                    connectionId={connection.id}
+                    groupId={inspectGroupId}
+                    onClose={() => setInspectGroupId(null)}
+                    onDeleted={() => {
+                      setInspectGroupId(null);
+                      void refreshAdminGroups();
+                    }}
+                  />
                 )}
               </div>
             </Floater>

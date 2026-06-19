@@ -393,6 +393,51 @@ interface KafkaGroupInfo {
   protocolType: string;
 }
 
+/** Per-partition watermarks for a topic (offsets are numeric strings). */
+interface KafkaPartitionWatermark {
+  partition: number;
+  low: string;
+  high: string;
+  count: string;
+}
+
+/** A single topic config entry (Admin.describeConfigs, flattened). */
+interface KafkaTopicConfigEntry {
+  name: string;
+  value: string | null;
+  source: string;
+  isDefault: boolean;
+  isSensitive: boolean;
+  readOnly: boolean;
+}
+
+/** A consumer-group member with its partition assignments. */
+interface KafkaGroupMemberInfo {
+  memberId: string;
+  clientId: string;
+  clientHost: string;
+  assignments: { topic: string; partitions: number[] }[];
+}
+
+/** A consumer group's describe output (Admin.describeGroups, flattened). */
+interface KafkaGroupDescription {
+  id: string;
+  state: string;
+  protocol: string;
+  protocolType: string;
+  members: KafkaGroupMemberInfo[];
+}
+
+/** Per-partition committed offset + log-end + computed lag for a group. */
+interface KafkaPartitionLag {
+  topic: string;
+  partition: number;
+  /** Committed offset, or null when the group has not committed this partition. */
+  committed: string | null;
+  logEnd: string;
+  lag: string;
+}
+
 interface ElectronKafkaAPI {
   connect: (config: {
     connectionId: string;
@@ -423,9 +468,14 @@ interface ElectronKafkaAPI {
     groupId: string;
     topics: string[];
     fromBeginning: boolean;
-    /** Start position. 'manual' seeks to the explicit `offsets` below. */
-    mode?: 'latest' | 'earliest' | 'manual';
+    /**
+     * Start position. 'manual' seeks to the explicit `offsets` below;
+     * 'timestamp' resolves each partition's first offset at/after `timestamp`.
+     */
+    mode?: 'latest' | 'earliest' | 'manual' | 'timestamp';
     offsets?: KafkaPartitionOffset[];
+    /** Epoch-millis as a numeric string. Required when mode === 'timestamp'. */
+    timestamp?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   unsubscribe: (config: { connectionId: string }) => Promise<{ success: boolean; error?: string }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
@@ -447,6 +497,33 @@ interface ElectronKafkaAPI {
   listGroups: (config: {
     connectionId: string;
   }) => Promise<{ success: boolean; groups?: KafkaGroupInfo[]; error?: string }>;
+  /** Topic inspector: per-partition watermarks + topic config. */
+  inspectTopic: (config: { connectionId: string; topic: string }) => Promise<{
+    success: boolean;
+    partitions?: KafkaPartitionWatermark[];
+    config?: KafkaTopicConfigEntry[];
+    error?: string;
+  }>;
+  /** Consumer-group inspector: members/state + committed offsets + computed lag. */
+  inspectGroup: (config: { connectionId: string; groupId: string }) => Promise<{
+    success: boolean;
+    group?: KafkaGroupDescription | null;
+    offsets?: KafkaPartitionLag[];
+    error?: string;
+  }>;
+  /** Reset a group's committed offsets for one topic (group must be inactive). */
+  resetGroupOffsets: (config: {
+    connectionId: string;
+    groupId: string;
+    topic: string;
+    to: 'earliest' | 'latest' | 'specific';
+    partitions?: { partition: number; offset: string }[];
+  }) => Promise<{ success: boolean; error?: string }>;
+  /** Delete a consumer group (group must be empty/inactive). */
+  deleteGroup: (config: {
+    connectionId: string;
+    groupId: string;
+  }) => Promise<{ success: boolean; error?: string }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;
@@ -910,6 +987,11 @@ export type {
   KafkaAck,
   KafkaPartitionOffset,
   KafkaGroupInfo,
+  KafkaPartitionWatermark,
+  KafkaTopicConfigEntry,
+  KafkaGroupMemberInfo,
+  KafkaGroupDescription,
+  KafkaPartitionLag,
   ElectronMqttAPI,
   MqttConnectIpc,
   MqttPublishIpc,
