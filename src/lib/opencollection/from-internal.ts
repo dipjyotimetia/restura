@@ -231,13 +231,29 @@ function applyRequestDefaultsAuth(
   setRequestDefault(node, 'auth', authFromInternal(auth));
 }
 
-/** Merge a node's internal pre-request / test scripts into its `request` bag. */
+/**
+ * Merge a node's internal pre-request / test scripts into its `request` bag.
+ * Only the `before-request` / `tests` entries are rebuilt from the internal
+ * fields; every other cached script entry (`after-response`, `hooks`, file-ref
+ * scripts) is preserved verbatim. Without this, a script-only edit would rewrite
+ * the whole `scripts` array and silently drop those un-modellable entries — the
+ * script analogue of the un-modellable-auth trap (see {@link authUnchanged}).
+ */
 function applyRequestDefaultsScripts(
   node: Record<string, unknown>,
   preRequest: string | undefined,
   test: string | undefined
 ): void {
-  setRequestDefault(node, 'scripts', buildScripts(preRequest, test));
+  const cached = (node.request as { scripts?: unknown } | undefined)?.scripts;
+  const preserved = Array.isArray(cached)
+    ? cached.filter((s) => {
+        const t = (s as { type?: unknown } | null)?.type;
+        return t !== 'before-request' && t !== 'tests';
+      })
+    : [];
+  const fresh = buildScripts(preRequest, test) ?? [];
+  const merged = [...fresh, ...preserved];
+  setRequestDefault(node, 'scripts', merged.length > 0 ? merged : undefined);
 }
 
 function folderFromInternal(
