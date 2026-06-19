@@ -178,7 +178,7 @@ A separate Cloudflare Worker (`echo/wrangler.jsonc`) used by e2e tests as a cont
 
 ### Local echo stack (`echo-local/`)
 
-A developer-facing, full-protocol local upstream for manually testing the **desktop** client — what `echo/` (web-only) can't host: native gRPC, real Kafka/MQTT brokers, mTLS, and a local CA. `npm run echo:local` boots the in-process protocols on stable ports (see `echo-local/ports.ts`), reusing the `e2e/mocks/*` factories + `scripts/grpc-dev-server.mjs` in place; it generates a manifest, a local CA + client cert (for `customCa`/mTLS), and an importable OpenCollection. Kafka (Apache Kafka KRaft) and MQTT (EMQX — the client defaults to MQTT 5, which the pure-JS Aedes can't serve) run via `docker compose -f echo-local/docker-compose.yml up`. Not part of the production app. See `echo-local/README.md`.
+A developer-facing, full-protocol local upstream for manually testing the **desktop** client — what `echo/` (web-only) can't host: native gRPC, real Kafka/MQTT brokers, mTLS, and a local CA. `npm run echo:local` boots the in-process protocols on stable ports (see `echo-local/ports.ts`), reusing the `e2e/mocks/*` factories + `scripts/grpc-dev-server.mjs` in place; it generates a manifest, a local CA + client cert (for `customCa`/mTLS), and an importable OpenCollection. Kafka (Redpanda) and MQTT (EMQX — the client defaults to MQTT 5, which the pure-JS Aedes can't serve) run via `docker compose -f echo-local/docker-compose.yml up`. Not part of the production app. See `echo-local/README.md`.
 
 ### CLI subproject (`cli/`)
 

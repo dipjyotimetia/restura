@@ -4,7 +4,7 @@
 // harness). Adds the CA-signed HTTPS / mTLS listeners.
 //
 // Kafka and MQTT are intentionally NOT started here — they need real brokers
-// (Apache Kafka + EMQX); the CLI prints the one-line `docker compose` hint
+// (Redpanda + EMQX); the CLI prints the one-line `docker compose` hint
 // instead.
 
 import { spawn, type ChildProcess } from 'node:child_process';

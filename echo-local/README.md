@@ -7,7 +7,7 @@ web-only `echo/` Cloudflare Worker can't host.
 
 It reuses the existing `e2e/mocks/*` servers and the native gRPC dev server in
 place; the only new pieces are this launcher, a local CA + mTLS listener, and a
-generated importable collection. Kafka and MQTT need real brokers (Apache Kafka +
+generated importable collection. Kafka and MQTT need real brokers (Redpanda +
 EMQX), which run via Docker.
 
 ## Quick start
@@ -53,7 +53,7 @@ npm run echo:local -- manifest                # write + print the manifest, exit
 | Socket.IO        | `http://localhost:8086`                            | namespaces `/` `/chat` `/admin`                                              |
 | MCP              | `http://localhost:8087/mcp`                        | streamable-http                                                              |
 | MQTT             | `mqtt://localhost:1883` / `mqtts://localhost:8883` | EMQX MQTT 5 (Docker); dashboard `:18083` (admin/public)                      |
-| Kafka            | `localhost:9092`                                   | Apache Kafka KRaft (Docker)                                                  |
+| Kafka            | `localhost:9092`                                   | Redpanda (Docker)                                                            |
 
 ## Credentials
 
