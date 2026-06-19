@@ -3,7 +3,7 @@
 import { cn } from '@/lib/shared/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Check, AlertCircle, RefreshCw, FolderOpen, Loader2 } from 'lucide-react';
-import type { SyncState} from '@/store/useFileCollectionStore';
+import type { FileSyncUiState } from '@/store/useFileCollectionStore';
 import { useFileCollectionStore } from '@/store/useFileCollectionStore';
 
 interface FileStatusBadgeProps {
@@ -12,7 +12,10 @@ interface FileStatusBadgeProps {
   showTooltip?: boolean;
 }
 
-const stateConfig: Record<SyncState, { icon: React.ElementType; color: string; label: string }> = {
+const stateConfig: Record<
+  FileSyncUiState,
+  { icon: React.ElementType; color: string; label: string }
+> = {
   synced: {
     icon: Check,
     color: 'text-green-500',
@@ -40,7 +43,11 @@ const stateConfig: Record<SyncState, { icon: React.ElementType; color: string; l
   },
 };
 
-export function FileStatusBadge({ collectionId, className, showTooltip = true }: FileStatusBadgeProps) {
+export function FileStatusBadge({
+  collectionId,
+  className,
+  showTooltip = true,
+}: FileStatusBadgeProps) {
   const fileInfo = useFileCollectionStore((state) => state.getFileInfo(collectionId));
 
   if (!fileInfo) {

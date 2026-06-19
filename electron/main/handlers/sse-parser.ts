@@ -6,14 +6,13 @@
 // TODO(plan: 2026-05-09-streaming-and-h2): once consumers migrate to the
 // shared parser's feed(Uint8Array): SseEvent[] API directly, delete this shim.
 
-import { SseParser as SharedSseParser, type SseEvent } from '@shared/protocol/sse-parser';
+import {
+  SseParser as SharedSseParser,
+  type SseEvent,
+  type ParsedSseEvent,
+} from '@shared/protocol/sse-parser';
 
-export interface ParsedSseEvent {
-  event: string;
-  data: string;
-  lastEventId?: string;
-  retry?: number;
-}
+export type { ParsedSseEvent };
 
 export class SseParser {
   private inner = new SharedSseParser();

@@ -1,11 +1,11 @@
 const PRIVATE_IPV4_RANGES: Array<RegExp> = [
-  /^127\./,                                                  // 127.0.0.0/8 loopback
-  /^10\./,                                                   // 10.0.0.0/8 RFC1918
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./,                          // 172.16.0.0/12 RFC1918
-  /^192\.168\./,                                             // 192.168.0.0/16 RFC1918
-  /^169\.254\./,                                             // 169.254.0.0/16 link-local
-  /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./,          // 100.64.0.0/10 CGNAT
-  /^0\./,                                                    // 0.0.0.0/8 this-network
+  /^127\./, // 127.0.0.0/8 loopback
+  /^10\./, // 10.0.0.0/8 RFC1918
+  /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // 172.16.0.0/12 RFC1918
+  /^192\.168\./, // 192.168.0.0/16 RFC1918
+  /^169\.254\./, // 169.254.0.0/16 link-local
+  /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./, // 100.64.0.0/10 CGNAT
+  /^0\./, // 0.0.0.0/8 this-network
 ];
 
 const BLOCKED_HOSTNAMES = [
@@ -163,7 +163,10 @@ export function isPrivateAddress(hostname: string): boolean {
   return false;
 }
 
-export function validateURL(urlString: string, options: URLValidationOptions = {}): URLValidationResult {
+export function validateURL(
+  urlString: string,
+  options: URLValidationOptions = {}
+): URLValidationResult {
   const {
     allowPrivateIPs = false,
     allowLocalhost = false,
@@ -191,7 +194,10 @@ export function validateURL(urlString: string, options: URLValidationOptions = {
 
   const hostname = url.hostname.toLowerCase();
 
-  if (!allowLocalhost && (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')) {
+  if (
+    !allowLocalhost &&
+    (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')
+  ) {
     return { valid: false, error: 'Localhost URLs are not allowed' };
   }
 
@@ -218,7 +224,7 @@ export function validateURL(urlString: string, options: URLValidationOptions = {
     return { valid: false, error: 'URL path contains potentially malicious content' };
   }
 
-  return { valid: true, warnings: warnings.length > 0 ? warnings : undefined };
+  return { valid: true, ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 export interface ResolvedAddressOptions {
@@ -240,8 +246,7 @@ export function assertResolvedAddressAllowed(
 
   const lower = hostname.toLowerCase();
   const isAllowedLocalhost =
-    options.allowLocalhost &&
-    (lower === 'localhost' || lower.endsWith('.localhost'));
+    options.allowLocalhost && (lower === 'localhost' || lower.endsWith('.localhost'));
 
   if (isAllowedLocalhost) return;
   if (options.allowPrivateLiteralHost) return;

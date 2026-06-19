@@ -14,8 +14,9 @@ import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import { useCollectionStore } from './useCollectionStore';
 
-// Sync state for tracking file vs memory state
-export type SyncState = 'synced' | 'modified' | 'conflict' | 'loading' | 'error';
+// Runtime UI sync state (distinct from the persisted file `SyncState` in
+// file-collection-schema.ts, which tracks git file states like 'new'/'deleted').
+export type FileSyncUiState = 'synced' | 'modified' | 'conflict' | 'loading' | 'error';
 
 // Conflict information
 export interface ConflictInfo {
@@ -32,7 +33,7 @@ export interface ConflictInfo {
 export interface FileCollectionInfo {
   collectionId: string;
   directoryPath: string;
-  syncState: SyncState;
+  syncState: FileSyncUiState;
   lastSynced: number;
   isWatching: boolean;
   error?: string;
@@ -51,7 +52,7 @@ interface FileCollectionState {
   // Actions
   registerFileCollection: (collectionId: string, directoryPath: string) => void;
   unregisterFileCollection: (collectionId: string) => void;
-  updateSyncState: (collectionId: string, state: SyncState, error?: string) => void;
+  updateSyncState: (collectionId: string, state: FileSyncUiState, error?: string) => void;
   markAsSynced: (collectionId: string) => void;
   setWatching: (collectionId: string, isWatching: boolean) => void;
   addConflict: (conflict: ConflictInfo) => void;

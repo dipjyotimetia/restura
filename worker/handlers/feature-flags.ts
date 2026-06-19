@@ -10,12 +10,9 @@
 
 import type { Context } from 'hono';
 import type { Env } from '../env';
+import type { FeatureFlags } from '@shared/feature-flags-types';
 
-export interface FeatureFlags {
-  version: number;
-  asOf: string;
-  flags: Record<string, boolean>;
-}
+export type { FeatureFlags };
 
 const FLAGS: FeatureFlags = {
   version: 1,

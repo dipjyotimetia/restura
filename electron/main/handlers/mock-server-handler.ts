@@ -10,25 +10,9 @@ import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { assertTrustedSender } from '../ipc/ipc-validators';
+import type { MockRoute, MockServerStatus } from '@shared/mock-types';
 
-export interface MockRoute {
-  method: string;
-  path: string;
-  status: number;
-  headers: Record<string, string>;
-  body: string;
-  /** When 'base64', `body` is base64 of binary bytes and is served decoded. */
-  bodyEncoding?: 'base64';
-  delayMs?: number;
-}
-
-export interface MockServerStatus {
-  running: boolean;
-  port?: number;
-  baseUrl?: string;
-  collectionId?: string;
-  routeCount?: number;
-}
+export type { MockRoute, MockServerStatus };
 
 const RouteSchema: z.ZodType<MockRoute> = z.object({
   method: z.string().min(1).max(16),

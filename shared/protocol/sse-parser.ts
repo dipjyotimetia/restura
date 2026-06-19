@@ -28,6 +28,19 @@ export interface SseEvent {
   retry?: number;
 }
 
+/**
+ * Normalised event shape emitted by the renderer/Electron compatibility shims:
+ * `event` defaults to "message" and `lastEventId` is carried across events per
+ * the W3C spec. Defined here as the single source of truth so the two shims
+ * (src/features/sse, electron/main/handlers) don't redeclare it.
+ */
+export interface ParsedSseEvent {
+  event: string;
+  data: string;
+  lastEventId?: string;
+  retry?: number;
+}
+
 export class SseParser {
   private decoder = new TextDecoder();
   private buffer = '';

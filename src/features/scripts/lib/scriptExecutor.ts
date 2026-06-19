@@ -13,7 +13,9 @@ import type {
   JudgeRequestInput,
   JudgeVerdict,
 } from '@shared/protocol/ai/judge';
-export type { PmCookieAdapter, PmCookieRecord };
+// ScriptResult is defined once in @/types; re-exported here for existing consumers.
+import type { ScriptResult } from '@/types';
+export type { PmCookieAdapter, PmCookieRecord, ScriptResult };
 
 export interface PmRequestInfo {
   requestName?: string;
@@ -177,42 +179,6 @@ export interface ScriptContext {
       get: (key: string) => string | undefined;
       set: (key: string, value: string) => void;
     };
-  };
-}
-
-export interface ScriptResult {
-  success: boolean;
-  logs: Array<{ type: 'log' | 'error' | 'warn' | 'info'; message: string; timestamp: number }>;
-  errors: string[];
-  variables: Record<string, string>;
-  tests?: Array<{ name: string; passed: boolean; error?: string }>;
-  /**
-   * Postman-compat mutations the script applied to `pm.globals.*`. `null`
-   * means `pm.globals.unset(key)` was called; a string means `set(key, v)`.
-   * Callers merge these back into `useGlobalsStore` after eval.
-   * (Phase A introduces; Foundations defines the field.)
-   */
-  globalsMutations?: Record<string, string | null>;
-  /**
-   * Same shape for `pm.collectionVariables.*` mutations. Phase A wires the
-   * collection runner / per-tab collection store to merge these back.
-   */
-  collectionMutations?: Record<string, string | null>;
-  /**
-   * Runner flow-control sentinel populated by `pm.execution.setNextRequest`
-   * / `skipRequest`. Phase C wires the collection runner to read this.
-   */
-  execution?: {
-    nextRequest?: string | null;
-    skipRequested?: boolean;
-  };
-  /**
-   * Captured `pm.visualizer.set(template, data)` payload. Phase D renders
-   * this in a sandboxed iframe response tab.
-   */
-  visualization?: {
-    template: string;
-    data: unknown;
   };
 }
 

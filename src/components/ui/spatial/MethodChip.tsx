@@ -1,16 +1,26 @@
 import * as React from 'react';
 import { cn } from '@/lib/shared/utils';
 
-export type HttpMethod =
-  | 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
-  | 'WS' | 'SSE' | 'MCP' | 'GQL' | 'GRPC';
+export type MethodBadge =
+  | 'GET'
+  | 'POST'
+  | 'PUT'
+  | 'PATCH'
+  | 'DELETE'
+  | 'HEAD'
+  | 'OPTIONS'
+  | 'WS'
+  | 'SSE'
+  | 'MCP'
+  | 'GQL'
+  | 'GRPC';
 
 interface MethodStyle {
   color: string;
   bg: string;
 }
 
-const styles: Record<HttpMethod, MethodStyle> = {
+const styles: Record<MethodBadge, MethodStyle> = {
   GET: { color: '#22c55e', bg: 'rgba(34,197,94,0.14)' },
   POST: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)' },
   PUT: { color: '#3b82f6', bg: 'rgba(59,130,246,0.16)' },
@@ -25,14 +35,14 @@ const styles: Record<HttpMethod, MethodStyle> = {
   GRPC: { color: '#22c55e', bg: 'rgba(34,197,94,0.14)' },
 };
 
-export function methodLabel(method: string): HttpMethod {
+export function methodLabel(method: string): MethodBadge {
   const upper = method.toUpperCase();
   if (upper === 'DEL' || upper === 'DELETE') return 'DELETE';
-  if (upper in styles) return upper as HttpMethod;
+  if (upper in styles) return upper as MethodBadge;
   return 'GET';
 }
 
-function displayLabel(method: HttpMethod): string {
+function displayLabel(method: MethodBadge): string {
   return method === 'DELETE' ? 'DEL' : method;
 }
 

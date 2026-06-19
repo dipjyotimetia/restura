@@ -11,18 +11,13 @@
  * shim.
  */
 
-import { SseParser as SharedSseParser, type SseEvent } from '@shared/protocol/sse-parser';
+import {
+  SseParser as SharedSseParser,
+  type SseEvent,
+  type ParsedSseEvent,
+} from '@shared/protocol/sse-parser';
 
-export interface ParsedSseEvent {
-  /** Server-supplied event name; defaults to "message" */
-  event: string;
-  /** Concatenated `data:` lines, joined with LF */
-  data: string;
-  /** Server-supplied `id:` value if present (or carried from a prior event) */
-  lastEventId?: string;
-  /** Server-supplied `retry:` value (ms) if present in this event */
-  retry?: number;
-}
+export type { ParsedSseEvent };
 
 export class SseParser {
   private inner = new SharedSseParser();
