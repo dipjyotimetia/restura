@@ -152,4 +152,43 @@ describe('AuthConfiguration — new auth variants', () => {
       expect(screen.getByText('No authentication')).toBeInTheDocument();
     });
   });
+
+  // Regression: basic/api-key/aws-signature must seed their full sub-object on
+  // the first field edit. Without it, the partial object (e.g. basic with a
+  // username but no password) fails the request schema and updateRequest()
+  // rejects the whole edit, so the field can never be filled. Each field-type's
+  // first keystroke must emit an object with every required key present.
+  describe('seeds full sub-objects so partial entry stays schema-valid', () => {
+    it('basic: typing a username emits both username and password', async () => {
+      const onChange = vi.fn();
+      const user = userEvent.setup();
+      render(<AuthConfiguration auth={{ type: 'basic' }} onChange={onChange} />);
+      await user.type(screen.getByPlaceholderText('Enter username'), 'a');
+      const last = onChange.mock.calls.at(-1)?.[0] as AuthConfigType;
+      expect(last.basic).toEqual({ username: 'a', password: '' });
+    });
+
+    it('api-key: typing a key emits key, value and placement', async () => {
+      const onChange = vi.fn();
+      const user = userEvent.setup();
+      render(<AuthConfiguration auth={{ type: 'api-key' }} onChange={onChange} />);
+      await user.type(screen.getByPlaceholderText('e.g., X-API-Key'), 'a');
+      const last = onChange.mock.calls.at(-1)?.[0] as AuthConfigType;
+      expect(last.apiKey).toEqual({ key: 'a', value: '', in: 'header' });
+    });
+
+    it('aws-signature: typing an access key emits all four fields', async () => {
+      const onChange = vi.fn();
+      const user = userEvent.setup();
+      render(<AuthConfiguration auth={{ type: 'aws-signature' }} onChange={onChange} />);
+      await user.type(screen.getByPlaceholderText('Enter AWS access key'), 'a');
+      const last = onChange.mock.calls.at(-1)?.[0] as AuthConfigType;
+      expect(last.awsSignature).toEqual({
+        accessKey: 'a',
+        secretKey: '',
+        region: '',
+        service: '',
+      });
+    });
+  });
 });
