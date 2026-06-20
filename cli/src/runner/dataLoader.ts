@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { parse as parseCsv } from 'csv-parse/sync';
 
-export type IterationRow = Record<string, string>;
+export type CliIterationRow = Record<string, string>;
 
 /**
  * Load `--data <file>` for data-driven runs. Each row becomes one iteration;
@@ -13,7 +13,7 @@ export type IterationRow = Record<string, string>;
  *
  * Returns an empty array when no file was provided.
  */
-export async function loadIterationData(path: string | undefined): Promise<IterationRow[]> {
+export async function loadIterationData(path: string | undefined): Promise<CliIterationRow[]> {
   if (!path) return [];
   const ext = extname(path).toLowerCase();
   const text = await readFile(path, 'utf-8');
@@ -27,7 +27,7 @@ export async function loadIterationData(path: string | undefined): Promise<Itera
       if (!row || typeof row !== 'object' || Array.isArray(row)) {
         throw new Error(`--data row ${idx} must be an object`);
       }
-      const out: IterationRow = {};
+      const out: CliIterationRow = {};
       for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
         out[k] = v === null || v === undefined ? '' : String(v);
       }
@@ -42,7 +42,7 @@ export async function loadIterationData(path: string | undefined): Promise<Itera
     trim: true,
   }) as Array<Record<string, string>>;
   return records.map((row) => {
-    const out: IterationRow = {};
+    const out: CliIterationRow = {};
     for (const [k, v] of Object.entries(row)) out[k] = String(v ?? '');
     return out;
   });

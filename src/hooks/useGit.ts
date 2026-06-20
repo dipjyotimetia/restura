@@ -1,33 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { loadCollectionFromDirectory } from '@/store/useFileCollectionStore';
+import type { GitStatusFile, GitStatus, GitBranch, GitCommit } from '@shared/git-types';
 
-export interface GitStatusFile {
-  path: string;
-  staged: string;
-  unstaged: string;
-}
-export interface GitStatus {
-  files: GitStatusFile[];
-  branch: string | null;
-  ahead: number;
-  behind: number;
-  clean: boolean;
-}
-export interface GitBranch {
-  name: string;
-  isCurrent: boolean;
-  isRemote: boolean;
-  upstream?: string;
-}
-export interface GitCommit {
-  sha: string;
-  abbreviatedSha: string;
-  author: string;
-  email: string;
-  timestamp: number;
-  subject: string;
-}
+export type { GitStatusFile, GitStatus, GitBranch, GitCommit };
 
 interface GitState {
   status: GitStatus | null;

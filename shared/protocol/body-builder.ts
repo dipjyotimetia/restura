@@ -5,7 +5,7 @@ export interface FormField {
   contentType?: string;
 }
 
-export type BodyType =
+export type ProxyBodyType =
   | 'none'
   | 'json'
   | 'text'
@@ -15,7 +15,7 @@ export type BodyType =
   | 'binary';
 
 export interface BuildRequestBodyArgs {
-  bodyType?: BodyType;
+  bodyType?: ProxyBodyType;
   data?: string;
   formData?: FormField[];
 }
@@ -83,7 +83,9 @@ export function buildRequestBody(args: BuildRequestBodyArgs): BuiltRequestBody {
         for (const field of formData) {
           if (field.filename) {
             const bytes = base64ToUint8Array(field.value);
-            const blob = new Blob([bytes], { type: field.contentType || 'application/octet-stream' });
+            const blob = new Blob([bytes], {
+              type: field.contentType || 'application/octet-stream',
+            });
             fd.append(field.name, blob, field.filename);
           } else {
             fd.append(field.name, field.value);

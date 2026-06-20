@@ -1,11 +1,11 @@
 import { streamSSE } from 'hono/streaming';
 import type { Context } from 'hono';
-import type { Env } from '../index';
+import type { EchoEnv } from '../index';
 
 const MAX_DURATION_MS = 60_000;
 const INTERVAL_MS = 2_000;
 
-export function sseEcho(c: Context<{ Bindings: Env }>): Response {
+export function sseEcho(c: Context<{ Bindings: EchoEnv }>): Response {
   const url = new URL(c.req.url);
   const query = Object.fromEntries(url.searchParams);
 

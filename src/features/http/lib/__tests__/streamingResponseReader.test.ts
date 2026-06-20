@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   readStreamingResponse,
   detectStreamFormat,
-  type StreamEvent,
+  type HttpStreamEvent,
 } from '../streamingResponseReader';
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -24,8 +24,8 @@ function makeResponse(body: ReadableStream<Uint8Array>, contentType: string): Re
   return new Response(body, { headers: { 'content-type': contentType } });
 }
 
-async function collect(iter: AsyncIterable<StreamEvent>): Promise<StreamEvent[]> {
-  const out: StreamEvent[] = [];
+async function collect(iter: AsyncIterable<HttpStreamEvent>): Promise<HttpStreamEvent[]> {
+  const out: HttpStreamEvent[] = [];
   for await (const e of iter) out.push(e);
   return out;
 }
@@ -52,15 +52,12 @@ describe('detectStreamFormat', () => {
 
 describe('readStreamingResponse — SSE', () => {
   it('emits sse events as they arrive', async () => {
-    const body = streamFromChunks([
-      enc('data: a\n\n'),
-      enc('data: b\n\n'),
-    ]);
+    const body = streamFromChunks([enc('data: a\n\n'), enc('data: b\n\n')]);
     const response = makeResponse(body, 'text/event-stream');
     const events = await collect(readStreamingResponse(response));
     expect(events.filter((e) => e.type === 'sse')).toHaveLength(2);
     const datas = events
-      .filter((e): e is Extract<StreamEvent, { type: 'sse' }> => e.type === 'sse')
+      .filter((e): e is Extract<HttpStreamEvent, { type: 'sse' }> => e.type === 'sse')
       .map((e) => e.payload.data);
     expect(datas).toEqual(['a', 'b']);
     const last = events[events.length - 1];
@@ -68,13 +65,11 @@ describe('readStreamingResponse — SSE', () => {
   });
 
   it('emits trailing partial event on flush', async () => {
-    const body = streamFromChunks([
-      enc('data: a\n\ndata: trailing'),
-    ]);
+    const body = streamFromChunks([enc('data: a\n\ndata: trailing')]);
     const response = makeResponse(body, 'text/event-stream');
     const events = await collect(readStreamingResponse(response));
     const sseEvents = events.filter(
-      (e): e is Extract<StreamEvent, { type: 'sse' }> => e.type === 'sse'
+      (e): e is Extract<HttpStreamEvent, { type: 'sse' }> => e.type === 'sse'
     );
     expect(sseEvents.map((e) => e.payload.data)).toEqual(['a', 'trailing']);
   });
@@ -82,14 +77,11 @@ describe('readStreamingResponse — SSE', () => {
 
 describe('readStreamingResponse — NDJSON', () => {
   it('emits ndjson values as they arrive', async () => {
-    const body = streamFromChunks([
-      enc('{"a":1}\n{"b":2}\n'),
-      enc('{"c":3}\n'),
-    ]);
+    const body = streamFromChunks([enc('{"a":1}\n{"b":2}\n'), enc('{"c":3}\n')]);
     const response = makeResponse(body, 'application/x-ndjson');
     const events = await collect(readStreamingResponse(response));
     const ndjson = events
-      .filter((e): e is Extract<StreamEvent, { type: 'ndjson' }> => e.type === 'ndjson')
+      .filter((e): e is Extract<HttpStreamEvent, { type: 'ndjson' }> => e.type === 'ndjson')
       .map((e) => e.payload);
     expect(ndjson).toEqual([{ a: 1 }, { b: 2 }, { c: 3 }]);
   });
@@ -99,7 +91,7 @@ describe('readStreamingResponse — NDJSON', () => {
     const response = makeResponse(body, 'application/x-ndjson');
     const events = await collect(readStreamingResponse(response));
     const ndjson = events.filter(
-      (e): e is Extract<StreamEvent, { type: 'ndjson' }> => e.type === 'ndjson'
+      (e): e is Extract<HttpStreamEvent, { type: 'ndjson' }> => e.type === 'ndjson'
     );
     expect(ndjson).toHaveLength(3);
     expect(ndjson[0]?.payload).toEqual({ a: 1 });
@@ -114,7 +106,7 @@ describe('readStreamingResponse — raw', () => {
     const response = makeResponse(body, 'text/plain');
     const events = await collect(readStreamingResponse(response));
     const raw = events
-      .filter((e): e is Extract<StreamEvent, { type: 'raw' }> => e.type === 'raw')
+      .filter((e): e is Extract<HttpStreamEvent, { type: 'raw' }> => e.type === 'raw')
       .map((e) => e.payload);
     expect(raw.join('')).toBe('hello world\n');
   });
@@ -165,7 +157,9 @@ describe('readStreamingResponse — lifecycle', () => {
     await reader.next(); // consume one event so the pull starts
     controller.abort();
     // Drain the iterator
-    while (!(await reader.next()).done) { /* drain */ }
+    while (!(await reader.next()).done) {
+      /* drain */
+    }
     // The cancel handler may run async — give it a microtask
     await Promise.resolve();
     expect(cancelled).toBe(true);

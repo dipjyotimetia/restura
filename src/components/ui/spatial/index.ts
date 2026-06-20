@@ -2,7 +2,7 @@ export { Floater } from './Floater';
 export type { FloaterProps, FloaterRadius, FloaterElevation } from './Floater';
 
 export { MethodChip, methodLabel } from './MethodChip';
-export type { MethodChipProps, HttpMethod } from './MethodChip';
+export type { MethodChipProps, MethodBadge } from './MethodChip';
 
 export { ProtoChip, normalizeProtocol } from './ProtoChip';
 export type { ProtoChipProps, ProtocolName } from './ProtoChip';

@@ -3,6 +3,9 @@
  * Prevents Server-Side Request Forgery attacks by validating URLs
  */
 
+// The result/options shapes are the single source of truth in the shared SSRF guard.
+import type { URLValidationResult, URLValidationOptions } from '@shared/protocol/url-validation';
+
 // Private IP ranges that should be blocked
 const PRIVATE_IP_RANGES = [
   /^127\./,
@@ -35,24 +38,15 @@ const BLOCKED_HOSTNAMES = [
 // Allowed URL schemes
 const ALLOWED_SCHEMES = ['http:', 'https:'];
 
-export interface URLValidationResult {
-  valid: boolean;
-  error?: string;
-  warnings?: string[];
-}
-
-export interface URLValidationOptions {
-  allowPrivateIPs?: boolean;
-  allowLocalhost?: boolean;
-  allowedSchemes?: string[];
-  blockedHostnames?: string[];
-  maxUrlLength?: number;
-}
+export type { URLValidationResult, URLValidationOptions };
 
 /**
  * Validates a URL for security concerns (SSRF protection)
  */
-export function validateURL(urlString: string, options: URLValidationOptions = {}): URLValidationResult {
+export function validateURL(
+  urlString: string,
+  options: URLValidationOptions = {}
+): URLValidationResult {
   const {
     allowPrivateIPs = false,
     allowLocalhost = false,
@@ -121,11 +115,12 @@ export function validateURL(urlString: string, options: URLValidationOptions = {
   if (!allowPrivateIPs) {
     for (const pattern of PRIVATE_IP_RANGES) {
       // Skip localhost patterns if explicitly allowed
-      if (allowLocalhost && (
-        pattern.source === '^localhost$' ||
-        pattern.source === '^127\\.' ||
-        pattern.source === '^::1$'
-      )) {
+      if (
+        allowLocalhost &&
+        (pattern.source === '^localhost$' ||
+          pattern.source === '^127\\.' ||
+          pattern.source === '^::1$')
+      ) {
         continue;
       }
       if (pattern.test(hostname)) {

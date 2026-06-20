@@ -1,5 +1,7 @@
 import type { SecretValue } from '@/lib/shared/secretRef';
 import type { Provider } from '@shared/protocol/ai/types';
+// gRPC status codes — single source of truth in the shared protocol core.
+import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 
 // HTTP Methods
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
@@ -11,47 +13,10 @@ export type GrpcMethodType =
   | 'client-streaming'
   | 'bidirectional-streaming';
 
-// gRPC Status Codes (https://grpc.github.io/grpc/core/md_doc_statuscodes.html)
-export enum GrpcStatusCode {
-  OK = 0,
-  CANCELLED = 1,
-  UNKNOWN = 2,
-  INVALID_ARGUMENT = 3,
-  DEADLINE_EXCEEDED = 4,
-  NOT_FOUND = 5,
-  ALREADY_EXISTS = 6,
-  PERMISSION_DENIED = 7,
-  RESOURCE_EXHAUSTED = 8,
-  FAILED_PRECONDITION = 9,
-  ABORTED = 10,
-  OUT_OF_RANGE = 11,
-  UNIMPLEMENTED = 12,
-  INTERNAL = 13,
-  UNAVAILABLE = 14,
-  DATA_LOSS = 15,
-  UNAUTHENTICATED = 16,
-}
-
-// gRPC Status Code Names
-export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
-  [GrpcStatusCode.OK]: 'OK',
-  [GrpcStatusCode.CANCELLED]: 'CANCELLED',
-  [GrpcStatusCode.UNKNOWN]: 'UNKNOWN',
-  [GrpcStatusCode.INVALID_ARGUMENT]: 'INVALID_ARGUMENT',
-  [GrpcStatusCode.DEADLINE_EXCEEDED]: 'DEADLINE_EXCEEDED',
-  [GrpcStatusCode.NOT_FOUND]: 'NOT_FOUND',
-  [GrpcStatusCode.ALREADY_EXISTS]: 'ALREADY_EXISTS',
-  [GrpcStatusCode.PERMISSION_DENIED]: 'PERMISSION_DENIED',
-  [GrpcStatusCode.RESOURCE_EXHAUSTED]: 'RESOURCE_EXHAUSTED',
-  [GrpcStatusCode.FAILED_PRECONDITION]: 'FAILED_PRECONDITION',
-  [GrpcStatusCode.ABORTED]: 'ABORTED',
-  [GrpcStatusCode.OUT_OF_RANGE]: 'OUT_OF_RANGE',
-  [GrpcStatusCode.UNIMPLEMENTED]: 'UNIMPLEMENTED',
-  [GrpcStatusCode.INTERNAL]: 'INTERNAL',
-  [GrpcStatusCode.UNAVAILABLE]: 'UNAVAILABLE',
-  [GrpcStatusCode.DATA_LOSS]: 'DATA_LOSS',
-  [GrpcStatusCode.UNAUTHENTICATED]: 'UNAUTHENTICATED',
-};
+// gRPC Status Codes — re-exported from @shared/protocol/grpc-status (the single
+// source of truth shared with the Worker/Electron gRPC proxy). Two separate enum
+// declarations would be nominally distinct types, so this must not be redefined.
+export { GrpcStatusCode, GrpcStatusCodeName };
 
 // Request Types
 export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';
@@ -269,8 +234,10 @@ export interface SseRequest {
   testScript?: string;
 }
 
-// SSE event payload, as parsed from the wire format
-export interface SseEvent {
+// SSE event payload, as parsed from the wire format (app-level shape; distinct
+// from the raw `SseEvent` in @shared/protocol/sse-parser and the
+// `SseEventRecord` UI row in features/sse/store).
+export interface SseEventPayload {
   id: string;
   /** Server-supplied event name; defaults to "message" per the SSE spec */
   event: string;
@@ -381,7 +348,7 @@ export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;
  * remains a leaf module — importing from features into types creates a
  * dependency cycle since features re-export types from here.
  *
- * The shape must remain assignment-compatible with `StreamEvent` in
+ * The shape must remain assignment-compatible with `HttpStreamEvent` in
  * `streamingResponseReader.ts` (which uses the raw `SseEvent` from
  * `shared/protocol/sse-parser` for the SSE payload).
  */
@@ -696,28 +663,7 @@ export interface HistoryItem {
  * `electron/main/handlers/mock-server-handler.ts`. Mock is desktop-only (see
  * capabilities `mock.localServer`) — web can't bind a local listener.
  */
-export interface MockRoute {
-  /** Upper-case HTTP method, or '*' to match any method. */
-  method: string;
-  /** Pathname pattern. Supports `:param` / `{param}` segments and a trailing `*`. */
-  path: string;
-  status: number;
-  headers: Record<string, string>;
-  body: string;
-  /** When 'base64', `body` is base64 of binary bytes and is served decoded. */
-  bodyEncoding?: 'base64';
-  /** Artificial latency before responding, in ms. */
-  delayMs?: number;
-}
-
-/** Renderer-side view of the mock server's running state. */
-export interface MockServerStatus {
-  running: boolean;
-  port?: number;
-  baseUrl?: string;
-  collectionId?: string;
-  routeCount?: number;
-}
+export type { MockRoute, MockServerStatus } from '@shared/mock-types';
 
 // Script Execution Result
 export interface ScriptResult {

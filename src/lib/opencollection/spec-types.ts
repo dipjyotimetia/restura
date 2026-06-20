@@ -56,7 +56,7 @@ export type ProtoFileItem = ProtoFile;
  * This interface was referenced by `HttpsSchemaOpencollectionComJsonDraft07OpencollectionV100`'s JSON-Schema
  * via the `definition` "Item".
  */
-export type Item = HttpRequest | GraphQLRequest | GrpcRequest | WebSocketRequest | Folder | ScriptFile;
+export type Item = OcHttpRequest | GraphQLRequest | OcGrpcRequest | WebSocketRequest | Folder | ScriptFile;
 /**
  * Sequence number used to represent the order of the item when rendered in UI
  *
@@ -225,7 +225,7 @@ export interface CollectionConfig {
   /**
    * Array of environments
    */
-  environments?: Environment[];
+  environments?: OcEnvironment[];
   protobuf?: Protobuf;
   proxy?: Proxy;
   /**
@@ -237,9 +237,9 @@ export interface CollectionConfig {
  * An environment configuration
  *
  * This interface was referenced by `HttpsSchemaOpencollectionComJsonDraft07OpencollectionV100`'s JSON-Schema
- * via the `definition` "Environment".
+ * via the `definition` "OcEnvironment".
  */
-export interface Environment {
+export interface OcEnvironment {
   /**
    * The name of the environment
    */
@@ -479,9 +479,9 @@ export interface ProxyConnectionConfig {
  * HTTP request configuration
  *
  * This interface was referenced by `HttpsSchemaOpencollectionComJsonDraft07OpencollectionV100`'s JSON-Schema
- * via the `definition` "HttpRequest".
+ * via the `definition` "OcHttpRequest".
  */
-export interface HttpRequest {
+export interface OcHttpRequest {
   info?: HttpRequestInfo;
   http?: HttpRequestDetails;
   runtime?: HttpRequestRuntime;
@@ -1568,9 +1568,9 @@ export interface GraphQLRequestSettings {
  * gRPC request configuration
  *
  * This interface was referenced by `HttpsSchemaOpencollectionComJsonDraft07OpencollectionV100`'s JSON-Schema
- * via the `definition` "GrpcRequest".
+ * via the `definition` "OcGrpcRequest".
  */
-export interface GrpcRequest {
+export interface OcGrpcRequest {
   info?: GrpcRequestInfo;
   grpc?: GrpcRequestDetails;
   runtime?: GrpcRequestRuntime;
@@ -1739,16 +1739,16 @@ export interface WebSocketRequestDetails {
    * Array of request headers
    */
   headers?: HttpRequestHeader[];
-  message?: WebSocketMessage | WebSocketMessageVariant[];
+  message?: OcWebSocketMessage | WebSocketMessageVariant[];
   auth?: Auth;
 }
 /**
  * A WebSocket message with type and data
  *
  * This interface was referenced by `HttpsSchemaOpencollectionComJsonDraft07OpencollectionV100`'s JSON-Schema
- * via the `definition` "WebSocketMessage".
+ * via the `definition` "OcWebSocketMessage".
  */
-export interface WebSocketMessage {
+export interface OcWebSocketMessage {
   /**
    * The type of WebSocket message
    */
@@ -1773,7 +1773,7 @@ export interface WebSocketMessageVariant {
    * Whether this variant is selected
    */
   selected?: boolean;
-  message: WebSocketMessage;
+  message: OcWebSocketMessage;
 }
 /**
  * WebSocket request runtime configuration
@@ -1859,15 +1859,15 @@ export interface RequestDefaults {
    */
   variables?: Variable[];
   scripts?: Scripts;
-  settings?: RequestSettings;
+  settings?: OcRequestSettings;
 }
 /**
  * Request settings for different request types
  *
  * This interface was referenced by `HttpsSchemaOpencollectionComJsonDraft07OpencollectionV100`'s JSON-Schema
- * via the `definition` "RequestSettings".
+ * via the `definition` "OcRequestSettings".
  */
-export interface RequestSettings {
+export interface OcRequestSettings {
   http?: HttpRequestSettings;
   graphql?: GraphQLRequestSettings;
 }

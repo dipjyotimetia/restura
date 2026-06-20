@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { StreamEvent } from '@/features/http/lib/streamingResponseReader';
+import type { HttpStreamEvent } from '@/features/http/lib/streamingResponseReader';
 import { WindowedList, type WindowedListHandle } from './lib/windowedList';
 import { Button } from '@/components/ui/button';
 import { Pause, Play, ArrowDown } from 'lucide-react';
 
 export interface StreamingResponseViewerProps {
-  events: AsyncIterable<StreamEvent>;
+  events: AsyncIterable<HttpStreamEvent>;
   /** Maximum events kept in the rendered window. Older events are dropped. Default 5000. */
   maxRetained?: number;
 }
@@ -18,14 +18,14 @@ const VIEWPORT_HEIGHT = 480;
 export function StreamingResponseViewer(props: StreamingResponseViewerProps) {
   const { events, maxRetained = 5000 } = props;
 
-  const [rendered, setRendered] = useState<StreamEvent[]>([]);
+  const [rendered, setRendered] = useState<HttpStreamEvent[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
   const [status, setStatus] = useState<'streaming' | 'closed' | 'error'>('streaming');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
 
-  const bufferedRef = useRef<StreamEvent[]>([]);
+  const bufferedRef = useRef<HttpStreamEvent[]>([]);
   const pausedRef = useRef(false);
   const listRef = useRef<WindowedListHandle>(null);
   const [showJumpPill, setShowJumpPill] = useState(false);
@@ -34,7 +34,7 @@ export function StreamingResponseViewer(props: StreamingResponseViewerProps) {
   pausedRef.current = paused;
 
   const append = useCallback(
-    (event: StreamEvent) => {
+    (event: HttpStreamEvent) => {
       if (
         pausedRef.current &&
         (event.type === 'sse' || event.type === 'ndjson' || event.type === 'raw')
@@ -162,13 +162,13 @@ export function StreamingResponseViewer(props: StreamingResponseViewerProps) {
       </div>
 
       <div className="flex-1 relative">
-        <WindowedList<StreamEvent>
+        <WindowedList<HttpStreamEvent>
           ref={listRef}
           items={rendered}
           itemHeight={ITEM_HEIGHT}
           height={VIEWPORT_HEIGHT}
           onScroll={onScroll}
-          renderItem={(event, index) => <StreamEventRow key={index} event={event} />}
+          renderItem={(event, index) => <HttpStreamEventRow key={index} event={event} />}
         />
         {showJumpPill && (
           <button
@@ -190,7 +190,7 @@ export function StreamingResponseViewer(props: StreamingResponseViewerProps) {
   );
 }
 
-function StreamEventRow({ event }: { event: StreamEvent }) {
+function HttpStreamEventRow({ event }: { event: HttpStreamEvent }) {
   if (event.type === 'sse') {
     const e = event.payload;
     return (

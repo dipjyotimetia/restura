@@ -25,7 +25,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 
-export interface RunResult {
+export interface RegistryRunResult {
   response: Response;
   durationMs: number;
   /**
@@ -38,7 +38,7 @@ export interface RunResult {
   scriptResult?: ProtocolScriptResult;
 }
 
-export interface RunOptions {
+export interface RegistryRunOptions {
   /**
    * Per-protocol options forwarded to `ProtocolModule.runRequest` via
    * `RunContext.protocolOptions`. Used by gRPC for transient proto content
@@ -52,7 +52,11 @@ export function useRequestRunner() {
   const abortRef = useRef<AbortController | null>(null);
 
   const run = useCallback(
-    async (rawRequest: Request, protocolId: string, options?: RunOptions): Promise<RunResult> => {
+    async (
+      rawRequest: Request,
+      protocolId: string,
+      options?: RegistryRunOptions
+    ): Promise<RegistryRunResult> => {
       const protocol = protocolRegistry.get(protocolId);
       if (!protocol) {
         throw new Error(`Unknown protocol: ${protocolId}`);
@@ -88,13 +92,13 @@ export function useRequestRunner() {
 
       // Capture script results emitted by the protocol so we can both push
       // them to the active tab (so the Console panel updates) AND surface
-      // them on `RunResult` for callers that want to react synchronously.
+      // them on `RegistryRunResult` for callers that want to react synchronously.
       let collectedScripts: ProtocolScriptResult | undefined;
       const onScriptResult = (result: ProtocolScriptResult) => {
         collectedScripts = result;
         // Push to the store immediately so Console/Tests panels render as
         // soon as scripts finish — even if the caller never inspects
-        // `RunResult.scriptResult`. Mirrors the inline pipeline that
+        // `RegistryRunResult.scriptResult`. Mirrors the inline pipeline that
         // useHttpRequest used to drive directly.
         useRequestStore.getState().setScriptResult(result);
       };
@@ -120,7 +124,7 @@ export function useRequestRunner() {
         abortRef.current = null;
       }
 
-      const result: RunResult = { response, durationMs };
+      const result: RegistryRunResult = { response, durationMs };
       if (collectedScripts) {
         result.scriptResult = collectedScripts;
       }

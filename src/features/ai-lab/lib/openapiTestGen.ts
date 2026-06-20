@@ -2,7 +2,7 @@
 // summary from the raw spec (no $ref dereference — a summary is enough to seed
 // generation and keeps this dependency-free), then ask a model to emit test
 // cases as STRUCTURED output (a tool call), same discipline as the judge.
-import type { ChatMessage } from './llmClient';
+import type { LlmChatMessage } from './llmClient';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import { extractFirstJsonObject } from '@shared/protocol/ai/json-extract';
 import type { DatasetCase } from '../types';
@@ -82,7 +82,7 @@ export function buildGenMessages(args: {
   summary: SpecSummary;
   count: number;
   instructions?: string;
-}): ChatMessage[] {
+}): LlmChatMessage[] {
   const ops = args.summary.operations
     .slice(0, 60)
     .map(

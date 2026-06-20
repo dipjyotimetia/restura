@@ -11,13 +11,13 @@ import { protocolSecretValueSchema, isProtocolSecretHandle } from './secret-valu
  * `c.req.json<T>()` is only a TypeScript cast, so without this we'd
  * trust whatever shape arrives.
  *
- * The structural types (`BodyType`, `FormField`, `ProtocolAuthConfig`)
+ * The structural types (`ProxyBodyType`, `FormField`, `ProtocolAuthConfig`)
  * live in `body-builder.ts` / `types.ts`; the schema is kept consistent
  * with those module-level unions. If a new field is added there, mirror
  * it here.
  */
 
-/** Mirrors `BodyType` from `./body-builder.ts`. */
+/** Mirrors `ProxyBodyType` from `./body-builder.ts`. */
 export const BodyTypeSchema = z.enum([
   'none',
   'json',

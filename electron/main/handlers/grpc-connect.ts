@@ -723,7 +723,7 @@ function reflectionRegistry(version: 'v1' | 'v1alpha'): Registry {
 }
 
 /** Subset of ServerReflectionResponse this client consumes (matches RawReflectionResponse). */
-export interface ReflectionResult {
+export interface ElectronReflectionResult {
   listServicesResponse?: { service: Array<{ name: string }> };
   fileDescriptorResponse?: { fileDescriptorProto: string[] }; // base64
   errorResponse?: { errorCode: number; errorMessage: string };
@@ -737,7 +737,7 @@ interface ReflectionResponseJson {
 
 // toJson of `repeated bytes` already yields base64 strings, and proto3 JSON
 // flattens the oneof, so the three response kinds appear at the top level.
-function mapReflectionResponse(json: ReflectionResponseJson): ReflectionResult {
+function mapReflectionResponse(json: ReflectionResponseJson): ElectronReflectionResult {
   if (json.fileDescriptorResponse) {
     return {
       fileDescriptorResponse: {
@@ -786,7 +786,7 @@ export interface ConnectReflectionArgs {
  */
 export async function executeConnectReflection(
   args: ConnectReflectionArgs
-): Promise<ReflectionResult> {
+): Promise<ElectronReflectionResult> {
   const registry = reflectionRegistry(args.version);
   const serviceName = `grpc.reflection.${args.version}.ServerReflection`;
   const attempts = transportPlan(args);

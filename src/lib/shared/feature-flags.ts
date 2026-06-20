@@ -10,12 +10,9 @@
 
 import { useEffect, useState } from 'react';
 import { workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
+import type { FeatureFlags } from '@shared/feature-flags-types';
 
-export interface FeatureFlags {
-  version: number;
-  asOf: string;
-  flags: Record<string, boolean>;
-}
+export type { FeatureFlags };
 
 const DEFAULT_FLAGS: FeatureFlags = {
   version: 0,
@@ -40,7 +37,11 @@ function isStale(now: number): boolean {
 const listeners = new Set<() => void>();
 function notify(): void {
   for (const cb of listeners) {
-    try { cb(); } catch { /* never let a listener break the rest */ }
+    try {
+      cb();
+    } catch {
+      /* never let a listener break the rest */
+    }
   }
 }
 
@@ -85,7 +86,9 @@ export function useFlag(name: string): boolean {
     const cb = (): void => setEnabled(getFlag(name));
     listeners.add(cb);
     void fetchFlags().then(cb);
-    return () => { listeners.delete(cb); };
+    return () => {
+      listeners.delete(cb);
+    };
   }, [name]);
   return enabled;
 }

@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import type { Env } from '../index';
+import type { EchoEnv } from '../index';
 
 const BODY_CAP = 1_048_576; // 1 MB
 
@@ -15,7 +15,7 @@ interface EchoResponse {
   bodySize: number;
 }
 
-export async function httpEcho(c: Context<{ Bindings: Env }>): Promise<Response> {
+export async function httpEcho(c: Context<{ Bindings: EchoEnv }>): Promise<Response> {
   const url = new URL(c.req.url);
 
   const query = Object.fromEntries(url.searchParams);

@@ -14,16 +14,9 @@ export interface AssertionResult {
   error?: string;
 }
 
-export interface StreamEvent {
-  event?: string;
-  data: string;
-  timestamp: number;
-}
-
-export interface GrpcStatusInfo {
-  code: number;
-  message: string;
-}
+// Single source of truth lives in the executor layer; re-exported here to avoid drift.
+import type { StreamEvent, GrpcStatusInfo } from '../runner/executors/types.js';
+export type { StreamEvent, GrpcStatusInfo };
 
 export interface RequestRunResult {
   request: LoadedRequest;

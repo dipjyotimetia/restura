@@ -47,6 +47,7 @@
 import { execFile } from 'child_process';
 import { existsSync } from 'fs';
 import { ipcMain } from 'electron';
+import type { GitStatusFile, GitStatus, GitBranch, GitCommit } from '@shared/git-types';
 import { IPC } from '../../shared/channels';
 import { assertTrustedSender } from '../ipc/ipc-validators';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -143,36 +144,7 @@ function sanitiseRefName(name: string): string {
 // Pure parsers — extracted so unit tests can cover them without `git`.
 // ---------------------------------------------------------------------------
 
-export interface GitStatusFile {
-  path: string;
-  /** Index status code from `git status --porcelain` (e.g. 'M', 'A', 'D', '?'). */
-  staged: string;
-  unstaged: string;
-}
-
-export interface GitStatus {
-  files: GitStatusFile[];
-  branch: string | null;
-  ahead: number;
-  behind: number;
-  clean: boolean;
-}
-
-export interface GitCommit {
-  sha: string;
-  abbreviatedSha: string;
-  author: string;
-  email: string;
-  timestamp: number;
-  subject: string;
-}
-
-export interface GitBranch {
-  name: string;
-  isCurrent: boolean;
-  isRemote: boolean;
-  upstream?: string;
-}
+export type { GitStatusFile, GitStatus, GitBranch, GitCommit };
 
 export function parsePorcelainV2(raw: string): GitStatus {
   const files: GitStatusFile[] = [];

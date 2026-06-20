@@ -1,4 +1,4 @@
-import type { BodyType, FormField } from './body-builder';
+import type { ProxyBodyType, FormField } from './body-builder';
 
 /**
  * Local mirror of `SecretValue` from `src/lib/shared/secretRef.ts`. Duplicated
@@ -90,7 +90,7 @@ export interface RequestSpec {
   url: string;
   headers?: Record<string, string>;
   params?: Record<string, string>;
-  bodyType?: BodyType;
+  bodyType?: ProxyBodyType;
   data?: string;
   formData?: FormField[];
   timeout?: number;
