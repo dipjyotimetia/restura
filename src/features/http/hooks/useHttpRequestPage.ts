@@ -225,6 +225,11 @@ export function useHttpRequestPage() {
           desktop
         );
       } else {
+        // Web path: a direct browser request (no Worker proxy here), so only the
+        // header-based auth already applied above travels. Sign-at-wire auth
+        // (SigV4/OAuth1/WSSE) requires the proxy signer and is therefore NOT
+        // applied on this path — routing the web interactive send through the
+        // Worker (executeProxiedRequest) is a separate, pre-existing follow-up.
         response = await axios({
           method: httpRequest.method,
           url: resolvedUrl,

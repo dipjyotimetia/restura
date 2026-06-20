@@ -79,4 +79,17 @@ test.describe('Desktop HTTP auth signing (echo-local)', () => {
     // The access key is echoed back only when the signature verifies.
     await expect(page.getByText(/AKIDEXAMPLE/).first()).toBeVisible();
   });
+
+  // A second sign-at-wire type (signed in the main process by buildWsseHeader,
+  // not in the renderer) — confirms the desktop forwards the auth descriptor for
+  // the whole sign-at-wire family, not just AWS SigV4. echo verifies the digest.
+  test('WSSE digest is accepted', async ({ app: page, echo }) => {
+    await switchMode(page, 'http');
+    await setUrl(page, `${echo.httpUrl}/wsse/protected`);
+    await chooseAuth(page, 'WSSE');
+    await page.getByPlaceholder('Enter username').fill(USER.username);
+    await page.getByPlaceholder('Enter password').fill(USER.password);
+    await sendButton(page).click();
+    await expectAuthenticated(page);
+  });
 });
