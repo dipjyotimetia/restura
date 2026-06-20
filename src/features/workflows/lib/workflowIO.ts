@@ -30,7 +30,7 @@ export function exportWorkflow(workflow: Workflow): string {
   return JSON.stringify(envelope, null, 2);
 }
 
-export type ImportResult = { ok: true; workflow: Workflow } | { ok: false; error: string };
+export type WorkflowImportResult = { ok: true; workflow: Workflow } | { ok: false; error: string };
 
 /**
  * Parse + validate an imported JSON string into a fresh Workflow bound to
@@ -38,7 +38,7 @@ export type ImportResult = { ok: true; workflow: Workflow } | { ok: false; error
  * object. The result always gets a new id + timestamps so it can't clash
  * with an existing workflow.
  */
-export function parseWorkflowImport(json: string, collectionId: string): ImportResult {
+export function parseWorkflowImport(json: string, collectionId: string): WorkflowImportResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);

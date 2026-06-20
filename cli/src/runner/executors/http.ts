@@ -1,5 +1,5 @@
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
-import type { BodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
+import type { ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
 import type { FormField } from '@shared/protocol/body-builder';
 import type { HttpRequest, BodyType, FormDataItem } from '@/types';
 import { undiciFetcher } from '../undiciFetcher';

@@ -6,7 +6,7 @@ import type {
   BodyType as RendererBodyType,
   FormDataItem,
 } from '@/types';
-import type { BodyType as ProxyBodyType } from '@shared/protocol/body-builder';
+import type { ProxyBodyType } from '@shared/protocol/body-builder';
 import { v4 as uuidv4 } from 'uuid';
 import { Cookie } from 'tough-cookie';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';

@@ -1,46 +1,9 @@
-// Compatibility shim around the canonical SSE parser at
-// @shared/protocol/sse-parser. Preserves the existing string/callback public
-// API used by sse-handler and mcp-handler (event defaults to 'message',
-// lastEventId persists across events per spec, reset()/getLastEventId()).
-//
-// TODO(plan: 2026-05-09-streaming-and-h2): once consumers migrate to the
-// shared parser's feed(Uint8Array): SseEvent[] API directly, delete this shim.
+// Electron entry point for the SSE compatibility shim. The string/callback
+// wrapper (used by sse-handler and mcp-handler) now lives once in
+// @shared/protocol/sse-stream-reader; re-exported here under the existing
+// `SseParser` name so consumers don't change.
 
-import {
-  SseParser as SharedSseParser,
-  type SseEvent,
+export {
+  SseStreamReader as SseParser,
   type ParsedSseEvent,
-} from '@shared/protocol/sse-parser';
-
-export type { ParsedSseEvent };
-
-export class SseParser {
-  private inner = new SharedSseParser();
-  private encoder = new TextEncoder();
-  private currentLastEventId: string | undefined;
-
-  private dispatch(e: SseEvent, onEvent: (e: ParsedSseEvent) => void): void {
-    if (e.id !== undefined) this.currentLastEventId = e.id;
-    const built: ParsedSseEvent = {
-      event: e.event ?? 'message',
-      data: e.data,
-      ...(this.currentLastEventId !== undefined ? { lastEventId: this.currentLastEventId } : {}),
-      ...(e.retry !== undefined ? { retry: e.retry } : {}),
-    };
-    onEvent(built);
-  }
-
-  feed(chunk: string, onEvent: (e: ParsedSseEvent) => void): void {
-    const bytes = this.encoder.encode(chunk);
-    for (const e of this.inner.feed(bytes)) this.dispatch(e, onEvent);
-  }
-
-  reset(): void {
-    this.inner = new SharedSseParser();
-    this.currentLastEventId = undefined;
-  }
-
-  getLastEventId(): string | undefined {
-    return this.currentLastEventId;
-  }
-}
+} from '@shared/protocol/sse-stream-reader';

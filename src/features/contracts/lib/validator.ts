@@ -10,7 +10,7 @@
  *    (exact, or by class like `2XX`).
  *  - Verify required response headers are present.
  *
- * Returns a structured `ValidationResult` so the UI can render per-field
+ * Returns a structured `ContractValidationResult` so the UI can render per-field
  * errors with JSON Pointer paths.
  *
  * Implementation notes:
@@ -26,7 +26,7 @@
 import type { ErrorObject, ValidateFunction } from 'ajv';
 import type { OperationMatch } from './operationMatcher';
 
-export interface ValidationError {
+export interface ContractValidationError {
   /** JSON Pointer to the offending field (or empty for top-level errors). */
   path: string;
   /** Human-readable message. */
@@ -37,9 +37,9 @@ export interface ValidationError {
   params?: Record<string, unknown>;
 }
 
-export interface ValidationResult {
+export interface ContractValidationResult {
   valid: boolean;
-  errors: ValidationError[];
+  errors: ContractValidationError[];
   /** Status-code matching info, surfaced for UI even when body validates. */
   statusMatched: boolean;
   /** Specific response code branch matched in the spec (e.g. '200' or '2XX' or 'default'). */
@@ -123,8 +123,10 @@ async function compileSchema(
 // Main entry point
 // ---------------------------------------------------------------------------
 
-export async function validateResponse(args: ValidateResponseArgs): Promise<ValidationResult> {
-  const errors: ValidationError[] = [];
+export async function validateResponse(
+  args: ValidateResponseArgs
+): Promise<ContractValidationResult> {
+  const errors: ContractValidationError[] = [];
   const responses = (args.match.operation.responses ?? {}) as Record<
     string,
     { content?: Record<string, { schema?: object }>; headers?: Record<string, unknown> }
@@ -200,7 +202,11 @@ export async function validateResponse(args: ValidateResponseArgs): Promise<Vali
 
   // Required-headers check.
   for (const [headerName, headerObj] of Object.entries(response.headers ?? {})) {
-    if (headerObj && typeof headerObj === 'object' && (headerObj as { required?: boolean }).required) {
+    if (
+      headerObj &&
+      typeof headerObj === 'object' &&
+      (headerObj as { required?: boolean }).required
+    ) {
       const got = args.headers[headerName] ?? args.headers[headerName.toLowerCase()];
       if (got === undefined) {
         errors.push({
@@ -230,10 +236,7 @@ export async function validateResponse(args: ValidateResponseArgs): Promise<Vali
  *  2. Class match (e.g. '2XX')
  *  3. 'default' (the spec's catch-all)
  */
-export function pickResponseKey(
-  responses: Record<string, unknown>,
-  status: number
-): string | null {
+export function pickResponseKey(responses: Record<string, unknown>, status: number): string | null {
   const statusStr = String(status);
   if (statusStr in responses) return statusStr;
 
@@ -253,10 +256,7 @@ export function pickResponseKey(
  *  2. Wildcard subtype (e.g. `application/*`)
  *  3. Wildcard everything (`*\/*`)
  */
-export function pickMediaType<T>(
-  contentMap: Record<string, T>,
-  contentType: string
-): T | null {
+export function pickMediaType<T>(contentMap: Record<string, T>, contentType: string): T | null {
   if (contentMap[contentType]) return contentMap[contentType];
 
   const [primary] = contentType.split('/');

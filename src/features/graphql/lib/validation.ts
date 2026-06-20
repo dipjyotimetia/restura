@@ -1,7 +1,7 @@
-import type { GraphQLSchema} from 'graphql';
+import type { GraphQLSchema } from 'graphql';
 import { parse, validate, GraphQLError } from 'graphql';
 
-export interface ValidationError {
+export interface GraphQLValidationError {
   message: string;
   line: number;
   column: number;
@@ -9,21 +9,21 @@ export interface ValidationError {
   endColumn?: number;
 }
 
-export interface ValidationResult {
+export interface GraphQLValidationResult {
   valid: boolean;
-  errors: ValidationError[];
+  errors: GraphQLValidationError[];
 }
 
 // Parse and validate a GraphQL query against a schema
 export function validateQuery(
   query: string,
   schema?: GraphQLSchema | null
-): ValidationResult {
+): GraphQLValidationResult {
   if (!query.trim()) {
     return { valid: true, errors: [] };
   }
 
-  const errors: ValidationError[] = [];
+  const errors: GraphQLValidationError[] = [];
 
   // First, try to parse the query
   let document;
@@ -85,7 +85,7 @@ export function parseQuery(query: string) {
 }
 
 // Get syntax errors only (no schema validation)
-export function getSyntaxErrors(query: string): ValidationError[] {
+export function getSyntaxErrors(query: string): GraphQLValidationError[] {
   if (!query.trim()) {
     return [];
   }
@@ -96,16 +96,20 @@ export function getSyntaxErrors(query: string): ValidationError[] {
   } catch (error) {
     if (error instanceof GraphQLError) {
       const location = error.locations?.[0];
-      return [{
-        message: error.message,
-        line: location?.line || 1,
-        column: location?.column || 1,
-      }];
+      return [
+        {
+          message: error.message,
+          line: location?.line || 1,
+          column: location?.column || 1,
+        },
+      ];
     }
-    return [{
-      message: error instanceof Error ? error.message : 'Parse error',
-      line: 1,
-      column: 1,
-    }];
+    return [
+      {
+        message: error instanceof Error ? error.message : 'Parse error',
+        line: 1,
+        column: 1,
+      },
+    ];
   }
 }

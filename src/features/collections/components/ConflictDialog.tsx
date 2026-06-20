@@ -11,8 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AlertTriangle, FileText, Clock } from 'lucide-react';
-import type {
-  ConflictInfo} from '@/store/useFileCollectionStore';
+import type { ConflictState } from '@/store/useFileCollectionStore';
 import {
   useFileCollectionStore,
   loadCollectionFromDirectory,
@@ -21,7 +20,7 @@ import {
 import { useCollectionStore } from '@/store/useCollectionStore';
 
 interface ConflictDialogProps {
-  conflict: ConflictInfo | null;
+  conflict: ConflictState | null;
   onClose: () => void;
 }
 
@@ -75,8 +74,8 @@ export function ConflictDialog({ conflict, onClose }: ConflictDialogProps) {
             File Conflict Detected
           </DialogTitle>
           <DialogDescription>
-            The file has been modified externally while you were editing. Choose how to resolve
-            this conflict.
+            The file has been modified externally while you were editing. Choose how to resolve this
+            conflict.
           </DialogDescription>
         </DialogHeader>
 

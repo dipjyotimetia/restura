@@ -19,7 +19,7 @@ import { useCollectionStore } from './useCollectionStore';
 export type FileSyncUiState = 'synced' | 'modified' | 'conflict' | 'loading' | 'error';
 
 // Conflict information
-export interface ConflictInfo {
+export interface ConflictState {
   collectionId: string;
   itemId?: string;
   itemName: string;
@@ -44,7 +44,7 @@ interface FileCollectionState {
   fileCollections: Record<string, FileCollectionInfo>;
 
   // Active conflicts that need resolution
-  conflicts: ConflictInfo[];
+  conflicts: ConflictState[];
 
   // Default directory for new file collections
   defaultDirectory: string | null;
@@ -55,7 +55,7 @@ interface FileCollectionState {
   updateSyncState: (collectionId: string, state: FileSyncUiState, error?: string) => void;
   markAsSynced: (collectionId: string) => void;
   setWatching: (collectionId: string, isWatching: boolean) => void;
-  addConflict: (conflict: ConflictInfo) => void;
+  addConflict: (conflict: ConflictState) => void;
   removeConflict: (collectionId: string, itemId?: string) => void;
   clearConflicts: (collectionId: string) => void;
   setDefaultDirectory: (directory: string | null) => void;

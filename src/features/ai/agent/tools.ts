@@ -15,11 +15,11 @@ import { useRequestStore } from '@/store/useRequestStore';
 import type { AiToolDef } from '@shared/protocol/ai/types';
 import type { HttpRequest, KeyValue, Request } from '@/types';
 
-export type ToolResult = { ok: true; summary: string } | { ok: false; error: string };
+export type AgentToolResult = { ok: true; summary: string } | { ok: false; error: string };
 
 export interface AgentTool {
   def: AiToolDef;
-  run(rawInput: string): ToolResult;
+  run(rawInput: string): AgentToolResult;
 }
 
 function parseInput<T>(
@@ -131,7 +131,7 @@ export function agentToolDefs(): AiToolDef[] {
 }
 
 /** Execute a tool call by name. Returns a human-readable result. */
-export function runAgentTool(name: string, rawInput: string): ToolResult {
+export function runAgentTool(name: string, rawInput: string): AgentToolResult {
   const tool = AGENT_TOOLS.find((t) => t.def.name === name);
   if (!tool) return { ok: false, error: `Unknown tool: ${name}` };
   return tool.run(rawInput);

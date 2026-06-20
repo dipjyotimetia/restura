@@ -17,16 +17,16 @@ import {
 
 export { validateGrpcUrl, validateMethodName, validateServiceName };
 
-export interface ValidationResult {
+export interface GrpcFieldValidation {
   valid: boolean;
   error?: string;
 }
 
 export interface GrpcValidationState {
-  url: ValidationResult;
-  service: ValidationResult;
-  method: ValidationResult;
-  message: ValidationResult;
+  url: GrpcFieldValidation;
+  service: GrpcFieldValidation;
+  method: GrpcFieldValidation;
+  message: GrpcFieldValidation;
 }
 
 export const INITIAL_VALIDATION_STATE: GrpcValidationState = {
@@ -67,7 +67,7 @@ export function calculateJsonDepth(obj: unknown, currentDepth = 0): number {
  * picked one yet). Empty is treated as "not yet a problem" rather than
  * an error to keep the form quiet until the user has typed something.
  */
-export function validateServiceField(service: string): ValidationResult {
+export function validateServiceField(service: string): GrpcFieldValidation {
   if (!service) return { valid: true };
   return validateServiceName(service);
 }
@@ -76,7 +76,7 @@ export function validateServiceField(service: string): ValidationResult {
  * Validate a method name input that may be empty. Same lenient semantics
  * as `validateServiceField`.
  */
-export function validateMethodField(method: string): ValidationResult {
+export function validateMethodField(method: string): GrpcFieldValidation {
   if (!method) return { valid: true };
   return validateMethodName(method);
 }
@@ -89,7 +89,7 @@ export function validateMethodField(method: string): ValidationResult {
  *   - be no larger than `MAX_MESSAGE_SIZE_BYTES`
  *   - nest no deeper than `MAX_MESSAGE_JSON_DEPTH`
  */
-export function validateGrpcMessage(message: string): ValidationResult {
+export function validateGrpcMessage(message: string): GrpcFieldValidation {
   if (!message || message.trim() === '') {
     return { valid: true };
   }

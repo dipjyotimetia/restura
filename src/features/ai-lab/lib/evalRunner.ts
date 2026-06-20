@@ -13,7 +13,7 @@ import type {
   ScorerConfig,
 } from '../types';
 import { runJudge, type JudgeComplete } from '@shared/protocol/ai/judge';
-import { completeLlm, specFor, type ChatMessage, type LlmCallSpec } from './llmClient';
+import { completeLlm, specFor, type LlmChatMessage, type LlmCallSpec } from './llmClient';
 import { renderTemplate } from './promptTemplate';
 import { runScorer, type ScorerContext } from './scorers';
 import { completeWithRetry } from '@/lib/shared/completeRetry';
@@ -47,8 +47,8 @@ function computeCost(
   return null;
 }
 
-function buildMessages(prompt: PromptTemplate, c: DatasetCase): ChatMessage[] {
-  const messages: ChatMessage[] = [];
+function buildMessages(prompt: PromptTemplate, c: DatasetCase): LlmChatMessage[] {
+  const messages: LlmChatMessage[] = [];
   const system = renderTemplate(prompt.system, c.vars).trim();
   if (system) messages.push({ role: 'system', content: system });
   messages.push({ role: 'user', content: renderTemplate(prompt.user, c.vars) });
@@ -91,7 +91,7 @@ async function scoreCell(
     const complete: JudgeComplete = (messages, tools) =>
       completeWithRetry(() =>
         completeLlm(
-          specFor(cfg, judgeModel.model, messages as ChatMessage[], {
+          specFor(cfg, judgeModel.model, messages as LlmChatMessage[], {
             tools: tools as LlmCallSpec['tools'],
           })
         )

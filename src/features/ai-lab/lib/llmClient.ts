@@ -5,7 +5,7 @@ import { getElectronAPI } from '@/lib/shared/platform';
 import type { ChatStreamEvent, CompletionResult, Provider } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
 
-export interface ChatMessage {
+export interface LlmChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
@@ -13,7 +13,7 @@ export interface ChatMessage {
 export interface LlmCallSpec {
   provider: Provider;
   model: string;
-  messages: ChatMessage[];
+  messages: LlmChatMessage[];
   apiKeyHandleId?: string;
   baseUrlOverride?: string;
   rawMode?: boolean;
@@ -31,7 +31,7 @@ function api() {
 export function specFor(
   cfg: AiLabProviderConfig,
   model: string,
-  messages: ChatMessage[],
+  messages: LlmChatMessage[],
   opts: { maxOutputTokens?: number; tools?: LlmCallSpec['tools'] } = {}
 ): LlmCallSpec {
   return {

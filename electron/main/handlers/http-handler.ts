@@ -21,7 +21,7 @@ import { interceptorRegistry } from './interceptor-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import type { BodyType, FormField } from '@shared/protocol/body-builder';
+import type { ProxyBodyType, FormField } from '@shared/protocol/body-builder';
 import type {
   Fetcher,
   FetcherRequest,
@@ -109,7 +109,7 @@ export function decodeBodyStream(source: Readable, encoding: string | undefined)
   return cap;
 }
 
-export interface ProxyConfig {
+export interface ElectronProxyConfig {
   enabled: boolean;
   type: 'http' | 'https' | 'socks4' | 'socks5' | 'pac';
   host: string;
@@ -142,11 +142,11 @@ export interface HttpRequestConfig {
   params?: Record<string, string>;
   data?: string;
   // Structured body (drives the shared body-builder); falls back to raw-when-data.
-  bodyType?: BodyType;
+  bodyType?: ProxyBodyType;
   formData?: FormField[];
   timeout?: number;
   maxRedirects?: number;
-  proxy?: ProxyConfig;
+  proxy?: ElectronProxyConfig;
   verifySsl?: boolean;
   clientCert?: ClientCert;
   caCert?: CaCert;
@@ -212,7 +212,7 @@ function createSecureLookup(
 // Opens a raw TCP tunnel through a SOCKS4 or SOCKS5 proxy.
 // Returns a connected net.Socket pointed at (targetHost, targetPort).
 function openSocksSocket(
-  proxy: ProxyConfig,
+  proxy: ElectronProxyConfig,
   targetHost: string,
   targetPort: number
 ): Promise<net.Socket> {

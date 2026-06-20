@@ -234,8 +234,10 @@ export interface SseRequest {
   testScript?: string;
 }
 
-// SSE event payload, as parsed from the wire format
-export interface SseEvent {
+// SSE event payload, as parsed from the wire format (app-level shape; distinct
+// from the raw `SseEvent` in @shared/protocol/sse-parser and the
+// `SseEventRecord` UI row in features/sse/store).
+export interface SseEventPayload {
   id: string;
   /** Server-supplied event name; defaults to "message" per the SSE spec */
   event: string;
