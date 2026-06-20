@@ -32,13 +32,11 @@ describe('envColorFor', () => {
     expect(envColorFor({ id: '3', name: 'Local' })).toBe('#2e91ff');
   });
 
-  it('resolves "preprod" to green, not amber, because the prod check runs first', () => {
-    // Documents a precedence quirk: `"preprod".includes("prod")` is true and the
-    // prod branch is evaluated before the staging branch (which also lists
-    // "preprod"). So preprod reads green despite the staging-amber intent in the
-    // doc comment. Pinned so any future re-ordering is a conscious, test-breaking
-    // decision.
-    expect(envColorFor({ id: '1', name: 'preprod' })).toBe('#22c55e');
+  it('resolves "preprod" to amber, not green (it is a pre-production env)', () => {
+    // "preprod" contains "prod" but must not read as the green go-signal; it is
+    // carved out of the prod branch so it lands in the staging/qa amber bucket.
+    expect(envColorFor({ id: '1', name: 'preprod' })).toBe('#f59e0b');
+    expect(envColorFor({ id: '2', name: 'preprod-eu' })).toBe('#f59e0b');
   });
 
   it('is deterministic and palette-bounded for arbitrary names', () => {
