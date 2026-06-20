@@ -76,8 +76,11 @@ restura run <collection> [options]
 | `--client-cert <file>`      |               | PEM client certificate for mutual TLS (mTLS).                                                             |
 | `--client-key <file>`       |               | PEM client private key for mutual TLS.                                                                    |
 | `--cert-passphrase <value>` |               | Passphrase for an encrypted `--client-key`.                                                               |
+| `--proxy <url>`             |               | HTTP(S) proxy URL. Overrides `HTTP_PROXY`/`HTTPS_PROXY` and composes with the TLS options.                |
 
 TLS options apply to all HTTPS traffic for the run (HTTP/GraphQL/gRPC/SSE/MCP). They are global flags rather than per-request settings; per-domain client certificates (collection `clientCertificates`) are not yet honored — pass the cert that the run needs via `--client-cert`.
+
+Proxies: the standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables are honored automatically, or pass `--proxy <url>` to set one explicitly (this is the form that composes with the TLS flags above — the env var does not). SOCKS proxies and collection-scoped proxy config are not yet supported.
 
 ## Scripts and assertions
 

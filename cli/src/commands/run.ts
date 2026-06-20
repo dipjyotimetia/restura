@@ -34,6 +34,7 @@ interface RunOpts {
   clientCert?: string;
   clientKey?: string;
   certPassphrase?: string;
+  proxy?: string;
 }
 
 /** Build TLS options from --insecure / --ca / --client-cert / --client-key. */
@@ -101,6 +102,7 @@ export function registerRunCommand(program: Command): void {
     .option('--client-cert <file>', 'PEM client certificate for mutual TLS')
     .option('--client-key <file>', 'PEM client private key for mutual TLS')
     .option('--cert-passphrase <value>', 'Passphrase for an encrypted client key')
+    .option('--proxy <url>', 'HTTP(S) proxy URL (overrides HTTP_PROXY; composes with TLS options)')
     .action(async (collectionPath: string, opts: RunOpts) => {
       try {
         const envVars = opts.env ? await loadEnv(opts.env, { expandEnvVars: true }) : {};
@@ -135,6 +137,7 @@ export function registerRunCommand(program: Command): void {
               ? { sseMaxEvents: numericFlag('--sse-events', opts.sseEvents, { min: 1 }) }
               : {}),
             ...(tls ? { tls } : {}),
+            ...(opts.proxy ? { proxy: opts.proxy } : {}),
           },
           reporter
         );

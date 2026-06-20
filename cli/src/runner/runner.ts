@@ -3,7 +3,7 @@ import { executeRequest } from './executors/dispatch.js';
 import { runPreRequestScript, runTestScript, type RunScriptResult } from './scriptRunner.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
-import { buildTlsDispatcher, type TlsOptions } from './undiciFetcher.js';
+import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
 import type { CliIterationRow } from './dataLoader.js';
 import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
 
@@ -26,6 +26,8 @@ export interface RunOptions {
   sseMaxEvents?: number;
   /** TLS options for outbound HTTPS (custom CA / client cert / insecure). */
   tls?: TlsOptions;
+  /** Explicit HTTP(S) proxy URL. Overrides the HTTP_PROXY env var and composes with `tls`. */
+  proxy?: string;
 }
 
 /**
@@ -69,9 +71,8 @@ export async function runCollection(
     ...(options.retry ?? {}),
   };
 
-  // TLS dispatcher (custom CA / mTLS / insecure) built once and reused for
-  // every request in the run.
-  const dispatcher = buildTlsDispatcher(options.tls);
+  // Dispatcher (TLS + explicit proxy) built once and reused for every request.
+  const dispatcher = buildDispatcher(options.tls, options.proxy);
 
   // One iteration (with empty row vars) by default; multiple when --data is set.
   let iterations = options.iterations && options.iterations.length > 0 ? options.iterations : [{}];

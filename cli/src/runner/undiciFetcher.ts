@@ -1,4 +1,4 @@
-import { request as undiciRequest, Agent, type Dispatcher } from 'undici';
+import { request as undiciRequest, Agent, ProxyAgent, type Dispatcher } from 'undici';
 import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
@@ -61,20 +61,28 @@ export interface TlsOptions {
 }
 
 /**
- * Build an undici dispatcher that carries TLS options for every connection it
- * opens. Returns undefined when no TLS option is set, so the default global
- * dispatcher (with normal verification) is used. Created once per run.
+ * Build the undici dispatcher for a run from its TLS options and/or an explicit
+ * HTTP(S) proxy. Returns undefined when neither is set, so undici's global
+ * dispatcher is used (which still honours the HTTP_PROXY/HTTPS_PROXY/NO_PROXY
+ * env vars — see `installProxyFromEnv`). Created once per run.
+ *
+ * When a proxy is given, TLS options apply to the tunnelled upstream connection
+ * (`requestTls`). The env-var proxy is NOT composed with TLS flags, so pass
+ * `--proxy` explicitly to use a proxy together with `--ca`/`--insecure`/mTLS.
  */
-export function buildTlsDispatcher(tls?: TlsOptions): Dispatcher | undefined {
-  if (!tls) return undefined;
+export function buildDispatcher(tls?: TlsOptions, proxy?: string): Dispatcher | undefined {
   const connect: Record<string, unknown> = {};
-  if (tls.rejectUnauthorized !== undefined) connect.rejectUnauthorized = tls.rejectUnauthorized;
-  if (tls.ca) connect.ca = tls.ca;
-  if (tls.cert) connect.cert = tls.cert;
-  if (tls.key) connect.key = tls.key;
-  if (tls.passphrase) connect.passphrase = tls.passphrase;
-  if (Object.keys(connect).length === 0) return undefined;
-  return new Agent({ connect });
+  if (tls?.rejectUnauthorized !== undefined) connect.rejectUnauthorized = tls.rejectUnauthorized;
+  if (tls?.ca) connect.ca = tls.ca;
+  if (tls?.cert) connect.cert = tls.cert;
+  if (tls?.key) connect.key = tls.key;
+  if (tls?.passphrase) connect.passphrase = tls.passphrase;
+  const hasTls = Object.keys(connect).length > 0;
+  if (proxy) {
+    return new ProxyAgent({ uri: proxy, ...(hasTls ? { requestTls: connect } : {}) });
+  }
+  if (hasTls) return new Agent({ connect });
+  return undefined;
 }
 
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD']);
