@@ -19,11 +19,16 @@ import type {
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 
-type KafkaSecretField = 'sasl-password' | 'tls-passphrase' | 'registry-password' | 'registry-token';
+export type KafkaSecretField =
+  | 'sasl-password'
+  | 'tls-passphrase'
+  | 'registry-password'
+  | 'registry-token';
 
 export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
-  // Hits the sensitive-key regex (`password`/`auth`) in secureStorage so it
-  // routes to electron-store + safeStorage in the desktop build.
+  // Every field name matches a secureStorage sensitive-key pattern
+  // (`password`/`token`/`passphrase`) so the value routes to electron-store +
+  // safeStorage in the desktop build rather than plaintext localStorage.
   return `kafka:${connectionId}:${field}`;
 }
 
