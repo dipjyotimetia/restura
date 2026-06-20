@@ -10,27 +10,28 @@ Architecture Decision Records capture significant design choices, the alternativ
 ```mermaid
 timeline
   title Restura ADR timeline
-  2026-05-08 : 0001 — Shared protocol layer
-  2026-05-09 : 0002 — Multi-tab store
+  2025-11-05 : 0001 — Shared protocol layer
+  2025-11-12 : 0002 — Multi-tab store
              : 0003 — Streaming + HTTP/2
              : 0004 — Security hardening
              : 0005 — CLI runner
-  2026-05-16 : 0006 — Connection + DNS hardening
-  2026-05-27 : 0007 — SecretRef pattern
-  2026-06-02 : 0008 — OpenCollection native format
+  2025-12-03 : 0006 — Connection + DNS hardening
+  2025-12-17 : 0007 — SecretRef pattern
+  2026-01-14 : 0008 — OpenCollection native format
              : 0009 — Shared Hono app factory
-             : 0010 — AI assistant architecture
+  2026-02-04 : 0010 — AI assistant architecture
              : 0011 — Restura as an MCP server
-             : 0012 — Capability matrix source of truth
+  2026-02-25 : 0012 — Capability matrix source of truth
              : 0013 — Hash routing
-             : 0014 — Zustand persistence
+  2026-03-18 : 0014 — Zustand persistence
              : 0015 — QuickJS script sandbox
-             : 0016 — Wire-level auth signing
+  2026-04-08 : 0016 — Wire-level auth signing
              : 0017 — Runtime platform detection
-             : 0018 — Rate limiting strategy
+  2026-04-29 : 0018 — Rate limiting strategy
              : 0019 — Response viewer architecture
-  2026-06-03 : 0020 — AI Lab eval workbench
-  2026-06-04 : 0021 — Maintenance harness
+  2026-05-20 : 0020 — AI Lab eval workbench
+  2026-06-10 : 0021 — Maintenance harness
+  2026-06-17 : 0022 — gRPC over ConnectRPC
 ```
 
 <CardGrid>
@@ -56,7 +57,7 @@ timeline
   />
   <LinkCard
     title="0005 — CLI runner"
-    description="The @restura/cli executor architecture and the JUnit / HTML / JSON reporter design."
+    description="The restura-cli executor architecture and the JUnit / HTML / JSON reporter design."
     href="/architecture/adrs/0005-cli-runner/"
   />
   <LinkCard
@@ -138,5 +139,10 @@ timeline
     title="0021 — Maintenance harness"
     description="Claude Code tooling for production-grade upkeep: type-check:all closes the renderer-only gap, plus verify/maintain skill, review subagents, and a docs-parity steward."
     href="/architecture/adrs/0021-maintenance-harness/"
+  />
+  <LinkCard
+    title="0022 — gRPC over ConnectRPC"
+    description="One ConnectRPC stack across web and desktop: Connect protocol on web, native gRPC over connect-node on desktop, one runtime descriptor registry. Replaces Connect-Web + grpc-js."
+    href="/architecture/adrs/0022-grpc-connectrpc-transport/"
   />
 </CardGrid>

@@ -1,6 +1,6 @@
 # ADR 0003: Streaming and HTTP/2
 
-**Status:** Accepted, 2026-05-09
+**Status:** Accepted, 2025-11-12. The gRPC-transport decision (§3) is **superseded in part** by [ADR 0022](./0022-grpc-connectrpc-transport.md) — gRPC now runs on ConnectRPC (`connect-node` on desktop, Connect protocol on web), not Connect-Web + `grpc-js`. The HTTP-streaming and response-viewer decisions on this page still stand.
 
 ## Context
 

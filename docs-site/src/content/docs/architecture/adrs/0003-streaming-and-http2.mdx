@@ -7,7 +7,11 @@ sidebar:
 
 import { Badge, Aside } from '@astrojs/starlight/components';
 
-<Badge text="Accepted · 2026-05-09" variant="success" />
+<Badge text="Accepted · 2025-11-12" variant="success" />
+
+<Aside type="caution" title="Superseded in part">
+The gRPC-transport decision below (§3 — Connect-Web + `grpc-js`) was replaced by [ADR 0022](/architecture/adrs/0022-grpc-connectrpc-transport/): gRPC now runs on ConnectRPC (`connect-node` on desktop, Connect protocol on web). The HTTP-streaming and response-viewer decisions on this page still stand.
+</Aside>
 
 ## Context
 

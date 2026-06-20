@@ -1,6 +1,6 @@
 # ADR 0013: Hash Routing for Cross-Platform Portability
 
-**Status:** Accepted, 2026-06-02
+**Status:** Accepted, 2026-02-25
 
 ## Context
 
@@ -13,13 +13,16 @@ Use **`createHashRouter`** for the renderer. All routes live after the `#`, so t
 ## Consequences
 
 **Positive**
+
 - One build, one router config, runs identically on `https://` and `file://`.
 - No Pages rewrite rules or Electron protocol interception needed for navigation.
 
 **Negative**
+
 - URLs carry a `#` (e.g. `/#/collections/...`), which is slightly less clean and changes how deep-links/anchors behave.
 - Server-side rendering is off the table, but Restura is a client-only SPA, so this costs nothing here.
 
 ## References
+
 - Code: `src/routes/`, renderer router setup; `vite.config.mts`
 - Architecture: `docs/ARCHITECTURE.md` § Routing

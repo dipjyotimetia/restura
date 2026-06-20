@@ -1,0 +1,60 @@
+---
+title: ADR 0022 — gRPC over ConnectRPC
+description: One ConnectRPC stack across web and desktop — Connect protocol on the web, native gRPC over connect-node on desktop, driven by a single runtime descriptor registry. Replaces Connect-Web + grpc-js.
+sidebar:
+  order: 22
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-06-17" variant="success" />
+
+Supersedes the gRPC-transport decision (§3) of [ADR 0003](/architecture/adrs/0003-streaming-and-http2/).
+
+## Context
+
+[ADR 0003](/architecture/adrs/0003-streaming-and-http2/) shipped the first streaming gRPC: Connect-Web spoke HTTP/2 to the upstream directly for server-streaming, the Worker stayed in the unary path, and the **desktop data plane ran on `@grpc/grpc-js`**. Client-streaming and bidi were stubbed, and the streaming client hand-encoded Connect envelopes.
+
+That arrangement accumulated real problems on desktop, all rooted in `grpc-js`:
+
+1. **TLS knobs didn't work.** `grpc-js` has no equivalent of `rejectUnauthorized: false`, so the user's "verify SSL off" setting was silently ignored, and an encrypted client key + passphrase wasn't handled natively — a correctness gap for a tool that routinely hits self-signed staging and mTLS endpoints.
+2. **SSRF IP-pinning was awkward.** The other streaming handlers pin a pre-validated IP at connect time ([ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)); `grpc-js` didn't fit that `lookup`-based pattern cleanly.
+3. **Two descriptor/encoding paths.** Web used runtime descriptors + manual Connect envelopes; desktop used `grpc-js`. The same call was assembled two ways, and only one could do client/bidi streaming.
+
+## Decision
+
+Adopt **ConnectRPC** as the single gRPC stack across every backend, driven by one backend-agnostic runtime descriptor registry.
+
+- **One descriptor source** — `shared/protocol/grpc-registry.ts` builds `@bufbuild/protobuf` runtime descriptors from reflection or an uploaded `.proto` / FileDescriptorSet (no codegen); both backends call against it.
+- **Web** — the shared proxy speaks the **Connect protocol** (`Connect-Protocol-Version: 1`) through the Worker for unary + server-streaming; browser-direct streaming uses `connect-web`.
+- **Desktop** — `connect-node`'s `createGrpcTransport` (native gRPC over real HTTP/2) with an automatic `createConnectTransport` fallback for Connect-only servers. `grpc-js` is removed from the data plane.
+- **TLS lives in Node's `http2` / `tls` options**, so `rejectUnauthorized: false`, a custom CA, and an encrypted client cert + passphrase all take effect.
+- **SSRF pinning is a `nodeOptions.lookup`** returning the already-validated IP; the authority / SNI stay on the hostname, so certificate validation is unchanged.
+- **Client-streaming and bidi now work on desktop** (real h2). The web target keeps unary + server-streaming, since browser `fetch` can't stream a request body.
+
+## Consequences
+
+**Positive**
+
+- "Verify SSL off", custom CAs, and encrypted client certificates actually take effect for gRPC on desktop.
+- One descriptor registry and one protocol family across web and desktop; the hand-rolled envelope path is gone.
+- Client/bidi streaming is implemented on desktop, closing the ADR 0003 stub.
+- gRPC SSRF pinning is unified with the other streaming handlers' `lookup` pattern.
+
+**Negative**
+
+- `connect`, `connect-node`, and `connect-web` are added dependencies.
+- Web and desktop differ in streaming capability (web can't do client/bidi over `fetch`) — recorded in the capability matrix, not hidden.
+- A desktop call can land on either native gRPC or the Connect fallback depending on the server; the negotiated path is surfaced in the response, but it's one more thing to reason about.
+
+## Alternatives considered
+
+- **Keep `grpc-js`.** Rejected — no TLS-verification knob, no native encrypted-key handling, an awkward fit for `lookup`-based SSRF pinning, and a second descriptor/encoding path forever.
+- **Generated `bufbuild` clients.** Rejected — Restura is built on *runtime* proto reflection; codegen breaks the dynamic-descriptor model.
+- **`node:http2` directly.** Rejected — reimplements framing, pooling, and ALPN that `connect-node` already provides.
+
+## References
+
+- Source: [`docs/adr/0022-grpc-connectrpc-transport.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0022-grpc-connectrpc-transport.md)
+- Protocol page: [gRPC](/protocols/grpc/).
+- Related: [ADR 0001](/architecture/adrs/0001-shared-protocol-layer/), [ADR 0003](/architecture/adrs/0003-streaming-and-http2/) (superseded in part), [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/).

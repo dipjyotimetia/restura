@@ -1,6 +1,6 @@
 # ADR 0014: Zustand Persistence Strategy
 
-**Status:** Accepted, 2026-06-02
+**Status:** Accepted, 2026-03-18
 
 ## Context
 
@@ -19,14 +19,17 @@ The legacy `localStorage` adapter has been **removed**; new persistence must not
 ## Consequences
 
 **Positive**
+
 - One persistence pattern across every store and both platforms; adapters are the only platform-specific piece.
 - Schema validation on rehydrate turns "corrupt persisted state" from a crash into a recoverable reset.
 - Desktop data is encrypted at rest without each store knowing about keys.
 
 **Negative**
+
 - Two storage backends to test (Dexie vs electron-store), including migration/rehydration edge cases.
 - Every persisted store needs a maintained Zod schema, which is extra surface to keep in step with the store shape.
 
 ## References
+
 - Code: `src/lib/shared/dexie-storage.ts`, `src/lib/shared/secure-storage.ts`, `src/lib/shared/store-validators.ts`
 - Related: [ADR 0002 (multi-tab store)](./0002-multi-tab-store.md), [ADR 0004 (security hardening)](./0004-security-hardening.md), [ADR 0007 (SecretRef)](./0007-secret-ref-pattern.md)

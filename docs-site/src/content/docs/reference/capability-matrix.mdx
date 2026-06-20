@@ -12,34 +12,32 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 ### Available on both web and desktop
 
 - HTTP / REST (all methods, body types).
-- GraphQL — queries, mutations, subscriptions over `multipart/mixed` and WebSocket.
-- gRPC unary + server streaming (via Connect / gRPC-Web).
+- GraphQL — queries, mutations, subscriptions over a `graphql-ws` WebSocket.
+- gRPC unary + server streaming (via the Connect protocol).
 - WebSocket — connect, send/receive, full history.
 - Server-Sent Events — basic stream viewer with reconnection.
-- MCP — HTTP-SSE and streamable-HTTP transports.
-- Socket.IO — basic emit/listen.
+- MCP — streamable-HTTP transport (`http-sse` is desktop-only).
+- Socket.IO — emit / listen / ack.
 - Collections, environments, workflows, scripts.
 - Load testing — fire an HTTP request at bounded concurrency (browser caps effective concurrency ~6).
 - Encrypted local storage.
 - SSRF guard on all upstream requests.
-- AI assistant (where wired through to the provider).
 
 ### Desktop only
 
 - **Kafka** — produce / consume / SASL / TLS (needs raw TCP).
 - **MQTT** — publish / subscribe / QoS / TLS / MQTT 5.0 (needs raw TCP).
-- **Socket.IO acks** — needs a direct socket session.
+- **MCP `http-sse` + `stdio` transports** — `stdio` needs subprocess spawning; `http-sse` is rejected in web mode.
 - **SSE custom headers** — browser `EventSource` doesn't allow them.
-- **MCP `stdio` transport** — needs subprocess spawning.
 - **mTLS** client certificates.
 - **SOCKS4 / SOCKS5** proxies.
-- **PAC script** resolution.
 - **Custom CA bundle**, disable TLS verification.
 - **Pre-flight DNS guard** against DNS-rebind.
 - **Filesystem-backed collections** + git operations.
 - **OS keychain** storage (via `safeStorage`).
 - **Native shell / notifications / tray**.
 - **Local mock HTTP server**.
+- **AI assistant** — request-aware chat (OpenAI / Anthropic / OpenRouter); Electron-first, streams over IPC. No Worker `/api/ai` route.
 - **AI Lab** — prompt/model testing workbench (Playground, dataset evals, LLM-as-judge) against local (Ollama / OpenAI-compatible) and cloud models. Needs the localhost SSRF carve-out.
 
 <Aside title="Canonical reference">

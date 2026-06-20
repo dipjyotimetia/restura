@@ -1,6 +1,6 @@
 # ADR 0008: OpenCollection as the Native Collection Format
 
-**Status:** Accepted, 2026-06-02
+**Status:** Accepted, 2026-01-14
 
 ## Context
 
@@ -10,7 +10,7 @@ We also need the in-memory TypeScript types for that format to stay in lock-step
 
 ## Decision
 
-Adopt **OpenCollection** as Restura's native read/write format, implemented in `src/lib/opencollection/`. Two on-disk layouts are supported: a single bundled JSON document and a directory layout (`fs-reader.ts` / `fs-writer.ts`).
+Adopt **OpenCollection** as Restura's native read/write format, implemented in `src/lib/opencollection/`. Two on-disk layouts are supported: a single bundled YAML document and a directory layout (`fs-reader.ts` / `fs-writer.ts`).
 
 - The spec's TypeScript types (`spec-types.ts`) are **generated** from the vendored JSON Schema, not hand-written. `npm run gen:opencollection-types` regenerates them and `npm run verify:opencollection-types` is a CI gate that fails the build if the committed types drift from the schema.
 - Protocols map as follows: HTTP, GraphQL (an HTTP item with a `graphql` body), gRPC, and WebSocket are first-class OpenCollection items. Socket.IO, SSE, and MCP ride along in `extensions` as `x-restura-socketio` / `x-restura-sse` / `x-restura-mcp`, preserved verbatim across import/export.
@@ -20,16 +20,19 @@ Adopt **OpenCollection** as Restura's native read/write format, implemented in `
 ## Consequences
 
 **Positive**
+
 - Users can move in and out of Restura without losing fidelity; the same files drive the desktop app, the web app, and `@restura/cli` ([ADR 0005](./0005-cli-runner.md)).
 - The codegen gate guarantees the runtime types never silently diverge from the published schema.
 - Vendor extensions give Restura room to represent its own protocols without forking the spec.
 
 **Negative**
+
 - Two layouts (bundled + directory) double the reader/writer surface and its tests.
 - The `_oc` preservation bag adds complexity to the converters, but it's the price of lossless round-trips.
 - Kafka/MQTT can't be saved to a collection, which can surprise users who expect "everything" to persist.
 
 ## References
+
 - User guide: `docs/opencollection.md`, docs-site `/reference/opencollection/`
 - Code: `src/lib/opencollection/` (`spec-types.ts`, `to-internal.ts`, `from-internal.ts`, `fs-reader.ts`, `fs-writer.ts`, `schemas.ts`)
 - Codegen: `npm run gen:opencollection-types`, `npm run verify:opencollection-types`

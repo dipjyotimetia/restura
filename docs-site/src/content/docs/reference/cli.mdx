@@ -1,11 +1,11 @@
 ---
-title: CLI — @restura/cli
+title: CLI — restura-cli
 description: Run Restura API collections in CI. Assert with scripts, get JUnit / HTML / JSON reports.
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-`@restura/cli` runs your collections headlessly with the same protocol implementations as the desktop and web apps. Drop it into CI to assert your API, get JUnit XML for your dashboard, ship an HTML report to your team.
+`restura-cli` runs your collections headlessly with the same protocol implementations as the desktop and web apps. Drop it into CI to assert your API, get JUnit XML for your dashboard, ship an HTML report to your team.
 
 ## How it fits
 
@@ -34,9 +34,9 @@ flowchart LR
 ## Install
 
 ```bash
-npm install -g @restura/cli
+npm install -g restura-cli
 # or, no install:
-npx @restura/cli run ./my-collection
+npx restura-cli run ./my-collection
 ```
 
 Requires **Node.js 24+**.
@@ -146,7 +146,7 @@ Postman-compatible `{{$random*}}` / `{{$timestamp}}` helpers are expanded after 
 | Helper | Example |
 |---|---|
 | `{{$randomUUID}}` | `f4d2e3...` |
-| `{{$timestamp}}` | `1700000000000` |
+| `{{$timestamp}}` | `1700000000` |
 | `{{$isoTimestamp}}` | `2026-05-22T13:42:00Z` |
 | `{{$randomEmail}}` | `alice.42@example.com` |
 | `{{$randomFirstName}}` | `Olivia` |
@@ -209,7 +209,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '24' }
-      - run: npx @restura/cli run ./api-tests --env env.staging.json --reporter live,junit --reporter-output junit=results.xml
+      - run: npx restura-cli run ./api-tests --env env.staging.json --reporter live,junit --reporter-output junit=results.xml
       - uses: dorny/test-reporter@v1
         if: always()
         with:

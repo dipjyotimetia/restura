@@ -17,7 +17,7 @@ import { Badge } from '@astrojs/starlight/components';
 - **Delete consumer group** — for empty/inactive groups.
 - **Multiple brokers** — bootstrap list, broker discovery happens through the cluster.
 - **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`.
-- **TLS** — server certificate validation, optional client certificate (mTLS).
+- **TLS** — pick `SSL` for TLS without SASL (encryption plus optional client-certificate mTLS), or layer it under `SASL_SSL`; server certificate validation either way.
 - **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
 - **Confluent Schema Registry** — point a connection at a registry URL (optional Basic auth); produce schema-encoded **keys and values** by schema ID, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`.
 

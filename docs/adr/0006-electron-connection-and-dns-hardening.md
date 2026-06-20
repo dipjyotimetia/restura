@@ -1,6 +1,6 @@
 # ADR 0006: Electron Connection Cleanup and Pre-flight DNS Guard
 
-**Status:** Accepted, 2026-05-16
+**Status:** Accepted, 2025-12-03
 
 ## Context
 

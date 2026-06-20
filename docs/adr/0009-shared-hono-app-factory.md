@@ -1,6 +1,6 @@
 # ADR 0009: Shared Hono App Factory for Worker and Self-Hosted Node
 
-**Status:** Accepted, 2026-06-02
+**Status:** Accepted, 2026-01-14
 
 ## Context
 
@@ -20,15 +20,18 @@ One sharp edge is load-bearing and documented in code: `node-entry` must **`Obje
 ## Consequences
 
 **Positive**
+
 - The self-hosted server and the Worker can never drift on routing or security behaviour — there is one app.
 - Adding a route or middleware automatically covers both deployment targets.
 - The platform seams are small and explicit (a handful of adapter modules), which keeps the Cloudflare-specific and Node-specific code easy to find.
 
 **Negative**
+
 - The `Object.assign`-onto-`c.env` constraint is a non-obvious trap; it's mitigated only by a code comment and this ADR.
 - The factory's `deps` interface is an extra abstraction that every new platform-specific capability must thread through.
 
 ## References
+
 - Code: `worker/app.ts`, `worker/index.ts`, `worker/node-entry.ts`, `worker/shared/tcp-proxy-node.ts`, `worker/shared/dns-guard-node.ts`, `worker/handlers/websocket-node.ts`
 - Self-hosting guide: `docs/SELF_HOSTING.md`, docs-site `/self-hosting/docker/`
 - Related: [ADR 0001 (shared protocol layer)](./0001-shared-protocol-layer.md)

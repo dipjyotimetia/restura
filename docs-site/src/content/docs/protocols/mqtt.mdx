@@ -23,13 +23,13 @@ When you select protocol version 5, Restura surfaces the extra wire features:
 
 - **Session expiry interval** on `CONNECT`.
 - **User properties** — arbitrary key/value pairs carried on each message.
-- **Message expiry interval**, **content type**, and **response topic** are decoded and shown on received messages.
+- **Message expiry interval**, **content type**, **response topic**, **correlation data**, and **subscription identifier** are decoded and shown on received messages.
 
 A 3.1.1 connection simply omits these fields.
 
 ## Broker guard
 
-Every broker URL runs through a pre-flight SSRF check (`electron/main/mqtt-broker-guard.ts`) before the socket opens. Unlike the HTTP guard, **private and loopback addresses are allowed** — MQTT brokers routinely live on LAN / IoT networks (a Mosquitto box on a Raspberry Pi, an EMQX cluster behind VPC peering, `localhost:1883`). The guard only rejects:
+Every broker URL runs through a pre-flight SSRF check (`electron/main/security/mqtt-broker-guard.ts`) before the socket opens. Unlike the HTTP guard, **private and loopback addresses are allowed** — MQTT brokers routinely live on LAN / IoT networks (a Mosquitto box on a Raspberry Pi, an EMQX cluster behind VPC peering, `localhost:1883`). The guard only rejects:
 
 - cloud-metadata literal IPs (`169.254.169.254` and friends) and hostnames (`metadata.google.internal`, …),
 - non-`mqtt:` / non-`mqtts:` schemes and malformed URLs.

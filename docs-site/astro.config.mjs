@@ -117,6 +117,8 @@ export default defineConfig({
                 { label: '0018 — Rate limiting strategy', slug: 'architecture/adrs/0018-rate-limiting-strategy' },
                 { label: '0019 — Response viewer architecture', slug: 'architecture/adrs/0019-response-viewer-architecture' },
                 { label: '0020 — AI Lab eval workbench', slug: 'architecture/adrs/0020-ai-lab-eval-workbench' },
+                { label: '0021 — Maintenance harness', slug: 'architecture/adrs/0021-maintenance-harness' },
+                { label: '0022 — gRPC over ConnectRPC', slug: 'architecture/adrs/0022-grpc-connectrpc-transport' },
               ],
             },
           ],

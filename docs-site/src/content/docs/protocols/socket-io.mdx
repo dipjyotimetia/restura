@@ -3,8 +3,6 @@ title: Socket.IO
 description: Connect, emit, listen, and ack — the full Socket.IO client experience.
 ---
 
-import { Badge } from '@astrojs/starlight/components';
-
 Socket.IO isn't plain WebSocket — it has its own framing, namespacing, ack callbacks, and the option to fall back to long-polling. Restura speaks the protocol natively.
 
 ## What works
@@ -13,17 +11,17 @@ Socket.IO isn't plain WebSocket — it has its own framing, namespacing, ack cal
 - **Auth payload + query params** on connect — editable while disconnected; the auth map is sent in the handshake `auth` field, query params on the connection URL.
 - **Emit events** — pick an event name, send a JSON / string / number payload.
 - **Listen** — subscribe to event names; live messages stream into the transcript.
-- **Acks** <Badge text="desktop only" variant="caution" /> — toggle **Ack** in the compose bar to request the callback-based response; needs the desktop transport.
+- **Acks** — toggle **Ack** in the compose bar to request the callback-based response; the resolved ack args stream back into the transcript with an `ok` or `timeout` status (15s).
 - **Reconnect** — on/off, with backoff settings.
 
-## Why ack is desktop-only
+## Transports
 
-Socket.IO acks require a long-lived stateful association between the client emit and the server response that survives the request boundary. The web app routes Socket.IO through the Worker, which doesn't preserve that ack-callback handle across the proxy. Desktop opens the socket directly in the Electron main process and gets the ack callback natively.
+The web build connects **browser-direct** with `socket.io-client`, so emits, listeners, and ack callbacks all work without a proxy. The desktop app runs the same client in the Electron main process — reach for it when you need custom `extraHeaders` on the handshake, which browsers can't set.
 
 ## Tips
 
-- If you only need fire-and-forget emits and broadcast listening, the **web** app is fine.
-- If your test relies on `socket.emit('event', payload, (response) => ...)`, use the **[desktop app](/overview/install/)**.
+- Acks behave identically on web and desktop: `socket.emit('event', payload, (response) => ...)` resolves into the transcript.
+- Use the **[desktop app](/overview/install/)** when your handshake needs `extraHeaders` the browser won't allow.
 
 ## Related
 

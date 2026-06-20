@@ -1,6 +1,6 @@
 # ADR 0021: Maintenance harness — Claude Code tooling for production-grade upkeep
 
-**Status:** Accepted, 2026-06-04
+**Status:** Accepted, 2026-06-10
 
 ## Context
 
@@ -10,7 +10,7 @@ Restura ships one React renderer to three backends (Cloudflare Worker, Node/Dock
 2. **No content-parity gate for docs.** `npm run docs:check` is only `astro check` (links/types). `CLAUDE.md` and `docs/ARCHITECTURE.md` had both drifted from the actual type-check behavior; the `adrs.mdx` timeline is hand-maintained.
 3. **The existing `restura-feature-dev` skill covers adding features, not verifying or maintaining them**, and the built-in `/code-review` / `/security-review` lack Restura-specific knowledge (the single-source SSRF guard, the ADR-0006 DNS-rebind residual window, broker-discovery bypass, the IPC validate+rate-limit+sender triad, SecretRef isolation).
 
-We wanted the assistant (Claude Code) to be able to build and maintain Restura at production grade, following the published guidance in *"Lessons from building Claude Code: how we use skills"* — skills encode gotchas and organizational knowledge (not the obvious), use progressive disclosure, prefer scripts for deterministic work, write descriptions as trigger conditions, and accrete over time.
+We wanted the assistant (Claude Code) to be able to build and maintain Restura at production grade, following the published guidance in _"Lessons from building Claude Code: how we use skills"_ — skills encode gotchas and organizational knowledge (not the obvious), use progressive disclosure, prefer scripts for deterministic work, write descriptions as trigger conditions, and accrete over time.
 
 ## Decision
 

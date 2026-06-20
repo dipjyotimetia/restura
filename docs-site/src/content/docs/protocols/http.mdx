@@ -58,7 +58,7 @@ Every send is recorded to history with status, timing, request hash, and a quick
 
 - The **SSRF guard** blocks requests to RFC 1918, RFC 6598 (CGNAT), link-local, loopback, IPv4-mapped IPv6, cloud metadata endpoints (`169.254.169.254`), and IPv6 unique-local — unless explicitly allowed (e.g. `ENVIRONMENT=development` in the Worker, `--allow-localhost` in the CLI).
 - The **desktop client** also enforces a **pre-flight DNS guard** against DNS-rebind: hostnames are resolved before connecting, and every record is validated.
-- **Custom CAs**, **disabled TLS verification**, **client certificates (mTLS)**, **SOCKS4/5** and **PAC** are <Badge text="desktop only" variant="caution" /> — the browser sandbox doesn't expose them.
+- **Custom CAs**, **disabled TLS verification**, **client certificates (mTLS)**, and **SOCKS4/5** proxies are <Badge text="desktop only" variant="caution" /> — the browser sandbox doesn't expose them.
 
 ## Related
 

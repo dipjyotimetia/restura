@@ -1,11 +1,11 @@
 ---
 title: gRPC
-description: Unary and streaming RPCs over Connect and gRPC-Web — including server reflection, .proto upload, and W3C traceparent injection.
+description: Unary and streaming RPCs over the Connect protocol (web) and native gRPC (desktop) — including server reflection, .proto upload, and W3C traceparent injection.
 ---
 
 import { Badge } from '@astrojs/starlight/components';
 
-Restura speaks gRPC over **Connect** and **gRPC-Web** transports — both available on web and desktop without any local toolchain. JSON encoding is the default; binary protobuf is supported where the server allows.
+Restura speaks the **Connect protocol** on the web target and **native gRPC** over HTTP/2 (with automatic Connect-protocol fallback) on desktop — no local toolchain either way. JSON encoding is the default; binary protobuf is supported where the server allows.
 
 ## Discovering the service
 

@@ -1,6 +1,6 @@
 # ADR 0012: Capability Matrix as a Data-Driven Source of Truth
 
-**Status:** Accepted, 2026-06-02
+**Status:** Accepted, 2026-02-25
 
 ## Context
 
@@ -15,14 +15,17 @@ When a new feature differs across platforms, you update `capabilities.ts` — ne
 ## Consequences
 
 **Positive**
+
 - UI badges, the published matrix, and the actual gating all derive from one file, so they cannot disagree.
 - The CI gate makes drift a build failure rather than a stale-docs bug.
 
 **Negative**
+
 - The docs-site `/reference/capability-matrix/` page is a hand-written prose summary that links to the canonical generated `docs/CAPABILITY_MATRIX.md`; it is not itself codegen'd, so it must be updated by hand when capabilities change.
 - Capabilities must be enumerated up front; a feature that forgets to add an entry gets no badge and no matrix row.
 
 ## References
+
 - Code: `src/lib/shared/capabilities.ts`, `scripts/generate-capability-matrix.mjs`
 - Generated: `docs/CAPABILITY_MATRIX.md`; CI gate `npm run capabilities:check`
 - Docs: docs-site `/reference/capability-matrix/`
