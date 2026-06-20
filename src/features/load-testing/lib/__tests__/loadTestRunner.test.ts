@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runLoadTest } from '../loadTestRunner';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
-import type { HttpRequest } from '@/types';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import type { AuthConfig, HttpRequest } from '@/types';
 
 // The runner reuses the real send path + several stores. We only care about its
 // orchestration (concurrency, abort, outcome classification, single summary),
@@ -21,11 +22,23 @@ vi.mock('@/store/useConsoleStore', () => ({
   useConsoleStore: { getState: () => ({ addEntry }) },
   createProtocolConsoleEntry: (entry: unknown) => entry,
 }));
+// Folder/collection auth inheritance reads the collection store; stub it so the
+// runner's inheritance application is controllable (default: nothing inherited).
+vi.mock('@/features/auth/lib/resolveInheritedAuthFor', () => ({
+  resolveInheritedAuthFor: vi.fn(() => undefined),
+}));
 
 const mockExec = vi.mocked(executeRequest);
+const mockInherit = vi.mocked(resolveInheritedAuthFor);
 
 function req(): HttpRequest {
-  return { id: 'r1', name: 'Load me', url: 'https://x.test/api', method: 'GET' } as HttpRequest;
+  return {
+    id: 'r1',
+    name: 'Load me',
+    url: 'https://x.test/api',
+    method: 'GET',
+    auth: { type: 'none' },
+  } as HttpRequest;
 }
 function ok(status = 200, time = 5) {
   return { response: { status, time } } as Awaited<ReturnType<typeof executeRequest>>;
@@ -34,6 +47,8 @@ function ok(status = 200, time = 5) {
 beforeEach(() => {
   mockExec.mockReset();
   addEntry.mockReset();
+  mockInherit.mockReset();
+  mockInherit.mockReturnValue(undefined);
   mockExec.mockResolvedValue(ok());
 });
 
@@ -126,6 +141,47 @@ describe('runLoadTest', () => {
     const last = onProgress.mock.calls.at(-1)?.[0];
     expect(last.done).toBe(true);
     expect(last.completed).toBe(2);
+  });
+
+  it('applies folder/collection auth inheritance to every fired request', async () => {
+    // A request with no auth of its own that inherits an ancestor's bearer must
+    // fire authenticated — matching a real send. Pre-fix the runner sent the
+    // raw request, so inherited auth was silently dropped on every iteration.
+    const inheritedBearer: AuthConfig = {
+      type: 'bearer',
+      bearer: { token: 'inherited-token' },
+    } as AuthConfig;
+    mockInherit.mockReturnValue({ auth: inheritedBearer } as ReturnType<
+      typeof resolveInheritedAuthFor
+    >);
+
+    await runLoadTest(
+      req(),
+      { iterations: 2, concurrency: 1 },
+      vi.fn(),
+      new AbortController().signal
+    );
+
+    expect(mockExec).toHaveBeenCalledTimes(2);
+    for (const call of mockExec.mock.calls) {
+      expect(call[0].request.auth).toEqual(inheritedBearer);
+    }
+  });
+
+  it('keeps a request’s own auth over an inherited one', async () => {
+    const ownBearer: AuthConfig = { type: 'bearer', bearer: { token: 'own' } } as AuthConfig;
+    // Own auth is configured ⇒ resolveInheritedAuthFor returns undefined (no inheritance).
+    mockInherit.mockReturnValue(undefined);
+    const ownReq = { ...req(), auth: ownBearer };
+
+    await runLoadTest(
+      ownReq,
+      { iterations: 1, concurrency: 1 },
+      vi.fn(),
+      new AbortController().signal
+    );
+
+    expect(mockExec.mock.calls[0]?.[0].request.auth).toEqual(ownBearer);
   });
 
   it('pushes exactly one aggregate summary to the console', async () => {

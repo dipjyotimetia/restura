@@ -101,7 +101,10 @@ export const authConfigSchema = z.object({
     .optional(),
   oauth2: z
     .object({
-      accessToken: secretValueSchema,
+      // Optional: the token is fetched AFTER the user fills clientId/tokenUrl/etc.
+      // Requiring it rejected every pre-token config edit (validateRequestUpdate
+      // throws → updateRequest drops it), making OAuth2 unconfigurable in the UI.
+      accessToken: secretValueSchema.optional(),
       tokenType: z.string().optional(),
       refreshToken: secretValueSchema.optional(),
       expiresAt: z.number().optional(),

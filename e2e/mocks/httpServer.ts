@@ -20,7 +20,7 @@ import {
   readBody,
   writeJson as json,
 } from '../utils/serverHelpers';
-import { authRoutes, resetAuthState } from './authRoutes';
+import { authRoutes, resetAuthState, TEST_AUTH_FIXTURES } from './authRoutes';
 
 export interface MockHttpServerHandle {
   port: number;
@@ -283,7 +283,10 @@ const routes: Route[] = [
     handle: ({ res, req }) => {
       const auth = req.headers.authorization ?? '';
       const m = /^Bearer\s+(.+)$/.exec(auth);
-      if (!m) {
+      // Fail-closed: a missing header OR a token that doesn't match the fixture
+      // is rejected. Echoing 200 for any non-empty token would make the bearer
+      // e2e decorative — a broken signer emitting a garbage token would pass.
+      if (!m || m[1] !== TEST_AUTH_FIXTURES.bearer.token) {
         res.writeHead(401, {
           'content-type': 'application/json',
           'www-authenticate': 'Bearer realm="restura-mock"',
@@ -429,6 +432,33 @@ const routes: Route[] = [
       json(res, 200, { fields });
     },
   },
+
+  // -- Mock OpenAI-compatible LLM (AI Lab local-provider e2e) -----------------
+  // The desktop AI Lab's `openai-compatible` provider hits `<baseUrl>/v1/models`
+  // (model discovery) and streams from `<baseUrl>/v1/chat/completions`. The
+  // localhost SSRF carve-out applies because openai-compatible is a LOCAL provider.
+  {
+    method: 'GET',
+    test: '/v1/models',
+    handle: ({ res }) => json(res, 200, { data: [{ id: 'mock-model', object: 'model' }] }),
+  },
+  {
+    method: 'POST',
+    test: '/v1/chat/completions',
+    handle: ({ res }) => {
+      // OpenAI streaming SSE — the orchestrator reads choices[].delta.content
+      // until finish_reason/[DONE]. Rendered content = "echo: hello".
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+      const chunks = [
+        `data: {"id":"e1","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n`,
+        `data: {"id":"e1","choices":[{"index":0,"delta":{"content":"echo: hello"},"finish_reason":null}]}\n\n`,
+        `data: {"id":"e1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}\n\n`,
+        `data: [DONE]\n\n`,
+      ];
+      for (const chunk of chunks) res.write(chunk);
+      res.end();
+    },
+  },
 ];
 
 function matchRoute(
@@ -572,6 +602,9 @@ async function handleGraphQL(rawBody: string): Promise<{ status: number; body: u
  * default `0` preserves the ephemeral-port behavior the e2e fixtures rely on. */
 export interface StartHttpOptions {
   port?: number;
+  /** Bind address. Default '127.0.0.1'; pass '::' for a dual-stack listener so
+   *  a `*.localhost` hostname (which resolves to ::1 first) is reachable. */
+  host?: string;
 }
 
 export interface StartHttpsOptions extends StartHttpOptions {
@@ -579,12 +612,19 @@ export interface StartHttpsOptions extends StartHttpOptions {
   tls?: { key: string | Buffer; cert: string | Buffer; ca?: string | Buffer };
   /** Demand (and require) a client certificate — turns this into an mTLS server. */
   requestCert?: boolean;
+  /** Cap the TLS protocol version (e.g. 'TLSv1.2') so a client min-version
+   *  floor above it is provably rejected at the handshake. */
+  maxVersion?: 'TLSv1.3' | 'TLSv1.2' | 'TLSv1.1' | 'TLSv1';
+  /** Restrict the server's offered TLS 1.2 cipher suites (OpenSSL list) so a
+   *  client requesting an incompatible suite is provably rejected. */
+  ciphers?: string;
 }
 
 async function startServer(
   server: HttpServer | HttpsServer,
   scheme: 'http' | 'https',
-  port?: number
+  port?: number,
+  host?: string
 ): Promise<MockHttpServerHandle> {
   const recorder: RecordedRequest[] = [];
   server.on('request', (req: IncomingMessage, res: ServerResponse) => {
@@ -593,7 +633,7 @@ async function startServer(
       res.end(JSON.stringify({ error: (err as Error).message }));
     });
   });
-  const boundPort = await bindLocalhost(server, port);
+  const boundPort = await bindLocalhost(server, port, host);
   return {
     port: boundPort,
     url: `${scheme}://127.0.0.1:${boundPort}`,
@@ -608,7 +648,7 @@ async function startServer(
 }
 
 export function startMockHttpServer(opts: StartHttpOptions = {}): Promise<MockHttpServerHandle> {
-  return startServer(createHttpServer(), 'http', opts.port);
+  return startServer(createHttpServer(), 'http', opts.port, opts.host);
 }
 
 export function startMockHttpsServer(opts: StartHttpsOptions = {}): Promise<MockHttpServerHandle> {
@@ -619,5 +659,7 @@ export function startMockHttpsServer(opts: StartHttpsOptions = {}): Promise<Mock
     serverOpts.requestCert = true;
     serverOpts.rejectUnauthorized = true;
   }
+  if (opts.maxVersion) serverOpts.maxVersion = opts.maxVersion;
+  if (opts.ciphers) serverOpts.ciphers = opts.ciphers;
   return startServer(createHttpsServer(serverOpts), 'https', opts.port);
 }

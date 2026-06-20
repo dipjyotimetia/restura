@@ -200,12 +200,14 @@ const SecretHandleRefSchema = z.object({
   label: z.string().optional(),
 });
 
-const ProviderEnumSchema = z.enum(['openai', 'anthropic', 'openrouter']);
+// Chat allows the cloud set plus a local OpenAI-compatible provider (base-URL + no API key).
+const ChatProviderEnumSchema = z.enum(['openai', 'anthropic', 'openrouter', 'openai-compatible']);
 
 const ProviderConfigSchema = z.object({
-  provider: ProviderEnumSchema,
+  provider: ChatProviderEnumSchema,
   defaultModel: z.string().min(1),
-  apiKeyRef: SecretHandleRefSchema,
+  // Optional: local (openai-compatible) providers need no API key/handle.
+  apiKeyRef: SecretHandleRefSchema.optional(),
   baseUrlOverride: z.url().optional(),
 });
 
@@ -251,8 +253,9 @@ export const AiChatStateSchema = z.object({
     openai: ProviderConfigSchema.nullable(),
     anthropic: ProviderConfigSchema.nullable(),
     openrouter: ProviderConfigSchema.nullable(),
+    'openai-compatible': ProviderConfigSchema.nullable(),
   }),
-  activeProvider: ProviderEnumSchema,
+  activeProvider: ChatProviderEnumSchema,
   redactionMode: z.enum(['default', 'raw']),
   // When false, the chat does NOT advertise agent tools to the model, so it
   // won't propose actions. Optional + default so older persisted state upgrades

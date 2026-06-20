@@ -12,6 +12,16 @@ EMQX), which run via Docker.
 
 ## Quick start
 
+New contributor? The repo-root **Makefile** wraps the prerequisites:
+
+```bash
+make setup        # check tools (node/openssl/docker), generate TLS certs, start the brokers
+make echo-local   # boot the in-process stack (prints the manifest, stays up)
+make help         # list every target (certs, brokers, brokers-down, clean, …)
+```
+
+Or run the underlying npm commands directly:
+
 ```bash
 npm run echo:local                 # boot the in-process protocols, print the manifest, stay up
 # (for Kafka + MQTT — both run in Docker)

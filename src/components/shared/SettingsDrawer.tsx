@@ -17,7 +17,7 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { ClientCert } from '@/types';
+import type { ClientCert, ProxyType } from '@/types';
 import {
   DEFAULT_AUTO_UPDATE_SETTINGS,
   DEFAULT_JUDGE_SETTINGS,
@@ -649,6 +649,24 @@ function ProxySection() {
               checked={settings.proxy.enabled}
               onChange={setProxyEnabled}
               ariaLabel="Enable proxy"
+            />
+          }
+        />
+        <FieldRow
+          label="Type"
+          hint="HTTP(S) proxies tunnel via CONNECT; SOCKS4/5 open a raw TCP tunnel."
+          control={
+            <Segmented<Exclude<ProxyType, 'none'>>
+              options={[
+                { value: 'http', label: 'HTTP' },
+                { value: 'https', label: 'HTTPS' },
+                { value: 'socks4', label: 'SOCKS4' },
+                { value: 'socks5', label: 'SOCKS5' },
+              ]}
+              value={settings.proxy.type === 'none' ? 'http' : settings.proxy.type}
+              onChange={(type) => updateProxy({ type })}
+              size="sm"
+              ariaLabel="Proxy type"
             />
           }
         />

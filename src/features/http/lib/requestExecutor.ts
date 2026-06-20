@@ -7,6 +7,7 @@ import type {
   FormDataItem,
 } from '@/types';
 import type { ProxyBodyType } from '@shared/protocol/body-builder';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { v4 as uuidv4 } from 'uuid';
 import { Cookie } from 'tough-cookie';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
@@ -163,7 +164,9 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   const resolveLocal = (text: string) => {
     let result = text;
     Object.entries(envVars).forEach(([key, value]) => {
-      result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+      // escapeRegExp guards against metacharacter keys crashing the RegExp ctor;
+      // the function replacer keeps a value with $ patterns literal.
+      result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
     });
     return resolveVariables(result);
   };
@@ -313,7 +316,7 @@ export function buildFormFields(items?: FormDataItem[]): ProxyFormField[] {
     );
 }
 
-function mapBodyType(rendererType: RendererBodyType): ProxyBodyType {
+export function mapBodyType(rendererType: RendererBodyType): ProxyBodyType {
   switch (rendererType) {
     case 'none':
     case 'json':

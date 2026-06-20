@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures/echoLocal';
 import type { Page } from '@playwright/test';
 import { switchMode, setUrl, sendButton } from '../../e2e/utils/selectors';
+import { TEST_AUTH_FIXTURES } from '../../e2e/mocks/authRoutes';
 
 /**
  * Desktop wire-level auth signing. The renderer configures auth; the actual
@@ -12,13 +13,12 @@ import { switchMode, setUrl, sendButton } from '../../e2e/utils/selectors';
  * proves the desktop client signed the request correctly.
  */
 
-const USER = { username: 'alice', password: 'wonderland' };
-const AWS = {
-  accessKey: 'AKIDEXAMPLE',
-  secretKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
-  region: 'us-east-1',
-  service: 'execute-api',
-};
+// Source the credentials from the same fixtures the mock servers validate
+// against, so a rename can never silently desync the spec from the server.
+const USER = TEST_AUTH_FIXTURES.user;
+const AWS = TEST_AUTH_FIXTURES.aws;
+const BEARER_TOKEN = TEST_AUTH_FIXTURES.bearer.token;
+const OAUTH1 = TEST_AUTH_FIXTURES.oauth1;
 
 /** Open the Auth tab and pick an auth type from the left-rail picker. */
 async function chooseAuth(page: Page, label: string): Promise<void> {
@@ -36,9 +36,21 @@ test.describe('Desktop HTTP auth signing (echo-local)', () => {
     await switchMode(page, 'http');
     await setUrl(page, `${echo.httpUrl}/bearer`);
     await chooseAuth(page, 'Bearer');
-    await page.getByPlaceholder('Enter bearer token').fill('echo-local-token');
+    await page.getByPlaceholder('Enter bearer token').fill(BEARER_TOKEN);
     await sendButton(page).click();
     await expectAuthenticated(page);
+  });
+
+  // Negative case: the mock is fail-closed (verifies the exact token), so a
+  // wrong token must be rejected. Without this, the positive test above is
+  // decorative — it would pass even if the client sent a garbage token.
+  test('a wrong Bearer token is rejected (fail-closed)', async ({ app: page, echo }) => {
+    await switchMode(page, 'http');
+    await setUrl(page, `${echo.httpUrl}/bearer`);
+    await chooseAuth(page, 'Bearer');
+    await page.getByPlaceholder('Enter bearer token').fill('not-the-real-token');
+    await sendButton(page).click();
+    await expect(page.getByText('401', { exact: true }).first()).toBeVisible();
   });
 
   test('Basic auth signs base64 credentials', async ({ app: page, echo }) => {
@@ -91,5 +103,28 @@ test.describe('Desktop HTTP auth signing (echo-local)', () => {
     await page.getByPlaceholder('Enter password').fill(USER.password);
     await sendButton(page).click();
     await expectAuthenticated(page);
+  });
+
+  // OAuth 1.0a — the third sign-at-wire family member, and previously the
+  // highest-risk gap: the client has real HMAC-SHA1 wire-signing
+  // (buildOAuth1Header) but nothing verified it. /oauth1/protected recomputes
+  // the signature with an INDEPENDENT RFC 5849 verifier (validated against the
+  // RFC worked example, not the signer's code), so a 200 proves the desktop
+  // OAuth1 signing is genuinely RFC-correct end-to-end.
+  test('OAuth 1.0 (HMAC-SHA1) signature is accepted', async ({ app: page, echo }) => {
+    await switchMode(page, 'http');
+    await setUrl(page, `${echo.httpUrl}/oauth1/protected`);
+    await chooseAuth(page, 'OAuth 1.0');
+    await page.getByPlaceholder('Enter consumer key').fill(OAUTH1.consumerKey);
+    await page.getByPlaceholder('Enter consumer secret').fill(OAUTH1.consumerSecret);
+    // 'Enter access token' is a substring of 'Enter access token secret' — exact.
+    await page.getByPlaceholder('Enter access token', { exact: true }).fill(OAUTH1.accessToken);
+    await page
+      .getByPlaceholder('Enter access token secret', { exact: true })
+      .fill(OAUTH1.accessTokenSecret);
+    await sendButton(page).click();
+    await expectAuthenticated(page);
+    // The consumer key is echoed back only when the signature verifies.
+    await expect(page.getByText(new RegExp(OAUTH1.consumerKey)).first()).toBeVisible();
   });
 });

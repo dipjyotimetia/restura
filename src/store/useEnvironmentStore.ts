@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Environment, KeyValue } from '@/types';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
@@ -52,9 +53,7 @@ export const useEnvironmentStore = create<EnvironmentState>()(
       addVariable: (environmentId, variable) =>
         set((state) => ({
           environments: state.environments.map((env) =>
-            env.id === environmentId
-              ? { ...env, variables: [...env.variables, variable] }
-              : env
+            env.id === environmentId ? { ...env, variables: [...env.variables, variable] } : env
           ),
         })),
 
@@ -98,8 +97,10 @@ export const useEnvironmentStore = create<EnvironmentState>()(
         if (activeEnv) {
           activeEnv.variables.forEach((variable) => {
             if (variable.enabled) {
-              const regex = new RegExp(`{{\\s*${variable.key}\\s*}}`, 'g');
-              resolved = resolved.replace(regex, variable.value);
+              // escapeRegExp: a key with regex metachars would crash the RegExp
+              // ctor; the function replacer keeps a value with $ patterns literal.
+              const regex = new RegExp(`{{\\s*${escapeRegExp(variable.key)}\\s*}}`, 'g');
+              resolved = resolved.replace(regex, () => variable.value);
             }
           });
         }
@@ -124,9 +125,8 @@ export const useEnvironmentStore = create<EnvironmentState>()(
           (typeof persistedState === 'object' &&
             Object.keys(persistedState as object).length === 0);
         if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<EnvironmentState>>(
-            'environment-storage'
-          );
+          const legacy =
+            migrateLegacyLocalStorage<Partial<EnvironmentState>>('environment-storage');
           if (legacy) return legacy as EnvironmentState;
         }
         return persistedState as EnvironmentState;

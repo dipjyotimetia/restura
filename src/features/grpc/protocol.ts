@@ -22,6 +22,7 @@
  * Console panel updates without re-implementing the pipeline.
  */
 import { v4 as uuidv4 } from 'uuid';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import type { ProtocolModule } from '@/features/registry/types';
 import type { GrpcRequest, GrpcResponse, Request, Response as ApiResponse } from '@/types';
 import { makeProxyGrpcRequest, makeElectronGrpcRequest } from './lib/grpcClient';
@@ -49,7 +50,7 @@ function createDefaultGrpcRequest(): GrpcRequest {
 function defaultResolveVariables(text: string, vars: Record<string, string>): string {
   let result = text;
   for (const [key, value] of Object.entries(vars)) {
-    result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+    result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
   }
   return result;
 }
