@@ -44,9 +44,9 @@ For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura com
 
 Two-step Digest auth: Restura sends the first request, reads the `WWW-Authenticate` challenge, and sends the signed second request automatically.
 
-### NTLM
+### NTLM <Badge text="desktop only" variant="caution" />
 
-NTLM v2 handshake — three-way (negotiate → challenge → authenticate). Common for on-prem Microsoft stacks.
+NTLM v2 handshake — three-way (negotiate → challenge → authenticate). Common for on-prem Microsoft stacks. The browser/Worker path emits a warning instead.
 
 ### WSSE
 

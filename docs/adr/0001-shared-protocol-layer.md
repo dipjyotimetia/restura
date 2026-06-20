@@ -1,6 +1,6 @@
 # ADR 0001: Shared Protocol Layer
 
-**Status:** Accepted, 2026-05-08
+**Status:** Accepted, 2025-11-05
 
 ## Context
 

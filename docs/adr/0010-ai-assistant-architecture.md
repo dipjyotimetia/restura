@@ -1,6 +1,6 @@
 # ADR 0010: AI Assistant Architecture
 
-**Status:** Accepted (feature in active development), 2026-06-02
+**Status:** Accepted (feature in active development), 2026-02-04
 
 ## Context
 
@@ -18,16 +18,19 @@ Make the AI path **Electron-first and provider-agnostic**, with the orchestrator
 ## Consequences
 
 **Positive**
+
 - Adding a provider is a decoder + fixture, not an orchestration rewrite.
 - Secrets/URLs are redacted at the renderer boundary, so the main process and the provider never see them.
 - Streaming + cancel reuse the same IPC event-channel pattern as the other streaming protocols.
 
 **Negative**
+
 - Web has no AI path today; the capability is desktop-only until a Worker route is added. The capability matrix ([ADR 0012](./0012-capability-matrix-source-of-truth.md)) records this.
 - The "subscribe before invoke" ordering is an easy bug to reintroduce in the renderer.
 - BYOK means key handling quality depends on each provider's key storage path.
 
 ## References
+
 - Code: `src/features/ai/` (`lib/promptBuilder.ts`, `lib/contextSnapshot.ts`, `lib/streamConsumer.ts`, `store.ts`), `electron/main/ai-handler.ts`, `shared/protocol/ai/`
 - User guide: docs-site `/guides/ai-assistant/`
 - Design: `docs/superpowers/specs/2026-05-24-ai-chat-foundation-design.md`

@@ -3,7 +3,7 @@ title: GraphQL
 description: Query builder with schema introspection, variables, subscriptions, and persisted documents.
 ---
 
-GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can introspect the endpoint, hint completions from the schema, and run subscriptions over both `multipart/mixed` and WebSocket transports.
+GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can introspect the endpoint, hint completions from the schema, and run subscriptions over a `graphql-ws` WebSocket.
 
 ## What works
 
@@ -12,7 +12,7 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 - **Variables** — separate JSON editor; resolves environment placeholders (`{{userId}}`).
 - **Persisted queries** — send by hash if the server supports it.
 - **Authentication** — the same auth schemes as HTTP. Most teams ship a Bearer token here.
-- **Subscriptions** — depending on server support: `graphql-ws` (over WebSocket) or HTTP `multipart/mixed`. Live events stream into the response panel. On desktop the `graphql-ws` socket is tunnelled over the WebSocket IPC bridge (the packaged CSP blocks renderer `ws:`/`wss:`), with header auth carried on the handshake.
+- **Subscriptions** — `graphql-ws` over a WebSocket, for servers that support it. Live events stream into the response panel. On desktop the `graphql-ws` socket is tunnelled over the WebSocket IPC bridge (the packaged CSP blocks renderer `ws:`/`wss:`), with header auth carried on the handshake.
 
 ## Editor features
 

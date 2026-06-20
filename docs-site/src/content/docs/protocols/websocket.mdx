@@ -3,8 +3,6 @@ title: WebSocket
 description: Connect, send text or binary frames, watch the full message history, auto-reconnect.
 ---
 
-import { Badge } from '@astrojs/starlight/components';
-
 Restura's WebSocket client gives you a full session viewer: every frame sent and received, with timestamps, payload type, and a search bar over the transcript.
 
 ## What works
@@ -24,12 +22,11 @@ The browser `WebSocket` API can't set custom headers on the upgrade. Restura's w
 
 ## Desktop-specific path
 
-The Electron main process opens the socket directly via `ws` over Node `net` / `tls`, so:
+The Electron main process opens the socket directly with the native `ws` library, so:
 
-- Custom headers go on the upgrade frame.
-- **mTLS** is supported. <Badge text="desktop only" variant="caution" />
-- **Custom CAs / disabled TLS verification** are honoured. <Badge text="desktop only" variant="caution" />
-- **SOCKS** and **PAC** proxies work. <Badge text="desktop only" variant="caution" />
+- Custom headers go straight on the upgrade frame — no Worker ticket needed.
+- The connection is **pinned to a pre-validated IP** at connect time, closing the DNS-rebind window that pre-flight validation alone leaves open (see [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)).
+- Redirects on the upgrade are followed.
 
 ## Tips
 

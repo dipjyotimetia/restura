@@ -1,6 +1,6 @@
 # ADR 0020: AI Lab — prompt/model eval workbench
 
-**Status:** Accepted, 2026-06-03
+**Status:** Accepted, 2026-05-20
 
 ## Context
 

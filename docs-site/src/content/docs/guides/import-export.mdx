@@ -22,19 +22,24 @@ Restura imports from the major API client formats and exports to **OpenCollectio
   <Card title="Hoppscotch" icon="seti:json">
     Native Hoppscotch JSON.
   </Card>
-  <Card title="Bruno (3.1+)" icon="seti:folder">
-    Bruno `.bru` files in a directory. Restura reads the whole tree.
+  <Card title="Bruno" icon="seti:folder">
+    Both legacy `.bru` files in a directory (read as a whole tree) and Bruno 3.1+ collections, the latter via Bruno's OpenCollection export.
   </Card>
   <Card title="OpenCollection" icon="open-book">
-    Native format — both the bundled JSON layout and the directory layout. Lossless round-trip.
+    Native format — both the bundled YAML file and the directory layout. Lossless round-trip.
   </Card>
 </CardGrid>
 
 ## Export
 
-- **OpenCollection** (bundled JSON) — the canonical export format. Lossless.
-- **OpenCollection** (directory layout) — one file per request, friendly for `git`.
+From the collection menu:
+
+- **OpenCollection** (YAML) — the canonical export format. A single `.yml` file. Lossless.
 - **Postman v2.1** — for sharing with Postman users.
+- **Insomnia** — for sharing with Insomnia users.
+- **Bruno** (`.bru` archive) — for sharing with Bruno users.
+
+On desktop you can also **Save to Files / Sync to Disk** to write the collection as an OpenCollection **directory layout** — one file per request, friendly for `git`.
 
 Auth schemes that exist in Restura but not in the target format are persisted via the OpenCollection `extensions` field so they round-trip.
 

@@ -1,6 +1,6 @@
 # ADR 0002: Multi-Tab Request Store
 
-**Status:** Accepted, 2026-05-09
+**Status:** Accepted, 2025-11-12
 
 ## Context
 

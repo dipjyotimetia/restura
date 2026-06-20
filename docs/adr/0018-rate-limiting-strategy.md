@@ -1,6 +1,6 @@
 # ADR 0018: Rate Limiting Strategy
 
-**Status:** Accepted, 2026-06-02
+**Status:** Accepted, 2026-04-29
 
 ## Context
 
@@ -18,13 +18,16 @@ There is intentionally no shared rate-limit abstraction across the two — the r
 ## Consequences
 
 **Positive**
+
 - Each boundary is throttled in the terms that make sense for it; neither is forced into the other's model.
 - Per-channel IPC limiting bounds connection-based protocols (MQTT/Kafka) at the handler that owns them.
 
 **Negative**
+
 - Two separate rate-limit implementations to maintain and reason about.
 - The deprecated legacy IPC limiter still exists during migration, so contributors must be steered to the keyed-limiter API.
 
 ## References
+
 - Code: `worker/middleware/rateLimiter.ts`, `electron/main/ipc-rate-limiter.ts`
 - Related: [ADR 0006 (connection + DNS hardening)](./0006-electron-connection-and-dns-hardening.md), [ADR 0009 (shared Hono app factory)](./0009-shared-hono-app-factory.md)

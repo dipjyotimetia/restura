@@ -1,6 +1,6 @@
 # ADR 0004: Security Hardening
 
-**Status:** Accepted, 2026-05-09
+**Status:** Accepted, 2025-11-12
 
 ## Context
 
