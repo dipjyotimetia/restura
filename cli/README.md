@@ -41,7 +41,7 @@ The legacy format prints a stderr deprecation warning the first time it's loaded
 - **gRPC** — via Connect protocol (JSON-encoded, no proto compilation needed)
 - **SSE** — captures events for `--sse-duration` ms, or until `--sse-events N`
 - **MCP** — single JSON-RPC POST per request
-- **WebSocket** — standalone executor available; not yet wired into the dispatcher (see `executors/websocket.ts`)
+- **WebSocket** — not run in collection batches (matches the desktop collection runner, which skips streaming protocols). A standalone executor exists for future wiring (`executors/websocket.ts`) but no collection format routes to it yet.
 
 Header-based auth (Bearer, Basic, API-key, OAuth2 access token) is applied to HTTP/GraphQL, gRPC (as metadata), SSE, and MCP requests. Wire-signed schemes (AWS SigV4, OAuth1, WSSE) are signed at the wire on the HTTP path. `x-www-form-urlencoded` bodies are sent for both inline (`raw`) and structured (OpenCollection field-array) forms; `multipart/form-data` and `protobuf` bodies are not yet supported by the CLI fetcher.
 
@@ -71,8 +71,6 @@ restura run <collection> [options]
 | `--retry-on <list>`         | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`).             |
 | `--sse-duration <ms>`       | `5000`        | How long to keep SSE streams open.                                                                   |
 | `--sse-events <n>`          |               | Stop SSE early after N events.                                                                       |
-| `--ws-duration <ms>`        | `5000`        | How long to keep WebSocket connections open.                                                         |
-| `--ws-messages <n>`         |               | Stop WebSocket early after N messages.                                                               |
 
 ## Scripts and assertions
 

@@ -1,6 +1,7 @@
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
 import type { FormField } from '@shared/protocol/body-builder';
+import type { RedirectPolicy } from '@shared/protocol/types';
 import type { HttpRequest, BodyType, FormDataItem } from '@/types';
 import { undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
@@ -46,6 +47,20 @@ export async function executeHttp(
     applyAuthHeaders(req.auth, headers, params);
     const proxyAuth = toProtocolAuth(req.auth);
 
+    // Per-request settings (legacy collections carry these) override the global
+    // flags. Mirrors the desktop renderer's settings→spec mapping in
+    // `src/features/http/lib/requestExecutor.ts`: redirect knobs are emitted
+    // only when set, and `maxRedirects` only applies while following.
+    const settings = req.settings;
+    const redirectPolicy: RedirectPolicy = {};
+    if (settings?.followOriginalMethod !== undefined)
+      redirectPolicy.followOriginalMethod = settings.followOriginalMethod;
+    if (settings?.followAuthHeader !== undefined)
+      redirectPolicy.followAuthHeader = settings.followAuthHeader;
+    if (settings?.stripReferer !== undefined) redirectPolicy.stripReferer = settings.stripReferer;
+    if (settings?.followRedirects && settings.maxRedirects !== undefined)
+      redirectPolicy.maxRedirects = settings.maxRedirects;
+
     const result = await executeHttpProxy(
       {
         method: req.method,
@@ -55,8 +70,13 @@ export async function executeHttp(
         ...(built.bodyType !== 'none' ? { bodyType: built.bodyType } : {}),
         ...(built.data !== undefined ? { data: built.data } : {}),
         ...(built.formData !== undefined ? { formData: built.formData } : {}),
-        timeout: opts.timeoutMs,
+        // Per-request timeout overrides the global --timeout; falls back to it.
+        timeout: settings?.timeout ?? opts.timeoutMs,
         ...(proxyAuth ? { auth: proxyAuth } : {}),
+        ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
+        ...(settings?.encodeUrlAutomatically !== undefined
+          ? { encodeUrl: settings.encodeUrlAutomatically }
+          : {}),
       },
       undiciFetcher,
       { allowLocalhost: opts.allowLocalhost }

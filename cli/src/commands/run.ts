@@ -28,8 +28,6 @@ interface RunOpts {
   retryOn: string;
   sseDuration?: string;
   sseEvents?: string;
-  wsDuration?: string;
-  wsMessages?: string;
 }
 
 /**
@@ -81,8 +79,6 @@ export function registerRunCommand(program: Command): void {
     )
     .option('--sse-duration <ms>', 'How long to keep SSE streams open', '5000')
     .option('--sse-events <n>', 'Stop SSE after N events received')
-    .option('--ws-duration <ms>', 'How long to keep WebSocket connections open', '5000')
-    .option('--ws-messages <n>', 'Stop WebSocket after N messages received')
     .action(async (collectionPath: string, opts: RunOpts) => {
       try {
         const envVars = opts.env ? await loadEnv(opts.env, { expandEnvVars: true }) : {};
@@ -114,12 +110,6 @@ export function registerRunCommand(program: Command): void {
               : {}),
             ...(opts.sseEvents !== undefined
               ? { sseMaxEvents: numericFlag('--sse-events', opts.sseEvents, { min: 1 }) }
-              : {}),
-            ...(opts.wsDuration !== undefined
-              ? { wsDurationMs: numericFlag('--ws-duration', opts.wsDuration, { min: 0 }) }
-              : {}),
-            ...(opts.wsMessages !== undefined
-              ? { wsMaxMessages: numericFlag('--ws-messages', opts.wsMessages, { min: 1 }) }
               : {}),
           },
           reporter

@@ -13,6 +13,8 @@ export interface RunScriptResult {
   errors: string[];
   /** Final variable map after any `pm.environment.set` / `pm.variables.set` calls. */
   variables: Record<string, string>;
+  /** `pm.execution` flow-control sentinel (setNextRequest), when the script set it. */
+  execution?: ScriptResult['execution'];
 }
 
 /**
@@ -105,6 +107,7 @@ function toRunScriptResult(
     logs: result.logs,
     errors: result.errors,
     variables: { ...originalVars, ...result.variables },
+    ...(result.execution ? { execution: result.execution } : {}),
   };
 }
 
