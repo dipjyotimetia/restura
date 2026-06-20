@@ -23,6 +23,13 @@ export type LocalProvider = 'ollama' | 'openai-compatible';
 
 export type Provider = CloudProvider | LocalProvider;
 
+/**
+ * Providers selectable in the AI assistant chat: the cloud set plus
+ * `openai-compatible` (a local/self-hosted OpenAI-format endpoint at a
+ * user-supplied base URL). `ollama` stays AI-Lab-only.
+ */
+export type ChatProvider = CloudProvider | 'openai-compatible';
+
 /** True for providers that may legitimately target localhost / private hosts. */
 export function isLocalProvider(provider: Provider): provider is LocalProvider {
   return provider === 'ollama' || provider === 'openai-compatible';

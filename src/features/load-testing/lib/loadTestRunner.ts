@@ -8,6 +8,8 @@
  * effective concurrency is lower there than on desktop.
  */
 import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
@@ -34,6 +36,13 @@ export interface LoadProgress {
 }
 
 function buildExecutorOptions(request: HttpRequest) {
+  // Apply folder/collection auth inheritance — the same rule the collection,
+  // workflow, and interactive Send paths use. `executeRequest` does NOT resolve
+  // inheritance itself; without this, a load test of a request that inherits
+  // ancestor auth would fire every iteration unauthenticated (mismatching a
+  // real send, which this runner's contract promises to match).
+  const inherited = resolveInheritedAuthFor(request);
+  const effectiveRequest = withEffectiveAuth(request, inherited?.auth);
   const envStore = useEnvironmentStore.getState();
   const activeEnv = envStore.getActiveEnvironment();
   const envVars: Record<string, string> = {};
@@ -43,7 +52,7 @@ function buildExecutorOptions(request: HttpRequest) {
       envVars[v.key] = v.value;
     });
   return {
-    request,
+    request: effectiveRequest,
     envVars,
     globalSettings: useSettingsStore.getState().settings,
     resolveVariables: (text: string) => envStore.resolveVariables(text),

@@ -27,7 +27,7 @@ import {
 import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
-import type { ChatRequestSpec, Provider } from '@shared/protocol/ai/types';
+import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
 import { makePinnedFetcher } from './fetch-fetcher';
 
 const rateLimiter = createKeyedRateLimiter(30, 60_000); // 30 chat msgs / min / webContents
@@ -43,12 +43,15 @@ const active = new Map<string, ActiveStream>();
 
 /**
  * Resolve the chat provider's base URL and return a DNS-pinned, manual-redirect
- * Fetcher locked to it (wire mechanics in {@link makePinnedFetcher}). Chat is
- * CLOUD-ONLY — AiChatRequestSchema permits only openai/anthropic/openrouter — so
- * localhost is never allowed; the AI Lab owns the local-runtime carve-out.
+ * Fetcher locked to it (wire mechanics in {@link makePinnedFetcher}). localhost
+ * is allowed ONLY for local providers (openai-compatible) — same carve-out as the
+ * AI Lab (ai-lab-handler.ts); cloud providers can never target localhost, even
+ * via a base-URL override, so the override can't smuggle an SSRF.
  */
 async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
-  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), { allowLocalhost: false });
+  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), {
+    allowLocalhost: isLocalProvider(provider),
+  });
 }
 
 async function resolveSecretFn(handleId: string): Promise<string | undefined> {
@@ -128,7 +131,9 @@ export function registerAiHandlers(): void {
       provider: data.provider,
       model: data.model,
       messages: data.messages,
-      apiKeyHandleId: data.apiKeyHandleId,
+      // Empty handle ⇒ resolveSecret returns undefined ⇒ no Authorization header
+      // (clean key-less request for a local openai-compatible provider).
+      apiKeyHandleId: data.apiKeyHandleId ?? '',
       rawMode: data.rawMode,
       ...(data.baseUrlOverride ? { baseUrlOverride: data.baseUrlOverride } : {}),
       ...(data.maxOutputTokens ? { maxOutputTokens: data.maxOutputTokens } : {}),

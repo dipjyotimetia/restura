@@ -1165,17 +1165,25 @@ export const AiChatToolSchema = z.object({
   inputSchema: z.record(z.string(), z.unknown()),
 });
 
-export const AiChatRequestSchema = z.object({
-  streamId: z.uuid(),
-  provider: z.enum(['openai', 'anthropic', 'openrouter']),
-  model: z.string().min(1).max(120),
-  messages: z.array(AiChatMessageSchema).min(1).max(200),
-  apiKeyHandleId: z.uuid(),
-  baseUrlOverride: z.url().optional(),
-  rawMode: z.boolean(),
-  maxOutputTokens: z.number().int().positive().max(8192).optional(),
-  tools: z.array(AiChatToolSchema).max(32).optional(),
-});
+export const AiChatRequestSchema = z
+  .object({
+    streamId: z.uuid(),
+    // Chat allows the cloud set plus a local openai-compatible endpoint.
+    provider: z.enum(['openai', 'anthropic', 'openrouter', 'openai-compatible']),
+    model: z.string().min(1).max(120),
+    messages: z.array(AiChatMessageSchema).min(1).max(200),
+    // Optional: a local openai-compatible provider needs no API key handle.
+    apiKeyHandleId: z.uuid().optional(),
+    baseUrlOverride: z.url().optional(),
+    rawMode: z.boolean(),
+    maxOutputTokens: z.number().int().positive().max(8192).optional(),
+    tools: z.array(AiChatToolSchema).max(32).optional(),
+  })
+  // openai-compatible has no default endpoint — it must carry a base URL.
+  .refine((v) => v.provider !== 'openai-compatible' || !!v.baseUrlOverride, {
+    message: 'openai-compatible provider requires a base URL.',
+    path: ['baseUrlOverride'],
+  });
 
 export const AiChatCancelSchema = z.object({
   streamId: z.uuid(),

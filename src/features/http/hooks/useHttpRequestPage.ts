@@ -21,8 +21,11 @@ import { isElectron } from '@/lib/shared/platform';
 import { executeProxiedRequest } from '@/lib/shared/transport';
 import {
   buildDesktopTransportConfig,
+  buildFormFields,
+  mapBodyType,
   resolveEffectiveSettings,
 } from '@/features/http/lib/requestExecutor';
+import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 
 /**
  * Capture the headers the request actually went out with for the Console.
@@ -138,18 +141,31 @@ export function useHttpRequestPage() {
         setScriptResult({ preRequest: preRequestResult });
       }
 
-      const resolvedUrl = resolveVariables(httpRequest.url);
+      // Substitute the local envVars map (active environment + any pre-request
+      // script mutations) FIRST, then the env-store resolver — mirroring the
+      // shared executor's `resolveLocal`. Without the envVars pass, variables a
+      // pre-request script set (e.g. pm.environment.set) never reach the wire,
+      // because the store resolver doesn't see them.
+      const resolveLocal = (text: string): string => {
+        let result = text;
+        Object.entries(envVars).forEach(([key, value]) => {
+          result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+        });
+        return resolveVariables(result);
+      };
+
+      const resolvedUrl = resolveLocal(httpRequest.url);
       let params: Record<string, string> = {};
       httpRequest.params
         .filter((p) => p.enabled && p.key)
         .forEach((p) => {
-          params[p.key] = resolveVariables(p.value);
+          params[p.key] = resolveLocal(p.value);
         });
       let headers: Record<string, string> = {};
       httpRequest.headers
         .filter((h) => h.enabled && h.key)
         .forEach((h) => {
-          headers[h.key] = resolveVariables(h.value);
+          headers[h.key] = resolveLocal(h.value);
         });
 
       // Folder/collection auth inheritance: a request with no auth of its own
@@ -166,7 +182,7 @@ export function useHttpRequestPage() {
       const applied = await applyAuthHeaders(
         effectiveAuth,
         headers,
-        resolveVariables(httpRequest.url),
+        resolvedUrl,
         httpRequest.method,
         httpRequest.body.type !== 'none' ? httpRequest.body.raw : undefined
       );
@@ -205,14 +221,44 @@ export function useHttpRequestPage() {
       };
       if (isElectron()) {
         const desktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, resolvedUrl);
+        // Build the body the same way the shared executor does (collection /
+        // workflow / load-test paths). The interactive path used to hard-code
+        // bodyType:'raw' + body.raw, which silently dropped form-data /
+        // form-urlencoded fields and sent binary as base64 text. Reuse
+        // mapBodyType + buildFormFields so this path can never diverge again.
+        const proxyBodyType = mapBodyType(httpRequest.body.type);
+        const formFields =
+          proxyBodyType === 'form-data' ? buildFormFields(httpRequest.body.formData) : [];
+
+        // Per-request redirect policy — only emit when a knob is set so the
+        // default-behaviour path stays a no-op on the wire (mirrors executor).
+        const redirectPolicy: ProxyRequestBody['redirectPolicy'] = {};
+        if (effectiveSettings.followOriginalMethod !== undefined) {
+          redirectPolicy.followOriginalMethod = effectiveSettings.followOriginalMethod;
+        }
+        if (effectiveSettings.followAuthHeader !== undefined) {
+          redirectPolicy.followAuthHeader = effectiveSettings.followAuthHeader;
+        }
+        if (effectiveSettings.stripReferer !== undefined) {
+          redirectPolicy.stripReferer = effectiveSettings.stripReferer;
+        }
+        if (effectiveSettings.followRedirects && effectiveSettings.maxRedirects !== undefined) {
+          redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;
+        }
+
         response = await executeProxiedRequest(
           {
             method: httpRequest.method,
             url: resolvedUrl,
             params,
             headers,
-            bodyType: httpRequest.body.type !== 'none' ? 'raw' : 'none',
-            ...(httpRequest.body.type !== 'none' ? { data: httpRequest.body.raw } : {}),
+            bodyType: proxyBodyType,
+            ...(proxyBodyType !== 'none' &&
+            proxyBodyType !== 'form-data' &&
+            httpRequest.body.raw !== undefined
+              ? { data: httpRequest.body.raw }
+              : {}),
+            ...(formFields.length > 0 ? { formData: formFields } : {}),
             ...(effectiveSettings.timeout !== undefined
               ? { timeout: effectiveSettings.timeout }
               : {}),
@@ -220,6 +266,10 @@ export function useHttpRequestPage() {
             // above — applyAuthHeaders leaves it for the main-process signer.
             // Forward the descriptor so the Electron handler can sign at the wire.
             ...(effectiveAuth && effectiveAuth.type !== 'none' ? { auth: effectiveAuth } : {}),
+            ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
+            ...(effectiveSettings.encodeUrlAutomatically !== undefined
+              ? { encodeUrl: effectiveSettings.encodeUrlAutomatically }
+              : {}),
           },
           {},
           desktop

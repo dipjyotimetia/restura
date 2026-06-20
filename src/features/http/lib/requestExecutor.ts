@@ -313,7 +313,7 @@ export function buildFormFields(items?: FormDataItem[]): ProxyFormField[] {
     );
 }
 
-function mapBodyType(rendererType: RendererBodyType): ProxyBodyType {
+export function mapBodyType(rendererType: RendererBodyType): ProxyBodyType {
   switch (rendererType) {
     case 'none':
     case 'json':

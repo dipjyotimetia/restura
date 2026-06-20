@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Plus, X, Wand2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { agentToolDefs, runAgentTool } from '@/features/ai/agent/tools';
-import type { Usage } from '@shared/protocol/ai/types';
+import { isLocalProvider, type Usage } from '@shared/protocol/ai/types';
 
 interface PendingToolCall {
   id: string;
@@ -48,7 +48,13 @@ export function ChatPanel({ onClose }: Props) {
   const newConversation = useAiChatStore((s) => s.newConversation);
   const agentToolsEnabled = useAiChatStore((s) => s.agentToolsEnabled);
   const setAgentToolsEnabled = useAiChatStore((s) => s.setAgentToolsEnabled);
-  const apiKeyConfigured = !!providerConfig?.apiKeyRef.id;
+  // A cloud provider is ready once its API-key handle is set; a local
+  // (openai-compatible) provider is ready once its base URL is set (no key).
+  const apiKeyConfigured =
+    !!providerConfig &&
+    (isLocalProvider(providerConfig.provider)
+      ? !!providerConfig.baseUrlOverride
+      : !!providerConfig.apiKeyRef?.id);
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
   // Tool calls proposed by the assistant, awaiting user approval ("propose &
@@ -122,7 +128,9 @@ export function ChatPanel({ onClose }: Props) {
       provider: activeProvider,
       model: providerConfig.defaultModel,
       messages,
-      apiKeyHandleId: providerConfig.apiKeyRef.id,
+      // Omit (don't empty-string) for a key-less local provider — the IPC schema
+      // is `z.uuid().optional()`, which rejects ''.
+      ...(providerConfig.apiKeyRef?.id ? { apiKeyHandleId: providerConfig.apiKeyRef.id } : {}),
       ...(providerConfig.baseUrlOverride
         ? { baseUrlOverride: providerConfig.baseUrlOverride }
         : {}),

@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID, randomBytes, timingSafeEqual } from
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { bearerToken, writeJson as json } from '../utils/serverHelpers';
+import { verifyOAuth1 } from './oauth1Verify';
 
 /**
  * In-memory mock of an OAuth 2.x authorization server, plus standalone
@@ -66,6 +67,15 @@ const HMAC_SECRET = 'restura-mock-jwt-secret';
 export const TEST_AUTH_FIXTURES = {
   client: { id: 'restura-client', secret: 'restura-secret' },
   user: { username: 'alice', password: 'wonderland' },
+  /** Bearer token the `/bearer` route verifies (fail-closed — wrong token ⇒ 401). */
+  bearer: { token: 'restura-bearer-token' },
+  /** OAuth 1.0a credentials the `/oauth1/protected` route verifies (HMAC-SHA1). */
+  oauth1: {
+    consumerKey: 'restura-consumer-key',
+    consumerSecret: 'restura-consumer-secret',
+    accessToken: 'restura-access-token',
+    accessTokenSecret: 'restura-access-token-secret',
+  },
   aws: {
     accessKey: 'AKIDEXAMPLE',
     secretKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
@@ -74,7 +84,7 @@ export const TEST_AUTH_FIXTURES = {
   },
 } as const;
 
-const { client: CLIENT, user: USER, aws: AWS } = TEST_AUTH_FIXTURES;
+const { client: CLIENT, user: USER, aws: AWS, oauth1: OAUTH1 } = TEST_AUTH_FIXTURES;
 
 interface AuthState {
   tokens: Map<string, IssuedToken>;
@@ -885,6 +895,37 @@ const wsseProtectedEndpoint: AuthRoute = {
   },
 };
 
+const oauth1ProtectedEndpoint: AuthRoute = {
+  method: 'GET',
+  test: '/oauth1/protected',
+  handle: ({ req, res, url }) => {
+    const authHeader = req.headers.authorization ?? '';
+    if (!/^OAuth\s/i.test(authHeader)) {
+      state.challengeCount += 1;
+      json(res, 401, { authenticated: false, reason: 'missing OAuth Authorization header' });
+      return;
+    }
+    // Verify with the INDEPENDENT RFC 5849 verifier (validated against the RFC
+    // worked example) — not the client signer — so a 200 proves the desktop
+    // OAuth1 wire-signing is correct, not merely self-consistent. `url.href`
+    // reconstructs the exact scheme://host:port/path the client signed.
+    const { valid, params } = verifyOAuth1('GET', url.href, authHeader, {
+      consumerSecret: OAUTH1.consumerSecret,
+      tokenSecret: OAUTH1.accessTokenSecret,
+    });
+    if (!valid) {
+      state.challengeCount += 1;
+      json(res, 401, { authenticated: false, reason: 'invalid oauth_signature' });
+      return;
+    }
+    json(res, 200, {
+      authenticated: true,
+      consumerKey: params.oauth_consumer_key,
+      signatureMethod: params.oauth_signature_method,
+    });
+  },
+};
+
 const jwksEndpoint: AuthRoute = {
   method: 'GET',
   test: '/.well-known/jwks.json',
@@ -929,6 +970,7 @@ export const authRoutes: AuthRoute[] = [
   digestEndpoint,
   awsProtectedEndpoint,
   wsseProtectedEndpoint,
+  oauth1ProtectedEndpoint,
   tokenEndpoint,
   authorizeEndpoint,
   deviceAuthorizationEndpoint,

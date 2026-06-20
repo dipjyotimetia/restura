@@ -77,7 +77,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes: 'Browser fetch cannot route through SOCKS',
   },
-  'http.proxy.pac': { label: 'PAC proxy script resolution', web: false, desktop: true },
+  'http.proxy.pac': {
+    label: 'PAC proxy script resolution',
+    web: false,
+    desktop: false,
+    notes:
+      'Not wired end-to-end: the renderer ProxyType cannot emit a PAC proxy and the PAC script is never loaded via session.setProxy — only handler scaffolding exists. Marked unsupported until the renderer + setProxy path land.',
+  },
   'http.mtls': {
     label: 'mTLS client certificates',
     web: false,

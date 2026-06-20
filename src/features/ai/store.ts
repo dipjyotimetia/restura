@@ -4,14 +4,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { debouncedStorage } from '@/lib/shared/debouncedStorage';
 import { AiChatStateSchema, type PersistedAiChatState } from '@/lib/shared/store-validators';
-import type { CloudProvider, Provider } from '@shared/protocol/ai/types';
+import type { ChatProvider, Provider } from '@shared/protocol/ai/types';
 
 type SecretRefHandle = { kind: 'handle'; id: string; label?: string };
 
 export interface ProviderConfig {
   provider: Provider;
   defaultModel: string;
-  apiKeyRef: SecretRefHandle;
+  // Optional: a local openai-compatible provider needs no API key handle.
+  apiKeyRef?: SecretRefHandle;
   baseUrlOverride?: string;
 }
 
@@ -53,8 +54,8 @@ export interface AiChatState extends PersistedAiChatState {
   setMessageError: (id: string, error: string) => void;
   setPanelOpen: (open: boolean) => void;
   setPanelWidth: (px: number) => void;
-  setProviderConfig: (p: CloudProvider, cfg: ProviderConfig | null) => void;
-  setActiveProvider: (p: CloudProvider) => void;
+  setProviderConfig: (p: ChatProvider, cfg: ProviderConfig | null) => void;
+  setActiveProvider: (p: ChatProvider) => void;
   setRedactionMode: (m: 'default' | 'raw') => void;
   setAgentToolsEnabled: (enabled: boolean) => void;
 }
@@ -64,7 +65,7 @@ const DEFAULT_STATE: PersistedAiChatState = {
   activeConversationId: null,
   panelOpen: false,
   panelWidth: 380,
-  providerConfigs: { openai: null, anthropic: null, openrouter: null },
+  providerConfigs: { openai: null, anthropic: null, openrouter: null, 'openai-compatible': null },
   activeProvider: 'anthropic',
   redactionMode: 'default',
   agentToolsEnabled: true,

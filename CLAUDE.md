@@ -30,7 +30,7 @@ npm run test:coverage          # Coverage report
 npm run test:e2e               # Playwright (boots dev server via webServer; needs .dev.vars)
 npm run test:e2e:ui            # Playwright UI mode
 npm run test:e2e:headed        # Playwright headed
-npm run test:e2e:electron:build && npm run test:e2e:electron   # Desktop e2e: _electron launch of the unpacked prod build (e2e-electron/), per-protocol smoke vs local mocks + native gRPC dev server
+npm run test:e2e:electron:build && npm run test:e2e:electron   # Desktop e2e: _electron launch of the unpacked prod build (e2e-electron/), per-protocol smoke vs local mocks + native gRPC dev server. Kafka/MQTT specs auto-bring-up the Dockerised Redpanda+EMQX brokers (echo-local/docker-compose.yml) via the `brokers` fixture and skip if Docker is absent
 npm run test:contract          # Contract tests (vitest run tests/contract)
 npm run grpc:server            # Native gRPC dev server on :50051 — desktop gRPC e2e needs real h2; the echo Worker's Connect endpoint is web-only
 vitest run path/to/file.test.ts                  # Run a single Vitest file

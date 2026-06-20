@@ -13,15 +13,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { CloudProvider } from '@shared/protocol/ai/types';
+import type { ChatProvider, CloudProvider } from '@shared/protocol/ai/types';
 
-// The chat panel talks only to cloud providers; local runtimes (Ollama,
-// OpenAI-compatible) are configured in the AI Lab, not here.
-const PROVIDER_LABELS: Record<CloudProvider, string> = {
+// The chat panel talks to the cloud providers plus a local OpenAI-compatible
+// endpoint (Ollama/LM Studio/vLLM at a user-supplied base URL, no API key).
+const PROVIDER_LABELS: Record<ChatProvider, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   openrouter: 'OpenRouter',
+  'openai-compatible': 'OpenAI-compatible (local)',
 };
+
+const CHAT_PROVIDERS: readonly ChatProvider[] = [...CLOUD_PROVIDERS, 'openai-compatible'];
 
 /**
  * Redact secret-shaped content from conversation message text before export.
@@ -65,6 +68,22 @@ export function ProviderSettings() {
     openrouter: '',
   });
 
+  // Local (openai-compatible) provider draft: base URL + model id, no API key.
+  const localCfg = providerConfigs['openai-compatible'];
+  const [localBaseUrl, setLocalBaseUrl] = useState(localCfg?.baseUrlOverride ?? '');
+  const [localModel, setLocalModel] = useState(localCfg?.defaultModel ?? '');
+
+  const saveLocal = () => {
+    const url = localBaseUrl.trim();
+    const model = localModel.trim();
+    if (!url || !model) return;
+    setProviderConfig('openai-compatible', {
+      provider: 'openai-compatible',
+      defaultModel: model,
+      baseUrlOverride: url,
+    });
+  };
+
   const saveKey = async (provider: CloudProvider) => {
     const value = pendingKeys[provider].trim();
     if (!value) return;
@@ -84,7 +103,7 @@ export function ProviderSettings() {
   };
 
   const clearKey = async (provider: CloudProvider) => {
-    const handleId = providerConfigs[provider]?.apiKeyRef.id;
+    const handleId = providerConfigs[provider]?.apiKeyRef?.id;
     const api = getElectronAPI()?.secrets;
     if (handleId && api) {
       await api.delete(handleId);
@@ -123,12 +142,12 @@ export function ProviderSettings() {
     <div className="space-y-6">
       <div className="space-y-2">
         <Label className="text-sm">Active provider</Label>
-        <Select value={activeProvider} onValueChange={(v) => setActiveProvider(v as CloudProvider)}>
+        <Select value={activeProvider} onValueChange={(v) => setActiveProvider(v as ChatProvider)}>
           <SelectTrigger className="w-60">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {CLOUD_PROVIDERS.map((p) => (
+            {CHAT_PROVIDERS.map((p) => (
               <SelectItem key={p} value={p}>
                 {PROVIDER_LABELS[p]}
               </SelectItem>
@@ -153,7 +172,7 @@ export function ProviderSettings() {
             {cfg ? (
               <>
                 <div className="text-xs text-muted-foreground">
-                  API key configured (handle {cfg.apiKeyRef.id.slice(0, 8)}…)
+                  API key configured (handle {cfg.apiKeyRef?.id.slice(0, 8)}…)
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Default model</Label>
@@ -204,6 +223,40 @@ export function ProviderSettings() {
           </div>
         );
       })}
+
+      {/* Local OpenAI-compatible provider — base URL + model, no API key. */}
+      <div className="glass-1 rounded-lg border border-border/40 p-3 space-y-3">
+        <h3 className="text-sm font-medium">{PROVIDER_LABELS['openai-compatible']}</h3>
+        <div className="space-y-1">
+          <Label className="text-xs">Base URL</Label>
+          <Input
+            value={localBaseUrl}
+            onChange={(e) => setLocalBaseUrl(e.target.value)}
+            placeholder="http://localhost:11434"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Model</Label>
+          <Input
+            value={localModel}
+            onChange={(e) => setLocalModel(e.target.value)}
+            placeholder="e.g. llama3.1 (local model id)"
+          />
+        </div>
+        <Button
+          size="sm"
+          aria-label="Save local provider"
+          onClick={saveLocal}
+          disabled={!localBaseUrl.trim() || !localModel.trim()}
+        >
+          Save local provider
+        </Button>
+        {localCfg && (
+          <p className="text-[11px] text-muted-foreground">
+            Configured: {localCfg.baseUrlOverride} · {localCfg.defaultModel}
+          </p>
+        )}
+      </div>
 
       <div className="border-t border-border/40 pt-3 space-y-3">
         <div>

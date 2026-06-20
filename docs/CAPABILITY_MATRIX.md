@@ -14,7 +14,7 @@ rather than discover it experimentally.
 | HTTP / REST requests | ✅ | ✅ |  |
 | GraphQL query / mutation | ✅ | ✅ | Rides the HTTP proxy (POST { query, variables, operationName }) |
 | SOCKS5 proxy | ❌ | ✅ | Browser fetch cannot route through SOCKS |
-| PAC proxy script resolution | ❌ | ✅ |  |
+| PAC proxy script resolution | ❌ | ❌ | Not wired end-to-end: the renderer ProxyType cannot emit a PAC proxy and the PAC script is never loaded via session.setProxy — only handler scaffolding exists. Marked unsupported until the renderer + setProxy path land. |
 | mTLS client certificates | ❌ | ✅ | Web build inherits browser cert store; no per-request control |
 | Custom CA bundle | ❌ | ✅ |  |
 | Manual redirect handling | ✅ | ✅ |  |

@@ -833,10 +833,10 @@ interface ElectronVaultAPI {
 interface ElectronAiAPI {
   chat: (spec: {
     streamId: string;
-    provider: 'openai' | 'anthropic' | 'openrouter';
+    provider: 'openai' | 'anthropic' | 'openrouter' | 'openai-compatible';
     model: string;
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
-    apiKeyHandleId: string;
+    apiKeyHandleId?: string;
     baseUrlOverride?: string;
     rawMode: boolean;
     maxOutputTokens?: number;

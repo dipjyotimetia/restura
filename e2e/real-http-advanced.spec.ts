@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/servers';
+import { TEST_AUTH_FIXTURES } from './mocks/authRoutes';
 
 /**
  * Advanced HTTP scenarios at the wire level — the kinds of edge cases that
@@ -30,7 +31,9 @@ test.describe('HTTP — cookies', () => {
 });
 
 test.describe('HTTP — auth', () => {
-  test('basic-auth challenges with WWW-Authenticate when missing credentials', async ({ servers }) => {
+  test('basic-auth challenges with WWW-Authenticate when missing credentials', async ({
+    servers,
+  }) => {
     const res = await fetch(`${servers.http.url}/basic-auth/alice/secret`);
     expect(res.status).toBe(401);
     expect(res.headers.get('www-authenticate')).toContain('Basic realm');
@@ -60,12 +63,15 @@ test.describe('HTTP — auth', () => {
     expect(r1.status).toBe(401);
     expect(r1.headers.get('www-authenticate')).toContain('Bearer');
 
+    // The mock now verifies the exact token (fail-closed), so use the shared
+    // fixture rather than an arbitrary literal.
+    const token = TEST_AUTH_FIXTURES.bearer.token;
     const r2 = await fetch(`${servers.http.url}/bearer`, {
-      headers: { authorization: 'Bearer my-token' },
+      headers: { authorization: `Bearer ${token}` },
     });
     expect(r2.ok).toBe(true);
     const json = (await r2.json()) as { token: string };
-    expect(json.token).toBe('my-token');
+    expect(json.token).toBe(token);
   });
 });
 
@@ -98,7 +104,11 @@ test.describe('HTTP — multipart upload', () => {
   test('parses multipart/form-data with file + scalar fields', async ({ servers }) => {
     const form = new FormData();
     form.set('username', 'ada');
-    form.set('avatar', new Blob([new TextEncoder().encode('PNG-BYTES')], { type: 'image/png' }), 'avatar.png');
+    form.set(
+      'avatar',
+      new Blob([new TextEncoder().encode('PNG-BYTES')], { type: 'image/png' }),
+      'avatar.png'
+    );
 
     const res = await fetch(`${servers.http.url}/upload`, { method: 'POST', body: form });
     expect(res.ok).toBe(true);

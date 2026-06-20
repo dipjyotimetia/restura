@@ -123,7 +123,10 @@ services:
   # both listeners so the desktop client connects with no credentials. Dashboard
   # on :18083 (admin / public).
   emqx:
-    image: emqx/emqx:latest
+    # Pinned (not :latest) for reproducible e2e — a moving tag can shift broker
+    # behaviour between runs and stalls CI on a large cold pull. 5.8.x is a full
+    # MQTT 5 broker, which is all the desktop client needs.
+    image: emqx/emqx:5.8.6
     container_name: restura-echo-emqx
     environment:
       EMQX_NODE__COOKIE: "restura-echo"
