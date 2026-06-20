@@ -53,24 +53,31 @@ restura run <collection> [options]
 
 `<collection>` accepts a directory (any supported layout) or a bundled `.yaml`/`.yml` file.
 
-| Flag                        | Default       | Description                                                                                          |
-| --------------------------- | ------------- | ---------------------------------------------------------------------------------------------------- |
-| `--env <file>`              |               | JSON or YAML env file. `${VAR}` placeholders are expanded from `process.env`.                        |
-| `--reporter <list>`         | `live`        | Comma-separated. Mix and match: `live`, `json`, `junit`, `html`.                                     |
-| `--output <file>`           |               | Shorthand for single file reporter.                                                                  |
-| `--reporter-output <kv...>` |               | Per-reporter output: `--reporter-output junit=results.xml html=report.html`.                         |
-| `--bail`                    | `false`       | Stop on first failure.                                                                               |
-| `--timeout <ms>`            | `30000`       | Per-request timeout.                                                                                 |
-| `--allow-localhost`         | `false`       | Permit requests to `localhost` / `127.0.0.1`. Off by default (SSRF guard).                           |
-| `--folder <path>`           |               | Only run requests under this folder path (slash-joined).                                             |
-| `--include <pattern...>`    |               | Substring or glob (e.g. `users/*`). Repeatable.                                                      |
-| `--exclude <pattern...>`    |               | Same syntax as `--include`. Applied after.                                                           |
-| `--data <file>`             |               | CSV (with header row) or JSON array. Runs the collection once per row; row keys are exposed as vars. |
-| `--max-iterations <n>`      |               | Cap iterations when a `--data` file is large.                                                        |
-| `--retry <n>`               | `0`           | Retry attempts per failing request.                                                                  |
-| `--retry-on <list>`         | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`).             |
-| `--sse-duration <ms>`       | `5000`        | How long to keep SSE streams open.                                                                   |
-| `--sse-events <n>`          |               | Stop SSE early after N events.                                                                       |
+| Flag                        | Default       | Description                                                                                               |
+| --------------------------- | ------------- | --------------------------------------------------------------------------------------------------------- |
+| `--env <file>`              |               | JSON or YAML env file. `${VAR}` placeholders are expanded from `process.env`.                             |
+| `--reporter <list>`         | `live`        | Comma-separated. Mix and match: `live`, `json`, `junit`, `html`.                                          |
+| `--output <file>`           |               | Shorthand for single file reporter.                                                                       |
+| `--reporter-output <kv...>` |               | Per-reporter output: `--reporter-output junit=results.xml html=report.html`.                              |
+| `--bail`                    | `false`       | Stop on first failure.                                                                                    |
+| `--timeout <ms>`            | `30000`       | Per-request timeout.                                                                                      |
+| `--allow-localhost`         | `false`       | Permit requests to `localhost` / `127.0.0.1`. Off by default (SSRF guard).                                |
+| `--folder <path>`           |               | Only run requests under this folder path (slash-joined).                                                  |
+| `--include <pattern...>`    |               | Substring or glob (e.g. `users/*`). Repeatable.                                                           |
+| `--exclude <pattern...>`    |               | Same syntax as `--include`. Applied after.                                                                |
+| `--data <file>`             |               | CSV (with header row) or JSON array. Runs the collection once per row; row keys are exposed as vars.      |
+| `--max-iterations <n>`      |               | Cap iterations when a `--data` file is large.                                                             |
+| `--retry <n>`               | `0`           | Retry attempts per failing request.                                                                       |
+| `--retry-on <list>`         | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`).                  |
+| `--sse-duration <ms>`       | `5000`        | How long to keep SSE streams open.                                                                        |
+| `--sse-events <n>`          |               | Stop SSE early after N events.                                                                            |
+| `--insecure`                | `false`       | Skip TLS certificate verification (self-signed / staging). Insecure — use only when you trust the target. |
+| `--ca <file>`               |               | PEM CA bundle to trust (private CA) without disabling verification.                                       |
+| `--client-cert <file>`      |               | PEM client certificate for mutual TLS (mTLS).                                                             |
+| `--client-key <file>`       |               | PEM client private key for mutual TLS.                                                                    |
+| `--cert-passphrase <value>` |               | Passphrase for an encrypted `--client-key`.                                                               |
+
+TLS options apply to all HTTPS traffic for the run (HTTP/GraphQL/gRPC/SSE/MCP). They are global flags rather than per-request settings; per-domain client certificates (collection `clientCertificates`) are not yet honored — pass the cert that the run needs via `--client-cert`.
 
 ## Scripts and assertions
 

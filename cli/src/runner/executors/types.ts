@@ -1,3 +1,4 @@
+import type { Dispatcher } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
 
 /** Streaming event captured from SSE or WebSocket runs. */
@@ -42,6 +43,8 @@ export interface ExecuteOptions {
   wsDurationMs?: number;
   /** WebSocket: stop early after this many incoming messages. Default unbounded within duration. */
   wsMaxMessages?: number;
+  /** undici dispatcher carrying TLS options (custom CA / mTLS / insecure). Built once per run. */
+  dispatcher?: Dispatcher;
 }
 
 export type Executor = (req: LoadedRequest, opts: ExecuteOptions) => Promise<ExecuteOutcome>;

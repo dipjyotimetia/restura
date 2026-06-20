@@ -1,6 +1,6 @@
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
 import type { GrpcRequest } from '@/types';
-import { undiciFetcher } from '../undiciFetcher';
+import { undiciFetcher, createUndiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import type { LoadedRequest } from '../collectionLoader';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
@@ -79,7 +79,7 @@ export async function executeGrpc(
         message: parsedMessage,
         timeout: opts.timeoutMs,
       },
-      undiciFetcher,
+      opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher,
       { allowLocalhost: opts.allowLocalhost }
     );
     const durationMs = Date.now() - start;

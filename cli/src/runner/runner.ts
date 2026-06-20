@@ -3,6 +3,7 @@ import { executeRequest } from './executors/dispatch.js';
 import { runPreRequestScript, runTestScript, type RunScriptResult } from './scriptRunner.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
+import { buildTlsDispatcher, type TlsOptions } from './undiciFetcher.js';
 import type { CliIterationRow } from './dataLoader.js';
 import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
 
@@ -23,6 +24,8 @@ export interface RunOptions {
   sseDurationMs?: number;
   /** SSE: stop after this many events. */
   sseMaxEvents?: number;
+  /** TLS options for outbound HTTPS (custom CA / client cert / insecure). */
+  tls?: TlsOptions;
 }
 
 /**
@@ -65,6 +68,10 @@ export async function runCollection(
     ...DEFAULT_RETRY,
     ...(options.retry ?? {}),
   };
+
+  // TLS dispatcher (custom CA / mTLS / insecure) built once and reused for
+  // every request in the run.
+  const dispatcher = buildTlsDispatcher(options.tls);
 
   // One iteration (with empty row vars) by default; multiple when --data is set.
   let iterations = options.iterations && options.iterations.length > 0 ? options.iterations : [{}];
@@ -131,6 +138,7 @@ export async function runCollection(
               ? { sseDurationMs: options.sseDurationMs }
               : {}),
             ...(options.sseMaxEvents !== undefined ? { sseMaxEvents: options.sseMaxEvents } : {}),
+            ...(dispatcher ? { dispatcher } : {}),
           }),
         retry
       );

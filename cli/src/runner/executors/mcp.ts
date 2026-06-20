@@ -100,6 +100,7 @@ export async function executeMcp(
       headers: validation.headers,
       body: validation.body,
       signal: controller.signal,
+      ...(opts.dispatcher ? { dispatcher: opts.dispatcher } : {}),
     });
     const status = response.statusCode;
     const text = await response.body.text();

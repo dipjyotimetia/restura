@@ -3,7 +3,7 @@ import type { ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-bu
 import type { FormField } from '@shared/protocol/body-builder';
 import type { RedirectPolicy } from '@shared/protocol/types';
 import type { HttpRequest, BodyType, FormDataItem } from '@/types';
-import { undiciFetcher } from '../undiciFetcher';
+import { undiciFetcher, createUndiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import type { LoadedRequest } from '../collectionLoader';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
@@ -67,6 +67,7 @@ export async function executeHttp(
     if (settings?.followRedirects && settings.maxRedirects !== undefined)
       redirectPolicy.maxRedirects = settings.maxRedirects;
 
+    const fetcher = opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher;
     const result = await executeHttpProxy(
       {
         method: req.method,
@@ -84,7 +85,7 @@ export async function executeHttp(
           ? { encodeUrl: settings.encodeUrlAutomatically }
           : {}),
       },
-      undiciFetcher,
+      fetcher,
       { allowLocalhost: opts.allowLocalhost }
     );
     const durationMs = Date.now() - start;

@@ -83,6 +83,7 @@ export async function executeSse(
       method: 'GET',
       headers,
       signal: controller.signal,
+      ...(opts.dispatcher ? { dispatcher: opts.dispatcher } : {}),
     });
     status = response.statusCode;
     responseHeaders = flattenHeaders(response.headers);
