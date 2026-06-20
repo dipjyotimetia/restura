@@ -54,12 +54,37 @@ export interface ApplyAuthArgs {
    * so handles throw rather than silently signing with empty creds.
    */
   resolveSecret?: SecretResolver;
+  /**
+   * Optional override for the AWS SigV4 signing step. Electron passes a signer
+   * backed by the official `@smithy/signature-v4` (Node-only); the Worker omits
+   * this and falls back to the built-in pure-Web-Crypto `signSigV4` so the
+   * Worker bundle stays free of the AWS SDK.
+   */
+  sigV4Signer?: SigV4Signer;
 }
 
 export interface AppliedAuth {
   /** Headers to merge into the outbound request. */
   headers: Record<string, string>;
 }
+
+/** Credentials + scope for an AWS SigV4 signature. */
+export interface SigV4Credentials {
+  accessKey: string;
+  secretKey: string;
+  region: string;
+  service: string;
+}
+
+/**
+ * Produces the SigV4 auth headers (Authorization, x-amz-date, …) for a request.
+ * The built-in `signSigV4` implements this with Web Crypto; Electron may inject
+ * an `@smithy/signature-v4`-backed implementation via {@link ApplyAuthArgs}.
+ */
+export type SigV4Signer = (
+  args: ApplyAuthArgs,
+  creds: SigV4Credentials
+) => Promise<Record<string, string>>;
 
 // ---------------------------------------------------------------------------
 // Crypto primitives (Web Crypto only — no Node Buffer required)
@@ -151,13 +176,6 @@ async function hashBody(body: BodyInit | undefined): Promise<string> {
 // ---------------------------------------------------------------------------
 // SigV4 canonical request + string-to-sign + signature
 // ---------------------------------------------------------------------------
-
-interface SigV4Credentials {
-  accessKey: string;
-  secretKey: string;
-  region: string;
-  service: string;
-}
 
 async function signSigV4(
   args: ApplyAuthArgs,
@@ -276,7 +294,8 @@ export async function applyAuth(
     if (!auth.awsSignature) {
       throw new Error('AWS SigV4 auth selected but awsSignature config missing');
     }
-    const headers = await signSigV4(args, {
+    const sign = args.sigV4Signer ?? signSigV4;
+    const headers = await sign(args, {
       accessKey: auth.awsSignature.accessKey,
       secretKey: resolve(auth.awsSignature.secretKey),
       region: auth.awsSignature.region,

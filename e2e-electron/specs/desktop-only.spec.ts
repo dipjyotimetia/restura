@@ -8,8 +8,11 @@ import { test, expect } from '../fixtures/electronApp';
 test.describe('Desktop-only protocol surfaces', () => {
   test('MQTT and Kafka modes are offered in the new-request menu', async ({ app: page }) => {
     await page.getByRole('button', { name: 'new request', exact: true }).click();
-    await expect(page.getByRole('menuitem', { name: 'MQTT client', exact: true })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: /Kafka/i })).toBeVisible();
+    // Each menu item embeds a ProtoChip whose label ("MQTT"/"Kafka") prefixes the
+    // accessible name, so the real names are "MQTT MQTT client" / "Kafka Kafka
+    // consumer". Match on the descriptive label as a substring rather than exact.
+    await expect(page.getByRole('menuitem', { name: /MQTT client/ })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /Kafka consumer/ })).toBeVisible();
     await page.keyboard.press('Escape');
   });
 });

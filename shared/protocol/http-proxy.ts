@@ -1,7 +1,7 @@
 import { validateURL } from './url-validation';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { buildRequestBody } from './body-builder';
-import { applyAuth, type SecretResolver } from './auth-signer';
+import { applyAuth, type SecretResolver, type SigV4Signer } from './auth-signer';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
 import { isBinaryContentType, getHeaderCI, bytesToBase64, readStreamToBytes } from './binary';
 import type { Fetcher, RequestSpec, ExecuteResult } from './types';
@@ -52,6 +52,8 @@ export interface ExecuteHttpProxyOptions {
   allowPrivateIPs?: boolean;
   /** Resolves SecretValue fields in `spec.auth`. Electron passes a keychain-backed resolver; Worker defaults to inline-only (throws on handles). */
   resolveSecret?: SecretResolver;
+  /** Overrides AWS SigV4 signing. Electron passes an `@smithy/signature-v4`-backed signer; the Worker omits it (built-in Web-Crypto signer). */
+  sigV4Signer?: SigV4Signer;
 }
 
 export async function executeHttpProxy(
@@ -104,6 +106,7 @@ export async function executeHttpProxy(
           headers,
           body: finalBody,
           ...(options.resolveSecret ? { resolveSecret: options.resolveSecret } : {}),
+          ...(options.sigV4Signer ? { sigV4Signer: options.sigV4Signer } : {}),
         });
         Object.assign(headers, applied.headers);
       } catch (err) {
@@ -315,6 +318,7 @@ export async function executeHttpProxyStreaming(
           headers,
           body: finalBody,
           ...(options.resolveSecret ? { resolveSecret: options.resolveSecret } : {}),
+          ...(options.sigV4Signer ? { sigV4Signer: options.sigV4Signer } : {}),
         });
         Object.assign(headers, applied.headers);
       } catch (err) {

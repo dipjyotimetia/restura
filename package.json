@@ -83,6 +83,7 @@
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
+    "@aws-crypto/sha256-js": "^5.2.0",
     "@bufbuild/protobuf": "^2.12.0",
     "@connectrpc/connect": "^2.1.2",
     "@connectrpc/connect-node": "^2.1.2",
@@ -114,6 +115,8 @@
     "@radix-ui/react-tabs": "^1.1.15",
     "@radix-ui/react-tooltip": "^1.2.10",
     "@sentry/electron": "^7.13.0",
+    "@smithy/protocol-http": "^5.5.1",
+    "@smithy/signature-v4": "^5.5.1",
     "@usebruno/lang": "^0.36.0",
     "@xyflow/react": "^12.11.0",
     "ajv": "^8.20.0",

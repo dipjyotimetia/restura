@@ -30,7 +30,9 @@ const ENV_COLOR_PALETTE = [
 export function envColorFor(env: { id: string; name: string } | null | undefined): string {
   if (!env) return '#94a3b8';
   const lower = env.name.toLowerCase();
-  if (lower.includes('prod')) return '#22c55e';
+  // `preprod` contains "prod" but is a pre-production env — keep it out of the
+  // green (go-signal) bucket so it reads amber like staging/qa.
+  if (lower.includes('prod') && !lower.includes('preprod')) return '#22c55e';
   if (lower.includes('stag') || lower.includes('preprod') || /\bqa\b/.test(lower)) return '#f59e0b';
   if (lower.includes('dev') || lower.includes('local')) return '#2e91ff';
 

@@ -15,9 +15,12 @@ const FLUSH_INTERVAL_MS = 100;
 
 type ReceivedInput = Omit<MqttMessage, 'id' | 'timestamp'> & { timestamp?: number };
 
-export function mqttSecretKey(connectionId: string, field: 'password' | 'tls-passphrase'): string {
-  // Hits the sensitive-key regex (`password`/`auth`) in secureStorage so it
-  // routes to electron-store + safeStorage in the desktop build.
+export type MqttSecretField = 'password' | 'tls-passphrase';
+
+export function mqttSecretKey(connectionId: string, field: MqttSecretField): string {
+  // Both field names match a secureStorage sensitive-key pattern
+  // (`password`/`passphrase`) so the value routes to electron-store +
+  // safeStorage in the desktop build rather than plaintext localStorage.
   return `mqtt:${connectionId}:${field}`;
 }
 

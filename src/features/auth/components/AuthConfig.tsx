@@ -146,7 +146,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
 
   const renderAuthFields = () => {
     switch (auth.type) {
-      case 'basic':
+      case 'basic': {
+        // Seed both fields so a partial entry (e.g. username before password)
+        // still produces a schema-valid `basic` object — validateRequestUpdate
+        // rejects the whole update otherwise. Mirrors the ntlm/wsse handlers.
+        const b = auth.basic ?? { username: '', password: '' };
         return (
           <div className="space-y-4">
             <div>
@@ -156,7 +160,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(e) =>
                   onChange({
                     ...auth,
-                    basic: { ...auth.basic!, username: e.target.value },
+                    basic: { ...b, username: e.target.value },
                   })
                 }
                 placeholder="Enter username"
@@ -170,7 +174,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(next) =>
                   onChange({
                     ...auth,
-                    basic: { ...auth.basic!, password: next },
+                    basic: { ...b, password: next },
                   })
                 }
                 placeholder="Enter password"
@@ -179,6 +183,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
           </div>
         );
+      }
 
       case 'bearer':
         return (
@@ -200,7 +205,8 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
           </div>
         );
 
-      case 'api-key':
+      case 'api-key': {
+        const k = auth.apiKey ?? { key: '', value: '', in: 'header' as const };
         return (
           <div className="space-y-4">
             <div>
@@ -210,7 +216,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(e) =>
                   onChange({
                     ...auth,
-                    apiKey: { ...auth.apiKey!, key: e.target.value },
+                    apiKey: { ...k, key: e.target.value },
                   })
                 }
                 placeholder="e.g., X-API-Key"
@@ -223,7 +229,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(next) =>
                   onChange({
                     ...auth,
-                    apiKey: { ...auth.apiKey!, value: next },
+                    apiKey: { ...k, value: next },
                   })
                 }
                 placeholder="Enter API key value"
@@ -237,7 +243,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onValueChange={(value: 'header' | 'query') =>
                   onChange({
                     ...auth,
-                    apiKey: { ...auth.apiKey!, in: value },
+                    apiKey: { ...k, in: value },
                   })
                 }
               >
@@ -252,6 +258,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
           </div>
         );
+      }
 
       case 'oauth2': {
         const o = auth.oauth2;
@@ -461,7 +468,8 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
           </div>
         );
 
-      case 'aws-signature':
+      case 'aws-signature': {
+        const a = auth.awsSignature ?? { accessKey: '', secretKey: '', region: '', service: '' };
         return (
           <div className="space-y-4">
             <div>
@@ -471,7 +479,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(e) =>
                   onChange({
                     ...auth,
-                    awsSignature: { ...auth.awsSignature!, accessKey: e.target.value },
+                    awsSignature: { ...a, accessKey: e.target.value },
                   })
                 }
                 placeholder="Enter AWS access key"
@@ -484,7 +492,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(next) =>
                   onChange({
                     ...auth,
-                    awsSignature: { ...auth.awsSignature!, secretKey: next },
+                    awsSignature: { ...a, secretKey: next },
                   })
                 }
                 placeholder="Enter AWS secret key"
@@ -498,7 +506,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(e) =>
                   onChange({
                     ...auth,
-                    awsSignature: { ...auth.awsSignature!, region: e.target.value },
+                    awsSignature: { ...a, region: e.target.value },
                   })
                 }
                 placeholder="e.g., us-east-1"
@@ -511,7 +519,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                 onChange={(e) =>
                   onChange({
                     ...auth,
-                    awsSignature: { ...auth.awsSignature!, service: e.target.value },
+                    awsSignature: { ...a, service: e.target.value },
                   })
                 }
                 placeholder="e.g., execute-api"
@@ -519,6 +527,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
           </div>
         );
+      }
 
       case 'oauth1': {
         const o = auth.oauth1;

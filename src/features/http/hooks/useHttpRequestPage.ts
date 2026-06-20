@@ -158,10 +158,11 @@ export function useHttpRequestPage() {
       const inherited = resolveInheritedAuthFor(httpRequest);
       const effectiveAuth = resolveEffectiveAuth(httpRequest.auth, inherited?.auth);
 
-      // Apply auth headers (handles all auth types including AWS SigV4).
+      // Apply header-based auth (basic/bearer/api-key) into `headers`.
+      // Sign-at-wire types (AWS SigV4 / OAuth1 / WSSE) are intentionally left
+      // for the main-process signer and instead forwarded via `auth` below.
       // SecretRef handle: renderer cannot resolve; Electron HTTP handler
-      // applies main-side, web fails fast — but this curl-preview path is
-      // best-effort and just renders without the Authorization header.
+      // applies main-side, web fails fast.
       const applied = await applyAuthHeaders(
         effectiveAuth,
         headers,
@@ -215,11 +216,20 @@ export function useHttpRequestPage() {
             ...(effectiveSettings.timeout !== undefined
               ? { timeout: effectiveSettings.timeout }
               : {}),
+            // Sign-at-wire auth (AWS SigV4 / OAuth1 / WSSE) is NOT in `headers`
+            // above — applyAuthHeaders leaves it for the main-process signer.
+            // Forward the descriptor so the Electron handler can sign at the wire.
+            ...(effectiveAuth && effectiveAuth.type !== 'none' ? { auth: effectiveAuth } : {}),
           },
           {},
           desktop
         );
       } else {
+        // Web path: a direct browser request (no Worker proxy here), so only the
+        // header-based auth already applied above travels. Sign-at-wire auth
+        // (SigV4/OAuth1/WSSE) requires the proxy signer and is therefore NOT
+        // applied on this path — routing the web interactive send through the
+        // Worker (executeProxiedRequest) is a separate, pre-existing follow-up.
         response = await axios({
           method: httpRequest.method,
           url: resolvedUrl,
