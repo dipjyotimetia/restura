@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Workflow, WorkflowGraph, HttpRequest, Response as ApiResponse } from '@/types';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { executeWorkflow } from '../workflowExecutor';
 
 // Mock the protocol registry. dagExecutor and the refactored workflowExecutor
@@ -9,7 +10,7 @@ const httpRunRequest = vi.fn();
 const httpInjectVariables = vi.fn((req: HttpRequest, vars: Record<string, string>) => {
   let url = req.url;
   for (const [k, v] of Object.entries(vars)) {
-    url = url.replace(new RegExp(`{{${k}}}`, 'g'), v);
+    url = url.replace(new RegExp(`{{${escapeRegExp(k)}}}`, 'g'), () => v);
   }
   return { ...req, url };
 });

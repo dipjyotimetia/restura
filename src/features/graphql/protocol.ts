@@ -15,6 +15,7 @@
  * runner doesn't model long-lived streams yet (see Task 4.5 follow-up note).
  */
 import { v4 as uuidv4 } from 'uuid';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import type { ProtocolModule } from '@/features/registry/types';
 import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
@@ -35,13 +36,10 @@ function createDefaultGraphQLRequest(): HttpRequest {
   };
 }
 
-function defaultResolveVariables(
-  text: string,
-  vars: Record<string, string>
-): string {
+function defaultResolveVariables(text: string, vars: Record<string, string>): string {
   let result = text;
   for (const [key, value] of Object.entries(vars)) {
-    result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+    result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
   }
   return result;
 }
@@ -54,10 +52,7 @@ function defaultResolveVariables(
  * parseable (the user is still typing), fall back to plain string
  * substitution so partial input still resolves the obvious cases.
  */
-function injectGraphQLVariables(
-  request: Request,
-  variables: Record<string, string>
-): Request {
+function injectGraphQLVariables(request: Request, variables: Record<string, string>): Request {
   if (request.type !== 'http') return request;
   const http = request as HttpRequest;
   const inject = (text: string) => injectString(text, variables);
@@ -135,9 +130,7 @@ export const graphqlProtocol: ProtocolModule = {
   // registry directly. Future Task 4.x can register the React component.
   runRequest: async (request, ctx): Promise<ApiResponse> => {
     if (request.type !== 'http') {
-      throw new Error(
-        `GraphQL protocol expects an HTTP request shape, got ${request.type}`
-      );
+      throw new Error(`GraphQL protocol expects an HTTP request shape, got ${request.type}`);
     }
     if (ctx.signal.aborted) {
       throw new DOMException('Request aborted', 'AbortError');

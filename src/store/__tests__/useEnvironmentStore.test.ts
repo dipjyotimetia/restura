@@ -158,8 +158,13 @@ describe('useEnvironmentStore', () => {
 
   describe('resolveVariables', () => {
     it('should replace variables with their values', () => {
-      const { createNewEnvironment, addEnvironment, addVariable, setActiveEnvironment, resolveVariables } =
-        useEnvironmentStore.getState();
+      const {
+        createNewEnvironment,
+        addEnvironment,
+        addVariable,
+        setActiveEnvironment,
+        resolveVariables,
+      } = useEnvironmentStore.getState();
       const env = createNewEnvironment('Test');
       addEnvironment(env);
 
@@ -183,8 +188,13 @@ describe('useEnvironmentStore', () => {
     });
 
     it('should ignore disabled variables', () => {
-      const { createNewEnvironment, addEnvironment, addVariable, setActiveEnvironment, resolveVariables } =
-        useEnvironmentStore.getState();
+      const {
+        createNewEnvironment,
+        addEnvironment,
+        addVariable,
+        setActiveEnvironment,
+        resolveVariables,
+      } = useEnvironmentStore.getState();
       const env = createNewEnvironment('Test');
       addEnvironment(env);
 
@@ -208,8 +218,13 @@ describe('useEnvironmentStore', () => {
     });
 
     it('should handle variables with spaces', () => {
-      const { createNewEnvironment, addEnvironment, addVariable, setActiveEnvironment, resolveVariables } =
-        useEnvironmentStore.getState();
+      const {
+        createNewEnvironment,
+        addEnvironment,
+        addVariable,
+        setActiveEnvironment,
+        resolveVariables,
+      } = useEnvironmentStore.getState();
       const env = createNewEnvironment('Test');
       addEnvironment(env);
 
@@ -224,6 +239,40 @@ describe('useEnvironmentStore', () => {
 
       const resolved = resolveVariables('{{ token }}');
       expect(resolved).toBe('abc123');
+    });
+
+    it('resolves a key containing regex metacharacters without crashing', () => {
+      // Pre-fix the key was interpolated raw into `new RegExp()`, so a key like
+      // `id(x)` threw SyntaxError and crashed the send.
+      const {
+        createNewEnvironment,
+        addEnvironment,
+        addVariable,
+        setActiveEnvironment,
+        resolveVariables,
+      } = useEnvironmentStore.getState();
+      const env = createNewEnvironment('Test');
+      addEnvironment(env);
+      addVariable(env.id, { id: 'var-1', key: 'a.b*c+[d]', value: 'ok', enabled: true });
+      setActiveEnvironment(env.id);
+
+      expect(resolveVariables('x/{{a.b*c+[d]}}')).toBe('x/ok');
+    });
+
+    it('treats $ patterns in a value literally (no replacement-pattern interpretation)', () => {
+      const {
+        createNewEnvironment,
+        addEnvironment,
+        addVariable,
+        setActiveEnvironment,
+        resolveVariables,
+      } = useEnvironmentStore.getState();
+      const env = createNewEnvironment('Test');
+      addEnvironment(env);
+      addVariable(env.id, { id: 'var-1', key: 'token', value: 'a$&b$1c', enabled: true });
+      setActiveEnvironment(env.id);
+
+      expect(resolveVariables('{{token}}')).toBe('a$&b$1c');
     });
   });
 

@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveRequest } from '@/store/selectors';
 import { useHistoryStore } from '@/store/useHistoryStore';
@@ -149,7 +150,9 @@ export function useHttpRequestPage() {
       const resolveLocal = (text: string): string => {
         let result = text;
         Object.entries(envVars).forEach(([key, value]) => {
-          result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+          // escapeRegExp: a key with regex metachars would otherwise crash the
+          // RegExp ctor; () => value: a value with $ patterns is taken literally.
+          result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
         });
         return resolveVariables(result);
       };

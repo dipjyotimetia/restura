@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import type { ProtocolModule } from '@/features/registry/types';
 import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
 import { executeRequest } from './lib/requestExecutor';
@@ -32,21 +33,15 @@ function createDefaultHttpRequest(): HttpRequest {
  * the existing hooks, at which point this fallback gets exercised mainly by
  * synthetic / programmatic callers (e.g. tests, future scriptable runners).
  */
-function defaultResolveVariables(
-  text: string,
-  vars: Record<string, string>
-): string {
+function defaultResolveVariables(text: string, vars: Record<string, string>): string {
   let result = text;
   for (const [key, value] of Object.entries(vars)) {
-    result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+    result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
   }
   return result;
 }
 
-function injectHttpVariables(
-  request: Request,
-  variables: Record<string, string>
-): Request {
+function injectHttpVariables(request: Request, variables: Record<string, string>): Request {
   if (request.type !== 'http') return request;
   const http = request as HttpRequest;
   const inject = (text: string) => injectString(text, variables);
