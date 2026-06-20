@@ -1,7 +1,50 @@
 import { request as undiciRequest, Agent, type Dispatcher } from 'undici';
 import { Readable } from 'node:stream';
+import { randomUUID } from 'node:crypto';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
 import { flattenHeaders } from '@shared/protocol/header-utils';
+
+/**
+ * Serialise a WHATWG `FormData` to a `multipart/form-data` body. undici's
+ * low-level `request` does not encode FormData itself, so the shared body
+ * builder's FormData (text fields + file Blobs) is turned into raw bytes here.
+ */
+async function serializeMultipart(
+  fd: FormData
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const boundary = `----restura${randomUUID().replace(/-/g, '')}`;
+  const enc = new TextEncoder();
+  const parts: Uint8Array[] = [];
+  // FormData is iterable at runtime; the cast sidesteps the lib.dom vs
+  // @types/node FormData type clash (the Node global lacks `.entries()`).
+  for (const [name, value] of fd as unknown as Iterable<[string, string | File]>) {
+    parts.push(enc.encode(`--${boundary}\r\n`));
+    if (typeof value === 'string') {
+      parts.push(enc.encode(`Content-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
+    } else {
+      const file = value as File;
+      const ct = file.type || 'application/octet-stream';
+      const filename = file.name || 'file';
+      parts.push(
+        enc.encode(
+          `Content-Disposition: form-data; name="${name}"; filename="${filename}"\r\n` +
+            `Content-Type: ${ct}\r\n\r\n`
+        )
+      );
+      parts.push(new Uint8Array(await file.arrayBuffer()));
+      parts.push(enc.encode('\r\n'));
+    }
+  }
+  parts.push(enc.encode(`--${boundary}--\r\n`));
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
+  return { bytes: out, contentType: `multipart/form-data; boundary=${boundary}` };
+}
 
 /** TLS knobs the CLI can apply to outbound HTTPS (custom CA, mTLS, insecure). */
 export interface TlsOptions {
@@ -60,26 +103,35 @@ export function createUndiciFetcher(dispatcher?: Dispatcher): Fetcher {
     }
 
     // Body coercion: undici accepts string / Buffer / Uint8Array / ReadableStream.
-    // The shared protocol layer hands us BodyInit which may also be FormData /
-    // URLSearchParams / Blob — we explicitly reject those for now to keep the
-    // implementation small and predictable.
+    // The shared protocol layer hands us BodyInit which may also be FormData
+    // (multipart). We serialise FormData ourselves (undici's low-level request
+    // does not) and reject the remaining exotic types (URLSearchParams / Blob /
+    // stream) which the body builder never produces for the CLI.
     let body: string | Uint8Array | undefined;
+    let multipartContentType: string | undefined;
     if (req.body !== undefined && req.body !== null) {
       if (typeof req.body === 'string' || req.body instanceof Uint8Array) {
         body = req.body;
+      } else if (req.body instanceof FormData) {
+        const m = await serializeMultipart(req.body);
+        body = m.bytes;
+        multipartContentType = m.contentType;
       } else {
         throw new Error(
-          'CLI fetcher only supports string and Uint8Array bodies ' +
-            '(received FormData / URLSearchParams / Blob / stream)'
+          'CLI fetcher only supports string, Uint8Array and FormData bodies ' +
+            '(received URLSearchParams / Blob / stream)'
         );
       }
     }
 
     // undici accepts plain-object headers; the redirect-follower hands us a
-    // Headers instance on follow-up hops, so flatten when needed.
+    // Headers instance on follow-up hops, so flatten when needed. The multipart
+    // content-type (with its generated boundary) is set here, not by the caller.
+    const headers = flattenHeaders(req.headers);
+    if (multipartContentType) headers['content-type'] = multipartContentType;
     const response = await undiciRequest(req.url, {
       method: method as UndiciMethod,
-      headers: flattenHeaders(req.headers),
+      headers,
       body,
       signal: req.signal,
       ...(dispatcher ? { dispatcher } : {}),

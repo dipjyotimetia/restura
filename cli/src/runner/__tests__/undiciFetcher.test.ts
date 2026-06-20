@@ -5,7 +5,12 @@ import { undiciFetcher } from '../undiciFetcher';
 
 let server: Server;
 let baseUrl: string;
-const requestLog: Array<{ method: string; url: string; headers: Record<string, string | string[] | undefined>; body: string }> = [];
+const requestLog: Array<{
+  method: string;
+  url: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}> = [];
 
 beforeAll(async () => {
   server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -56,7 +61,12 @@ afterAll(async () => {
   );
 });
 
-function makeReq(overrides: { url: string; method?: string; body?: string | Uint8Array; headers?: Record<string, string> }) {
+function makeReq(overrides: {
+  url: string;
+  method?: string;
+  body?: string | Uint8Array;
+  headers?: Record<string, string>;
+}) {
   const ctrl = new AbortController();
   return {
     url: overrides.url,
@@ -164,7 +174,7 @@ describe('undiciFetcher', () => {
     await expect(undiciFetcher(req as any)).rejects.toThrow(/not supported/i);
   });
 
-  it('rejects FormData / Blob bodies for v0.1', async () => {
+  it('rejects Blob / URLSearchParams bodies (FormData is serialised, not rejected)', async () => {
     const req = makeReq({
       url: `${baseUrl}/json`,
       method: 'POST',
@@ -172,6 +182,6 @@ describe('undiciFetcher', () => {
       body: new Blob(['x']) as any,
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await expect(undiciFetcher(req as any)).rejects.toThrow(/string and Uint8Array/i);
+    await expect(undiciFetcher(req as any)).rejects.toThrow(/string, Uint8Array and FormData/i);
   });
 });
