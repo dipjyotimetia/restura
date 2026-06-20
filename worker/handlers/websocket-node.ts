@@ -36,9 +36,9 @@ const TEXT_ENCODER = new TextEncoder();
 // Loose typing — @hono/node-ws's upgradeWebSocket return signature varies
 // across versions; the only invariant we depend on is that it's a Hono
 // handler/middleware Hono's router accepts at registration time.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type UpgradeWebSocketFactory = (
   createEvents: (c: Context<{ Bindings: Env }>) => WSEvents | Promise<WSEvents>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ) => MiddlewareHandler<any>;
 
 function sizeOf(data: string | ArrayBufferLike | Uint8Array | Buffer): number {
