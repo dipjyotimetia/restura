@@ -32,6 +32,7 @@ import type {
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
+import { smithySigV4Signer } from './aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
 import { IPC } from '../../shared/channels';
 import { createLogger } from '../../../src/lib/shared/logger';
@@ -922,6 +923,9 @@ async function makeHttpRequest(
       {
         allowLocalhost: true,
         resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
+        // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
+        // Worker keeps the built-in Web-Crypto signer.
+        sigV4Signer: smithySigV4Signer,
       }
     );
 
