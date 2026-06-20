@@ -21,6 +21,17 @@ const SIGV4_RESPONSE_HEADERS = new Set([
   'host',
 ]);
 
+/**
+ * SigV4 hashes the body bytes. Only string/binary bodies have a deterministic
+ * wire encoding at this stage; FormData/Blob/URLSearchParams/ReadableStream do
+ * not (a multipart boundary is regenerated at fetch time, a stream is consumed
+ * once), so we sign them with `UNSIGNED-PAYLOAD` — the same fallback the
+ * built-in signer uses, and exactly what AWS expects for streaming/multipart.
+ */
+function isHashableBody(body: unknown): boolean {
+  return typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body);
+}
+
 export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
   const url = new URL(args.url);
 
@@ -30,6 +41,13 @@ export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
     query[key] = all.length > 1 ? all : (all[0] ?? '');
   }
 
+  // `host` (with port) must match the wire Host header the fetcher sends.
+  const headers: Record<string, string> = { ...args.headers, host: url.host };
+  const hashable = args.body === undefined || isHashableBody(args.body);
+  // A pre-set x-amz-content-sha256 is respected by SignatureV4; use it to sign
+  // an unsigned payload rather than letting @aws-crypto choke on a non-buffer.
+  if (!hashable) headers['x-amz-content-sha256'] = 'UNSIGNED-PAYLOAD';
+
   const request = new HttpRequest({
     method: args.method,
     protocol: url.protocol,
@@ -37,9 +55,8 @@ export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
     ...(url.port ? { port: Number(url.port) } : {}),
     path: url.pathname,
     query,
-    // `host` (with port) must match the wire Host header the fetcher sends.
-    headers: { ...args.headers, host: url.host },
-    ...(args.body !== undefined ? { body: args.body } : {}),
+    headers,
+    ...(hashable && args.body !== undefined ? { body: args.body } : {}),
   });
 
   const signer = new SignatureV4({
