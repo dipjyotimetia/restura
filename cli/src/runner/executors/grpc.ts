@@ -1,10 +1,10 @@
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
 import type { GrpcRequest } from '@/types';
-import { undiciFetcher } from '../undiciFetcher';
+import { undiciFetcher, createUndiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import type { LoadedRequest } from '../collectionLoader';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
-import { applyAuthHeaders } from './auth';
+import { applyAuthHeaders, resolveOAuth2Token } from './auth';
 
 /**
  * gRPC executor. Uses the shared `executeGrpcProxy` which speaks the Connect
@@ -65,7 +65,10 @@ export async function executeGrpc(
   try {
     // Header-based auth (Bearer / Basic / API-key / OAuth2) → gRPC metadata.
     // gRPC has no query channel, so api-key `in: query` is unsupported here.
-    applyAuthHeaders(req.auth, metadata, {});
+    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
+      allowLocalhost: opts.allowLocalhost,
+    });
+    applyAuthHeaders(resolvedAuth, metadata, {});
 
     const result = await executeGrpcProxy(
       {
@@ -76,7 +79,7 @@ export async function executeGrpc(
         message: parsedMessage,
         timeout: opts.timeoutMs,
       },
-      undiciFetcher,
+      opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher,
       { allowLocalhost: opts.allowLocalhost }
     );
     const durationMs = Date.now() - start;

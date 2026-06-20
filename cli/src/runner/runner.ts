@@ -1,8 +1,9 @@
 import { loadCollection } from './collectionLoader.js';
 import { executeRequest } from './executors/dispatch.js';
-import { runPreRequestScript, runTestScript } from './scriptRunner.js';
+import { runPreRequestScript, runTestScript, type RunScriptResult } from './scriptRunner.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
+import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
 import type { CliIterationRow } from './dataLoader.js';
 import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
 
@@ -23,10 +24,10 @@ export interface RunOptions {
   sseDurationMs?: number;
   /** SSE: stop after this many events. */
   sseMaxEvents?: number;
-  /** WebSocket: socket open duration (ms). */
-  wsDurationMs?: number;
-  /** WebSocket: stop after this many messages. */
-  wsMaxMessages?: number;
+  /** TLS options for outbound HTTPS (custom CA / client cert / insecure). */
+  tls?: TlsOptions;
+  /** Explicit HTTP(S) proxy URL. Overrides the HTTP_PROXY env var and composes with `tls`. */
+  proxy?: string;
 }
 
 /**
@@ -70,6 +71,9 @@ export async function runCollection(
     ...(options.retry ?? {}),
   };
 
+  // Dispatcher (TLS + explicit proxy) built once and reused for every request.
+  const dispatcher = buildDispatcher(options.tls, options.proxy);
+
   // One iteration (with empty row vars) by default; multiple when --data is set.
   let iterations = options.iterations && options.iterations.length > 0 ? options.iterations : [{}];
   if (options.maxIterations !== undefined && options.maxIterations >= 0) {
@@ -80,13 +84,28 @@ export async function runCollection(
   const results: RequestRunResult[] = [];
   let bailed = false;
 
+  // Build a name → index map so `pm.execution.setNextRequest('Login')` can jump
+  // anywhere in the filtered list (Postman matches by name; first match wins).
+  // Mirrors the desktop runner's `collectionRunner.ts`.
+  const indexByName: Record<string, number> = {};
+  for (let i = 0; i < filtered.length; i++) {
+    const n = filtered[i]?.request.name;
+    if (n && !(n in indexByName)) indexByName[n] = i;
+  }
+  // Cap per-iteration jumps so a buggy `setNextRequest` loop can't hang the run
+  // (Newman errors at ~1000).
+  const MAX_NEXT_REQUEST_JUMPS = 1000;
+
   iterationLoop: for (let iter = 0; iter < iterations.length; iter++) {
     const row = iterations[iter] ?? {};
     // Layer base + row vars; mutated across requests by scripts.
     const allVars: Record<string, string> = { ...baseVars, ...row };
+    let jumps = 0;
 
-    for (const item of filtered) {
+    for (let idx = 0; idx < filtered.length; ) {
       if (bailed) break iterationLoop;
+      const item = filtered[idx];
+      if (!item) break;
       await reporter.onRequestStart?.(item);
 
       const preScript = item.request.preRequestScript;
@@ -94,10 +113,13 @@ export async function runCollection(
       let perRequestVars = { ...allVars };
       const allAssertions: Array<{ name: string; passed: boolean; error?: string }> = [];
       let scriptError: string | undefined;
+      let preResult: RunScriptResult | undefined;
+      let testResult: RunScriptResult | undefined;
 
       if (preScript) {
         try {
           const pre = await runPreRequestScript(preScript, item, perRequestVars);
+          preResult = pre;
           perRequestVars = pre.variables;
           for (const k of Object.keys(pre.variables)) allVars[k] = pre.variables[k]!;
           if (pre.errors.length > 0) scriptError = `pre-request: ${pre.errors.join('; ')}`;
@@ -117,10 +139,7 @@ export async function runCollection(
               ? { sseDurationMs: options.sseDurationMs }
               : {}),
             ...(options.sseMaxEvents !== undefined ? { sseMaxEvents: options.sseMaxEvents } : {}),
-            ...(options.wsDurationMs !== undefined ? { wsDurationMs: options.wsDurationMs } : {}),
-            ...(options.wsMaxMessages !== undefined
-              ? { wsMaxMessages: options.wsMaxMessages }
-              : {}),
+            ...(dispatcher ? { dispatcher } : {}),
           }),
         retry
       );
@@ -128,6 +147,7 @@ export async function runCollection(
       if (testScript) {
         try {
           const test = await runTestScript(testScript, item, outcome, perRequestVars);
+          testResult = test;
           for (const k of Object.keys(test.variables)) allVars[k] = test.variables[k]!;
           if (test.assertions.length > 0) allAssertions.push(...test.assertions);
           if (test.errors.length > 0) {
@@ -171,7 +191,54 @@ export async function runCollection(
 
       results.push(result);
       await reporter.onRequestComplete?.(result);
-      if (!result.passed && options.bail) bailed = true;
+      if (!result.passed && options.bail) {
+        bailed = true;
+        break iterationLoop;
+      }
+
+      // Flow control: `pm.execution.setNextRequest` from the test phase wins;
+      // the pre-request phase is the fallback. A *present* nextRequest (even
+      // explicit null) overrides the default linear advance — null ends the
+      // iteration, a string jumps to that request by name.
+      const testExec = testResult?.execution;
+      const preExec = preResult?.execution;
+      const execNext =
+        testExec && 'nextRequest' in testExec
+          ? testExec.nextRequest
+          : preExec && 'nextRequest' in preExec
+            ? preExec.nextRequest
+            : undefined;
+      if (execNext === null) break;
+      if (typeof execNext === 'string') {
+        const target = indexByName[execNext];
+        if (target === undefined) {
+          results.push({
+            request: item,
+            status: 0,
+            passed: false,
+            durationMs: 0,
+            bodyBytes: 0,
+            errorMessage: `pm.execution.setNextRequest("${execNext}"): no runnable with that name`,
+            ...(isDataDriven ? { iteration: iter } : {}),
+          });
+          break;
+        }
+        if (++jumps > MAX_NEXT_REQUEST_JUMPS) {
+          results.push({
+            request: item,
+            status: 0,
+            passed: false,
+            durationMs: 0,
+            bodyBytes: 0,
+            errorMessage: `pm.execution.setNextRequest jump limit (${MAX_NEXT_REQUEST_JUMPS}) exceeded`,
+            ...(isDataDriven ? { iteration: iter } : {}),
+          });
+          break;
+        }
+        idx = target;
+        continue;
+      }
+      idx++;
     }
   }
 

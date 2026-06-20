@@ -41,9 +41,9 @@ The legacy format prints a stderr deprecation warning the first time it's loaded
 - **gRPC** — via Connect protocol (JSON-encoded, no proto compilation needed)
 - **SSE** — captures events for `--sse-duration` ms, or until `--sse-events N`
 - **MCP** — single JSON-RPC POST per request
-- **WebSocket** — standalone executor available; not yet wired into the dispatcher (see `executors/websocket.ts`)
+- **WebSocket** — not run in collection batches (matches the desktop collection runner, which skips streaming protocols). A standalone executor exists for future wiring (`executors/websocket.ts`) but no collection format routes to it yet.
 
-Header-based auth (Bearer, Basic, API-key, OAuth2 access token) is applied to HTTP/GraphQL, gRPC (as metadata), SSE, and MCP requests. Wire-signed schemes (AWS SigV4, OAuth1, WSSE) are signed at the wire on the HTTP path. `x-www-form-urlencoded` bodies are sent for both inline (`raw`) and structured (OpenCollection field-array) forms; `multipart/form-data` and `protobuf` bodies are not yet supported by the CLI fetcher.
+Header-based auth (Bearer, Basic, API-key, OAuth2) is applied to HTTP/GraphQL, gRPC (as metadata), SSE, and MCP requests. For OAuth2, a pre-supplied access token is used as-is; if the auth instead carries a token endpoint + client id (and no token), the CLI fetches one via the **client_credentials** grant — the only non-interactive grant suited to CI — caching it per token-url/client/scope for the run. Wire-signed schemes (AWS SigV4, OAuth1, WSSE) are signed at the wire on the HTTP path. Auth configured at the collection or folder level is inherited by descendant requests (nearest-ancestor-wins), and collection/folder-level pre-request and test scripts run against every descendant. `x-www-form-urlencoded` bodies are sent for both inline (`raw`) and structured (OpenCollection field-array) forms. `multipart/form-data` is supported with text fields and file parts (file content must be inline base64 on the part; file parts that reference a path on disk are not read). `protobuf` bodies are not yet supported by the CLI fetcher.
 
 ## CLI reference
 
@@ -53,26 +53,34 @@ restura run <collection> [options]
 
 `<collection>` accepts a directory (any supported layout) or a bundled `.yaml`/`.yml` file.
 
-| Flag                        | Default       | Description                                                                                          |
-| --------------------------- | ------------- | ---------------------------------------------------------------------------------------------------- |
-| `--env <file>`              |               | JSON or YAML env file. `${VAR}` placeholders are expanded from `process.env`.                        |
-| `--reporter <list>`         | `live`        | Comma-separated. Mix and match: `live`, `json`, `junit`, `html`.                                     |
-| `--output <file>`           |               | Shorthand for single file reporter.                                                                  |
-| `--reporter-output <kv...>` |               | Per-reporter output: `--reporter-output junit=results.xml html=report.html`.                         |
-| `--bail`                    | `false`       | Stop on first failure.                                                                               |
-| `--timeout <ms>`            | `30000`       | Per-request timeout.                                                                                 |
-| `--allow-localhost`         | `false`       | Permit requests to `localhost` / `127.0.0.1`. Off by default (SSRF guard).                           |
-| `--folder <path>`           |               | Only run requests under this folder path (slash-joined).                                             |
-| `--include <pattern...>`    |               | Substring or glob (e.g. `users/*`). Repeatable.                                                      |
-| `--exclude <pattern...>`    |               | Same syntax as `--include`. Applied after.                                                           |
-| `--data <file>`             |               | CSV (with header row) or JSON array. Runs the collection once per row; row keys are exposed as vars. |
-| `--max-iterations <n>`      |               | Cap iterations when a `--data` file is large.                                                        |
-| `--retry <n>`               | `0`           | Retry attempts per failing request.                                                                  |
-| `--retry-on <list>`         | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`).             |
-| `--sse-duration <ms>`       | `5000`        | How long to keep SSE streams open.                                                                   |
-| `--sse-events <n>`          |               | Stop SSE early after N events.                                                                       |
-| `--ws-duration <ms>`        | `5000`        | How long to keep WebSocket connections open.                                                         |
-| `--ws-messages <n>`         |               | Stop WebSocket early after N messages.                                                               |
+| Flag                        | Default       | Description                                                                                               |
+| --------------------------- | ------------- | --------------------------------------------------------------------------------------------------------- |
+| `--env <file>`              |               | JSON or YAML env file. `${VAR}` placeholders are expanded from `process.env`.                             |
+| `--reporter <list>`         | `live`        | Comma-separated. Mix and match: `live`, `json`, `junit`, `html`.                                          |
+| `--output <file>`           |               | Shorthand for single file reporter.                                                                       |
+| `--reporter-output <kv...>` |               | Per-reporter output: `--reporter-output junit=results.xml html=report.html`.                              |
+| `--bail`                    | `false`       | Stop on first failure.                                                                                    |
+| `--timeout <ms>`            | `30000`       | Per-request timeout.                                                                                      |
+| `--allow-localhost`         | `false`       | Permit requests to `localhost` / `127.0.0.1`. Off by default (SSRF guard).                                |
+| `--folder <path>`           |               | Only run requests under this folder path (slash-joined).                                                  |
+| `--include <pattern...>`    |               | Substring or glob (e.g. `users/*`). Repeatable.                                                           |
+| `--exclude <pattern...>`    |               | Same syntax as `--include`. Applied after.                                                                |
+| `--data <file>`             |               | CSV (with header row) or JSON array. Runs the collection once per row; row keys are exposed as vars.      |
+| `--max-iterations <n>`      |               | Cap iterations when a `--data` file is large.                                                             |
+| `--retry <n>`               | `0`           | Retry attempts per failing request.                                                                       |
+| `--retry-on <list>`         | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`).                  |
+| `--sse-duration <ms>`       | `5000`        | How long to keep SSE streams open.                                                                        |
+| `--sse-events <n>`          |               | Stop SSE early after N events.                                                                            |
+| `--insecure`                | `false`       | Skip TLS certificate verification (self-signed / staging). Insecure — use only when you trust the target. |
+| `--ca <file>`               |               | PEM CA bundle to trust (private CA) without disabling verification.                                       |
+| `--client-cert <file>`      |               | PEM client certificate for mutual TLS (mTLS).                                                             |
+| `--client-key <file>`       |               | PEM client private key for mutual TLS.                                                                    |
+| `--cert-passphrase <value>` |               | Passphrase for an encrypted `--client-key`.                                                               |
+| `--proxy <url>`             |               | HTTP(S) proxy URL. Overrides `HTTP_PROXY`/`HTTPS_PROXY` and composes with the TLS options.                |
+
+TLS options apply to all HTTPS traffic for the run (HTTP/GraphQL/gRPC/SSE/MCP). They are global flags rather than per-request settings; per-domain client certificates (collection `clientCertificates`) are not yet honored — pass the cert that the run needs via `--client-cert`.
+
+Proxies: the standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables are honored automatically, or pass `--proxy <url>` to set one explicitly (this is the form that composes with the TLS flags above — the env var does not). SOCKS proxies and collection-scoped proxy config are not yet supported.
 
 ## Scripts and assertions
 

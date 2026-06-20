@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { Command } from 'commander';
-import { runCollection } from '../runner/runner.js';
+import { runCollection, type RunOptions } from '../runner/runner.js';
 import { loadEnv } from '../runner/envLoader.js';
 import { loadIterationData } from '../runner/dataLoader.js';
 import { parseRetryOn } from '../runner/retry.js';
@@ -28,8 +29,23 @@ interface RunOpts {
   retryOn: string;
   sseDuration?: string;
   sseEvents?: string;
-  wsDuration?: string;
-  wsMessages?: string;
+  insecure?: boolean;
+  ca?: string;
+  clientCert?: string;
+  clientKey?: string;
+  certPassphrase?: string;
+  proxy?: string;
+}
+
+/** Build TLS options from --insecure / --ca / --client-cert / --client-key. */
+function buildTls(opts: RunOpts): RunOptions['tls'] | undefined {
+  const tls: NonNullable<RunOptions['tls']> = {};
+  if (opts.insecure) tls.rejectUnauthorized = false;
+  if (opts.ca) tls.ca = readFileSync(opts.ca, 'utf-8');
+  if (opts.clientCert) tls.cert = readFileSync(opts.clientCert, 'utf-8');
+  if (opts.clientKey) tls.key = readFileSync(opts.clientKey, 'utf-8');
+  if (opts.certPassphrase) tls.passphrase = opts.certPassphrase;
+  return Object.keys(tls).length > 0 ? tls : undefined;
 }
 
 /**
@@ -81,13 +97,18 @@ export function registerRunCommand(program: Command): void {
     )
     .option('--sse-duration <ms>', 'How long to keep SSE streams open', '5000')
     .option('--sse-events <n>', 'Stop SSE after N events received')
-    .option('--ws-duration <ms>', 'How long to keep WebSocket connections open', '5000')
-    .option('--ws-messages <n>', 'Stop WebSocket after N messages received')
+    .option('--insecure', 'Skip TLS certificate verification (self-signed / staging)')
+    .option('--ca <file>', 'PEM CA bundle to trust (private CA)')
+    .option('--client-cert <file>', 'PEM client certificate for mutual TLS')
+    .option('--client-key <file>', 'PEM client private key for mutual TLS')
+    .option('--cert-passphrase <value>', 'Passphrase for an encrypted client key')
+    .option('--proxy <url>', 'HTTP(S) proxy URL (overrides HTTP_PROXY; composes with TLS options)')
     .action(async (collectionPath: string, opts: RunOpts) => {
       try {
         const envVars = opts.env ? await loadEnv(opts.env, { expandEnvVars: true }) : {};
         const iterations = await loadIterationData(opts.data);
         const reporter = buildReporters(opts);
+        const tls = buildTls(opts);
 
         const result = await runCollection(
           collectionPath,
@@ -115,12 +136,8 @@ export function registerRunCommand(program: Command): void {
             ...(opts.sseEvents !== undefined
               ? { sseMaxEvents: numericFlag('--sse-events', opts.sseEvents, { min: 1 }) }
               : {}),
-            ...(opts.wsDuration !== undefined
-              ? { wsDurationMs: numericFlag('--ws-duration', opts.wsDuration, { min: 0 }) }
-              : {}),
-            ...(opts.wsMessages !== undefined
-              ? { wsMaxMessages: numericFlag('--ws-messages', opts.wsMessages, { min: 1 }) }
-              : {}),
+            ...(tls ? { tls } : {}),
+            ...(opts.proxy ? { proxy: opts.proxy } : {}),
           },
           reporter
         );

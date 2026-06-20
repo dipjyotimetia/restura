@@ -12,11 +12,13 @@ import {
 } from '@/lib/shared/file-collection-schema';
 import { loadCollectionFromFile, loadCollectionFromDir } from '@/lib/opencollection/fs-reader';
 import { ocToInternal } from '@/lib/opencollection/to-internal';
+import { resolveEffectiveAuth, isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import type {
   HttpRequest,
   GrpcRequest,
   SseRequest,
   McpRequest,
+  AuthConfig,
   Collection,
   CollectionItem,
 } from '@/types';
@@ -66,9 +68,7 @@ export async function loadCollection(target: string): Promise<LoadedCollection> 
   if (info.isFile()) {
     const ext = extname(target).toLowerCase();
     if (ext !== '.yaml' && ext !== '.yml') {
-      throw new Error(
-        `Unsupported collection file extension: ${target}. Expected .yaml or .yml.`
-      );
+      throw new Error(`Unsupported collection file extension: ${target}. Expected .yaml or .yml.`);
     }
     return loadOpenCollectionFile(target);
   }
@@ -136,18 +136,47 @@ function extractMeta(c: Collection): LoadedCollection['meta'] {
 
 function flattenInternal(c: Collection): LoadedRequest[] {
   const out: LoadedRequest[] = [];
-  walkItems(c.items ?? [], [], out);
+  // Seed inheritance from the collection root: collection-level scripts run
+  // against every descendant; collection-level auth is the fallback when a
+  // request (and every ancestor folder) leaves auth unconfigured. This mirrors
+  // the desktop runner's `flattenRunnables` + `withEffectiveAuth`.
+  walkItems(
+    c.items ?? [],
+    [],
+    [c.preRequestScript],
+    [c.testScript],
+    isConfiguredAuth(c.auth) ? c.auth : undefined,
+    out
+  );
   return out;
+}
+
+/** Join non-empty script fragments in order; undefined when nothing applies. */
+function combineScripts(parts: Array<string | undefined>): string | undefined {
+  const nonEmpty = parts.filter((p): p is string => typeof p === 'string' && p.trim() !== '');
+  return nonEmpty.length > 0 ? nonEmpty.join('\n') : undefined;
 }
 
 function walkItems(
   items: CollectionItem[],
   folderPath: string[],
+  inheritedPre: Array<string | undefined>,
+  inheritedTest: Array<string | undefined>,
+  inheritedAuth: AuthConfig | undefined,
   out: LoadedRequest[]
 ): void {
   for (const item of items) {
     if (item.type === 'folder') {
-      walkItems(item.items ?? [], [...folderPath, item.name], out);
+      // Thread this folder's default scripts (parent→child order) and its
+      // default auth (nearest-ancestor-wins) down to its descendants.
+      walkItems(
+        item.items ?? [],
+        [...folderPath, item.name],
+        [...inheritedPre, item.preRequestScript],
+        [...inheritedTest, item.testScript],
+        isConfiguredAuth(item.auth) ? item.auth : inheritedAuth,
+        out
+      );
       continue;
     }
     const req = item.request;
@@ -159,11 +188,22 @@ function walkItems(
       // as a folder, so anything else here is genuinely unrunnable.
       continue;
     }
+    // Bake effective auth + combined scripts into the request so the executor
+    // and runner can stay tree-shape-agnostic — the request's own auth/scripts
+    // win, with collection/folder defaults filled in behind them.
+    const pre = combineScripts([...inheritedPre, req.preRequestScript]);
+    const test = combineScripts([...inheritedTest, req.testScript]);
+    const effective = {
+      ...req,
+      auth: resolveEffectiveAuth(req.auth, inheritedAuth),
+      ...(pre !== undefined ? { preRequestScript: pre } : {}),
+      ...(test !== undefined ? { testScript: test } : {}),
+    } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
     out.push({
       relativePath: [...folderPath, item.name].join('/') || item.name,
       folderPath,
       type: t,
-      request: req as HttpRequest | GrpcRequest | SseRequest | McpRequest,
+      request: effective,
     });
   }
 }
