@@ -294,6 +294,62 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  e2e-electron:
+    if: github.event_name == 'pull_request'
+    # Desktop e2e: launches the compiled, unpacked app via Playwright's
+    # `_electron` API (no electron-builder packaging, no Vite dev server). The
+    # specs spin up in-process mock upstreams + a spawned native gRPC server,
+    # so no docker/brokers are needed. Kept off the web `e2e` job because it
+    # builds a different target (electron:compile, not the SPA + Worker) and
+    # needs a virtual display.
+    name: Electron desktop E2E
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Electron bundles Chromium, so it needs the same shared system libs
+      # (libnss3, libgbm, libatk, GTK, …). `playwright install-deps chromium`
+      # installs exactly that set without downloading a browser binary — the
+      # `_electron` runner uses the `electron` npm binary, not Playwright's.
+      - name: Install Electron runtime system deps
+        run: npx playwright install-deps chromium
+
+      - name: Build desktop app (renderer + main)
+        run: npm run test:e2e:electron:build
+
+      # Fail fast with a clear message if the electron binary didn't install.
+      # `_electron.launch` resolves it via `require('electron')`, which reads the
+      # path.txt that electron's postinstall download intermittently fails to
+      # write on GitHub runners — without this, a missing binary surfaces as an
+      # opaque launch timeout instead.
+      - name: Verify electron binary is resolvable
+        run: node -e "const p=require('electron'); if(typeof p!=='string'){throw new Error('electron binary path unresolved')} console.log('electron at', p)"
+
+      # Headless runner has no display server; Electron needs one to open its
+      # BrowserWindow. xvfb-run provides a virtual framebuffer.
+      - name: Run Electron e2e
+        run: xvfb-run -a npm run test:e2e:electron
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: electron-e2e-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
   # Production deploy lives in release.yml (the manually-dispatched Release
   # workflow) — it is NOT run on merge to main. PR preview deploys stay here.
 
