@@ -29,13 +29,15 @@ import net from 'node:net';
 import tls from 'node:tls';
 import type { UpstreamProxy } from './tcp-proxy';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import { assertNodeHostnameSafe, type DnsGuardOptions } from './dns-guard-node';
+import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from './dns-guard-node';
 
 const ENCODER = new TextEncoder();
 
 function proxyAuthValue(auth: { username: string; password: string }): string {
   const safe = (s: string) => s.replace(/[Ā-￿]/g, (c) => encodeURIComponent(c));
-  const credentials = Buffer.from(`${safe(auth.username)}:${safe(auth.password)}`).toString('base64');
+  const credentials = Buffer.from(`${safe(auth.username)}:${safe(auth.password)}`).toString(
+    'base64'
+  );
   return `Basic ${credentials}`;
 }
 
@@ -54,7 +56,9 @@ function toRecord(input: RequestInit['headers']): Record<string, string> {
   if (!input) return {};
   if (input instanceof Headers) {
     const out: Record<string, string> = {};
-    input.forEach((v, k) => { out[k] = v; });
+    input.forEach((v, k) => {
+      out[k] = v;
+    });
     return out;
   }
   if (Array.isArray(input)) {
@@ -102,7 +106,10 @@ function attachAbort(signal: AbortSignal, fail: (err: Error) => void): () => voi
  * body bytes. Used for the CONNECT response (no body) and any other case
  * where the caller wants to keep reading the socket itself.
  */
-function readConnectResponse(socket: net.Socket | tls.TLSSocket, signal: AbortSignal): Promise<ParsedConnectResponse> {
+function readConnectResponse(
+  socket: net.Socket | tls.TLSSocket,
+  signal: AbortSignal
+): Promise<ParsedConnectResponse> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -174,7 +181,10 @@ function readConnectResponse(socket: net.Socket | tls.TLSSocket, signal: AbortSi
  *   - Transfer-Encoding: chunked is NOT decoded here — caller receives the
  *     raw chunked framing as the body (parity with the Cloudflare twin).
  */
-function readHttpResponseBody(socket: net.Socket | tls.TLSSocket, signal: AbortSignal): Promise<ParsedHttpResponse> {
+function readHttpResponseBody(
+  socket: net.Socket | tls.TLSSocket,
+  signal: AbortSignal
+): Promise<ParsedHttpResponse> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -274,9 +284,10 @@ function readHttpResponseBody(socket: net.Socket | tls.TLSSocket, signal: AbortS
       }
       const concat = Buffer.concat(chunks);
       const bodyStart = headerBodySplit + 4;
-      const body = contentLength !== null
-        ? concat.subarray(bodyStart, bodyStart + contentLength)
-        : concat.subarray(bodyStart);
+      const body =
+        contentLength !== null
+          ? concat.subarray(bodyStart, bodyStart + contentLength)
+          : concat.subarray(bodyStart);
       finish(body);
     };
 
@@ -324,7 +335,11 @@ function connectTcp(host: string, port: number, signal: AbortSignal): Promise<ne
   });
 }
 
-function upgradeToTls(socket: net.Socket, expectedServerHostname: string, signal: AbortSignal): Promise<tls.TLSSocket> {
+function upgradeToTls(
+  socket: net.Socket,
+  expectedServerHostname: string,
+  signal: AbortSignal
+): Promise<tls.TLSSocket> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error('Aborted'));
     const tlsSocket = tls.connect({
@@ -349,7 +364,7 @@ function upgradeToTls(socket: net.Socket, expectedServerHostname: string, signal
 }
 
 export interface NodeTcpProxyOptions {
-  dnsGuard?: DnsGuardOptions;
+  dnsGuard?: NodeDnsGuardOptions;
 }
 
 async function buildTunneledRequest(
@@ -371,7 +386,7 @@ async function buildTunneledRequest(
   return { wire: encodeRequest(method, targetUrl, headers, bodyBytes) };
 }
 
-export function createHttpsViaConnectProxy(dnsGuard?: DnsGuardOptions) {
+export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
   return async function httpsViaConnectProxy(
     targetUrl: URL,
     proxy: UpstreamProxy,
@@ -408,10 +423,11 @@ export function createHttpsViaConnectProxy(dnsGuard?: DnsGuardOptions) {
       const { wire } = await buildTunneledRequest(targetUrl, requestInit);
       tlsSocket.write(wire);
 
-      const { statusLine: respStatusLine, headers: respHeaders, body: respBody } = await readHttpResponseBody(
-        tlsSocket,
-        signal
-      );
+      const {
+        statusLine: respStatusLine,
+        headers: respHeaders,
+        body: respBody,
+      } = await readHttpResponseBody(tlsSocket, signal);
       return new Response(respBody, {
         status: parseStatusCode(respStatusLine),
         headers: respHeaders,
@@ -422,7 +438,7 @@ export function createHttpsViaConnectProxy(dnsGuard?: DnsGuardOptions) {
   };
 }
 
-export function createHttpViaProxy(dnsGuard?: DnsGuardOptions) {
+export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
   return async function httpViaProxy(
     targetUrl: URL,
     proxy: UpstreamProxy,
@@ -459,7 +475,11 @@ export function createHttpViaProxy(dnsGuard?: DnsGuardOptions) {
       const wire = bodyBytes ? Buffer.concat([head, Buffer.from(bodyBytes)]) : head;
       socket.write(wire);
 
-      const { statusLine, headers: respHeaders, body: respBody } = await readHttpResponseBody(socket, signal);
+      const {
+        statusLine,
+        headers: respHeaders,
+        body: respBody,
+      } = await readHttpResponseBody(socket, signal);
       return new Response(respBody, {
         status: parseStatusCode(statusLine),
         headers: respHeaders,

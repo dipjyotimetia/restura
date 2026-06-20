@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { graphql, buildSchema, type GraphQLResolveInfo } from 'graphql';
-import type { Env } from '../index';
+import type { EchoEnv } from '../index';
 
 // A real, executable schema (graphql-js) — introspection comes for free and
 // queries are actually parsed/validated/executed instead of echoed blindly.
@@ -47,7 +47,7 @@ const rootValue = {
   }),
 };
 
-export async function graphqlEcho(c: Context<{ Bindings: Env }>): Promise<Response> {
+export async function graphqlEcho(c: Context<{ Bindings: EchoEnv }>): Promise<Response> {
   if (c.req.method === 'OPTIONS') {
     return new Response(null, { status: 204 });
   }

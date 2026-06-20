@@ -187,7 +187,7 @@ export const HttpRequestConfigSchema = z.object({
   cipherSuites: z.string().optional(),
 });
 
-export type HttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
+export type ValidatedHttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
 
 // ===========================
 // gRPC Request Schemas

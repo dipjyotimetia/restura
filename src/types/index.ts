@@ -348,7 +348,7 @@ export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;
  * remains a leaf module — importing from features into types creates a
  * dependency cycle since features re-export types from here.
  *
- * The shape must remain assignment-compatible with `StreamEvent` in
+ * The shape must remain assignment-compatible with `HttpStreamEvent` in
  * `streamingResponseReader.ts` (which uses the raw `SseEvent` from
  * `shared/protocol/sse-parser` for the SSE payload).
  */

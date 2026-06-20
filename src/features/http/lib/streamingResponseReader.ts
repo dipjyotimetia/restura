@@ -3,7 +3,7 @@ import { NdjsonParser, type NdjsonValue } from '@shared/protocol/ndjson-parser';
 
 export type StreamFormat = 'sse' | 'ndjson' | 'raw';
 
-export type StreamEvent =
+export type HttpStreamEvent =
   | { type: 'sse'; payload: SseEvent }
   | { type: 'ndjson'; payload: NdjsonValue }
   | { type: 'raw'; payload: string }
@@ -41,7 +41,7 @@ export interface ReadStreamingOptions {
 export async function* readStreamingResponse(
   response: Response,
   options: ReadStreamingOptions = {}
-): AsyncIterable<StreamEvent> {
+): AsyncIterable<HttpStreamEvent> {
   const format = detectStreamFormat(response.headers.get('content-type'));
   const startMs = Date.now();
   let bytesRead = 0;
@@ -57,7 +57,9 @@ export async function* readStreamingResponse(
   const ndjsonParser = format === 'ndjson' ? new NdjsonParser() : null;
 
   const onAbort = () => {
-    void reader.cancel().catch(() => { /* ignore */ });
+    void reader.cancel().catch(() => {
+      /* ignore */
+    });
   };
   if (options.signal) {
     if (options.signal.aborted) {
@@ -108,6 +110,10 @@ export async function* readStreamingResponse(
     if (options.signal) {
       options.signal.removeEventListener('abort', onAbort);
     }
-    try { reader.releaseLock(); } catch { /* already released */ }
+    try {
+      reader.releaseLock();
+    } catch {
+      /* already released */
+    }
   }
 }

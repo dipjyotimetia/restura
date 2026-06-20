@@ -6,7 +6,7 @@
  */
 import type { MiddlewareHandler } from 'hono';
 import type { UpstreamProxy } from './shared/tcp-proxy';
-import type { DnsGuardOptions } from './shared/dns-guard-node';
+import type { NodeDnsGuardOptions } from './shared/dns-guard-node';
 
 export interface TcpProxyAdapter {
   httpsViaConnectProxy: (
@@ -29,7 +29,10 @@ export interface TcpProxyAdapter {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type WebSocketHandler = MiddlewareHandler<any>;
 
-export type NodeHostnameGuard = (hostname: string, options: DnsGuardOptions) => Promise<unknown>;
+export type NodeHostnameGuard = (
+  hostname: string,
+  options: NodeDnsGuardOptions
+) => Promise<unknown>;
 
 export interface AppDeps {
   tcpProxy: TcpProxyAdapter;

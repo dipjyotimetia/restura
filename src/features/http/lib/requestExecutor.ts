@@ -27,7 +27,7 @@ import {
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import {
   readStreamingResponse,
-  type StreamEvent,
+  type HttpStreamEvent,
 } from '@/features/http/lib/streamingResponseReader';
 import {
   executeProxiedRequest,
@@ -525,7 +525,7 @@ export function isStreamingAccept(headers: Record<string, string>): boolean {
 
 export interface StreamingExecutionResult {
   /** Async iterable of stream events, drained by `StreamingResponseViewer`. */
-  events: AsyncIterable<StreamEvent>;
+  events: AsyncIterable<HttpStreamEvent>;
   /** Status + headers, available as soon as the upstream response begins. */
   responseMeta: {
     status: number;

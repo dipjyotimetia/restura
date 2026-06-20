@@ -3,7 +3,7 @@ import { executeRequest } from './executors/dispatch.js';
 import { runPreRequestScript, runTestScript } from './scriptRunner.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
-import type { IterationRow } from './dataLoader.js';
+import type { CliIterationRow } from './dataLoader.js';
 import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
 
 export interface RunOptions {
@@ -14,7 +14,7 @@ export interface RunOptions {
   /** Subset filters applied before execution. */
   filter?: FilterOptions;
   /** Data-driven iterations. Empty array (or undefined) = single iteration with no row vars. */
-  iterations?: IterationRow[];
+  iterations?: CliIterationRow[];
   /** Cap on iterations to run. */
   maxIterations?: number;
   /** Retry policy for individual requests. */

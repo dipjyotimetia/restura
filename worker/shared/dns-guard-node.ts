@@ -25,7 +25,7 @@ const HARD_BLOCKED_ADDRESSES = new Set([
   '169.254.169.254', // AWS / Azure / DO instance-metadata
 ]);
 
-export interface DnsGuardOptions {
+export interface NodeDnsGuardOptions {
   /** Permit localhost / 127.0.0.1 / ::1 — typically only on `ENVIRONMENT=development`. */
   allowLocalhost?: boolean;
   /**
@@ -53,7 +53,7 @@ export interface DnsGuardOptions {
  */
 export async function assertNodeHostnameSafe(
   hostname: string,
-  options: DnsGuardOptions = {}
+  options: NodeDnsGuardOptions = {}
 ): Promise<LookupAddress[]> {
   const allowLocalhost = options.allowLocalhost === true;
   const allowPrivateLiteralHost = options.allowPrivateIPs === true;
@@ -80,9 +80,7 @@ export async function assertNodeHostnameSafe(
 
   for (const r of records) {
     if (HARD_BLOCKED_ADDRESSES.has(r.address)) {
-      throw new Error(
-        `DNS resolution for ${hostname} returned hard-blocked address ${r.address}`
-      );
+      throw new Error(`DNS resolution for ${hostname} returned hard-blocked address ${r.address}`);
     }
     assertResolvedAddressAllowed(hostname, r.address, {
       allowLocalhost,

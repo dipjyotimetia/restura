@@ -28,7 +28,7 @@ import { consumeTicket } from './ws-ticket';
 import { validateWsUrl } from '@shared/protocol/websocket-proxy';
 import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
 import { allowPrivateIPs as readAllowPrivateIPs, isLocalDevBypass } from '../shared/env';
-import { assertNodeHostnameSafe, type DnsGuardOptions } from '../shared/dns-guard-node';
+import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from '../shared/dns-guard-node';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024;
 const TEXT_ENCODER = new TextEncoder();
@@ -37,7 +37,9 @@ const TEXT_ENCODER = new TextEncoder();
 // across versions; the only invariant we depend on is that it's a Hono
 // handler/middleware Hono's router accepts at registration time.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type UpgradeWebSocketFactory = (createEvents: (c: Context<{ Bindings: Env }>) => WSEvents | Promise<WSEvents>) => MiddlewareHandler<any>;
+type UpgradeWebSocketFactory = (
+  createEvents: (c: Context<{ Bindings: Env }>) => WSEvents | Promise<WSEvents>
+) => MiddlewareHandler<any>;
 
 function sizeOf(data: string | ArrayBufferLike | Uint8Array | Buffer): number {
   if (typeof data === 'string') {
@@ -60,7 +62,7 @@ function normaliseRawData(data: WebSocket.RawData): Buffer {
 
 export function createNodeWebsocketHandler(
   upgradeWebSocket: UpgradeWebSocketFactory,
-  dnsGuard: DnsGuardOptions = {}
+  dnsGuard: NodeDnsGuardOptions = {}
 ) {
   return upgradeWebSocket((c: Context<{ Bindings: Env }>): WSEvents => {
     // Snapshot the ticket query and the SSRF allow-list at upgrade-decision
@@ -70,7 +72,7 @@ export function createNodeWebsocketHandler(
     const ticket = c.req.query('ticket');
     const allowLocalhost = isLocalDevBypass(c.env);
     const allowPrivateIPs = readAllowPrivateIPs(c.env);
-    const perRequestDnsGuard: DnsGuardOptions = {
+    const perRequestDnsGuard: NodeDnsGuardOptions = {
       allowLocalhost: dnsGuard.allowLocalhost === true || allowLocalhost,
       allowPrivateIPs: dnsGuard.allowPrivateIPs === true || allowPrivateIPs,
     };
@@ -80,8 +82,16 @@ export function createNodeWebsocketHandler(
     const queue: Array<string | Buffer> = [];
 
     const closeBoth = (code = 1000, reason = '') => {
-      try { upstream?.close(code, reason); } catch { /* already closed */ }
-      try { serverWs?.close(code, reason); } catch { /* already closed */ }
+      try {
+        upstream?.close(code, reason);
+      } catch {
+        /* already closed */
+      }
+      try {
+        serverWs?.close(code, reason);
+      } catch {
+        /* already closed */
+      }
     };
 
     return {
@@ -156,10 +166,16 @@ export function createNodeWebsocketHandler(
               copy.set(buf);
               ws.send(copy);
             }
-          } catch { /* peer closed */ }
+          } catch {
+            /* peer closed */
+          }
         });
         upstream.on('close', (code, reason) => {
-          try { ws.close(code || 1000, reason?.toString() ?? ''); } catch { /* already closed */ }
+          try {
+            ws.close(code || 1000, reason?.toString() ?? '');
+          } catch {
+            /* already closed */
+          }
         });
         upstream.on('error', () => {
           closeBoth(1011, 'Upstream error');
@@ -179,7 +195,11 @@ export function createNodeWebsocketHandler(
         }
       },
       onClose(ev, _ws) {
-        try { upstream?.close(ev.code, ev.reason); } catch { /* already closed */ }
+        try {
+          upstream?.close(ev.code, ev.reason);
+        } catch {
+          /* already closed */
+        }
       },
       onError(_ev, _ws) {
         closeBoth(1011, 'Client error');

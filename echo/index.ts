@@ -21,11 +21,11 @@ import { connectEcho } from './handlers/connect';
 import { handleOpenAiChat, handleAnthropicChat } from './handlers/ai';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
 
-export type Env = {
+export type EchoEnv = {
   ENVIRONMENT?: string;
 };
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: EchoEnv }>();
 
 app.use('*', cors({ origin: '*' }));
 app.use('*', rateLimitMiddleware);
