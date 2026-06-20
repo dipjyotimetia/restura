@@ -5,7 +5,7 @@ import type { McpRequest } from '@/types';
 import { resolveVarsDeep } from '../varResolver';
 import type { LoadedRequest } from '../collectionLoader';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
-import { applyAuthHeaders } from './auth';
+import { applyAuthHeaders, resolveOAuth2Token } from './auth';
 
 /**
  * MCP (Model Context Protocol) executor. Fires a one-shot JSON-RPC POST and
@@ -38,7 +38,10 @@ export async function executeMcp(
   // Header-based auth (Bearer / Basic / API-key / OAuth2). MCP has no query
   // channel, so api-key `in: query` is unsupported here. A handle ref throws.
   try {
-    applyAuthHeaders(req.auth, headers, {});
+    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
+      allowLocalhost: opts.allowLocalhost,
+    });
+    applyAuthHeaders(resolvedAuth, headers, {});
   } catch (err) {
     return {
       status: 0,

@@ -7,7 +7,7 @@ import { undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import type { LoadedRequest } from '../collectionLoader';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
-import { applyAuthHeaders, toProtocolAuth } from './auth';
+import { applyAuthHeaders, toProtocolAuth, resolveOAuth2Token } from './auth';
 
 /**
  * HTTP + GraphQL executor. GraphQL is represented internally as an HttpRequest
@@ -44,8 +44,14 @@ export async function executeHttp(
     // / Basic / API-key / OAuth2 are header-only; AWS SigV4 / OAuth1 / WSSE are
     // signed at the wire by executeHttpProxy. Resolved here (inside the try) so
     // an unresolvable secret-handle ref surfaces as an errored outcome.
-    applyAuthHeaders(req.auth, headers, params);
-    const proxyAuth = toProtocolAuth(req.auth);
+    // Acquire an OAuth2 client_credentials token when the auth declares a token
+    // endpoint but carries no access token (e.g. a CI collection). No-op for
+    // every other auth type.
+    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
+      allowLocalhost: opts.allowLocalhost,
+    });
+    applyAuthHeaders(resolvedAuth, headers, params);
+    const proxyAuth = toProtocolAuth(resolvedAuth);
 
     // Per-request settings (legacy collections carry these) override the global
     // flags. Mirrors the desktop renderer's settings→spec mapping in

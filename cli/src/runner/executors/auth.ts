@@ -1,5 +1,8 @@
 import type { AuthConfig } from '@/types';
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
+import { fetchClientCredentialsToken, tokenExpiresAt } from '@/features/auth/lib/oauth2';
+import { validateURL } from '@shared/protocol/url-validation';
+import { resolveVarsDeep } from '../varResolver';
 
 /**
  * Auth helpers shared by every CLI executor.
@@ -76,6 +79,84 @@ export function applyAuthHeaders(
     }
     // aws-signature, oauth1, ntlm, wsse are sign-at-wire — handled by toProtocolAuth.
   }
+}
+
+interface CachedToken {
+  accessToken: string;
+  tokenType: string;
+  /** epoch ms; undefined = no expiry info, reuse for the whole run. */
+  expiresAt?: number;
+}
+const oauth2TokenCache = new Map<string, CachedToken>();
+
+/**
+ * For an OAuth2 auth that has a token endpoint + client id but no access token,
+ * fetch one via the **client_credentials** grant — the only non-interactive
+ * grant appropriate for CI — and return a copy of the auth carrying the token.
+ *
+ * Everything else is returned unchanged: a non-oauth2 auth, an oauth2 config
+ * that already has a token, or one declaring an interactive grant
+ * (authorization_code / password / device_code). OpenCollection import drops
+ * `grantType`, so an unset grantType with a token endpoint is treated as
+ * client_credentials. Tokens are cached (per token-url + client + scope) so a
+ * collection of N requests hits the token endpoint once, not N times.
+ */
+export async function resolveOAuth2Token(
+  auth: AuthConfig | undefined,
+  vars: Record<string, string>,
+  opts: { allowLocalhost?: boolean } = {}
+): Promise<AuthConfig | undefined> {
+  if (!auth || auth.type !== 'oauth2' || !auth.oauth2) return auth;
+  const o = auth.oauth2;
+  if (secretString(o.accessToken)) return auth; // already authenticated
+  if (o.grantType && o.grantType !== 'client_credentials') return auth;
+
+  const tokenUrl = o.tokenUrl ? resolveVarsDeep(o.tokenUrl, vars) : '';
+  const clientId = o.clientId ? resolveVarsDeep(o.clientId, vars) : '';
+  if (!tokenUrl || !clientId) return auth;
+
+  const clientSecretRaw = secretString(o.clientSecret);
+  const clientSecret = clientSecretRaw ? resolveVarsDeep(clientSecretRaw, vars) : undefined;
+  const scope = o.scope ? resolveVarsDeep(o.scope, vars) : undefined;
+
+  const cacheKey = `${tokenUrl}|${clientId}|${scope ?? ''}`;
+  const now = Date.now();
+  const cached = oauth2TokenCache.get(cacheKey);
+  if (cached && (cached.expiresAt === undefined || cached.expiresAt > now + 5000)) {
+    return withAccessToken(auth, o, cached.accessToken, cached.tokenType);
+  }
+
+  // SSRF guard on the token endpoint, mirroring the request path.
+  const validation = validateURL(tokenUrl, {
+    allowPrivateIPs: false,
+    allowLocalhost: opts.allowLocalhost ?? false,
+  });
+  if (!validation.valid) throw new Error(`OAuth2 token URL blocked: ${validation.error}`);
+
+  const token = await fetchClientCredentialsToken({
+    grantType: 'client_credentials',
+    clientId,
+    tokenUrl,
+    ...(clientSecret !== undefined ? { clientSecret } : {}),
+    ...(scope !== undefined ? { scope } : {}),
+  });
+  const tokenType = token.token_type ?? 'Bearer';
+  const expiresAt = tokenExpiresAt(now, token.expires_in);
+  oauth2TokenCache.set(cacheKey, {
+    accessToken: token.access_token,
+    tokenType,
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
+  });
+  return withAccessToken(auth, o, token.access_token, tokenType);
+}
+
+function withAccessToken(
+  auth: AuthConfig,
+  o: NonNullable<AuthConfig['oauth2']>,
+  accessToken: string,
+  tokenType: string
+): AuthConfig {
+  return { ...auth, oauth2: { ...o, accessToken, tokenType } };
 }
 
 /**
