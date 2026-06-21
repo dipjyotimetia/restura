@@ -76,7 +76,9 @@ export const generateWebSocketNodeJS = (options: WebSocketGenerateOptions): stri
     optParts.push(`  protocol: ${JSON.stringify(protocols.join(','))}`);
   }
   if (headers && Object.keys(headers).length > 0) {
-    const hLines = Object.entries(headers).map(([k, v]) => `    "${escapeJson(k)}": "${escapeJson(v)}"`).join(',\n');
+    const hLines = Object.entries(headers)
+      .map(([k, v]) => `    "${escapeJson(k)}": "${escapeJson(v)}"`)
+      .join(',\n');
     optParts.push(`  headers: {\n${hLines}\n  }`);
   }
 

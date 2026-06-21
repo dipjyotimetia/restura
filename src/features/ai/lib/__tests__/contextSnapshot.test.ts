@@ -58,7 +58,19 @@ describe('captureActive', () => {
   it('returns kind: request when the active tab has no response yet', () => {
     vi.mocked(useRequestStore.getState).mockReturnValue({
       activeTabId: 't1',
-      tabs: [{ id: 't1', request: { type: 'http', method: 'POST', url: 'https://api/x', headers: [], body: { type: 'none' } }, response: null }],
+      tabs: [
+        {
+          id: 't1',
+          request: {
+            type: 'http',
+            method: 'POST',
+            url: 'https://api/x',
+            headers: [],
+            body: { type: 'none' },
+          },
+          response: null,
+        },
+      ],
     } as never);
     const snap = captureActive();
     expect(snap.contextRef.kind).toBe('request');

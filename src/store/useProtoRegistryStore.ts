@@ -16,7 +16,12 @@ interface ProtoRegistryState {
   protos: Record<string, ProtoFileEntry>;
 
   // Actions
-  addProto: (name: string, content: string, packageName: string, services: ProtoServiceDefinition[]) => string;
+  addProto: (
+    name: string,
+    content: string,
+    packageName: string,
+    services: ProtoServiceDefinition[]
+  ) => string;
   updateProto: (id: string, updates: Partial<Omit<ProtoFileEntry, 'id'>>) => void;
   removeProto: (id: string) => void;
   getProtoById: (id: string) => ProtoFileEntry | undefined;
@@ -78,9 +83,7 @@ export const useProtoRegistryStore = create<ProtoRegistryState>()(
       getProtoByService: (serviceName) => {
         const protos = Object.values(get().protos);
         return protos.find((proto) =>
-          proto.services.some(
-            (s) => s.fullName === serviceName || s.name === serviceName
-          )
+          proto.services.some((s) => s.fullName === serviceName || s.name === serviceName)
         );
       },
 
@@ -100,9 +103,7 @@ export const useProtoRegistryStore = create<ProtoRegistryState>()(
       clearRegistry: () => set({ protos: {} }),
 
       getAllProtos: () => {
-        return Object.values(get().protos).sort(
-          (a, b) => b.addedAt - a.addedAt
-        );
+        return Object.values(get().protos).sort((a, b) => b.addedAt - a.addedAt);
       },
 
       getRecentProtos: (limit = 5) => {

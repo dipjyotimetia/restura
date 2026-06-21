@@ -29,7 +29,6 @@ interface DiskLogEntry {
 
 const PAGE_SIZE = 50;
 
-
 export default function DiskTab() {
   const [entries, setEntries] = useState<DiskLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -174,10 +173,18 @@ export default function DiskTab() {
                 )}
               >
                 <div className="flex items-center gap-2 mb-0.5">
-                  <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 font-semibold', mc)}>
+                  <Badge
+                    variant="outline"
+                    className={cn('text-[10px] px-1.5 py-0 font-semibold', mc)}
+                  >
                     {entry.method}
                   </Badge>
-                  <span className={cn('text-xs font-medium tabular-nums', getStatusTextColor(entry.status))}>
+                  <span
+                    className={cn(
+                      'text-xs font-medium tabular-nums',
+                      getStatusTextColor(entry.status)
+                    )}
+                  >
                     {entry.status || 'ERR'}
                   </span>
                   {entry.protocol !== 'http' && (
@@ -224,7 +231,9 @@ export default function DiskTab() {
                 {selected.status || 'ERR'}
               </span>
               <span className="text-muted-foreground">{selected.durationMs}ms</span>
-              <span className="text-muted-foreground ml-auto">{formatLongTimestamp(selected.ts)}</span>
+              <span className="text-muted-foreground ml-auto">
+                {formatLongTimestamp(selected.ts)}
+              </span>
             </div>
             <div className="font-mono break-all bg-muted/40 rounded p-2">{selected.url}</div>
             {selected.error && (
@@ -233,7 +242,12 @@ export default function DiskTab() {
               </div>
             )}
             <div className="flex flex-wrap items-center gap-1">
-              <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => handleReplay(selected)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px]"
+                onClick={() => handleReplay(selected)}
+              >
                 <RotateCw className="h-3 w-3 mr-1" />
                 Replay
               </Button>
@@ -257,7 +271,8 @@ export default function DiskTab() {
               </Button>
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Disk entries record metadata only (method, URL, status, timing) — no headers or bodies.
+              Disk entries record metadata only (method, URL, status, timing) — no headers or
+              bodies.
             </p>
           </div>
         ) : (

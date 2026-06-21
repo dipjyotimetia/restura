@@ -8,7 +8,10 @@ import type {
 import type { ServiceDescriptorProto } from './types';
 import { enumSchemaCache, messageSchemaCache } from './protoParser';
 
-export function buildServiceInfo(svc: ServiceDescriptorProto, packageName: string): ReflectionServiceInfo {
+export function buildServiceInfo(
+  svc: ServiceDescriptorProto,
+  packageName: string
+): ReflectionServiceInfo {
   const fullName = packageName ? `${packageName}.${svc.name}` : svc.name || '';
 
   const methods: ReflectionMethodInfo[] =
@@ -106,16 +109,24 @@ function generateFieldValue(
       if (field.typeName) {
         const shortName = field.typeName.split('.').pop();
         switch (shortName) {
-          case 'Timestamp': return new Date().toISOString();
-          case 'Duration': return '0s';
-          case 'Any': return { '@type': '', value: {} };
-          case 'Value': return null;
-          case 'Struct': return {};
-          case 'ListValue': return [];
-          case 'Empty': return {};
+          case 'Timestamp':
+            return new Date().toISOString();
+          case 'Duration':
+            return '0s';
+          case 'Any':
+            return { '@type': '', value: {} };
+          case 'Value':
+            return null;
+          case 'Struct':
+            return {};
+          case 'ListValue':
+            return [];
+          case 'Empty':
+            return {};
         }
         const nestedSchema = messageSchemaCache.get(field.typeName);
-        if (nestedSchema) return generateTemplateObject(nestedSchema, maxDepth, currentDepth, visited);
+        if (nestedSchema)
+          return generateTemplateObject(nestedSchema, maxDepth, currentDepth, visited);
       }
       return {};
     }
@@ -130,25 +141,44 @@ function generateFieldValue(
 
 export function getFieldTypeDescription(type: FieldType): string {
   switch (type) {
-    case 'TYPE_DOUBLE': return 'double-precision floating point';
-    case 'TYPE_FLOAT': return 'single-precision floating point';
-    case 'TYPE_INT64': return '64-bit signed integer';
-    case 'TYPE_UINT64': return '64-bit unsigned integer';
-    case 'TYPE_INT32': return '32-bit signed integer';
-    case 'TYPE_FIXED64': return '64-bit unsigned integer (fixed encoding)';
-    case 'TYPE_FIXED32': return '32-bit unsigned integer (fixed encoding)';
-    case 'TYPE_BOOL': return 'boolean';
-    case 'TYPE_STRING': return 'UTF-8 string';
-    case 'TYPE_GROUP': return 'group (deprecated)';
-    case 'TYPE_MESSAGE': return 'embedded message';
-    case 'TYPE_BYTES': return 'byte array';
-    case 'TYPE_UINT32': return '32-bit unsigned integer';
-    case 'TYPE_ENUM': return 'enumeration';
-    case 'TYPE_SFIXED32': return '32-bit signed integer (fixed encoding)';
-    case 'TYPE_SFIXED64': return '64-bit signed integer (fixed encoding)';
-    case 'TYPE_SINT32': return '32-bit signed integer (ZigZag encoding)';
-    case 'TYPE_SINT64': return '64-bit signed integer (ZigZag encoding)';
-    default: return 'unknown type';
+    case 'TYPE_DOUBLE':
+      return 'double-precision floating point';
+    case 'TYPE_FLOAT':
+      return 'single-precision floating point';
+    case 'TYPE_INT64':
+      return '64-bit signed integer';
+    case 'TYPE_UINT64':
+      return '64-bit unsigned integer';
+    case 'TYPE_INT32':
+      return '32-bit signed integer';
+    case 'TYPE_FIXED64':
+      return '64-bit unsigned integer (fixed encoding)';
+    case 'TYPE_FIXED32':
+      return '32-bit unsigned integer (fixed encoding)';
+    case 'TYPE_BOOL':
+      return 'boolean';
+    case 'TYPE_STRING':
+      return 'UTF-8 string';
+    case 'TYPE_GROUP':
+      return 'group (deprecated)';
+    case 'TYPE_MESSAGE':
+      return 'embedded message';
+    case 'TYPE_BYTES':
+      return 'byte array';
+    case 'TYPE_UINT32':
+      return '32-bit unsigned integer';
+    case 'TYPE_ENUM':
+      return 'enumeration';
+    case 'TYPE_SFIXED32':
+      return '32-bit signed integer (fixed encoding)';
+    case 'TYPE_SFIXED64':
+      return '64-bit signed integer (fixed encoding)';
+    case 'TYPE_SINT32':
+      return '32-bit signed integer (ZigZag encoding)';
+    case 'TYPE_SINT64':
+      return '64-bit signed integer (ZigZag encoding)';
+    default:
+      return 'unknown type';
   }
 }
 
@@ -219,7 +249,8 @@ function validateSingleFieldType(value: unknown, field: FieldSchema): string | n
       if (typeof value !== 'string') return 'expected string';
       break;
     case 'TYPE_ENUM':
-      if (typeof value !== 'string' && typeof value !== 'number') return 'expected string or number';
+      if (typeof value !== 'string' && typeof value !== 'number')
+        return 'expected string or number';
       break;
     case 'TYPE_MESSAGE':
       if (typeof value !== 'object' || value === null) return 'expected object';
@@ -233,7 +264,11 @@ export function formatMessageSchemaForDisplay(schema: MessageSchema): string {
 
   for (const field of schema.fields) {
     const label =
-      field.label === 'LABEL_REPEATED' ? 'repeated ' : field.label === 'LABEL_REQUIRED' ? 'required ' : '';
+      field.label === 'LABEL_REPEATED'
+        ? 'repeated '
+        : field.label === 'LABEL_REQUIRED'
+          ? 'required '
+          : '';
     const type =
       field.type === 'TYPE_MESSAGE' || field.type === 'TYPE_ENUM'
         ? field.typeName?.split('.').pop() || field.type
@@ -247,22 +282,38 @@ export function formatMessageSchemaForDisplay(schema: MessageSchema): string {
 
 function getProtoTypeName(type: FieldType): string {
   switch (type) {
-    case 'TYPE_DOUBLE': return 'double';
-    case 'TYPE_FLOAT': return 'float';
-    case 'TYPE_INT64': return 'int64';
-    case 'TYPE_UINT64': return 'uint64';
-    case 'TYPE_INT32': return 'int32';
-    case 'TYPE_FIXED64': return 'fixed64';
-    case 'TYPE_FIXED32': return 'fixed32';
-    case 'TYPE_BOOL': return 'bool';
-    case 'TYPE_STRING': return 'string';
-    case 'TYPE_BYTES': return 'bytes';
-    case 'TYPE_UINT32': return 'uint32';
-    case 'TYPE_SFIXED32': return 'sfixed32';
-    case 'TYPE_SFIXED64': return 'sfixed64';
-    case 'TYPE_SINT32': return 'sint32';
-    case 'TYPE_SINT64': return 'sint64';
-    default: return 'unknown';
+    case 'TYPE_DOUBLE':
+      return 'double';
+    case 'TYPE_FLOAT':
+      return 'float';
+    case 'TYPE_INT64':
+      return 'int64';
+    case 'TYPE_UINT64':
+      return 'uint64';
+    case 'TYPE_INT32':
+      return 'int32';
+    case 'TYPE_FIXED64':
+      return 'fixed64';
+    case 'TYPE_FIXED32':
+      return 'fixed32';
+    case 'TYPE_BOOL':
+      return 'bool';
+    case 'TYPE_STRING':
+      return 'string';
+    case 'TYPE_BYTES':
+      return 'bytes';
+    case 'TYPE_UINT32':
+      return 'uint32';
+    case 'TYPE_SFIXED32':
+      return 'sfixed32';
+    case 'TYPE_SFIXED64':
+      return 'sfixed64';
+    case 'TYPE_SINT32':
+      return 'sint32';
+    case 'TYPE_SINT64':
+      return 'sint64';
+    default:
+      return 'unknown';
   }
 }
 
@@ -299,7 +350,9 @@ export function generateProtoFromReflection(
     const outputType = method.outputType.split('.').pop() || method.outputType;
     const clientStream = method.clientStreaming ? 'stream ' : '';
     const serverStream = method.serverStreaming ? 'stream ' : '';
-    lines.push(`  rpc ${method.name} (${clientStream}${inputType}) returns (${serverStream}${outputType});`);
+    lines.push(
+      `  rpc ${method.name} (${clientStream}${inputType}) returns (${serverStream}${outputType});`
+    );
   }
   lines.push('}');
 

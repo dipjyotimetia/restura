@@ -41,11 +41,13 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - **AI Lab** — prompt/model testing workbench (Playground, dataset evals, LLM-as-judge) against local (Ollama / OpenAI-compatible) and cloud models. Needs the localhost SSRF carve-out.
 
 <Aside title="Canonical reference">
-The full, auto-generated matrix lives at [`docs/CAPABILITY_MATRIX.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CAPABILITY_MATRIX.md). Run `npm run capabilities:matrix` to regenerate after updating `capabilities.ts`.
+  The full, auto-generated matrix lives at
+  [`docs/CAPABILITY_MATRIX.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CAPABILITY_MATRIX.md).
+  Run `npm run capabilities:matrix` to regenerate after updating `capabilities.ts`.
 </Aside>
 
 ## Self-hosted
 
 Self-hosted (Docker) inherits the **web** capability profile — the SPA runs in a browser, just from your own server. Kafka, SOCKS, mTLS, etc. remain desktop-only because they require Node-level networking that the browser doesn't expose.
 
-If you need both self-hosted *and* the desktop-only capabilities, run the desktop app locally and point it at your self-hosted gateway as a normal upstream.
+If you need both self-hosted _and_ the desktop-only capabilities, run the desktop app locally and point it at your self-hosted gateway as a normal upstream.

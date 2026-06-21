@@ -3,7 +3,10 @@ import { buildRequestBody } from './body-builder';
 
 describe('buildRequestBody', () => {
   it('returns empty body for type "none"', () => {
-    expect(buildRequestBody({ bodyType: 'none' })).toEqual({ body: undefined, contentType: undefined });
+    expect(buildRequestBody({ bodyType: 'none' })).toEqual({
+      body: undefined,
+      contentType: undefined,
+    });
   });
 
   it('returns empty body when bodyType is undefined', () => {
@@ -66,9 +69,7 @@ describe('buildRequestBody', () => {
   it('builds multipart form-data with default content-type when none specified', () => {
     const r = buildRequestBody({
       bodyType: 'form-data',
-      formData: [
-        { name: 'doc', value: btoa('hello'), filename: 'doc.bin' },
-      ],
+      formData: [{ name: 'doc', value: btoa('hello'), filename: 'doc.bin' }],
     });
     const fd = r.body as FormData;
     const file = fd.get('doc') as unknown as File;
@@ -83,6 +84,9 @@ describe('buildRequestBody', () => {
   });
 
   it('returns empty body for binary type without data', () => {
-    expect(buildRequestBody({ bodyType: 'binary' })).toEqual({ body: undefined, contentType: undefined });
+    expect(buildRequestBody({ bodyType: 'binary' })).toEqual({
+      body: undefined,
+      contentType: undefined,
+    });
   });
 });

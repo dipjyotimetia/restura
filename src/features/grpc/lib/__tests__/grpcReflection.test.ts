@@ -284,14 +284,62 @@ describe('generateRequestTemplate', () => {
       name: 'AllTypes',
       fullName: 'test.AllTypes',
       fields: [
-        { name: 'double_field', jsonName: 'doubleField', number: 1, type: 'TYPE_DOUBLE', label: 'LABEL_OPTIONAL' },
-        { name: 'float_field', jsonName: 'floatField', number: 2, type: 'TYPE_FLOAT', label: 'LABEL_OPTIONAL' },
-        { name: 'int64_field', jsonName: 'int64Field', number: 3, type: 'TYPE_INT64', label: 'LABEL_OPTIONAL' },
-        { name: 'uint64_field', jsonName: 'uint64Field', number: 4, type: 'TYPE_UINT64', label: 'LABEL_OPTIONAL' },
-        { name: 'int32_field', jsonName: 'int32Field', number: 5, type: 'TYPE_INT32', label: 'LABEL_OPTIONAL' },
-        { name: 'bool_field', jsonName: 'boolField', number: 6, type: 'TYPE_BOOL', label: 'LABEL_OPTIONAL' },
-        { name: 'string_field', jsonName: 'stringField', number: 7, type: 'TYPE_STRING', label: 'LABEL_OPTIONAL' },
-        { name: 'bytes_field', jsonName: 'bytesField', number: 8, type: 'TYPE_BYTES', label: 'LABEL_OPTIONAL' },
+        {
+          name: 'double_field',
+          jsonName: 'doubleField',
+          number: 1,
+          type: 'TYPE_DOUBLE',
+          label: 'LABEL_OPTIONAL',
+        },
+        {
+          name: 'float_field',
+          jsonName: 'floatField',
+          number: 2,
+          type: 'TYPE_FLOAT',
+          label: 'LABEL_OPTIONAL',
+        },
+        {
+          name: 'int64_field',
+          jsonName: 'int64Field',
+          number: 3,
+          type: 'TYPE_INT64',
+          label: 'LABEL_OPTIONAL',
+        },
+        {
+          name: 'uint64_field',
+          jsonName: 'uint64Field',
+          number: 4,
+          type: 'TYPE_UINT64',
+          label: 'LABEL_OPTIONAL',
+        },
+        {
+          name: 'int32_field',
+          jsonName: 'int32Field',
+          number: 5,
+          type: 'TYPE_INT32',
+          label: 'LABEL_OPTIONAL',
+        },
+        {
+          name: 'bool_field',
+          jsonName: 'boolField',
+          number: 6,
+          type: 'TYPE_BOOL',
+          label: 'LABEL_OPTIONAL',
+        },
+        {
+          name: 'string_field',
+          jsonName: 'stringField',
+          number: 7,
+          type: 'TYPE_STRING',
+          label: 'LABEL_OPTIONAL',
+        },
+        {
+          name: 'bytes_field',
+          jsonName: 'bytesField',
+          number: 8,
+          type: 'TYPE_BYTES',
+          label: 'LABEL_OPTIONAL',
+        },
       ],
     };
 
@@ -522,7 +570,13 @@ describe('formatMessageSchemaForDisplay', () => {
       fullName: 'greet.v1.HelloRequest',
       fields: [
         { name: 'name', jsonName: 'name', number: 1, type: 'TYPE_STRING', label: 'LABEL_OPTIONAL' },
-        { name: 'count', jsonName: 'count', number: 2, type: 'TYPE_INT32', label: 'LABEL_OPTIONAL' },
+        {
+          name: 'count',
+          jsonName: 'count',
+          number: 2,
+          type: 'TYPE_INT32',
+          label: 'LABEL_OPTIONAL',
+        },
       ],
     };
 
@@ -726,7 +780,12 @@ function createMessageDescriptor(name: string): number[] {
   return bytes;
 }
 
-function createFieldDescriptor(name: string, number: number, type: number, label: number): number[] {
+function createFieldDescriptor(
+  name: string,
+  number: number,
+  type: number,
+  label: number
+): number[] {
   const bytes: number[] = [];
 
   // Field 1: name

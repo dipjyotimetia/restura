@@ -31,21 +31,21 @@ Extracted values land in a chosen scope (environment, collection, or workflow) a
 
 Beyond a straight sequence, a workflow graph supports these node kinds:
 
-| Node | What it does |
-|---|---|
-| **Request** | Run a saved request. |
-| **Condition** | Evaluate a JS expression; branch down the `true` or `false` edge. |
-| **Switch** | Multi-way branch — each case has an expression; an unmatched value takes the `default` edge. |
-| **Set variable** | Assign one or more variables from JS expressions. |
-| **Template** | Interpolate `{{vars}}` into a string and store the result in a variable. |
-| **Transform** | Run JS (`pm.variables.get/set`) to reshape data between steps. |
-| **Delay** | Wait a fixed number of milliseconds. |
-| **For-each** | Iterate a collection, running a nested subgraph per item — with optional concurrency. |
-| **Loop** | Repeat a subgraph `while` / `until` a condition, capped by `maxIterations` and an optional delay. |
-| **Parallel** | Fan out branches concurrently; wait for `all` / `any` / `race` and merge results. |
-| **Try / catch** | Run a subgraph; on error, run the catch subgraph. |
-| **Sub-workflow** | Call another workflow, mapping variables in and out. |
-| **Display** | Surface a value (as `json`, `table`, or `raw`) in the run monitor. |
+| Node             | What it does                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| **Request**      | Run a saved request.                                                                              |
+| **Condition**    | Evaluate a JS expression; branch down the `true` or `false` edge.                                 |
+| **Switch**       | Multi-way branch — each case has an expression; an unmatched value takes the `default` edge.      |
+| **Set variable** | Assign one or more variables from JS expressions.                                                 |
+| **Template**     | Interpolate `{{vars}}` into a string and store the result in a variable.                          |
+| **Transform**    | Run JS (`pm.variables.get/set`) to reshape data between steps.                                    |
+| **Delay**        | Wait a fixed number of milliseconds.                                                              |
+| **For-each**     | Iterate a collection, running a nested subgraph per item — with optional concurrency.             |
+| **Loop**         | Repeat a subgraph `while` / `until` a condition, capped by `maxIterations` and an optional delay. |
+| **Parallel**     | Fan out branches concurrently; wait for `all` / `any` / `race` and merge results.                 |
+| **Try / catch**  | Run a subgraph; on error, run the catch subgraph.                                                 |
+| **Sub-workflow** | Call another workflow, mapping variables in and out.                                              |
+| **Display**      | Surface a value (as `json`, `table`, or `raw`) in the run monitor.                                |
 
 For-each, loop, and try/catch nodes nest a full subgraph (its own start/end), so workflows compose to any depth.
 
@@ -66,7 +66,9 @@ The [`restura-cli`](/reference/cli/) runs workflows in CI with structured output
 - Per-row **data-driven** runs from a CSV or JSON file.
 
 <Aside title="See">
-The full workflow spec is documented in [`docs/workflows.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/workflows.md). When you import a workflow from a `.json` or OpenCollection bundle, that's the same shape on disk.
+  The full workflow spec is documented in
+  [`docs/workflows.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/workflows.md). When
+  you import a workflow from a `.json` or OpenCollection bundle, that's the same shape on disk.
 </Aside>
 
 ## Related

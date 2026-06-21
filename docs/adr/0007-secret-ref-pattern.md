@@ -26,9 +26,7 @@ access key. Even today, before MCP, the export and log surfaces are not great.
 Introduce `SecretRef`, a discriminated union over secret values:
 
 ```ts
-type SecretRef =
-  | { kind: 'inline'; value: string }
-  | { kind: 'handle'; id: string; label?: string };
+type SecretRef = { kind: 'inline'; value: string } | { kind: 'handle'; id: string; label?: string };
 
 type SecretValue = string | SecretRef;
 ```
@@ -84,6 +82,7 @@ Migration steps for one field at a time:
    with `{{handle:<label>}}` reference syntax).
 
 The order of migration is:
+
 1. `aws-signature.secretKey` (highest blast radius — agents driving
    Restura against AWS prod is the worst scenario)
 2. `oauth2.{accessToken, refreshToken, clientSecret}`
@@ -107,15 +106,15 @@ the plaintext. The list lives in
 
 ## Threat model
 
-| Threat | Mitigation |
-| --- | --- |
-| Renderer XSS via malicious response viewer reads from Zustand | Handles return placeholder; only inline values leak |
-| Collection export contains plaintext | `redactSecret()` before serialisation |
-| MCP server agent reads `get_environment` plaintext | Per-field redaction at MCP boundary |
-| Log file / crash report pretty-prints auth descriptor | Log-redaction denylist filters by field path |
-| Filesystem dump (electron-store at rest) | safeStorage-wrapped key; cannot decrypt without OS keychain unlock |
-| Compromised renderer asks `secret:resolve` IPC | No such IPC channel — main-process only |
-| Loss of OS keychain | Loud warning at startup; encryption falls back to 0o600 plaintext key file |
+| Threat                                                        | Mitigation                                                                 |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Renderer XSS via malicious response viewer reads from Zustand | Handles return placeholder; only inline values leak                        |
+| Collection export contains plaintext                          | `redactSecret()` before serialisation                                      |
+| MCP server agent reads `get_environment` plaintext            | Per-field redaction at MCP boundary                                        |
+| Log file / crash report pretty-prints auth descriptor         | Log-redaction denylist filters by field path                               |
+| Filesystem dump (electron-store at rest)                      | safeStorage-wrapped key; cannot decrypt without OS keychain unlock         |
+| Compromised renderer asks `secret:resolve` IPC                | No such IPC channel — main-process only                                    |
+| Loss of OS keychain                                           | Loud warning at startup; encryption falls back to 0o600 plaintext key file |
 
 ## What this does NOT solve
 

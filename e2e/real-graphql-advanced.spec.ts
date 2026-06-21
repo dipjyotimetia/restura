@@ -14,7 +14,11 @@ test.describe('GraphQL — errors with extensions', () => {
     });
     const json = (await res.json()) as {
       data?: { boom: string | null };
-      errors?: Array<{ message: string; path?: string[]; extensions?: { code?: string; http?: { status: number } } }>;
+      errors?: Array<{
+        message: string;
+        path?: string[];
+        extensions?: { code?: string; http?: { status: number } };
+      }>;
     };
     expect(json.errors).toBeDefined();
     expect(json.errors!.length).toBeGreaterThan(0);

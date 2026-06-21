@@ -40,7 +40,7 @@ describe('node-entry env-injection middleware (Fix #1)', () => {
     const res = await app.request('/echo', { method: 'GET' }, envIn);
     expect(res.status).toBe(200);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = await res.json() as { env: any };
+    const body = (await res.json()) as { env: any };
 
     // The pre-existing keys must still be present after the middleware ran
     // (verified through JSON; Symbol-keyed entries don't survive JSON so we
@@ -71,7 +71,7 @@ describe('node-entry env-injection middleware (Fix #1)', () => {
     const res = await app.request('/echo', { method: 'GET' });
     expect(res.status).toBe(200);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = await res.json() as { env: any };
+    const body = (await res.json()) as { env: any };
     expect(body.env.ENVIRONMENT).toBe('production');
   });
 });

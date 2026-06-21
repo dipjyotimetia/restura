@@ -9,10 +9,7 @@ export { VariableExtractorConfig } from './components/VariableExtractorConfig';
 export { useWorkflowExecution } from './hooks/useWorkflowExecution';
 
 // Library functions
-export {
-  executeWorkflow,
-  type WorkflowExecutorOptions,
-} from './lib/workflowExecutor';
+export { executeWorkflow, type WorkflowExecutorOptions } from './lib/workflowExecutor';
 
 export {
   extractVariables,

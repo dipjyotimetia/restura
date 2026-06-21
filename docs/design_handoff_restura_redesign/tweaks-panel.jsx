@@ -1,4 +1,3 @@
-
 // tweaks-panel.jsx
 // Reusable Tweaks shell + form-control helpers.
 //
@@ -165,8 +164,8 @@ function useTweaks(defaults) {
   // useState-style call doesn't write a "[object Object]" key into the persisted
   // JSON block.
   const setTweak = React.useCallback((keyOrEdits, val) => {
-    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
-      ? keyOrEdits : { [keyOrEdits]: val };
+    const edits =
+      typeof keyOrEdits === 'object' && keyOrEdits !== null ? keyOrEdits : { [keyOrEdits]: val };
     setValues((prev) => ({ ...prev, ...edits }));
     window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
     // Same-window signal so in-page listeners (deck-stage rail thumbnails)
@@ -194,7 +193,7 @@ function TweaksPanel({ title = 'Tweaks', noDeckControls = false, children }) {
   // and pass noDeckControls to suppress this one.
   const hasDeckStage = React.useMemo(
     () => typeof document !== 'undefined' && !!document.querySelector('deck-stage'),
-    [],
+    []
   );
   // deck-stage enables its rail in connectedCallback, but this panel can
   // mount before that element has upgraded. The initial read catches the
@@ -202,7 +201,7 @@ function TweaksPanel({ title = 'Tweaks', noDeckControls = false, children }) {
   // copies still wait for the host's __omelette_rail_enabled postMessage —
   // same listener handles those.)
   const [railEnabled, setRailEnabled] = React.useState(
-    () => hasDeckStage && !!document.querySelector('deck-stage')?._railEnabled,
+    () => hasDeckStage && !!document.querySelector('deck-stage')?._railEnabled
   );
   React.useEffect(() => {
     if (!hasDeckStage || railEnabled) return undefined;
@@ -213,7 +212,11 @@ function TweaksPanel({ title = 'Tweaks', noDeckControls = false, children }) {
     return () => window.removeEventListener('message', onMsg);
   }, [hasDeckStage, railEnabled]);
   const [railVisible, setRailVisible] = React.useState(() => {
-    try { return localStorage.getItem('deck-stage.railVisible') !== '0'; } catch (e) { return true; }
+    try {
+      return localStorage.getItem('deck-stage.railVisible') !== '0';
+    } catch (e) {
+      return true;
+    }
   });
   const toggleRail = (on) => {
     setRailVisible(on);
@@ -225,7 +228,8 @@ function TweaksPanel({ title = 'Tweaks', noDeckControls = false, children }) {
   const clampToViewport = React.useCallback(() => {
     const panel = dragRef.current;
     if (!panel) return;
-    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const w = panel.offsetWidth,
+      h = panel.offsetHeight;
     const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
     const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
     offsetRef.current = {
@@ -268,7 +272,8 @@ function TweaksPanel({ title = 'Tweaks', noDeckControls = false, children }) {
     const panel = dragRef.current;
     if (!panel) return;
     const r = panel.getBoundingClientRect();
-    const sx = e.clientX, sy = e.clientY;
+    const sx = e.clientX,
+      sy = e.clientY;
     const startRight = window.innerWidth - r.right;
     const startBottom = window.innerHeight - r.bottom;
     const move = (ev) => {
@@ -290,13 +295,22 @@ function TweaksPanel({ title = 'Tweaks', noDeckControls = false, children }) {
   return (
     <>
       <style>{__TWEAKS_STYLE}</style>
-      <div ref={dragRef} className="twk-panel" data-noncommentable=""
-           style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+      <div
+        ref={dragRef}
+        className="twk-panel"
+        data-noncommentable=""
+        style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}
+      >
         <div className="twk-hd" onMouseDown={onDragStart}>
           <b>{title}</b>
-          <button className="twk-x" aria-label="Close tweaks"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={dismiss}>✕</button>
+          <button
+            className="twk-x"
+            aria-label="Close tweaks"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={dismiss}
+          >
+            ✕
+          </button>
         </div>
         <div className="twk-body">
           {children}
@@ -339,8 +353,15 @@ function TweakRow({ label, value, children, inline = false }) {
 function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', onChange }) {
   return (
     <TweakRow label={label} value={`${value}${unit}`}>
-      <input type="range" className="twk-slider" min={min} max={max} step={step}
-             value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <input
+        type="range"
+        className="twk-slider"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
     </TweakRow>
   );
 }
@@ -348,10 +369,19 @@ function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', on
 function TweakToggle({ label, value, onChange }) {
   return (
     <div className="twk-row twk-row-h">
-      <div className="twk-lbl"><span>{label}</span></div>
-      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
-              role="switch" aria-checked={!!value}
-              onClick={() => onChange(!value)}><i /></button>
+      <div className="twk-lbl">
+        <span>{label}</span>
+      </div>
+      <button
+        type="button"
+        className="twk-toggle"
+        data-on={value ? '1' : '0'}
+        role="switch"
+        aria-checked={!!value}
+        onClick={() => onChange(!value)}
+      >
+        <i />
+      </button>
     </div>
   );
 }
@@ -379,11 +409,20 @@ function TweakRadio({ label, value, options, onChange }) {
       const m = options.find((o) => String(typeof o === 'object' ? o.value : o) === s);
       return m === undefined ? s : typeof m === 'object' ? m.value : m;
     };
-    return <TweakSelect label={label} value={value} options={options}
-                        onChange={(s) => onChange(resolve(s))} />;
+    return (
+      <TweakSelect
+        label={label}
+        value={value}
+        options={options}
+        onChange={(s) => onChange(resolve(s))}
+      />
+    );
   }
   const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
-  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const idx = Math.max(
+    0,
+    opts.findIndex((o) => o.value === value)
+  );
   const n = opts.length;
 
   const segAt = (clientX) => {
@@ -413,11 +452,19 @@ function TweakRadio({ label, value, options, onChange }) {
 
   return (
     <TweakRow label={label}>
-      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
-           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
-        <div className="twk-seg-thumb"
-             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
-                      width: `calc((100% - 4px) / ${n})` }} />
+      <div
+        ref={trackRef}
+        role="radiogroup"
+        onPointerDown={onPointerDown}
+        className={dragging ? 'twk-seg dragging' : 'twk-seg'}
+      >
+        <div
+          className="twk-seg-thumb"
+          style={{
+            left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+            width: `calc((100% - 4px) / ${n})`,
+          }}
+        />
         {opts.map((o) => (
           <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
             {o.label}
@@ -435,7 +482,11 @@ function TweakSelect({ label, value, options, onChange }) {
         {options.map((o) => {
           const v = typeof o === 'object' ? o.value : o;
           const l = typeof o === 'object' ? o.label : o;
-          return <option key={v} value={v}>{l}</option>;
+          return (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          );
         })}
       </select>
     </TweakRow>
@@ -445,8 +496,13 @@ function TweakSelect({ label, value, options, onChange }) {
 function TweakText({ label, value, placeholder, onChange }) {
   return (
     <TweakRow label={label}>
-      <input className="twk-field" type="text" value={value} placeholder={placeholder}
-             onChange={(e) => onChange(e.target.value)} />
+      <input
+        className="twk-field"
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </TweakRow>
   );
 }
@@ -477,9 +533,17 @@ function TweakNumber({ label, value, min, max, step = 1, unit = '', onChange }) 
   };
   return (
     <div className="twk-num">
-      <span className="twk-num-lbl" onPointerDown={onScrubStart}>{label}</span>
-      <input type="number" value={value} min={min} max={max} step={step}
-             onChange={(e) => onChange(clamp(Number(e.target.value)))} />
+      <span className="twk-num-lbl" onPointerDown={onScrubStart}>
+        {label}
+      </span>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => onChange(clamp(Number(e.target.value)))}
+      />
       {unit && <span className="twk-num-unit">{unit}</span>}
     </div>
   );
@@ -493,15 +557,22 @@ function __twkIsLight(hex) {
   const x = h.length === 3 ? h.replace(/./g, (c) => c + c) : h.padEnd(6, '0');
   const n = parseInt(x.slice(0, 6), 16);
   if (Number.isNaN(n)) return true;
-  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const r = (n >> 16) & 255,
+    g = (n >> 8) & 255,
+    b = n & 255;
   return r * 299 + g * 587 + b * 114 > 148000;
 }
 
 const __TwkCheck = ({ light }) => (
   <svg viewBox="0 0 14 14" aria-hidden="true">
-    <path d="M3 7.2 5.8 10 11 4.2" fill="none" strokeWidth="2.2"
-          strokeLinecap="round" strokeLinejoin="round"
-          stroke={light ? 'rgba(0,0,0,.78)' : '#fff'} />
+    <path
+      d="M3 7.2 5.8 10 11 4.2"
+      fill="none"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      stroke={light ? 'rgba(0,0,0,.78)' : '#fff'}
+    />
   </svg>
 );
 
@@ -515,9 +586,15 @@ function TweakColor({ label, value, options, onChange }) {
   if (!options || !options.length) {
     return (
       <div className="twk-row twk-row-h">
-        <div className="twk-lbl"><span>{label}</span></div>
-        <input type="color" className="twk-swatch" value={value}
-               onChange={(e) => onChange(e.target.value)} />
+        <div className="twk-lbl">
+          <span>{label}</span>
+        </div>
+        <input
+          type="color"
+          className="twk-swatch"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
       </div>
     );
   }
@@ -535,14 +612,23 @@ function TweakColor({ label, value, options, onChange }) {
           const sup = rest.slice(0, 4);
           const on = key(o) === cur;
           return (
-            <button key={i} type="button" className="twk-chip" role="radio"
-                    aria-checked={on} data-on={on ? '1' : '0'}
-                    aria-label={colors.join(', ')} title={colors.join(' · ')}
-                    style={{ background: hero }}
-                    onClick={() => onChange(o)}>
+            <button
+              key={i}
+              type="button"
+              className="twk-chip"
+              role="radio"
+              aria-checked={on}
+              data-on={on ? '1' : '0'}
+              aria-label={colors.join(', ')}
+              title={colors.join(' · ')}
+              style={{ background: hero }}
+              onClick={() => onChange(o)}
+            >
               {sup.length > 0 && (
                 <span>
-                  {sup.map((c, j) => <i key={j} style={{ background: c }} />)}
+                  {sup.map((c, j) => (
+                    <i key={j} style={{ background: c }} />
+                  ))}
                 </span>
               )}
               {on && <__TwkCheck light={__twkIsLight(hero)} />}
@@ -556,13 +642,23 @@ function TweakColor({ label, value, options, onChange }) {
 
 function TweakButton({ label, onClick, secondary = false }) {
   return (
-    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'}
-            onClick={onClick}>{label}</button>
+    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'} onClick={onClick}>
+      {label}
+    </button>
   );
 }
 
 Object.assign(window, {
-  useTweaks, TweaksPanel, TweakSection, TweakRow,
-  TweakSlider, TweakToggle, TweakRadio, TweakSelect,
-  TweakText, TweakNumber, TweakColor, TweakButton,
+  useTweaks,
+  TweaksPanel,
+  TweakSection,
+  TweakRow,
+  TweakSlider,
+  TweakToggle,
+  TweakRadio,
+  TweakSelect,
+  TweakText,
+  TweakNumber,
+  TweakColor,
+  TweakButton,
 });

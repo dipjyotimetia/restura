@@ -18,33 +18,33 @@ This is a **visual-layer rewrite**, not an architecture rewrite. Every existing 
 
 These are explicitly out of scope; they are already in good shape and changing them would balloon the work.
 
-| Layer | Why it's untouched |
-| --- | --- |
-| `shared/protocol/` (SSRF guard, header policy, body builder, auth signers, all `*-proxy.ts`) | Backend-agnostic wire layer; already validated |
-| `worker/handlers/*` and `electron/main/*-handler.ts` | Per ADR-0006 they're the thin Fetcher adapters |
-| `useRequestStore.tabs[]` + `activeTabId` shape | Already protocol-agnostic; matches the new design's multi-tab model |
-| All other Zustand stores (`useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, per-protocol stores) | Persistence + validators stay as-is |
-| Hash router (`createHashRouter`, single `Home` route) | Design is single-page; no routing change needed |
-| Script sandbox (QuickJS) | Sandbox is invisible to the redesign |
-| `src/lib/opencollection/`, importers/exporters | Data layer |
-| Electron IPC bridge + rate limiter | Boundary contracts stable |
-| `lucide-react` icon library | Already the standard; matches handoff's Lucide-compatible icon set |
-| `framer-motion` | Already used; keeps the slide/fade transitions |
-| Radix UI primitives as behavioural substrate | Composes well with the new visual atoms; no shadcn migration |
+| Layer                                                                                                                                                  | Why it's untouched                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `shared/protocol/` (SSRF guard, header policy, body builder, auth signers, all `*-proxy.ts`)                                                           | Backend-agnostic wire layer; already validated                      |
+| `worker/handlers/*` and `electron/main/*-handler.ts`                                                                                                   | Per ADR-0006 they're the thin Fetcher adapters                      |
+| `useRequestStore.tabs[]` + `activeTabId` shape                                                                                                         | Already protocol-agnostic; matches the new design's multi-tab model |
+| All other Zustand stores (`useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, per-protocol stores) | Persistence + validators stay as-is                                 |
+| Hash router (`createHashRouter`, single `Home` route)                                                                                                  | Design is single-page; no routing change needed                     |
+| Script sandbox (QuickJS)                                                                                                                               | Sandbox is invisible to the redesign                                |
+| `src/lib/opencollection/`, importers/exporters                                                                                                         | Data layer                                                          |
+| Electron IPC bridge + rate limiter                                                                                                                     | Boundary contracts stable                                           |
+| `lucide-react` icon library                                                                                                                            | Already the standard; matches handoff's Lucide-compatible icon set  |
+| `framer-motion`                                                                                                                                        | Already used; keeps the slide/fade transitions                      |
+| Radix UI primitives as behavioural substrate                                                                                                           | Composes well with the new visual atoms; no shadcn migration        |
 
 ---
 
 ## 3. What changes
 
-| Layer | Change |
-| --- | --- |
-| `tailwind.config.ts` | New token system: `bg`, `surface[Hi\|Lo]`, `text[Muted\|Dim]`, `line[Strong]`, `accent` (CSS-var driven), `code`, `hoverBg`, `activeBg`; method/protocol color tables; type scale; radius scale (7/8/9/12/14/16); shadow recipes (`shadow-float`, `shadow-floatLg`, `shadow-accentGlow`) |
-| `src/styles/globals.css` | Replace `.glass-1/2/3` with new shadow recipes layered with `backdrop-filter: blur(24px) saturate(180%)`; add `bgGlow` radial-gradient background; load **JetBrains Mono** alongside Geist; cursor-blink keyframe for SSE; `slideIn` keyframe for drawers; `{{var}}` highlight utility |
-| Font stack | UI: Geist (already in use, keep) · Mono: **switch from Fira Code → JetBrains Mono** to match spec exactly |
-| Layout shell | `TopBar` → new `WindowChrome` (44 px, traffic-light slot on Electron mac, plain on web/win/linux, centred env pill); `IconRail` + current `Sidebar` → new unified `Sidebar` (268 px floater); `TabBar` → new `TabStrip` (floating pill style); `StatusBar` rebuilt at 28 px; `NetworkConsole` → new `ConsoleDrawer` (32 collapsed / 232 expanded) |
-| Protocol views | All seven (HTTP, GraphQL, gRPC, WebSocket, SSE, MCP, Kafka) rebuilt to spec composition; logic untouched |
-| Overlays | `CommandPalette` refreshed (grouped, ⌘K nav); `KeyboardShortcutsPanel` folds into a new `SettingsDrawer` (760 px right drawer with 8-section nav); new `EnvSwitcher` popover anchored to sidebar env footer |
-| Settings → Appearance | Exposes accent picker (6 presets per spec), theme toggle, density (existing), font (existing) |
+| Layer                    | Change                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tailwind.config.ts`     | New token system: `bg`, `surface[Hi\|Lo]`, `text[Muted\|Dim]`, `line[Strong]`, `accent` (CSS-var driven), `code`, `hoverBg`, `activeBg`; method/protocol color tables; type scale; radius scale (7/8/9/12/14/16); shadow recipes (`shadow-float`, `shadow-floatLg`, `shadow-accentGlow`)                                                          |
+| `src/styles/globals.css` | Replace `.glass-1/2/3` with new shadow recipes layered with `backdrop-filter: blur(24px) saturate(180%)`; add `bgGlow` radial-gradient background; load **JetBrains Mono** alongside Geist; cursor-blink keyframe for SSE; `slideIn` keyframe for drawers; `{{var}}` highlight utility                                                            |
+| Font stack               | UI: Geist (already in use, keep) · Mono: **switch from Fira Code → JetBrains Mono** to match spec exactly                                                                                                                                                                                                                                         |
+| Layout shell             | `TopBar` → new `WindowChrome` (44 px, traffic-light slot on Electron mac, plain on web/win/linux, centred env pill); `IconRail` + current `Sidebar` → new unified `Sidebar` (268 px floater); `TabBar` → new `TabStrip` (floating pill style); `StatusBar` rebuilt at 28 px; `NetworkConsole` → new `ConsoleDrawer` (32 collapsed / 232 expanded) |
+| Protocol views           | All seven (HTTP, GraphQL, gRPC, WebSocket, SSE, MCP, Kafka) rebuilt to spec composition; logic untouched                                                                                                                                                                                                                                          |
+| Overlays                 | `CommandPalette` refreshed (grouped, ⌘K nav); `KeyboardShortcutsPanel` folds into a new `SettingsDrawer` (760 px right drawer with 8-section nav); new `EnvSwitcher` popover anchored to sidebar env footer                                                                                                                                       |
+| Settings → Appearance    | Exposes accent picker (6 presets per spec), theme toggle, density (existing), font (existing)                                                                                                                                                                                                                                                     |
 
 ---
 
@@ -52,20 +52,20 @@ These are explicitly out of scope; they are already in good shape and changing t
 
 Co-located under `src/components/ui/spatial/`. Each is < 100 LOC, no business logic.
 
-| Atom | Purpose |
-| --- | --- |
-| `Floater.tsx` | Universal floating panel. Props: `radius` (12/14/16), `elevation` (`float \| floatLg`), `inset` (boolean for surfaceLo), `blur` (bool). Renders `<div>` with the canonical shadow recipe |
-| `MethodChip.tsx` | Colour-coded HTTP/gRPC/WS/MCP/SSE/GQL method chip per the spec's method-colour table |
-| `ProtoChip.tsx` | Protocol-type chip (HTTP / gRPC / WS / GQL / MCP / SSE / Kafka) |
-| `StatusPill.tsx` | HTTP status pill with `2xx → green`, `4xx → amber`, `5xx → red` |
-| `Stat.tsx` | Mini stat tile: label (10.5 px / 700 / uppercase) over value (mono) |
-| `Kbd.tsx` | Keyboard shortcut chip (mono 11, surfaceLo, 7 radius) |
-| `VariableText.tsx` | Tokenises `{{varName}}` to amber pill inline; used in URL field, params, body editor, console rows |
-| `ToggleField.tsx` · `Segmented.tsx` · `Stepper.tsx` · `TextField.tsx` | Settings-drawer controls |
-| `SubTabBar.tsx` | The 2 px accent-underlined sub-tab bar used inside every protocol view |
-| `ParamRow.tsx` | 28 / 1fr / 1.5fr / 1fr / 22 grid row used by Params and Headers tables |
-| `WaterfallBar.tsx` | 220 × 8 stacked-segment bar (DNS / TCP / TLS / Request / Wait / Download) with TTFB accent inset glow |
-| `CodeEditorFrame.tsx` | Wraps the existing editor; adds 40 px gutter, mono 11.5, `surface=code` background, and `{{var}}` overlay |
+| Atom                                                                  | Purpose                                                                                                                                                                                  |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Floater.tsx`                                                         | Universal floating panel. Props: `radius` (12/14/16), `elevation` (`float \| floatLg`), `inset` (boolean for surfaceLo), `blur` (bool). Renders `<div>` with the canonical shadow recipe |
+| `MethodChip.tsx`                                                      | Colour-coded HTTP/gRPC/WS/MCP/SSE/GQL method chip per the spec's method-colour table                                                                                                     |
+| `ProtoChip.tsx`                                                       | Protocol-type chip (HTTP / gRPC / WS / GQL / MCP / SSE / Kafka)                                                                                                                          |
+| `StatusPill.tsx`                                                      | HTTP status pill with `2xx → green`, `4xx → amber`, `5xx → red`                                                                                                                          |
+| `Stat.tsx`                                                            | Mini stat tile: label (10.5 px / 700 / uppercase) over value (mono)                                                                                                                      |
+| `Kbd.tsx`                                                             | Keyboard shortcut chip (mono 11, surfaceLo, 7 radius)                                                                                                                                    |
+| `VariableText.tsx`                                                    | Tokenises `{{varName}}` to amber pill inline; used in URL field, params, body editor, console rows                                                                                       |
+| `ToggleField.tsx` · `Segmented.tsx` · `Stepper.tsx` · `TextField.tsx` | Settings-drawer controls                                                                                                                                                                 |
+| `SubTabBar.tsx`                                                       | The 2 px accent-underlined sub-tab bar used inside every protocol view                                                                                                                   |
+| `ParamRow.tsx`                                                        | 28 / 1fr / 1.5fr / 1fr / 22 grid row used by Params and Headers tables                                                                                                                   |
+| `WaterfallBar.tsx`                                                    | 220 × 8 stacked-segment bar (DNS / TCP / TLS / Request / Wait / Download) with TTFB accent inset glow                                                                                    |
+| `CodeEditorFrame.tsx`                                                 | Wraps the existing editor; adds 40 px gutter, mono 11.5, `surface=code` background, and `{{var}}` overlay                                                                                |
 
 These atoms are **the language of every screen** — building them first means every subsequent phase composes from a small, consistent vocabulary.
 
@@ -187,14 +187,14 @@ No schema changes to any other store.
 
 ## 8. Testing strategy
 
-| Layer | What we test |
-| --- | --- |
-| **Unit (Vitest)** | Atom colour variants (MethodChip, ProtoChip, StatusPill), VariableText tokeniser, ToggleField on/off, Segmented selected index |
-| **Component (RTL)** | WindowChrome renders env pill + opens EnvSwitcher; TabStrip dirty dot toggles with `isDirty`; ConsoleDrawer collapse/expand; CommandPalette ↑↓ + ↵ select |
-| **Visual regression (Playwright)** | Screenshot per protocol view at 1440 × 900, dark + light; CommandPalette open; SettingsDrawer open |
-| **Keyboard (Playwright)** | ⌘K opens palette, Esc closes, ⌘, opens settings; arrow nav inside palette |
-| **Accent switching (Playwright)** | All 6 presets render without text contrast violations |
-| **Light theme parity (Playwright)** | Every screen renders without missing tokens |
+| Layer                               | What we test                                                                                                                                              |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Unit (Vitest)**                   | Atom colour variants (MethodChip, ProtoChip, StatusPill), VariableText tokeniser, ToggleField on/off, Segmented selected index                            |
+| **Component (RTL)**                 | WindowChrome renders env pill + opens EnvSwitcher; TabStrip dirty dot toggles with `isDirty`; ConsoleDrawer collapse/expand; CommandPalette ↑↓ + ↵ select |
+| **Visual regression (Playwright)**  | Screenshot per protocol view at 1440 × 900, dark + light; CommandPalette open; SettingsDrawer open                                                        |
+| **Keyboard (Playwright)**           | ⌘K opens palette, Esc closes, ⌘, opens settings; arrow nav inside palette                                                                                 |
+| **Accent switching (Playwright)**   | All 6 presets render without text contrast violations                                                                                                     |
+| **Light theme parity (Playwright)** | Every screen renders without missing tokens                                                                                                               |
 
 Existing protocol e2e suites (`real-http.spec.ts`, gRPC, SSE, MCP, etc.) **must continue to pass unchanged** — proves the wire layer is untouched.
 
@@ -202,14 +202,14 @@ Existing protocol e2e suites (`real-http.spec.ts`, gRPC, SSE, MCP, etc.) **must 
 
 ## 9. Risks & mitigations
 
-| Risk | Mitigation |
-| --- | --- |
-| Phase 2 ships a Spatial shell wrapping legacy protocol panes — looks inconsistent for a beat | Time-box Phase 3 (HTTP) immediately after to land the workhorse; gate Phase 2 release behind a feature flag if Phase 3 slips |
-| `glass-*` class aliases left behind after Phase 11 cleanup | Final-phase grep for `glass-1\|glass-2\|glass-3` returns zero matches as cleanup gate |
-| Accent custom colour fails contrast (e.g. yellow on light theme) | Limit picker to the 6 presets; reject custom input in v1 |
-| JetBrains Mono swap breaks code-editor metrics | Verify column-width calculations in `CodeEditorFrame` after font swap; both fonts are 0.6em width, low risk |
-| Electron `hiddenInset` regression on Windows / Linux | Conditional in `window-manager.ts`: only mac uses `hiddenInset`; win/linux fall back to default chrome (chrome height stays 44 px) |
-| Hidden coupling between `NetworkConsole` and protocol views | Map current call sites before deletion; Phase 11 gate is "all NetworkConsole imports removed" |
+| Risk                                                                                         | Mitigation                                                                                                                         |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 2 ships a Spatial shell wrapping legacy protocol panes — looks inconsistent for a beat | Time-box Phase 3 (HTTP) immediately after to land the workhorse; gate Phase 2 release behind a feature flag if Phase 3 slips       |
+| `glass-*` class aliases left behind after Phase 11 cleanup                                   | Final-phase grep for `glass-1\|glass-2\|glass-3` returns zero matches as cleanup gate                                              |
+| Accent custom colour fails contrast (e.g. yellow on light theme)                             | Limit picker to the 6 presets; reject custom input in v1                                                                           |
+| JetBrains Mono swap breaks code-editor metrics                                               | Verify column-width calculations in `CodeEditorFrame` after font swap; both fonts are 0.6em width, low risk                        |
+| Electron `hiddenInset` regression on Windows / Linux                                         | Conditional in `window-manager.ts`: only mac uses `hiddenInset`; win/linux fall back to default chrome (chrome height stays 44 px) |
+| Hidden coupling between `NetworkConsole` and protocol views                                  | Map current call sites before deletion; Phase 11 gate is "all NetworkConsole imports removed"                                      |
 
 ---
 
@@ -243,7 +243,7 @@ The redesign is complete when:
 
 These were not knowable from the handoff alone. **Defaults are noted; please confirm or override.**
 
-1. **Roll-out**: behind a feature flag with parallel old/new shells, or hard cut-over per phase? *Default: hard cut-over phase-by-phase (smaller surface area, no flag debt).*
-2. **AI sparkle icon**: ship as no-op (per handoff) or wire to a Claude Haiku helper now? *Default: ship as no-op; track separately.*
-3. **Sidebar < 1200 px collapse**: include in this redesign or defer? *Default: defer to follow-up.*
-4. **Custom accent input** (any hex) vs. only the 6 presets? *Default: 6 presets only, for contrast safety.*
+1. **Roll-out**: behind a feature flag with parallel old/new shells, or hard cut-over per phase? _Default: hard cut-over phase-by-phase (smaller surface area, no flag debt)._
+2. **AI sparkle icon**: ship as no-op (per handoff) or wire to a Claude Haiku helper now? _Default: ship as no-op; track separately._
+3. **Sidebar < 1200 px collapse**: include in this redesign or defer? _Default: defer to follow-up._
+4. **Custom accent input** (any hex) vs. only the 6 presets? _Default: 6 presets only, for contrast safety._

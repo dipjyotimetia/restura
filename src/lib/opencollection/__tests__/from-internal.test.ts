@@ -63,10 +63,20 @@ describe('internalToOC', () => {
           id: 'a',
           type: 'request',
           name: 'A',
-          _oc: { info: { type: 'http', name: 'A' }, http: { method: 'GET', url: 'https://a.example' } },
+          _oc: {
+            info: { type: 'http', name: 'A' },
+            http: { method: 'GET', url: 'https://a.example' },
+          },
           request: {
-            id: 'a', name: 'A', type: 'http', method: 'GET', url: 'https://a.example',
-            headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' },
+            id: 'a',
+            name: 'A',
+            type: 'http',
+            method: 'GET',
+            url: 'https://a.example',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
           },
         },
         // modified: no _oc, must be rebuilt
@@ -75,8 +85,15 @@ describe('internalToOC', () => {
           type: 'request',
           name: 'B',
           request: {
-            id: 'b', name: 'B', type: 'http', method: 'POST', url: 'https://b.example',
-            headers: [], params: [], body: { type: 'json', raw: '{}' }, auth: { type: 'none' },
+            id: 'b',
+            name: 'B',
+            type: 'http',
+            method: 'POST',
+            url: 'https://b.example',
+            headers: [],
+            params: [],
+            body: { type: 'json', raw: '{}' },
+            auth: { type: 'none' },
           },
         },
       ],
@@ -104,9 +121,7 @@ describe('internalToOC', () => {
       },
       extensions: {
         'x-third-party-tool': { foo: 'bar' },
-        'x-restura-sse': [
-          { info: { type: 'sse', name: 'Events' }, sse: { url: '/events' } },
-        ],
+        'x-restura-sse': [{ info: { type: 'sse', name: 'Events' }, sse: { url: '/events' } }],
       },
       items: [],
     };
@@ -217,8 +232,14 @@ describe('internalToOC', () => {
           type: 'request',
           name: 'Events',
           request: {
-            id: 'r', name: 'Events', type: 'sse', url: 'https://x/events',
-            headers: [], params: [], auth: { type: 'none' }, eventFilter: ['a', 'b'],
+            id: 'r',
+            name: 'Events',
+            type: 'sse',
+            url: 'https://x/events',
+            headers: [],
+            params: [],
+            auth: { type: 'none' },
+            eventFilter: ['a', 'b'],
           },
         },
       ],
@@ -264,7 +285,12 @@ describe('internalToOC', () => {
   });
 
   it('handles gRPC streaming method types in conversion', () => {
-    const methodTypes = ['unary', 'server-streaming', 'client-streaming', 'bidirectional-streaming'] as const;
+    const methodTypes = [
+      'unary',
+      'server-streaming',
+      'client-streaming',
+      'bidirectional-streaming',
+    ] as const;
     for (const mt of methodTypes) {
       const internal: any = {
         id: 'col-grpc',

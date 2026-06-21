@@ -13,7 +13,9 @@ function toRecord(input: RequestInit['headers']): Record<string, string> {
   if (!input) return {};
   if (input instanceof Headers) {
     const out: Record<string, string> = {};
-    input.forEach((v, k) => { out[k] = v; });
+    input.forEach((v, k) => {
+      out[k] = v;
+    });
     return out;
   }
   if (Array.isArray(input)) {
@@ -191,9 +193,11 @@ export async function httpsViaConnectProxy(
     await tlsWriter.write(encodeRequest(method, targetUrl, headers, bodyBytes));
     tlsWriter.releaseLock();
 
-    const { statusLine: respStatusLine, headers: respHeaders, body: respBody } = await readHttpResponse(
-      tlsSocket.readable
-    );
+    const {
+      statusLine: respStatusLine,
+      headers: respHeaders,
+      body: respBody,
+    } = await readHttpResponse(tlsSocket.readable);
 
     return new Response(respBody, {
       status: parseStatusCode(respStatusLine),
@@ -248,7 +252,11 @@ export async function httpViaProxy(
   await writer.write(wireBytes);
   writer.releaseLock();
 
-  const { statusLine, headers: respHeaders, body: respBody } = await readHttpResponse(socket.readable);
+  const {
+    statusLine,
+    headers: respHeaders,
+    body: respBody,
+  } = await readHttpResponse(socket.readable);
   await socket.close();
 
   return new Response(respBody, {

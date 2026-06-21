@@ -186,7 +186,9 @@ describe('executeHttpProxy', () => {
   });
 
   it('returns 502 on fetcher error', async () => {
-    const fetcher: Fetcher = vi.fn(async () => { throw new Error('upstream gone'); });
+    const fetcher: Fetcher = vi.fn(async () => {
+      throw new Error('upstream gone');
+    });
     const r = await executeHttpProxy(
       { method: 'GET', url: 'https://example.com/', timeout: 1000 },
       fetcher,
@@ -302,11 +304,9 @@ describe('executeHttpProxy with SigV4 auth', () => {
 
   it('does not add SigV4 headers when auth is omitted', async () => {
     const fetcher = vi.fn(makeFetcher('{}'));
-    await executeHttpProxy(
-      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
-      fetcher,
-      { allowLocalhost: false }
-    );
+    await executeHttpProxy({ method: 'GET', url: 'https://example.com/', timeout: 1000 }, fetcher, {
+      allowLocalhost: false,
+    });
     const arg = fetcher.mock.calls[0]?.[0];
     expect(asRecord(arg!.headers).Authorization).toBeUndefined();
   });
@@ -422,7 +422,9 @@ describe('executeHttpProxyStreaming', () => {
 
   it('passes sanitized request headers to the fetcher', async () => {
     const stream = new ReadableStream<Uint8Array>({
-      start(controller) { controller.close(); },
+      start(controller) {
+        controller.close();
+      },
     });
     const fetcher = vi.fn<Fetcher>(async () => ({
       status: 200,
@@ -483,7 +485,9 @@ describe('executeHttpProxyStreaming', () => {
     // gigabytes of NDJSON. The shared core does not cap; consumers (renderer
     // viewer) impose their own per-chunk or windowed-render budgets.
     const stream = new ReadableStream<Uint8Array>({
-      start(controller) { controller.close(); },
+      start(controller) {
+        controller.close();
+      },
     });
     const huge = String(MAX_RESPONSE_SIZE * 100);
     const fetcher: Fetcher = async () => ({
@@ -504,7 +508,9 @@ describe('executeHttpProxyStreaming', () => {
 
   it('propagates negotiatedAlpn when fetcher provides it', async () => {
     const stream = new ReadableStream<Uint8Array>({
-      start(controller) { controller.close(); },
+      start(controller) {
+        controller.close();
+      },
     });
     const fetcher: Fetcher = async () => ({
       status: 200,

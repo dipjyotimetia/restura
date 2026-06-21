@@ -43,10 +43,7 @@ export function migrateLegacyStateToTabs(legacy: LegacyRequestState): MigratedRe
     return { tabs: [], activeTabId: null };
   }
   const tab = createTabFromRequest(legacy.currentRequest);
-  if (
-    legacy.currentResponse &&
-    legacy.currentResponse.requestId === legacy.currentRequest.id
-  ) {
+  if (legacy.currentResponse && legacy.currentResponse.requestId === legacy.currentRequest.id) {
     tab.response = legacy.currentResponse;
   }
   return { tabs: [tab], activeTabId: tab.id };

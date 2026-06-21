@@ -5,6 +5,7 @@ Workflows allow you to execute multiple API requests sequentially, passing data 
 ## Overview
 
 A workflow consists of:
+
 - **Steps**: Individual requests executed in sequence
 - **Variable Extractions**: Rules to extract data from responses
 - **Preconditions**: Scripts that determine if a step should run
@@ -54,6 +55,7 @@ data.token            → Extracts simple property
 ```
 
 **Example Response:**
+
 ```json
 {
   "data": {
@@ -67,6 +69,7 @@ data.token            → Extracts simple property
 ```
 
 **Extractions:**
+
 - `data.user.id` → `usr_123`
 - `data.token` → `eyJhbG...`
 
@@ -81,6 +84,7 @@ Bearer\s+(\S+)        → Captures bearer token
 ```
 
 **Example:**
+
 - Body: `{"token":"abc123","user":"john"}`
 - Pattern: `"token":"([^"]+)"`
 - Result: `abc123`
@@ -149,6 +153,7 @@ Configure automatic retries for failed requests.
 ```
 
 Retry timeline:
+
 1. Initial request fails → wait 1000ms
 2. Retry 1 fails → wait 2000ms
 3. Retry 2 fails → wait 4000ms
@@ -167,16 +172,19 @@ Retry timeline:
 The executor shows three tabs:
 
 #### Steps Tab
+
 - Visual progress of each step
 - Status icons (pending, running, success, failed, skipped)
 - Response status and duration
 - Extracted variables per step
 
 #### Variables Tab
+
 - All variables available after execution
 - Final values including all extractions
 
 #### Logs Tab
+
 - Timestamped execution log
 - Info, warning, and error messages
 - Useful for debugging
@@ -240,7 +248,7 @@ interface VariableExtraction {
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 
 // Get workflows for a collection
-const workflows = useWorkflowStore(s => s.getWorkflowsByCollectionId(collectionId));
+const workflows = useWorkflowStore((s) => s.getWorkflowsByCollectionId(collectionId));
 
 // Create a workflow
 const workflow = useWorkflowStore.getState().createNewWorkflow('My Flow', collectionId);
@@ -256,9 +264,9 @@ useWorkflowStore.getState().addWorkflowRequest(workflowId, {
       id: 'ext-1',
       variableName: 'userId',
       extractionMethod: 'jsonpath',
-      path: 'data.id'
-    }
-  ]
+      path: 'data.id',
+    },
+  ],
 });
 ```
 

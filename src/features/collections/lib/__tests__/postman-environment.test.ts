@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  importPostmanEnvironment,
-  isPostmanEnvironment,
-} from '../importers/postman-environment';
+import { importPostmanEnvironment, isPostmanEnvironment } from '../importers/postman-environment';
 
 describe('isPostmanEnvironment', () => {
   it('returns true for a valid environment file', () => {
@@ -17,7 +14,10 @@ describe('isPostmanEnvironment', () => {
 
   it('returns false for a Postman collection (different scope discriminator)', () => {
     const collection = {
-      info: { name: 'My Collection', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+      info: {
+        name: 'My Collection',
+        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+      },
       item: [],
     };
     expect(isPostmanEnvironment(collection)).toBe(false);
@@ -40,7 +40,9 @@ describe('isPostmanEnvironment', () => {
   });
 
   it('returns false when values is missing', () => {
-    expect(isPostmanEnvironment({ name: 'Foo', _postman_variable_scope: 'environment' })).toBe(false);
+    expect(isPostmanEnvironment({ name: 'Foo', _postman_variable_scope: 'environment' })).toBe(
+      false
+    );
   });
 });
 
@@ -104,9 +106,9 @@ describe('importPostmanEnvironment', () => {
   });
 
   it('throws when input is not a Postman environment file', () => {
-    expect(() =>
-      importPostmanEnvironment({ info: { name: 'X' }, item: [] })
-    ).toThrow(/Postman environment file/);
+    expect(() => importPostmanEnvironment({ info: { name: 'X' }, item: [] })).toThrow(
+      /Postman environment file/
+    );
   });
 
   it('generates unique ids for environment and each variable', () => {

@@ -309,9 +309,7 @@ describe('workflowExecutor', () => {
       id: 'wf-1',
       name: 'Callback Test',
       collectionId: 'col-1',
-      requests: [
-        { id: 'wr-1', requestId: 'req-1', name: 'First' },
-      ],
+      requests: [{ id: 'wr-1', requestId: 'req-1', name: 'First' }],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -337,9 +335,7 @@ describe('workflowExecutor', () => {
       id: 'wf-1',
       name: 'Log Test',
       collectionId: 'col-1',
-      requests: [
-        { id: 'wr-1', requestId: 'req-1', name: 'First' },
-      ],
+      requests: [{ id: 'wr-1', requestId: 'req-1', name: 'First' }],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -362,9 +358,7 @@ describe('workflowExecutor', () => {
       id: 'wf-1',
       name: 'Variables Test',
       collectionId: 'col-1',
-      requests: [
-        { id: 'wr-1', requestId: 'req-1', name: 'First' },
-      ],
+      requests: [{ id: 'wr-1', requestId: 'req-1', name: 'First' }],
       variables: [
         { id: 'v1', key: 'baseUrl', value: 'https://api.example.com', enabled: true },
         { id: 'v2', key: 'disabled', value: 'should not appear', enabled: false },
@@ -395,9 +389,7 @@ describe('workflowExecutor', () => {
       id: 'wf-1',
       name: 'Abort Test',
       collectionId: 'col-1',
-      requests: [
-        { id: 'wr-1', requestId: 'req-1', name: 'First' },
-      ],
+      requests: [{ id: 'wr-1', requestId: 'req-1', name: 'First' }],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -439,7 +431,8 @@ describe('workflowExecutor', () => {
       getInheritedAuth: () => bearerAuth,
     });
 
-    const calledRequest = (mockExecuteRequest.mock.calls[0] as [{ request: HttpRequest }])[0]?.request;
+    const calledRequest = (mockExecuteRequest.mock.calls[0] as [{ request: HttpRequest }])[0]
+      ?.request;
     expect(calledRequest?.auth).toEqual(bearerAuth);
   });
 });

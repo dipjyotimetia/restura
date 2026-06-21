@@ -6,7 +6,9 @@ import { anthropicModule } from '@shared/protocol/ai/providers/anthropic';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 
 function load(name: string): Uint8Array {
-  return new TextEncoder().encode(readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8'));
+  return new TextEncoder().encode(
+    readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8')
+  );
 }
 
 function decodeFixture(name: string, model = 'claude-sonnet-4-6'): ChatStreamEvent[] {
@@ -22,13 +24,18 @@ function decodeFixture(name: string, model = 'claude-sonnet-4-6'): ChatStreamEve
 describe('anthropic decoder', () => {
   it('reconstructs text from content_block_delta events', () => {
     const events = decodeFixture('anthropic-explain.sse.txt');
-    const text = events.filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta').map((d) => d.text).join('');
+    const text = events
+      .filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta')
+      .map((d) => d.text)
+      .join('');
     expect(text).toBe('The request failed.');
   });
 
   it('aggregates input_tokens from message_start and output_tokens from message_delta', () => {
     const events = decodeFixture('anthropic-explain.sse.txt');
-    const usage = events.find((e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage');
+    const usage = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage'
+    );
     expect(usage?.usage.promptTokens).toBe(42);
     expect(usage?.usage.completionTokens).toBe(3);
     expect(usage?.usage.estimatedCostUSD).toBeGreaterThan(0);
@@ -36,7 +43,9 @@ describe('anthropic decoder', () => {
 
   it('emits a provider error for error events', () => {
     const events = decodeFixture('anthropic-error-malformed.sse.txt');
-    const err = events.find((e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error');
+    const err = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error'
+    );
     expect(err?.code).toBe('provider');
     expect(err?.message).toContain('Overloaded');
   });

@@ -14,8 +14,7 @@ import type { Env } from '../env';
  */
 export function isLocalDevBypass(env: Env): boolean {
   if (env.ENVIRONMENT !== 'development') return false;
-  const inMiniflare =
-    typeof (globalThis as { MINIFLARE?: unknown }).MINIFLARE !== 'undefined';
+  const inMiniflare = typeof (globalThis as { MINIFLARE?: unknown }).MINIFLARE !== 'undefined';
   return inMiniflare || env.DEV_BYPASS_AUTH === 'true';
 }
 

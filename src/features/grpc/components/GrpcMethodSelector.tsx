@@ -72,8 +72,7 @@ export function GrpcMethodSelector({
 }: GrpcMethodSelectorProps) {
   const reflectionServices = services?.filter((s) => s.fullName) ?? [];
   const hasReflectionServices = reflectionServices.length > 0;
-  const reflectionMethods =
-    selectedService?.methods.filter((m) => m.name) ?? [];
+  const reflectionMethods = selectedService?.methods.filter((m) => m.name) ?? [];
   const hasReflectionMethods = reflectionMethods.length > 0;
 
   return (
@@ -156,9 +155,7 @@ export function GrpcMethodSelector({
                     className="font-mono text-sp-12"
                   >
                     {method.name}
-                    {label && (
-                      <span className="ml-2 text-sp-10 text-sp-muted">{label}</span>
-                    )}
+                    {label && <span className="ml-2 text-sp-10 text-sp-muted">{label}</span>}
                     {desktopOnly && (
                       <span
                         className="ml-2 inline-flex items-center gap-1 rounded-sm bg-amber-500/15 px-1 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-400"

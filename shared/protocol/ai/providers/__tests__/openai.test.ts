@@ -7,7 +7,7 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 
 function loadFixture(name: string): Uint8Array {
   return new TextEncoder().encode(
-    readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8'),
+    readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8')
   );
 }
 
@@ -28,9 +28,13 @@ function decodeFixture(fixtureName: string, model = 'gpt-4o-mini'): ChatStreamEv
 describe('openai decoder', () => {
   it('decodes a happy-path chunked completion', () => {
     const events = decodeFixture('openai-explain.sse.txt');
-    const deltas = events.filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta');
+    const deltas = events.filter(
+      (e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta'
+    );
     expect(deltas.map((d) => d.text).join('')).toBe('The request failed.');
-    const usage = events.find((e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage');
+    const usage = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage'
+    );
     expect(usage?.usage.promptTokens).toBe(42);
     expect(usage?.usage.completionTokens).toBe(3);
     expect(usage?.usage.estimatedCostUSD).toBeGreaterThan(0);

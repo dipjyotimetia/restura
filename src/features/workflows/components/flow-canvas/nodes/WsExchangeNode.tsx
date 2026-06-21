@@ -15,15 +15,10 @@ function WsExchangeNodeImpl({ id, data, selected }: NodeProps) {
         <div className="flex items-start gap-2">
           <Plug className="h-4 w-4 mt-0.5 text-teal-400" />
           <div className="min-w-0">
-            <div
-              className="text-xs font-mono truncate"
-              title={d.url || 'wss://…'}
-            >
+            <div className="text-xs font-mono truncate" title={d.url || 'wss://…'}>
               {d.url || '— set URL —'}
             </div>
-            <div className="text-[10px] text-muted-foreground mt-0.5">
-              send → match
-            </div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">send → match</div>
           </div>
         </div>
       </NodeChrome>

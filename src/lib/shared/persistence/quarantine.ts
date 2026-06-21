@@ -12,11 +12,7 @@ import { db } from '@/lib/shared/database';
 const MAX_QUARANTINE_ENTRIES = 50;
 const QUARANTINE_PREFIX = 'quarantine:';
 
-export async function quarantineState(
-  key: string,
-  raw: unknown,
-  reason: string,
-): Promise<void> {
+export async function quarantineState(key: string, raw: unknown, reason: string): Promise<void> {
   try {
     await db.transaction('rw', db.metadata, async () => {
       const existing = await db.metadata
@@ -42,11 +38,11 @@ export async function quarantineState(
   }
 }
 
-export async function listQuarantined(): Promise<Array<{ key: string; reason: string; ts: number }>> {
+export async function listQuarantined(): Promise<
+  Array<{ key: string; reason: string; ts: number }>
+> {
   try {
-    const rows = await db.metadata
-      .filter((m) => m.key.startsWith(QUARANTINE_PREFIX))
-      .toArray();
+    const rows = await db.metadata.filter((m) => m.key.startsWith(QUARANTINE_PREFIX)).toArray();
     return rows.map((r) => {
       try {
         const parsed = JSON.parse(r.value) as { reason?: string; ts?: number };

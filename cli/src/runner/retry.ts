@@ -42,10 +42,7 @@ export async function withRetry(
   return { ...lastOutcome, durationMs: totalDuration };
 }
 
-function shouldRetry(
-  outcome: ExecuteOutcome,
-  rules: RetryOptions['retryOn']
-): boolean {
+function shouldRetry(outcome: ExecuteOutcome, rules: RetryOptions['retryOn']): boolean {
   for (const rule of rules) {
     if (rule === 'network' && (outcome.status === 0 || outcome.errorMessage)) return true;
     if (rule === '5xx' && outcome.status >= 500 && outcome.status < 600) return true;
@@ -62,7 +59,10 @@ function sleep(ms: number): Promise<void> {
 /** Parse a `--retry-on` value like `"network,5xx,418"` into RetryOptions['retryOn']. */
 export function parseRetryOn(raw: string): RetryOptions['retryOn'] {
   const out: RetryOptions['retryOn'] = [];
-  for (const part of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+  for (const part of raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)) {
     if (part === 'network' || part === '5xx' || part === '4xx') {
       out.push(part);
     } else {

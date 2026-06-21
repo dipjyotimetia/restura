@@ -2,15 +2,27 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ModelInfo, ProviderModule, StreamDecoder } from './types';
 
 const MODELS: ModelInfo[] = [
-  { id: 'gpt-4o-mini', label: 'GPT-4o mini', contextWindow: 128_000, inputUSDPerMTok: 0.15, outputUSDPerMTok: 0.60 },
-  { id: 'gpt-4o', label: 'GPT-4o', contextWindow: 128_000, inputUSDPerMTok: 2.50, outputUSDPerMTok: 10.00 },
+  {
+    id: 'gpt-4o-mini',
+    label: 'GPT-4o mini',
+    contextWindow: 128_000,
+    inputUSDPerMTok: 0.15,
+    outputUSDPerMTok: 0.6,
+  },
+  {
+    id: 'gpt-4o',
+    label: 'GPT-4o',
+    contextWindow: 128_000,
+    inputUSDPerMTok: 2.5,
+    outputUSDPerMTok: 10.0,
+  },
 ];
 
 function estimateCost(
   models: ModelInfo[],
   model: string,
   promptTokens: number,
-  completionTokens: number,
+  completionTokens: number
 ): number {
   const info = models.find((m) => m.id === model);
   if (!info) return 0;
@@ -44,7 +56,7 @@ class OpenAIDecoder implements StreamDecoder {
 
   constructor(
     private readonly model: string,
-    private readonly models: ModelInfo[],
+    private readonly models: ModelInfo[]
   ) {}
 
   feed(rawData: string): ChatStreamEvent[] {
@@ -122,7 +134,12 @@ class OpenAIDecoder implements StreamDecoder {
     if (this.toolCalls.size > 0) {
       for (const [, tc] of [...this.toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
         if (tc.id && tc.name) {
-          this.buffered.push({ type: 'tool_call', id: tc.id, name: tc.name, input: tc.args || '{}' });
+          this.buffered.push({
+            type: 'tool_call',
+            id: tc.id,
+            name: tc.name,
+            input: tc.args || '{}',
+          });
         }
       }
       this.toolCalls.clear();
@@ -136,7 +153,7 @@ class OpenAIDecoder implements StreamDecoder {
             this.models,
             this.model,
             this.pendingUsage.promptTokens,
-            this.pendingUsage.completionTokens,
+            this.pendingUsage.completionTokens
           ),
         },
       });

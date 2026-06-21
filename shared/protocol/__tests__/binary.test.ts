@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  isBinaryContentType,
-  bytesToBase64,
-  getHeaderCI,
-  readStreamToBytes,
-} from '../binary';
+import { isBinaryContentType, bytesToBase64, getHeaderCI, readStreamToBytes } from '../binary';
 
 describe('isBinaryContentType', () => {
   it('treats text-ish content types as text', () => {
@@ -100,10 +95,7 @@ describe('readStreamToBytes', () => {
   });
 
   it('returns null when the byte cap is exceeded', async () => {
-    const out = await readStreamToBytes(
-      streamOf([new Uint8Array(10), new Uint8Array(10)]),
-      15
-    );
+    const out = await readStreamToBytes(streamOf([new Uint8Array(10), new Uint8Array(10)]), 15);
     expect(out).toBeNull();
   });
 });

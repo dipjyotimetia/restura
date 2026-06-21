@@ -92,7 +92,11 @@ export async function encryptValue(value: string, password: string): Promise<str
     const iv = generateIV();
     const key = await deriveKey(password, salt);
 
-    const encryptedData = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, data);
+    const encryptedData = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv as BufferSource },
+      key,
+      data
+    );
 
     // Combine salt + iv + encrypted data
     const combined = new Uint8Array(salt.length + iv.length + encryptedData.byteLength);
@@ -177,10 +181,7 @@ export async function encryptAuthConfig(auth: unknown, password: string): Promis
 /**
  * Decrypt sensitive authentication data
  */
-export async function decryptAuthConfig(
-  encryptedAuth: string,
-  password: string
-): Promise<unknown> {
+export async function decryptAuthConfig(encryptedAuth: string, password: string): Promise<unknown> {
   const jsonString = await decryptValue(encryptedAuth, password);
   return JSON.parse(jsonString);
 }

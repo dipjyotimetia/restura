@@ -1,5 +1,5 @@
 import type * as Monaco from 'monaco-editor';
-import type { GraphQLSchema, GraphQLField} from '../types';
+import type { GraphQLSchema, GraphQLField } from '../types';
 import { formatTypeRef } from '../types';
 import { getTypeFields } from './introspection';
 
@@ -43,15 +43,11 @@ export function registerGraphQLCompletionProvider(
           break;
 
         case 'operation':
-          suggestions.push(
-            ...getFieldSuggestions(monaco, schema, context.typeName, range)
-          );
+          suggestions.push(...getFieldSuggestions(monaco, schema, context.typeName, range));
           break;
 
         case 'field':
-          suggestions.push(
-            ...getFieldSuggestions(monaco, schema, context.typeName, range)
-          );
+          suggestions.push(...getFieldSuggestions(monaco, schema, context.typeName, range));
           break;
 
         case 'argument':
@@ -103,7 +99,12 @@ function getCompletionContext(text: string): CompletionContext {
   const operationMatch = trimmed.match(/(query|mutation|subscription)\s*\w*\s*(?:\([^)]*\))?\s*\{/);
   if (operationMatch) {
     const operationType = operationMatch[1];
-    const typeName = operationType === 'query' ? 'Query' : operationType === 'mutation' ? 'Mutation' : 'Subscription';
+    const typeName =
+      operationType === 'query'
+        ? 'Query'
+        : operationType === 'mutation'
+          ? 'Mutation'
+          : 'Subscription';
     return { type: 'operation', typeName };
   }
 

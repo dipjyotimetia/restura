@@ -3,7 +3,16 @@ import { useLoadTestStore, type LoadTestRun } from '../useLoadTestStore';
 import type { LoadStats } from '@/lib/shared/loadStats';
 
 const stats: LoadStats = {
-  count: 1, errors: 0, min: 1, max: 1, mean: 1, p50: 1, p90: 1, p95: 1, p99: 1, rps: 1,
+  count: 1,
+  errors: 0,
+  min: 1,
+  max: 1,
+  mean: 1,
+  p50: 1,
+  p90: 1,
+  p95: 1,
+  p99: 1,
+  rps: 1,
 };
 
 function run(id: string): LoadTestRun {
@@ -12,7 +21,17 @@ function run(id: string): LoadTestRun {
     method: 'GET',
     url: 'https://api.example/x',
     requestName: 'x',
-    request: { id, name: 'x', type: 'http', method: 'GET', url: 'https://api.example/x', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' } } as never,
+    request: {
+      id,
+      name: 'x',
+      type: 'http',
+      method: 'GET',
+      url: 'https://api.example/x',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth: { type: 'none' },
+    } as never,
     stats,
     rps: 1,
     completedAt: Date.now(),

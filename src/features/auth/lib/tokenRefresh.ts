@@ -27,7 +27,8 @@ export async function refreshOAuth2Auth(auth: AuthConfig, nowMs = Date.now()): P
     clientId: o.clientId!,
     tokenUrl: o.tokenUrl!,
     refreshToken: refreshTokenStr,
-    ...(clientSecretStr !== undefined && clientSecretStr !== '' && { clientSecret: clientSecretStr }),
+    ...(clientSecretStr !== undefined &&
+      clientSecretStr !== '' && { clientSecret: clientSecretStr }),
     ...(o.scope !== undefined && { scope: o.scope }),
   });
   const tokenType = res.token_type ?? o.tokenType;

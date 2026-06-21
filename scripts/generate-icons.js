@@ -46,28 +46,20 @@ async function generateIcons() {
   console.log('Generating PNG icons...');
   for (const size of sizes) {
     const outputPath = path.join(iconsDir, `${size}x${size}.png`);
-    await sharp(svgPath)
-      .resize(size, size)
-      .png()
-      .toFile(outputPath);
+    await sharp(svgPath).resize(size, size).png().toFile(outputPath);
     console.log(`  Created ${size}x${size}.png`);
   }
 
   // Generate main icon.png (512x512)
   const mainIconPath = path.join(resourcesDir, 'icon.png');
-  await sharp(svgPath)
-    .resize(512, 512)
-    .png()
-    .toFile(mainIconPath);
+  await sharp(svgPath).resize(512, 512).png().toFile(mainIconPath);
   console.log('  Created icon.png (512x512)');
 
   // Generate ICO for Windows
   console.log('Generating Windows ICO...');
   try {
     const pngToIco = require('png-to-ico');
-    const pngSizes = [16, 32, 48, 256].map(size =>
-      path.join(iconsDir, `${size}x${size}.png`)
-    );
+    const pngSizes = [16, 32, 48, 256].map((size) => path.join(iconsDir, `${size}x${size}.png`));
     const icoBuffer = await pngToIco(pngSizes);
     fs.writeFileSync(path.join(resourcesDir, 'icon.ico'), icoBuffer);
     console.log('  Created icon.ico');
@@ -124,7 +116,7 @@ async function generateIcons() {
   console.log('\nIcon generation complete!');
 }
 
-generateIcons().catch(err => {
+generateIcons().catch((err) => {
   console.error('Error generating icons:', err);
   process.exit(1);
 });

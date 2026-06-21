@@ -65,22 +65,12 @@ export default function AriaLiveAnnouncerProvider({ children }: AriaLiveAnnounce
       {children}
 
       {/* Polite live region for non-urgent announcements */}
-      <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        className="sr-only"
-      >
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {politeMessage}
       </div>
 
       {/* Assertive live region for urgent announcements */}
-      <div
-        role="alert"
-        aria-live="assertive"
-        aria-atomic="true"
-        className="sr-only"
-      >
+      <div role="alert" aria-live="assertive" aria-atomic="true" className="sr-only">
         {assertiveMessage}
       </div>
     </AnnouncerContext.Provider>
@@ -98,7 +88,9 @@ export function useRequestAnnouncements() {
   const announceRequestComplete = useCallback(
     (status: number, time: number) => {
       if (status >= 200 && status < 300) {
-        announceSuccess(`Request completed successfully with status ${status} in ${time} milliseconds`);
+        announceSuccess(
+          `Request completed successfully with status ${status} in ${time} milliseconds`
+        );
       } else if (status >= 400) {
         announceError(`Request failed with status ${status} in ${time} milliseconds`);
       } else {

@@ -13,13 +13,7 @@
  */
 import { create } from 'zustand';
 
-export type FlowRunNodeStatus =
-  | 'idle'
-  | 'pending'
-  | 'running'
-  | 'success'
-  | 'failed'
-  | 'skipped';
+export type FlowRunNodeStatus = 'idle' | 'pending' | 'running' | 'success' | 'failed' | 'skipped';
 
 export interface FlowRunNodeState {
   status: FlowRunNodeStatus;
@@ -139,9 +133,7 @@ export const useFlowRunStore = create<FlowRunState>((set) => ({
   appendLog: (entry) =>
     set((state) => ({
       // Cap at 500 entries to bound memory on a runaway forEach.
-      logs: state.logs.length >= 500
-        ? [...state.logs.slice(-499), entry]
-        : [...state.logs, entry],
+      logs: state.logs.length >= 500 ? [...state.logs.slice(-499), entry] : [...state.logs, entry],
     })),
 
   clear: () => set({ ...initial }),

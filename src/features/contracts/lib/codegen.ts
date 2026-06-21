@@ -208,7 +208,11 @@ export function inferTypeScriptFromSample(value: unknown, opts: CodegenOptions =
   return `export type ${rootName} = ${emitTsType(root, opts.readonly === true)};\n`;
 }
 
-function emitTsInterface(name: string, node: Extract<TypeNode, { kind: 'object' }>, readonly: boolean): string {
+function emitTsInterface(
+  name: string,
+  node: Extract<TypeNode, { kind: 'object' }>,
+  readonly: boolean
+): string {
   const lines: string[] = [`export interface ${name} {`];
   for (const [k, prop] of node.properties.entries()) {
     const ro = readonly ? 'readonly ' : '';

@@ -33,7 +33,7 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      fractionalSecondDigits: 3
+      fractionalSecondDigits: 3,
     });
   };
 
@@ -63,8 +63,8 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
     }
   };
 
-  const passedTests = tests?.filter(t => t.passed).length || 0;
-  const failedTests = tests?.filter(t => !t.passed).length || 0;
+  const passedTests = tests?.filter((t) => t.passed).length || 0;
+  const failedTests = tests?.filter((t) => !t.passed).length || 0;
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -87,25 +87,35 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
                 <div className="flex items-center gap-2">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Badge variant="outline" className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30 cursor-help">
+                      <Badge
+                        variant="outline"
+                        className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30 cursor-help"
+                      >
                         <CheckCircle2 className="h-3 w-3 mr-1" />
                         {passedTests} passed
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>{passedTests} test{passedTests !== 1 ? 's' : ''} passed successfully</p>
+                      <p>
+                        {passedTests} test{passedTests !== 1 ? 's' : ''} passed successfully
+                      </p>
                     </TooltipContent>
                   </Tooltip>
                   {failedTests > 0 && (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Badge variant="outline" className="bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 cursor-help">
+                        <Badge
+                          variant="outline"
+                          className="bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 cursor-help"
+                        >
                           <XCircle className="h-3 w-3 mr-1" />
                           {failedTests} failed
                         </Badge>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>{failedTests} test{failedTests !== 1 ? 's' : ''} failed</p>
+                        <p>
+                          {failedTests} test{failedTests !== 1 ? 's' : ''} failed
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   )}
@@ -132,76 +142,80 @@ export default function ConsolePane({ logs, tests, onClear }: ConsolePaneProps) 
           </Tooltip>
         </div>
 
-      {/* Console Content */}
-      <ScrollArea className="flex-1">
-        <div className="p-4 font-mono text-xs space-y-2">
-          {logs.length === 0 && !tests ? (
-            <div className="text-muted-foreground text-center py-12">
-              <Terminal className="mx-auto h-12 w-12 mb-3 opacity-30" />
-              <p className="font-medium">No console output</p>
-              <p className="text-xs mt-1">Logs and test results will appear here</p>
-            </div>
-          ) : (
-            <>
-              {/* Test Results */}
-              {tests && tests.length > 0 && (
-                <div className="mb-4">
-                  <div className="text-muted-foreground font-semibold mb-3 flex items-center gap-2">
-                    <div className="h-1 w-1 rounded-full bg-primary" />
-                    Test Results
+        {/* Console Content */}
+        <ScrollArea className="flex-1">
+          <div className="p-4 font-mono text-xs space-y-2">
+            {logs.length === 0 && !tests ? (
+              <div className="text-muted-foreground text-center py-12">
+                <Terminal className="mx-auto h-12 w-12 mb-3 opacity-30" />
+                <p className="font-medium">No console output</p>
+                <p className="text-xs mt-1">Logs and test results will appear here</p>
+              </div>
+            ) : (
+              <>
+                {/* Test Results */}
+                {tests && tests.length > 0 && (
+                  <div className="mb-4">
+                    <div className="text-muted-foreground font-semibold mb-3 flex items-center gap-2">
+                      <div className="h-1 w-1 rounded-full bg-primary" />
+                      Test Results
+                    </div>
+                    <Stagger className="space-y-2">
+                      {tests.map((test, index) => (
+                        <StaggerItem
+                          key={index}
+                          className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
+                            test.passed
+                              ? 'bg-green-500/5 border-green-500/20 hover:bg-green-500/10'
+                              : 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
+                          }`}
+                        >
+                          {test.passed ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div
+                              className={`font-medium ${test.passed ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+                            >
+                              {test.name}
+                            </div>
+                            {test.error && (
+                              <div className="text-red-500 text-xs mt-1.5 pl-2 border-l-2 border-red-500/30">
+                                {test.error}
+                              </div>
+                            )}
+                          </div>
+                        </StaggerItem>
+                      ))}
+                    </Stagger>
                   </div>
-                  <Stagger className="space-y-2">
-                  {tests.map((test, index) => (
+                )}
+
+                {/* Console Logs */}
+                <Stagger show={logs.length > 0}>
+                  {logs.map((log, index) => (
                     <StaggerItem
                       key={index}
-                      className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
-                        test.passed
-                          ? 'bg-green-500/5 border-green-500/20 hover:bg-green-500/10'
-                          : 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
-                      }`}
+                      className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-primary/5 transition-all border border-transparent hover:border-primary/10"
                     >
-                      {test.passed ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className={`font-medium ${test.passed ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {test.name}
-                        </div>
-                        {test.error && (
-                          <div className="text-red-500 text-xs mt-1.5 pl-2 border-l-2 border-red-500/30">
-                            {test.error}
-                          </div>
-                        )}
-                      </div>
+                      {getLogIcon(log.type)}
+                      <span className="text-muted-foreground text-[10px] font-medium flex-shrink-0 mt-0.5 px-2 py-0.5 rounded bg-muted/50">
+                        {formatTime(log.timestamp)}
+                      </span>
+                      <pre
+                        className={`flex-1 whitespace-pre-wrap break-words ${getLogColor(log.type)} leading-relaxed`}
+                      >
+                        {log.message}
+                      </pre>
                     </StaggerItem>
                   ))}
-                  </Stagger>
-                </div>
-              )}
-
-              {/* Console Logs */}
-              <Stagger show={logs.length > 0}>
-              {logs.map((log, index) => (
-                <StaggerItem
-                  key={index}
-                  className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-primary/5 transition-all border border-transparent hover:border-primary/10"
-                >
-                  {getLogIcon(log.type)}
-                  <span className="text-muted-foreground text-[10px] font-medium flex-shrink-0 mt-0.5 px-2 py-0.5 rounded bg-muted/50">
-                    {formatTime(log.timestamp)}
-                  </span>
-                  <pre className={`flex-1 whitespace-pre-wrap break-words ${getLogColor(log.type)} leading-relaxed`}>
-                    {log.message}
-                  </pre>
-                </StaggerItem>
-              ))}
-              </Stagger>
-            </>
-          )}
-        </div>
-      </ScrollArea>
+                </Stagger>
+              </>
+            )}
+          </div>
+        </ScrollArea>
       </div>
     </TooltipProvider>
   );

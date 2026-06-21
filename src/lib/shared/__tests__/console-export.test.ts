@@ -212,6 +212,8 @@ describe('buildExportFile', () => {
   it('encodes the timestamp in the filename so concurrent exports differ', () => {
     const file = buildExportFile('har', [makeEntry()]);
     // ISO timestamp with `:` and `.` replaced by `-`.
-    expect(file.filename).toMatch(/^restura-console-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.har$/);
+    expect(file.filename).toMatch(
+      /^restura-console-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.har$/
+    );
   });
 });

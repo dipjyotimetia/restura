@@ -2,10 +2,10 @@
 import type { Provider, ChatStreamEvent } from '@shared/protocol/ai/types';
 
 export interface ModelInfo {
-  id: string;                       // "gpt-4o-mini"
-  label: string;                    // "GPT-4o mini"
-  contextWindow: number;            // tokens
-  inputUSDPerMTok: number;          // pricing snapshot, refresh quarterly
+  id: string; // "gpt-4o-mini"
+  label: string; // "GPT-4o mini"
+  contextWindow: number; // tokens
+  inputUSDPerMTok: number; // pricing snapshot, refresh quarterly
   outputUSDPerMTok: number;
 }
 

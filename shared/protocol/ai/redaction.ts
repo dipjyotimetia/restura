@@ -69,7 +69,7 @@ function headerIsDenied(name: string): boolean {
 
 export function redactHeaders(
   headers: Record<string, string>,
-  mode: RedactionMode,
+  mode: RedactionMode
 ): Record<string, string> {
   if (mode === 'raw') return { ...headers };
   const out: Record<string, string> = {};
@@ -90,7 +90,7 @@ export function redactBody(body: string, mode: RedactionMode): string {
 
 export function redactEnvironment(
   env: Record<string, string>,
-  mode: RedactionMode,
+  mode: RedactionMode
 ): Record<string, string> {
   if (mode === 'raw') return { ...env };
   const out: Record<string, string> = {};

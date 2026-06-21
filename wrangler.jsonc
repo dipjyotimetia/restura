@@ -4,9 +4,7 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-05-07",
   "compatibility_flags": ["nodejs_compat"],
-  "routes": [
-    { "pattern": "api.restura.dev", "custom_domain": true }
-  ],
+  "routes": [{ "pattern": "api.restura.dev", "custom_domain": true }],
   // SECURITY: ENVIRONMENT='development' alone does NOT bypass auth.
   // Local dev bypasses auth only when EITHER:
   //   (a) Miniflare is running (auto-detected via globalThis.MINIFLARE), OR

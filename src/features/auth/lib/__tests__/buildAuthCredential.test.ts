@@ -74,7 +74,9 @@ describe('buildAuthCredential', () => {
 
     it('with basicRequiresPassword, both present still works', () => {
       const auth: AuthConfig = { type: 'basic', basic: { username: 'u', password: 'p' } };
-      expect(buildAuthCredential(auth, { basicRequiresPassword: true, headerCase: 'lower' })).toEqual({
+      expect(
+        buildAuthCredential(auth, { basicRequiresPassword: true, headerCase: 'lower' })
+      ).toEqual({
         headers: { authorization: `Basic ${btoa('u:p')}` },
         params: {},
       });
@@ -83,7 +85,10 @@ describe('buildAuthCredential', () => {
 
   describe('api-key', () => {
     it('emits header key=value with preserved casing for in=header', () => {
-      const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'X-API-Key', value: 'abc', in: 'header' } };
+      const auth: AuthConfig = {
+        type: 'api-key',
+        apiKey: { key: 'X-API-Key', value: 'abc', in: 'header' },
+      };
       expect(buildAuthCredential(auth)).toEqual({
         headers: { 'X-API-Key': 'abc' },
         params: {},
@@ -91,7 +96,10 @@ describe('buildAuthCredential', () => {
     });
 
     it('lowercases the api-key header when headerCase=lower', () => {
-      const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'X-API-Key', value: 'abc', in: 'header' } };
+      const auth: AuthConfig = {
+        type: 'api-key',
+        apiKey: { key: 'X-API-Key', value: 'abc', in: 'header' },
+      };
       expect(buildAuthCredential(auth, { headerCase: 'lower' })).toEqual({
         headers: { 'x-api-key': 'abc' },
         params: {},
@@ -99,7 +107,10 @@ describe('buildAuthCredential', () => {
     });
 
     it('emits a query param when in=query', () => {
-      const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'api_key', value: 'secret', in: 'query' } };
+      const auth: AuthConfig = {
+        type: 'api-key',
+        apiKey: { key: 'api_key', value: 'secret', in: 'query' },
+      };
       expect(buildAuthCredential(auth)).toEqual({
         headers: {},
         params: { api_key: 'secret' },

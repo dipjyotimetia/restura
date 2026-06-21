@@ -29,9 +29,9 @@ describe('executeWithRetry', () => {
 
   it('throws the last error after exhausting attempts', async () => {
     const fn = vi.fn().mockRejectedValue(new Error('last'));
-    await expect(
-      executeWithRetry(fn, { policy: { maxAttempts: 2, delayMs: 1 } })
-    ).rejects.toThrow('last');
+    await expect(executeWithRetry(fn, { policy: { maxAttempts: 2, delayMs: 1 } })).rejects.toThrow(
+      'last'
+    );
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
@@ -77,9 +77,7 @@ describe('executeWithRetry', () => {
   });
 
   it('does not retry after an AbortError', async () => {
-    const fn = vi
-      .fn()
-      .mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'));
+    const fn = vi.fn().mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'));
     await expect(
       executeWithRetry(fn, { policy: { maxAttempts: 3, delayMs: 1 } })
     ).rejects.toMatchObject({ name: 'AbortError' });

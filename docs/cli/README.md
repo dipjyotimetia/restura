@@ -50,14 +50,14 @@ for CI:
 restura run <collection-dir> [options]
 ```
 
-| Flag                | Default | Description                                                       |
-| ------------------- | ------- | ----------------------------------------------------------------- |
-| `--env <file>`      |         | Path to env file (`.json`, `.yaml`, `.yml`)                       |
-| `--reporter <name>` | `live`  | One of `live`, `json`, `junit`, `html`                            |
-| `--output <file>`   |         | Output path. Required for `json`, `junit`, `html` reporters       |
-| `--bail`            | `false` | Stop on first failure                                             |
-| `--timeout <ms>`    | `30000` | Per-request timeout (ms)                                          |
-| `--allow-localhost` | `false` | Permit `localhost` / `127.0.0.1` / RFC 1918 targets (SSRF off)    |
+| Flag                | Default | Description                                                    |
+| ------------------- | ------- | -------------------------------------------------------------- |
+| `--env <file>`      |         | Path to env file (`.json`, `.yaml`, `.yml`)                    |
+| `--reporter <name>` | `live`  | One of `live`, `json`, `junit`, `html`                         |
+| `--output <file>`   |         | Output path. Required for `json`, `junit`, `html` reporters    |
+| `--bail`            | `false` | Stop on first failure                                          |
+| `--timeout <ms>`    | `30000` | Per-request timeout (ms)                                       |
+| `--allow-localhost` | `false` | Permit `localhost` / `127.0.0.1` / RFC 1918 targets (SSRF off) |
 
 `<collection-dir>` is the directory holding `_collection.yaml`. The CLI walks
 it recursively for `*.http.yaml` files (sorted alphabetically by relative
@@ -82,11 +82,20 @@ restura run ./api-tests --reporter json --output run.json
 
 ```json
 {
-  "meta": { "collectionName": "Sample", "collectionDir": "./api-tests", "startedAt": 1715200000000 },
+  "meta": {
+    "collectionName": "Sample",
+    "collectionDir": "./api-tests",
+    "startedAt": 1715200000000
+  },
   "durationMs": 224,
   "requests": [
     {
-      "request": { "filePath": "...", "relativePath": "get-user.http.yaml", "type": "http", "request": { "name": "Get user", "method": "GET", "url": "..." } },
+      "request": {
+        "filePath": "...",
+        "relativePath": "get-user.http.yaml",
+        "type": "http",
+        "request": { "name": "Get user", "method": "GET", "url": "..." }
+      },
       "status": 200,
       "passed": true,
       "durationMs": 124,
@@ -167,11 +176,11 @@ env file.
 
 ## Exit codes
 
-| Code | Meaning                                                                    |
-| ---- | -------------------------------------------------------------------------- |
-| `0`  | Every request passed (HTTP 2xx) and at least one request was run           |
-| `1`  | One or more requests failed or errored, or the collection was empty        |
-| `2`  | Internal error — missing collection, unknown reporter, IO failure, etc.    |
+| Code | Meaning                                                                 |
+| ---- | ----------------------------------------------------------------------- |
+| `0`  | Every request passed (HTTP 2xx) and at least one request was run        |
+| `1`  | One or more requests failed or errored, or the collection was empty     |
+| `2`  | Internal error — missing collection, unknown reporter, IO failure, etc. |
 
 ## Limitations
 

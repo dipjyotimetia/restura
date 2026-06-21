@@ -73,11 +73,11 @@ describe('importOpenAPICollection', () => {
 
       expect(collection.items).toHaveLength(2);
 
-      const usersFolder = collection.items.find(i => i.name === 'Users');
+      const usersFolder = collection.items.find((i) => i.name === 'Users');
       expect(usersFolder?.type).toBe('folder');
       expect(usersFolder?.items).toHaveLength(1);
 
-      const petsFolder = collection.items.find(i => i.name === 'Pets');
+      const petsFolder = collection.items.find((i) => i.name === 'Pets');
       expect(petsFolder?.type).toBe('folder');
       expect(petsFolder?.items).toHaveLength(1);
     });
@@ -447,7 +447,7 @@ describe('importOpenAPICollection', () => {
       const collection = await importOpenAPICollection(openApiDoc);
       const request = asHttpRequest(collection.items[0]!.request);
 
-      const contentTypeHeader = request.headers.find(h => h.key === 'Content-Type');
+      const contentTypeHeader = request.headers.find((h) => h.key === 'Content-Type');
       expect(contentTypeHeader).toBeDefined();
       expect(contentTypeHeader?.value).toBe('application/json');
     });
@@ -483,7 +483,7 @@ describe('importOpenAPICollection', () => {
       const request = asHttpRequest(collection.items[0]!.request);
 
       expect(request.body.type).toBe('x-www-form-urlencoded');
-      const contentTypeHeader = request.headers.find(h => h.key === 'Content-Type');
+      const contentTypeHeader = request.headers.find((h) => h.key === 'Content-Type');
       expect(contentTypeHeader?.value).toBe('application/x-www-form-urlencoded');
     });
 
@@ -522,10 +522,10 @@ describe('importOpenAPICollection', () => {
       expect(request.body.formData).toBeDefined();
       expect(request.body.formData).toHaveLength(3);
 
-      const descField = request.body.formData?.find(f => f.key === 'description');
+      const descField = request.body.formData?.find((f) => f.key === 'description');
       expect(descField?.value).toBe('My file');
 
-      const countField = request.body.formData?.find(f => f.key === 'count');
+      const countField = request.body.formData?.find((f) => f.key === 'count');
       expect(countField?.value).toBe('1');
     });
 
@@ -558,7 +558,7 @@ describe('importOpenAPICollection', () => {
       const collection = await importOpenAPICollection(openApiDoc);
       const request = asHttpRequest(collection.items[0]!.request);
 
-      const cookieHeader = request.headers.find(h => h.key === 'Cookie');
+      const cookieHeader = request.headers.find((h) => h.key === 'Cookie');
       expect(cookieHeader).toBeDefined();
       expect(cookieHeader?.value).toContain('session_id=abc123');
       expect(cookieHeader?.value).toContain('tracking=enabled');
@@ -909,7 +909,7 @@ describe('importOpenAPICollection', () => {
       const collection = await importOpenAPICollection(openApiDoc);
 
       expect(collection.items).toHaveLength(7);
-      const methods = collection.items.map(i => asHttpRequest(i.request).method);
+      const methods = collection.items.map((i) => asHttpRequest(i.request).method);
       expect(methods).toContain('GET');
       expect(methods).toContain('POST');
       expect(methods).toContain('PUT');
@@ -925,9 +925,7 @@ describe('importOpenAPICollection', () => {
         info: { title: 'Test API', version: '1.0.0' },
         paths: {
           '/users/{id}': {
-            parameters: [
-              { name: 'id', in: 'path', required: true },
-            ],
+            parameters: [{ name: 'id', in: 'path', required: true }],
             get: {
               summary: 'Get user',
               responses: {},
@@ -943,8 +941,8 @@ describe('importOpenAPICollection', () => {
       const collection = await importOpenAPICollection(openApiDoc);
 
       // Both operations should have the path parameter interpolated in URL
-      const getItem = collection.items.find(i => asHttpRequest(i.request).method === 'GET');
-      const deleteItem = collection.items.find(i => asHttpRequest(i.request).method === 'DELETE');
+      const getItem = collection.items.find((i) => asHttpRequest(i.request).method === 'GET');
+      const deleteItem = collection.items.find((i) => asHttpRequest(i.request).method === 'DELETE');
 
       const getRequest = asHttpRequest(getItem!.request);
       const deleteRequest = asHttpRequest(deleteItem!.request);

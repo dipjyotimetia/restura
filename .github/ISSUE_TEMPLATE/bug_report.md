@@ -32,12 +32,14 @@ assignees: ''
 ## Environment
 
 **Desktop (please complete the following information):**
+
 - OS: [e.g. macOS 14.0, Windows 11, Ubuntu 22.04]
 - Browser: [e.g. Chrome 120, Firefox 121, Safari 17]
 - Node Version: [e.g. 20.10.0]
 - Restura Version: [e.g. 0.1.0]
 
 **Application Type:**
+
 - [ ] Web Client
 - [ ] Electron Desktop App
 

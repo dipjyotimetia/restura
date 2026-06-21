@@ -4,11 +4,7 @@ import { GrpcStatusCode } from './grpc-status';
 import { flattenHeaders as asRecord } from './header-utils';
 import type { Fetcher } from './types';
 
-function makeFetcher(
-  body: string,
-  status = 200,
-  headers: Record<string, string> = {}
-): Fetcher {
+function makeFetcher(body: string, status = 200, headers: Record<string, string> = {}): Fetcher {
   return vi.fn(async () => ({
     status,
     statusText: status >= 200 && status < 300 ? 'OK' : 'Error',
@@ -49,7 +45,13 @@ describe('executeGrpcProxy', () => {
   it('builds Connect URL and returns OK on 200', async () => {
     const fetcher = vi.fn(makeFetcher('{"x":1}', 200, { 'content-type': 'application/json' }));
     const r = await executeGrpcProxy(
-      { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', message: { a: 1 }, timeout: 1000 },
+      {
+        url: 'https://example.com',
+        service: 'svc.Foo',
+        method: 'Bar',
+        message: { a: 1 },
+        timeout: 1000,
+      },
       fetcher,
       { allowLocalhost: false }
     );
@@ -72,11 +74,9 @@ describe('executeGrpcProxy', () => {
   });
 
   it('maps Connect error codes via parseConnectError', async () => {
-    const fetcher = makeFetcher(
-      JSON.stringify({ code: 'not_found', message: 'gone' }),
-      404,
-      { 'content-type': 'application/json' }
-    );
+    const fetcher = makeFetcher(JSON.stringify({ code: 'not_found', message: 'gone' }), 404, {
+      'content-type': 'application/json',
+    });
     const r = await executeGrpcProxy(
       { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout: 1000 },
       fetcher,
@@ -160,7 +160,9 @@ describe('executeGrpcProxy', () => {
   });
 
   it('returns UNAVAILABLE on fetcher error', async () => {
-    const fetcher: Fetcher = async () => { throw new Error('connection refused'); };
+    const fetcher: Fetcher = async () => {
+      throw new Error('connection refused');
+    };
     const r = await executeGrpcProxy(
       { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout: 1000 },
       fetcher,

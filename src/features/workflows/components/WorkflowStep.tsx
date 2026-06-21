@@ -153,9 +153,7 @@ export function WorkflowStep({
           <div className="text-xs text-muted-foreground mt-1">
             {executionStep.duration && <span>{executionStep.duration}ms</span>}
             {executionStep.response && (
-              <span className="ml-2">
-                Status: {executionStep.response.status}
-              </span>
+              <span className="ml-2">Status: {executionStep.response.status}</span>
             )}
             {executionStep.error && (
               <span className="text-red-500 ml-2">{executionStep.error}</span>
@@ -167,8 +165,7 @@ export function WorkflowStep({
         {executionStep?.extractedVariables &&
           Object.keys(executionStep.extractedVariables).length > 0 && (
             <div className="text-xs text-muted-foreground mt-1">
-              Extracted:{' '}
-              {Object.keys(executionStep.extractedVariables).join(', ')}
+              Extracted: {Object.keys(executionStep.extractedVariables).join(', ')}
             </div>
           )}
       </div>

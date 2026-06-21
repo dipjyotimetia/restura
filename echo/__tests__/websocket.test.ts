@@ -8,7 +8,9 @@ function makeWsMock() {
   const sent: unknown[] = [];
   return {
     ws: {
-      send: (data: unknown) => { sent.push(data); },
+      send: (data: unknown) => {
+        sent.push(data);
+      },
       close: () => {},
       readyState: 1,
       url: null,

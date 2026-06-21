@@ -22,10 +22,7 @@ describe('SseParser', () => {
   });
 
   it('captures id and persists it across events per spec', () => {
-    const events = feedAll(
-      'id: 1\ndata: a\n\n' +
-      'data: b\n\n'
-    );
+    const events = feedAll('id: 1\ndata: a\n\n' + 'data: b\n\n');
     expect(events[0]).toEqual({ event: 'message', data: 'a', lastEventId: '1' });
     // lastEventId persists onto the second event (no new id provided)
     expect(events[1]).toEqual({ event: 'message', data: 'b', lastEventId: '1' });

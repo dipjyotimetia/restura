@@ -14,7 +14,7 @@ import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
 
 const METHOD_TYPE_COLOR: Record<GrpcMethodType, string> = {
-  'unary': 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400',
+  unary: 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400',
   'server-streaming': 'bg-blue-500/[0.12] border-blue-500/25 text-blue-400',
   'client-streaming': 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400',
   'bidirectional-streaming': 'bg-violet-500/[0.12] border-violet-500/25 text-violet-400',
@@ -90,9 +90,7 @@ export function GrpcUrlBar({
             </SelectItem>
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">
-          ›
-        </span>
+        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
         <Input
           value={url}
           onChange={(e) => onUrlChange(e.target.value)}

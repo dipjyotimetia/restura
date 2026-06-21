@@ -4,7 +4,12 @@ import type { RawSnapshot } from '@/features/ai/lib/contextSnapshot';
 
 const snapshot: RawSnapshot = {
   contextRef: { kind: 'response', tabId: 't1', capturedAt: 0 },
-  request: { method: 'GET', url: 'https://api/users', headers: { Authorization: 'Bearer sk-x' }, body: '' },
+  request: {
+    method: 'GET',
+    url: 'https://api/users',
+    headers: { Authorization: 'Bearer sk-x' },
+    body: '',
+  },
   response: { status: 401, headers: { 'WWW-Authenticate': 'Bearer' }, body: '{"error":"unauth"}' },
   environment: { baseUrl: 'https://api', token: 'sk-secret' },
 };
@@ -19,7 +24,10 @@ describe('buildMessages', () => {
   it('appends prior turns in order between system and user', () => {
     const msgs = buildMessages({
       snapshot,
-      priorTurns: [{ role: 'user', content: 'q1' }, { role: 'assistant', content: 'a1' }],
+      priorTurns: [
+        { role: 'user', content: 'q1' },
+        { role: 'assistant', content: 'a1' },
+      ],
       userText: 'q2',
       rawMode: false,
     });
@@ -62,9 +70,12 @@ describe('buildMessages', () => {
       // redacted wherever it's interpolated.
       environment: { version: 'v2', path: 'api', sessionToken: 'supersecretvalue123' },
     };
-    const last = buildMessages({ snapshot: snap, priorTurns: [], userText: 'x', rawMode: false }).at(
-      -1,
-    )!.content;
+    const last = buildMessages({
+      snapshot: snap,
+      priorTurns: [],
+      userText: 'x',
+      rawMode: false,
+    }).at(-1)!.content;
     expect(last).toContain('/api/v2/users');
     expect(last).not.toContain('supersecretvalue123');
   });

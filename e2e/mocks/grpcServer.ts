@@ -1,6 +1,15 @@
 import { createServer as createHttp1Server } from 'node:http';
-import { createServer as createH2cServer, type Http2Server, type ServerHttp2Session } from 'node:http2';
-import { ConnectError, Code, type ConnectRouter as ConnectRouterType, type HandlerContext } from '@connectrpc/connect';
+import {
+  createServer as createH2cServer,
+  type Http2Server,
+  type ServerHttp2Session,
+} from 'node:http2';
+import {
+  ConnectError,
+  Code,
+  type ConnectRouter as ConnectRouterType,
+  type HandlerContext,
+} from '@connectrpc/connect';
 import { connectNodeAdapter } from '@connectrpc/connect-node';
 import { create } from '@bufbuild/protobuf';
 import {
@@ -9,7 +18,13 @@ import {
   EchoSummarySchema,
   type EchoRequest,
 } from './proto/gen/echo_pb';
-import { applyCors, bindLocalhost, closeServer, handlePreflight, readJson } from '../utils/serverHelpers';
+import {
+  applyCors,
+  bindLocalhost,
+  closeServer,
+  handlePreflight,
+  readJson,
+} from '../utils/serverHelpers';
 
 export interface MockGrpcServerHandle {
   port: number;
@@ -179,7 +194,9 @@ export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
     res.setHeader('access-control-allow-origin', '*');
     if (body && typeof body['listServices'] !== 'undefined') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ listServicesResponse: { service: [{ name: 'echo.v1.EchoService' }] } }));
+      res.end(
+        JSON.stringify({ listServicesResponse: { service: [{ name: 'echo.v1.EchoService' }] } })
+      );
       return;
     }
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -193,10 +210,12 @@ export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
     applyCors(res, { methods: 'POST,OPTIONS' });
     if (handlePreflight(req, res)) return;
     if (isReflectionPath(url)) {
-      void handleReflection(req as unknown as ReflectionReq, res as unknown as ReflectionRes).catch((err) => {
-        res.writeHead(500, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      });
+      void handleReflection(req as unknown as ReflectionReq, res as unknown as ReflectionRes).catch(
+        (err) => {
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      );
       return;
     }
     connectHandler(req, res);
@@ -206,10 +225,12 @@ export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
   // bidirectional streaming. Same Connect handler is universal across http/http2.
   const h2c: Http2Server = createH2cServer((req, res) => {
     if (isReflectionPath(req.url ?? '/')) {
-      void handleReflection(req as unknown as ReflectionReq, res as unknown as ReflectionRes).catch((err) => {
-        res.writeHead(500, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      });
+      void handleReflection(req as unknown as ReflectionReq, res as unknown as ReflectionRes).catch(
+        (err) => {
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      );
       return;
     }
     connectHandler(req, res);
@@ -233,9 +254,19 @@ export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
     close: async () => {
       // Stop tracking new sessions; destroy any that arrive during shutdown immediately.
       h2c.removeAllListeners('session');
-      h2c.on('session', (s: ServerHttp2Session) => { try { s.destroy(); } catch { /* ok */ } });
+      h2c.on('session', (s: ServerHttp2Session) => {
+        try {
+          s.destroy();
+        } catch {
+          /* ok */
+        }
+      });
       for (const session of activeSessions) {
-        try { session.destroy(); } catch { /* already destroyed */ }
+        try {
+          session.destroy();
+        } catch {
+          /* already destroyed */
+        }
       }
       activeSessions.clear();
       await Promise.all([closeServer(http1), closeServer(h2c)]);

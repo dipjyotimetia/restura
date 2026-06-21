@@ -17,9 +17,7 @@ export const kafkaProtocol: ProtocolModule = {
   label: 'Kafka',
   tabType: 'kafka',
   defaultRequest: () => {
-    throw new Error(
-      'Kafka has no Request shape; create a connection via useKafkaStore.'
-    );
+    throw new Error('Kafka has no Request shape; create a connection via useKafkaStore.');
   },
   runRequest: async () => {
     throw new Error(

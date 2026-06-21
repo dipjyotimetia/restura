@@ -13,6 +13,7 @@
 ## File structure
 
 **Created:**
+
 - `src/lib/shared/keyProvider.ts` — `KeyProvider` interface + three implementations (Electron, Web passphrase, Ephemeral)
 - `src/lib/shared/keyProvider.test.ts`
 - `src/components/shared/PassphrasePrompt.tsx` — modal that appears on first load if no in-memory key
@@ -22,6 +23,7 @@
 - `docs/adr/0004-security-hardening.md`
 
 **Modified:**
+
 - `src/lib/shared/dexie-storage.ts` — replace `getEncryptionKey()` with `KeyProvider.getKey()`
 - `src/lib/shared/encryption.ts` — accept a `KeyProvider` instead of inline key constant
 - `src/lib/shared/encrypted-storage.ts` — same
@@ -40,6 +42,7 @@
 - `README.md` — update the security claim (currently says "encrypted at rest"; clarify the web-vs-desktop nuance)
 
 **Deleted:**
+
 - The `dangerousPatterns` regex block in `src/features/scripts/lib/scriptExecutor.ts` (security theatre)
 
 ---
@@ -49,6 +52,7 @@
 ### Task 1: Define `KeyProvider` interface + three implementations
 
 **Files:**
+
 - Create: `src/lib/shared/keyProvider.ts`
 - Create: `src/lib/shared/keyProvider.test.ts`
 
@@ -134,7 +138,9 @@ describe('ElectronSafeStorageKeyProvider', () => {
 
   it('isHardwareBacked returns true', () => {
     const p = new ElectronSafeStorageKeyProvider({
-      get: vi.fn(), set: vi.fn(), has: vi.fn(),
+      get: vi.fn(),
+      set: vi.fn(),
+      has: vi.fn(),
     });
     expect(p.isHardwareBacked).toBe(true);
   });
@@ -192,9 +198,9 @@ export class WebSessionPassphraseProvider implements KeyProvider {
     // re-encrypting the entire vault on every change.
     const SALT = new TextEncoder().encode('restura/v1/passphrase');
     const passBytes = new TextEncoder().encode(passphrase);
-    const material = await crypto.subtle.importKey(
-      'raw', passBytes, 'PBKDF2', false, ['deriveBits']
-    );
+    const material = await crypto.subtle.importKey('raw', passBytes, 'PBKDF2', false, [
+      'deriveBits',
+    ]);
     const bits = await crypto.subtle.deriveBits(
       { name: 'PBKDF2', salt: SALT, iterations: 100_000, hash: 'SHA-256' },
       material,
@@ -264,6 +270,7 @@ git commit -m "feat(security): add KeyProvider interface + 3 implementations"
 ### Task 2: Electron `safeStorage` IPC
 
 **Files:**
+
 - Create: `electron/main/key-store.ts` — IPC handlers
 - Modify: `electron/main/main.ts` — register the handlers
 - Modify: `electron/main/preload.ts` — expose `secureKey` API
@@ -324,7 +331,7 @@ secureKey: {
   get: (key: string) => Promise<string | undefined>;
   set: (key: string, value: string) => Promise<void>;
   has: (key: string) => Promise<boolean>;
-};
+}
 ```
 
 - [ ] **Step 5: Wire `electronAPI.secureKey` accessor in `platform.ts`**
@@ -351,6 +358,7 @@ git commit -m "feat(electron): expose safeStorage-backed secureKey IPC"
 ### Task 3: Wire `KeyProvider` into `dexie-storage.ts` + `encryption.ts`
 
 **Files:**
+
 - Modify: `src/lib/shared/dexie-storage.ts` — call `keyProvider.getKey()` instead of `getEncryptionKey()`
 - Modify: `src/lib/shared/encryption.ts` — keep existing functions; remove the inline metadata-table key dance (now done via the provider)
 
@@ -359,7 +367,12 @@ git commit -m "feat(electron): expose safeStorage-backed secureKey IPC"
 In `dexie-storage.ts`, replace the existing `getEncryptionKey()` function:
 
 ```ts
-import { ElectronSafeStorageKeyProvider, EphemeralKeyProvider, WebSessionPassphraseProvider, type KeyProvider } from './keyProvider';
+import {
+  ElectronSafeStorageKeyProvider,
+  EphemeralKeyProvider,
+  WebSessionPassphraseProvider,
+  type KeyProvider,
+} from './keyProvider';
 import { isElectron, getElectronAPI } from './platform';
 
 let activeProvider: KeyProvider | null = null;
@@ -411,11 +424,13 @@ git commit -m "feat(security): route encryption key through KeyProvider"
 ### Task 4: Web passphrase prompt UI
 
 **Files:**
+
 - Create: `src/components/shared/PassphrasePrompt.tsx`
 - Create: `src/components/shared/__tests__/PassphrasePrompt.test.tsx`
 - Modify: `src/routes/index.tsx` — render the prompt on first load
 
 A modal dialog that:
+
 - Appears once on app load (web only)
 - Two options: "Set a session passphrase" (input + confirm) OR "Continue without encryption (data stored in plaintext)"
 - On passphrase set: calls `WebSessionPassphraseProvider.setPassphrase` and `setKeyProvider(provider)`
@@ -437,6 +452,7 @@ git commit -m "feat(security): web passphrase prompt + 'no encryption' UI banner
 ### Task 5: Strict request validation in store
 
 **Files:**
+
 - Modify: `src/store/useRequestStore.ts` — `updateRequest` hard-fails on validation
 - Modify: `src/store/__tests__/useRequestStore.test.ts` — add hard-fail test
 
@@ -495,6 +511,7 @@ git commit -m "feat(security): updateRequest hard-fails validation; toast on err
 ### Task 6: Drop `dangerousPatterns` regex from scriptExecutor
 
 **Files:**
+
 - Modify: `src/features/scripts/lib/scriptExecutor.ts`
 - Modify: `src/features/scripts/lib/__tests__/scriptExecutor.test.ts` — drop tests asserting the regex
 
@@ -535,6 +552,7 @@ Comment in the file explains why no source-level filter exists."
 ### Task 7: Move SigV4 to backend (auth-at-the-wire)
 
 **Files:**
+
 - Create: `shared/protocol/auth-signer.ts`
 - Create: `shared/protocol/auth-signer.test.ts`
 - Modify: `worker/handlers/proxy.ts` — sign before sending when auth.type === 'aws-signature'
@@ -544,6 +562,7 @@ Comment in the file explains why no source-level filter exists."
 - Modify: `worker/handlers/__tests__/proxy.test.ts` — add SigV4 sign-at-wire tests
 
 The shared core's `RequestSpec` already accepts arbitrary headers but doesn't know about auth. Two design choices:
+
 1. Add `RequestSpec.auth?: AuthConfig` and have `executeHttpProxy` apply auth headers via `auth-signer` before the fetcher call.
 2. Keep `RequestSpec` auth-agnostic; have each backend's adapter sign before invoking `executeHttpProxy`.
 
@@ -585,7 +604,7 @@ For Bearer / Basic / API-key / OAuth2: keep the existing simple header construct
 ```ts
 export interface RequestSpec {
   // ... existing fields
-  auth?: AuthConfig;  // applied by executeHttpProxy before fetcher call
+  auth?: AuthConfig; // applied by executeHttpProxy before fetcher call
 }
 ```
 
@@ -609,12 +628,14 @@ if (spec.auth && spec.auth.type !== 'none') {
 - [ ] **Step 5: Renderer side — pass auth through, drop pre-signing**
 
 In `src/features/http/lib/requestExecutor.ts`:
+
 - Drop the `applyAuthHeaders` call for SigV4 — for other auth types, keep client-side header construction (they don't need wire-byte fidelity)
 - Add `auth: request.auth` to the spec sent over IPC / to the worker
 
 - [ ] **Step 6: Tests**
 
 Add a SigV4 sign-at-wire test to `worker/handlers/__tests__/proxy.test.ts`:
+
 - Mock the upstream, assert that the `Authorization` header on the upstream request matches the SigV4 signature computed from the EXACT body bytes the worker sent (not the renderer's reconstruction).
 
 - [ ] **Step 7: Run + commit**
@@ -642,6 +663,7 @@ header construction — they don't depend on wire-byte fidelity."
 ### Task 8: UI hints for desktop-only features + ARCHITECTURE.md
 
 **Files:**
+
 - Modify: `src/components/shared/ProxySettings.tsx` (or wherever mTLS / CA / SOCKS / system-proxy detection live)
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `README.md`
@@ -663,10 +685,12 @@ git commit -m "docs(security): document web/desktop feature parity + UI hints"
 ### Task 9: ADR-0004 + final architecture pass
 
 **Files:**
+
 - Create: `docs/adr/0004-security-hardening.md`
 - Modify: `docs/ARCHITECTURE.md` — add "Security model" section consolidating the changes
 
 ADR captures:
+
 - Why the old TOFU key was theatre (key next to ciphertext = no protection vs disk access)
 - Why `safeStorage` on Electron + session passphrase on web is the correct asymmetric model (Electron has OS APIs the browser doesn't)
 - Why deleting `dangerousPatterns` is a security upgrade (not a regression) — sandbox is the boundary, source filter blocks legitimate code

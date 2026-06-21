@@ -42,27 +42,13 @@ sequenceDiagram
 Every protocol implementation in `shared/protocol/` exposes a `execute<Name>Proxy(spec, fetcher, options)` function. The `Fetcher` interface is the only thing each backend has to supply — everything else (SSRF guard, header policy, body construction, parsing) is shared.
 
 <FileTree>
-- shared/protocol/
-  - types.ts                  `RequestSpec`, `Fetcher`, `ExecuteResult` (discriminated union)
-  - url-validation.ts         SSRF guard — single source of truth
-  - header-policy.ts          Hop-by-hop deny lists, header sanitisers
-  - body-builder.ts           JSON, text, form-urlencoded, form-data, binary
-  - http-proxy.ts
-  - grpc-proxy.ts
-  - mcp-proxy.ts
-  - sse-parser.ts
-  - ndjson-parser.ts
-  - websocket-proxy.ts
-  - auth-signer.ts            Wire-level auth signing
-  - oauth1-signer.ts
-  - wsse-header.ts
-  - secret-value-schema.ts    `SecretRef` schema
-  - crypto-utils.ts
-  - ai/                       AI orchestrator
-    - ai-proxy.ts
-    - provider-routes.ts
-    - providers/openai.ts, anthropic.ts, openrouter.ts
-    - redaction.ts
+  - shared/protocol/ - types.ts `RequestSpec`, `Fetcher`, `ExecuteResult` (discriminated union) -
+  url-validation.ts SSRF guard — single source of truth - header-policy.ts Hop-by-hop deny lists,
+  header sanitisers - body-builder.ts JSON, text, form-urlencoded, form-data, binary - http-proxy.ts
+  - grpc-proxy.ts - mcp-proxy.ts - sse-parser.ts - ndjson-parser.ts - websocket-proxy.ts -
+  auth-signer.ts Wire-level auth signing - oauth1-signer.ts - wsse-header.ts -
+  secret-value-schema.ts `SecretRef` schema - crypto-utils.ts - ai/ AI orchestrator - ai-proxy.ts -
+  provider-routes.ts - providers/openai.ts, anthropic.ts, openrouter.ts - redaction.ts
 </FileTree>
 
 ## The SSRF guard — one definition
@@ -87,7 +73,7 @@ This single module is called by the Worker, the Node server, and the Electron ma
 - OAuth 1.0 has the same property.
 - WSSE PasswordDigest depends on a nonce and timestamp the upstream verifies.
 
-The renderer hands the auth *spec* (method, credentials, region for SigV4, etc.) to the wire layer; the wire layer signs.
+The renderer hands the auth _spec_ (method, credentials, region for SigV4, etc.) to the wire layer; the wire layer signs.
 
 ## Adding a new protocol
 
@@ -106,5 +92,7 @@ SSRF guards, header sanitisers, body construction, and timeouts are all free.
 Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-flight DNS guard via `dns-guard.ts`, manual redirect handling) live **inside the Electron fetcher closure** — not in `shared/protocol/`. Keep `shared/` backend-agnostic. ADR 0006 codifies this rule.
 
 <Aside title="Deep dive">
-See [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md) and [ADR 0001](/architecture/adrs/) for the full design rationale.
+  See
+  [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md)
+  and [ADR 0001](/architecture/adrs/) for the full design rationale.
 </Aside>

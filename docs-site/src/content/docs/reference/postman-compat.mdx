@@ -9,30 +9,30 @@ Restura runs scripts in a **QuickJS WASM sandbox** built around a native `rs.*` 
 
 ## What works
 
-| Postman API | Restura support |
-|---|---|
-| `pm.request` | Read access to method, URL, headers, body. |
-| `pm.response` | `.code`, `.status`, `.text()`, `.json()`, `.responseTime`, `.headers.get(...)`. |
-| `pm.environment` / `pm.collectionVariables` / `pm.globals` / `pm.variables` | Full `get`/`set`/`unset`/`has`. |
-| `pm.test(name, fn)` | Test assertions with named scope. |
-| `pm.expect(value)` | `chai`-style assertions: `.to.equal`, `.to.be.a`, `.to.include`, `.to.have.property`, etc. |
-| `pm.iterationData` | Data-driven runs (CSV / JSON rows). |
-| `pm.cookies` | Cookie jar lookup, plus an async `.jar()` for get/set/clear. |
-| `pm.sendRequest(input, cb?)` | Fire an ad-hoc request through the SSRF-guarded proxy. Returns a promise. |
-| `pm.execution.setNextRequest` / `skipRequest` | Runner flow control. |
-| `pm.visualizer.set(template, data)` | Custom HTML response visualizations. |
-| `pm.vault` | Encrypted secret vault (`await pm.vault.get(...)`). Restura-native. |
-| `require(name)` | Bundled library set: `ajv`, `chai`, `cheerio`, `crypto-js`, `csv-parse/sync`, `lodash`, `moment`, `postman-collection`, `tv4`, `uuid`, `xml2js`. |
-| `console.log/warn/error` | Output to the script panel. |
+| Postman API                                                                 | Restura support                                                                                                                                  |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pm.request`                                                                | Read access to method, URL, headers, body.                                                                                                       |
+| `pm.response`                                                               | `.code`, `.status`, `.text()`, `.json()`, `.responseTime`, `.headers.get(...)`.                                                                  |
+| `pm.environment` / `pm.collectionVariables` / `pm.globals` / `pm.variables` | Full `get`/`set`/`unset`/`has`.                                                                                                                  |
+| `pm.test(name, fn)`                                                         | Test assertions with named scope.                                                                                                                |
+| `pm.expect(value)`                                                          | `chai`-style assertions: `.to.equal`, `.to.be.a`, `.to.include`, `.to.have.property`, etc.                                                       |
+| `pm.iterationData`                                                          | Data-driven runs (CSV / JSON rows).                                                                                                              |
+| `pm.cookies`                                                                | Cookie jar lookup, plus an async `.jar()` for get/set/clear.                                                                                     |
+| `pm.sendRequest(input, cb?)`                                                | Fire an ad-hoc request through the SSRF-guarded proxy. Returns a promise.                                                                        |
+| `pm.execution.setNextRequest` / `skipRequest`                               | Runner flow control.                                                                                                                             |
+| `pm.visualizer.set(template, data)`                                         | Custom HTML response visualizations.                                                                                                             |
+| `pm.vault`                                                                  | Encrypted secret vault (`await pm.vault.get(...)`). Restura-native.                                                                              |
+| `require(name)`                                                             | Bundled library set: `ajv`, `chai`, `cheerio`, `crypto-js`, `csv-parse/sync`, `lodash`, `moment`, `postman-collection`, `tv4`, `uuid`, `xml2js`. |
+| `console.log/warn/error`                                                    | Output to the script panel.                                                                                                                      |
 
 ## Inline helpers (in `{{...}}`)
 
-| Helper | What it returns |
-|---|---|
-| `{{$randomUUID}}` | UUID v4 per request. |
-| `{{$guid}}` | Alias for `$randomUUID`. |
-| `{{$timestamp}}` | Epoch seconds. |
-| `{{$isoTimestamp}}` | ISO 8601 timestamp. |
+| Helper              | What it returns          |
+| ------------------- | ------------------------ |
+| `{{$randomUUID}}`   | UUID v4 per request.     |
+| `{{$guid}}`         | Alias for `$randomUUID`. |
+| `{{$timestamp}}`    | Epoch seconds.           |
+| `{{$isoTimestamp}}` | ISO 8601 timestamp.      |
 
 ## What doesn't work
 
@@ -48,7 +48,8 @@ The sandbox is intentionally narrow:
 - **Predictable runtime.** Memory and execution-time caps mean a malformed loop can't take down the app.
 
 <Aside title="Native namespace">
-Restura's primary namespace is `rs.*`; `pm.*` is the compatibility alias. Imported Postman scripts are normalized to `rs.*` and rewritten back to `pm.*` on export. See [Scripts](/guides/scripts/).
+  Restura's primary namespace is `rs.*`; `pm.*` is the compatibility alias. Imported Postman scripts
+  are normalized to `rs.*` and rewritten back to `pm.*` on export. See [Scripts](/guides/scripts/).
 </Aside>
 
 ## Related

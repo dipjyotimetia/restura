@@ -1,15 +1,13 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
-import type {
-  CollectionRunResult,
-  CollectionRequestResult,
-} from '../lib/collectionRunner';
+import type { CollectionRunResult, CollectionRequestResult } from '../lib/collectionRunner';
 import { PROTOCOL_LABELS, PROTOCOL_COLORS } from '@/lib/shared/constants';
 import { cn } from '@/lib/shared/utils';
 
 function StatusIcon({ status }: { status: CollectionRequestResult['status'] }) {
-  if (status === 'success') return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />;
+  if (status === 'success')
+    return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />;
   if (status === 'failed') return <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />;
   return <MinusCircle className="h-3.5 w-3.5 text-amber-500 shrink-0" />;
 }
@@ -59,7 +57,11 @@ function RequestRow({ r }: { r: CollectionRequestResult }) {
               ) : (
                 <XCircle className="h-3 w-3 text-red-500 shrink-0" />
               )}
-              <span className={cn(a.passed ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400')}>
+              <span
+                className={cn(
+                  a.passed ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'
+                )}
+              >
                 {a.name}
                 {a.error ? ` — ${a.error}` : ''}
               </span>
@@ -91,19 +93,28 @@ export function CollectionRunDetail({
   const showIterationHeaders = run.iterations > 1;
 
   return (
-    <Dialog open={run !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog
+      open={run !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <DialogContent className="max-w-2xl h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <span>{run.scopeName}</span>
             <span className="text-xs font-mono font-normal text-muted-foreground">
-              <span className="text-emerald-600 dark:text-emerald-400">{run.summary.passed} passed</span>
+              <span className="text-emerald-600 dark:text-emerald-400">
+                {run.summary.passed} passed
+              </span>
               {' · '}
               <span className="text-red-600 dark:text-red-400">{run.summary.failed} failed</span>
               {run.summary.skipped > 0 && (
                 <>
                   {' · '}
-                  <span className="text-amber-600 dark:text-amber-400">{run.summary.skipped} skipped</span>
+                  <span className="text-amber-600 dark:text-amber-400">
+                    {run.summary.skipped} skipped
+                  </span>
                 </>
               )}
               {' · '}

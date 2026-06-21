@@ -81,7 +81,11 @@ function makeControlledHandle() {
     cancel: vi.fn(() => {
       endMessages();
     }),
-    done: new Promise<{ headers: Record<string, string>; trailers: Record<string, string>; status: number }>(() => {
+    done: new Promise<{
+      headers: Record<string, string>;
+      trailers: Record<string, string>;
+      status: number;
+    }>(() => {
       /* never resolves — controlled via cancel / endMessages */
     }),
   };

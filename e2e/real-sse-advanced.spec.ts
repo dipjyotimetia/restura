@@ -27,7 +27,9 @@ test.describe('SSE — resume via Last-Event-ID', () => {
 });
 
 test.describe('SSE — comments + retry + multi-line data', () => {
-  test('comment, retry directive, and multi-line data are emitted as wire-formatted', async ({ servers }) => {
+  test('comment, retry directive, and multi-line data are emitted as wire-formatted', async ({
+    servers,
+  }) => {
     const res = await fetch(`${servers.http.url}/stream/sse-comments`);
     const text = await res.text();
     expect(text).toContain(': heartbeat');

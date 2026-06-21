@@ -13,10 +13,7 @@
  * subprotocols field is unused in v1 — both are omitted from the
  * inline shape rather than silently dropped.
  */
-import type {
-  ProtocolModule,
-  ProtocolStreamHandle,
-} from '@/features/registry/types';
+import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 
 interface InlineWsRequestShape {
   type: 'websocket';
@@ -181,9 +178,7 @@ export const websocketProtocol: ProtocolModule = {
   label: 'WebSocket',
   tabType: 'websocket',
   defaultRequest: () => {
-    throw new Error(
-      'WebSocket has no Request shape; create a connection via useWebSocketStore.'
-    );
+    throw new Error('WebSocket has no Request shape; create a connection via useWebSocketStore.');
   },
   runRequest: async () => {
     throw new Error(

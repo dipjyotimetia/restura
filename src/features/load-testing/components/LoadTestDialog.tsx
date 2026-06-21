@@ -144,7 +144,8 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
 
           {!isElectron() && (
             <p className="text-sp-11 text-sp-dim font-mono">
-              Browsers cap concurrent connections per origin (~6); desktop reaches higher concurrency.
+              Browsers cap concurrent connections per origin (~6); desktop reaches higher
+              concurrency.
             </p>
           )}
 
@@ -157,8 +158,7 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
                 />
               </div>
               <div className="text-sp-11 text-sp-dim font-mono">
-                {progress.completed} / {progress.total} · {pct}%
-                {progress.done && ' · done'}
+                {progress.completed} / {progress.total} · {pct}%{progress.done && ' · done'}
               </div>
 
               {stats && (

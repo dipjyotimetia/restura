@@ -13,7 +13,11 @@ export const MAX_MESSAGES_PER_CONNECTION = 1000;
  * subscribers). When the cap is reached, only one allocation happens — a
  * tail-slice of size `max - 1` followed by a single push.
  */
-export function capMessages<T>(prev: readonly T[], next: T, max: number = MAX_MESSAGES_PER_CONNECTION): T[] {
+export function capMessages<T>(
+  prev: readonly T[],
+  next: T,
+  max: number = MAX_MESSAGES_PER_CONNECTION
+): T[] {
   if (prev.length < max) {
     return [...prev, next];
   }

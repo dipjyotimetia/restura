@@ -11,15 +11,15 @@ Restura can act as an MCP server, exposing a curated, redacted view of your save
 
 ## What gets exposed
 
-| Tool | What it does |
-|---|---|
-| `list_collections` | Enumerate saved collections. |
-| `list_requests` | Browse requests in a collection (filterable by folder). |
-| `list_environments` | List environments and their active variables. |
-| `get_environment` | Fetch one environment's details — secrets auto-redacted. |
-| `get_history` | Query past request executions (filterable, with a limit). |
+| Tool                | What it does                                              |
+| ------------------- | --------------------------------------------------------- |
+| `list_collections`  | Enumerate saved collections.                              |
+| `list_requests`     | Browse requests in a collection (filterable by folder).   |
+| `list_environments` | List environments and their active variables.             |
+| `get_environment`   | Fetch one environment's details — secrets auto-redacted.  |
+| `get_history`       | Query past request executions (filterable, with a limit). |
 
-The tool surface is intentionally read-only and metadata-shaped. Your agent can ask *what* requests exist; it can't trigger sends or modify saved state.
+The tool surface is intentionally read-only and metadata-shaped. Your agent can ask _what_ requests exist; it can't trigger sends or modify saved state.
 
 ## Consent + redaction
 
@@ -47,10 +47,11 @@ Setup steps in your agent's config file usually look like this:
 Open the **Settings → MCP server** panel in the desktop app for the exact port and the toggle to enable the server.
 
 <Aside type="caution">
-MCP server mode is opt-in. It's off by default. When on, the desktop app only listens on `127.0.0.1` — never on a public interface.
+  MCP server mode is opt-in. It's off by default. When on, the desktop app only listens on
+  `127.0.0.1` — never on a public interface.
 </Aside>
 
 ## Related
 
-- [MCP protocol](/protocols/mcp/) — Restura *as a client* of other MCP servers.
+- [MCP protocol](/protocols/mcp/) — Restura _as a client_ of other MCP servers.
 - [AI assistant](/guides/ai-assistant/) — the built-in chat panel.

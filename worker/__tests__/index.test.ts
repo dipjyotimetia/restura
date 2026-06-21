@@ -3,10 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import app from '../index';
 import type { Env } from '../env';
 
-function makeApiRequest(
-  headers: Record<string, string> = {},
-  env: Record<string, string> = {},
-) {
+function makeApiRequest(headers: Record<string, string> = {}, env: Record<string, string> = {}) {
   return app.request(
     '/api/proxy',
     {
@@ -14,7 +11,7 @@ function makeApiRequest(
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ method: 'GET', url: 'https://example.com/api' }),
     },
-    env,
+    env
   );
 }
 
@@ -32,12 +29,12 @@ describe('worker api middleware', () => {
   it('accepts matching proxy token outside development', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(new Response('{}', { status: 200, statusText: 'OK' })),
+      vi.fn().mockResolvedValue(new Response('{}', { status: 200, statusText: 'OK' }))
     );
 
     const res = await makeApiRequest(
       { 'X-Restura-Proxy-Token': 'secret-token' },
-      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' },
+      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' }
     );
 
     expect(res.status).toBe(200);
@@ -46,7 +43,7 @@ describe('worker api middleware', () => {
   it('rejects mismatched proxy token outside development', async () => {
     const res = await makeApiRequest(
       { 'X-Restura-Proxy-Token': 'wrong-token' },
-      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' },
+      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' }
     );
 
     expect(res.status).toBe(401);
@@ -56,15 +53,17 @@ describe('worker api middleware', () => {
     const allowed = await app.request(
       '/api/proxy',
       { method: 'OPTIONS', headers: { Origin: 'https://feature.restura.pages.dev' } },
-      { ENVIRONMENT: 'preview', ALLOWED_ORIGIN: 'https://*.restura.pages.dev' },
+      { ENVIRONMENT: 'preview', ALLOWED_ORIGIN: 'https://*.restura.pages.dev' }
     );
     const denied = await app.request(
       '/api/proxy',
       { method: 'OPTIONS', headers: { Origin: 'https://evil.example' } },
-      { ENVIRONMENT: 'preview', ALLOWED_ORIGIN: 'https://*.restura.pages.dev' },
+      { ENVIRONMENT: 'preview', ALLOWED_ORIGIN: 'https://*.restura.pages.dev' }
     );
 
-    expect(allowed.headers.get('access-control-allow-origin')).toBe('https://feature.restura.pages.dev');
+    expect(allowed.headers.get('access-control-allow-origin')).toBe(
+      'https://feature.restura.pages.dev'
+    );
     expect(denied.headers.get('access-control-allow-origin')).toBeNull();
   });
 });
@@ -79,7 +78,7 @@ describe('proxyAuthMiddleware', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
       },
-      env,
+      env
     );
     expect(res.status).toBe(503);
   });
@@ -92,7 +91,7 @@ describe('proxyAuthMiddleware', () => {
         method: 'OPTIONS',
         headers: { Origin: 'http://localhost:5173' },
       },
-      env,
+      env
     );
     // OPTIONS should pass CORS preflight; auth middleware should not block.
     expect([200, 204]).toContain(res.status);
@@ -107,7 +106,7 @@ describe('proxyAuthMiddleware', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
       },
-      env,
+      env
     );
     expect(res.status).toBe(503); // or 401 — bypass MUST NOT apply
   });
@@ -125,7 +124,7 @@ describe('proxyAuthMiddleware', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
       },
-      env,
+      env
     );
     // No token header sent — auth middleware MUST reject (401), not bypass.
     expect(res.status).toBe(401);
@@ -146,7 +145,7 @@ describe('Miniflare detection', () => {
         method: 'OPTIONS',
         headers: { Origin: 'http://localhost:5173' },
       },
-      env,
+      env
     );
     expect([200, 204]).toContain(res.status);
   });
@@ -161,7 +160,7 @@ describe('CORS closed-by-default when ALLOWED_ORIGIN is unset', () => {
     const res = await app.request(
       '/api/proxy',
       { method: 'OPTIONS', headers: { Origin: 'https://evil.example' } },
-      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' },
+      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' }
     );
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
@@ -170,7 +169,7 @@ describe('CORS closed-by-default when ALLOWED_ORIGIN is unset', () => {
     const res = await app.request(
       '/api/proxy',
       { method: 'OPTIONS', headers: { Origin: 'http://localhost:5173' } },
-      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' },
+      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' }
     );
     expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
   });
@@ -182,7 +181,7 @@ describe('health probes', () => {
   it('returns 200 JSON for /health without auth', async () => {
     const res = await app.request('/health', { method: 'GET' });
     expect(res.status).toBe(200);
-    const body = await res.json() as { status: string };
+    const body = (await res.json()) as { status: string };
     expect(body.status).toBe('ok');
   });
 

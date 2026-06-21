@@ -14,13 +14,17 @@ describe('useAiChatStore', () => {
 
   it('appendUserMessage adds a message and returns its id', () => {
     useAiChatStore.getState().newConversation();
-    const msgId = useAiChatStore.getState().appendUserMessage(
-      'why did this fail?',
-      { kind: 'response', tabId: 't1', capturedAt: 1 },
-      false,
-    );
+    const msgId = useAiChatStore
+      .getState()
+      .appendUserMessage(
+        'why did this fail?',
+        { kind: 'response', tabId: 't1', capturedAt: 1 },
+        false
+      );
     const active = useAiChatStore.getState().activeConversationId!;
-    const msg = useAiChatStore.getState().conversations[active]?.messages.find((m) => m.id === msgId);
+    const msg = useAiChatStore
+      .getState()
+      .conversations[active]?.messages.find((m) => m.id === msgId);
     expect(msg?.text).toBe('why did this fail?');
     expect(msg?.role).toBe('user');
     expect(msg?.rawMode).toBe(false);
@@ -28,7 +32,9 @@ describe('useAiChatStore', () => {
 
   it('auto-derives conversation title from the first user message (≤60 chars)', () => {
     useAiChatStore.getState().newConversation();
-    useAiChatStore.getState().appendUserMessage('a'.repeat(80), { kind: 'none', capturedAt: 0 }, false);
+    useAiChatStore
+      .getState()
+      .appendUserMessage('a'.repeat(80), { kind: 'none', capturedAt: 0 }, false);
     const active = useAiChatStore.getState().activeConversationId!;
     expect(useAiChatStore.getState().conversations[active]?.title.length).toBeLessThanOrEqual(63);
   });
@@ -39,13 +45,19 @@ describe('useAiChatStore', () => {
     useAiChatStore.getState().appendAssistantDelta(aId, 'Hello ');
     useAiChatStore.getState().appendAssistantDelta(aId, 'world');
     const active = useAiChatStore.getState().activeConversationId!;
-    expect(useAiChatStore.getState().conversations[active]?.messages.find((m) => m.id === aId)?.text).toBe('Hello world');
+    expect(
+      useAiChatStore.getState().conversations[active]?.messages.find((m) => m.id === aId)?.text
+    ).toBe('Hello world');
   });
 
   it('finalizeAssistantMessage sets status to done and stores usage', () => {
     useAiChatStore.getState().newConversation();
     const aId = useAiChatStore.getState().appendAssistantPlaceholder();
-    useAiChatStore.getState().finalizeAssistantMessage(aId, { promptTokens: 5, completionTokens: 7, estimatedCostUSD: 0.0001 });
+    useAiChatStore.getState().finalizeAssistantMessage(aId, {
+      promptTokens: 5,
+      completionTokens: 7,
+      estimatedCostUSD: 0.0001,
+    });
     const active = useAiChatStore.getState().activeConversationId!;
     const msg = useAiChatStore.getState().conversations[active]?.messages.find((m) => m.id === aId);
     expect(msg?.status).toBe('done');
@@ -85,7 +97,9 @@ describe('useAiChatStore', () => {
       estimatedCostUSD: 0.0001,
     });
 
-    const msgInA = useAiChatStore.getState().conversations[convA]?.messages.find((m) => m.id === aId);
+    const msgInA = useAiChatStore
+      .getState()
+      .conversations[convA]?.messages.find((m) => m.id === aId);
     expect(msgInA?.text).toBe('hello');
     expect(msgInA?.status).toBe('done');
     expect(useAiChatStore.getState().conversations[convB]?.messages).toEqual([]);

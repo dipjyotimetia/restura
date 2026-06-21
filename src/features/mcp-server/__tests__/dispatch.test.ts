@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Collection, Environment, HistoryItem, HttpRequest } from '@/types';
-import {
-  dispatchTool,
-  postProcessResult,
-  type McpDispatchContext,
-} from '../dispatch';
+import { dispatchTool, postProcessResult, type McpDispatchContext } from '../dispatch';
 import {
   DEFAULT_CONSENT,
   setCollectionConsent,
@@ -152,8 +148,9 @@ describe('dispatchTool — list_collections', () => {
     const r = dispatchTool('list_collections', {}, buildContext());
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const cols = (r.data as { collections: Array<{ id: string; requestCount: number; executable: boolean }> })
-      .collections;
+    const cols = (
+      r.data as { collections: Array<{ id: string; requestCount: number; executable: boolean }> }
+    ).collections;
     expect(cols).toHaveLength(1);
     expect(cols[0]?.id).toBe(sampleCollection.id);
     expect(cols[0]?.requestCount).toBe(2);
@@ -166,7 +163,9 @@ describe('dispatchTool — list_collections', () => {
     });
     const r = dispatchTool('list_collections', {}, ctx);
     if (!r.ok) throw new Error('expected ok');
-    expect((r.data as { collections: Array<{ executable: boolean }> }).collections[0]?.executable).toBe(true);
+    expect(
+      (r.data as { collections: Array<{ executable: boolean }> }).collections[0]?.executable
+    ).toBe(true);
   });
 });
 
@@ -295,7 +294,8 @@ describe('dispatchTool — environment tools', () => {
     const r = dispatchTool('list_environments', {}, buildContext());
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const envs = (r.data as { environments: Array<{ id: string; variableCount: number }> }).environments;
+    const envs = (r.data as { environments: Array<{ id: string; variableCount: number }> })
+      .environments;
     expect(envs).toHaveLength(1);
     // Two enabled variables (the `disabled` one is excluded).
     expect(envs[0]?.variableCount).toBe(2);

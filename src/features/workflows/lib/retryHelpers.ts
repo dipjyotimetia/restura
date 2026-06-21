@@ -49,8 +49,7 @@ export async function executeWithRetry<T>(
       }
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < maxAttempts) {
-        const delay =
-          policy.delayMs * Math.pow(policy.backoffMultiplier ?? 1, attempt - 1);
+        const delay = policy.delayMs * Math.pow(policy.backoffMultiplier ?? 1, attempt - 1);
         onRetry?.(attempt, delay, lastError);
         await sleepWithAbort(delay, signal);
       }

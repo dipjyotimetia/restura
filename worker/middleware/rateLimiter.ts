@@ -27,7 +27,10 @@ let cachedEnforce: ReturnType<typeof createBindingRateLimiter> | null = null;
 let cachedShadow: ReturnType<typeof createBindingRateLimiter> | null = null;
 let warnedMissingBinding = false;
 
-function getBindingLimiter(binding: RateLimitBinding, shadow: boolean): ReturnType<typeof createBindingRateLimiter> {
+function getBindingLimiter(
+  binding: RateLimitBinding,
+  shadow: boolean
+): ReturnType<typeof createBindingRateLimiter> {
   if (binding !== cachedBinding) {
     cachedBinding = binding;
     cachedEnforce = null;
@@ -43,13 +46,15 @@ function getBindingLimiter(binding: RateLimitBinding, shadow: boolean): ReturnTy
 
 export async function rateLimitMiddleware(
   c: Context<{ Bindings: Env }>,
-  next: Next,
+  next: Next
 ): Promise<Response | void> {
   const mode = c.env.RATE_LIMITER ?? 'map';
   const binding = c.env.RATE_LIMITER_BINDING;
 
   if ((mode === 'binding' || mode === 'binding-shadow') && !binding && !warnedMissingBinding) {
-    console.warn(`[ratelimit] RATE_LIMITER='${mode}' but RATE_LIMITER_BINDING is missing — falling back to isolate limiter`);
+    console.warn(
+      `[ratelimit] RATE_LIMITER='${mode}' but RATE_LIMITER_BINDING is missing — falling back to isolate limiter`
+    );
     warnedMissingBinding = true;
   }
 

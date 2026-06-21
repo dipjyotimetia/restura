@@ -60,9 +60,7 @@ Upload a `.pem` / `.p12` / `.pfx` with passphrase; the cert is presented during 
 
 Secret-bearing auth fields (tokens, passwords, client secrets, private keys) use a **handle-based pattern**: the encrypted value lives in the Electron main process keychain-protected store, and the renderer only sees a `SecretRef` handle. The plaintext is resolved at the wire, never touches the Zustand store, never lands in an exported collection, never appears in crash logs.
 
-<Aside title="See">
-[ADR 0007 — SecretRef pattern](/architecture/adrs/) for the design.
-</Aside>
+<Aside title="See">[ADR 0007 — SecretRef pattern](/architecture/adrs/) for the design.</Aside>
 
 ## Inheritance
 

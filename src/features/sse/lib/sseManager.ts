@@ -20,7 +20,10 @@ class SseManager {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return { valid: false, error: `Invalid protocol "${parsed.protocol}". URL must start with http:// or https://` };
+        return {
+          valid: false,
+          error: `Invalid protocol "${parsed.protocol}". URL must start with http:// or https://`,
+        };
       }
       return { valid: true };
     } catch {
@@ -87,10 +90,7 @@ class SseManager {
   }
 
   cleanup(): void {
-    const ids = new Set([
-      ...this.webConnections.keys(),
-      ...this.electronConnections,
-    ]);
+    const ids = new Set([...this.webConnections.keys(), ...this.electronConnections]);
     for (const id of ids) this.disconnect(id);
   }
 
@@ -174,13 +174,20 @@ class SseManager {
       if (controller.signal.aborted) {
         s.appendSystem(connectionId, 'Stream aborted');
       } else {
-        s.appendSystem(connectionId, `Stream error: ${error instanceof Error ? error.message : 'Unknown'}`);
+        s.appendSystem(
+          connectionId,
+          `Stream error: ${error instanceof Error ? error.message : 'Unknown'}`
+        );
       }
       s.updateConnectionStatus(connectionId, 'disconnected');
     }
   }
 
-  private connectViaElectron(connectionId: string, url: string, headers: Record<string, string>): void {
+  private connectViaElectron(
+    connectionId: string,
+    url: string,
+    headers: Record<string, string>
+  ): void {
     const store = useSseStore.getState();
     const api = getElectronAPI();
     if (!api?.sse) {
@@ -236,7 +243,10 @@ class SseManager {
     });
   }
 
-  private cleanupElectronListeners(connectionId: string, api: ReturnType<typeof getElectronAPI>): void {
+  private cleanupElectronListeners(
+    connectionId: string,
+    api: ReturnType<typeof getElectronAPI>
+  ): void {
     api?.sse?.removeAllListeners(`sse:open:${connectionId}`);
     api?.sse?.removeAllListeners(`sse:event:${connectionId}`);
     api?.sse?.removeAllListeners(`sse:error:${connectionId}`);

@@ -24,10 +24,7 @@ function McpCallNodeImpl({ id, data, selected }: NodeProps) {
         <div className="flex items-start gap-2">
           <Sparkles className="h-4 w-4 mt-0.5 text-rose-400" />
           <div className="min-w-0">
-            <div
-              className="text-xs font-medium truncate"
-              title={wrName ?? d.workflowRequestId}
-            >
+            <div className="text-xs font-medium truncate" title={wrName ?? d.workflowRequestId}>
               {wrName ?? 'Pick an MCP request…'}
             </div>
             <div

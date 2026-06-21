@@ -37,7 +37,9 @@ export default async function globalSetup(): Promise<void> {
 }
 
 function ensureDevVars(): void {
-  const existing = parseDevVars(existsSync(DEV_VARS_PATH) ? readFileSync(DEV_VARS_PATH, 'utf8') : '');
+  const existing = parseDevVars(
+    existsSync(DEV_VARS_PATH) ? readFileSync(DEV_VARS_PATH, 'utf8') : ''
+  );
   let changed = false;
   for (const [key, value] of Object.entries(REQUIRED_DEV_VARS)) {
     if (existing[key] !== value) {
@@ -48,12 +50,15 @@ function ensureDevVars(): void {
   if (!changed) return;
 
   mkdirSync(dirname(DEV_VARS_PATH), { recursive: true });
-  const next = Object.entries(existing)
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n') + '\n';
+  const next =
+    Object.entries(existing)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n') + '\n';
   writeFileSync(DEV_VARS_PATH, next, 'utf8');
-  // eslint-disable-next-line no-console
-  console.log(`[e2e:setup] wrote ${DEV_VARS_PATH} with ${Object.keys(REQUIRED_DEV_VARS).join(', ')}`);
+
+  console.log(
+    `[e2e:setup] wrote ${DEV_VARS_PATH} with ${Object.keys(REQUIRED_DEV_VARS).join(', ')}`
+  );
 }
 
 function parseDevVars(content: string): Record<string, string> {
@@ -91,7 +96,6 @@ function ensureChromium(): void {
     join(process.env.HOME ?? '', 'Library/Caches/ms-playwright');
   if (existsSync(cacheRoot)) return;
 
-  // eslint-disable-next-line no-console
   console.log('[e2e:setup] installing Playwright Chromium (one-time)...');
   try {
     execFileSync('npx', ['playwright', 'install', 'chromium'], {

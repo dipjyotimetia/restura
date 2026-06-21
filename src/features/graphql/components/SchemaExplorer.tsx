@@ -6,19 +6,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import type { GraphQLSchema, GraphQLTypeKind } from '../types';
 import { formatTypeRef } from '../types';
-import {
-  getTypesByKind,
-  getRootTypes,
-  getTypeFields,
-} from '../lib/introspection';
-import {
-  ChevronDown,
-  ChevronRight,
-  Layers,
-  Loader2,
-  RefreshCw,
-  Search,
-} from 'lucide-react';
+import { getTypesByKind, getRootTypes, getTypeFields } from '../lib/introspection';
+import { ChevronDown, ChevronRight, Layers, Loader2, RefreshCw, Search } from 'lucide-react';
 
 interface SchemaExplorerProps {
   schema: GraphQLSchema | null;
@@ -107,9 +96,7 @@ export default function SchemaExplorer({
     if (!schema) return null;
     const roots = getRootTypes(schema);
     const rootNames = new Set(
-      [roots.query, roots.mutation, roots.subscription].filter(
-        (n): n is string => Boolean(n)
-      )
+      [roots.query, roots.mutation, roots.subscription].filter((n): n is string => Boolean(n))
     );
 
     type Row = {
@@ -195,9 +182,7 @@ export default function SchemaExplorer({
       {!schema && (
         <div className="flex-1 flex items-center justify-center px-4 py-8 text-center">
           <p className="text-sp-12 text-sp-muted">
-            {loading
-              ? 'Loading schema…'
-              : 'No schema loaded. Hit refresh to introspect.'}
+            {loading ? 'Loading schema…' : 'No schema loaded. Hit refresh to introspect.'}
           </p>
         </div>
       )}
@@ -217,9 +202,7 @@ export default function SchemaExplorer({
               .map((row) => {
                 const fields = getTypeFields(schema, row.name);
                 const filteredFields = fields.filter((f) =>
-                  searchQuery
-                    ? filterBySearch(f.name) || filterBySearch(row.name)
-                    : true
+                  searchQuery ? filterBySearch(f.name) || filterBySearch(row.name) : true
                 );
                 const isExpanded =
                   expandedTypes.has(row.name) ||
@@ -243,9 +226,7 @@ export default function SchemaExplorer({
                         <span className="w-3 shrink-0" />
                       )}
                       <KindBadge kind={row.kind} />
-                      <span className="font-mono text-sp-12 text-sp-text truncate">
-                        {row.name}
-                      </span>
+                      <span className="font-mono text-sp-12 text-sp-text truncate">{row.name}</span>
                       {row.isRoot && (
                         <span className="sp-label ml-auto" style={{ fontSize: '8.5px' }}>
                           {row.isRoot}

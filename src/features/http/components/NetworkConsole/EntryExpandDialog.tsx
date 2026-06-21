@@ -1,7 +1,13 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Clock, Cookie as CookieIcon } from 'lucide-react';
@@ -35,7 +41,8 @@ interface EntryExpandDialogProps {
  */
 export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryExpandDialogProps) {
   const reqCookies = useMemo(
-    () => (entry ? parseRequestCookies(entry.request.headers as Record<string, string | string[]>) : []),
+    () =>
+      entry ? parseRequestCookies(entry.request.headers as Record<string, string | string[]>) : [],
     [entry]
   );
   const resCookies = useMemo(
@@ -50,30 +57,50 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
       <DialogContent className="!max-w-[min(96vw,1400px)] !w-[min(96vw,1400px)] max-h-[92vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-6 py-3 border-b border-border">
           <DialogTitle className="text-sm flex items-center gap-3">
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold">{entry.request.method}</Badge>
-            <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(entry.response.status))}>
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold">
+              {entry.request.method}
+            </Badge>
+            <Badge
+              variant="outline"
+              className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(entry.response.status))}
+            >
               {entry.response.status || 'ERR'} {entry.response.statusText}
             </Badge>
-            <span className="font-mono text-xs text-muted-foreground truncate flex-1">{entry.request.url}</span>
+            <span className="font-mono text-xs text-muted-foreground truncate flex-1">
+              {entry.request.url}
+            </span>
             <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
               <Clock className="h-3 w-3" />
               {entry.response.time}ms
             </span>
-            <span className="text-xs text-muted-foreground tabular-nums" title="Response size">↓ {formatBytes(entry.response.size)}</span>
-            <span className="text-xs text-muted-foreground">{formatLongTimestamp(entry.timestamp)}</span>
+            <span className="text-xs text-muted-foreground tabular-nums" title="Response size">
+              ↓ {formatBytes(entry.response.size)}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {formatLongTimestamp(entry.timestamp)}
+            </span>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Full-screen view of the captured request and response, including headers, cookies, and body.
+            Full-screen view of the captured request and response, including headers, cookies, and
+            body.
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="flex-1">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-border">
             {/* Request column */}
             <div className="bg-background p-5 space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Request</h3>
-              <HeaderBlock title="Headers" headers={entry.request.headers as Record<string, string | string[]>} />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Request
+              </h3>
+              <HeaderBlock
+                title="Headers"
+                headers={entry.request.headers as Record<string, string | string[]>}
+              />
               {reqCookies.length > 0 && (
-                <CookieList title="Cookies" rows={reqCookies.map((c) => ({ name: c.name, value: c.value }))} />
+                <CookieList
+                  title="Cookies"
+                  rows={reqCookies.map((c) => ({ name: c.name, value: c.value }))}
+                />
               )}
               {entry.request.body && (
                 <BodyBlock
@@ -89,30 +116,60 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
 
             {/* Response column */}
             <div className="bg-background p-5 space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Response</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Response
+              </h3>
               <HeaderBlock title="Headers" headers={entry.response.headers} />
               {resCookies.length > 0 && (
                 <div className="space-y-1.5">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                     <CookieIcon className="h-3 w-3" />
                     Set-Cookie
-                    <Badge variant="secondary" className="ml-1 text-[10px]">{resCookies.length}</Badge>
+                    <Badge variant="secondary" className="ml-1 text-[10px]">
+                      {resCookies.length}
+                    </Badge>
                   </h4>
                   <div className="bg-muted/40 rounded-lg p-3 space-y-2 text-xs font-mono">
                     {resCookies.map((c, i) => (
                       <div key={`${c.name}-${i}`} className="space-y-0.5">
                         <div className="flex">
-                          <span className="text-primary/80 font-medium min-w-[140px]">{c.name}</span>
+                          <span className="text-primary/80 font-medium min-w-[140px]">
+                            {c.name}
+                          </span>
                           <span className="text-foreground/80 break-all ml-2">{c.value}</span>
                         </div>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-[140px] ml-2">
-                          {c.domain && <span>Domain: <span className="text-foreground/70">{c.domain}</span></span>}
-                          {c.path && <span>Path: <span className="text-foreground/70">{c.path}</span></span>}
-                          {c.expires && <span>Expires: <span className="text-foreground/70">{c.expires}</span></span>}
-                          {c.maxAge !== undefined && <span>Max-Age: <span className="text-foreground/70">{c.maxAge}</span></span>}
-                          {c.sameSite && <span>SameSite: <span className="text-foreground/70">{c.sameSite}</span></span>}
-                          {c.httpOnly && <span className="text-amber-600 dark:text-amber-400">HttpOnly</span>}
-                          {c.secure && <span className="text-emerald-600 dark:text-emerald-400">Secure</span>}
+                          {c.domain && (
+                            <span>
+                              Domain: <span className="text-foreground/70">{c.domain}</span>
+                            </span>
+                          )}
+                          {c.path && (
+                            <span>
+                              Path: <span className="text-foreground/70">{c.path}</span>
+                            </span>
+                          )}
+                          {c.expires && (
+                            <span>
+                              Expires: <span className="text-foreground/70">{c.expires}</span>
+                            </span>
+                          )}
+                          {c.maxAge !== undefined && (
+                            <span>
+                              Max-Age: <span className="text-foreground/70">{c.maxAge}</span>
+                            </span>
+                          )}
+                          {c.sameSite && (
+                            <span>
+                              SameSite: <span className="text-foreground/70">{c.sameSite}</span>
+                            </span>
+                          )}
+                          {c.httpOnly && (
+                            <span className="text-amber-600 dark:text-amber-400">HttpOnly</span>
+                          )}
+                          {c.secure && (
+                            <span className="text-emerald-600 dark:text-emerald-400">Secure</span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -135,13 +192,21 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
   );
 }
 
-function HeaderBlock({ title, headers }: { title: string; headers: Record<string, string | string[]> }) {
+function HeaderBlock({
+  title,
+  headers,
+}: {
+  title: string;
+  headers: Record<string, string | string[]>;
+}) {
   const entries = Object.entries(headers);
   return (
     <div className="space-y-1.5">
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
         {title}
-        <Badge variant="secondary" className="ml-2 text-[10px]">{entries.length}</Badge>
+        <Badge variant="secondary" className="ml-2 text-[10px]">
+          {entries.length}
+        </Badge>
       </h4>
       <div className="bg-muted/40 rounded-lg p-3 space-y-1 text-xs font-mono">
         {entries.length === 0 ? (
@@ -161,13 +226,21 @@ function HeaderBlock({ title, headers }: { title: string; headers: Record<string
   );
 }
 
-function CookieList({ title, rows }: { title: string; rows: Array<{ name: string; value: string }> }) {
+function CookieList({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<{ name: string; value: string }>;
+}) {
   return (
     <div className="space-y-1.5">
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
         <CookieIcon className="h-3 w-3" />
         {title}
-        <Badge variant="secondary" className="ml-1 text-[10px]">{rows.length}</Badge>
+        <Badge variant="secondary" className="ml-1 text-[10px]">
+          {rows.length}
+        </Badge>
       </h4>
       <div className="bg-muted/40 rounded-lg p-3 space-y-1 text-xs font-mono">
         {rows.map((c) => (
@@ -194,7 +267,9 @@ function BodyBlock({
 }) {
   return (
     <div className="space-y-1.5">
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</h4>
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        {label}
+      </h4>
       <div className="rounded-lg overflow-hidden border border-border">
         <CodeEditor
           value={value.substring(0, 100_000)}

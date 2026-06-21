@@ -167,8 +167,7 @@ export function SseEventTimeline({
                         className="h-[9px] w-[9px] rounded-full"
                         style={{
                           background: '#f59e0b',
-                          boxShadow:
-                            '0 0 0 2px var(--sp-surface), 0 0 8px rgba(245,158,11,0.55)',
+                          boxShadow: '0 0 0 2px var(--sp-surface), 0 0 8px rgba(245,158,11,0.55)',
                         }}
                       />
                     </span>

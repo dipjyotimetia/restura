@@ -93,16 +93,25 @@ describe('migrateAuthConfigToSecretRef', () => {
   });
 
   it('wraps digest/ntlm/wsse passwords; usernames stay plain', () => {
-    const digest = migrateAuthConfigToSecretRef({ type: 'digest', digest: { username: 'u', password: 'pw' } });
+    const digest = migrateAuthConfigToSecretRef({
+      type: 'digest',
+      digest: { username: 'u', password: 'pw' },
+    });
     expect(digest?.digest?.password).toEqual({ kind: 'inline', value: 'pw' });
     expect(digest?.digest?.username).toBe('u');
 
-    const ntlm = migrateAuthConfigToSecretRef({ type: 'ntlm', ntlm: { username: 'u', password: 'pw', domain: 'D' } });
+    const ntlm = migrateAuthConfigToSecretRef({
+      type: 'ntlm',
+      ntlm: { username: 'u', password: 'pw', domain: 'D' },
+    });
     expect(ntlm?.ntlm?.password).toEqual({ kind: 'inline', value: 'pw' });
     expect(ntlm?.ntlm?.username).toBe('u');
     expect(ntlm?.ntlm?.domain).toBe('D');
 
-    const wsse = migrateAuthConfigToSecretRef({ type: 'wsse', wsse: { username: 'u', password: 'pw', passwordType: 'PasswordDigest' } });
+    const wsse = migrateAuthConfigToSecretRef({
+      type: 'wsse',
+      wsse: { username: 'u', password: 'pw', passwordType: 'PasswordDigest' },
+    });
     expect(wsse?.wsse?.password).toEqual({ kind: 'inline', value: 'pw' });
     expect(wsse?.wsse?.passwordType).toBe('PasswordDigest');
   });
@@ -165,7 +174,9 @@ describe('migrateAuthConfigToSecretRef', () => {
       ],
     };
     const migrated = walk(tree);
-    const innerReq = migrated.items![0]!.items![0]!.request as { auth: { bearer: { token: unknown } } };
+    const innerReq = migrated.items![0]!.items![0]!.request as {
+      auth: { bearer: { token: unknown } };
+    };
     expect(innerReq.auth.bearer.token).toEqual({ kind: 'inline', value: 'inner-token' });
     const outerReq = migrated.items![1]!.request as { auth: { basic: { password: unknown } } };
     expect(outerReq.auth.basic.password).toEqual({ kind: 'inline', value: 'p' });

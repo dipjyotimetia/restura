@@ -166,9 +166,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
             url: 'https://api.example.com/me',
             auth: {
               type: 'oauth2',
-              oauth2: [
-                { key: 'accessToken', value: 'tok', type: 'string' },
-              ],
+              oauth2: [{ key: 'accessToken', value: 'tok', type: 'string' }],
             },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
           } as any,

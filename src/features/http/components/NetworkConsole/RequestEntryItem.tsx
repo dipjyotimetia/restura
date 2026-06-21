@@ -16,7 +16,17 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Copy, ExternalLink, GitCompare, Pin, PinOff, RotateCw, Trash2, X, Zap } from 'lucide-react';
+import {
+  Copy,
+  ExternalLink,
+  GitCompare,
+  Pin,
+  PinOff,
+  RotateCw,
+  Trash2,
+  X,
+  Zap,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useActiveTab } from '@/store/selectors';
@@ -146,7 +156,10 @@ export default function RequestEntryItem({
                 className="h-3.5 w-3.5"
               />
             )}
-            <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 font-semibold', methodColor)}>
+            <Badge
+              variant="outline"
+              className={cn('text-[10px] px-1.5 py-0 font-semibold', methodColor)}
+            >
               {request.method}
             </Badge>
             <span className={cn('text-xs font-medium tabular-nums', statusColor)}>
@@ -167,7 +180,10 @@ export default function RequestEntryItem({
             <div className="ml-auto flex items-center gap-0.5">
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); togglePin(entry.id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePin(entry.id);
+                }}
                 className="opacity-0 group-hover/entry:opacity-100 p-0.5 rounded text-muted-foreground hover:text-foreground transition-opacity"
                 aria-label={entry.pinned ? 'Unpin entry' : 'Pin entry'}
                 title={entry.pinned ? 'Unpin' : 'Pin (keeps across clears)'}
@@ -176,7 +192,10 @@ export default function RequestEntryItem({
               </button>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); removeEntry(entry.id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeEntry(entry.id);
+                }}
                 className="opacity-0 group-hover/entry:opacity-100 p-0.5 rounded text-muted-foreground hover:text-red-500 transition-opacity"
                 aria-label="Remove entry"
                 title="Remove"
@@ -188,9 +207,7 @@ export default function RequestEntryItem({
               </span>
             </div>
           </div>
-          <div className="text-xs text-foreground/80 truncate font-mono">
-            {displayUrl}
-          </div>
+          <div className="text-xs text-foreground/80 truncate font-mono">{displayUrl}</div>
           {/* Waterfall bar — duration relative to the slowest entry in view. */}
           {barPct > 0 && (
             <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
@@ -207,7 +224,9 @@ export default function RequestEntryItem({
             <span className={cn(isSlow && 'text-amber-600 dark:text-amber-400')}>
               {formatDuration(response.time)}
             </span>
-            {entry.requestSize != null && <span title="Request size">↑ {formatBytes(entry.requestSize)}</span>}
+            {entry.requestSize != null && (
+              <span title="Request size">↑ {formatBytes(entry.requestSize)}</span>
+            )}
             <span title="Response size">↓ {formatBytes(response.size)}</span>
             {totalTests > 0 && (
               <span
@@ -223,7 +242,10 @@ export default function RequestEntryItem({
               </span>
             )}
             {entry.runLabel && (
-              <span className="ml-auto truncate max-w-[90px] text-primary/70" title={`Run: ${entry.runLabel}`}>
+              <span
+                className="ml-auto truncate max-w-[90px] text-primary/70"
+                title={`Run: ${entry.runLabel}`}
+              >
                 ⚡ {entry.runLabel}
               </span>
             )}

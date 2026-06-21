@@ -97,28 +97,85 @@ export default defineConfig({
               collapsed: false,
               items: [
                 { label: 'ADR index', slug: 'architecture/adrs' },
-                { label: '0001 — Shared protocol layer', slug: 'architecture/adrs/0001-shared-protocol-layer' },
+                {
+                  label: '0001 — Shared protocol layer',
+                  slug: 'architecture/adrs/0001-shared-protocol-layer',
+                },
                 { label: '0002 — Multi-tab store', slug: 'architecture/adrs/0002-multi-tab-store' },
-                { label: '0003 — Streaming + HTTP/2', slug: 'architecture/adrs/0003-streaming-and-http2' },
-                { label: '0004 — Security hardening', slug: 'architecture/adrs/0004-security-hardening' },
+                {
+                  label: '0003 — Streaming + HTTP/2',
+                  slug: 'architecture/adrs/0003-streaming-and-http2',
+                },
+                {
+                  label: '0004 — Security hardening',
+                  slug: 'architecture/adrs/0004-security-hardening',
+                },
                 { label: '0005 — CLI runner', slug: 'architecture/adrs/0005-cli-runner' },
-                { label: '0006 — Connection + DNS hardening', slug: 'architecture/adrs/0006-connection-and-dns-hardening' },
-                { label: '0007 — SecretRef pattern', slug: 'architecture/adrs/0007-secret-ref-pattern' },
-                { label: '0008 — OpenCollection native format', slug: 'architecture/adrs/0008-opencollection-native-format' },
-                { label: '0009 — Shared Hono app factory', slug: 'architecture/adrs/0009-shared-hono-app-factory' },
-                { label: '0010 — AI assistant architecture', slug: 'architecture/adrs/0010-ai-assistant-architecture' },
-                { label: '0011 — Restura as an MCP server', slug: 'architecture/adrs/0011-mcp-server-mode' },
-                { label: '0012 — Capability matrix source of truth', slug: 'architecture/adrs/0012-capability-matrix-source-of-truth' },
+                {
+                  label: '0006 — Connection + DNS hardening',
+                  slug: 'architecture/adrs/0006-connection-and-dns-hardening',
+                },
+                {
+                  label: '0007 — SecretRef pattern',
+                  slug: 'architecture/adrs/0007-secret-ref-pattern',
+                },
+                {
+                  label: '0008 — OpenCollection native format',
+                  slug: 'architecture/adrs/0008-opencollection-native-format',
+                },
+                {
+                  label: '0009 — Shared Hono app factory',
+                  slug: 'architecture/adrs/0009-shared-hono-app-factory',
+                },
+                {
+                  label: '0010 — AI assistant architecture',
+                  slug: 'architecture/adrs/0010-ai-assistant-architecture',
+                },
+                {
+                  label: '0011 — Restura as an MCP server',
+                  slug: 'architecture/adrs/0011-mcp-server-mode',
+                },
+                {
+                  label: '0012 — Capability matrix source of truth',
+                  slug: 'architecture/adrs/0012-capability-matrix-source-of-truth',
+                },
                 { label: '0013 — Hash routing', slug: 'architecture/adrs/0013-hash-routing' },
-                { label: '0014 — Zustand persistence', slug: 'architecture/adrs/0014-zustand-persistence' },
-                { label: '0015 — QuickJS script sandbox', slug: 'architecture/adrs/0015-quickjs-script-sandbox' },
-                { label: '0016 — Wire-level auth signing', slug: 'architecture/adrs/0016-wire-level-auth-signing' },
-                { label: '0017 — Runtime platform detection', slug: 'architecture/adrs/0017-runtime-platform-detection' },
-                { label: '0018 — Rate limiting strategy', slug: 'architecture/adrs/0018-rate-limiting-strategy' },
-                { label: '0019 — Response viewer architecture', slug: 'architecture/adrs/0019-response-viewer-architecture' },
-                { label: '0020 — AI Lab eval workbench', slug: 'architecture/adrs/0020-ai-lab-eval-workbench' },
-                { label: '0021 — Maintenance harness', slug: 'architecture/adrs/0021-maintenance-harness' },
-                { label: '0022 — gRPC over ConnectRPC', slug: 'architecture/adrs/0022-grpc-connectrpc-transport' },
+                {
+                  label: '0014 — Zustand persistence',
+                  slug: 'architecture/adrs/0014-zustand-persistence',
+                },
+                {
+                  label: '0015 — QuickJS script sandbox',
+                  slug: 'architecture/adrs/0015-quickjs-script-sandbox',
+                },
+                {
+                  label: '0016 — Wire-level auth signing',
+                  slug: 'architecture/adrs/0016-wire-level-auth-signing',
+                },
+                {
+                  label: '0017 — Runtime platform detection',
+                  slug: 'architecture/adrs/0017-runtime-platform-detection',
+                },
+                {
+                  label: '0018 — Rate limiting strategy',
+                  slug: 'architecture/adrs/0018-rate-limiting-strategy',
+                },
+                {
+                  label: '0019 — Response viewer architecture',
+                  slug: 'architecture/adrs/0019-response-viewer-architecture',
+                },
+                {
+                  label: '0020 — AI Lab eval workbench',
+                  slug: 'architecture/adrs/0020-ai-lab-eval-workbench',
+                },
+                {
+                  label: '0021 — Maintenance harness',
+                  slug: 'architecture/adrs/0021-maintenance-harness',
+                },
+                {
+                  label: '0022 — gRPC over ConnectRPC',
+                  slug: 'architecture/adrs/0022-grpc-connectrpc-transport',
+                },
               ],
             },
           ],

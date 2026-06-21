@@ -24,12 +24,8 @@ describe('isStreamingAccept', () => {
   });
 
   it('matches when the streaming type is one element of a compound Accept', () => {
-    expect(
-      isStreamingAccept({ Accept: 'text/event-stream, application/json' })
-    ).toBe(true);
-    expect(
-      isStreamingAccept({ Accept: 'application/json, application/x-ndjson' })
-    ).toBe(true);
+    expect(isStreamingAccept({ Accept: 'text/event-stream, application/json' })).toBe(true);
+    expect(isStreamingAccept({ Accept: 'application/json, application/x-ndjson' })).toBe(true);
   });
 
   it('returns false for non-streaming Accept values', () => {

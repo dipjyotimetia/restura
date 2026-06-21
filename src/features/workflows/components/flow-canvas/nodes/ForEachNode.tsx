@@ -12,18 +12,11 @@ function ForEachNodeImpl({ id, data, selected }: NodeProps) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <NodeChrome
-        nodeId={id}
-        kindLabel="For Each"
-        selected={Boolean(selected)}
-      >
+      <NodeChrome nodeId={id} kindLabel="For Each" selected={Boolean(selected)}>
         <div className="flex items-start gap-2">
           <Repeat className="h-4 w-4 mt-0.5 text-orange-400" />
           <div className="min-w-0">
-            <div
-              className="text-xs font-mono truncate"
-              title={d.collectionExpression}
-            >
+            <div className="text-xs font-mono truncate" title={d.collectionExpression}>
               {d.collectionExpression || '— set collection —'}
             </div>
             <div className="text-[10px] text-muted-foreground mt-0.5">

@@ -2,7 +2,13 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Radio, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -11,7 +17,12 @@ import {
   formatMessageSchemaForDisplay,
 } from '@/features/grpc/lib/grpcReflection';
 import { validateGrpcUrl } from '@/features/grpc/lib/grpcClient';
-import type { ReflectionServiceInfo, ReflectionMethodInfo, ReflectionResult, GrpcMethodType } from '@/types';
+import type {
+  ReflectionServiceInfo,
+  ReflectionMethodInfo,
+  ReflectionResult,
+  GrpcMethodType,
+} from '@/types';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 interface GrpcReflectionPanelProps {
@@ -29,126 +40,134 @@ function GrpcReflectionPanel({
 }: GrpcReflectionPanelProps) {
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [reflectionResult, setReflectionResult] = useState<ReflectionResult | null>(null);
-  const [selectedReflectionService, setSelectedReflectionService] = useState<ReflectionServiceInfo | null>(null);
-  const [selectedReflectionMethod, setSelectedReflectionMethod] = useState<ReflectionMethodInfo | null>(null);
+  const [selectedReflectionService, setSelectedReflectionService] =
+    useState<ReflectionServiceInfo | null>(null);
+  const [selectedReflectionMethod, setSelectedReflectionMethod] =
+    useState<ReflectionMethodInfo | null>(null);
 
-  const handleMethodSelection = useCallback((method: ReflectionMethodInfo) => {
-    setSelectedReflectionMethod(method);
+  const handleMethodSelection = useCallback(
+    (method: ReflectionMethodInfo) => {
+      setSelectedReflectionMethod(method);
 
-    let methodType: GrpcMethodType = 'unary';
-    if (method.clientStreaming && method.serverStreaming) {
-      methodType = 'bidirectional-streaming';
-    } else if (method.serverStreaming) {
-      methodType = 'server-streaming';
-    } else if (method.clientStreaming) {
-      methodType = 'client-streaming';
-    }
+      let methodType: GrpcMethodType = 'unary';
+      if (method.clientStreaming && method.serverStreaming) {
+        methodType = 'bidirectional-streaming';
+      } else if (method.serverStreaming) {
+        methodType = 'server-streaming';
+      } else if (method.clientStreaming) {
+        methodType = 'client-streaming';
+      }
 
-    let message: string | undefined;
-    if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
-      message = generateRequestTemplate(method.inputMessageSchema);
-      toast.info('Request template generated', {
-        description: `Generated template for ${method.inputMessageSchema.name}`,
-      });
-    }
-
-    onMethodSelect(method.name, methodType, message);
-  }, [onMethodSelect]);
-
-  const handleDiscoverServices = useCallback(async (silent = false) => {
-    if (!url) {
-      if (!silent) {
-        toast.error('URL required', {
-          description: 'Please enter a gRPC server URL before discovering services',
+      let message: string | undefined;
+      if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
+        message = generateRequestTemplate(method.inputMessageSchema);
+        toast.info('Request template generated', {
+          description: `Generated template for ${method.inputMessageSchema.name}`,
         });
       }
-      return;
-    }
 
-    const urlValidation = validateGrpcUrl(url);
-    if (!urlValidation.valid) {
-      if (!silent) {
-        toast.error('Invalid URL', {
-          description: urlValidation.error,
-        });
+      onMethodSelect(method.name, methodType, message);
+    },
+    [onMethodSelect]
+  );
+
+  const handleDiscoverServices = useCallback(
+    async (silent = false) => {
+      if (!url) {
+        if (!silent) {
+          toast.error('URL required', {
+            description: 'Please enter a gRPC server URL before discovering services',
+          });
+        }
+        return;
       }
-      return;
-    }
 
-    setIsDiscovering(true);
-    if (!silent) {
-      setReflectionResult(null);
-      setSelectedReflectionService(null);
-      setSelectedReflectionMethod(null);
-    }
+      const urlValidation = validateGrpcUrl(url);
+      if (!urlValidation.valid) {
+        if (!silent) {
+          toast.error('Invalid URL', {
+            description: urlValidation.error,
+          });
+        }
+        return;
+      }
 
-    try {
-      const resolvedUrl = resolveVariables(url);
-      const client = new GrpcReflectionClient(resolvedUrl);
-      const result = await client.discoverServices();
+      setIsDiscovering(true);
+      if (!silent) {
+        setReflectionResult(null);
+        setSelectedReflectionService(null);
+        setSelectedReflectionMethod(null);
+      }
 
-      if (result.success) {
-        setReflectionResult(result);
-        if (result.services.length === 0) {
-          if (!silent) {
-            toast.warning('No services found', {
-              description: 'The server has reflection enabled but no services were discovered',
-            });
-          }
-        } else {
-          if (!silent) {
-            toast.success('Services discovered', {
-              description: `Found ${result.services.length} service(s) with ${result.services.reduce((sum, s) => sum + s.methods.length, 0)} method(s)`,
-            });
-          }
+      try {
+        const resolvedUrl = resolveVariables(url);
+        const client = new GrpcReflectionClient(resolvedUrl);
+        const result = await client.discoverServices();
 
-          // Auto-select first service and method
-          const firstService = result.services[0];
-          if (firstService) {
-            setSelectedReflectionService(firstService);
-            onServiceSelect(firstService.fullName);
+        if (result.success) {
+          setReflectionResult(result);
+          if (result.services.length === 0) {
+            if (!silent) {
+              toast.warning('No services found', {
+                description: 'The server has reflection enabled but no services were discovered',
+              });
+            }
+          } else {
+            if (!silent) {
+              toast.success('Services discovered', {
+                description: `Found ${result.services.length} service(s) with ${result.services.reduce((sum, s) => sum + s.methods.length, 0)} method(s)`,
+              });
+            }
 
-            if (firstService.methods.length > 0) {
-              const firstMethod = firstService.methods[0];
-              if (firstMethod) {
-                setSelectedReflectionMethod(firstMethod);
-                handleMethodSelection(firstMethod);
+            // Auto-select first service and method
+            const firstService = result.services[0];
+            if (firstService) {
+              setSelectedReflectionService(firstService);
+              onServiceSelect(firstService.fullName);
+
+              if (firstService.methods.length > 0) {
+                const firstMethod = firstService.methods[0];
+                if (firstMethod) {
+                  setSelectedReflectionMethod(firstMethod);
+                  handleMethodSelection(firstMethod);
+                }
               }
             }
           }
+        } else {
+          if (!silent) {
+            toast.error('Discovery failed', {
+              description: result.error || 'Failed to discover services via reflection',
+            });
+            setReflectionResult({
+              success: false,
+              services: [],
+              error: result.error,
+              serverUrl: url,
+              timestamp: Date.now(),
+            });
+          }
         }
-      } else {
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         if (!silent) {
           toast.error('Discovery failed', {
-            description: result.error || 'Failed to discover services via reflection',
+            description: errorMessage,
           });
           setReflectionResult({
             success: false,
             services: [],
-            error: result.error,
+            error: errorMessage,
             serverUrl: url,
             timestamp: Date.now(),
           });
         }
+      } finally {
+        setIsDiscovering(false);
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      if (!silent) {
-        toast.error('Discovery failed', {
-          description: errorMessage,
-        });
-        setReflectionResult({
-          success: false,
-          services: [],
-          error: errorMessage,
-          serverUrl: url,
-          timestamp: Date.now(),
-        });
-      }
-    } finally {
-      setIsDiscovering(false);
-    }
-  }, [url, resolveVariables, onServiceSelect, handleMethodSelection]);
+    },
+    [url, resolveVariables, onServiceSelect, handleMethodSelection]
+  );
 
   // Auto-discover services when URL changes
   useEffect(() => {
@@ -188,11 +207,13 @@ function GrpcReflectionPanel({
             <SelectValue placeholder="Select service" />
           </SelectTrigger>
           <SelectContent>
-            {reflectionResult!.services.filter(s => s.fullName).map((service) => (
-              <SelectItem key={service.fullName} value={service.fullName}>
-                {service.fullName}
-              </SelectItem>
-            ))}
+            {reflectionResult!.services
+              .filter((s) => s.fullName)
+              .map((service) => (
+                <SelectItem key={service.fullName} value={service.fullName}>
+                  {service.fullName}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
       ) : null}
@@ -210,20 +231,22 @@ function GrpcReflectionPanel({
             <SelectValue placeholder="Select method" />
           </SelectTrigger>
           <SelectContent>
-            {selectedReflectionService.methods.filter(m => m.name).map((method) => (
-              <SelectItem key={method.name} value={method.name}>
-                {method.name}
-                {method.clientStreaming || method.serverStreaming ? (
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {method.clientStreaming && method.serverStreaming
-                      ? '(bidi)'
-                      : method.serverStreaming
-                        ? '(server stream)'
-                        : '(client stream)'}
-                  </span>
-                ) : null}
-              </SelectItem>
-            ))}
+            {selectedReflectionService.methods
+              .filter((m) => m.name)
+              .map((method) => (
+                <SelectItem key={method.name} value={method.name}>
+                  {method.name}
+                  {method.clientStreaming || method.serverStreaming ? (
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {method.clientStreaming && method.serverStreaming
+                        ? '(bidi)'
+                        : method.serverStreaming
+                          ? '(server stream)'
+                          : '(client stream)'}
+                    </span>
+                  ) : null}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
       ) : null}

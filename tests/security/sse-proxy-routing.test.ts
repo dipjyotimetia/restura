@@ -80,20 +80,19 @@ describe('SSE proxy routing (security regression)', () => {
     // not defined` and mask the real assertion.
     eventSourceSpy = vi.fn();
     const captured = eventSourceSpy;
-    (globalThis as unknown as { EventSource: unknown }).EventSource =
-      class FakeEventSource {
-        constructor(url: string) {
-          (captured as unknown as (u: string) => void)(url);
-        }
-        readyState = 0;
-        close() {}
-        onopen: ((e: Event) => void) | null = null;
-        onmessage: ((e: MessageEvent) => void) | null = null;
-        onerror: ((e: Event) => void) | null = null;
-        static readonly CONNECTING = 0;
-        static readonly OPEN = 1;
-        static readonly CLOSED = 2;
-      };
+    (globalThis as unknown as { EventSource: unknown }).EventSource = class FakeEventSource {
+      constructor(url: string) {
+        (captured as unknown as (u: string) => void)(url);
+      }
+      readyState = 0;
+      close() {}
+      onopen: ((e: Event) => void) | null = null;
+      onmessage: ((e: MessageEvent) => void) | null = null;
+      onerror: ((e: Event) => void) | null = null;
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+    };
 
     // Seed a connection in the store so `sseManager.connect(id, ...)` finds
     // it for lastEventId / reconnectOnResume lookups.
@@ -119,10 +118,7 @@ describe('SSE proxy routing (security regression)', () => {
     expect(fetchSpy).toHaveBeenCalled();
     for (const call of fetchSpy.mock.calls) {
       const url = String(call[0]);
-      expect(
-        isProxiedUrl(url),
-        `expected proxied URL, saw direct call to ${url}`
-      ).toBe(true);
+      expect(isProxiedUrl(url), `expected proxied URL, saw direct call to ${url}`).toBe(true);
     }
   });
 
@@ -136,10 +132,7 @@ describe('SSE proxy routing (security regression)', () => {
     expect(fetchSpy).toHaveBeenCalled();
     for (const call of fetchSpy.mock.calls) {
       const url = String(call[0]);
-      expect(
-        isProxiedUrl(url),
-        `expected proxied URL, saw direct call to ${url}`
-      ).toBe(true);
+      expect(isProxiedUrl(url), `expected proxied URL, saw direct call to ${url}`).toBe(true);
     }
   });
 
@@ -170,10 +163,7 @@ describe('SSE proxy routing (security regression)', () => {
     expect(fetchSpy).toHaveBeenCalled();
     for (const call of fetchSpy.mock.calls) {
       const url = String(call[0]);
-      expect(
-        isProxiedUrl(url),
-        `expected proxied URL, saw direct call to ${url}`
-      ).toBe(true);
+      expect(isProxiedUrl(url), `expected proxied URL, saw direct call to ${url}`).toBe(true);
     }
     controller.abort();
   });

@@ -11,7 +11,7 @@ import { Badge } from '@astrojs/starlight/components';
 
 ## Context
 
-Pre-request and test scripts are user-authored JavaScript that also travels inside shared collections — so a script you import from someone else runs on your machine. Running it on the renderer's main thread (or via `eval`/`Function`) would give it the DOM, the network, and the user's storage. [ADR 0004](/architecture/adrs/0004-security-hardening/) removed an earlier source-level regex blocklist of "dangerous patterns" because a blocklist is not a security boundary — it's trivially bypassed and gives false confidence. That left the question: what *is* the boundary?
+Pre-request and test scripts are user-authored JavaScript that also travels inside shared collections — so a script you import from someone else runs on your machine. Running it on the renderer's main thread (or via `eval`/`Function`) would give it the DOM, the network, and the user's storage. [ADR 0004](/architecture/adrs/0004-security-hardening/) removed an earlier source-level regex blocklist of "dangerous patterns" because a blocklist is not a security boundary — it's trivially bypassed and gives false confidence. That left the question: what _is_ the boundary?
 
 ## Decision
 

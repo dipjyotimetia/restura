@@ -50,7 +50,7 @@ Adopt **ConnectRPC** as the single gRPC stack across every backend, driven by on
 ## Alternatives considered
 
 - **Keep `grpc-js`.** Rejected — no TLS-verification knob, no native encrypted-key handling, an awkward fit for `lookup`-based SSRF pinning, and a second descriptor/encoding path forever.
-- **Generated `bufbuild` clients.** Rejected — Restura is built on *runtime* proto reflection; codegen breaks the dynamic-descriptor model.
+- **Generated `bufbuild` clients.** Rejected — Restura is built on _runtime_ proto reflection; codegen breaks the dynamic-descriptor model.
 - **`node:http2` directly.** Rejected — reimplements framing, pooling, and ALPN that `connect-node` already provides.
 
 ## References

@@ -84,9 +84,7 @@ interface MotionDivProps extends HTMLMotionProps<'div'> {
 }
 
 export const MotionDiv = React.forwardRef<HTMLDivElement, MotionDivProps>(
-  ({ className, ...props }, ref) => (
-    <motion.div ref={ref} className={cn(className)} {...props} />
-  )
+  ({ className, ...props }, ref) => <motion.div ref={ref} className={cn(className)} {...props} />
 );
 MotionDiv.displayName = 'MotionDiv';
 

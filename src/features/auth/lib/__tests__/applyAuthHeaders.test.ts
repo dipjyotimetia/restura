@@ -26,13 +26,19 @@ describe('applyAuthHeaders', () => {
   });
 
   it('adds api-key header when in=header', async () => {
-    const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'X-API-Key', value: 'abc123', in: 'header' } };
+    const auth: AuthConfig = {
+      type: 'api-key',
+      apiKey: { key: 'X-API-Key', value: 'abc123', in: 'header' },
+    };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
     expect(result.headers['X-API-Key']).toBe('abc123');
   });
 
   it('does not add api-key header when in=query', async () => {
-    const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'api_key', value: 'abc', in: 'query' } };
+    const auth: AuthConfig = {
+      type: 'api-key',
+      apiKey: { key: 'api_key', value: 'abc', in: 'query' },
+    };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');
     expect(result.headers['api_key']).toBeUndefined();
   });
@@ -89,14 +95,20 @@ describe('applyAuthHeaders', () => {
 
 describe('applyApiKeyQueryParam', () => {
   it('adds api key to query params when in=query', () => {
-    const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'api_key', value: 'secret', in: 'query' } };
+    const auth: AuthConfig = {
+      type: 'api-key',
+      apiKey: { key: 'api_key', value: 'secret', in: 'query' },
+    };
     const result = applyApiKeyQueryParam(auth, { page: '1' });
     expect(result['api_key']).toBe('secret');
     expect(result['page']).toBe('1');
   });
 
   it('does not add api key when in=header', () => {
-    const auth: AuthConfig = { type: 'api-key', apiKey: { key: 'X-Key', value: 'v', in: 'header' } };
+    const auth: AuthConfig = {
+      type: 'api-key',
+      apiKey: { key: 'X-Key', value: 'v', in: 'header' },
+    };
     const result = applyApiKeyQueryParam(auth, {});
     expect(result['X-Key']).toBeUndefined();
   });

@@ -5,7 +5,9 @@ description: How the Electron desktop app checks for, downloads, and installs up
 
 import { Badge, Aside } from '@astrojs/starlight/components';
 
-<Badge text="desktop only" variant="caution" /> The web and self-hosted apps update themselves on the server — there's nothing to install. This page is about the **desktop app**, which keeps itself current with a built-in auto-updater.
+<Badge text="desktop only" variant="caution" /> The web and self-hosted apps update themselves on
+the server — there's nothing to install. This page is about the **desktop app**, which keeps itself
+current with a built-in auto-updater.
 
 The updater is seamless and in-app: a slim banner appears at the top of the window for the states worth your attention, replacing the old blocking dialogs. Background checks that find nothing — or fail because you're offline — stay silent.
 
@@ -13,17 +15,18 @@ The updater is seamless and in-app: a slim banner appears at the top of the wind
 
 The app checks for updates **a few seconds after launch**, then every **6 hours** while it stays open, so a long-running session still discovers a release without a restart. Each release moves through these states:
 
-| State | What you see |
-|---|---|
-| **Checking** | Silent. No banner for routine background checks. |
-| **Available** | A banner: _"Update available v1.2.3."_ With auto-download on, it shows _"Preparing download…"_; with it off, a **Download** button. |
-| **Downloading** | A progress bar with percentage and a **Cancel** button. The OS taskbar/dock icon also shows progress. |
-| **Downloaded** | _"Update vX ready — Restart to apply."_ with **Restart now** and **Later**. |
+| State           | What you see                                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **Checking**    | Silent. No banner for routine background checks.                                                                                    |
+| **Available**   | A banner: _"Update available v1.2.3."_ With auto-download on, it shows _"Preparing download…"_; with it off, a **Download** button. |
+| **Downloading** | A progress bar with percentage and a **Cancel** button. The OS taskbar/dock icon also shows progress.                               |
+| **Downloaded**  | _"Update vX ready — Restart to apply."_ with **Restart now** and **Later**.                                                         |
 
 If the window is in the background when an update is found, the app also fires a native OS notification so you don't miss it.
 
 <Aside title="Nothing is forced">
-An update is only applied when you choose **Restart now**, or automatically the next time you quit the app (`autoInstallOnAppQuit`). You're never interrupted mid-request.
+  An update is only applied when you choose **Restart now**, or automatically the next time you quit
+  the app (`autoInstallOnAppQuit`). You're never interrupted mid-request.
 </Aside>
 
 ## Settings

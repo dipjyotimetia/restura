@@ -9,8 +9,8 @@ describe('ProtocolRegistry', () => {
       id: 'fake',
       label: 'Fake',
       tabType: 'http',
-      defaultRequest: () => ({ id: 'r1', type: 'http', method: 'GET', url: '' } as never),
-      runRequest: async () => ({ status: 200, body: '', headers: {}, size: 0, time: 0 } as never),
+      defaultRequest: () => ({ id: 'r1', type: 'http', method: 'GET', url: '' }) as never,
+      runRequest: async () => ({ status: 200, body: '', headers: {}, size: 0, time: 0 }) as never,
     };
     reg.register(fake);
     expect(reg.get('fake')).toBe(fake);
@@ -23,8 +23,8 @@ describe('ProtocolRegistry', () => {
       id: 'x',
       label: 'X',
       tabType: 'http',
-      defaultRequest: () => ({} as never),
-      runRequest: async () => ({} as never),
+      defaultRequest: () => ({}) as never,
+      runRequest: async () => ({}) as never,
     };
     reg.register(fake);
     expect(() => reg.register(fake)).toThrow(/already registered/);

@@ -79,7 +79,7 @@ function httpReq(id: string, name: string): HttpRequest {
 
 function runnable(id: string, name: string, type: 'http' | 'sse' = 'http'): RunnableRequest {
   const req = httpReq(id, name);
-  return { itemId: id, name, request: type === 'sse' ? { ...req, type: 'sse' } as never : req };
+  return { itemId: id, name, request: type === 'sse' ? ({ ...req, type: 'sse' } as never) : req };
 }
 
 const collection: Collection = { id: 'c', name: 'C', items: [] };

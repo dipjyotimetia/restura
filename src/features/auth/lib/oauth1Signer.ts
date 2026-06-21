@@ -23,13 +23,17 @@ export function buildOAuth1Header(
   method: string,
   url: string,
   authConfig: NonNullable<AuthConfig['oauth1']>,
-  bodyParams: Record<string, string> = {},
+  bodyParams: Record<string, string> = {}
 ): string {
   const resolved = {
     ...authConfig,
     consumerSecret: unwrapSecret(authConfig.consumerSecret),
-    accessToken: authConfig.accessToken !== undefined ? unwrapSecret(authConfig.accessToken) : undefined,
-    accessTokenSecret: authConfig.accessTokenSecret !== undefined ? unwrapSecret(authConfig.accessTokenSecret) : undefined,
+    accessToken:
+      authConfig.accessToken !== undefined ? unwrapSecret(authConfig.accessToken) : undefined,
+    accessTokenSecret:
+      authConfig.accessTokenSecret !== undefined
+        ? unwrapSecret(authConfig.accessTokenSecret)
+        : undefined,
   };
   return buildShared(method, url, resolved, bodyParams);
 }

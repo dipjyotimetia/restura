@@ -32,7 +32,9 @@ describe('OpenCollection roundtrip', () => {
     // Socket.IO connections survive as opaque pass-through extensions —
     // no Request shape, no item construction, just byte-stable round-trip.
     expect(oc2.extensions?.['x-restura-socketio']).toBeDefined();
-    const socketio = oc2.extensions?.['x-restura-socketio'] as Array<{ socketio?: { namespace?: string } }>;
+    const socketio = oc2.extensions?.['x-restura-socketio'] as Array<{
+      socketio?: { namespace?: string };
+    }>;
     expect(socketio[0]?.socketio?.namespace).toBe('/chat');
   });
 

@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { buildDocModel, docModelToMarkdown, docModelToHtml, escapeHtml } from '../docGenerator';
 import type { Collection } from '@/types';
 
-function kv(key: string, value: string, extra: Partial<{ description: string; secret: boolean }> = {}) {
+function kv(
+  key: string,
+  value: string,
+  extra: Partial<{ description: string; secret: boolean }> = {}
+) {
   return { id: `${key}-id`, key, value, enabled: true, ...extra };
 }
 

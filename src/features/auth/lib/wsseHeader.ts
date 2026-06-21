@@ -14,15 +14,13 @@ import {
 
 export type { WsseDeterministicInputs };
 
-export function buildWsseHeader(
-  authConfig: NonNullable<AuthConfig['wsse']>,
-): Promise<string> {
+export function buildWsseHeader(authConfig: NonNullable<AuthConfig['wsse']>): Promise<string> {
   return buildShared({ ...authConfig, password: unwrapSecret(authConfig.password) });
 }
 
 export function buildWsseDigest(
   authConfig: NonNullable<AuthConfig['wsse']>,
-  fixed: WsseDeterministicInputs,
+  fixed: WsseDeterministicInputs
 ): Promise<string> {
   return buildSharedDigest({ ...authConfig, password: unwrapSecret(authConfig.password) }, fixed);
 }

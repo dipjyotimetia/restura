@@ -9,11 +9,11 @@ Restura ships from a **single React renderer** to three targets. The user experi
 
 ## The three targets
 
-| Target | How it runs | Where data lives |
-|---|---|---|
-| **Web** | SPA on Cloudflare Pages, requests proxied through a Cloudflare Worker on `api.restura.dev`. | IndexedDB (browser). |
-| **Desktop** | Electron app on macOS / Windows / Linux. Requests sent directly from the main process. | Encrypted electron-store, key wrapped by the OS keychain. |
-| **Self-hosted** | Single Node container that serves both the SPA and the API proxy on one port. | IndexedDB (browser); the server is stateless. |
+| Target          | How it runs                                                                                 | Where data lives                                          |
+| --------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **Web**         | SPA on Cloudflare Pages, requests proxied through a Cloudflare Worker on `api.restura.dev`. | IndexedDB (browser).                                      |
+| **Desktop**     | Electron app on macOS / Windows / Linux. Requests sent directly from the main process.      | Encrypted electron-store, key wrapped by the OS keychain. |
+| **Self-hosted** | Single Node container that serves both the SPA and the API proxy on one port.               | IndexedDB (browser); the server is stateless.             |
 
 ## Web vs desktop — the asymmetry
 
@@ -40,7 +40,9 @@ The browser sandbox can't expose raw TCP, custom CAs, SOCKS, or PAC scripting. R
 HTTP/REST, GraphQL, gRPC (unary + streaming over the Connect protocol), WebSocket, basic SSE, MCP over streamable-HTTP, Socket.IO emit / listen / ack, collections, environments, workflows, scripts, encrypted local storage, and the SSRF guard.
 
 <Aside type="note">
-The exact, machine-generated truth lives in [`src/lib/shared/capabilities.ts`](https://github.com/dipjyotimetia/restura/blob/main/src/lib/shared/capabilities.ts) and is published as the [capability matrix](/reference/capability-matrix/).
+  The exact, machine-generated truth lives in
+  [`src/lib/shared/capabilities.ts`](https://github.com/dipjyotimetia/restura/blob/main/src/lib/shared/capabilities.ts)
+  and is published as the [capability matrix](/reference/capability-matrix/).
 </Aside>
 
 ## How the network path differs

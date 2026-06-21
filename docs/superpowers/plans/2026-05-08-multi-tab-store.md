@@ -13,6 +13,7 @@
 ## File structure
 
 **Created:**
+
 - `src/store/lib/tabs.ts` — pure helpers (`createTabFromRequest`, `migrateLegacyStateToTabs`, `findTabIndex`)
 - `src/store/lib/tabs.test.ts`
 - `src/components/shared/TabBar.tsx` — visual tab list (open, close, switch, "+" new-tab dropdown)
@@ -22,6 +23,7 @@
 - `docs/adr/0002-multi-tab-store.md`
 
 **Modified:**
+
 - `src/types/index.ts` — add `RequestTab` interface
 - `src/store/useRequestStore.ts` — full reshape; persist response per tab
 - `src/store/__tests__/useRequestStore.test.ts` — rewrite around new shape
@@ -45,6 +47,7 @@
 - `docs/ARCHITECTURE.md` — add "Multi-tab request model" section
 
 **Deleted:**
+
 - `src/lib/shared/storage.ts` (after Task 13 verifies no consumers)
 
 ---
@@ -54,6 +57,7 @@
 ### Task 1: Define `RequestTab` type + tab helpers
 
 **Files:**
+
 - Modify: `src/types/index.ts` — add `RequestTab` interface
 - Create: `src/store/lib/tabs.ts`
 - Create: `src/store/lib/tabs.test.ts`
@@ -255,10 +259,7 @@ export function migrateLegacyStateToTabs(legacy: LegacyRequestState): MigratedRe
     return { tabs: [], activeTabId: null };
   }
   const tab = createTabFromRequest(legacy.currentRequest);
-  if (
-    legacy.currentResponse &&
-    legacy.currentResponse.requestId === legacy.currentRequest.id
-  ) {
+  if (legacy.currentResponse && legacy.currentResponse.requestId === legacy.currentRequest.id) {
     tab.response = legacy.currentResponse;
   }
   return { tabs: [tab], activeTabId: tab.id };
@@ -293,9 +294,10 @@ git commit -m "feat(store): add RequestTab type + tab helpers"
 ### Task 2: Reshape `useRequestStore` around tabs
 
 **Files:**
+
 - Modify: `src/store/useRequestStore.ts`
 
-This is the biggest single edit in the plan. The new store keeps the existing action *names* where possible (`updateRequest`, `setCurrentResponse`, `setLoading`, `setScriptResult`, `clearRequest`) so consumers need minimal changes — those actions now operate on the active tab. New actions handle tab lifecycle.
+This is the biggest single edit in the plan. The new store keeps the existing action _names_ where possible (`updateRequest`, `setCurrentResponse`, `setLoading`, `setScriptResult`, `clearRequest`) so consumers need minimal changes — those actions now operate on the active tab. New actions handle tab lifecycle.
 
 The store also persists tabs to Dexie (not localStorage) — line up with the rest of the codebase. There's a one-time migration from the old shape via `migrateLegacyStateToTabs`.
 
@@ -304,7 +306,17 @@ The store also persists tabs to Dexie (not localStorage) — line up with the re
 ```ts
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Request, Response, RequestTab, HttpRequest, GrpcRequest, SseRequest, McpRequest, ScriptResult, RequestType } from '@/types';
+import type {
+  Request,
+  Response,
+  RequestTab,
+  HttpRequest,
+  GrpcRequest,
+  SseRequest,
+  McpRequest,
+  ScriptResult,
+  RequestType,
+} from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
@@ -391,10 +403,14 @@ const createDefaultMcpRequest = (): McpRequest => ({
 
 function defaultRequestForType(type: RequestType): Request {
   switch (type) {
-    case 'http': return createDefaultHttpRequest();
-    case 'grpc': return createDefaultGrpcRequest();
-    case 'sse': return createDefaultSseRequest();
-    case 'mcp': return createDefaultMcpRequest();
+    case 'http':
+      return createDefaultHttpRequest();
+    case 'grpc':
+      return createDefaultGrpcRequest();
+    case 'sse':
+      return createDefaultSseRequest();
+    case 'mcp':
+      return createDefaultMcpRequest();
   }
 }
 
@@ -414,7 +430,10 @@ export const useRequestStore = create<RequestState>()(
       isLoading: false,
 
       openTab: (request, options = {}) => {
-        const tab = createTabFromRequest(request, options.savedRequestId !== undefined ? { savedRequestId: options.savedRequestId } : {});
+        const tab = createTabFromRequest(
+          request,
+          options.savedRequestId !== undefined ? { savedRequestId: options.savedRequestId } : {}
+        );
         const switchTo = options.switchTo ?? true;
         set((state) => ({
           tabs: [...state.tabs, tab],
@@ -449,7 +468,7 @@ export const useRequestStore = create<RequestState>()(
         if (!source) return null;
         // Deep-clone the request and assign a new id so collection ops don't conflate them
         const clonedRequest: Request = {
-          ...JSON.parse(JSON.stringify(source.request)) as Request,
+          ...(JSON.parse(JSON.stringify(source.request)) as Request),
           id: uuidv4(),
         };
         const tab = createTabFromRequest(clonedRequest);
@@ -649,6 +668,7 @@ git commit -m "feat(store): reshape useRequestStore around tabs[] + activeTabId
 ### Task 3: Rewrite `useRequestStore` tests for the new shape
 
 **Files:**
+
 - Modify: `src/store/__tests__/useRequestStore.test.ts`
 
 The existing tests are heavily tied to the old shape. Replace them.
@@ -806,9 +826,7 @@ describe('useRequestStore — tabs', () => {
 
   describe('duplicateTab', () => {
     it('creates a new tab with the same request data but a fresh request id', () => {
-      const a = useRequestStore.getState().openTab(
-        makeHttp({ id: 'orig', url: 'https://a.com' })
-      );
+      const a = useRequestStore.getState().openTab(makeHttp({ id: 'orig', url: 'https://a.com' }));
       const dup = useRequestStore.getState().duplicateTab(a)!;
       expect(dup).not.toBe(a);
       const dupTab = useRequestStore.getState().tabs.find((t) => t.id === dup)!;
@@ -878,6 +896,7 @@ git commit -m "test(store): rewrite useRequestStore tests for tab-based shape"
 ### Task 4: Update `useHttpRequest` and `useHttpRequestPage` hooks
 
 **Files:**
+
 - Modify: `src/features/http/hooks/useHttpRequest.ts`
 - Modify: `src/features/http/hooks/useHttpRequestPage.ts`
 
@@ -893,7 +912,7 @@ import type { HttpRequest, GrpcRequest, SseRequest, McpRequest, RequestType } fr
 
 export function useActiveTab() {
   return useRequestStore((s) =>
-    s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) ?? null : null
+    s.activeTabId ? (s.tabs.find((t) => t.id === s.activeTabId) ?? null) : null
   );
 }
 
@@ -901,12 +920,15 @@ export function useActiveRequest<T extends RequestType>(type: T) {
   return useRequestStore((s) => {
     const tab = s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) : null;
     if (!tab || tab.request.type !== type) return null;
-    return tab.request as
-      T extends 'http' ? HttpRequest :
-      T extends 'grpc' ? GrpcRequest :
-      T extends 'sse' ? SseRequest :
-      T extends 'mcp' ? McpRequest :
-      never;
+    return tab.request as T extends 'http'
+      ? HttpRequest
+      : T extends 'grpc'
+        ? GrpcRequest
+        : T extends 'sse'
+          ? SseRequest
+          : T extends 'mcp'
+            ? McpRequest
+            : never;
   });
 }
 
@@ -927,7 +949,13 @@ import { useActiveRequest, useActiveResponse } from '@/store/selectors';
 // ...
 const httpRequest = useActiveRequest('http');
 const currentResponse = useActiveResponse();
-const { updateRequest: storeUpdateRequest, setLoading, setCurrentResponse, isLoading, setScriptResult } = useRequestStore();
+const {
+  updateRequest: storeUpdateRequest,
+  setLoading,
+  setCurrentResponse,
+  isLoading,
+  setScriptResult,
+} = useRequestStore();
 // Drop the `useMemo(() => currentRequest?.type === 'http' ...)` — useActiveRequest('http') already returns null when type doesn't match
 ```
 
@@ -955,6 +983,7 @@ git commit -m "refactor(http): route useHttpRequest hooks through tab selectors"
 ### Task 5: Update HTTP `RequestBuilder` component
 
 **Files:**
+
 - Modify: `src/features/http/components/RequestBuilder/index.tsx`
 
 If `useHttpRequest` returns `request: null`, render the empty state (this might already exist for the "no request" pre-tab era). Otherwise render the builder against `request`. Should be a near-zero-line diff once the hook is updated — the component reads from the hook, not the store directly.
@@ -987,6 +1016,7 @@ git commit -m "refactor(http): RequestBuilder reads from active tab"
 ### Task 6: Update other protocol builders (gRPC, GraphQL, SSE, WebSocket, MCP)
 
 **Files:**
+
 - Modify: `src/features/grpc/components/GrpcRequestBuilder.tsx`
 - Modify: `src/features/grpc/components/GrpcReflectionPanel.tsx`
 - Modify: `src/features/graphql/components/GraphQLRequestBuilder.tsx`
@@ -1037,6 +1067,7 @@ git commit -m "refactor: migrate protocol builders to active-tab selectors"
 ### Task 7: Update Sidebar — opening a saved request opens a tab
 
 **Files:**
+
 - Modify: `src/features/collections/components/Sidebar.tsx`
 
 Currently `Sidebar.tsx:61` calls `setCurrentRequest`. Replace with `openTab(request, { savedRequestId: request.id })`. Behaviour change: clicking a saved request opens it in a NEW tab instead of replacing the current request. If a tab is already open with that `savedRequestId`, focus it instead of opening a duplicate.
@@ -1078,6 +1109,7 @@ git commit -m "refactor(collections): Sidebar opens saved requests in tabs (focu
 ### Task 8: Update `routes/index.tsx` — derive `requestMode` from active tab
 
 **Files:**
+
 - Modify: `src/routes/index.tsx`
 - Modify: `src/components/shared/Header.tsx`
 - Modify: `src/components/shared/TopBar.tsx`
@@ -1091,7 +1123,7 @@ In `src/routes/index.tsx`:
 
 ```tsx
 const activeTab = useRequestStore((s) =>
-  s.activeTabId ? s.tabs.find((t) => t.id === s.activeTabId) ?? null : null
+  s.activeTabId ? (s.tabs.find((t) => t.id === s.activeTabId) ?? null) : null
 );
 const requestMode: RequestMode = useMemo(() => {
   if (!activeTab) return 'http';
@@ -1136,6 +1168,7 @@ git commit -m "refactor(ui): derive requestMode from active tab; protocol button
 ### Task 9: Build the `TabBar` component
 
 **Files:**
+
 - Create: `src/components/shared/TabBar.tsx`
 - Create: `src/components/shared/TabBar.test.tsx`
 
@@ -1166,8 +1199,15 @@ describe('TabBar', () => {
 
   it('renders one button per open tab with request name', () => {
     useRequestStore.getState().openTab({
-      id: 'r1', name: 'Get user', type: 'http', method: 'GET',
-      url: '', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' },
+      id: 'r1',
+      name: 'Get user',
+      type: 'http',
+      method: 'GET',
+      url: '',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth: { type: 'none' },
     });
     render(<TabBar />);
     expect(screen.getByRole('tab', { name: /Get user/ })).toBeInTheDocument();
@@ -1175,12 +1215,26 @@ describe('TabBar', () => {
 
   it('clicking a tab switches active', () => {
     const a = useRequestStore.getState().openTab({
-      id: 'r1', name: 'A', type: 'http', method: 'GET',
-      url: '', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' },
+      id: 'r1',
+      name: 'A',
+      type: 'http',
+      method: 'GET',
+      url: '',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth: { type: 'none' },
     });
     const b = useRequestStore.getState().openTab({
-      id: 'r2', name: 'B', type: 'http', method: 'GET',
-      url: '', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' },
+      id: 'r2',
+      name: 'B',
+      type: 'http',
+      method: 'GET',
+      url: '',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth: { type: 'none' },
     });
     void a;
     render(<TabBar />);
@@ -1190,8 +1244,15 @@ describe('TabBar', () => {
 
   it('clicking the close button on a tab closes it', () => {
     const a = useRequestStore.getState().openTab({
-      id: 'r1', name: 'A', type: 'http', method: 'GET',
-      url: '', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' },
+      id: 'r1',
+      name: 'A',
+      type: 'http',
+      method: 'GET',
+      url: '',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth: { type: 'none' },
     });
     void a;
     render(<TabBar />);
@@ -1201,8 +1262,15 @@ describe('TabBar', () => {
 
   it('shows a dirty indicator when isDirty', () => {
     useRequestStore.getState().openTab({
-      id: 'r1', name: 'A', type: 'http', method: 'GET',
-      url: '', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' },
+      id: 'r1',
+      name: 'A',
+      type: 'http',
+      method: 'GET',
+      url: '',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth: { type: 'none' },
     });
     useRequestStore.getState().setDirty(true);
     render(<TabBar />);
@@ -1222,8 +1290,18 @@ npm run test:run -- src/components/shared/TabBar 2>&1 | tail -10
 ```tsx
 import { useRequestStore } from '@/store/useRequestStore';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Plus, X } from 'lucide-react';
 import type { RequestType } from '@/types';
@@ -1265,10 +1343,15 @@ export function TabBar() {
                       isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
                     ].join(' ')}
                   >
-                    <span className="text-xs font-mono opacity-60">{PROTOCOL_LABEL[tab.request.type]}</span>
+                    <span className="text-xs font-mono opacity-60">
+                      {PROTOCOL_LABEL[tab.request.type]}
+                    </span>
                     <span className="truncate max-w-[16ch]">{tab.request.name}</span>
                     {tab.isDirty && (
-                      <span aria-label="unsaved changes" className="size-1.5 rounded-full bg-foreground/60" />
+                      <span
+                        aria-label="unsaved changes"
+                        className="size-1.5 rounded-full bg-foreground/60"
+                      />
                     )}
                     <button
                       type="button"
@@ -1286,7 +1369,9 @@ export function TabBar() {
                 <ContextMenuContent>
                   <ContextMenuItem onClick={() => duplicateTab(tab.id)}>Duplicate</ContextMenuItem>
                   <ContextMenuItem onClick={() => closeTab(tab.id)}>Close</ContextMenuItem>
-                  <ContextMenuItem onClick={() => closeOtherTabs(tab.id)}>Close Others</ContextMenuItem>
+                  <ContextMenuItem onClick={() => closeOtherTabs(tab.id)}>
+                    Close Others
+                  </ContextMenuItem>
                   <ContextMenuItem onClick={closeAllTabs}>Close All</ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
@@ -1336,6 +1421,7 @@ git commit -m "feat(ui): add TabBar component with open/close/switch/duplicate"
 ### Task 10: Drag-reorder tabs (optional polish — can skip for MVP)
 
 **Files:**
+
 - Modify: `src/components/shared/TabBar.tsx`
 
 Use HTML5 drag-and-drop natively (no extra dep). On `dragstart`, save the dragged tab id. On `dragover`, prevent default to allow drop. On `drop`, compute the new ordering and call `reorderTabs`.
@@ -1379,9 +1465,10 @@ git commit -m "feat(ui): drag-reorder tabs via native HTML5 DnD"
 ### Task 11: Per-tab Monaco editor model preservation
 
 **Files:**
+
 - Modify: `src/components/shared/CodeEditor.tsx`
 
-Monaco's `editor.getModel()` is owned by the editor instance, not by React state. When the user types in tab A, switches to tab B, types there, and switches back to tab A — they expect to see what they typed in A. Currently, the body editor uses a single Monaco instance bound to `request.body.raw` via React state — that round-trip works for *value* but loses *cursor position*, *undo stack*, and *fold state*.
+Monaco's `editor.getModel()` is owned by the editor instance, not by React state. When the user types in tab A, switches to tab B, types there, and switches back to tab A — they expect to see what they typed in A. Currently, the body editor uses a single Monaco instance bound to `request.body.raw` via React state — that round-trip works for _value_ but loses _cursor position_, _undo stack_, and _fold state_.
 
 The fix: hold a `Map<tabId, monaco.editor.ITextModel>` keyed by tab id. On tab switch, swap the editor's model. When a tab closes, dispose its model.
 
@@ -1422,6 +1509,7 @@ git commit -m "feat(ui): per-tab Monaco editor models via path prop"
 ### Task 12: Variable substitution helpers — Postman-name parity
 
 **Files:**
+
 - Create: `src/lib/shared/dynamicVariables.ts`
 - Create: `src/lib/shared/dynamicVariables.test.ts`
 - Modify: `src/store/useEnvironmentStore.ts`
@@ -1578,6 +1666,7 @@ git commit -m "feat(env): add Postman-name dynamic-variable helpers ({{\$randomU
 ### Task 13: Delete legacy `src/lib/shared/storage.ts`
 
 **Files:**
+
 - Delete: `src/lib/shared/storage.ts`
 - Modify: `src/lib/shared/index.ts`
 
@@ -1624,6 +1713,7 @@ git commit -m "chore(storage): delete legacy localStorage adapter; all stores on
 ### Task 14: Documentation + ADR
 
 **Files:**
+
 - Modify: `docs/ARCHITECTURE.md`
 - Create: `docs/adr/0002-multi-tab-store.md`
 

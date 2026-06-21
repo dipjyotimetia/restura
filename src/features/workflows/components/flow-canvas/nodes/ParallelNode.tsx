@@ -11,11 +11,7 @@ function ParallelNodeImpl({ id, data, selected }: NodeProps) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <NodeChrome
-        nodeId={id}
-        kindLabel="Parallel"
-        selected={Boolean(selected)}
-      >
+      <NodeChrome nodeId={id} kindLabel="Parallel" selected={Boolean(selected)}>
         <div className="flex items-start gap-2">
           <GitFork className="h-4 w-4 mt-0.5 text-cyan-400" />
           <div className="min-w-0">

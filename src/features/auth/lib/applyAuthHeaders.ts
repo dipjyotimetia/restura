@@ -39,7 +39,10 @@ export async function applyAuthHeaders(
   };
 }
 
-export function applyApiKeyQueryParam(auth: AuthConfig, params: Record<string, string>): Record<string, string> {
+export function applyApiKeyQueryParam(
+  auth: AuthConfig,
+  params: Record<string, string>
+): Record<string, string> {
   const credential = buildAuthCredential(auth);
   if (Object.keys(credential.params).length === 0) return params;
   return { ...params, ...credential.params };

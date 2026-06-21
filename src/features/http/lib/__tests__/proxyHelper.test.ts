@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  buildProxyUrl,
-  shouldBypassProxy,
-  formatProxyInfo,
-} from '../proxyHelper';
+import { buildProxyUrl, shouldBypassProxy, formatProxyInfo } from '../proxyHelper';
 import type { ProxyConfig } from '@/types';
 
 vi.mock('@/lib/shared/platform', () => ({

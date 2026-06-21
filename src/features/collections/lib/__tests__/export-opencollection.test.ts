@@ -15,7 +15,7 @@ describe('exportToOpenCollection', () => {
     expect(yamlOut).toContain('Simple HTTP Demo');
     const reimported = importOpenCollection(yaml.load(yamlOut));
     expect(reimported.collection.items.map((i) => i.name)).toEqual(
-      original.collection.items.map((i) => i.name),
+      original.collection.items.map((i) => i.name)
     );
   });
 

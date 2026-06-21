@@ -1,11 +1,21 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
-import { detectLanguage, formatLongTimestamp, getStatusTextColor } from '@/lib/shared/console-format';
+import {
+  detectLanguage,
+  formatLongTimestamp,
+  getStatusTextColor,
+} from '@/lib/shared/console-format';
 import { diffLines, type LineDiffEntry } from '@/lib/shared/line-diff';
 import type { ConsoleEntry } from '@/store/useConsoleStore';
 
@@ -52,7 +62,6 @@ function diffHeaders(
     }));
 }
 
-
 export default function EntryCompareDialog({
   open,
   onOpenChange,
@@ -96,7 +105,8 @@ export default function EntryCompareDialog({
         <DialogHeader className="px-6 py-3 border-b border-border">
           <DialogTitle className="text-sm">Compare entries</DialogTitle>
           <DialogDescription className="sr-only">
-            Side-by-side view of two captured entries; header differences are highlighted, and bodies are shown as a unified line diff below.
+            Side-by-side view of two captured entries; header differences are highlighted, and
+            bodies are shown as a unified line diff below.
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-px bg-border overflow-auto flex-1 content-start">
@@ -107,13 +117,24 @@ export default function EntryCompareDialog({
                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold">
                     {entry.request.method}
                   </Badge>
-                  <span className={cn('font-medium tabular-nums', getStatusTextColor(entry.response.status))}>
+                  <span
+                    className={cn(
+                      'font-medium tabular-nums',
+                      getStatusTextColor(entry.response.status)
+                    )}
+                  >
                     {entry.response.status || 'ERR'} {entry.response.statusText}
                   </span>
-                  <span className="text-muted-foreground ml-auto">{formatLongTimestamp(entry.timestamp)}</span>
+                  <span className="text-muted-foreground ml-auto">
+                    {formatLongTimestamp(entry.timestamp)}
+                  </span>
                 </div>
-                <div className="font-mono break-all bg-muted/40 rounded p-2">{entry.request.url}</div>
-                <div className="text-muted-foreground">{entry.response.time}ms · {entry.response.size} B</div>
+                <div className="font-mono break-all bg-muted/40 rounded p-2">
+                  {entry.request.url}
+                </div>
+                <div className="text-muted-foreground">
+                  {entry.response.time}ms · {entry.response.size} B
+                </div>
               </div>
 
               <div>
@@ -135,7 +156,12 @@ export default function EntryCompareDialog({
                           )}
                         >
                           <span className="text-primary/80 min-w-[120px]">{row.key}:</span>
-                          <span className={cn('break-all', value === undefined && 'text-muted-foreground italic')}>
+                          <span
+                            className={cn(
+                              'break-all',
+                              value === undefined && 'text-muted-foreground italic'
+                            )}
+                          >
                             {value ?? '(absent)'}
                           </span>
                         </div>
@@ -182,7 +208,12 @@ export default function EntryCompareDialog({
                           )}
                         >
                           <span className="text-primary/80 min-w-[120px]">{row.key}:</span>
-                          <span className={cn('break-all', value === undefined && 'text-muted-foreground italic')}>
+                          <span
+                            className={cn(
+                              'break-all',
+                              value === undefined && 'text-muted-foreground italic'
+                            )}
+                          >
                             {value ?? '(absent)'}
                           </span>
                         </div>
@@ -228,7 +259,8 @@ export default function EntryCompareDialog({
         )}
 
         <div className="px-6 py-2 border-t border-border text-[11px] text-muted-foreground bg-muted/30">
-          Highlighted rows show changed headers (side-by-side). Body changes are shown as a unified line diff below.
+          Highlighted rows show changed headers (side-by-side). Body changes are shown as a unified
+          line diff below.
         </div>
       </DialogContent>
     </Dialog>
@@ -241,7 +273,9 @@ function DiffSection({ title, entries }: { title: string; entries: LineDiffEntry
   const allEqual = entries.every((e) => e.op === 'equal');
   return (
     <div className="px-4 py-3 border-b border-border/60 last:border-b-0 space-y-1.5">
-      <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{title}</h4>
+      <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+        {title}
+      </h4>
       {allEqual ? (
         <p className="text-[11px] text-muted-foreground italic">No differences.</p>
       ) : (

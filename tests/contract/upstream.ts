@@ -59,7 +59,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ method: req.method, url: req.url, headers, query: Object.fromEntries(url.searchParams) }));
+    res.end(
+      JSON.stringify({
+        method: req.method,
+        url: req.url,
+        headers,
+        query: Object.fromEntries(url.searchParams),
+      })
+    );
     return;
   }
 

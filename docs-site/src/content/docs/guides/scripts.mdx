@@ -14,12 +14,14 @@ Both run in an **isolated QuickJS WASM sandbox**. No DOM. No filesystem. No arbi
 
 ## `rs.*` and `pm.*` — the same API
 
-Scripts use the native **`rs.*`** namespace. For drop-in Postman compatibility, **`pm`** is a live alias of the *same* object — `rs.expect(...)` and `pm.expect(...)` are identical, so existing Postman scripts run unchanged.
+Scripts use the native **`rs.*`** namespace. For drop-in Postman compatibility, **`pm`** is a live alias of the _same_ object — `rs.expect(...)` and `pm.expect(...)` are identical, so existing Postman scripts run unchanged.
 
 When you **import** a Postman collection, its `pm.*` calls are normalized to `rs.*` automatically; on **export**, they're rewritten back to `pm.*` so the output still runs in Postman. (The rewrite only touches real `pm.`/`rs.` identifiers — strings, comments, and regex literals are left intact.)
 
 <Aside type="tip" title="Editor IntelliSense">
-The script editors are Monaco with full type definitions registered for the API — you get autocomplete, member completion (`rs.`, `rs.response.`), hover docs, and signature help as you type.
+  The script editors are Monaco with full type definitions registered for the API — you get
+  autocomplete, member completion (`rs.`, `rs.response.`), hover docs, and signature help as you
+  type.
 </Aside>
 
 ## What's available
@@ -92,7 +94,9 @@ rs.environment.set('token', res.body.token);
 ```
 
 <Aside title="Scripting vs. workflows">
-For multi-step orchestration with branching, retries, and parallelism, a [workflow](/guides/workflows/) is usually clearer than chaining `rs.sendRequest` calls in one script.
+  For multi-step orchestration with branching, retries, and parallelism, a
+  [workflow](/guides/workflows/) is usually clearer than chaining `rs.sendRequest` calls in one
+  script.
 </Aside>
 
 ## Related

@@ -67,10 +67,11 @@ describe('withRetry', () => {
   });
 
   it('accumulates durations across attempts', async () => {
-    const result = await withRetry(
-      () => Promise.resolve(outcome(500)),
-      { retries: 2, retryOn: ['5xx'], baseDelayMs: 1 }
-    );
+    const result = await withRetry(() => Promise.resolve(outcome(500)), {
+      retries: 2,
+      retryOn: ['5xx'],
+      baseDelayMs: 1,
+    });
     expect(result.durationMs).toBe(15); // 3 * 5
   });
 });

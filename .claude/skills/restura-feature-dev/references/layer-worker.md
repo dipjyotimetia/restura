@@ -76,13 +76,13 @@ If you stream a response, check size as bytes accumulate and return `413` early 
 
 Always `{ error: string }` with the right status code:
 
-| Status | Meaning |
-| --- | --- |
-| 400 | Bad input or validation failure |
-| 413 | Payload or response too large |
-| 502 | Upstream fetch error |
-| 504 | Upstream timeout |
-| 500 | Unexpected server error |
+| Status | Meaning                         |
+| ------ | ------------------------------- |
+| 400    | Bad input or validation failure |
+| 413    | Payload or response too large   |
+| 502    | Upstream fetch error            |
+| 504    | Upstream timeout                |
+| 500    | Unexpected server error         |
 
 Don't return non-JSON or shapes that vary by error type. Renderer code expects this shape.
 

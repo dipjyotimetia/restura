@@ -15,7 +15,7 @@ Some auth schemes sign the actual request bytes: AWS SigV4 hashes the canonical 
 
 ## Decision
 
-Sign **at the wire**, in the backend that emits the final bytes, not in the renderer. Signing happens inside `executeHttpProxy` / `executeHttpProxyStreaming` *after* body construction and header sanitisation, in the shared protocol layer:
+Sign **at the wire**, in the backend that emits the final bytes, not in the renderer. Signing happens inside `executeHttpProxy` / `executeHttpProxyStreaming` _after_ body construction and header sanitisation, in the shared protocol layer:
 
 - `shared/protocol/auth-signer.ts` — AWS SigV4, plus dispatch for the other wire-signing schemes.
 - `shared/protocol/oauth1-signer.ts` — OAuth 1.0a.

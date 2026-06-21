@@ -59,29 +59,19 @@ describe('selectAtPath', () => {
   });
 
   it('descends into tryCatch.trySubgraph and catchSubgraph', () => {
-    expect(
-      selectAtPath(root, [{ parentNodeId: 'tc', key: 'trySubgraph' }])
-    ).toBe(emptySubgraph);
-    expect(
-      selectAtPath(root, [{ parentNodeId: 'tc', key: 'catchSubgraph' }])
-    ).toBe(emptySubgraph);
+    expect(selectAtPath(root, [{ parentNodeId: 'tc', key: 'trySubgraph' }])).toBe(emptySubgraph);
+    expect(selectAtPath(root, [{ parentNodeId: 'tc', key: 'catchSubgraph' }])).toBe(emptySubgraph);
   });
 
   it('returns null when parentNodeId is unknown', () => {
-    expect(
-      selectAtPath(root, [{ parentNodeId: 'nope', key: 'subgraph' }])
-    ).toBeNull();
+    expect(selectAtPath(root, [{ parentNodeId: 'nope', key: 'subgraph' }])).toBeNull();
   });
 
   it('returns null when key is wrong for kind', () => {
     // 'subgraph' on a tryCatch is invalid
-    expect(
-      selectAtPath(root, [{ parentNodeId: 'tc', key: 'subgraph' }])
-    ).toBeNull();
+    expect(selectAtPath(root, [{ parentNodeId: 'tc', key: 'subgraph' }])).toBeNull();
     // 'trySubgraph' on a forEach is invalid
-    expect(
-      selectAtPath(root, [{ parentNodeId: 'fe', key: 'trySubgraph' }])
-    ).toBeNull();
+    expect(selectAtPath(root, [{ parentNodeId: 'fe', key: 'trySubgraph' }])).toBeNull();
   });
 
   it('handles two-level nesting', () => {
@@ -123,45 +113,27 @@ describe('setAtPath', () => {
   });
 
   it('replaces forEach subgraph at depth 1', () => {
-    const next = setAtPath(
-      root,
-      [{ parentNodeId: 'fe', key: 'subgraph' }],
-      replacement
-    );
+    const next = setAtPath(root, [{ parentNodeId: 'fe', key: 'subgraph' }], replacement);
     const fe = next.nodes.find((n) => n.id === 'fe') as ForEachFlowNode;
     expect(fe.data.subgraph).toBe(replacement);
     // Other nodes untouched.
-    expect(next.nodes.find((n) => n.id === 'tc')).toBe(
-      root.nodes.find((n) => n.id === 'tc')
-    );
+    expect(next.nodes.find((n) => n.id === 'tc')).toBe(root.nodes.find((n) => n.id === 'tc'));
   });
 
   it('replaces tryCatch catch branch independently of try', () => {
-    const next = setAtPath(
-      root,
-      [{ parentNodeId: 'tc', key: 'catchSubgraph' }],
-      replacement
-    );
+    const next = setAtPath(root, [{ parentNodeId: 'tc', key: 'catchSubgraph' }], replacement);
     const tc = next.nodes.find((n) => n.id === 'tc') as TryCatchFlowNode;
     expect(tc.data.catchSubgraph).toBe(replacement);
     expect(tc.data.trySubgraph).toBe(emptySubgraph);
   });
 
   it('returns root unchanged when path is invalid', () => {
-    const got = setAtPath(
-      root,
-      [{ parentNodeId: 'nope', key: 'subgraph' }],
-      replacement
-    );
+    const got = setAtPath(root, [{ parentNodeId: 'nope', key: 'subgraph' }], replacement);
     expect(got).toBe(root);
   });
 
   it('returns root unchanged when key mismatches kind', () => {
-    const got = setAtPath(
-      root,
-      [{ parentNodeId: 'tc', key: 'subgraph' }],
-      replacement
-    );
+    const got = setAtPath(root, [{ parentNodeId: 'tc', key: 'subgraph' }], replacement);
     expect(got).toBe(root);
   });
 

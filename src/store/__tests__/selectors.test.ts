@@ -281,7 +281,12 @@ describe('Environment Selectors', () => {
 
 // React hook selectors — test via renderHook
 import { renderHook } from '@testing-library/react';
-import { useActiveTab, useActiveRequest, useActiveResponse, useActiveStreamingEvents } from '../selectors';
+import {
+  useActiveTab,
+  useActiveRequest,
+  useActiveResponse,
+  useActiveStreamingEvents,
+} from '../selectors';
 import { useRequestStore } from '../useRequestStore';
 
 describe('useActiveTab / useActiveRequest / useActiveResponse hooks', () => {

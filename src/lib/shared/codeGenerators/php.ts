@@ -33,7 +33,7 @@ export const generatePhp = (options: GenerateOptions): string => {
   }
 
   if (request.body.type !== 'none' && request.body.raw) {
-    php += `curl_setopt($ch, CURLOPT_POSTFIELDS, '${request.body.raw.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}');\n`;
+    php += `curl_setopt($ch, CURLOPT_POSTFIELDS, '${request.body.raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}');\n`;
   }
 
   php += `curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\n\n`;

@@ -23,10 +23,7 @@ export interface WindowedListProps<T> {
 
 const AT_BOTTOM_THRESHOLD = 24; // px
 
-function WindowedListInner<T>(
-  props: WindowedListProps<T>,
-  ref: React.Ref<WindowedListHandle>
-) {
+function WindowedListInner<T>(props: WindowedListProps<T>, ref: React.Ref<WindowedListHandle>) {
   const { items, itemHeight, height, overscan = 5, renderItem, onScroll } = props;
   const viewportRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);

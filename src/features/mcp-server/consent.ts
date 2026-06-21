@@ -112,18 +112,11 @@ export function getEnvironmentConsentLevel(
   consent: McpServerConsent,
   environmentId: string
 ): SurfaceConsentLevel {
-  return (
-    consent.perEnvironment?.[environmentId] ??
-    consent.environmentsDefaultLevel ??
-    'hidden'
-  );
+  return consent.perEnvironment?.[environmentId] ?? consent.environmentsDefaultLevel ?? 'hidden';
 }
 
 /** Returns true iff the agent may see this environment's variables. */
-export function canReadEnvironment(
-  consent: McpServerConsent,
-  environmentId: string
-): boolean {
+export function canReadEnvironment(consent: McpServerConsent, environmentId: string): boolean {
   return getEnvironmentConsentLevel(consent, environmentId) === 'read-only';
 }
 

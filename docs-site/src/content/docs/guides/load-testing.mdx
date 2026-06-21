@@ -19,16 +19,18 @@ Results land in the **Runs** panel, where each run is recorded so you can compar
 
 ## What you get back
 
-| Metric | Meaning |
-| --- | --- |
-| **Req/s** | Throughput across the whole run. |
-| **Mean / Min / Max** | Latency summary in ms. |
+| Metric                    | Meaning                                                      |
+| ------------------------- | ------------------------------------------------------------ |
+| **Req/s**                 | Throughput across the whole run.                             |
+| **Mean / Min / Max**      | Latency summary in ms.                                       |
 | **p50 / p90 / p95 / p99** | Latency percentiles, also drawn as a distribution bar chart. |
 
 Each iteration is recorded as a sample with its status code and outcome, so failures show up in the success rate rather than skewing the latency numbers silently.
 
 <Aside type="caution" title="Web concurrency is capped">
-On the web build the browser limits concurrent connections per origin (~6), so the effective concurrency is lower than the number you set. For accurate high-concurrency runs, use the [desktop app](/overview/install/), which has no such cap.
+  On the web build the browser limits concurrent connections per origin (~6), so the effective
+  concurrency is lower than the number you set. For accurate high-concurrency runs, use the [desktop
+  app](/overview/install/), which has no such cap.
 </Aside>
 
 ## When to reach for the CLI instead

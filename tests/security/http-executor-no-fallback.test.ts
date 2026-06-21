@@ -142,10 +142,7 @@ describe('HTTP executor no-direct-fallback (security regression)', () => {
     const postCalls = (axios as unknown as { post: ReturnType<typeof vi.fn> }).post.mock.calls;
     for (const call of postCalls) {
       const url = call[0] as string;
-      expect(
-        !isUpstreamUrl(url),
-        `expected proxied URL, saw axios.post(${url})`
-      ).toBe(true);
+      expect(!isUpstreamUrl(url), `expected proxied URL, saw axios.post(${url})`).toBe(true);
     }
   });
 });

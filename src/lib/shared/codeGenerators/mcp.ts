@@ -18,7 +18,9 @@ function enabledHeaders(req: McpRequest): Record<string, string> {
 
 function generateCurl(opts: McpGenerateOptions): string {
   const method = opts.method ?? opts.request.defaultMethod ?? 'tools/list';
-  const params = opts.params ?? (opts.request.defaultParams ? JSON.parse(opts.request.defaultParams) : undefined);
+  const params =
+    opts.params ??
+    (opts.request.defaultParams ? JSON.parse(opts.request.defaultParams) : undefined);
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id: 1,
@@ -40,14 +42,16 @@ ${headerArgs} \\
 
 function generateTypeScriptSdk(opts: McpGenerateOptions): string {
   const method = opts.method ?? opts.request.defaultMethod ?? 'tools/list';
-  const params = opts.params ?? (opts.request.defaultParams ? JSON.parse(opts.request.defaultParams) : undefined);
+  const params =
+    opts.params ??
+    (opts.request.defaultParams ? JSON.parse(opts.request.defaultParams) : undefined);
   // The transport class to import depends on the chosen MCP transport
-  const transportClass = opts.request.transport === 'http-sse'
-    ? 'SSEClientTransport'
-    : 'StreamableHTTPClientTransport';
-  const transportImport = opts.request.transport === 'http-sse'
-    ? "@modelcontextprotocol/sdk/client/sse.js"
-    : "@modelcontextprotocol/sdk/client/streamableHttp.js";
+  const transportClass =
+    opts.request.transport === 'http-sse' ? 'SSEClientTransport' : 'StreamableHTTPClientTransport';
+  const transportImport =
+    opts.request.transport === 'http-sse'
+      ? '@modelcontextprotocol/sdk/client/sse.js'
+      : '@modelcontextprotocol/sdk/client/streamableHttp.js';
   return `// npm i @modelcontextprotocol/sdk
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ${transportClass} } from '${transportImport}';
@@ -71,7 +75,10 @@ await client.close();`;
 
 export const mcpCodeGenerators = {
   curl: { name: 'cURL (raw JSON-RPC)', generate: generateCurl },
-  typescriptSdk: { name: 'TypeScript (@modelcontextprotocol/sdk)', generate: generateTypeScriptSdk },
+  typescriptSdk: {
+    name: 'TypeScript (@modelcontextprotocol/sdk)',
+    generate: generateTypeScriptSdk,
+  },
 };
 
 export type McpCodeGeneratorType = keyof typeof mcpCodeGenerators;

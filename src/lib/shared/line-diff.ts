@@ -36,7 +36,7 @@ function lcsTable(a: string[], b: string[]): number[][] {
   const t: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      t[i]![j] = a[i] === b[j] ? (t[i + 1]![j + 1]! + 1) : Math.max(t[i + 1]![j]!, t[i]![j + 1]!);
+      t[i]![j] = a[i] === b[j] ? t[i + 1]![j + 1]! + 1 : Math.max(t[i + 1]![j]!, t[i]![j + 1]!);
     }
   }
   return t;
@@ -62,7 +62,8 @@ export function diffLines(left: string, right: string): LineDiffEntry[] {
   while (i < a.length && j < b.length) {
     if (a[i] === b[j]) {
       out.push({ op: 'equal', text: a[i]! });
-      i++; j++;
+      i++;
+      j++;
     } else if ((t[i + 1]?.[j] ?? 0) >= (t[i]?.[j + 1] ?? 0)) {
       out.push({ op: 'removed', text: a[i]! });
       i++;
@@ -71,7 +72,11 @@ export function diffLines(left: string, right: string): LineDiffEntry[] {
       j++;
     }
   }
-  while (i < a.length) { out.push({ op: 'removed', text: a[i++]! }); }
-  while (j < b.length) { out.push({ op: 'added', text: b[j++]! }); }
+  while (i < a.length) {
+    out.push({ op: 'removed', text: a[i++]! });
+  }
+  while (j < b.length) {
+    out.push({ op: 'added', text: b[j++]! });
+  }
   return out;
 }

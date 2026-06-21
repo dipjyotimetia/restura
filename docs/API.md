@@ -80,7 +80,12 @@ interface CollectionStore {
   updateFolder: (collectionId: string, folderId: string, updates: Partial<Folder>) => void;
   deleteFolder: (collectionId: string, folderId: string) => void;
   addRequest: (collectionId: string, folderId: string | null, request: SavedRequest) => void;
-  updateRequest: (collectionId: string, folderId: string | null, requestId: string, updates: Partial<SavedRequest>) => void;
+  updateRequest: (
+    collectionId: string,
+    folderId: string | null,
+    requestId: string,
+    updates: Partial<SavedRequest>
+  ) => void;
   deleteRequest: (collectionId: string, folderId: string | null, requestId: string) => void;
   importCollection: (data: unknown, format: ImportFormat) => void;
   exportCollection: (collectionId: string, format: ExportFormat) => string;
@@ -185,8 +190,12 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 const addEntry = useHistoryStore((state) => state.addEntry);
 addEntry({
   id: 'hist-1',
-  request: { /* request data */ },
-  response: { /* response data */ },
+  request: {
+    /* request data */
+  },
+  response: {
+    /* response data */
+  },
   timestamp: new Date().toISOString(),
   isFavorite: false,
 });
@@ -264,14 +273,7 @@ interface FormDataField {
 ### Authentication Types
 
 ```typescript
-type AuthType =
-  | 'none'
-  | 'basic'
-  | 'bearer'
-  | 'api-key'
-  | 'oauth2'
-  | 'digest'
-  | 'aws-signature';
+type AuthType = 'none' | 'basic' | 'bearer' | 'api-key' | 'oauth2' | 'digest' | 'aws-signature';
 
 interface AuthConfig {
   type: AuthType;
@@ -578,7 +580,10 @@ if (result.success) {
 ```typescript
 import { z } from 'zod';
 
-const UrlSchema = z.string().url().or(z.string().regex(/^\{\{.*\}\}$/));
+const UrlSchema = z
+  .string()
+  .url()
+  .or(z.string().regex(/^\{\{.*\}\}$/));
 
 // Valid URLs:
 // - 'https://api.example.com'
@@ -593,9 +598,7 @@ import { EnvironmentSchema } from '@/lib/validations';
 const result = EnvironmentSchema.safeParse({
   id: 'env-1',
   name: 'Production',
-  variables: [
-    { id: 'var-1', key: 'API_KEY', value: 'secret', enabled: true },
-  ],
+  variables: [{ id: 'var-1', key: 'API_KEY', value: 'secret', enabled: true }],
 });
 ```
 
@@ -611,6 +614,7 @@ const validatedData = validateStoreData(rawData, 'collections');
 ---
 
 For more information, refer to the source code in the respective directories:
+
 - Stores: `web-client/store/`
 - Types: `web-client/types/`
 - Utilities: `web-client/lib/`

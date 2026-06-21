@@ -26,7 +26,9 @@ interface HistoryState {
   // Type-specific selectors
   getHttpHistory: () => HistoryItem[];
   getGrpcHistory: () => HistoryItem[];
-  getRecentGrpcMethods: (limit?: number) => Array<{ service: string; method: string; timestamp: number }>;
+  getRecentGrpcMethods: (
+    limit?: number
+  ) => Array<{ service: string; method: string; timestamp: number }>;
 }
 
 // Fallback cap for when settings have no value (e.g. pre-migration persisted
@@ -50,10 +52,7 @@ export const useHistoryStore = create<HistoryState>()(
           if (settings.autoSaveHistory === false) {
             return state;
           }
-          const cap = Math.max(
-            1,
-            settings.maxHistoryItems ?? DEFAULT_MAX_HISTORY_ITEMS
-          );
+          const cap = Math.max(1, settings.maxHistoryItems ?? DEFAULT_MAX_HISTORY_ITEMS);
 
           const newItem: HistoryItem = {
             id: `history-${Date.now()}`,
@@ -143,9 +142,7 @@ export const useHistoryStore = create<HistoryState>()(
             Object.keys(persistedState as object).length === 0);
         let state: HistoryState | null = null;
         if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<HistoryState>>(
-            'history-storage'
-          );
+          const legacy = migrateLegacyLocalStorage<Partial<HistoryState>>('history-storage');
           if (legacy) state = legacy as HistoryState;
         } else {
           state = persistedState as HistoryState;

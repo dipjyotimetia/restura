@@ -37,9 +37,7 @@ export function renderHtml(result: RunResult): string {
     .map((r) => {
       const statusClass = r.passed ? 'pass' : r.errorMessage ? 'err' : 'fail';
       const statusText = r.errorMessage ? 'ERROR' : String(r.status);
-      const errorRow = r.errorMessage
-        ? `<div class="err-msg">${escape(r.errorMessage)}</div>`
-        : '';
+      const errorRow = r.errorMessage ? `<div class="err-msg">${escape(r.errorMessage)}</div>` : '';
       const method =
         (r.request.request as { method?: string }).method ?? r.request.type.toUpperCase();
       return `

@@ -38,7 +38,7 @@ The guard is the **single source of truth** — before the shared-protocol refac
 
 ### DNS-rebind guard (desktop)
 
-The Electron main process additionally enforces a **pre-flight DNS guard**: hostnames are resolved before connecting, and `assertResolvedAddressAllowed` is called against every record returned. Note: this is *pre-flight only* — it does not mitigate a true DNS-rebind that swaps records at TTL=0 between resolve and connect.
+The Electron main process additionally enforces a **pre-flight DNS guard**: hostnames are resolved before connecting, and `assertResolvedAddressAllowed` is called against every record returned. Note: this is _pre-flight only_ — it does not mitigate a true DNS-rebind that swaps records at TTL=0 between resolve and connect.
 
 ### Wire-level auth signing
 
@@ -82,10 +82,10 @@ The deployed Cloudflare Worker requires one of:
 Local dev bypasses auth only when Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. **Never put `DEV_BYPASS_AUTH` in `wrangler.jsonc`** (the deployed config).
 
 <Aside title="Read the source">
-- [`docs/security.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/security.md) — at-rest encryption details.
-- [ADR 0004 — Security hardening](/architecture/adrs/)
-- [ADR 0006 — Electron connection + DNS hardening](/architecture/adrs/)
-- [ADR 0007 — SecretRef pattern](/architecture/adrs/)
+  - [`docs/security.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/security.md) —
+  at-rest encryption details. - [ADR 0004 — Security hardening](/architecture/adrs/) - [ADR 0006 —
+  Electron connection + DNS hardening](/architecture/adrs/) - [ADR 0007 — SecretRef
+  pattern](/architecture/adrs/)
 </Aside>
 
 ## Reporting

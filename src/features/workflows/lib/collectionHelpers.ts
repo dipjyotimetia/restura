@@ -48,8 +48,7 @@ export function flattenRequests(items: CollectionItem[]): RequestSummary[] {
         out.push({
           id: r.id,
           name: item.name,
-          method:
-            r.type === 'http' ? (r as HttpRequest).method : r.type.toUpperCase(),
+          method: r.type === 'http' ? (r as HttpRequest).method : r.type.toUpperCase(),
           kind: r.type,
           path: path ? `${path} / ${item.name}` : item.name,
         });

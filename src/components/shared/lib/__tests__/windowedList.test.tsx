@@ -11,7 +11,11 @@ describe('WindowedList', () => {
         itemHeight={20}
         height={200}
         overscan={2}
-        renderItem={(item) => <div key={item.id} data-testid={`item-${item.id}`}>{item.label}</div>}
+        renderItem={(item) => (
+          <div key={item.id} data-testid={`item-${item.id}`}>
+            {item.label}
+          </div>
+        )}
       />
     );
     // 200/20 = 10 visible; +2 overscan top + 2 bottom = 14 max
@@ -27,14 +31,20 @@ describe('WindowedList', () => {
 
   it('exposes scrollToBottom via ref', () => {
     const items = Array.from({ length: 100 }, (_, i) => ({ id: i }));
-    const ref = { current: null as { scrollToBottom: () => void; isAtBottom: () => boolean } | null };
+    const ref = {
+      current: null as { scrollToBottom: () => void; isAtBottom: () => boolean } | null,
+    };
     render(
       <WindowedList
         ref={ref}
         items={items}
         itemHeight={20}
         height={200}
-        renderItem={(item) => <div key={item.id} data-testid={`item-${item.id}`}>{item.id}</div>}
+        renderItem={(item) => (
+          <div key={item.id} data-testid={`item-${item.id}`}>
+            {item.id}
+          </div>
+        )}
       />
     );
     expect(ref.current).toBeTruthy();

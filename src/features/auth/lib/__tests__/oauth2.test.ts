@@ -38,9 +38,9 @@ describe('buildAuthorizationUrl', () => {
   });
 
   it('throws when authorizationUrl is missing', async () => {
-    await expect(buildAuthorizationUrl({ ...baseConfig, authorizationUrl: undefined })).rejects.toThrow(
-      'Authorization URL is required'
-    );
+    await expect(
+      buildAuthorizationUrl({ ...baseConfig, authorizationUrl: undefined })
+    ).rejects.toThrow('Authorization URL is required');
   });
 
   it('throws when redirectUri is missing', async () => {
@@ -60,11 +60,12 @@ describe('exchangeCodeForToken', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify(mockTokenResponse), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(mockTokenResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
       )
     );
   });
@@ -89,11 +90,12 @@ describe('fetchRefreshToken', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify(mockTokenResponse), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(mockTokenResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
       )
     );
   });
@@ -139,11 +141,12 @@ describe('fetchClientCredentialsToken', () => {
   it('throws OAuth2TokenError on error response', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({ error: 'invalid_client', error_description: 'Bad credentials' }),
-          { status: 401, headers: { 'content-type': 'application/json' } }
-        )
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: 'invalid_client', error_description: 'Bad credentials' }),
+            { status: 401, headers: { 'content-type': 'application/json' } }
+          )
       )
     );
 
@@ -161,11 +164,12 @@ describe('fetchPasswordToken', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify(mockTokenResponse), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(mockTokenResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
       )
     );
   });
@@ -215,17 +219,18 @@ describe('fetchDeviceCode', () => {
   it('sends device code request', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            device_code: 'device-abc',
-            user_code: 'ABCD-1234',
-            verification_uri: 'https://device.example/activate',
-            expires_in: 300,
-            interval: 5,
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } }
-        )
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              device_code: 'device-abc',
+              user_code: 'ABCD-1234',
+              verification_uri: 'https://device.example/activate',
+              expires_in: 300,
+              interval: 5,
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
       )
     );
 
@@ -244,8 +249,9 @@ describe('fetchDeviceCode', () => {
   it('throws on non-ok response from device endpoint', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response('{}', { status: 400, headers: { 'content-type': 'application/json' } })
+      vi.fn(
+        async () =>
+          new Response('{}', { status: 400, headers: { 'content-type': 'application/json' } })
       )
     );
 
@@ -265,11 +271,12 @@ describe('pollForDeviceToken', () => {
   it('throws timed out when max attempts reached with 0s interval', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({ error: 'authorization_pending' }),
-          { status: 400, headers: { 'content-type': 'application/json' } }
-        )
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: 'authorization_pending' }), {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          })
       )
     );
 
@@ -279,7 +286,7 @@ describe('pollForDeviceToken', () => {
         { grantType: 'device_code', clientId: 'client', tokenUrl: 'https://auth.example/token' },
         'device-code-abc',
         0, // 0 second interval avoids slow real timers
-        1  // only 1 attempt
+        1 // only 1 attempt
       )
     ).rejects.toThrow('timed out');
   });
@@ -287,11 +294,12 @@ describe('pollForDeviceToken', () => {
   it('terminates on non-pending errors', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({ error: 'access_denied' }),
-          { status: 400, headers: { 'content-type': 'application/json' } }
-        )
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: 'access_denied' }), {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          })
       )
     );
 

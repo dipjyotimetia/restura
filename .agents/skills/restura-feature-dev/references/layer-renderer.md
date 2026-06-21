@@ -65,16 +65,13 @@ Pattern (every store):
 
 ```ts
 export const useXStore = create<XState>()(
-  persist(
-    (set, get) => ({ ...state, ...actions }),
-    {
-      name: 'storage-key',
-      version: N,
-      // storage: dexieStorageAdapters.<name>(),  // for sensitive data
-      // migrate: (persisted, version) => ...,
-      // partialize: (state) => omit transient fields,
-    }
-  )
+  persist((set, get) => ({ ...state, ...actions }), {
+    name: 'storage-key',
+    version: N,
+    // storage: dexieStorageAdapters.<name>(),  // for sensitive data
+    // migrate: (persisted, version) => ...,
+    // partialize: (state) => omit transient fields,
+  })
 );
 ```
 

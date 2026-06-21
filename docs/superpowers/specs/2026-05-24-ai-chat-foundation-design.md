@@ -12,7 +12,7 @@
 
 Add a single AI capability to Restura's desktop app: a sidebar chat that explains the user's current request and response in plain English, proposes likely causes for failures, and suggests next steps. Build it on a thin, reusable foundation (provider abstraction, BYO API key, streaming, redaction) so subsequent AI features — natural-language request building, test generation — plug into the same plumbing without re-inventing the pipe.
 
-The privacy story is clean and quotable: *"Your API key never leaves your machine. AI calls go from your machine directly to OpenAI or Anthropic — Restura's servers are not in the path."*
+The privacy story is clean and quotable: _"Your API key never leaves your machine. AI calls go from your machine directly to OpenAI or Anthropic — Restura's servers are not in the path."_
 
 ## 2. Non-goals (v1)
 
@@ -29,16 +29,16 @@ The privacy story is clean and quotable: *"Your API key never leaves your machin
 
 ## 3. Decisions (locked during brainstorm)
 
-| Decision | Choice | Reason |
-|---|---|---|
-| Provider model | BYO key, called from Electron main | Zero infra cost; cleanest "key never leaves your machine" privacy story; mirrors Restura's existing auth-at-the-wire pattern. |
-| UI surface | Sidebar chat panel only | Aligns with chat-native UX; foundation supports inline buttons later if added. |
-| v1 scope | Foundation + chat shell + Explain only | Validates UX cheaply; lowest blast radius; explain is read-only. |
-| Providers | OpenAI + Anthropic + OpenRouter | Covers ~95% of users with keys; OpenRouter is OpenAI-API-compatible so only two streaming parsers. |
-| Redaction default | Aggressive + per-message "Send raw" override | Auth/cookies/tokens stripped by default; user opts in to send raw one turn at a time. |
-| Chat scope | Global conversation with ambient context pill | One persistent chat; the pill shows what "this" refers to right now. |
-| Architecture | Lean — renderer assembles messages, backend relays the stream | Mirrors `shared/protocol/` pattern; symmetric across web/desktop if we ever add web. |
-| Platform | Electron only for v1 | Cleanest privacy story; no anonymous-web key handling problem. |
+| Decision          | Choice                                                        | Reason                                                                                                                        |
+| ----------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Provider model    | BYO key, called from Electron main                            | Zero infra cost; cleanest "key never leaves your machine" privacy story; mirrors Restura's existing auth-at-the-wire pattern. |
+| UI surface        | Sidebar chat panel only                                       | Aligns with chat-native UX; foundation supports inline buttons later if added.                                                |
+| v1 scope          | Foundation + chat shell + Explain only                        | Validates UX cheaply; lowest blast radius; explain is read-only.                                                              |
+| Providers         | OpenAI + Anthropic + OpenRouter                               | Covers ~95% of users with keys; OpenRouter is OpenAI-API-compatible so only two streaming parsers.                            |
+| Redaction default | Aggressive + per-message "Send raw" override                  | Auth/cookies/tokens stripped by default; user opts in to send raw one turn at a time.                                         |
+| Chat scope        | Global conversation with ambient context pill                 | One persistent chat; the pill shows what "this" refers to right now.                                                          |
+| Architecture      | Lean — renderer assembles messages, backend relays the stream | Mirrors `shared/protocol/` pattern; symmetric across web/desktop if we ever add web.                                          |
+| Platform          | Electron only for v1                                          | Cleanest privacy story; no anonymous-web key handling problem.                                                                |
 
 ## 4. Architecture
 
@@ -166,7 +166,7 @@ On 'done' event: persist via Zustand persist → encrypted electron-store
 
 ### Redaction lives in the renderer (with a backend sanity pass)
 
-Counter-intuitive but correct: the renderer is the only place that holds the *unredacted* live state (rendered tabs, resolved env values, in-memory response bodies). It strips known-secret patterns before they ever leave the process. The backend runs a defense-in-depth scan and rejects messages that obviously still contain `Authorization:` / `Bearer sk-` / etc. when `rawMode !== true`.
+Counter-intuitive but correct: the renderer is the only place that holds the _unredacted_ live state (rendered tabs, resolved env values, in-memory response bodies). It strips known-secret patterns before they ever leave the process. The backend runs a defense-in-depth scan and rejects messages that obviously still contain `Authorization:` / `Bearer sk-` / etc. when `rawMode !== true`.
 
 `SecretRef` handles in the original `RequestSpec` never resolve in the renderer — so request-auth secrets (Bearer tokens, AWS keys, etc.) are not even available to redact. They're already absent.
 
@@ -178,27 +178,27 @@ Token streams arrive 50–200 chunks/sec. Without batching, every chunk re-rende
 
 ```ts
 // src/features/ai/store.ts
-type Provider = "openai" | "anthropic" | "openrouter";
+type Provider = 'openai' | 'anthropic' | 'openrouter';
 
 type ProviderConfig = {
   provider: Provider;
-  defaultModel: string;             // e.g. "claude-sonnet-4-x"
-  apiKeyRef: SecretRef;             // always {kind:"handle"} (Electron-only)
-  baseUrlOverride?: string;         // self-hosted / OpenRouter region
+  defaultModel: string; // e.g. "claude-sonnet-4-x"
+  apiKeyRef: SecretRef; // always {kind:"handle"} (Electron-only)
+  baseUrlOverride?: string; // self-hosted / OpenRouter region
 };
 
 type ContextRef = {
-  kind: "request" | "response" | "history-entry" | "none";
+  kind: 'request' | 'response' | 'history-entry' | 'none';
   tabId?: string;
   historyId?: string;
   capturedAt: number;
 };
 
 type ChatMessage = {
-  id: string;                       // ulid
-  role: "user" | "assistant" | "system";
+  id: string; // ulid
+  role: 'user' | 'assistant' | 'system';
   text: string;
-  status: "streaming" | "done" | "error";
+  status: 'streaming' | 'done' | 'error';
   errorMessage?: string;
   usage?: { promptTokens: number; completionTokens: number; estimatedCostUSD: number };
   contextRef?: ContextRef;
@@ -208,8 +208,8 @@ type ChatMessage = {
 
 type Conversation = {
   id: string;
-  title: string;                    // first 60 chars of first user message, ellipsised;
-                                    // no LLM summarisation call in v1
+  title: string; // first 60 chars of first user message, ellipsised;
+  // no LLM summarisation call in v1
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
@@ -219,10 +219,10 @@ type AiChatState = {
   conversations: Record<string, Conversation>;
   activeConversationId: string | null;
   panelOpen: boolean;
-  panelWidth: number;                // pixels, clamped to [280, 800] in UI
+  panelWidth: number; // pixels, clamped to [280, 800] in UI
   providerConfigs: Record<Provider, ProviderConfig | null>;
   activeProvider: Provider;
-  redactionMode: "default" | "raw";
+  redactionMode: 'default' | 'raw';
 
   // actions: newConversation, setActive, appendUserMessage,
   // appendAssistantPlaceholder, appendAssistantDelta, finalizeAssistantMessage,
@@ -253,13 +253,20 @@ Base-URL override (self-hosted OpenRouter, OpenAI-compatible gateways) goes thro
 
 ```ts
 const HEADER_DENYLIST = [
-  "authorization", "cookie", "set-cookie", "proxy-authorization",
-  "x-api-key", "x-auth-token", "x-csrf-token",
-  /^x-.*-token$/i, /^x-.*-key$/i, /^x-.*-secret$/i,
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'proxy-authorization',
+  'x-api-key',
+  'x-auth-token',
+  'x-csrf-token',
+  /^x-.*-token$/i,
+  /^x-.*-key$/i,
+  /^x-.*-secret$/i,
 ];
 
 const BODY_TOKEN_PATTERNS = [
-  /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,  // JWT
+  /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT
   /Bearer\s+[A-Za-z0-9._\-+/=]{20,}/g,
   /(api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?[A-Za-z0-9._\-+/=]{8,}/gi,
 ];
@@ -273,35 +280,36 @@ const BODY_TOKEN_PATTERNS = [
 
 ## 9. Error handling
 
-| Failure | Handling |
-|---|---|
-| No API key configured | Composer disabled, helper text "Add an API key in Settings → AI". |
-| Invalid API key (provider 401) | Surface provider error verbatim; message status `error`. Don't auto-clear the key. |
-| Rate limited (provider 429) | Exponential backoff with jitter, max 3 retries. UI shows "Provider rate limited, retrying…" |
-| Network error / timeout (30s no first token, 5min total) | Message errored; "Send again" reuses the same context snapshot. |
-| Backend rejects unredacted content | Errored with "Looks like raw secrets in the prompt. Click 'Send raw' if intentional." |
-| Provider returns malformed SSE | Stream aborts, message errored with raw bytes truncated to 500 chars for debugging. |
-| Renderer reload mid-stream | In-flight messages restored from store as `status: "error"` with text "Interrupted by reload" — never `streaming` (lying about state). |
-| IPC rate limiter triggers | Errored with "Slow down — too many AI requests in the last minute." |
+| Failure                                                  | Handling                                                                                                                               |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| No API key configured                                    | Composer disabled, helper text "Add an API key in Settings → AI".                                                                      |
+| Invalid API key (provider 401)                           | Surface provider error verbatim; message status `error`. Don't auto-clear the key.                                                     |
+| Rate limited (provider 429)                              | Exponential backoff with jitter, max 3 retries. UI shows "Provider rate limited, retrying…"                                            |
+| Network error / timeout (30s no first token, 5min total) | Message errored; "Send again" reuses the same context snapshot.                                                                        |
+| Backend rejects unredacted content                       | Errored with "Looks like raw secrets in the prompt. Click 'Send raw' if intentional."                                                  |
+| Provider returns malformed SSE                           | Stream aborts, message errored with raw bytes truncated to 500 chars for debugging.                                                    |
+| Renderer reload mid-stream                               | In-flight messages restored from store as `status: "error"` with text "Interrupted by reload" — never `streaming` (lying about state). |
+| IPC rate limiter triggers                                | Errored with "Slow down — too many AI requests in the last minute."                                                                    |
 
 Cancellation: "Stop" button sends `electronAPI.ai.cancel(streamId)`; main process aborts upstream fetch and emits `ai:chat:end` with `reason: "cancelled"`.
 
 ## 10. Testing
 
-| Layer | What | Where |
-|---|---|---|
-| Unit | `aiRedaction.ts` — header denylist, JWT mask, env name-only, raw bypass | `src/lib/shared/__tests__/aiRedaction.test.ts` |
-| Unit | `promptBuilder.ts` — system prompt composition, message ordering, context attachment | `src/features/ai/lib/__tests__/promptBuilder.test.ts` |
-| Unit | Provider stream decoders | `src/features/ai/lib/providers/__tests__/*.test.ts` — feed recorded SSE fixtures, assert decoded events |
-| Unit | `ai-proxy.ts` — Zod validation, provider routing, paranoia pass | `shared/protocol/ai/__tests__/ai-proxy.test.ts` — fake Fetcher |
-| Integration | `useAiChatStore` — append/delta/error states, persist+rehydrate Zod validation round-trip | `src/features/ai/__tests__/store.test.ts` |
-| Integration | Electron handler with mocked safeStorage and Fetcher | `electron/main/__tests__/ai-handler.test.ts` |
-| Component | `ChatPanel`, `Message` streaming render, Stop, Send raw | RTL + Vitest, mock streamConsumer |
-| e2e | Real round-trip against echo server (Electron, no live keys in CI) | `e2e/real-ai.spec.ts` |
-| Security | Redaction regression — every header/body pattern that's ever leaked has a test | `tests/security/ai-redaction.test.ts` — property-based, adversarial inputs |
-| Fixtures | Provider SSE event recordings | `src/features/ai/lib/providers/__fixtures__/*.sse.txt` — re-record quarterly |
+| Layer       | What                                                                                      | Where                                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Unit        | `aiRedaction.ts` — header denylist, JWT mask, env name-only, raw bypass                   | `src/lib/shared/__tests__/aiRedaction.test.ts`                                                          |
+| Unit        | `promptBuilder.ts` — system prompt composition, message ordering, context attachment      | `src/features/ai/lib/__tests__/promptBuilder.test.ts`                                                   |
+| Unit        | Provider stream decoders                                                                  | `src/features/ai/lib/providers/__tests__/*.test.ts` — feed recorded SSE fixtures, assert decoded events |
+| Unit        | `ai-proxy.ts` — Zod validation, provider routing, paranoia pass                           | `shared/protocol/ai/__tests__/ai-proxy.test.ts` — fake Fetcher                                          |
+| Integration | `useAiChatStore` — append/delta/error states, persist+rehydrate Zod validation round-trip | `src/features/ai/__tests__/store.test.ts`                                                               |
+| Integration | Electron handler with mocked safeStorage and Fetcher                                      | `electron/main/__tests__/ai-handler.test.ts`                                                            |
+| Component   | `ChatPanel`, `Message` streaming render, Stop, Send raw                                   | RTL + Vitest, mock streamConsumer                                                                       |
+| e2e         | Real round-trip against echo server (Electron, no live keys in CI)                        | `e2e/real-ai.spec.ts`                                                                                   |
+| Security    | Redaction regression — every header/body pattern that's ever leaked has a test            | `tests/security/ai-redaction.test.ts` — property-based, adversarial inputs                              |
+| Fixtures    | Provider SSE event recordings                                                             | `src/features/ai/lib/providers/__fixtures__/*.sse.txt` — re-record quarterly                            |
 
 Echo server additions (`echo/handlers/ai.ts`, ~150 LOC):
+
 - `POST /v1/chat/completions` — OpenAI shape. Deterministic SSE stream + `data: [DONE]`.
 - `POST /v1/messages` — Anthropic shape. `event: message_start` + content_block_delta events.
 - Failure modes via query: `?fail=429`, `?fail=malformed`. Used by e2e to test error UI without flaking on real providers.
@@ -329,13 +337,13 @@ Manual smoke checklist:
 
 ## 12. Effort estimate (rough)
 
-| Slice | Days |
-|---|---:|
-| Foundation: `shared/protocol/ai/`, `electron/main/ai-handler.ts`, redaction, store | 3 |
-| Chat UI: panel, composer, message list, settings, context pill, streaming render | 3 |
-| Provider decoders + echo endpoints + tests | 2 |
-| Polish: error states, e2e, docs, ROADMAP.md update | 2 |
-| **Total** | **~10 working days** |
+| Slice                                                                              |                 Days |
+| ---------------------------------------------------------------------------------- | -------------------: |
+| Foundation: `shared/protocol/ai/`, `electron/main/ai-handler.ts`, redaction, store |                    3 |
+| Chat UI: panel, composer, message list, settings, context pill, streaming render   |                    3 |
+| Provider decoders + echo endpoints + tests                                         |                    2 |
+| Polish: error states, e2e, docs, ROADMAP.md update                                 |                    2 |
+| **Total**                                                                          | **~10 working days** |
 
 Add 30% buffer → **~2.5 weeks** for one engineer familiar with the codebase.
 
@@ -347,4 +355,4 @@ Add 30% buffer → **~2.5 weeks** for one engineer familiar with the codebase.
 
 ---
 
-*Spec written 2026-05-24 via the brainstorming skill. Next step: `writing-plans` skill creates the implementation plan.*
+_Spec written 2026-05-24 via the brainstorming skill. Next step: `writing-plans` skill creates the implementation plan._

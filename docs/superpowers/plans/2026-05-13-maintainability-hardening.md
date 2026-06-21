@@ -23,6 +23,7 @@
 ### Task 1.1: Block redirect-to-private SSRF in Worker proxy
 
 **Files:**
+
 - Modify: `worker/handlers/proxy.ts:79,91` (the two `redirect: 'follow'` sites)
 - Modify: `shared/protocol/http-proxy.ts` (add manual-redirect loop)
 - Test: `shared/protocol/__tests__/http-proxy-redirect.test.ts` (create)
@@ -80,7 +81,8 @@ describe('executeHttpProxy redirect handling', () => {
   });
 
   it('strips Authorization on cross-origin redirect', async () => {
-    const fetcher = vi.fn()
+    const fetcher = vi
+      .fn()
       .mockResolvedValueOnce({
         status: 302,
         statusText: 'Found',
@@ -150,7 +152,7 @@ const init: RequestInit = {
   method: req.method,
   headers: req.headers,
   signal: req.signal,
-  redirect: 'manual',  // was: 'follow'
+  redirect: 'manual', // was: 'follow'
 };
 ```
 
@@ -202,9 +204,11 @@ async function followRedirects(
 
     // 303 always becomes GET; 301/302 historically downgrade non-GET/HEAD to GET
     const nextMethod =
-      response.status === 303 ? 'GET' :
-      (response.status === 301 || response.status === 302) && req.method !== 'HEAD' ? 'GET' :
-      req.method;
+      response.status === 303
+        ? 'GET'
+        : (response.status === 301 || response.status === 302) && req.method !== 'HEAD'
+          ? 'GET'
+          : req.method;
 
     req = {
       ...req,
@@ -251,6 +255,7 @@ git commit -m "fix(security): block redirect-to-private SSRF and strip credentia
 **Why:** `c.req.json<T>()` is a TypeScript cast, not runtime validation. Electron already does this via `validateIpcInput`; the Worker is the asymmetric gap.
 
 **Files:**
+
 - Create: `worker/shared/validate-body.ts`
 - Modify: `worker/handlers/proxy.ts:107-116`
 - Modify: `worker/handlers/grpc.ts:37` area
@@ -314,9 +319,7 @@ Create `worker/shared/validate-body.ts`:
 ```typescript
 import { z } from 'zod';
 
-export type ParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; status: 400; error: string };
+export type ParseResult<T> = { ok: true; value: T } | { ok: false; status: 400; error: string };
 
 export async function parseJsonBody<T>(
   req: Request,
@@ -331,9 +334,7 @@ export async function parseJsonBody<T>(
   }
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
-    const message = parsed.error.issues
-      .map((i) => `${i.path.join('.')}: ${i.message}`)
-      .join('; ');
+    const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     return { ok: false, status: 400, error: `Invalid request body: ${message}` };
   }
   return { ok: true, value: parsed.data };
@@ -383,8 +384,24 @@ export const ProxyRequestBodySchema = z.object({
   url: z.string().url().max(2048),
   headers: z.record(z.string(), z.string()).optional(),
   params: z.record(z.string(), z.string()).optional(),
-  bodyType: z.enum(['none', 'json', 'xml', 'form-data', 'x-www-form-urlencoded', 'binary', 'protobuf', 'graphql', 'text', 'multipart-mixed']).optional(),
-  data: z.string().max(50 * 1024 * 1024).optional(),
+  bodyType: z
+    .enum([
+      'none',
+      'json',
+      'xml',
+      'form-data',
+      'x-www-form-urlencoded',
+      'binary',
+      'protobuf',
+      'graphql',
+      'text',
+      'multipart-mixed',
+    ])
+    .optional(),
+  data: z
+    .string()
+    .max(50 * 1024 * 1024)
+    .optional(),
   formData: z.array(FormFieldSchema).optional(),
   timeout: z.number().int().positive().max(300_000).optional(),
   upstreamProxy: UpstreamProxyConfigSchema.optional(),
@@ -420,9 +437,10 @@ export async function proxy(c: Context<{ Bindings: Env }>) {
 For each handler: identify the `c.req.json<X>()` call, define a corresponding `*RequestBodySchema` in `shared/protocol/` (re-using `GrpcRequestConfigSchema` from `src/lib/shared/validations.ts` if compatible — note the renderer schemas can be moved into `shared/protocol/` so both runtimes use the same source of truth), and replace the cast with `parseJsonBody(c.req.raw, schema)`.
 
 For `worker/handlers/grpc.ts`:
+
 ```typescript
 import { parseJsonBody } from '../shared/validate-body';
-import { GrpcRequestConfigSchema } from '@shared/protocol/grpc-schema';  // move from validations.ts
+import { GrpcRequestConfigSchema } from '@shared/protocol/grpc-schema'; // move from validations.ts
 
 const parsed = await parseJsonBody(c.req.raw, GrpcRequestConfigSchema);
 if (!parsed.ok) return c.json({ error: parsed.error }, parsed.status);
@@ -442,22 +460,30 @@ Example for `worker/handlers/__tests__/proxy.test.ts` — add:
 
 ```typescript
 it('returns 400 for malformed JSON body', async () => {
-  const res = await app.request('/api/proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{not json',
-  }, env);
+  const res = await app.request(
+    '/api/proxy',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not json',
+    },
+    env
+  );
   expect(res.status).toBe(400);
   const json = await res.json();
   expect(json.error).toMatch(/Malformed JSON/);
 });
 
 it('returns 400 for missing required field', async () => {
-  const res = await app.request('/api/proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: 'https://example.com' }),  // missing method
-  }, env);
+  const res = await app.request(
+    '/api/proxy',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com' }), // missing method
+    },
+    env
+  );
   expect(res.status).toBe(400);
 });
 ```
@@ -474,6 +500,7 @@ git commit -m "feat(worker): validate every request body with Zod at the boundar
 ### Task 1.3: Tighten IPv6 private-range detection
 
 **Files:**
+
 - Modify: `shared/protocol/url-validation.ts:44-61` (`isPrivateAddress`)
 - Modify: `shared/protocol/__tests__/url-validation.test.ts` (extend)
 
@@ -556,7 +583,7 @@ function expandIPv6(addr: string): number[] | null {
 
 function isPrivateIPv6(groups: number[]): boolean {
   // Unspecified ::, loopback ::1
-  if (groups.every((g, i) => i < 7 ? g === 0 : (g === 0 || g === 1))) return true;
+  if (groups.every((g, i) => (i < 7 ? g === 0 : g === 0 || g === 1))) return true;
 
   const [g0, g1, , , , g5, g6, g7] = groups;
 
@@ -571,7 +598,14 @@ function isPrivateIPv6(groups: number[]): boolean {
     return isPrivateIPv4(v4);
   }
   // NAT64 well-known prefix 64:ff9b::/96 wrapping v4
-  if (g0 === 0x0064 && g1 === 0xff9b && groups[2] === 0 && groups[3] === 0 && groups[4] === 0 && g5 === 0) {
+  if (
+    g0 === 0x0064 &&
+    g1 === 0xff9b &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0 &&
+    g5 === 0
+  ) {
     const v4 = `${(g6! >> 8) & 0xff}.${g6! & 0xff}.${(g7! >> 8) & 0xff}.${g7! & 0xff}`;
     return isPrivateIPv4(v4);
   }
@@ -627,6 +661,7 @@ git commit -m "fix(security): reject IPv4-mapped, 6to4, NAT64, and site-local IP
 **Why:** A single env-var flip turns previews into open SSRF proxies. Use Miniflare detection (always true in `vite dev`) plus an explicit binding for non-Miniflare dev.
 
 **Files:**
+
 - Modify: `worker/index.ts:19-21,66-89`
 - Modify: `worker/__tests__/index.test.ts` (extend)
 
@@ -639,18 +674,26 @@ describe('proxyAuthMiddleware', () => {
   it('returns 503 when ENVIRONMENT=development but Miniflare is not running and no token configured', async () => {
     // Simulate a "preview" env: ENVIRONMENT set, but no MINIFLARE binding
     const env: Env = { ENVIRONMENT: 'development' };
-    const res = await app.request('/api/proxy', {
-      method: 'POST',
-      body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
-    }, env);
+    const res = await app.request(
+      '/api/proxy',
+      {
+        method: 'POST',
+        body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
+      },
+      env
+    );
     expect(res.status).toBe(503);
   });
 
   it('skips auth only when DEV_BYPASS_AUTH binding is true', async () => {
     const env: Env = { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' };
-    const res = await app.request('/api/proxy', {
-      method: 'OPTIONS',
-    }, env);
+    const res = await app.request(
+      '/api/proxy',
+      {
+        method: 'OPTIONS',
+      },
+      env
+    );
     expect(res.status).toBe(204);
   });
 });
@@ -736,6 +779,7 @@ git commit -m "fix(security): require explicit DEV_BYPASS_AUTH binding for Worke
 **Why:** `Accept: text/event-stream-evil` matches `includes('text/event-stream')` and bypasses the response-size cap. `streamingMode: true` from the renderer is an unconditional bypass.
 
 **Files:**
+
 - Modify: `worker/handlers/proxy.ts:48-54`
 - Modify: `shared/protocol/proxy-schema.ts` (created in Task 1.2)
 
@@ -745,15 +789,19 @@ Add to `worker/handlers/__tests__/proxy.test.ts`:
 
 ```typescript
 it('does not match Accept: text/event-stream-evil as streaming', async () => {
-  const res = await app.request('/api/proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      method: 'GET',
-      url: 'https://example.com',
-      headers: { Accept: 'text/event-stream-evil' },
-    }),
-  }, env);
+  const res = await app.request(
+    '/api/proxy',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: 'GET',
+        url: 'https://example.com',
+        headers: { Accept: 'text/event-stream-evil' },
+      }),
+    },
+    env
+  );
   // Should hit the buffered (non-streaming) path; mocking can verify size cap applied
   expect(res.headers.get('content-type')).not.toMatch(/event-stream/);
 });
@@ -814,6 +862,7 @@ git commit -m "fix(security): token-parse Accept media types so streaming bypass
 ### Task 2.1: Per-`webContents` IPC rate limiter
 
 **Files:**
+
 - Modify: `electron/main/ipc-rate-limiter.ts` (rewrite)
 - Modify: every caller (search and update)
 - Test: `electron/main/__tests__/ipc-rate-limiter.test.ts` (create)
@@ -958,12 +1007,11 @@ Create `electron/main/rate-limiter-cleanup.ts`:
 ```typescript
 import type { WebContents } from 'electron';
 
-interface KeyedLimiter { dispose(key: number): void }
+interface KeyedLimiter {
+  dispose(key: number): void;
+}
 
-export function bindLimiterToWebContents(
-  limiters: KeyedLimiter[],
-  webContents: WebContents
-): void {
+export function bindLimiterToWebContents(limiters: KeyedLimiter[], webContents: WebContents): void {
   webContents.once('destroyed', () => {
     for (const l of limiters) l.dispose(webContents.id);
   });
@@ -991,6 +1039,7 @@ git commit -m "fix(electron): per-webContents IPC rate limiting with destroyed-c
 **Why:** A compromised renderer in any frame (or a renderer with a debugged child window) can call every IPC. Pin handlers to the main frame.
 
 **Files:**
+
 - Modify: `electron/main/ipc-validators.ts:366-378` (`createValidatedHandler`)
 - Modify: `electron/main/window-manager.ts` (export trusted-frame URL hook)
 
@@ -1048,7 +1097,11 @@ function isTrustedFrameUrl(url: string | undefined): boolean {
   try {
     const u = new URL(url);
     if (u.protocol === 'file:') return true;
-    if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1') && u.port === '5173') {
+    if (
+      u.protocol === 'http:' &&
+      (u.hostname === 'localhost' || u.hostname === '127.0.0.1') &&
+      u.port === '5173'
+    ) {
       return true;
     }
     return false;
@@ -1057,7 +1110,10 @@ function isTrustedFrameUrl(url: string | undefined): boolean {
   }
 }
 
-function assertTrustedSender(channel: string, event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): void {
+function assertTrustedSender(
+  channel: string,
+  event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent
+): void {
   if (!isTrustedFrameUrl(event.senderFrame?.url)) {
     console.error(`[IPC Frame Reject] ${channel} from ${event.senderFrame?.url}`);
     throw new Error(`IPC ${channel} rejected: untrusted frame`);
@@ -1118,6 +1174,7 @@ git commit -m "fix(electron): reject IPC from untrusted frames at the validator 
 ### Task 2.3: Tighten `file-operations` allowlist
 
 **Files:**
+
 - Modify: `electron/main/file-operations.ts:18-59` (`isPathSafe`)
 - Test: `electron/main/__tests__/file-operations.test.ts` (extend)
 
@@ -1172,10 +1229,22 @@ Replace lines 18-59 of `electron/main/file-operations.ts`:
 // never be reachable through fs:readFile / fs:writeFile, even though we still
 // allow $HOME for the rare legitimate case (user-picked path via dialog).
 const HOME_BLOCKED_SUBDIRS = [
-  '.ssh', '.aws', '.gnupg', '.kube', '.docker', '.npmrc',
-  '.config/gh', '.config/op', '.config/google-chrome', '.config/Microsoft',
-  '.mozilla', 'Library/Application Support', 'Library/Keychains',
-  'Library/Cookies', 'AppData/Roaming/Microsoft', 'AppData/Local/Google',
+  '.ssh',
+  '.aws',
+  '.gnupg',
+  '.kube',
+  '.docker',
+  '.npmrc',
+  '.config/gh',
+  '.config/op',
+  '.config/google-chrome',
+  '.config/Microsoft',
+  '.mozilla',
+  'Library/Application Support',
+  'Library/Keychains',
+  'Library/Cookies',
+  'AppData/Roaming/Microsoft',
+  'AppData/Local/Google',
 ];
 
 export function isPathSafe(filePath: string): boolean {
@@ -1226,6 +1295,7 @@ git commit -m "fix(electron): deny ~/.ssh, ~/.aws, browser data under file-opera
 ### Task 2.4: Fix gRPC proto write path traversal
 
 **Files:**
+
 - Modify: `shared/protocol/grpc-schema.ts` (created in Task 1.2) — tighten `id` field
 - Modify: `electron/main/grpc-handler.ts:275` (`makeGrpcRequest` requestId derivation)
 - Test: `electron/main/__tests__/grpc-handler.test.ts` (add)
@@ -1309,6 +1379,7 @@ git commit -m "fix(electron): constrain gRPC request id to safe charset to preve
 ### Task 2.5: Re-validate deep-link payload URLs in main process
 
 **Files:**
+
 - Modify: `electron/main/deep-link-handler.ts:37-57`
 - Test: `electron/main/__tests__/deep-link-handler.test.ts` (create)
 
@@ -1324,7 +1395,10 @@ describe('handleDeepLink url-param validation', () => {
   it('drops `url` param pointing at private IP', () => {
     const sent: Array<{ host: string; params: Record<string, string> }> = [];
     const win = {
-      webContents: { send: (_ch: string, msg: { host: string; params: Record<string, string> }) => sent.push(msg) },
+      webContents: {
+        send: (_ch: string, msg: { host: string; params: Record<string, string> }) =>
+          sent.push(msg),
+      },
     } as never;
     __test_handleDeepLink('restura://import?url=http://169.254.169.254/x', () => win);
     expect(sent).toHaveLength(1);
@@ -1334,7 +1408,10 @@ describe('handleDeepLink url-param validation', () => {
   it('preserves a valid public url', () => {
     const sent: Array<{ host: string; params: Record<string, string> }> = [];
     const win = {
-      webContents: { send: (_ch: string, msg: { host: string; params: Record<string, string> }) => sent.push(msg) },
+      webContents: {
+        send: (_ch: string, msg: { host: string; params: Record<string, string> }) =>
+          sent.push(msg),
+      },
     } as never;
     __test_handleDeepLink('restura://import?url=https://example.com/foo.json', () => win);
     expect(sent[0]!.params.url).toBe('https://example.com/foo.json');
@@ -1354,7 +1431,13 @@ Replace lines 34-57:
 ```typescript
 import { validateURL } from '@shared/protocol/url-validation';
 
-const VALID_DEEP_LINK_HOSTS = new Set(['import', 'environment', 'collection', 'request', 'settings']);
+const VALID_DEEP_LINK_HOSTS = new Set([
+  'import',
+  'environment',
+  'collection',
+  'request',
+  'settings',
+]);
 
 // Param keys that hold URLs and must pass validateURL before forwarding.
 const URL_PARAM_KEYS = new Set(['url', 'href', 'src', 'callback']);
@@ -1412,6 +1495,7 @@ git commit -m "fix(electron): validate URL params in deep-link payloads before f
 **Why:** A 4MB JSON response × 3 tabs × every tab switch = encrypt+stringify+IndexedDB on the hot path. Responses live in history; tabs need only the request.
 
 **Files:**
+
 - Modify: `src/store/useRequestStore.ts:312-318` (partialize)
 - Test: `src/store/__tests__/useRequestStore.test.ts` (add)
 
@@ -1429,7 +1513,13 @@ it('does not persist tab.response (kept in memory only)', () => {
       {
         id: 't1',
         request: { type: 'http', method: 'GET', url: 'https://x' },
-        response: { status: 200, body: 'x'.repeat(5_000_000), size: 5_000_000, headers: {}, time: 0 },
+        response: {
+          status: 200,
+          body: 'x'.repeat(5_000_000),
+          size: 5_000_000,
+          headers: {},
+          time: 0,
+        },
         streamingEvents: [],
       },
     ],
@@ -1481,6 +1571,7 @@ git commit -m "perf(store): drop tab.response from persisted state (lives in his
 ### Task 3.2: Move file-collection store to Dexie + version
 
 **Files:**
+
 - Modify: `src/store/useFileCollectionStore.ts:169-176`
 - Modify: `src/lib/shared/database.ts` (add table if needed)
 - Modify: `src/lib/shared/dexie-storage.ts` (add adapter if missing)
@@ -1558,6 +1649,7 @@ git commit -m "fix(store): route file-collection-storage through Dexie with vers
 **Why:** Six stores have no-op `migrate` functions and the original localStorage data is never read. The next person bumping to v3 will write a real migration on top of empty state.
 
 **Files:**
+
 - Create: `src/lib/shared/migrate-legacy-storage.ts`
 - Modify: `src/store/useCollectionStore.ts:132`, `useEnvironmentStore.ts:120`, `useSettingsStore.ts:168`, `useHistoryStore.ts:127`, `useWorkflowStore.ts:233`, `src/features/http/store/useCookieStore.ts:108`
 
@@ -1625,7 +1717,11 @@ export function migrateLegacyLocalStorage<T = unknown>(name: string): T | null {
     window.localStorage.removeItem(name);
     return parsed.state ?? null;
   } catch {
-    try { window.localStorage.removeItem(name); } catch { /* ignore */ }
+    try {
+      window.localStorage.removeItem(name);
+    } catch {
+      /* ignore */
+    }
     return null;
   }
 }
@@ -1660,10 +1756,13 @@ Add to `src/store/__tests__/useCollectionStore.test.ts`:
 
 ```typescript
 it('rehydrates from legacy localStorage when Dexie is empty', async () => {
-  localStorage.setItem('collection-storage', JSON.stringify({
-    state: { collections: [{ id: 'c1', name: 'Legacy', items: [] }] },
-    version: 1,
-  }));
+  localStorage.setItem(
+    'collection-storage',
+    JSON.stringify({
+      state: { collections: [{ id: 'c1', name: 'Legacy', items: [] }] },
+      version: 1,
+    })
+  );
   // Trigger rehydrate — depends on store API; if direct migrate() is exported, call it
   const opts = (await import('../useCollectionStore')).useCollectionStore.persist.getOptions();
   const result = (opts.migrate as (s: unknown, v: number) => unknown)({}, 1);
@@ -1751,7 +1850,9 @@ export class PlaintextKeyProvider implements KeyProvider {
   async getKey(): Promise<Uint8Array> {
     return PLAINTEXT_SENTINEL;
   }
-  isEncrypted(): boolean { return false; }
+  isEncrypted(): boolean {
+    return false;
+  }
 }
 ```
 
@@ -1789,6 +1890,7 @@ git commit -m "fix(security): drop misleading 'ephemeral encryption' on web; opt
 ### Task 3.5: Wire `maxHistoryItems` / `autoSaveHistory`
 
 **Files:**
+
 - Modify: `src/store/useHistoryStore.ts:29` (`addHistoryItem`)
 - Modify: `src/store/__tests__/useHistoryStore.test.ts` (add)
 
@@ -1798,9 +1900,13 @@ git commit -m "fix(security): drop misleading 'ephemeral encryption' on web; opt
 it('respects settings.maxHistoryItems when capping', () => {
   const { useSettingsStore } = require('../useSettingsStore');
   const { useHistoryStore } = require('../useHistoryStore');
-  useSettingsStore.setState({ settings: { ...useSettingsStore.getState().settings, maxHistoryItems: 3 } });
+  useSettingsStore.setState({
+    settings: { ...useSettingsStore.getState().settings, maxHistoryItems: 3 },
+  });
   for (let i = 0; i < 10; i++) {
-    useHistoryStore.getState().addHistoryItem({ id: String(i), request: {} as never, response: {} as never, timestamp: i });
+    useHistoryStore
+      .getState()
+      .addHistoryItem({ id: String(i), request: {} as never, response: {} as never, timestamp: i });
   }
   expect(useHistoryStore.getState().items.length).toBe(3);
 });
@@ -1808,8 +1914,12 @@ it('respects settings.maxHistoryItems when capping', () => {
 it('skips when settings.autoSaveHistory is false', () => {
   const { useSettingsStore } = require('../useSettingsStore');
   const { useHistoryStore } = require('../useHistoryStore');
-  useSettingsStore.setState({ settings: { ...useSettingsStore.getState().settings, autoSaveHistory: false } });
-  useHistoryStore.getState().addHistoryItem({ id: 'x', request: {} as never, response: {} as never, timestamp: 0 });
+  useSettingsStore.setState({
+    settings: { ...useSettingsStore.getState().settings, autoSaveHistory: false },
+  });
+  useHistoryStore
+    .getState()
+    .addHistoryItem({ id: 'x', request: {} as never, response: {} as never, timestamp: 0 });
   expect(useHistoryStore.getState().items.length).toBe(0);
 });
 ```
@@ -1862,6 +1972,7 @@ git commit -m "fix(store): respect settings.autoSaveHistory and maxHistoryItems 
 ### Task 4.1: Define the `ProtocolRegistry` types and skeleton
 
 **Files:**
+
 - Create: `src/features/registry/types.ts`
 - Create: `src/features/registry/registry.ts`
 - Create: `src/features/registry/__tests__/registry.test.ts`
@@ -1880,8 +1991,8 @@ describe('ProtocolRegistry', () => {
       id: 'fake',
       label: 'Fake',
       tabType: 'http' as const,
-      defaultRequest: () => ({ id: 'r1', type: 'http', method: 'GET', url: '' } as never),
-      runRequest: async () => ({ status: 200, body: '', headers: {}, size: 0, time: 0 } as never),
+      defaultRequest: () => ({ id: 'r1', type: 'http', method: 'GET', url: '' }) as never,
+      runRequest: async () => ({ status: 200, body: '', headers: {}, size: 0, time: 0 }) as never,
     };
     reg.register(fake);
     expect(reg.get('fake')).toBe(fake);
@@ -1890,7 +2001,13 @@ describe('ProtocolRegistry', () => {
 
   it('throws on duplicate registration', () => {
     const reg = createProtocolRegistry();
-    const fake = { id: 'x', label: 'X', tabType: 'http' as const, defaultRequest: () => ({} as never), runRequest: async () => ({} as never) };
+    const fake = {
+      id: 'x',
+      label: 'X',
+      tabType: 'http' as const,
+      defaultRequest: () => ({}) as never,
+      runRequest: async () => ({}) as never,
+    };
     reg.register(fake);
     expect(() => reg.register(fake)).toThrow(/already registered/);
   });
@@ -1953,8 +2070,12 @@ export function createProtocolRegistry(): ProtocolRegistry {
       if (modules.has(m.id)) throw new Error(`Protocol already registered: ${m.id}`);
       modules.set(m.id, m);
     },
-    get(id) { return modules.get(id); },
-    list() { return Array.from(modules.values()); },
+    get(id) {
+      return modules.get(id);
+    },
+    list() {
+      return Array.from(modules.values());
+    },
   };
 }
 
@@ -1979,6 +2100,7 @@ git commit -m "feat(registry): add ProtocolRegistry skeleton (no protocols regis
 ### Task 4.2: Register HTTP and gRPC as the first two protocols
 
 **Files:**
+
 - Create: `src/features/http/protocol.ts`
 - Create: `src/features/grpc/protocol.ts`
 - Create: `src/features/registry/bootstrap.ts`
@@ -2098,6 +2220,7 @@ git commit -m "feat(registry): register http and grpc as first protocols (no beh
 **Why:** This is the seam every Builder will call instead of inlining script→execute→history→test. Once this exists, decomposing GrpcRequestBuilder is trivial.
 
 **Files:**
+
 - Create: `src/features/registry/useRequestRunner.ts`
 - Test: `src/features/registry/__tests__/useRequestRunner.test.tsx`
 
@@ -2116,17 +2239,22 @@ describe('useRequestRunner', () => {
   });
 
   it('runs scripts -> protocol.runRequest -> records history -> runs tests', async () => {
-    const fakeRun = vi.fn().mockResolvedValue({ status: 200, body: '', headers: {}, size: 0, time: 0 });
+    const fakeRun = vi
+      .fn()
+      .mockResolvedValue({ status: 200, body: '', headers: {}, size: 0, time: 0 });
     protocolRegistry.register({
       id: 'fake',
       label: 'Fake',
       tabType: 'http' as never,
-      defaultRequest: () => ({} as never),
+      defaultRequest: () => ({}) as never,
       runRequest: fakeRun,
     });
     const { result } = renderHook(() => useRequestRunner());
     await act(async () => {
-      await result.current.run({ id: 'r1', type: 'http', method: 'GET', url: 'https://example' } as never, 'fake');
+      await result.current.run(
+        { id: 'r1', type: 'http', method: 'GET', url: 'https://example' } as never,
+        'fake'
+      );
     });
     expect(fakeRun).toHaveBeenCalled();
   });
@@ -2160,43 +2288,46 @@ export function useRequestRunner() {
   const abortRef = useRef<AbortController | null>(null);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
 
-  const run = useCallback(async (request: Request, protocolId: string): Promise<RunResult> => {
-    const protocol = protocolRegistry.get(protocolId);
-    if (!protocol) throw new Error(`Unknown protocol: ${protocolId}`);
+  const run = useCallback(
+    async (request: Request, protocolId: string): Promise<RunResult> => {
+      const protocol = protocolRegistry.get(protocolId);
+      if (!protocol) throw new Error(`Unknown protocol: ${protocolId}`);
 
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
 
-    const env = useEnvironmentStore.getState();
-    const variables = env.getActiveVariables?.() ?? {};
+      const env = useEnvironmentStore.getState();
+      const variables = env.getActiveVariables?.() ?? {};
 
-    // 1. Pre-request script
-    const preResult = await runPreRequestScript(request, variables);
-    setScriptResult({ preRequest: preResult, test: null });
+      // 1. Pre-request script
+      const preResult = await runPreRequestScript(request, variables);
+      setScriptResult({ preRequest: preResult, test: null });
 
-    // 2. Execute via protocol
-    const startedAt = performance.now();
-    const response = await protocol.runRequest(request, {
-      signal: ctrl.signal,
-      variables: { ...variables, ...preResult?.exportedVariables },
-    });
-    const durationMs = performance.now() - startedAt;
+      // 2. Execute via protocol
+      const startedAt = performance.now();
+      const response = await protocol.runRequest(request, {
+        signal: ctrl.signal,
+        variables: { ...variables, ...preResult?.exportedVariables },
+      });
+      const durationMs = performance.now() - startedAt;
 
-    // 3. History
-    useHistoryStore.getState().addHistoryItem({
-      id: crypto.randomUUID(),
-      request,
-      response,
-      timestamp: Date.now(),
-    });
+      // 3. History
+      useHistoryStore.getState().addHistoryItem({
+        id: crypto.randomUUID(),
+        request,
+        response,
+        timestamp: Date.now(),
+      });
 
-    // 4. Test script
-    const testResult = await runTestScript(request, response, variables);
-    setScriptResult({ preRequest: preResult, test: testResult });
+      // 4. Test script
+      const testResult = await runTestScript(request, response, variables);
+      setScriptResult({ preRequest: preResult, test: testResult });
 
-    return { response, durationMs };
-  }, [setScriptResult]);
+      return { response, durationMs };
+    },
+    [setScriptResult]
+  );
 
   const abort = useCallback(() => abortRef.current?.abort(), []);
 
@@ -2225,6 +2356,7 @@ git commit -m "feat(registry): useRequestRunner hook centralizes script→execut
 **Why:** HTTP is the safest protocol to migrate first — it already has the canonical pipeline.
 
 **Files:**
+
 - Modify: `src/features/http/components/RequestBuilder/` (or wherever the run-button handler lives)
 - Modify: `src/features/http/hooks/useHttpRequest.ts`
 
@@ -2277,6 +2409,7 @@ git commit -m "refactor(http): drive HTTP send through useRequestRunner via regi
 **Strategy:** One protocol per commit. Each follows the Task 4.4 pattern. Streaming protocols (WS, SSE, gRPC streaming) need a slightly extended `runRequest` contract — return an `AsyncIterable<Response>` or similar. Define this once and reuse.
 
 **Files (per protocol):**
+
 - Create: `src/features/<x>/protocol.ts`
 - Modify: `src/features/<x>/components/<X>RequestBuilder.tsx` (or `<X>Client.tsx`) — replace inline send with `useRequestRunner`
 - Modify: `src/features/registry/bootstrap.ts` — add `register(xProtocol)`
@@ -2286,7 +2419,10 @@ git commit -m "refactor(http): drive HTTP send through useRequestRunner via regi
 
 ```typescript
 // src/features/registry/types.ts
-export type RunResultLike = Response | AsyncIterable<Response> | { response: Response; events: AsyncIterable<unknown> };
+export type RunResultLike =
+  | Response
+  | AsyncIterable<Response>
+  | { response: Response; events: AsyncIterable<unknown> };
 
 export interface ProtocolModule {
   // ... existing
@@ -2314,6 +2450,7 @@ For SSE/WS/MCP this also gives them history + scripts for the first time. Verify
 ### Task 4.6: Consolidate auth — move shared parts into `features/auth/lib/`
 
 **Files:**
+
 - Move: `src/features/http/lib/applyAuthHeaders.ts` → `src/features/auth/lib/applyAuthHeaders.ts`
 - Modify: `src/features/grpc/lib/grpcClient.ts:39-85` (`buildAuthMetadata`) — extract shared parts
 - Create: `src/features/auth/lib/buildAuthCredential.ts` (if shared between HTTP headers and gRPC metadata)
@@ -2370,7 +2507,8 @@ export function buildAuthCredential(auth: AuthConfig | undefined): AuthCredentia
       return { headers: { Authorization: `${type} ${t}` } };
     }
     // digest, oauth1, aws-signature, ntlm, wsse: protocol-specific, leave to caller
-    default: return { headers: {} };
+    default:
+      return { headers: {} };
   }
 }
 ```
@@ -2400,6 +2538,7 @@ git commit -m "refactor(auth): consolidate shared auth credential building under
 **Why:** 1043 LOC, 16+ `useState`, inline validation + reflection + execution + scripts + history. With Task 4.4 in place, the runner is gone. Now break the rest into focused components.
 
 **Files:**
+
 - Modify: `src/features/grpc/components/GrpcRequestBuilder.tsx`
 - Create: `src/features/grpc/components/GrpcMethodSelector.tsx`
 - Create: `src/features/grpc/components/GrpcMessageEditor.tsx`
@@ -2433,6 +2572,7 @@ Run: `npx vitest run src/features/grpc && npm run dev` and exercise unary + serv
 - [ ] **Step 7: Commit (chunked — one per extraction)**
 
 Each extraction is its own commit:
+
 - `refactor(grpc): extract grpcValidation helpers`
 - `refactor(grpc): extract useGrpcReflection hook`
 - `refactor(grpc): extract GrpcMessageEditor component`
@@ -2444,6 +2584,7 @@ Each extraction is its own commit:
 ### Task 4.8: Consolidate store locations
 
 **Files:**
+
 - Move: `src/store/useWebSocketStore.ts` → `src/features/websocket/store/useWebSocketStore.ts`
 
 - [ ] **Step 1: Decide policy and document**
@@ -2488,6 +2629,7 @@ git commit -m "refactor(store): co-locate useWebSocketStore with feature module"
 ### Task 5.1: Adopt `safeParseJSON` for persisted-state reads
 
 **Files:**
+
 - Modify: `src/lib/shared/dexie-storage.ts:131,333`
 - Modify: `electron/main/window-manager.ts:30` (window-state file)
 - Modify: `electron/main/request-logger.ts:53`
@@ -2559,6 +2701,7 @@ git commit -m "fix(types): validate JSON-parsed persisted state with Zod, fall b
 ### Task 5.2: Flip `@typescript-eslint/no-explicit-any` to `error`
 
 **Files:**
+
 - Modify: `eslint.config.js:13-14`
 
 - [ ] **Step 1: Count current `any` usage**
@@ -2597,6 +2740,7 @@ git commit -m "chore(lint): make no-explicit-any an error; remaining sites have 
 ### Task 5.3: Add `verify:opencollection-types` to CI
 
 **Files:**
+
 - Modify: `.github/workflows/ci.yml`
 
 - [ ] **Step 1: Edit `ci.yml` validate job**
@@ -2604,8 +2748,8 @@ git commit -m "chore(lint): make no-explicit-any an error; remaining sites have 
 Insert after the `Lint` step (around line 43):
 
 ```yaml
-      - name: Verify generated opencollection types are up-to-date
-        run: npm run verify:opencollection-types
+- name: Verify generated opencollection types are up-to-date
+  run: npm run verify:opencollection-types
 ```
 
 - [ ] **Step 2: Commit**
@@ -2622,6 +2766,7 @@ git commit -m "ci: fail when generated opencollection types drift from schema"
 **Why:** `exactOptionalPropertyTypes: false` is masking bugs. Doing it everywhere at once is too much; pilot one feature.
 
 **Files:**
+
 - Create: `src/features/http/tsconfig.json` (project reference)
 - Modify: `tsconfig.json` (add reference)
 
@@ -2651,8 +2796,8 @@ Expected: errors. Fix each (typically by switching `foo?: T | undefined` → `fo
 Add to `.github/workflows/ci.yml` validate job, after main type-check:
 
 ```yaml
-      - name: Type-check (HTTP feature, exactOptionalPropertyTypes)
-        run: npx tsc --noEmit -p src/features/http/tsconfig.json
+- name: Type-check (HTTP feature, exactOptionalPropertyTypes)
+  run: npx tsc --noEmit -p src/features/http/tsconfig.json
 ```
 
 - [ ] **Step 4: Commit**
@@ -2667,6 +2812,7 @@ git commit -m "chore(types): pilot exactOptionalPropertyTypes on src/features/ht
 ### Task 5.5: Narrow gRPC dynamic-method casts
 
 **Files:**
+
 - Modify: `electron/main/grpc-handler.ts:257,291,318,489,512,545`
 
 - [ ] **Step 1: Add a helper**
@@ -2728,6 +2874,7 @@ git commit -m "refactor(grpc): typed helper for dynamic gRPC method invocation"
 ## Self-Review Notes
 
 **Spec coverage:** All 19 issues from the original review map to a task above:
+
 - Worker SSRF (redirect, IPv6, DNS, dev bypass, streamingMode, body validation): Tasks 1.1, 1.3, 1.4, 1.5, 1.2 (DNS rebind on Worker is acknowledged as needing auth gating in 1.4 — pure DoH-prefetch is out of scope).
 - Electron IPC (rate limiter, senderFrame, file allowlist, gRPC traversal, deep-link): Tasks 2.1-2.5.
 - Storage (response body, file-collection store, migrations, encryption, history limits): Tasks 3.1-3.5.
@@ -2739,6 +2886,7 @@ git commit -m "refactor(grpc): typed helper for dynamic gRPC method invocation"
 **Type/method consistency:** `useRequestRunner` returns `{ run, abort }` consistently in Tasks 4.3-4.5; `ProtocolModule.runRequest` signature extended in Task 4.5 with explicit migration of older modules; `createKeyedRateLimiter` shape `{ check, dispose, size }` consistent across Tasks 2.1.
 
 **Out of scope (deferred to follow-up plan):**
+
 - Active DoH pre-flight for Worker DNS rebinding (architecturally complex; auth-gating is the practical mitigation — see Task 1.4).
 - Splitting `grpcClient.ts` (767 LOC) into transport/parser/auth modules.
 - Splitting `requestExecutor.ts` (589 LOC) into config-builder + transport-adapter.
