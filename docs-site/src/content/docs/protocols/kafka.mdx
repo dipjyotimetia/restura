@@ -23,7 +23,7 @@ import { Badge } from '@astrojs/starlight/components';
 
 ## Broker guard
 
-The Electron Kafka handler runs every broker address through the same [SSRF guard](/architecture/security/) used by HTTP — including the cloud-metadata IP and the IPv6 unique-local range. This guards against a malicious or misconfigured `bootstrap.servers` aiming traffic at your machine's metadata endpoint.
+Every broker address (and Schema Registry URL) runs through a pre-flight [SSRF check](/architecture/security/) (`electron/main/security/kafka-broker-guard.ts`) before the connection opens. Like MQTT — and **unlike** the HTTP guard — private and loopback addresses are **allowed**, because Kafka brokers and registries routinely live on LAN / VPC networks. The guard rejects only cloud-metadata endpoints (`169.254.169.254` and friends, `metadata.google.internal`, …) and malformed addresses, so a malicious or misconfigured `bootstrap.servers` can't aim traffic at your machine's metadata endpoint. It's **pre-flight only** — it doesn't mitigate a true DNS-rebind during connect (the residual gap in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)).
 
 ## Tips
 

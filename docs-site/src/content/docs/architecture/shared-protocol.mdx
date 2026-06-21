@@ -95,7 +95,7 @@ The recipe is now:
 
 1. Add `shared/protocol/<name>-proxy.ts` exposing `execute<Name>Proxy(spec, fetcher, options)`.
 2. Add a `Fetcher` adapter in `worker/handlers/<name>.ts` (≈30 lines).
-3. Add a matching adapter in `electron/main/<name>-handler.ts` (≈30 lines).
+3. Add a matching adapter in `electron/main/handlers/<name>-handler.ts` (≈30 lines).
 4. Add a feature module in `src/features/<name>/` with the UI.
 5. Add a `capabilities.ts` entry if the feature differs between web and desktop.
 
