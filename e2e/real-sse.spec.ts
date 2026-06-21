@@ -3,8 +3,9 @@ import { switchMode } from './utils/selectors';
 
 /**
  * Real Server-Sent Events. The mock HTTP server's `/stream/sse` endpoint
- * emits three `tick` events then closes. The renderer attaches via native
- * EventSource (no custom headers) or fetch+stream (with headers).
+ * emits three default `message` events then closes (`/stream/sse-named`
+ * emits named `tick` events). The renderer attaches via native EventSource
+ * (no custom headers) or fetch+stream (with headers).
  */
 test.describe('Real SSE server', () => {
   test('UI connects, receives 3 events, and shows the count', async ({ app: page, servers }) => {

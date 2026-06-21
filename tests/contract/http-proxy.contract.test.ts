@@ -38,7 +38,7 @@ interface Fixture {
 function defaultProject(r: ExecuteResult): unknown {
   if (!r.ok) return { ok: false, status: r.status, error: r.payload.error };
   // `statusText` is intentionally dropped: undici's `request` API doesn't expose
-  // statusText (electron/main/handlers/http-handler.ts:569 returns '' for the same
+  // statusText (electron/main/handlers/http-handler.ts returns '' for the same
   // reason). Native fetch supplies "OK" / "Not Found" / etc. This is a known
   // backend asymmetry; if a future change derives statusText from the status
   // code in the electron fetcher, re-add it here to lock parity in.

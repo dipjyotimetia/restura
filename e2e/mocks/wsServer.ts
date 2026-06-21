@@ -16,10 +16,12 @@ export interface MockWsServerHandle {
 }
 
 /**
- * Multi-purpose mock WebSocket server. Three behaviors keyed by URL path:
+ * Multi-purpose mock WebSocket server. Behaviors keyed by URL path:
  *
  *   /echo     — echoes every text/binary message back unchanged.
  *   /chat     — broadcasts each text frame to all peers.
+ *   /ping     — pings the client on `PING_ME` and reports tracked pongs on `REPORT`.
+ *   /close    — closes with the `code`/`reason` taken from the path query.
  *   /graphql  — graphql-transport-ws via the SDK's `useServer` adapter,
  *               backed by the same schema as the HTTP `/graphql` endpoint.
  */
