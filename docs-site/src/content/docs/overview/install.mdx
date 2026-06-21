@@ -9,16 +9,13 @@ You have three ways to run Restura. Pick the one that fits.
 
 <CardGrid>
   <Card title="Web — restura.pages.dev" icon="rocket">
-    Nothing to install. Open the link, accept the default settings, and you're sending requests.
-    Data stays in your browser (IndexedDB).
+    Nothing to install. Open the link, accept the default settings, and you're sending requests. Data stays in your browser (IndexedDB).
   </Card>
   <Card title="Desktop — macOS / Windows / Linux" icon="laptop">
-    Full native capability: mTLS, SOCKS, custom CAs, Kafka, MQTT, the AI assistant + AI Lab, OS
-    keychain. Built with Electron.
+    Full native capability: mTLS, SOCKS, custom CAs, Kafka, MQTT, the AI assistant + AI Lab, OS keychain. Built with Electron.
   </Card>
   <Card title="Self-hosted — Docker" icon="seti:docker">
-    Single image, one port. Drop it behind your reverse proxy, set an auth token, done. Stateless
-    server, browser-local storage.
+    Single image, one port. Drop it behind your reverse proxy, set an auth token, done. Stateless server, browser-local storage.
   </Card>
 </CardGrid>
 
@@ -35,24 +32,28 @@ Some protocols and features need native networking and are **desktop only**. The
 Download from the [GitHub releases page](https://github.com/dipjyotimetia/restura/releases) or build from source.
 
 <Tabs>
-  <TabItem label="macOS">
-    - Download the `.dmg` (Intel or Apple Silicon) from the [latest
-    release](https://github.com/dipjyotimetia/restura/releases). - Drag `Restura.app` to
-    `/Applications`. - First launch: right-click the app → **Open** to bypass Gatekeeper (signed
-    builds are coming).
-  </TabItem>
-  <TabItem label="Windows">
-    - Download the NSIS installer (`Restura-Setup-x64.exe`) or the portable build. - Run the
-    installer; Restura installs to `%LOCALAPPDATA%\Programs\Restura`.
-  </TabItem>
-  <TabItem label="Linux">
-    - Pick one: `AppImage` (universal), `.deb` (Debian / Ubuntu), or `.rpm` (Fedora / RHEL). - For
-    `.AppImage`, `chmod +x Restura-*.AppImage && ./Restura-*.AppImage`.
-  </TabItem>
-  <TabItem label="From source">
-    ```bash git clone https://github.com/dipjyotimetia/restura.git cd restura npm install npm run
-    electron:dist:mac # or :win / :linux ``` Distributables land in `dist/`.
-  </TabItem>
+<TabItem label="macOS">
+- Download the `.dmg` (Intel or Apple Silicon) from the [latest release](https://github.com/dipjyotimetia/restura/releases).
+- Drag `Restura.app` to `/Applications`.
+- First launch: right-click the app → **Open** to bypass Gatekeeper (signed builds are coming).
+</TabItem>
+<TabItem label="Windows">
+- Download the NSIS installer (`Restura-Setup-x64.exe`) or the portable build.
+- Run the installer; Restura installs to `%LOCALAPPDATA%\Programs\Restura`.
+</TabItem>
+<TabItem label="Linux">
+- Pick one: `AppImage` (universal), `.deb` (Debian / Ubuntu), or `.rpm` (Fedora / RHEL).
+- For `.AppImage`, `chmod +x Restura-*.AppImage && ./Restura-*.AppImage`.
+</TabItem>
+<TabItem label="From source">
+```bash
+git clone https://github.com/dipjyotimetia/restura.git
+cd restura
+npm install
+npm run electron:dist:mac    # or :win / :linux
+```
+Distributables land in `dist/`.
+</TabItem>
 </Tabs>
 
 Desktop builds unlock the full feature set — see [Platforms](/overview/platforms/) for the differences. Once installed, the app keeps itself up to date automatically — see [Desktop updates](/guides/electron-updates/).

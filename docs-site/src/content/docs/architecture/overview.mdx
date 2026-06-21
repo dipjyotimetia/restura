@@ -11,16 +11,13 @@ Restura ships from a **single React renderer** to web, desktop, and self-hosted 
 
 <CardGrid>
   <Card title="Web — Cloudflare" icon="rocket">
-    SPA on Cloudflare Pages → `fetch('/api/*')` → Cloudflare Worker (Hono) on `api.restura.dev` →
-    upstream. Same-origin, no CORS friction.
+    SPA on Cloudflare Pages → `fetch('/api/*')` → Cloudflare Worker (Hono) on `api.restura.dev` → upstream. Same-origin, no CORS friction.
   </Card>
   <Card title="Self-hosted — Node + Docker" icon="seti:docker">
-    One Node process running the same Hono app that runs in the Worker. Serves both the SPA and
-    `/api/*` on one port. Native WebSocket and CONNECT proxy adapters.
+    One Node process running the same Hono app that runs in the Worker. Serves both the SPA and `/api/*` on one port. Native WebSocket and CONNECT proxy adapters.
   </Card>
   <Card title="Desktop — Electron" icon="laptop">
-    SPA loaded via `file://` → IPC over `window.electron` → Electron main process → Node
-    `http`/`https`/`net`/`tls`. Native capabilities (mTLS, SOCKS, Kafka, MQTT).
+    SPA loaded via `file://` → IPC over `window.electron` → Electron main process → Node `http`/`https`/`net`/`tls`. Native capabilities (mTLS, SOCKS, Kafka, MQTT).
   </Card>
 </CardGrid>
 
@@ -89,8 +86,9 @@ Secret-bearing fields use the **`SecretRef` handle pattern** — see [ADR 0007](
 - The CI gate (`npm run capabilities:check`) that fails the build if the doc drifts from the code.
 
 <Aside title="Read more">
-  Full architecture writeup: - [Shared protocol layer](/architecture/shared-protocol/) - [Security
-  model](/architecture/security/) - [Design decisions (ADRs)](/architecture/adrs/) -
-  [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md)
-  on GitHub — the canonical source-of-truth for contributors.
+Full architecture writeup:
+- [Shared protocol layer](/architecture/shared-protocol/)
+- [Security model](/architecture/security/)
+- [Design decisions (ADRs)](/architecture/adrs/)
+- [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md) on GitHub — the canonical source-of-truth for contributors.
 </Aside>

@@ -9,18 +9,18 @@ The Restura server exposes these HTTP endpoints. The same Hono app runs in the C
 
 ## Endpoints
 
-| Method | Path                   | Purpose                                                              |
-| ------ | ---------------------- | -------------------------------------------------------------------- |
-| `GET`  | `/health`              | Liveness check. Returns 200 + `{ status: 'ok' }`.                    |
-| `GET`  | `/ready`               | Readiness check.                                                     |
-| `POST` | `/api/proxy`           | HTTP upstream proxy. SSRF-guarded, body normalisation, auth signing. |
-| `POST` | `/api/grpc`            | gRPC unary + streaming via Connect protocol.                         |
-| `POST` | `/api/grpc/reflection` | gRPC reflection requests.                                            |
-| `POST` | `/api/mcp`             | MCP server proxy (HTTP-SSE and streamable-HTTP).                     |
-| `POST` | `/api/telemetry/error` | Renderer error reports (when enabled).                               |
-| `GET`  | `/api/feature-flags`   | Feature flag values.                                                 |
-| `POST` | `/api/ws-ticket`       | Mint a short-lived ticket for the WebSocket proxy.                   |
-| `GET`  | `/api/ws`              | WebSocket proxy endpoint.                                            |
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Liveness check. Returns 200 + `{ status: 'ok' }`. |
+| `GET` | `/ready` | Readiness check. |
+| `POST` | `/api/proxy` | HTTP upstream proxy. SSRF-guarded, body normalisation, auth signing. |
+| `POST` | `/api/grpc` | gRPC unary + streaming via Connect protocol. |
+| `POST` | `/api/grpc/reflection` | gRPC reflection requests. |
+| `POST` | `/api/mcp` | MCP server proxy (HTTP-SSE and streamable-HTTP). |
+| `POST` | `/api/telemetry/error` | Renderer error reports (when enabled). |
+| `GET` | `/api/feature-flags` | Feature flag values. |
+| `POST` | `/api/ws-ticket` | Mint a short-lived ticket for the WebSocket proxy. |
+| `GET` | `/api/ws` | WebSocket proxy endpoint. |
 
 ## Authentication
 
@@ -38,8 +38,7 @@ Cloudflare deployment: rate-limiting binding in the Worker.
 Self-hosted: per-replica in-memory token bucket. For multi-replica setups, put a rate limiter in your reverse proxy.
 
 <Aside title="Canonical docs">
-  Full request / response shapes for each endpoint, including streaming framing, are documented in
-  [`docs/API.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/API.md).
+Full request / response shapes for each endpoint, including streaming framing, are documented in [`docs/API.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/API.md).
 </Aside>
 
 ## Related

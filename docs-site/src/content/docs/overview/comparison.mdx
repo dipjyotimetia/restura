@@ -11,69 +11,63 @@ Restura isn't trying to replace every API client. This page is an honest read on
 
 Legend: ✅ supported · ⚠️ partial / paid / behind sign-in · ❌ not supported
 
-| Feature                             |      **Restura**      |         Postman         | Hoppscotch |      Bruno      |    Insomnia    | Thunder Client | Yaak | HTTPie Desktop |
-| ----------------------------------- | :-------------------: | :---------------------: | :--------: | :-------------: | :------------: | :------------: | :--: | :------------: |
-| **No account required**             |          ✅           |           ❌            |     ✅     |       ✅        |       ⚠️       |       ✅       |  ✅  |       ✅       |
-| **Local-only data (no cloud sync)** |          ✅           |           ❌            |     ⚠️     |       ✅        |       ⚠️       |       ✅       |  ✅  |       ✅       |
-| **Open source**                     |       ✅ (MIT)        |           ❌            |  ✅ (MIT)  |    ✅ (MIT)     | ❌ since 2023  |       ❌       |  ✅  |       ⚠️       |
-| **Web app**                         |          ✅           |           ✅            |     ✅     |       ❌        |       ❌       |  ❌ (VS Code)  |  ❌  |       ❌       |
-| **Native desktop app**              |   ✅ Mac/Win/Linux    |           ✅            | ⚠️ (Tauri) |       ✅        |       ✅       |       ❌       |  ✅  |       ✅       |
-| **Self-hostable**                   |       ✅ Docker       |      ⚠️ Enterprise      |     ✅     |       ❌        |       ❌       |       ❌       |  ❌  |       ❌       |
-| **CLI runner for CI**               |   ✅ `restura-cli`    |       ✅ `newman`       | ✅ `hopp`  |    ✅ `bru`     | ⚠️ Inso (paid) |       ❌       |  ❌  |       ❌       |
-| **HTTP / REST**                     |          ✅           |           ✅            |     ✅     |       ✅        |       ✅       |       ✅       |  ✅  |       ✅       |
-| **GraphQL**                         |          ✅           |           ✅            |     ✅     |       ✅        |       ✅       |       ✅       |  ✅  |       ❌       |
-| **gRPC**                            | ✅ unary + streaming  |           ✅            |     ✅     |       ✅        |       ✅       |       ❌       |  ❌  |       ❌       |
-| **WebSocket**                       |          ✅           |           ✅            |     ✅     |       ✅        |       ✅       |       ❌       |  ❌  |       ❌       |
-| **Socket.IO**                       |      ✅ desktop       |           ✅            |     ✅     |       ❌        |       ❌       |       ❌       |  ❌  |       ❌       |
-| **Server-Sent Events**              |          ✅           |           ✅            |     ⚠️     |       ❌        |       ❌       |       ❌       |  ❌  |       ❌       |
-| **Kafka**                           |      ✅ desktop       |           ❌            |  ⚠️ beta   |       ❌        |       ❌       |       ❌       |  ❌  |       ❌       |
-| **MQTT**                            |      ✅ desktop       |           ❌            |     ❌     |       ❌        |       ❌       |       ❌       |  ❌  |       ❌       |
-| **MCP (client)**                    |          ✅           |           ❌            |     ❌     |       ❌        |       ❌       |       ❌       |  ❌  |       ❌       |
-| **MCP server mode**                 |      ✅ desktop       |           ❌            |     ❌     |       ❌        |       ❌       |       ❌       |  ❌  |       ❌       |
-| **AI assistant**                    |        ✅ BYOK        | ⚠️ Postbot (paid tiers) |     ❌     |       ❌        |    ⚠️ paid     |    ⚠️ paid     |  ❌  |       ❌       |
-| **Pre-request / test scripts**      |  ✅ QuickJS sandbox   |      ✅ Node-like       |     ✅     |       ✅        |       ✅       |       ✅       |  ⚠️  |       ❌       |
-| **mTLS / custom CA**                |      ✅ desktop       |           ✅            |     ❌     |       ✅        |       ✅       |       ❌       |  ⚠️  |       ✅       |
-| **SOCKS / PAC proxies**             |      ✅ desktop       |           ✅            |     ❌     |       ⚠️        |       ⚠️       |       ❌       |  ❌  |       ⚠️       |
-| **OS keychain for secrets**         |      ✅ desktop       |           ❌            |     ❌     |       ❌        |       ❌       |       ❌       |  ⚠️  |       ❌       |
-| **Git-native collection layout**    | ✅ OpenCollection dir |           ❌            |     ❌     | ✅ `.bru` files |       ❌       |       ⚠️       |  ✅  |       ❌       |
-| **Postman import**                  |        ✅ v2.1        |            —            |     ✅     |       ✅        |       ✅       |       ✅       |  ✅  |       ❌       |
-| **Real-time team collab**           |          ❌           |           ✅            |     ✅     |       ❌        |       ✅       |       ❌       |  ❌  |       ❌       |
-| **Mock servers**                    |          ❌           |           ✅            |     ✅     |       ❌        |       ✅       |       ❌       |  ❌  |       ❌       |
-| **Scheduled monitoring**            |          ❌           |           ✅            |     ❌     |       ❌        |       ⚠️       |       ❌       |  ❌  |       ❌       |
+| Feature | **Restura** | Postman | Hoppscotch | Bruno | Insomnia | Thunder Client | Yaak | HTTPie Desktop |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **No account required** | ✅ | ❌ | ✅ | ✅ | ⚠️ | ✅ | ✅ | ✅ |
+| **Local-only data (no cloud sync)** | ✅ | ❌ | ⚠️ | ✅ | ⚠️ | ✅ | ✅ | ✅ |
+| **Open source** | ✅ (MIT) | ❌ | ✅ (MIT) | ✅ (MIT) | ❌ since 2023 | ❌ | ✅ | ⚠️ |
+| **Web app** | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ (VS Code) | ❌ | ❌ |
+| **Native desktop app** | ✅ Mac/Win/Linux | ✅ | ⚠️ (Tauri) | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **Self-hostable** | ✅ Docker | ⚠️ Enterprise | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **CLI runner for CI** | ✅ `restura-cli` | ✅ `newman` | ✅ `hopp` | ✅ `bru` | ⚠️ Inso (paid) | ❌ | ❌ | ❌ |
+| **HTTP / REST** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **GraphQL** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **gRPC** | ✅ unary + streaming | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **WebSocket** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Socket.IO** | ✅ desktop | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Server-Sent Events** | ✅ | ✅ | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Kafka** | ✅ desktop | ❌ | ⚠️ beta | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **MQTT** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **MCP (client)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **MCP server mode** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **AI assistant** | ✅ BYOK | ⚠️ Postbot (paid tiers) | ❌ | ❌ | ⚠️ paid | ⚠️ paid | ❌ | ❌ |
+| **Pre-request / test scripts** | ✅ QuickJS sandbox | ✅ Node-like | ✅ | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| **mTLS / custom CA** | ✅ desktop | ✅ | ❌ | ✅ | ✅ | ❌ | ⚠️ | ✅ |
+| **SOCKS / PAC proxies** | ✅ desktop | ✅ | ❌ | ⚠️ | ⚠️ | ❌ | ❌ | ⚠️ |
+| **OS keychain for secrets** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ⚠️ | ❌ |
+| **Git-native collection layout** | ✅ OpenCollection dir | ❌ | ❌ | ✅ `.bru` files | ❌ | ⚠️ | ✅ | ❌ |
+| **Postman import** | ✅ v2.1 | — | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Real-time team collab** | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| **Mock servers** | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| **Scheduled monitoring** | ❌ | ✅ | ❌ | ❌ | ⚠️ | ❌ | ❌ | ❌ |
 
 <Aside type="note" title="Methodology">
-  This table reflects feature availability **in the free / open-source tier** of each tool as of
-  late 2026. Paid features that gate behind sign-up are marked ⚠️. Corrections welcome — open an
-  issue if any cell here is wrong.
+This table reflects feature availability **in the free / open-source tier** of each tool as of late 2026. Paid features that gate behind sign-up are marked ⚠️. Corrections welcome — open an issue if any cell here is wrong.
 </Aside>
 
 ## Where Restura fits
 
 <CardGrid>
   <Card title="You care about privacy" icon="seti:lock">
-    No account. No cloud sync. No telemetry. Collections, history, secrets live on your machine —
-    IndexedDB on web, OS keychain on desktop. Same goes for self-hosted Docker.
+    No account. No cloud sync. No telemetry. Collections, history, secrets live on your machine — IndexedDB on web, OS keychain on desktop. Same goes for self-hosted Docker.
   </Card>
   <Card title="You work with multiple protocols" icon="puzzle">
-    HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, **Kafka**, **MQTT**, and **MCP** in one tool.
-    Most clients give you 2–4 of these. Restura is the broadest free option.
+    HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, **Kafka**, **MQTT**, and **MCP** in one tool. Most clients give you 2–4 of these. Restura is the broadest free option.
   </Card>
   <Card title="You build with AI agents" icon="seti:notebook">
-    Built-in AI chat (OpenAI / Anthropic / OpenRouter, BYOK) that reads request context with
-    redaction. And — uniquely — Restura **acts as an MCP server** for agents like Claude.
+    Built-in AI chat (OpenAI / Anthropic / OpenRouter, BYOK) that reads request context with redaction. And — uniquely — Restura **acts as an MCP server** for agents like Claude.
   </Card>
   <Card title="You want one tool, three places" icon="laptop">
-    Web app on Cloudflare Pages, native desktop on macOS / Windows / Linux, self-hosted Docker —
-    same React renderer, same shortcuts, same UX.
+    Web app on Cloudflare Pages, native desktop on macOS / Windows / Linux, self-hosted Docker — same React renderer, same shortcuts, same UX.
   </Card>
 </CardGrid>
 
-## Where Restura is _not_ the right pick (yet)
+## Where Restura is *not* the right pick (yet)
 
 Honesty matters. If any of these are deal-breakers, pick another tool — we'll get there or we won't, but we won't pretend.
 
 - **Team collaboration & shared workspaces.** No realtime sync, no shared cursors, no comments. If your team needs a Figma-like collaborative API workspace, **Postman or Hoppscotch Enterprise** are better.
-- **Mock servers.** Restura can run a _local_ mock during testing (desktop), but there's no hosted-mock-server feature. **Postman, Hoppscotch, and Insomnia** all do this well.
+- **Mock servers.** Restura can run a *local* mock during testing (desktop), but there's no hosted-mock-server feature. **Postman, Hoppscotch, and Insomnia** all do this well.
 - **Scheduled monitoring / synthetic uptime checks.** Restura has a CLI you can run on cron, but there's no built-in scheduling UI or alerting. **Postman Monitors** or dedicated tools (Checkly, Better Stack) fit better.
 - **API design (OpenAPI authoring) workflows.** Restura imports OpenAPI, but isn't a design-first IDE. **Insomnia (Inso) or Stoplight** are stronger here.
 - **Public API marketplaces.** Postman has a huge gallery of community-published collections; Restura doesn't.
@@ -99,7 +93,7 @@ Modern open-source web app with a clean UI. Real-time collaboration on shared wo
 
 **Pick Hoppscotch if:** you want a fast collaborative web client and don't need desktop-only capabilities.
 
-**Pick Restura if:** you need true native networking (Kafka, custom CAs, OS-keychain secrets), or you want both a web app _and_ a real native desktop app from the same project.
+**Pick Restura if:** you need true native networking (Kafka, custom CAs, OS-keychain secrets), or you want both a web app *and* a real native desktop app from the same project.
 
 ### Bruno
 
@@ -155,8 +149,8 @@ Beautiful, minimal, designed for HTTP-only workflows. Great defaults, polished U
 
 A short list of capabilities not currently available in any of the alternatives above:
 
-1. **Restura _as_ an MCP server.** No other client exposes its collections / environments / history to AI agents over MCP with consent gating and per-tool secret redaction. (See [MCP server mode](/guides/mcp-server-mode/).)
-2. **MCP _as a protocol_ with all three transports.** `streamable-http`, `http-sse`, and `stdio` (desktop). Other clients with MCP support are emerging but limited.
+1. **Restura *as* an MCP server.** No other client exposes its collections / environments / history to AI agents over MCP with consent gating and per-tool secret redaction. (See [MCP server mode](/guides/mcp-server-mode/).)
+2. **MCP *as a protocol* with all three transports.** `streamable-http`, `http-sse`, and `stdio` (desktop). Other clients with MCP support are emerging but limited.
 3. **Wire-level auth signing across protocols.** AWS SigV4, OAuth 1.0a, and WSSE sign at the Worker / Electron main process — not the renderer — so signatures match the exact bytes the upstream receives. Bruno and Insomnia sign at the client; Postman handles this on its cloud proxy.
 4. **`SecretRef` handle pattern.** Secrets stored on desktop are never exposed to the renderer in plaintext — resolved only at wire time in the main process, with `safeStorage` + OS keychain. See [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/).
 5. **One renderer to three backends.** The same React SPA ships to Cloudflare Pages (web), Electron (native desktop), and a Node+Docker container (self-hosted) — see the [architecture overview](/architecture/overview/).

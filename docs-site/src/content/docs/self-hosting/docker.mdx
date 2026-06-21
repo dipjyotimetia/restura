@@ -35,16 +35,16 @@ The repo ships a [`docker-compose.yml`](https://github.com/dipjyotimetia/restura
 
 ## Configuration
 
-| Env var               | Purpose                                                                                  | Default                 |
-| --------------------- | ---------------------------------------------------------------------------------------- | ----------------------- |
-| `PORT`                | Listen port                                                                              | `3000`                  |
-| `HOST`                | Bind address                                                                             | `0.0.0.0`               |
-| `WORKER_PROXY_TOKEN`  | Shared token for `X-Worker-Token` header from the client                                 | **required in prod**    |
-| `REQUIRE_CF_ACCESS`   | If `true`, trust the `Cf-Access-Authenticated-User-Email` header from your reverse proxy | `false`                 |
-| `ENVIRONMENT`         | `development` allows localhost upstream; anything else enforces SSRF guard               | `production`            |
-| `ALLOW_PRIVATE_IPS`   | Allow RFC 1918 / link-local upstreams (still blocks cloud-metadata)                      | `false`                 |
-| `ALLOWED_ORIGIN`      | Comma-separated `Origin` allowlist                                                       | `*` (recommend setting) |
-| `RESTURA_STATIC_ROOT` | Path to the SPA bundle                                                                   | `/app/dist/web`         |
+| Env var | Purpose | Default |
+|---|---|---|
+| `PORT` | Listen port | `3000` |
+| `HOST` | Bind address | `0.0.0.0` |
+| `WORKER_PROXY_TOKEN` | Shared token for `X-Worker-Token` header from the client | **required in prod** |
+| `REQUIRE_CF_ACCESS` | If `true`, trust the `Cf-Access-Authenticated-User-Email` header from your reverse proxy | `false` |
+| `ENVIRONMENT` | `development` allows localhost upstream; anything else enforces SSRF guard | `production` |
+| `ALLOW_PRIVATE_IPS` | Allow RFC 1918 / link-local upstreams (still blocks cloud-metadata) | `false` |
+| `ALLOWED_ORIGIN` | Comma-separated `Origin` allowlist | `*` (recommend setting) |
+| `RESTURA_STATIC_ROOT` | Path to the SPA bundle | `/app/dist/web` |
 
 ## Auth modes
 
@@ -71,13 +71,11 @@ This will be revisited in a future release.
 Per-replica in-memory token bucket. For multi-replica deployments, put a rate limiter (Cloudflare, nginx, Envoy) in front.
 
 <Aside title="Canonical docs">
-  The full self-hosting guide — including reverse proxy snippets and the multi-replica caveat —
-  lives in
-  [`docs/SELF_HOSTING.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/SELF_HOSTING.md).
+The full self-hosting guide — including reverse proxy snippets and the multi-replica caveat — lives in [`docs/SELF_HOSTING.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/SELF_HOSTING.md).
 </Aside>
 
 ## Related
 
 - [Reverse proxy](/self-hosting/reverse-proxy/) — nginx / Caddy / Traefik snippets.
 - [Security model](/architecture/security/) — the auth gate, SSRF guard.
-- [Capability matrix](/reference/capability-matrix/) — what does _not_ work in self-hosted mode.
+- [Capability matrix](/reference/capability-matrix/) — what does *not* work in self-hosted mode.

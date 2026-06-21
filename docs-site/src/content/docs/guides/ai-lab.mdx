@@ -12,19 +12,17 @@ import { Badge, Aside, Steps } from '@astrojs/starlight/components';
 It is reachable at `/ai-lab` (the flask icon in the top bar) and is **Electron-only** — testing local LLMs and arbitrary OpenAI-compatible endpoints needs direct network access the browser can't provide. On the web build the route renders a desktop-only state.
 
 <Aside type="note">
-  AI Lab is distinct from the [AI assistant](/guides/ai-assistant/). The assistant is a chat panel
-  that reads your *current request*; AI Lab is a model/prompt *testing* tool with its own datasets,
-  evals, and providers. They share the provider-routing core but nothing else.
+AI Lab is distinct from the [AI assistant](/guides/ai-assistant/). The assistant is a chat panel that reads your *current request*; AI Lab is a model/prompt *testing* tool with its own datasets, evals, and providers. They share the provider-routing core but nothing else.
 </Aside>
 
 ## Providers
 
 A provider config is one row per endpoint you add. AI Lab splits them into two kinds:
 
-| Kind      | Providers                     | Base URL                | API key  | Pricing                             |
-| --------- | ----------------------------- | ----------------------- | -------- | ----------------------------------- |
-| **Cloud** | OpenAI, Anthropic, OpenRouter | Hardcoded (overridable) | Required | Known — cost estimated              |
-| **Local** | Ollama, OpenAI-compatible     | User-supplied           | Optional | Unknown — shown as "free"/"unknown" |
+| Kind | Providers | Base URL | API key | Pricing |
+| --- | --- | --- | --- | --- |
+| **Cloud** | OpenAI, Anthropic, OpenRouter | Hardcoded (overridable) | Required | Known — cost estimated |
+| **Local** | Ollama, OpenAI-compatible | User-supplied | Optional | Unknown — shown as "free"/"unknown" |
 
 - **Ollama** defaults to `http://localhost:11434` and needs no key.
 - **OpenAI-compatible** covers LM Studio, vLLM, llama.cpp, Together, Groq, and any gateway that speaks the OpenAI `/v1/chat/completions` wire shape — you must supply the base URL.
@@ -32,9 +30,7 @@ A provider config is one row per endpoint you add. AI Lab splits them into two k
 API keys are stored as a [`SecretRef`](/architecture/adrs/0007-secret-ref-pattern/) handle, never in plaintext in the renderer; the main process resolves the key only at the moment it signs the outbound request. The **Providers** tab also lets you **test the connection** and **discover models** (`/api/tags` for Ollama, `/v1/models` for OpenAI-compatible).
 
 <Aside type="caution" title="Local endpoints only reach loopback">
-  The localhost SSRF carve-out is **loopback-only** (`127.0.0.1` / `::1`). LAN, private (RFC 1918 /
-  CGNAT), link-local, and cloud-metadata addresses stay blocked for every provider — see
-  [Security](#security--ssrf) below.
+The localhost SSRF carve-out is **loopback-only** (`127.0.0.1` / `::1`). LAN, private (RFC 1918 / CGNAT), link-local, and cloud-metadata addresses stay blocked for every provider — see [Security](#security--ssrf) below.
 </Aside>
 
 ## Playground
@@ -46,8 +42,8 @@ Pick one or more model references (provider config + model id) and stream a prom
 A **dataset** is a list of cases. Each case carries:
 
 - `vars` — template variables substituted into the prompt's `{{placeholders}}`.
-- `expected` _(optional)_ — an exact expected output, for exact-match scoring.
-- `reference` _(optional)_ — a gold/reference answer, for reference-based scorers and the judge.
+- `expected` *(optional)* — an exact expected output, for exact-match scoring.
+- `reference` *(optional)* — a gold/reference answer, for reference-based scorers and the judge.
 
 ### Generate from an OpenAPI spec
 
@@ -69,17 +65,17 @@ An eval is the cross-product of **dataset cases × selected models**, each cell 
 
 A cell passes only when its model call succeeded **and** every scorer passed. Each scorer fails closed.
 
-| Scorer        | Passes when                                                                                                                      |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `exact-match` | Output equals the case's `expected` / `reference` (optional case-insensitive trim).                                              |
-| `contains`    | Output contains a substring.                                                                                                     |
-| `regex`       | Output matches a pattern (invalid pattern → fail).                                                                               |
-| `json-valid`  | Output parses as JSON.                                                                                                           |
-| `json-schema` | Output is JSON valid against a supplied JSON Schema (Ajv).                                                                       |
-| `latency`     | Round-trip ≤ `maxMs`.                                                                                                            |
-| `cost`        | Estimated USD ≤ `maxUSD`. **Unknown cost fails** — an unpriced gateway can't satisfy a budget.                                   |
-| `script`      | A [QuickJS](/architecture/adrs/0015-quickjs-script-sandbox/) test script passes (the output is exposed as `pm.response.text()`). |
-| `judge`       | An **LLM-as-judge** scores the output ≥ a pass threshold.                                                                        |
+| Scorer | Passes when |
+| --- | --- |
+| `exact-match` | Output equals the case's `expected` / `reference` (optional case-insensitive trim). |
+| `contains` | Output contains a substring. |
+| `regex` | Output matches a pattern (invalid pattern → fail). |
+| `json-valid` | Output parses as JSON. |
+| `json-schema` | Output is JSON valid against a supplied JSON Schema (Ajv). |
+| `latency` | Round-trip ≤ `maxMs`. |
+| `cost` | Estimated USD ≤ `maxUSD`. **Unknown cost fails** — an unpriced gateway can't satisfy a budget. |
+| `script` | A [QuickJS](/architecture/adrs/0015-quickjs-script-sandbox/) test script passes (the output is exposed as `pm.response.text()`). |
+| `judge` | An **LLM-as-judge** scores the output ≥ a pass threshold. |
 
 ### LLM-as-judge
 

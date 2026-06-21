@@ -69,10 +69,10 @@ export default tseslint.config(
     rules: sharedTsRules,
   },
   // Root tests/** — honor the `^_` intentionally-unused convention (the rest of
-  // the recommended profile already applies). Colocated tests under src/** pick
-  // this up from the renderer block above.
+  // the recommended profile already applies). Colocated tests under src/** get
+  // the args/vars ignores from the renderer block above.
   {
-    files: ['tests/**/*.ts'],
+    files: ['tests/**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',

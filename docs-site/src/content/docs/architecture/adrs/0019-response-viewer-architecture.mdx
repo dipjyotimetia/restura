@@ -20,7 +20,7 @@ Split the viewer by response kind:
 - **Buffered responses** render in **Monaco Editor** — syntax highlighting, folding, and find for finite JSON/text/XML bodies.
 - **Streaming responses** render in a dedicated incremental viewer (`src/components/shared/StreamingResponseViewer.tsx`, fed by `src/features/http/lib/streamingResponseReader.ts`) that appends events as they arrive and **caps the retained events at 5000** to keep memory and DOM bounded. Older events roll off once the cap is hit.
 
-Monaco is deliberately _not_ used for streams: re-tokenising a growing buffer on every event is the failure mode this split avoids.
+Monaco is deliberately *not* used for streams: re-tokenising a growing buffer on every event is the failure mode this split avoids.
 
 ## Consequences
 

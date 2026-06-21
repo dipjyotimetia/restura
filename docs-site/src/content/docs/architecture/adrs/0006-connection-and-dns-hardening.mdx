@@ -71,9 +71,7 @@ The dedupe set is held in a module-level `WeakMap<object, Set<number>>` so colle
 `@grpc/grpc-js` and `@platformatic/kafka` resolve DNS inside their C++ bindings and don't expose a Node-level `lookup` callback the way `undici` and the Node `http`/`https` agents do. We mitigate by calling `assertUrlHostnameSafe` immediately before constructing the client. gRPC failures are surfaced as `INVALID_ARGUMENT` (code 3) so the renderer can distinguish URL-policy rejections from gRPC-server failures.
 
 <Aside type="caution" title="Residual rebind window">
-  The pre-flight resolves once; if the DNS record is swapped with TTL=0 between the pre-flight and
-  the C++ binding's own internal resolve, the connect lands on the post-swap address. The 2026-05-27
-  update (below) closes this for ws / sse / grpc.
+The pre-flight resolves once; if the DNS record is swapped with TTL=0 between the pre-flight and the C++ binding's own internal resolve, the connect lands on the post-swap address. The 2026-05-27 update (below) closes this for ws / sse / grpc.
 </Aside>
 
 ## Consequences

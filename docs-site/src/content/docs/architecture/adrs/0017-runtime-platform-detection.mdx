@@ -11,7 +11,7 @@ import { Badge } from '@astrojs/starlight/components';
 
 ## Context
 
-The same renderer bundle runs as a Cloudflare Pages SPA and inside Electron. The two differ only in _transport_: on the web, protocol executors call `/api/*` over HTTP; on desktop, they call Electron main-process handlers over the IPC bridge. We need a way for shared renderer code to pick the right transport. Two broad options: compile-time platform builds (separate bundles with dead-code elimination) or a single bundle that branches at runtime.
+The same renderer bundle runs as a Cloudflare Pages SPA and inside Electron. The two differ only in *transport*: on the web, protocol executors call `/api/*` over HTTP; on desktop, they call Electron main-process handlers over the IPC bridge. We need a way for shared renderer code to pick the right transport. Two broad options: compile-time platform builds (separate bundles with dead-code elimination) or a single bundle that branches at runtime.
 
 ## Decision
 

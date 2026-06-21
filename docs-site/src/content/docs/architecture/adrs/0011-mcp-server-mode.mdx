@@ -11,7 +11,7 @@ import { Badge } from '@astrojs/starlight/components';
 
 ## Context
 
-Restura is an MCP _client_, but the inverse is also valuable: let an agent (Claude, or any MCP-capable tool) drive Restura — list collections, read an environment, query history — so it can construct and reason about requests. This exposes Restura's stored data to an automated, potentially adversarial consumer, which is exactly the threat [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/) was written to contain (an agent calling `get_environment` and reading a plaintext AWS secret key).
+Restura is an MCP *client*, but the inverse is also valuable: let an agent (Claude, or any MCP-capable tool) drive Restura — list collections, read an environment, query history — so it can construct and reason about requests. This exposes Restura's stored data to an automated, potentially adversarial consumer, which is exactly the threat [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/) was written to contain (an agent calling `get_environment` and reading a plaintext AWS secret key).
 
 ## Decision
 
