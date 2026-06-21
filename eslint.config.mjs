@@ -7,7 +7,7 @@ import reactHooksPlugin from 'eslint-plugin-react-hooks';
 // Shared TypeScript overrides applied to all three environments (renderer, electron, worker).
 // Defined once here to avoid duplicating the same rule set across multiple config objects.
 const sharedTsRules = {
-  '@typescript-eslint/consistent-type-imports': ['warn', { prefer: 'type-imports' }],
+  '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
   '@typescript-eslint/no-unused-vars': [
     'error',
     { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
@@ -16,6 +16,18 @@ const sharedTsRules = {
   '@typescript-eslint/no-explicit-any': 'error',
   // Empty interfaces are a common pattern in shadcn/ui component extensions
   '@typescript-eslint/no-empty-object-type': 'warn',
+  // Require a description on every @ts-expect-error and ban bare @ts-ignore.
+  // (ban-ts-comment ships in the recommended preset with looser defaults; we
+  // tighten it here so suppressions must explain themselves.) These are
+  // syntactic checks — no type-aware linting required.
+  '@typescript-eslint/ban-ts-comment': [
+    'error',
+    { 'ts-expect-error': 'allow-with-description', 'ts-ignore': true, 'ts-nocheck': true },
+  ],
+  // When all specifiers in a curly import are type-only, rewrite to a top-level
+  // `import type {}` so the import is fully erased at emit (no accidental
+  // module-initialisation side effects). Complements consistent-type-imports.
+  '@typescript-eslint/no-import-type-side-effects': 'error',
 };
 
 export default tseslint.config(

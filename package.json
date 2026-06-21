@@ -5,6 +5,14 @@
   "description": "Restura - A modern multi-protocol API client for HTTP and gRPC testing",
   "author": "dipjyotimetia",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dipjyotimetia/restura.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dipjyotimetia/restura/issues"
+  },
+  "homepage": "https://github.com/dipjyotimetia/restura#readme",
   "main": "dist/electron/electron/main/main.js",
   "workspaces": [
     "cli"
