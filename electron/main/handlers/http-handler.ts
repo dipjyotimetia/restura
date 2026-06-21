@@ -110,6 +110,32 @@ export function decodeBodyStream(source: Readable, encoding: string | undefined)
   return cap;
 }
 
+/**
+ * Enforce MAX_RESPONSE_SIZE on an already-decoded (or never-encoded) body as it
+ * streams. Without this, the non-`Content-Encoding` path returns the raw source
+ * to text()/arrayBuffer() (node:stream/consumers), which buffer the WHOLE body
+ * before the post-hoc `text.length > MAX_RESPONSE_SIZE` check in http-proxy can
+ * fire — a chunked response with no Content-Length OOMs the main process. This
+ * tears the stream down mid-flight, mirroring decodeBodyStream's cap.
+ */
+function capBodyStream(source: Readable): Readable {
+  let total = 0;
+  const cap = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      total += chunk.length;
+      if (total > MAX_RESPONSE_SIZE) {
+        cb(new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+  pipeline(source, cap, () => {
+    /* errors surface on `cap` */
+  });
+  return cap;
+}
+
 export interface ElectronProxyConfig {
   enabled: boolean;
   type: 'http' | 'https' | 'socks4' | 'socks5' | 'pac';
@@ -758,6 +784,10 @@ export function buildElectronFetcher(
       delete headersOut['content-length'];
     }
 
+    // A decoded stream is already size-capped by decodeBodyStream; a non-decoded
+    // body is not, so cap it here before text()/arrayBuffer()/body buffer it.
+    const cappedBody = decoded ? bodyStream : capBodyStream(bodyStream);
+
     // Determine ALPN. Prefer explicit holder; for SOCKS we re-read the holder we attached.
     let negotiatedAlpn: 'h1.1' | 'h2' | undefined;
     let raw = alpnHolder.alpn;
@@ -780,14 +810,14 @@ export function buildElectronFetcher(
       // for display; nothing branches on its value.
       statusText: '',
       headers: headersOut,
-      text: () => readStreamText(bodyStream),
-      arrayBuffer: () => readStreamArrayBuffer(bodyStream),
+      text: () => readStreamText(cappedBody),
+      arrayBuffer: () => readStreamArrayBuffer(cappedBody),
       contentLengthHeader: decoded
         ? null
         : ((response.headers['content-length'] as string | undefined) ?? null),
       // Web stream interop — undici body is a Node Readable, expose as a web ReadableStream
       // so streaming consumers (StreamingResponseViewer) can read incrementally if desired.
-      body: Readable.toWeb(bodyStream) as ReadableStream<Uint8Array>,
+      body: Readable.toWeb(cappedBody) as ReadableStream<Uint8Array>,
     };
     if (negotiatedAlpn) result.negotiatedAlpn = negotiatedAlpn;
     return result;

@@ -292,3 +292,60 @@ describe('countCollectionInlineSecrets', () => {
     expect(countCollectionInlineSecrets(c)).toBe(0);
   });
 });
+
+describe('header / query-param secret redaction (H6)', () => {
+  const collectionWithFieldSecrets = (): Collection => ({
+    id: 'c',
+    name: 'C',
+    items: [
+      {
+        id: 'r',
+        name: 'R',
+        type: 'request',
+        request: {
+          id: 'r-req',
+          name: 'R',
+          type: 'http',
+          method: 'GET',
+          url: 'https://api.example.com',
+          headers: [
+            { id: 'h1', key: 'Authorization', value: 'Bearer sk-secret', enabled: true },
+            { id: 'h2', key: 'Accept', value: 'application/json', enabled: true },
+          ],
+          params: [
+            { id: 'p1', key: 'api_key', value: 'k-123', enabled: true },
+            { id: 'p2', key: 'page', value: '1', enabled: true },
+          ],
+          body: { type: 'none' },
+          auth: { type: 'none' },
+        },
+      },
+    ],
+  });
+
+  it('blanks secret-named headers and query params but keeps innocuous rows', () => {
+    const req = redactCollectionSecrets(collectionWithFieldSecrets()).items[0]!
+      .request as HttpRequest;
+    expect(req.headers.find((h) => h.key === 'Authorization')!.value).toBe('');
+    expect(req.headers.find((h) => h.key === 'Accept')!.value).toBe('application/json');
+    expect(req.params.find((p) => p.key === 'api_key')!.value).toBe('');
+    expect(req.params.find((p) => p.key === 'page')!.value).toBe('1');
+  });
+
+  it('counts header/param secrets in the export-warning total (was 0 before the fix)', () => {
+    expect(countCollectionInlineSecrets(collectionWithFieldSecrets())).toBe(2);
+  });
+
+  it('honors an explicit secret flag on an innocuously-named row', () => {
+    const c = collectionWithFieldSecrets();
+    (c.items[0]!.request as HttpRequest).headers.push({
+      id: 'h3',
+      key: 'X-Custom',
+      value: 'topsecret',
+      enabled: true,
+      secret: true,
+    });
+    const req = redactCollectionSecrets(c).items[0]!.request as HttpRequest;
+    expect(req.headers.find((h) => h.key === 'X-Custom')!.value).toBe('');
+  });
+});

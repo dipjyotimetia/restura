@@ -1035,7 +1035,10 @@ function isTrustedFrameUrl(url: string | undefined): boolean {
   if (!url) return false;
   try {
     const u = new URL(url);
-    if (u.protocol === 'file:') return true;
+    // Pin file:// to the packaged renderer entry (…/web/index.html) rather than
+    // trusting ANY file: URL — so a stray/injected file frame can't masquerade
+    // as the renderer. Hash-router state lives in the fragment, not the path.
+    if (u.protocol === 'file:') return u.pathname.endsWith('/web/index.html');
     if (
       u.protocol === 'http:' &&
       (u.hostname === 'localhost' || u.hostname === '127.0.0.1') &&

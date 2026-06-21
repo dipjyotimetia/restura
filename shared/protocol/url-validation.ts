@@ -163,6 +163,49 @@ export function isPrivateAddress(hostname: string): boolean {
   return false;
 }
 
+/** Extract an embedded IPv4 (v4-mapped / 6to4 / NAT64) from IPv6 groups, else null. */
+function embeddedV4FromGroups(groups: number[]): string | null {
+  const g0 = groups[0]!;
+  const g1 = groups[1]!;
+  const g2 = groups[2]!;
+  const g3 = groups[3]!;
+  const g4 = groups[4]!;
+  const g5 = groups[5]!;
+  const g6 = groups[6]!;
+  const g7 = groups[7]!;
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
+    return `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
+  }
+  if (g0 === 0x2002) {
+    return `${(g1 >> 8) & 0xff}.${g1 & 0xff}.${(g2 >> 8) & 0xff}.${g2 & 0xff}`;
+  }
+  if (g0 === 0x0064 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
+    return `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
+  }
+  return null;
+}
+
+const CLOUD_METADATA_IPV4 = '169.254.169.254';
+const CLOUD_METADATA_HOSTNAMES = ['metadata.google.internal', 'metadata', 'instance-data'];
+
+/**
+ * Cloud-instance metadata endpoints: the link-local metadata IP
+ * `169.254.169.254` (including IPv4-mapped-IPv6 and trailing-dot forms) and the
+ * well-known metadata hostnames. Blocked UNCONDITIONALLY — even where private
+ * IPs are otherwise permitted (Kafka/MQTT broker guards, the pinned
+ * ws/socket.io/mcp transports that don't run `validateURL`) — because reaching
+ * the metadata service is the canonical SSRF objective.
+ */
+export function isCloudMetadataHost(hostname: string): boolean {
+  const h = stripBrackets(hostname).toLowerCase().replace(/\.+$/, '');
+  if (stripV4MappedPrefix(h) === CLOUD_METADATA_IPV4) return true;
+  if (h.includes(':')) {
+    const groups = expandIPv6(h);
+    if (groups && embeddedV4FromGroups(groups) === CLOUD_METADATA_IPV4) return true;
+  }
+  return CLOUD_METADATA_HOSTNAMES.some((n) => h === n || h.endsWith('.' + n));
+}
+
 export function validateURL(
   urlString: string,
   options: URLValidationOptions = {}
@@ -192,13 +235,23 @@ export function validateURL(
     return { valid: false, error: `Invalid URL scheme. Allowed: ${allowedSchemes.join(', ')}` };
   }
 
-  const hostname = url.hostname.toLowerCase();
+  // Strip a trailing FQDN-root dot before policy comparison — `metadata.x.`
+  // resolves identically to `metadata.x` but would slip past the exact-string
+  // blocklist below.
+  const hostname = url.hostname.toLowerCase().replace(/\.+$/, '');
 
   if (
     !allowLocalhost &&
     (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')
   ) {
     return { valid: false, error: 'Localhost URLs are not allowed' };
+  }
+
+  // Cloud-metadata endpoints are refused unconditionally — even when private
+  // IPs are otherwise allowed (broker/registry guards pass allowPrivateIPs:true)
+  // and even via IPv4-mapped-IPv6 / trailing-dot forms that evade the blocklist.
+  if (isCloudMetadataHost(hostname)) {
+    return { valid: false, error: `Cloud metadata endpoint is blocked: ${hostname}` };
   }
 
   for (const blocked of blockedHostnames) {

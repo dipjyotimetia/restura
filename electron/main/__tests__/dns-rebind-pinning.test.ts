@@ -49,4 +49,20 @@ describe('createPinnedLookup', () => {
     });
     expect(addr).toBe('93.184.216.34');
   });
+
+  it('refuses an unexpected hostname (redirect target) instead of resolving it', () => {
+    // A pinned connection must never resolve a host other than the one validated.
+    // The only caller that hits this is a ws/http 3xx redirect to a different
+    // host — passing it to the system resolver would reach an unvalidated,
+    // possibly internal/metadata target. It must fail closed.
+    const lookup = createPinnedLookup('api.example.com', '93.184.216.34');
+    let err: unknown;
+    let addr: unknown;
+    lookup('169.254.169.254', {}, (e: unknown, a: unknown) => {
+      err = e;
+      addr = a;
+    });
+    expect(err).toBeInstanceOf(Error);
+    expect(addr).toBe('');
+  });
 });
