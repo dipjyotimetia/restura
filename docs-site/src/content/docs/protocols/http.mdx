@@ -21,7 +21,6 @@ GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, and any custom verb you type.
 - **Form URL-encoded (`application/x-www-form-urlencoded`)**.
 - **Binary** — drag in any file; Restura reads it as a stream.
 - **Protobuf** — paste base64 or upload a binary; helpful for testing gRPC-style endpoints behind a JSON adapter.
-- **multipart/mixed** — for SSE / streaming uploads.
 
 ## Headers, params, cookies
 
@@ -37,11 +36,13 @@ Every auth scheme Restura supports works on HTTP: Bearer, Basic, API Key, OAuth 
 
 Click the `</>` icon next to the URL to copy the request as:
 
-- `curl` (full or short form).
-- JavaScript `fetch` / `axios`.
-- Python `requests` / `httpx`.
-- Go `net/http`.
-- Node `http` / `https`.
+- `curl`.
+- Python (`requests`).
+- JavaScript (`fetch`).
+- Node.js (`axios`).
+- Go (`net/http`).
+- Ruby.
+- PHP.
 - More languages added in releases — open an issue if your stack is missing.
 
 ## History & timing

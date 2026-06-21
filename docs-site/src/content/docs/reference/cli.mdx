@@ -106,8 +106,12 @@ restura run <collection> [options]
 | `--retry-on <list>` | `network,5xx` | Triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`). |
 | `--sse-duration <ms>` | `5000` | How long to keep SSE streams open. |
 | `--sse-events <n>` | | Stop SSE early after N events. |
-| `--ws-duration <ms>` | `5000` | How long to keep WebSocket connections open. |
-| `--ws-messages <n>` | | Stop WebSocket early after N messages. |
+| `--insecure` | `false` | Skip TLS certificate verification (self-signed / staging). |
+| `--ca <file>` | | PEM CA bundle to trust (private CA). |
+| `--client-cert <file>` | | PEM client certificate for mutual TLS. |
+| `--client-key <file>` | | PEM client private key for mutual TLS. |
+| `--cert-passphrase <value>` | | Passphrase for an encrypted client key. |
+| `--proxy <url>` | | HTTP(S) proxy URL (overrides `HTTP_PROXY`; composes with TLS options). |
 
 ## Scripts and assertions
 

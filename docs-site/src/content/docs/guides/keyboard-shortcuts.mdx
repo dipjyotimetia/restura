@@ -1,51 +1,48 @@
 ---
 title: Keyboard shortcuts
-description: Send requests, open the command palette, navigate tabs — without leaving the keyboard.
+description: Send requests, open the command palette, jump between request tabs — without leaving the keyboard.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Press `Cmd+/` (`Ctrl+/` on Linux/Windows) anywhere in the app to see the full live list.
+Press `Cmd+/` (`Ctrl+/` on Linux / Windows) anywhere in the app to open the keyboard-shortcuts reference (Settings → Shortcuts).
 
-## Universal
+## Global
 
 | Action | macOS | Windows / Linux |
 |---|---|---|
 | Command palette | `Cmd+K` | `Ctrl+K` |
-| Show all shortcuts | `Cmd+/` | `Ctrl+/` |
+| Show keyboard shortcuts | `Cmd+/` | `Ctrl+/` |
+| Open settings | `Cmd+,` | `Ctrl+,` |
 | Send request | `Cmd+Enter` | `Ctrl+Enter` |
 | Save request | `Cmd+S` | `Ctrl+S` |
-| Duplicate request | `Cmd+D` | `Ctrl+D` |
-| New request tab | `Cmd+T` | `Ctrl+T` |
-| Close request tab | `Cmd+W` | `Ctrl+W` |
-| Next / previous tab | `Cmd+]` / `Cmd+[` | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
+| Copy response body | `Cmd+Shift+C` | `Ctrl+Shift+C` |
 | Toggle sidebar | `Cmd+B` | `Ctrl+B` |
-| Format body | `Cmd+Shift+F` | `Ctrl+Shift+F` |
-| Toggle theme | `Cmd+Shift+L` | `Ctrl+Shift+L` |
-
-## Inside the URL bar
-
-| Action | Shortcut |
-|---|---|
-| Send request | `Enter` |
-| Insert env variable | `{{` (autocomplete from active environment) |
-| Method picker | `Tab` (when caret is in the URL bar) |
-
-## Inside the body editor
-
-| Action | Shortcut |
-|---|---|
-| Format JSON | `Cmd+Shift+F` / `Ctrl+Shift+F` |
-| Comment / uncomment | `Cmd+/` / `Ctrl+/` (only when not at app scope) |
-| Quick search | `Cmd+F` / `Ctrl+F` |
 
 <Aside type="note">
-Shortcuts are aware of focus. Editor shortcuts only trigger inside an editor; navigation shortcuts trigger when no input is focused — so `Cmd+T` opens a new tab, never inserts a `T` into your body.
+Shortcuts are focus-aware: global shortcuts fire only when no text input is focused, so pressing them never types into your request body.
 </Aside>
+
+## Request builder
+
+Jump straight to a request sub-tab with **`Alt`** + a number:
+
+| Tab | Shortcut |
+|---|---|
+| Params | `Alt+1` |
+| Headers | `Alt+2` |
+| Body | `Alt+3` |
+| Auth | `Alt+4` |
+| Scripts | `Alt+5` |
+| Settings | `Alt+6` |
+
+## Body editor
+
+The request body uses the Monaco editor, so its standard shortcuts apply — for example **find** with `Cmd/Ctrl+F` and **format document** with `Shift+Alt+F`.
 
 ## Command palette
 
-`Cmd+K` opens a fuzzy-search command palette. Type the start of any command — "send", "save", "open env", "switch env", "new", "import", "export", "format" — and pick from the suggestions.
+`Cmd+K` opens a fuzzy-search command palette — the fastest way to reach actions that don't have a dedicated shortcut. Type the start of any command — "send", "save", "import", "new gRPC", "switch env", "generate code", "run load test" — and pick from the suggestions.
 
 ## Related
 
