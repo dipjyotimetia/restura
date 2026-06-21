@@ -140,7 +140,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -179,7 +179,7 @@ jobs:
       # Consumed by downstream jobs so they check out the right commit.
       actual_tag: ${{ steps.tag.outputs.actual_tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # full history so the bump action can read every prior tag
           fetch-depth: 0
@@ -381,7 +381,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # The freshly-pushed version-bump commit, by tag, so package.json's
           # version matches the release electron-builder publishes into.
@@ -485,7 +485,7 @@ jobs:
       # here. Drop this and the --provenance flag below if either changes.
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # The freshly-pushed version-bump commit, by tag, so cli/package.json's
           # version matches the GitHub release this run cut.
@@ -536,7 +536,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release.outputs.actual_tag }}
 
@@ -587,7 +587,7 @@ jobs:
       contents: read
       deployments: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release.outputs.actual_tag }}
 
