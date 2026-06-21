@@ -20,11 +20,15 @@
  * (narrowing the rebind window) but isn't fully pinned. See ADR-0006.
  */
 
-import * as dns from 'node:dns';
+import type * as dns from 'node:dns';
 import * as net from 'node:net';
 import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
 import { assertHostnameSafe, type DnsGuardOptions } from './dns-guard';
-import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
+import {
+  assertResolvedAddressAllowed,
+  isCloudMetadataHost,
+  isPrivateAddress,
+} from '@shared/protocol/url-validation';
 import type { LookupAddress } from 'node:dns';
 
 export interface SafeAddress {
@@ -56,12 +60,22 @@ export async function resolveSafeAddress(
     : (options.defaultPort ??
       (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? 443 : 80));
 
+  // Cloud-metadata endpoints are never a legitimate target — block them up front
+  // even for transports that allow private IPs (ws/socket.io/mcp), since those
+  // paths don't run the string-level `validateURL` policy.
+  if (isCloudMetadataHost(host)) {
+    throw new Error(`Refusing to connect to cloud metadata endpoint: ${host}`);
+  }
+
   // Literal IPs short-circuit DNS entirely. Validate per the shared policy
-  // (the same call assertHostnameSafe makes internally).
+  // (the same call assertHostnameSafe makes internally). The literal-host
+  // carve-out for private addresses applies ONLY when the caller permits
+  // localhost (local AI runtimes, user-typed lab targets) — a cloud caller
+  // passing `allowLocalhost:false` must not reach an RFC1918/loopback literal.
   if (net.isIP(host) !== 0) {
     assertResolvedAddressAllowed(host, host, {
       allowLocalhost: options.allowLocalhost,
-      allowPrivateLiteralHost: isPrivateAddress(host),
+      allowPrivateLiteralHost: options.allowLocalhost === true && isPrivateAddress(host),
     });
     return { host, ip: host, port, family: net.isIP(host) === 6 ? 6 : 4 };
   }
@@ -105,11 +119,16 @@ export function createPinnedLookup(host: string, ip: string): any {
     ) as dns.LookupOptions;
     if (!callback) return;
     if (hostname !== host) {
-      // Pass through to the system resolver for any unexpected hostname.
-      // Use the simple `{all: false}` form — Node's dns.lookup overloads
-      // are TS-unfriendly across versions, so route through an inline cast.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (dns.lookup as any)(hostname, lookupOptions, callback);
+      // A pinned connection must never resolve a hostname other than the one we
+      // validated. The only way this fires is a handshake/HTTP 3xx redirect to a
+      // different host (ws `followRedirects`, undici default redirect) — passing
+      // it through to the system resolver would reach an unvalidated, possibly
+      // internal/metadata target. Fail closed.
+      callback(
+        new Error(`pinned lookup refused unexpected hostname "${hostname}" (pinned to "${host}")`),
+        '',
+        family
+      );
       return;
     }
     if (lookupOptions.all) {

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
@@ -6,6 +6,41 @@ import path from 'path';
 import { sandboxLibsPlugin } from './scripts/vite-plugin-sandbox-libs';
 
 const isElectronBuild = process.env.VITE_IS_ELECTRON_BUILD === 'true';
+
+// The packaged Electron renderer loads over file://, where Electron's
+// `onHeadersReceived` CSP (electron/main/main.ts) is not guaranteed to apply to
+// the main-frame document across versions. Inject a `<meta>` CSP fallback into
+// the built index.html so a policy is ALWAYS enforced on the renderer. It
+// mirrors the header policy exactly, so when the header does apply the two are
+// an identical intersection (no behavior delta); `frame-ancestors` is omitted
+// because meta CSP ignores it (header-only) and a top-level desktop window is
+// never framed. Electron-build-only — never injected for web/dev (would break
+// Vite HMR's ws://localhost + inline dev scripts).
+const ELECTRON_RENDERER_CSP = [
+  "default-src 'self' file:",
+  "script-src 'self' file: 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline' file:",
+  "img-src 'self' data: file: https:",
+  "font-src 'self' data: file:",
+  "connect-src 'self' https: wss:",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ');
+
+function electronCspMetaPlugin(): Plugin {
+  return {
+    name: 'restura-electron-csp-meta',
+    transformIndexHtml() {
+      return [
+        {
+          tag: 'meta',
+          attrs: { 'http-equiv': 'Content-Security-Policy', content: ELECTRON_RENDERER_CSP },
+          injectTo: 'head-prepend',
+        },
+      ];
+    },
+  };
+}
 // Self-hosted Docker build: emit a plain SPA bundle and skip the Cloudflare
 // plugin (no Worker is bundled here; the Node entry at `worker/node-entry.ts`
 // is built separately and serves the SPA + /api).
@@ -13,7 +48,13 @@ const isDockerBuild = process.env.VITE_IS_DOCKER_BUILD === 'true';
 const skipCloudflare = isElectronBuild || isDockerBuild;
 
 export default defineConfig({
-  plugins: [sandboxLibsPlugin(), react(), tailwind(), ...(skipCloudflare ? [] : [cloudflare()])],
+  plugins: [
+    sandboxLibsPlugin(),
+    react(),
+    tailwind(),
+    ...(isElectronBuild ? [electronCspMetaPlugin()] : []),
+    ...(skipCloudflare ? [] : [cloudflare()]),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

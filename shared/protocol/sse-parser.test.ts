@@ -129,3 +129,23 @@ describe('SseParser.flush', () => {
     expect(p.flush()).toEqual([]);
   });
 });
+
+describe('SseParser un-delimited buffer cap (OOM guard)', () => {
+  it('throws when a frame exceeds the cap with no delimiter', () => {
+    const p = new SseParser();
+    // 1 MiB chunks with no '\n\n' — the retained buffer grows until the 8 MiB
+    // cap trips and the parser fails closed (caller aborts the stream).
+    const chunk = enc('data: ' + 'x'.repeat(1024 * 1024));
+    expect(() => {
+      for (let i = 0; i < 10; i++) p.feed(chunk);
+    }).toThrow(/without a frame delimiter/);
+  });
+
+  it('does NOT throw on a large but fully-delimited burst', () => {
+    const p = new SseParser();
+    // ~9 MiB of small, properly-delimited events in one feed — all consumed, so
+    // the retained tail stays tiny and the cap must not false-trigger.
+    const burst = 'data: ok\n\n'.repeat(900 * 1024);
+    expect(() => p.feed(enc(burst))).not.toThrow();
+  });
+});

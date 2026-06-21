@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { validateURL } from '@shared/protocol/url-validation';
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
+import { resolveSafeAddress } from '../../electron/main/security/safe-connect';
 
 /**
  * The AI Lab supports local LLM runtimes (Ollama on 127.0.0.1) that the rest of
@@ -48,5 +49,37 @@ describe('AI Lab localhost SSRF carve-out', () => {
 
   it('local providers still cannot reach cloud metadata endpoints', () => {
     expect(checkAsHandler('ollama', 'http://metadata.google.internal/').valid).toBe(false);
+  });
+});
+
+/**
+ * The checks above use `validateURL`, but the AI handlers pin via
+ * `makePinnedFetcher → resolveSafeAddress`, which does NOT run `validateURL`.
+ * Before the fix, the literal-IP short-circuit in `resolveSafeAddress` honored a
+ * private literal regardless of `allowLocalhost`, so a cloud provider reached
+ * 127.0.0.1 / 169.254.169.254 / RFC1918 — the test above passed while the
+ * runtime was unsafe. These exercise the real runtime guard.
+ */
+describe('AI Lab carve-out — actual runtime guard (resolveSafeAddress)', () => {
+  const asHandler = (provider: Provider, url: string) =>
+    resolveSafeAddress(url, { allowLocalhost: isLocalProvider(provider) });
+
+  it('cloud provider cannot reach loopback / metadata / RFC1918 literal IPs', async () => {
+    await expect(asHandler('openai', 'http://127.0.0.1/')).rejects.toThrow();
+    await expect(asHandler('openai', 'http://169.254.169.254/')).rejects.toThrow();
+    await expect(asHandler('anthropic', 'http://10.0.0.5/')).rejects.toThrow();
+    await expect(asHandler('openrouter', 'http://192.168.1.5/')).rejects.toThrow();
+  });
+
+  it('local provider may still reach the loopback literal it was configured with', async () => {
+    await expect(asHandler('ollama', 'http://127.0.0.1:11434/')).resolves.toMatchObject({
+      ip: '127.0.0.1',
+    });
+  });
+
+  it('cloud metadata endpoint is blocked even when localhost is allowed', async () => {
+    await expect(asHandler('ollama', 'http://169.254.169.254/')).rejects.toThrow();
+    await expect(asHandler('ollama', 'http://[::ffff:169.254.169.254]/')).rejects.toThrow();
+    await expect(asHandler('ollama', 'http://metadata.google.internal./')).rejects.toThrow();
   });
 });

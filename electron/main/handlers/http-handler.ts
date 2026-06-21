@@ -89,8 +89,24 @@ export function decodeBodyStream(source: Readable, encoding: string | undefined)
           : undefined;
   if (!decompressor) return source;
 
+  // pipeline tears down every stream (incl. the undici source, firing its
+  // 'close' → dispatcher cleanup) if decompression or the cap errors; the error
+  // surfaces on `cap`, so text()/arrayBuffer()/body all reject.
+  const cap = createSizeCapTransform();
+  pipeline(source, decompressor, cap, () => {
+    /* errors surface on `cap`; nothing to do here */
+  });
+  return cap;
+}
+
+/**
+ * A Transform that counts bytes and errors (tearing the pipeline down) once the
+ * total exceeds MAX_RESPONSE_SIZE. Shared by the decode path and the
+ * never-encoded body path so the cap logic + error string live in one place.
+ */
+function createSizeCapTransform(): Transform {
   let total = 0;
-  const cap = new Transform({
+  return new Transform({
     transform(chunk: Buffer, _enc, cb) {
       total += chunk.length;
       if (total > MAX_RESPONSE_SIZE) {
@@ -100,12 +116,20 @@ export function decodeBodyStream(source: Readable, encoding: string | undefined)
       cb(null, chunk);
     },
   });
+}
 
-  // pipeline tears down every stream (incl. the undici source, firing its
-  // 'close' → dispatcher cleanup) if decompression or the cap errors; the error
-  // surfaces on `cap`, so text()/arrayBuffer()/body all reject.
-  pipeline(source, decompressor, cap, () => {
-    /* errors surface on `cap`; nothing to do here */
+/**
+ * Enforce MAX_RESPONSE_SIZE on an already-decoded (or never-encoded) body as it
+ * streams. Without this, the non-`Content-Encoding` path returns the raw source
+ * to text()/arrayBuffer() (node:stream/consumers), which buffer the WHOLE body
+ * before the post-hoc `text.length > MAX_RESPONSE_SIZE` check in http-proxy can
+ * fire — a chunked response with no Content-Length OOMs the main process. This
+ * tears the stream down mid-flight, mirroring decodeBodyStream's cap.
+ */
+function capBodyStream(source: Readable): Readable {
+  const cap = createSizeCapTransform();
+  pipeline(source, cap, () => {
+    /* errors surface on `cap` */
   });
   return cap;
 }
@@ -758,6 +782,10 @@ export function buildElectronFetcher(
       delete headersOut['content-length'];
     }
 
+    // A decoded stream is already size-capped by decodeBodyStream; a non-decoded
+    // body is not, so cap it here before text()/arrayBuffer()/body buffer it.
+    const cappedBody = decoded ? bodyStream : capBodyStream(bodyStream);
+
     // Determine ALPN. Prefer explicit holder; for SOCKS we re-read the holder we attached.
     let negotiatedAlpn: 'h1.1' | 'h2' | undefined;
     let raw = alpnHolder.alpn;
@@ -780,14 +808,14 @@ export function buildElectronFetcher(
       // for display; nothing branches on its value.
       statusText: '',
       headers: headersOut,
-      text: () => readStreamText(bodyStream),
-      arrayBuffer: () => readStreamArrayBuffer(bodyStream),
+      text: () => readStreamText(cappedBody),
+      arrayBuffer: () => readStreamArrayBuffer(cappedBody),
       contentLengthHeader: decoded
         ? null
         : ((response.headers['content-length'] as string | undefined) ?? null),
       // Web stream interop — undici body is a Node Readable, expose as a web ReadableStream
       // so streaming consumers (StreamingResponseViewer) can read incrementally if desired.
-      body: Readable.toWeb(bodyStream) as ReadableStream<Uint8Array>,
+      body: Readable.toWeb(cappedBody) as ReadableStream<Uint8Array>,
     };
     if (negotiatedAlpn) result.negotiatedAlpn = negotiatedAlpn;
     return result;

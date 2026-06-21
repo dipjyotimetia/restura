@@ -35,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo);
 
-    // Opt-in telemetry (off by default, gated on settings.telemetry.errorsEnabled).
+    // Opt-out telemetry (on by default, gated on settings.telemetry.errorsEnabled).
     reportError({
       message: error.message,
       ...(error.stack !== undefined ? { stack: error.stack } : {}),

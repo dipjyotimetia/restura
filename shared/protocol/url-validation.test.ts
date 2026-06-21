@@ -52,9 +52,11 @@ describe('assertResolvedAddressAllowed', () => {
     expect(() => assertResolvedAddressAllowed('attacker.example.com', '127.0.0.1', {})).toThrow(
       /private/
     );
+    // 169.254.169.254 is link-local AND the cloud-metadata IP — refused via the
+    // unconditional metadata gate (more specific than the private-address path).
     expect(() =>
       assertResolvedAddressAllowed('attacker.example.com', '169.254.169.254', {})
-    ).toThrow(/private/);
+    ).toThrow(/metadata/);
   });
 
   it('does not throw if hostname is allowed-private and address is private', () => {
