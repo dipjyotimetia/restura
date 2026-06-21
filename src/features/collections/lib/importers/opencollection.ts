@@ -4,6 +4,7 @@ import {
   openCollectionSchema,
   assertBoundedDocument,
   ocToInternal,
+  ocVariableToKeyValue,
   getAndResetUnrecognizedBodyCount,
   getAndResetUnrecognizedScripts,
   type OpenCollection,
@@ -79,15 +80,9 @@ function extractAdditionalEnvironments(oc: OpenCollection): Environment[] {
     return {
       id: uuid(),
       name: env.name,
-      variables: (env.variables ?? [])
-        .filter((v) => !('secret' in v))
-        .map((v) => ({
-          id: uuid(),
-          key: (v.name as string) ?? '',
-          value: typeof v.value === 'string' ? v.value : JSON.stringify(v.value ?? ''),
-          enabled: !v.disabled,
-          ...(typeof v.description === 'string' ? { description: v.description } : {}),
-        })),
+      // Shared mapper keeps every variable and preserves secret vars value-less
+      // (a presence check like `'secret' in v` would wrongly drop `secret:false`).
+      variables: (env.variables ?? []).map(ocVariableToKeyValue),
     };
   });
 }

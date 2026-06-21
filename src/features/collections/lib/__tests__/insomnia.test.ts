@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { importInsomniaCollection, getInsomniaVersion } from '../importers/insomnia';
+import { validateImportedCollection } from '../importers/validateImported';
 import type { InsomniaCollection, InsomniaV5Document } from '@/types';
 
 /**
@@ -427,5 +428,40 @@ describe('importInsomniaCollection — v5', () => {
     expect(result.warnings).toEqual([
       { kind: 'unsupported-auth', authType: 'awsv4', requestName: 'AWS call' },
     ]);
+  });
+
+  it('maps a known OAuth2 grant type', () => {
+    const result = importInsomniaCollection(
+      makeV5([
+        {
+          name: 'CC',
+          method: 'GET',
+          url: 'https://example.com',
+          authentication: { type: 'oauth2', grantType: 'client_credentials', accessToken: 't' },
+        },
+      ])
+    );
+    const auth = result.collection.items[0]?.request?.auth;
+    expect(auth?.type).toBe('oauth2');
+    expect(auth?.oauth2?.grantType).toBe('client_credentials');
+  });
+
+  it('does not fail validation on an unmodeled OAuth2 grant type (implicit)', () => {
+    const result = importInsomniaCollection(
+      makeV5([
+        {
+          name: 'Implicit',
+          method: 'GET',
+          url: 'https://example.com',
+          authentication: { type: 'oauth2', grantType: 'implicit', accessToken: 't' },
+        },
+      ])
+    );
+    const auth = result.collection.items[0]?.request?.auth;
+    expect(auth?.type).toBe('oauth2');
+    // implicit is not in our enum; it must be omitted (not passed through raw),
+    // otherwise collectionSchema.safeParse rejects and the whole import is lost.
+    expect(auth?.oauth2?.grantType).toBeUndefined();
+    expect(validateImportedCollection(result.collection)).toEqual({ ok: true });
   });
 });

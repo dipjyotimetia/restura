@@ -18,7 +18,10 @@ export function injectString(text: string, variables: Record<string, string>): s
   let result = text;
   for (const [key, value] of Object.entries(variables)) {
     const escaped = key.replace(REGEX_META, '\\$&');
-    result = result.replace(new RegExp(`\\{\\{${escaped}\\}\\}`, 'g'), value);
+    // Use a function replacer so `$`-sequences in the *value* (e.g. `$&`, `$1`,
+    // `$$`, `` $` ``) are inserted verbatim rather than interpreted as
+    // String.replace replacement patterns.
+    result = result.replace(new RegExp(`\\{\\{${escaped}\\}\\}`, 'g'), () => value);
   }
   return result;
 }

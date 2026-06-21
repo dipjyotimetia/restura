@@ -335,6 +335,27 @@ function getAuthString(auth: Record<string, unknown>, key: string): string | und
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
+/**
+ * Map an Insomnia OAuth2 `grantType` to our internal enum. Insomnia's
+ * `implicit` / `refresh_token` aren't modeled here — return undefined and let
+ * the runtime fall back to the default rather than passing an out-of-enum value
+ * through, which would fail collectionSchema validation and sink the whole import.
+ */
+function mapInsomniaGrantType(
+  g: string | undefined
+): NonNullable<AuthConfig['oauth2']>['grantType'] {
+  switch (g) {
+    case 'authorization_code':
+      return 'authorization_code';
+    case 'client_credentials':
+      return 'client_credentials';
+    case 'password':
+      return 'password';
+    default:
+      return undefined;
+  }
+}
+
 function convertInsomniaAuth(
   auth:
     | {
@@ -380,11 +401,8 @@ function convertInsomniaAuth(
       const oauth2: NonNullable<AuthConfig['oauth2']> = {
         accessToken: getAuthString(auth, 'accessToken') ?? '',
       };
-      const grantType = getAuthString(auth, 'grantType');
-      if (grantType) {
-        // Map Insomnia's grant identifiers to ours where they line up; pass through otherwise.
-        oauth2.grantType = grantType as NonNullable<AuthConfig['oauth2']>['grantType'];
-      }
+      const grantType = mapInsomniaGrantType(getAuthString(auth, 'grantType'));
+      if (grantType) oauth2.grantType = grantType;
       const clientId = getAuthString(auth, 'clientId');
       if (clientId) oauth2.clientId = clientId;
       const clientSecret = getAuthString(auth, 'clientSecret');

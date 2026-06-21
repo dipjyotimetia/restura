@@ -13,6 +13,7 @@ export {
 export { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 export {
   ocToInternal,
+  ocVariableToKeyValue,
   getAndResetUnrecognizedBodyCount,
   getAndResetUnrecognizedScripts,
 } from './to-internal';

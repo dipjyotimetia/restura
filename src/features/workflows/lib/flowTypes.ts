@@ -6,6 +6,7 @@
  *
  * Anything that needs Zod validation lives in `flowValidators.ts`.
  */
+import { v4 as uuidv4 } from 'uuid';
 import type {
   FlowEdge,
   FlowNode,
@@ -35,6 +36,29 @@ export type {
 };
 
 export const CURRENT_GRAPH_VERSION = 1 as const;
+
+/**
+ * A brand-new subgraph seeded with a start + end node so it satisfies the
+ * validator's "exactly one start / at least one end" rule out of the box.
+ *
+ * Subgraph-bearing nodes (forEach / loop / tryCatch) MUST default to this
+ * rather than an empty `{ nodes: [], edges: [] }`: an empty subgraph fails
+ * `validateWorkflowGraph`, so dropping one of these nodes and running the
+ * workflow *before* drilling into its body would otherwise fail the whole
+ * run at validation. Used both as the palette default (FlowCanvas) and as the
+ * drill-in auto-seed (FlowEditor) so the two can't drift apart.
+ */
+export function emptyStubGraph(): WorkflowGraph {
+  return {
+    version: CURRENT_GRAPH_VERSION,
+    nodes: [
+      { id: `start-${uuidv4()}`, kind: 'start', position: { x: 240, y: 80 } },
+      { id: `end-${uuidv4()}`, kind: 'end', position: { x: 240, y: 240 } },
+    ],
+    edges: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+  };
+}
 
 export function isRequestNode(node: FlowNode): node is RequestFlowNode {
   return node.kind === 'request';

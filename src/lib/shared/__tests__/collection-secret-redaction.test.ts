@@ -4,6 +4,7 @@ import {
   redactCollectionSecrets,
   countCollectionInlineSecrets,
 } from '../collection-secret-redaction';
+import { exportToOpenCollection } from '@/features/collections/lib/exporters';
 import type { AuthConfig, Collection, CollectionItem, HttpRequest } from '@/types';
 
 const request = (id: string, auth: AuthConfig): HttpRequest => ({
@@ -291,6 +292,96 @@ describe('countCollectionInlineSecrets', () => {
     const c: Collection = { id: 'c', name: 'C', items: [requestItem('r', { type: 'none' })] };
     expect(countCollectionInlineSecrets(c)).toBe(0);
   });
+
+  // OpenCollection degrade-to-none auth (OAuth1/NTLM/WSSE) leaves plaintext ONLY
+  // in the `_oc` passthrough bag, with the typed auth degraded to `type:'none'`.
+  // The count must see it so the export dialog fires (otherwise raw export leaks).
+  it('counts plaintext in an item _oc bag with degraded (OAuth1) auth', () => {
+    const item = requestItem('r', { type: 'none' }) as CollectionItem & { _oc?: unknown };
+    item._oc = {
+      name: 'R',
+      request: {
+        auth: { type: 'oauth1', consumerKey: 'ck', consumerSecret: 'plaintext-secret' },
+      },
+    };
+    const c: Collection = { id: 'c', name: 'C', items: [item] };
+    expect(countCollectionInlineSecrets(c)).toBeGreaterThan(0);
+  });
+
+  it('counts a cert passphrase in the root _oc bag (real OC schema shape)', () => {
+    const c = {
+      id: 'c',
+      name: 'C',
+      items: [requestItem('r', { type: 'none' })],
+      _oc: {
+        info: { name: 'C' },
+        config: {
+          clientCertificates: [{ privateKeyFilePath: '/k.pem', passphrase: 'cert-pass' }],
+        },
+      },
+    } as Collection;
+    expect(countCollectionInlineSecrets(c)).toBeGreaterThan(0);
+  });
+
+  it('counts a proxy password at its real nested path config.proxy.config.auth.password', () => {
+    const c = {
+      id: 'c',
+      name: 'C',
+      items: [requestItem('r', { type: 'none' })],
+      _oc: {
+        info: { name: 'C' },
+        config: {
+          proxy: { config: { hostname: 'p', auth: { username: 'u', password: 'proxy-pass' } } },
+        },
+      },
+    } as Collection;
+    expect(countCollectionInlineSecrets(c)).toBeGreaterThan(0);
+  });
+
+  it('counts an OAuth1 inline RSA privateKey (object-valued) in an item _oc bag', () => {
+    const item = requestItem('r', { type: 'none' }) as CollectionItem & { _oc?: unknown };
+    item._oc = {
+      name: 'R',
+      request: {
+        auth: {
+          type: 'oauth1',
+          signatureMethod: 'RSA-SHA256',
+          consumerKey: 'ck',
+          // the only secret is the inline PEM private key
+          privateKey: { type: 'text', value: '-----BEGIN RSA PRIVATE KEY-----abc' },
+        },
+      },
+    };
+    const c: Collection = { id: 'c', name: 'C', items: [item] };
+    expect(countCollectionInlineSecrets(c)).toBeGreaterThan(0);
+  });
+
+  it('does NOT count an OAuth1 file-path privateKey (a path, not a secret)', () => {
+    const item = requestItem('r', { type: 'none' }) as CollectionItem & { _oc?: unknown };
+    item._oc = {
+      name: 'R',
+      request: {
+        auth: {
+          type: 'oauth1',
+          signatureMethod: 'RSA-SHA256',
+          consumerKey: 'ck',
+          privateKey: { type: 'file', value: '/path/to/key.pem' },
+        },
+      },
+    };
+    const c: Collection = { id: 'c', name: 'C', items: [item] };
+    expect(countCollectionInlineSecrets(c)).toBe(0);
+  });
+
+  it('does NOT over-count a supported-type _oc bag (already counted via typed fields)', () => {
+    // A bearer auth survives as a typed field AND in _oc. The typed counter sees
+    // it once; the _oc walker must not add a second phantom count, and an
+    // auth-free / supported-only bag must not trip the dialog on its own.
+    const item = requestItem('r', { type: 'none' }) as CollectionItem & { _oc?: unknown };
+    item._oc = { name: 'R', request: { auth: { type: 'bearer', token: 'tok' } } };
+    const c: Collection = { id: 'c', name: 'C', items: [item] };
+    expect(countCollectionInlineSecrets(c)).toBe(0);
+  });
 });
 
 describe('header / query-param secret redaction (H6)', () => {
@@ -347,5 +438,69 @@ describe('header / query-param secret redaction (H6)', () => {
     });
     const req = redactCollectionSecrets(c).items[0]!.request as HttpRequest;
     expect(req.headers.find((h) => h.key === 'X-Custom')!.value).toBe('');
+  });
+});
+
+// The end-to-end security property: redaction must keep plaintext out of the
+// actual exported YAML bytes, not merely out of the typed model. Guards against
+// a future redactor/exporter change silently reopening the `_oc` passthrough leak.
+describe('OpenCollection export — no plaintext _oc secret leak (security regression)', () => {
+  const OAUTH1_SECRET = 'PLAINTEXT-OAUTH1-CONSUMER-SECRET';
+  const CERT_PASS = 'PLAINTEXT-CERT-PASSPHRASE';
+  const PROXY_PASS = 'PLAINTEXT-PROXY-PASSWORD';
+
+  /** A collection as if imported from OpenCollection: degrade-to-none OAuth1 auth
+   *  on an item (plaintext only in the item `_oc`) plus root proxy/cert secrets
+   *  (only in the root `_oc`). The typed model carries none of these. */
+  function ocImportedCollectionWithBagSecrets(): Collection {
+    const itemOc = {
+      name: 'R',
+      request: {
+        method: 'GET',
+        url: 'https://api.example.com',
+        auth: { type: 'oauth1', consumerKey: 'ck', consumerSecret: OAUTH1_SECRET },
+      },
+    };
+    const item: CollectionItem & { _oc?: unknown } = {
+      id: 'r',
+      name: 'R',
+      type: 'request',
+      request: request('r-req', { type: 'none' }),
+      _oc: itemOc,
+    };
+    const c = {
+      id: 'c',
+      name: 'C',
+      items: [item],
+      _oc: {
+        opencollection: '1.0.0',
+        info: { name: 'C' },
+        config: {
+          clientCertificates: [{ privateKeyFilePath: '/k.pem', passphrase: CERT_PASS }],
+          proxy: { config: { hostname: 'p', auth: { username: 'u', password: PROXY_PASS } } },
+        },
+        items: [itemOc],
+      },
+    } as Collection;
+    return c;
+  }
+
+  it('a non-redacted export DOES leak the bag secrets (proves the fixture is a real leak path)', () => {
+    const raw = exportToOpenCollection(ocImportedCollectionWithBagSecrets());
+    // At least one of the bag-only secrets reaches the bytes on a raw export.
+    expect(raw).toContain(PROXY_PASS);
+  });
+
+  it('a redacted export contains NONE of the bag secrets', () => {
+    const yaml = exportToOpenCollection(
+      redactCollectionSecrets(ocImportedCollectionWithBagSecrets())
+    );
+    expect(yaml).not.toContain(OAUTH1_SECRET);
+    expect(yaml).not.toContain(CERT_PASS);
+    expect(yaml).not.toContain(PROXY_PASS);
+  });
+
+  it('countCollectionInlineSecrets fires the export dialog for this collection (gate)', () => {
+    expect(countCollectionInlineSecrets(ocImportedCollectionWithBagSecrets())).toBeGreaterThan(0);
   });
 });

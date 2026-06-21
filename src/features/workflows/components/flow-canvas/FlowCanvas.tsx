@@ -37,6 +37,7 @@ import type {
   SubgraphPath,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { emptyStubGraph } from '../../lib/flowTypes';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { useFlowRunStore } from '../../store/useFlowRunStore';
 import { RequestNode } from './nodes/RequestNode';
@@ -177,7 +178,7 @@ function defaultNodeData(kind: FlowNodeKind): unknown {
         collectionExpression: 'return [];',
         iteratorVar: 'item',
         concurrency: 8,
-        subgraph: { version: 1, nodes: [], edges: [] },
+        subgraph: emptyStubGraph(),
       };
     case 'loop':
       return {
@@ -185,12 +186,12 @@ function defaultNodeData(kind: FlowNodeKind): unknown {
         mode: 'while',
         maxIterations: 10,
         delayMs: 0,
-        subgraph: { version: 1, nodes: [], edges: [] },
+        subgraph: emptyStubGraph(),
       };
     case 'tryCatch':
       return {
-        trySubgraph: { version: 1, nodes: [], edges: [] },
-        catchSubgraph: { version: 1, nodes: [], edges: [] },
+        trySubgraph: emptyStubGraph(),
+        catchSubgraph: emptyStubGraph(),
       };
     case 'subWorkflow':
       return { workflowId: '' };

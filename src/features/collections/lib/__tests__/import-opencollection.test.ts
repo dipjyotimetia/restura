@@ -79,4 +79,34 @@ describe('importOpenCollection', () => {
     expect(result.environments?.length).toBe(2); // staging + prod become standalone envs
     expect(result.environments?.map((e) => e.name)).toEqual(['staging', 'prod']);
   });
+
+  it('keeps non-secret vars and preserves secret vars value-less in additional environments', () => {
+    const data = {
+      opencollection: '1.0.0',
+      info: { name: 'Secret-Env' },
+      config: {
+        environments: [
+          { name: 'dev', variables: [{ name: 'HOST', value: 'http://localhost' }] },
+          {
+            name: 'prod',
+            variables: [
+              { name: 'HOST', value: 'https://example.com', secret: false },
+              { name: 'API_KEY', value: 'should-not-leak', secret: true },
+            ],
+          },
+        ],
+      },
+      items: [],
+    };
+    const result = importOpenCollection(data);
+    const prod = result.environments?.find((e) => e.name === 'prod');
+    // secret:false must NOT be dropped (regression: `'secret' in v` dropped it)
+    const host = prod?.variables.find((v) => v.key === 'HOST');
+    expect(host?.value).toBe('https://example.com');
+    // secret:true var is preserved as a value-less flagged entry, not leaked, not dropped
+    const apiKey = prod?.variables.find((v) => v.key === 'API_KEY');
+    expect(apiKey).toBeDefined();
+    expect(apiKey?.value).toBe('');
+    expect(apiKey?.secret).toBe(true);
+  });
 });
