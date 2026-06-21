@@ -17,15 +17,20 @@ import {
   FolderOpen,
   ArrowRight,
   CheckCircle2,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import { ToggleField } from '@/components/ui/spatial/ToggleField';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface OnboardingStep {
   icon: React.ReactNode;
   title: string;
   description: string;
   tip: string;
+  // 'privacy' renders an inline telemetry opt-out toggle below the description.
+  kind?: 'privacy';
 }
 
 const onboardingSteps: OnboardingStep[] = [
@@ -61,6 +66,14 @@ const onboardingSteps: OnboardingStep[] = [
     description: 'Work faster with keyboard shortcuts. Press ⌘+/ to see all available shortcuts.',
     tip: 'Use ⌘+K to open the command palette for quick actions',
   },
+  {
+    kind: 'privacy',
+    icon: <ShieldCheck className="h-7 w-7 text-emerald-400" />,
+    title: 'Help Improve Restura',
+    description:
+      'Anonymous crash & error reports help us fix bugs. Only the error message, stack, and app version are sent — never your requests, URLs, headers, or response bodies.',
+    tip: 'Change this anytime in Settings → Privacy.',
+  },
 ];
 
 const ONBOARDING_KEY = 'restura-onboarding-completed';
@@ -68,6 +81,8 @@ const ONBOARDING_KEY = 'restura-onboarding-completed';
 export default function WelcomeOnboarding() {
   const [isOpen, setIsOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+  const telemetryEnabled = useSettingsStore((s) => s.settings.telemetry?.errorsEnabled ?? true);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   useEffect(() => {
     // secureStorage wraps localStorage with try/catch (private mode / disabled
@@ -140,6 +155,18 @@ export default function WelcomeOnboarding() {
             <p className="text-xs text-muted-foreground font-mono leading-relaxed">
               {currentStepData.description}
             </p>
+
+            {/* Inline telemetry opt-out (privacy step only) */}
+            {currentStepData.kind === 'privacy' && (
+              <div className="flex items-center justify-between gap-3 rounded border border-border bg-muted/30 p-3 mt-3 text-left">
+                <span className="text-xs font-mono">Send crash &amp; error reports</span>
+                <ToggleField
+                  checked={telemetryEnabled}
+                  onChange={(v) => updateSettings({ telemetry: { errorsEnabled: v } })}
+                  ariaLabel="Send crash and error reports"
+                />
+              </div>
+            )}
 
             {/* Tip box */}
             <div className="bg-primary/5 border border-primary/20 rounded p-3 mt-3 text-left">
