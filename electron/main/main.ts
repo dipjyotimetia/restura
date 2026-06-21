@@ -220,6 +220,21 @@ function setupSecurityMeasures(): void {
       event.preventDefault();
     });
 
+    // A 3xx redirect during an otherwise-allowed load can land on a new origin
+    // without firing will-navigate — pair the same policy onto will-redirect.
+    contents.on('will-redirect', (event, navigationUrl) => {
+      if (isDev) {
+        try {
+          if (new URL(navigationUrl).origin === 'http://localhost:5173') return;
+        } catch {
+          /* fall through to block */
+        }
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+    });
+
     // The app never embeds <webview>. Deny attachment so a compromised renderer
     // can't smuggle in a tag that loads remote content outside the sandbox.
     contents.on('will-attach-webview', (event) => {

@@ -47,4 +47,23 @@ describe('SSRF protection', () => {
     const result = validateURL('http://10.0.0.1/internal', { allowPrivateIPs: true });
     expect(result.valid).toBe(true);
   });
+
+  // Broker/registry guards pass allowPrivateIPs:true (RFC1918 brokers are legit),
+  // but the cloud-metadata endpoint must stay blocked — including the trailing-dot
+  // and IPv4-mapped-IPv6 forms that previously evaded the exact-string blocklist.
+  it('metadata IP stays blocked even when allowPrivateIPs is set', () => {
+    expect(validateURL('http://169.254.169.254/', { allowPrivateIPs: true }).valid).toBe(false);
+  });
+
+  it('trailing-dot metadata hostname does not bypass the blocklist', () => {
+    expect(validateURL('http://metadata.google.internal./', { allowPrivateIPs: true }).valid).toBe(
+      false
+    );
+  });
+
+  it('IPv4-mapped-IPv6 metadata address is blocked even with allowPrivateIPs', () => {
+    expect(validateURL('http://[::ffff:169.254.169.254]/', { allowPrivateIPs: true }).valid).toBe(
+      false
+    );
+  });
 });

@@ -41,6 +41,17 @@ export interface ParsedSseEvent {
   retry?: number;
 }
 
+/**
+ * Hard cap on a single un-delimited event frame, measured in JS string length
+ * (UTF-16 code units, ~2 bytes each — so this bounds buffer memory at ~16 MiB).
+ * An upstream that streams bytes without the `\n\n` block delimiter would
+ * otherwise grow `buffer` without bound (the compaction below only advances on
+ * a delimiter) — on the Electron main process this is an OOM vector. 8M code
+ * units is far beyond any legitimate single SSE event; past it we fail closed
+ * so the caller aborts the stream.
+ */
+export const MAX_SSE_EVENT_CHARS = 8 * 1024 * 1024;
+
 export class SseParser {
   private decoder = new TextDecoder();
   private buffer = '';
@@ -72,6 +83,13 @@ export class SseParser {
     if (this.cursor > this.buffer.length / 2) {
       this.buffer = this.buffer.slice(this.cursor);
       this.cursor = 0;
+    }
+
+    // After consuming every complete frame, the un-delimited remainder must
+    // stay bounded — otherwise an upstream that never sends `\n\n` grows the
+    // buffer without limit (main-process OOM). Fail closed so the caller aborts.
+    if (this.buffer.length - this.cursor > MAX_SSE_EVENT_CHARS) {
+      throw new Error(`SSE event exceeds ${MAX_SSE_EVENT_CHARS} chars without a frame delimiter`);
     }
 
     return events;

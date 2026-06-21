@@ -80,6 +80,11 @@ export function registerWebSocketHandlerIPC(): void {
       const ws = new WebSocket(config.url, config.protocols ?? [], {
         headers: config.headers ?? {},
         maxPayload: MAX_MESSAGE_SIZE,
+        // Same-host handshake redirects are followed; a redirect to a DIFFERENT
+        // host fails closed — `createPinnedLookup` errors on any hostname other
+        // than the validated one (an attacker can't 3xx into an internal/metadata
+        // target). Cross-host handshake redirects are rare and not supported by
+        // design; the abort surfaces as a normal `ws` 'error' event below.
         followRedirects: true,
         handshakeTimeout: 30000,
         lookup: createPinnedLookup(pinned.host, pinned.ip),

@@ -1035,7 +1035,10 @@ function isTrustedFrameUrl(url: string | undefined): boolean {
   if (!url) return false;
   try {
     const u = new URL(url);
-    if (u.protocol === 'file:') return true;
+    // Pin file:// to the packaged renderer entry (…/web/index.html) rather than
+    // trusting ANY file: URL — so a stray/injected file frame can't masquerade
+    // as the renderer. Hash-router state lives in the fragment, not the path.
+    if (u.protocol === 'file:') return u.pathname.endsWith('/web/index.html');
     if (
       u.protocol === 'http:' &&
       (u.hostname === 'localhost' || u.hostname === '127.0.0.1') &&
@@ -1059,8 +1062,13 @@ export function assertTrustedSender(
   channel: string,
   event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent
 ): void {
-  const url = event.senderFrame?.url;
-  if (!isTrustedFrameUrl(url)) {
+  const frame = event.senderFrame;
+  const url = frame?.url;
+  // Only the trusted renderer's TOP frame may drive IPC. `parent` is null for
+  // the main frame and a WebFrameMain for any child, so a subframe (e.g. an
+  // injected <iframe>) is rejected even if it sits at a `/web/index.html` path —
+  // the file:// URL suffix check is no longer the sole barrier.
+  if (!isTrustedFrameUrl(url) || frame?.parent) {
     log.error('IPC frame rejected', { channel, senderFrame: url ?? '(undefined)' });
     throw new Error(`IPC ${channel} rejected: untrusted frame`);
   }

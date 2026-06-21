@@ -6,6 +6,11 @@ import {
   type SecretValue,
 } from '@/lib/shared/secretRef';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
+import {
+  redactSecretKeyValues,
+  countSecretKeyValues,
+  type SecretableRow,
+} from '@/lib/shared/keyvalue-secret-redaction';
 
 /**
  * Redacts secret-bearing auth fields from a collection before it goes through
@@ -93,11 +98,18 @@ function redactItem(item: CollectionItem): CollectionItem {
   }
   if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
   if (next.items) next.items = next.items.map(redactItem);
-  if (next.request && 'auth' in next.request) {
-    next.request = {
-      ...next.request,
-      auth: redactAuthConfigSecrets(next.request.auth),
-    } as typeof next.request;
+  if (next.request) {
+    // Redact the typed auth block AND any secret-bearing header / query-param /
+    // metadata row (a token typed into a header is just as exfiltrable).
+    const req = { ...next.request } as unknown as Record<string, unknown>;
+    if (Array.isArray(req.headers))
+      req.headers = redactSecretKeyValues(req.headers as SecretableRow[]);
+    if (Array.isArray(req.params))
+      req.params = redactSecretKeyValues(req.params as SecretableRow[]);
+    if (Array.isArray(req.metadata))
+      req.metadata = redactSecretKeyValues(req.metadata as SecretableRow[]);
+    if ('auth' in req) req.auth = redactAuthConfigSecrets(req.auth as AuthConfig);
+    next.request = req as unknown as typeof next.request;
   }
   return next;
 }
@@ -144,8 +156,12 @@ export function countCollectionInlineSecrets(collection: Collection): number {
   const walk = (items: CollectionItem[]) => {
     for (const item of items) {
       count += countAuthInlineSecrets(item.auth);
-      if (item.request && 'auth' in item.request) {
-        count += countAuthInlineSecrets(item.request.auth);
+      if (item.request) {
+        const req = item.request as unknown as Record<string, unknown>;
+        if ('auth' in req) count += countAuthInlineSecrets(req.auth as AuthConfig | undefined);
+        count += countSecretKeyValues(req.headers as SecretableRow[] | undefined);
+        count += countSecretKeyValues(req.params as SecretableRow[] | undefined);
+        count += countSecretKeyValues(req.metadata as SecretableRow[] | undefined);
       }
       if (item.items) walk(item.items);
     }

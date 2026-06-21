@@ -21,6 +21,7 @@ import {
   authHasPlaintextSecret,
   redactSecretVariablesForExport,
 } from '../security/collection-export-redactor';
+import { redactSecretKeyValues } from '../../../src/lib/shared/keyvalue-secret-redaction';
 import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('collections');
@@ -431,9 +432,12 @@ async function saveDirectoryItems(
       const filePath = path.join(directoryPath, filename);
       const fileData: Record<string, unknown> = {
         ...requestData,
-        headers: stripIdsFromKeyValues(requestData.headers),
-        params: stripIdsFromKeyValues(requestData.params),
-        metadata: stripIdsFromKeyValues(requestData.metadata),
+        // Blank secret-bearing header/param/metadata values (e.g. an
+        // `Authorization` header or `?api_key=` row) before writing to disk —
+        // the typed-auth redactor below only covers the `auth` block.
+        headers: stripIdsFromKeyValues(redactSecretKeyValues(requestData.headers)),
+        params: stripIdsFromKeyValues(redactSecretKeyValues(requestData.params)),
+        metadata: stripIdsFromKeyValues(redactSecretKeyValues(requestData.metadata)),
         // Redact secret-bearing auth fields. See collection-export-redactor.ts.
         ...(requestData.auth ? { auth: redactAuthForExport(requestData.auth) } : {}),
       };

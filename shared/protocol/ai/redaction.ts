@@ -19,26 +19,17 @@
  * rendered context to cover the common interpolated-secret case.
  */
 
+import { CREDENTIAL_HEADER_NAMES } from '../credential-header-names';
+
 export type RedactionMode = 'default' | 'raw';
 
-const HEADER_DENYLIST_EXACT = new Set([
-  'authorization',
-  'authentication',
-  'cookie',
-  'set-cookie',
-  'proxy-authorization',
-  // NB: `www-authenticate` is intentionally NOT here — it's a challenge header
-  // (e.g. `Bearer realm=…`), not a credential, and is exactly the diagnostic the
-  // AI needs to explain a 401.
-  'x-api-key',
-  'x-auth-token',
-  'x-csrf-token',
-  // Non-`x-`-prefixed secret headers the regexes below don't reach.
-  'api-key',
-  'apikey',
-  'api_key',
-  'private-token', // GitLab
-]);
+// Shared base set (see shared/protocol/credential-header-names.ts) keeps this
+// AI-context denylist in sync with the collection-export redactor; the regexes
+// below add the `x-*-token/key/secret` family on top.
+// NB: `www-authenticate` is deliberately absent from the base — it's a challenge
+// header (e.g. `Bearer realm=…`), not a credential, and is exactly the
+// diagnostic the AI needs to explain a 401.
+const HEADER_DENYLIST_EXACT = new Set(CREDENTIAL_HEADER_NAMES);
 
 const HEADER_DENYLIST_REGEX: RegExp[] = [
   /^x-.*-token$/i, // covers x-amz-security-token, x-access-token, x-gitlab-token, …
@@ -69,7 +60,7 @@ function headerIsDenied(name: string): boolean {
 
 export function redactHeaders(
   headers: Record<string, string>,
-  mode: RedactionMode,
+  mode: RedactionMode
 ): Record<string, string> {
   if (mode === 'raw') return { ...headers };
   const out: Record<string, string> = {};
@@ -90,7 +81,7 @@ export function redactBody(body: string, mode: RedactionMode): string {
 
 export function redactEnvironment(
   env: Record<string, string>,
-  mode: RedactionMode,
+  mode: RedactionMode
 ): Record<string, string> {
   if (mode === 'raw') return { ...env };
   const out: Record<string, string> = {};

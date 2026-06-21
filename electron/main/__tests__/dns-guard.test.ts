@@ -59,7 +59,7 @@ describe('dns-guard', () => {
       mockLookup.mockResolvedValueOnce([{ address: '169.254.169.254', family: 4 }]);
       await expect(
         assertHostnameSafe('rebind.example.com', { allowLocalhost: false })
-      ).rejects.toThrow(/private address/);
+      ).rejects.toThrow(/metadata/);
     });
 
     it('rejects when DNS returns IPv4-mapped IPv6 wrapping a private v4', async () => {

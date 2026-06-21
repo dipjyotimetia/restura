@@ -26,7 +26,7 @@ afterAll(() => setLogSink(consoleSink));
 // is what the packaged Electron renderer uses).
 const trustedEvent = {
   sender: { id: 1 },
-  senderFrame: { url: 'file:///' },
+  senderFrame: { url: 'file:///path/to/dist/web/index.html' },
 } as unknown as Electron.IpcMainInvokeEvent;
 
 describe('validateIpcInput', () => {
@@ -291,6 +291,29 @@ describe('createValidatedHandler frame validation', () => {
       senderFrame: { url: 'file:///path/to/dist/web/index.html' },
     } as unknown as Electron.IpcMainInvokeEvent;
     await expect(handler(evt, 'hello')).resolves.toBe('hello');
+  });
+
+  it('rejects a subframe even at the renderer path (has a parent frame)', async () => {
+    const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
+    const evt = {
+      sender: { id: 1 },
+      senderFrame: {
+        url: 'file:///path/to/dist/web/index.html',
+        parent: { url: 'file:///path/to/dist/web/index.html' },
+      },
+    } as unknown as Electron.IpcMainInvokeEvent;
+    await expect(handler(evt, 'hello')).rejects.toThrow('untrusted frame');
+  });
+
+  it('rejects a non-canonical file:// frame (not the renderer entry)', async () => {
+    const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
+    for (const url of ['file:///', 'file:///etc/passwd.html', 'file:///tmp/evil/index.html']) {
+      const evt = {
+        sender: { id: 1 },
+        senderFrame: { url },
+      } as unknown as Electron.IpcMainInvokeEvent;
+      await expect(handler(evt, 'hello')).rejects.toThrow('untrusted frame');
+    }
   });
 
   it('accepts events from localhost:5173 dev server', async () => {

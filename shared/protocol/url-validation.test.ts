@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  validateURL,
-  assertResolvedAddressAllowed,
-  isPrivateAddress,
-} from './url-validation';
+import { validateURL, assertResolvedAddressAllowed, isPrivateAddress } from './url-validation';
 
 describe('validateURL', () => {
   it('accepts a public https URL', () => {
@@ -53,12 +49,14 @@ describe('validateURL', () => {
 
 describe('assertResolvedAddressAllowed', () => {
   it('throws if a public hostname resolves to a private IP (DNS rebind)', () => {
-    expect(() =>
-      assertResolvedAddressAllowed('attacker.example.com', '127.0.0.1', {})
-    ).toThrow(/private/);
+    expect(() => assertResolvedAddressAllowed('attacker.example.com', '127.0.0.1', {})).toThrow(
+      /private/
+    );
+    // 169.254.169.254 is link-local AND the cloud-metadata IP — refused via the
+    // unconditional metadata gate (more specific than the private-address path).
     expect(() =>
       assertResolvedAddressAllowed('attacker.example.com', '169.254.169.254', {})
-    ).toThrow(/private/);
+    ).toThrow(/metadata/);
   });
 
   it('does not throw if hostname is allowed-private and address is private', () => {
@@ -83,15 +81,13 @@ describe('assertResolvedAddressAllowed', () => {
   });
 
   it('without allowPrivateLiteralHost, literal-IP hostname still rejected', () => {
-    expect(() =>
-      assertResolvedAddressAllowed('192.168.1.1', '192.168.1.1', {})
-    ).toThrow(/private/);
+    expect(() => assertResolvedAddressAllowed('192.168.1.1', '192.168.1.1', {})).toThrow(/private/);
   });
 
   it('handles upper-case IPv6 resolved addresses (DNS may return uppercase)', () => {
-    expect(() =>
-      assertResolvedAddressAllowed('attacker.example.com', 'FE80::1', {})
-    ).toThrow(/private/);
+    expect(() => assertResolvedAddressAllowed('attacker.example.com', 'FE80::1', {})).toThrow(
+      /private/
+    );
   });
 });
 
@@ -123,7 +119,7 @@ describe('isPrivateAddress', () => {
     expect(isPrivateAddress('100.64.0.1')).toBe(true);
     expect(isPrivateAddress('100.127.255.254')).toBe(true);
     expect(isPrivateAddress('100.63.255.255')).toBe(false); // just below
-    expect(isPrivateAddress('100.128.0.1')).toBe(false);    // just above
+    expect(isPrivateAddress('100.128.0.1')).toBe(false); // just above
   });
 
   it('rejects all of 127.0.0.0/8 (loopback range)', () => {
