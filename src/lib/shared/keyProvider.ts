@@ -96,13 +96,9 @@ export class WebSessionPassphraseProvider implements KeyProvider {
     if (!passphrase) throw new Error('Passphrase must not be empty');
     const SALT = new TextEncoder().encode('restura/v1/passphrase');
     const passBytes = new TextEncoder().encode(passphrase);
-    const material = await crypto.subtle.importKey(
-      'raw',
-      passBytes,
-      'PBKDF2',
-      false,
-      ['deriveBits']
-    );
+    const material = await crypto.subtle.importKey('raw', passBytes, 'PBKDF2', false, [
+      'deriveBits',
+    ]);
     const bits = await crypto.subtle.deriveBits(
       {
         name: 'PBKDF2',

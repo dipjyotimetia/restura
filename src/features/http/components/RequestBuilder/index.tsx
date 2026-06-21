@@ -22,8 +22,7 @@ const TAB_KEYS: Record<string, SubTabKey> = {
 };
 
 function RequestBuilder() {
-  const { httpRequest, isLoading, globalSettings, handlers, counts } =
-    useHttpRequestPage();
+  const { httpRequest, isLoading, globalSettings, handlers, counts } = useHttpRequestPage();
   const { sendRequest } = handlers;
   const [activeTab, setActiveTab] = useState<SubTabKey>('params');
   // Code-gen open state lives in the UI store so the command palette can open
@@ -33,19 +32,18 @@ function RequestBuilder() {
   const setCodeGenOpen = useUiStore((s) => s.setCodeGenOpen);
   const loadTestOpen = useUiStore((s) => s.loadTestOpen);
   const setLoadTestOpen = useUiStore((s) => s.setLoadTestOpen);
-  useEffect(() => () => {
-    setCodeGenOpen(false);
-    setLoadTestOpen(false);
-  }, [setCodeGenOpen, setLoadTestOpen]);
+  useEffect(
+    () => () => {
+      setCodeGenOpen(false);
+      setLoadTestOpen(false);
+    },
+    [setCodeGenOpen, setLoadTestOpen]
+  );
 
   // Alt+1..6 sub-tab jump
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      )
-        return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.altKey && !e.metaKey && !e.ctrlKey) {
         const tab = TAB_KEYS[e.key];
         if (tab) {
@@ -84,11 +82,7 @@ function RequestBuilder() {
         onOpenCodeGen={() => setCodeGenOpen(true)}
       />
 
-      <CodeGeneratorDialog
-        open={codeGenOpen}
-        onOpenChange={setCodeGenOpen}
-        request={httpRequest}
-      />
+      <CodeGeneratorDialog open={codeGenOpen} onOpenChange={setCodeGenOpen} request={httpRequest} />
 
       <LoadTestDialog
         open={loadTestOpen}

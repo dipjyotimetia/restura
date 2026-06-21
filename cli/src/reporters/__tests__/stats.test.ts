@@ -58,8 +58,22 @@ describe('formatLoadStatsReport', () => {
       meta: { collectionName: 'G', collectionDir: '/x', startedAt: 1 },
       durationMs: 1000,
       requests: [
-        { request: fakeReq(), status: 0, passed: true, durationMs: 5, bodyBytes: 0, grpcStatus: { code: 0, message: 'OK' } } as RequestRunResult,
-        { request: fakeReq(), status: 0, passed: false, durationMs: 5, bodyBytes: 0, grpcStatus: { code: 14, message: 'unavailable' } } as RequestRunResult,
+        {
+          request: fakeReq(),
+          status: 0,
+          passed: true,
+          durationMs: 5,
+          bodyBytes: 0,
+          grpcStatus: { code: 0, message: 'OK' },
+        } as RequestRunResult,
+        {
+          request: fakeReq(),
+          status: 0,
+          passed: false,
+          durationMs: 5,
+          bodyBytes: 0,
+          grpcStatus: { code: 14, message: 'unavailable' },
+        } as RequestRunResult,
       ],
       summary: { total: 2, passed: 1, failed: 1, errored: 0 },
     };

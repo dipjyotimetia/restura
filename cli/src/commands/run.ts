@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { runCollection, type RunOptions } from '../runner/runner.js';
 import { loadEnv } from '../runner/envLoader.js';
 import { loadIterationData } from '../runner/dataLoader.js';

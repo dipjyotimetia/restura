@@ -26,11 +26,7 @@ interface SaveToCollectionDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function SaveToCollectionDialog({
-  tabId,
-  open,
-  onOpenChange,
-}: SaveToCollectionDialogProps) {
+export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToCollectionDialogProps) {
   const tab = useRequestStore((s) => s.tabs.find((t) => t.id === tabId));
   const linkTabToSavedRequest = useRequestStore((s) => s.linkTabToSavedRequest);
   const { collections, addItemToCollection, createNewCollection, addCollection } =
@@ -39,9 +35,7 @@ export function SaveToCollectionDialog({
   const [selectedCollectionId, setSelectedCollectionId] = useState('');
   const [newCollectionName, setNewCollectionName] = useState('');
   const [requestName, setRequestName] = useState(tab?.request.name ?? 'New Request');
-  const [mode, setMode] = useState<'existing' | 'new'>(
-    collections.length > 0 ? 'existing' : 'new'
-  );
+  const [mode, setMode] = useState<'existing' | 'new'>(collections.length > 0 ? 'existing' : 'new');
 
   // Reset form state each time the dialog opens
   useEffect(() => {
@@ -51,8 +45,8 @@ export function SaveToCollectionDialog({
       setSelectedCollectionId('');
       setNewCollectionName('');
     }
-  // collections.length intentionally omitted — only re-run when open changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // collections.length intentionally omitted — only re-run when open changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (!tab) return null;
@@ -83,9 +77,7 @@ export function SaveToCollectionDialog({
   };
 
   const canSave =
-    mode === 'new'
-      ? newCollectionName.trim().length > 0
-      : selectedCollectionId.length > 0;
+    mode === 'new' ? newCollectionName.trim().length > 0 : selectedCollectionId.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

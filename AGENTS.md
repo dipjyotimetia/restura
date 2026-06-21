@@ -45,12 +45,14 @@ npm run deploy:preview         # Deploy preview branch
 ## Architecture
 
 ### Dual-Platform Design
+
 - **Web Client**: Vite + React + React Router SPA, deployed to Cloudflare Pages.
 - **Worker (web only)**: Hono app at `worker/index.ts` deployed as Pages Functions, serving `/api/proxy`, `/api/grpc`, `/api/grpc/reflection`. Same-origin as the SPA — no CORS friction.
 - **Desktop Client**: Electron main process at `electron/main/`. Renderer is the same Vite-built SPA loaded via `file://`. The Worker is **never** bundled into the desktop app — Electron uses native IPC (`electron/main/http-handler.ts`).
 - **Routing**: `createHashRouter` so the same renderer works under `https://` (Pages) and `file://` (Electron).
 
 ### Feature-Based Organization
+
 ```
 src/features/
 ├── http/           # RequestBuilder, requestExecutor, useHttpRequest, useCookieStore
@@ -82,7 +84,9 @@ worker/             # Cloudflare Worker (Hono) — web-only API
 ```
 
 ### State Management (Zustand)
+
 Persisted stores manage application state:
+
 - `useRequestStore` - Current request/response state
 - `useCollectionStore` - Saved request collections
 - `useEnvironmentStore` - Environment variables
@@ -92,7 +96,9 @@ Persisted stores manage application state:
 All stores use `zustand/middleware/persist` for localStorage persistence. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`.
 
 ### Electron IPC Architecture
+
 Main process modules in `electron/main/`:
+
 - `main.ts` - Application entry, orchestrates other modules
 - `window-manager.ts` - Window creation; loads `http://localhost:5173` in dev, `dist/web/index.html` in prod
 - `file-operations.ts` - Native file system access
@@ -123,6 +129,7 @@ The renderer's `requestExecutor` and `grpcClient` branch on `isElectron()` to us
 ## Worker
 
 The Worker is a Hono app deployed as Cloudflare Pages Functions. Key facts:
+
 - Bundled into `dist/web/_worker.js` by `@cloudflare/vite-plugin` during `vite build`.
 - The Electron build excludes `_worker.js` (see `electron-builder.json` files glob).
 - Compatibility flag `nodejs_compat` is enabled for `Buffer` etc. (see `wrangler.jsonc`).
@@ -135,6 +142,7 @@ Tests are colocated with source files using `*.test.ts` pattern. Vitest runs in 
 ## Electron Build
 
 `electron-builder.json` defines the build. Process:
+
 1. `electron:build:web` — `vite build` with `VITE_IS_ELECTRON_BUILD=true` → `dist/web/`
 2. `electron:compile` — Compiles TypeScript in `electron/main/` → `dist/electron/`
 3. `electron-builder` — Packages app for target platform from `dist/`

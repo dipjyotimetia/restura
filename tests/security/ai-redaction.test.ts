@@ -6,10 +6,12 @@ const JWT_BODY = (s: string) => `{"token":"${s}"}`;
 
 function randomJwt(): string {
   const part = (n: number) =>
-    Array.from({ length: n }, () =>
-      ('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'[
-        Math.floor(Math.random() * 64)
-      ] ?? 'A'),
+    Array.from(
+      { length: n },
+      () =>
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'[
+          Math.floor(Math.random() * 64)
+        ] ?? 'A'
     ).join('');
   return `eyJ${part(20)}.${part(60)}.${part(30)}`;
 }
@@ -94,7 +96,7 @@ describe('prefix-recognizable provider/cloud tokens (no key name, no Bearer)', (
         'Private-Token': 'glpat-xxxxxxxxxxxx',
         'WWW-Authenticate': 'Bearer realm="api"',
       },
-      'default',
+      'default'
     );
     expect(out['api-key']).toBe('[REDACTED]');
     expect(out['Private-Token']).toBe('[REDACTED]');

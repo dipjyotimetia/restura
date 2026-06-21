@@ -18,13 +18,7 @@
  */
 import dagre from '@dagrejs/dagre';
 import { v4 as uuidv4 } from 'uuid';
-import type {
-  FlowEdge,
-  FlowNode,
-  FlowNodeKind,
-  WorkflowGraph,
-  WorkflowRequest,
-} from '@/types';
+import type { FlowEdge, FlowNode, FlowNodeKind, WorkflowGraph, WorkflowRequest } from '@/types';
 
 const DEFAULT_NODE_WIDTH = 240;
 const DEFAULT_NODE_HEIGHT = 96;
@@ -46,10 +40,7 @@ export interface LayoutOptions {
   ranksep?: number;
 }
 
-export function layoutGraph(
-  graph: WorkflowGraph,
-  options: LayoutOptions = {}
-): WorkflowGraph {
+export function layoutGraph(graph: WorkflowGraph, options: LayoutOptions = {}): WorkflowGraph {
   const { direction = 'TB', nodesep = 60, ranksep = 80 } = options;
 
   const g = new dagre.graphlib.Graph();

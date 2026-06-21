@@ -27,7 +27,8 @@ export default function GrpcStreamingControls({
 
   if (!streamControl) return null;
 
-  const canSendMessages = methodType === 'client-streaming' || methodType === 'bidirectional-streaming';
+  const canSendMessages =
+    methodType === 'client-streaming' || methodType === 'bidirectional-streaming';
 
   const handleSend = () => {
     setSendError(null);
@@ -78,12 +79,7 @@ export default function GrpcStreamingControls({
           </Button>
         </div>
       )}
-      <Button
-        variant="destructive"
-        size="sm"
-        onClick={onCancel}
-        className="h-7 shrink-0"
-      >
+      <Button variant="destructive" size="sm" onClick={onCancel} className="h-7 shrink-0">
         Cancel
       </Button>
     </div>
@@ -91,11 +87,7 @@ export default function GrpcStreamingControls({
 }
 
 // Component for displaying streaming messages
-export function GrpcStreamingMessages({
-  messages,
-}: {
-  messages: string[];
-}) {
+export function GrpcStreamingMessages({ messages }: { messages: string[] }) {
   if (messages.length === 0) return null;
 
   return (

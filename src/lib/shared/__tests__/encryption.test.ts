@@ -174,7 +174,9 @@ describe('Encryption Utilities', () => {
 
       expect(encrypted.username).toBe('john');
       expect(encrypted.email).toBe('john@example.com');
-      expect(typeof encrypted.password === 'string' && encrypted.password.startsWith('ENC:')).toBe(true);
+      expect(typeof encrypted.password === 'string' && encrypted.password.startsWith('ENC:')).toBe(
+        true
+      );
       expect(encrypted.password).not.toContain('secret123');
     });
 
@@ -192,8 +194,10 @@ describe('Encryption Utilities', () => {
       const encrypted = await encryptSensitiveFields(obj, testPassword);
 
       expect((encrypted.user as Record<string, unknown>).name).toBe('john');
-      const creds = (encrypted.user as Record<string, unknown>)
-        .credentials as Record<string, unknown>;
+      const creds = (encrypted.user as Record<string, unknown>).credentials as Record<
+        string,
+        unknown
+      >;
       expect(typeof creds.apiKey === 'string' && creds.apiKey.startsWith('ENC:')).toBe(true);
       expect(typeof creds.secretKey === 'string' && creds.secretKey.startsWith('ENC:')).toBe(true);
     });
@@ -221,7 +225,9 @@ describe('Encryption Utilities', () => {
 
       expect(encrypted.password).toBeNull();
       expect(encrypted.token).toBeUndefined();
-      expect(typeof encrypted.apiKey === 'string' && encrypted.apiKey.startsWith('ENC:')).toBe(true);
+      expect(typeof encrypted.apiKey === 'string' && encrypted.apiKey.startsWith('ENC:')).toBe(
+        true
+      );
     });
   });
 
@@ -265,7 +271,11 @@ describe('Encryption Utilities', () => {
     it('should handle nested objects', async () => {
       const obj = { level1: { level2: { password: 'secret' } } };
       const encrypted = await encryptSensitiveFields(obj, testPassword);
-      expect((encrypted.level1 as Record<string, Record<string, string>>).level2?.password?.startsWith('ENC:')).toBe(true);
+      expect(
+        (encrypted.level1 as Record<string, Record<string, string>>).level2?.password?.startsWith(
+          'ENC:'
+        )
+      ).toBe(true);
     });
 
     it('should handle arrays of objects', async () => {
@@ -276,7 +286,11 @@ describe('Encryption Utilities', () => {
     });
 
     it('should pass through null/undefined values', async () => {
-      const obj = { token: null as unknown as string, key: undefined as unknown as string, name: 'test' };
+      const obj = {
+        token: null as unknown as string,
+        key: undefined as unknown as string,
+        name: 'test',
+      };
       const encrypted = await encryptSensitiveFields(obj, testPassword);
       expect(encrypted.token).toBeNull();
       expect(encrypted.key).toBeUndefined();

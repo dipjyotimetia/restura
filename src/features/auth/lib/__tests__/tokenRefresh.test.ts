@@ -2,7 +2,9 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { shouldRefreshOAuth2, refreshOAuth2Auth } from '../tokenRefresh';
 import type { AuthConfig } from '@/types';
 
-const baseOauth2Auth = (overrides: Partial<NonNullable<AuthConfig['oauth2']>> = {}): AuthConfig => ({
+const baseOauth2Auth = (
+  overrides: Partial<NonNullable<AuthConfig['oauth2']>> = {}
+): AuthConfig => ({
   type: 'oauth2',
   oauth2: {
     accessToken: 'old-token',
@@ -50,16 +52,17 @@ describe('refreshOAuth2Auth', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            access_token: 'new-token',
-            token_type: 'Bearer',
-            expires_in: 3600,
-            refresh_token: 'new-refresh',
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } }
-        )
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              access_token: 'new-token',
+              token_type: 'Bearer',
+              expires_in: 3600,
+              refresh_token: 'new-refresh',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
       )
     );
   });
@@ -81,11 +84,12 @@ describe('refreshOAuth2Auth', () => {
   it('preserves existing refresh token if provider omits new one', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({ access_token: 'new-token', token_type: 'Bearer', expires_in: 3600 }),
-          { status: 200, headers: { 'content-type': 'application/json' } }
-        )
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ access_token: 'new-token', token_type: 'Bearer', expires_in: 3600 }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
       )
     );
     const auth = baseOauth2Auth({ expiresAt: Date.now() + 30_000 });

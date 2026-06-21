@@ -2,9 +2,27 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ModelInfo, ProviderModule, StreamDecoder } from './types';
 
 const MODELS: ModelInfo[] = [
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000, inputUSDPerMTok: 1.0, outputUSDPerMTok: 5.0 },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', contextWindow: 200_000, inputUSDPerMTok: 3.0, outputUSDPerMTok: 15.0 },
-  { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', contextWindow: 200_000, inputUSDPerMTok: 15.0, outputUSDPerMTok: 75.0 },
+  {
+    id: 'claude-haiku-4-5',
+    label: 'Claude Haiku 4.5',
+    contextWindow: 200_000,
+    inputUSDPerMTok: 1.0,
+    outputUSDPerMTok: 5.0,
+  },
+  {
+    id: 'claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6',
+    contextWindow: 200_000,
+    inputUSDPerMTok: 3.0,
+    outputUSDPerMTok: 15.0,
+  },
+  {
+    id: 'claude-opus-4-7',
+    label: 'Claude Opus 4.7',
+    contextWindow: 200_000,
+    inputUSDPerMTok: 15.0,
+    outputUSDPerMTok: 75.0,
+  },
 ];
 
 function modelFor(id: string): ModelInfo | undefined {
@@ -14,7 +32,10 @@ function modelFor(id: string): ModelInfo | undefined {
 function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
   const info = modelFor(model);
   if (!info) return 0;
-  return (inputTokens / 1_000_000) * info.inputUSDPerMTok + (outputTokens / 1_000_000) * info.outputUSDPerMTok;
+  return (
+    (inputTokens / 1_000_000) * info.inputUSDPerMTok +
+    (outputTokens / 1_000_000) * info.outputUSDPerMTok
+  );
 }
 
 class AnthropicDecoder implements StreamDecoder {
@@ -50,7 +71,8 @@ class AnthropicDecoder implements StreamDecoder {
     switch (evt) {
       case 'message_start':
         if (p.message?.usage?.input_tokens != null) this.inputTokens = p.message.usage.input_tokens;
-        if (p.message?.usage?.output_tokens != null) this.outputTokens = p.message.usage.output_tokens;
+        if (p.message?.usage?.output_tokens != null)
+          this.outputTokens = p.message.usage.output_tokens;
         break;
       case 'content_block_start':
         if (
@@ -59,11 +81,19 @@ class AnthropicDecoder implements StreamDecoder {
           p.content_block.name &&
           p.index != null
         ) {
-          this.toolBlocks.set(p.index, { id: p.content_block.id, name: p.content_block.name, json: '' });
+          this.toolBlocks.set(p.index, {
+            id: p.content_block.id,
+            name: p.content_block.name,
+            json: '',
+          });
         }
         break;
       case 'content_block_delta':
-        if (p.delta?.type === 'text_delta' && typeof p.delta.text === 'string' && p.delta.text.length > 0) {
+        if (
+          p.delta?.type === 'text_delta' &&
+          typeof p.delta.text === 'string' &&
+          p.delta.text.length > 0
+        ) {
           this.buffered.push({ type: 'delta', text: p.delta.text });
         } else if (
           p.delta?.type === 'input_json_delta' &&
@@ -95,7 +125,11 @@ class AnthropicDecoder implements StreamDecoder {
         this.finished = true;
         break;
       case 'error':
-        this.buffered.push({ type: 'error', code: 'provider', message: p.error?.message ?? 'Provider error' });
+        this.buffered.push({
+          type: 'error',
+          code: 'provider',
+          message: p.error?.message ?? 'Provider error',
+        });
         this.finished = true;
         break;
       default:

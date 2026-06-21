@@ -12,7 +12,11 @@ async function forwardThroughProxy(
   proxyPort: number,
   targetUrl: string,
   headers: Record<string, string> = {}
-): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }> {
+): Promise<{
+  status: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
       {
@@ -41,9 +45,15 @@ async function forwardThroughProxy(
 }
 
 test.describe('HTTP proxy — Basic auth', () => {
-  test('without credentials, the proxy returns 407 with Proxy-Authenticate', async ({ servers }) => {
+  test('without credentials, the proxy returns 407 with Proxy-Authenticate', async ({
+    servers,
+  }) => {
     servers.proxy.setBasicAuth('alice', 'secret');
-    const res = await forwardThroughProxy('127.0.0.1', servers.proxy.port, `${servers.http.url}/json`);
+    const res = await forwardThroughProxy(
+      '127.0.0.1',
+      servers.proxy.port,
+      `${servers.http.url}/json`
+    );
     expect(res.status).toBe(407);
     expect(res.headers['proxy-authenticate']).toContain('Basic');
     expect(servers.proxy.authChallengeCount()).toBe(1);

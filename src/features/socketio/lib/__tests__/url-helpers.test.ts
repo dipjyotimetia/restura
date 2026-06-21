@@ -12,7 +12,9 @@ describe('buildSocketIOConnectUrl', () => {
   });
 
   it('appends the namespace path to the origin', () => {
-    expect(buildSocketIOConnectUrl('https://example.com', '/chat')).toBe('https://example.com/chat');
+    expect(buildSocketIOConnectUrl('https://example.com', '/chat')).toBe(
+      'https://example.com/chat'
+    );
   });
 
   it('normalises a namespace without leading slash', () => {
@@ -20,7 +22,9 @@ describe('buildSocketIOConnectUrl', () => {
   });
 
   it('strips any path on the base URL in favour of the namespace', () => {
-    expect(buildSocketIOConnectUrl('https://example.com/api', '/admin')).toBe('https://example.com/admin');
+    expect(buildSocketIOConnectUrl('https://example.com/api', '/admin')).toBe(
+      'https://example.com/admin'
+    );
   });
 
   it('returns the raw URL on parse failure', () => {

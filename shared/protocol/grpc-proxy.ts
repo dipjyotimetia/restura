@@ -132,11 +132,19 @@ export async function executeGrpcProxy(
 
     const tooLargeMsg = `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`;
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
-      return { ok: false, status: 413, payload: emptyGrpcResponse(GrpcStatusCode.RESOURCE_EXHAUSTED, tooLargeMsg) };
+      return {
+        ok: false,
+        status: 413,
+        payload: emptyGrpcResponse(GrpcStatusCode.RESOURCE_EXHAUSTED, tooLargeMsg),
+      };
     }
     const text = await response.text();
     if (text.length > MAX_RESPONSE_SIZE) {
-      return { ok: false, status: 413, payload: emptyGrpcResponse(GrpcStatusCode.RESOURCE_EXHAUSTED, tooLargeMsg) };
+      return {
+        ok: false,
+        status: 413,
+        payload: emptyGrpcResponse(GrpcStatusCode.RESOURCE_EXHAUSTED, tooLargeMsg),
+      };
     }
 
     const sanitized = sanitizeResponseHeaders(response.headers);
@@ -179,13 +187,15 @@ export async function executeGrpcProxy(
     };
   } catch (err) {
     const isAbort =
-      controller.signal.aborted ||
-      (err instanceof Error && err.name === 'AbortError');
+      controller.signal.aborted || (err instanceof Error && err.name === 'AbortError');
     if (isAbort) {
       return {
         ok: false,
         status: 504,
-        payload: emptyGrpcResponse(GrpcStatusCode.DEADLINE_EXCEEDED, `Request timeout after ${timeout}ms`),
+        payload: emptyGrpcResponse(
+          GrpcStatusCode.DEADLINE_EXCEEDED,
+          `Request timeout after ${timeout}ms`
+        ),
       };
     }
     const message = err instanceof Error ? err.message : 'Proxy request failed';

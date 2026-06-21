@@ -152,4 +152,4 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to get started.
 
 ---
 
-*Last updated: May 2026*
+_Last updated: May 2026_

@@ -8,7 +8,9 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ProviderModule } from '@shared/protocol/ai/providers/types';
 
 function load(name: string): Uint8Array {
-  return new TextEncoder().encode(readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8'));
+  return new TextEncoder().encode(
+    readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8')
+  );
 }
 
 function decode(mod: ProviderModule, name: string, model: string): ChatStreamEvent[] {

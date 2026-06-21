@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { validateRequest, validateEnvironment, validateCollection } from '@/lib/shared/store-validators';
+import {
+  validateRequest,
+  validateEnvironment,
+  validateCollection,
+} from '@/lib/shared/store-validators';
 import type { HttpRequest, GrpcRequest } from '@/types';
 
 describe('Critical Fixes Verification', () => {

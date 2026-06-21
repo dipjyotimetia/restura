@@ -17,15 +17,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WorkflowStep } from './WorkflowStep';
-import {
-  Play,
-  Square,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Variable,
-  FileText,
-} from 'lucide-react';
+import { Play, Square, CheckCircle2, XCircle, Clock, Variable, FileText } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 
 interface WorkflowExecutorProps {
@@ -34,16 +26,11 @@ interface WorkflowExecutorProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function WorkflowExecutor({
-  workflow,
-  open,
-  onOpenChange,
-}: WorkflowExecutorProps) {
+export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecutorProps) {
   const collections = useCollectionStore((s) => s.collections);
   const collection = collections.find((c) => c.id === workflow.collectionId);
 
-  const { isRunning, execution, logs, run, stop } =
-    useWorkflowExecution();
+  const { isRunning, execution, logs, run, stop } = useWorkflowExecution();
 
   const [activeTab, setActiveTab] = useState<'steps' | 'variables' | 'logs'>('steps');
 
@@ -135,9 +122,7 @@ export function WorkflowExecutor({
             <ScrollArea className="h-[400px]">
               <div className="space-y-2 pr-4">
                 {workflow.requests.map((req, index) => {
-                  const execStep = execution?.steps.find(
-                    (s) => s.workflowRequestId === req.id
-                  );
+                  const execStep = execution?.steps.find((s) => s.workflowRequestId === req.id);
                   const requestDetails = getRequestById(req.requestId);
                   return (
                     <WorkflowStep
@@ -158,13 +143,8 @@ export function WorkflowExecutor({
               {execution && Object.keys(execution.finalVariables).length > 0 ? (
                 <div className="space-y-1 pr-4">
                   {Object.entries(execution.finalVariables).map(([key, value]) => (
-                    <div
-                      key={key}
-                      className="flex items-start gap-2 p-2 rounded bg-muted/50"
-                    >
-                      <code className="text-sm font-medium text-primary min-w-[100px]">
-                        {key}
-                      </code>
+                    <div key={key} className="flex items-start gap-2 p-2 rounded bg-muted/50">
+                      <code className="text-sm font-medium text-primary min-w-[100px]">{key}</code>
                       <code className="text-sm text-muted-foreground break-all">
                         {value.length > 100 ? `${value.substring(0, 100)}...` : value}
                       </code>
@@ -190,8 +170,10 @@ export function WorkflowExecutor({
                       key={index}
                       className={cn(
                         'p-1.5 rounded',
-                        log.level === 'error' && 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300',
-                        log.level === 'warn' && 'bg-yellow-50 dark:bg-yellow-950 text-yellow-700 dark:text-yellow-300',
+                        log.level === 'error' &&
+                          'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300',
+                        log.level === 'warn' &&
+                          'bg-yellow-50 dark:bg-yellow-950 text-yellow-700 dark:text-yellow-300',
                         log.level === 'info' && 'bg-muted'
                       )}
                     >
@@ -218,7 +200,8 @@ export function WorkflowExecutor({
                 <>
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
                   <span className="text-green-600">
-                    Completed in {execution.completedAt ? execution.completedAt - execution.startedAt : 0}ms
+                    Completed in{' '}
+                    {execution.completedAt ? execution.completedAt - execution.startedAt : 0}ms
                   </span>
                 </>
               ) : execution.status === 'failed' ? (

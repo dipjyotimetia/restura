@@ -14,16 +14,16 @@ services:
     container_name: restura
     restart: unless-stopped
     ports:
-      - "${RESTURA_PORT:-3000}:3000"
+      - '${RESTURA_PORT:-3000}:3000'
     env_file:
       - .env
     environment:
       # Defaults baked into the image; .env can override.
       NODE_ENV: production
-      PORT: "3000"
+      PORT: '3000'
       HOST: 0.0.0.0
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health']
       interval: 30s
       timeout: 5s
       start_period: 10s
@@ -32,6 +32,7 @@ services:
     # no extra privileges beyond what its non-root `node` user already has.
     security_opt:
       - no-new-privileges:true
-    read_only: false  # Node writes nothing to disk in production, but
-                      # `tmp` for streaming + npm cache need to be writable.
-                      # Flip to true after validating in your environment.
+    read_only:
+      false # Node writes nothing to disk in production, but
+      # `tmp` for streaming + npm cache need to be writable.
+      # Flip to true after validating in your environment.

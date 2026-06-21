@@ -19,9 +19,7 @@ export const socketioProtocol: ProtocolModule = {
   label: 'Socket.IO',
   tabType: 'socketio',
   defaultRequest: () => {
-    throw new Error(
-      'Socket.IO has no Request shape; create a connection via useSocketIOStore.'
-    );
+    throw new Error('Socket.IO has no Request shape; create a connection via useSocketIOStore.');
   },
   runRequest: async () => {
     throw new Error(

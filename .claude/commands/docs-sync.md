@@ -1,6 +1,6 @@
 ---
 description: Update every documentation surface a code change made stale — docs/, ADRs, docs-site, and root markdown — using Restura's doc-ownership map.
-argument-hint: "[diff range | feature name] (default: current diff vs main)"
+argument-hint: '[diff range | feature name] (default: current diff vs main)'
 allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Task
 ---
 

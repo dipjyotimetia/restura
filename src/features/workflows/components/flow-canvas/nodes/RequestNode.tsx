@@ -59,11 +59,7 @@ function RequestNodeImpl({ id, data, selected }: NodeProps) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <NodeChrome
-        nodeId={id}
-        kindLabel="Request"
-        selected={Boolean(selected)}
-      >
+      <NodeChrome nodeId={id} kindLabel="Request" selected={Boolean(selected)}>
         <div className="flex items-center gap-2">
           {method && <Badge variant={methodBadgeVariant(method)}>{method}</Badge>}
           {isMissing && <Badge variant="destructive">Missing</Badge>}

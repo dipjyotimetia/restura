@@ -67,7 +67,9 @@ describe('variableExtractor', () => {
 
     it('should stringify objects', () => {
       const result = extractByJsonPath(body, 'data.user');
-      expect(result).toBe(JSON.stringify({ id: '123', name: 'John', emails: ['john@example.com', 'j@test.com'] }));
+      expect(result).toBe(
+        JSON.stringify({ id: '123', name: 'John', emails: ['john@example.com', 'j@test.com'] })
+      );
     });
 
     it('should handle invalid JSON', () => {

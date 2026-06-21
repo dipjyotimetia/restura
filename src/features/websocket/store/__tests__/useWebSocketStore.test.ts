@@ -112,7 +112,9 @@ describe('useWebSocketStore', () => {
       const timestamp = Date.now();
 
       store.setLastConnectedAt(connectionId, timestamp);
-      expect(useWebSocketStore.getState().connections[connectionId]?.lastConnectedAt).toBe(timestamp);
+      expect(useWebSocketStore.getState().connections[connectionId]?.lastConnectedAt).toBe(
+        timestamp
+      );
     });
   });
 

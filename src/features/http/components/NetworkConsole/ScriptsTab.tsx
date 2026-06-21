@@ -57,9 +57,7 @@ export default function ScriptsTab({ logs, tests }: ScriptsTabProps) {
   // show their own logs instead of the latest send. Falls back to the live
   // prop when nothing is selected (in-flight or pre-network-tab usage).
   const { effectiveLogs, effectiveTests, source } = useMemo(() => {
-    const selected = selectedEntryId
-      ? entries.find((e) => e.id === selectedEntryId)
-      : undefined;
+    const selected = selectedEntryId ? entries.find((e) => e.id === selectedEntryId) : undefined;
     if (selected && (selected.scriptLogs?.length || selected.tests?.length)) {
       return {
         effectiveLogs: selected.scriptLogs ?? [],
@@ -74,8 +72,7 @@ export default function ScriptsTab({ logs, tests }: ScriptsTabProps) {
     };
   }, [entries, selectedEntryId, logs, tests]);
 
-  const hasContent =
-    effectiveLogs.length > 0 || (effectiveTests && effectiveTests.length > 0);
+  const hasContent = effectiveLogs.length > 0 || (effectiveTests && effectiveTests.length > 0);
 
   if (!hasContent) {
     const hasSelection = Boolean(selectedEntryId);

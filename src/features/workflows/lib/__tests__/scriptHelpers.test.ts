@@ -32,10 +32,7 @@ describe('evalScriptBoolean (precondition bug fix)', () => {
   });
 
   it('returns false when the script throws', async () => {
-    const ok = await evalScriptBoolean(
-      'throw new Error("nope");',
-      { variables: {} }
-    );
+    const ok = await evalScriptBoolean('throw new Error("nope");', { variables: {} });
     expect(ok).toBe(false);
   });
 
@@ -45,10 +42,9 @@ describe('evalScriptBoolean (precondition bug fix)', () => {
   });
 
   it('can read variables via pm.variables.get', async () => {
-    const ok = await evalScriptBoolean(
-      'return pm.variables.get("flag") === "yes";',
-      { variables: { flag: 'yes' } }
-    );
+    const ok = await evalScriptBoolean('return pm.variables.get("flag") === "yes";', {
+      variables: { flag: 'yes' },
+    });
     expect(ok).toBe(true);
   });
 
@@ -93,10 +89,9 @@ describe('evalScriptValue', () => {
 
 describe('evalScriptForVariables', () => {
   it('returns the variables map mutated by pm.variables.set', async () => {
-    const result = await evalScriptForVariables(
-      'pm.variables.set("greeted", "hello");',
-      { variables: { initial: 'x' } }
-    );
+    const result = await evalScriptForVariables('pm.variables.set("greeted", "hello");', {
+      variables: { initial: 'x' },
+    });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.variables.greeted).toBe('hello');
@@ -105,10 +100,7 @@ describe('evalScriptForVariables', () => {
   });
 
   it('strips the internal sentinel key from the returned variables', async () => {
-    const result = await evalScriptForVariables(
-      'pm.variables.set("ok", "1");',
-      { variables: {} }
-    );
+    const result = await evalScriptForVariables('pm.variables.set("ok", "1");', { variables: {} });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.variables).not.toHaveProperty('__restura_script_result');

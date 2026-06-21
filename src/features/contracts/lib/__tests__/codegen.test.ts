@@ -130,10 +130,7 @@ describe('inferZodFromSample — output shape', () => {
   });
 
   it('emits .optional() for properties present in only some array variants', () => {
-    const z = inferZodFromSample([
-      { id: 1 },
-      { id: 2, extra: 'flag' },
-    ]);
+    const z = inferZodFromSample([{ id: 1 }, { id: 2, extra: 'flag' }]);
     expect(z).toMatch(/extra: z\.string\(\)\.optional\(\)/);
   });
 

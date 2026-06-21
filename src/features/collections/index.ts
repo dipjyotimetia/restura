@@ -4,4 +4,8 @@ export { CollectionRunnerDialog } from './components/CollectionRunnerDialog';
 
 // Lib
 export { exportToPostman, exportToInsomnia, downloadJSON } from './lib/exporters';
-export { importPostmanCollection, importInsomniaCollection, importOpenAPICollection } from './lib/importers';
+export {
+  importPostmanCollection,
+  importInsomniaCollection,
+  importOpenAPICollection,
+} from './lib/importers';

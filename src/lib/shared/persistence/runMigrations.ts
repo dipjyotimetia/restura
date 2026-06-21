@@ -14,7 +14,7 @@ import type { LossyEvent, MigrationDescriptor, MigrationOutcome } from './types'
 export function runMigrations<T>(
   descriptor: MigrationDescriptor<T>,
   persistedState: unknown,
-  fromVersion: number | null,
+  fromVersion: number | null
 ): MigrationOutcome {
   // First run / empty persistence — let zustand use the store's initialState.
   if (persistedState === undefined || persistedState === null) {

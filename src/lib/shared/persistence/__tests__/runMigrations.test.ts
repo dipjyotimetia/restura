@@ -66,7 +66,12 @@ describe('runMigrations', () => {
         {
           name: 'corrupt',
           fromVersion: 0,
-          apply: () => ({ state: { count: 'not-a-number', label: 'x' } as unknown as { count: number; label: string } }),
+          apply: () => ({
+            state: { count: 'not-a-number', label: 'x' } as unknown as {
+              count: number;
+              label: string;
+            },
+          }),
         },
       ],
     };

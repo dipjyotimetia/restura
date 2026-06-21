@@ -71,7 +71,7 @@ describe('applyAuth', () => {
     );
 
     expect(result.headers.Authorization).toMatch(
-      /^AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE\/\d{8}\/us-east-1\/s3\/aws4_request, SignedHeaders=[a-z0-9;\-]+, Signature=[a-f0-9]{64}$/
+      /^AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE\/\d{8}\/us-east-1\/s3\/aws4_request, SignedHeaders=[a-z0-9;-]+, Signature=[a-f0-9]{64}$/
     );
     expect(result.headers['X-Amz-Date']).toMatch(/^\d{8}T\d{6}Z$/);
     // Empty body → SHA256 of empty string

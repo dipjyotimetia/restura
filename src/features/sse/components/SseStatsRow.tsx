@@ -71,7 +71,9 @@ export function SseStatsRow({
       />
       <Stat
         label="Avg Gap"
-        value={avgGapMs == null ? <span className="text-sp-dim">—</span> : `${avgGapMs.toFixed(0)}ms`}
+        value={
+          avgGapMs == null ? <span className="text-sp-dim">—</span> : `${avgGapMs.toFixed(0)}ms`
+        }
       />
       <Stat label="Reconnect" value={reconnects.toString()} />
 

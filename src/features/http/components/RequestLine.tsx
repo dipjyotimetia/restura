@@ -2,7 +2,13 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Kbd } from '@/components/ui/kbd';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { badgeVariants } from '@/components/ui/badge';
 import type { HttpMethod } from '@/types';
 import { Send, Code2, Loader2 } from 'lucide-react';
@@ -132,7 +138,9 @@ export default function RequestLine({
             <>
               <Send className="h-3 w-3 mr-1.5" />
               <span>Send</span>
-              <Kbd className="ml-1.5 h-4 text-[9px] bg-primary/15 text-primary/90 border-primary/30">⌘↵</Kbd>
+              <Kbd className="ml-1.5 h-4 text-[9px] bg-primary/15 text-primary/90 border-primary/30">
+                ⌘↵
+              </Kbd>
             </>
           )}
         </Button>

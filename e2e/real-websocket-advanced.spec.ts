@@ -56,8 +56,12 @@ test.describe('WebSocket — explicit close codes', () => {
     ['1011', 'server-error'],
     ['4001', 'app-specific'],
   ] as const) {
-    test(`/close?code=${code} closes with code ${code} and reason "${reason}"`, async ({ servers }) => {
-      const sock = new WebSocket(`${servers.ws.url}/close?code=${code}&reason=${encodeURIComponent(reason)}`);
+    test(`/close?code=${code} closes with code ${code} and reason "${reason}"`, async ({
+      servers,
+    }) => {
+      const sock = new WebSocket(
+        `${servers.ws.url}/close?code=${code}&reason=${encodeURIComponent(reason)}`
+      );
       const closeFrame = await new Promise<{ code: number; reason: string }>((resolve, reject) => {
         sock.on('close', (cc, rr) => resolve({ code: cc, reason: rr.toString('utf8') }));
         sock.on('error', reject);

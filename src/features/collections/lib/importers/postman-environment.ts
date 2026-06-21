@@ -34,18 +34,22 @@ export function isPostmanEnvironment(data: unknown): boolean {
  */
 export function importPostmanEnvironment(data: unknown): Environment {
   if (!isPostmanEnvironment(data)) {
-    throw new Error('Not a Postman environment file (missing _postman_variable_scope = "environment")');
+    throw new Error(
+      'Not a Postman environment file (missing _postman_variable_scope = "environment")'
+    );
   }
   const env = data as PostmanEnvFile;
   return {
     id: uuid(),
     name: env.name,
-    variables: env.values.map((v): KeyValue => ({
-      id: uuid(),
-      key: v.key,
-      value: v.value ?? '',
-      enabled: v.enabled !== false,
-      ...(v.type === 'secret' ? { secret: true } : {}),
-    })),
+    variables: env.values.map(
+      (v): KeyValue => ({
+        id: uuid(),
+        key: v.key,
+        value: v.value ?? '',
+        enabled: v.enabled !== false,
+        ...(v.type === 'secret' ? { secret: true } : {}),
+      })
+    ),
   };
 }

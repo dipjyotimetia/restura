@@ -137,21 +137,27 @@ Any handler that holds connections per renderer (gRPC streaming, MCP, SSE, WebSo
 ```ts
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 
-interface ActiveConn { webContentsId: number; close: () => void; /* ... */ }
+interface ActiveConn {
+  webContentsId: number;
+  close: () => void; /* ... */
+}
 const active = new Map<string, ActiveConn>();
 
-ipcMain.handle('myproto:open', createValidatedHandler('myproto:open', Schema, async (cfg, event) => {
-  const wc = event.sender;
-  const conn = openTransport(cfg);
-  active.set(conn.id, { webContentsId: wc.id, close: () => conn.terminate() });
+ipcMain.handle(
+  'myproto:open',
+  createValidatedHandler('myproto:open', Schema, async (cfg, event) => {
+    const wc = event.sender;
+    const conn = openTransport(cfg);
+    active.set(conn.id, { webContentsId: wc.id, close: () => conn.terminate() });
 
-  // ↓ Idempotent: dedupes per-(handlerKey, webContents.id). Use the map as handlerKey.
-  bindRendererCleanup(active, wc, (deadId) => {
-    disposeByOwner(active, deadId, (entry) => entry.close());
-  });
+    // ↓ Idempotent: dedupes per-(handlerKey, webContents.id). Use the map as handlerKey.
+    bindRendererCleanup(active, wc, (deadId) => {
+      disposeByOwner(active, deadId, (entry) => entry.close());
+    });
 
-  return { id: conn.id };
-}));
+    return { id: conn.id };
+  })
+);
 ```
 
 Why: without `bindRendererCleanup`, every reconnect from the same renderer stacks a fresh `destroyed` listener (Node warns at 10; the real cost is N teardowns per close). The `WeakMap`-backed dedupe table inside `connection-cleanup.ts` makes the binding idempotent per `(handler, webContents)` pair.

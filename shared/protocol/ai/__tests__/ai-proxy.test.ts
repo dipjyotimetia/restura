@@ -21,7 +21,7 @@ function makeSpec(over: Partial<ChatRequestSpec> = {}): ChatRequestSpec {
 
 function fixtureStream(filename: string): ReadableStream<Uint8Array> {
   const bytes = new TextEncoder().encode(
-    readFileSync(join(__dirname, '..', 'providers', '__fixtures__', filename), 'utf8'),
+    readFileSync(join(__dirname, '..', 'providers', '__fixtures__', filename), 'utf8')
   );
   return new ReadableStream({
     start(controller) {
@@ -32,14 +32,16 @@ function fixtureStream(filename: string): ReadableStream<Uint8Array> {
 }
 
 function fakeFetcher(body: ReadableStream<Uint8Array>, status = 200, textBody = ''): Fetcher {
-  return vi.fn(async (_req: FetcherRequest): Promise<FetcherResponse> => ({
-    status,
-    statusText: String(status),
-    headers: new Headers({ 'content-type': 'text/event-stream' }),
-    body,
-    contentLengthHeader: null,
-    text: async () => textBody,
-  }));
+  return vi.fn(
+    async (_req: FetcherRequest): Promise<FetcherResponse> => ({
+      status,
+      statusText: String(status),
+      headers: new Headers({ 'content-type': 'text/event-stream' }),
+      body,
+      contentLengthHeader: null,
+      text: async () => textBody,
+    })
+  );
 }
 
 const NO_KEY = Symbol('no-key');
@@ -47,7 +49,7 @@ const NO_KEY = Symbol('no-key');
 async function collect(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
-  apiKey: string | undefined | typeof NO_KEY = 'sk-fake',
+  apiKey: string | undefined | typeof NO_KEY = 'sk-fake'
 ): Promise<ChatStreamEvent[]> {
   // A default param applies when the arg is `undefined`, which would defeat the
   // "handle cannot be resolved" case. Use a sentinel so an explicit `undefined`
@@ -61,7 +63,10 @@ async function collect(
 describe('executeAiChat', () => {
   it('streams deltas, usage, and done for a happy-path OpenAI call', async () => {
     const events = await collect(makeSpec(), fakeFetcher(fixtureStream('openai-explain.sse.txt')));
-    const text = events.filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta').map((e) => e.text).join('');
+    const text = events
+      .filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta')
+      .map((e) => e.text)
+      .join('');
     expect(text).toBe('The request failed.');
     expect(events.at(-1)?.type).toBe('done');
   });
@@ -82,7 +87,10 @@ describe('executeAiChat', () => {
       ],
     });
     const events = await collect(spec, fakeFetcher(fixtureStream('openai-explain.sse.txt')));
-    const guardError = events.find((e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error' && e.code === 'guard');
+    const guardError = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'error' }> =>
+        e.type === 'error' && e.code === 'guard'
+    );
     expect(guardError).toBeDefined();
   });
 
@@ -92,18 +100,31 @@ describe('executeAiChat', () => {
       messages: [{ role: 'user', content: 'Authorization: Bearer sk-realtoken12345678' }],
     });
     const events = await collect(spec, fakeFetcher(fixtureStream('openai-explain.sse.txt')));
-    expect(events.some((e) => e.type === 'error' && (e as { code: string }).code === 'guard')).toBe(false);
+    expect(events.some((e) => e.type === 'error' && (e as { code: string }).code === 'guard')).toBe(
+      false
+    );
   });
 
   it('emits a guard error when the API key handle cannot be resolved', async () => {
-    const events = await collect(makeSpec(), fakeFetcher(fixtureStream('openai-explain.sse.txt')), NO_KEY);
-    const err = events.find((e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error');
+    const events = await collect(
+      makeSpec(),
+      fakeFetcher(fixtureStream('openai-explain.sse.txt')),
+      NO_KEY
+    );
+    const err = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error'
+    );
     expect(err?.code).toBe('guard');
   });
 
   it('emits a provider error event on non-2xx upstream', async () => {
-    const events = await collect(makeSpec(), fakeFetcher(fixtureStream('openai-error-429.sse.txt'), 429, '{"error":{"message":"rate"}}'));
-    const err = events.find((e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error');
+    const events = await collect(
+      makeSpec(),
+      fakeFetcher(fixtureStream('openai-error-429.sse.txt'), 429, '{"error":{"message":"rate"}}')
+    );
+    const err = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error'
+    );
     expect(err?.code).toBe('provider');
   });
 });

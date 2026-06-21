@@ -215,9 +215,7 @@ describe('store-validators', () => {
       const env: Environment = {
         id: 'env-1',
         name: 'Production',
-        variables: [
-          { id: 'var-1', key: 'API_URL', value: 'https://api.com', enabled: true },
-        ],
+        variables: [{ id: 'var-1', key: 'API_URL', value: 'https://api.com', enabled: true }],
       };
 
       const result = validateEnvironment(env);

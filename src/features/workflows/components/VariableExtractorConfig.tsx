@@ -47,7 +47,9 @@ export function VariableExtractorConfig({
   testHeaders = {},
 }: VariableExtractorConfigProps) {
   const [items, setItems] = useState<VariableExtraction[]>(extractions);
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; value?: string; error?: string }>>({});
+  const [testResults, setTestResults] = useState<
+    Record<string, { success: boolean; value?: string; error?: string }>
+  >({});
 
   const handleAdd = () => {
     setItems([
@@ -100,10 +102,7 @@ export function VariableExtractorConfig({
             </div>
           ) : (
             items.map((item) => (
-              <div
-                key={item.id}
-                className="border rounded-lg p-4 space-y-3"
-              >
+              <div key={item.id} className="border rounded-lg p-4 space-y-3">
                 <div className="flex items-start gap-4">
                   {/* Variable Name */}
                   <div className="flex-1">
@@ -111,9 +110,7 @@ export function VariableExtractorConfig({
                     <Input
                       placeholder="e.g., token, userId"
                       value={item.variableName}
-                      onChange={(e) =>
-                        handleUpdate(item.id, { variableName: e.target.value })
-                      }
+                      onChange={(e) => handleUpdate(item.id, { variableName: e.target.value })}
                       className="mt-1"
                     />
                   </div>
@@ -176,9 +173,7 @@ export function VariableExtractorConfig({
                           : 'Authorization'
                     }
                     value={item.path}
-                    onChange={(e) =>
-                      handleUpdate(item.id, { path: e.target.value })
-                    }
+                    onChange={(e) => handleUpdate(item.id, { path: e.target.value })}
                     className="mt-1 font-mono text-sm"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
@@ -204,8 +199,7 @@ export function VariableExtractorConfig({
                       </>
                     ) : (
                       <>
-                        <span className="font-medium">Error:</span>{' '}
-                        {testResults[item.id]?.error}
+                        <span className="font-medium">Error:</span> {testResults[item.id]?.error}
                       </>
                     )}
                   </div>

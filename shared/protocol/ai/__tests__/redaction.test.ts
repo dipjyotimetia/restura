@@ -15,7 +15,7 @@ describe('redactHeaders', () => {
         'Set-Cookie': 'x=y',
         'Content-Type': 'application/json',
       },
-      'default',
+      'default'
     );
     expect(out.Authorization).toBe('[REDACTED]');
     expect(out.Cookie).toBe('[REDACTED]');
@@ -26,7 +26,7 @@ describe('redactHeaders', () => {
   it('strips x-*-token / x-*-key / x-*-secret via regex', () => {
     const out = redactHeaders(
       { 'X-Auth-Token': 'abc', 'X-Api-Key': 'def', 'X-Client-Secret': 'ghi' },
-      'default',
+      'default'
     );
     expect(out['X-Auth-Token']).toBe('[REDACTED]');
     expect(out['X-Api-Key']).toBe('[REDACTED]');
@@ -47,14 +47,18 @@ describe('redactHeaders', () => {
 
 describe('redactBody', () => {
   it('masks JWTs in body text', () => {
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const jwt =
+      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
     const out = redactBody(`{"token": "${jwt}"}`, 'default');
     expect(out).not.toContain(jwt);
     expect(out).toContain('[REDACTED]');
   });
 
   it('masks Bearer <token> tails', () => {
-    const out = redactBody('curl -H "Authorization: Bearer sk-abcdefghijklmnopqrst" https://api', 'default');
+    const out = redactBody(
+      'curl -H "Authorization: Bearer sk-abcdefghijklmnopqrst" https://api',
+      'default'
+    );
     expect(out).not.toContain('sk-abcdefghijklmnopqrst');
   });
 
@@ -72,7 +76,10 @@ describe('redactBody', () => {
 
 describe('redactEnvironment', () => {
   it('exposes names but not values', () => {
-    const out = redactEnvironment({ baseUrl: 'https://example.com', apiKey: 'sk-12345' }, 'default');
+    const out = redactEnvironment(
+      { baseUrl: 'https://example.com', apiKey: 'sk-12345' },
+      'default'
+    );
     expect(out).toEqual({ baseUrl: '[REDACTED]', apiKey: '[REDACTED]' });
   });
 

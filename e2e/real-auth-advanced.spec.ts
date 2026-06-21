@@ -97,7 +97,7 @@ test.describe('OAuth 2.x — client_credentials', () => {
 
   test('wrong client secret → 401 invalid_client', async ({ servers }) => {
     const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded' };
-    headers.authorization = basicAuthHeader(CLIENT.id, "nope");
+    headers.authorization = basicAuthHeader(CLIENT.id, 'nope');
     const res = await fetch(`${servers.http.url}/oauth/token`, {
       method: 'POST',
       headers,
@@ -146,7 +146,9 @@ test.describe('OAuth 2.x — password grant', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('OAuth 2.x — authorization_code + PKCE', () => {
-  test('full flow: authorize → callback → token exchange yields access + id token', async ({ servers }) => {
+  test('full flow: authorize → callback → token exchange yields access + id token', async ({
+    servers,
+  }) => {
     const verifier = randomBytes(32).toString('base64url');
     const challenge = createHash('sha256').update(verifier).digest('base64url');
     const stateParam = randomBytes(8).toString('hex');
@@ -170,16 +172,13 @@ test.describe('OAuth 2.x — authorization_code + PKCE', () => {
     const code = cb.searchParams.get('code') ?? '';
     expect(code.length).toBeGreaterThan(0);
 
-    const tokenRes = await getToken(
-      servers.http.url,
-      {
-        grant_type: 'authorization_code',
-        code,
-        code_verifier: verifier,
-        redirect_uri: 'http://localhost/cb',
-        client_id: CLIENT.id,
-      }
-    );
+    const tokenRes = await getToken(servers.http.url, {
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: verifier,
+      redirect_uri: 'http://localhost/cb',
+      client_id: CLIENT.id,
+    });
     expect(tokenRes.status).toBe(200);
     expect(typeof tokenRes.json.access_token).toBe('string');
     expect(typeof tokenRes.json.id_token).toBe('string');
@@ -228,7 +227,9 @@ test.describe('OAuth 2.x — authorization_code + PKCE', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('OAuth 2.x — refresh_token', () => {
-  test('refresh rotates access + refresh tokens; old access token is invalidated', async ({ servers }) => {
+  test('refresh rotates access + refresh tokens; old access token is invalidated', async ({
+    servers,
+  }) => {
     const initial = await getToken(
       servers.http.url,
       { grant_type: 'password', username: USER.username, password: USER.password },
@@ -263,7 +264,9 @@ test.describe('OAuth 2.x — refresh_token', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('OAuth 2.x — device_code', () => {
-  test('full device flow: device_authorization → pending → complete → token', async ({ servers }) => {
+  test('full device flow: device_authorization → pending → complete → token', async ({
+    servers,
+  }) => {
     const startRes = await fetch(`${servers.http.url}/oauth/device_authorization`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -484,7 +487,10 @@ function hmacBuf(key: string | Buffer, data: string): Buffer {
   return createHmac('sha256', key).update(data).digest();
 }
 function awsSigningKey(secret: string, dateStamp: string, region: string, service: string): Buffer {
-  return hmacBuf(hmacBuf(hmacBuf(hmacBuf(`AWS4${secret}`, dateStamp), region), service), 'aws4_request');
+  return hmacBuf(
+    hmacBuf(hmacBuf(hmacBuf(`AWS4${secret}`, dateStamp), region), service),
+    'aws4_request'
+  );
 }
 
 test.describe('Auth — AWS SigV4', () => {
@@ -498,7 +504,9 @@ test.describe('Auth — AWS SigV4', () => {
     const payloadHash = createHash('sha256').update('').digest('hex');
     const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
     const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
-    const canonicalRequest = ['GET', path, '', canonicalHeaders, signedHeaders, payloadHash].join('\n');
+    const canonicalRequest = ['GET', path, '', canonicalHeaders, signedHeaders, payloadHash].join(
+      '\n'
+    );
     const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
     const stringToSign = [
       'AWS4-HMAC-SHA256',
@@ -530,7 +538,11 @@ test.describe('Auth — AWS SigV4', () => {
     const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
     const authHeader = `AWS4-HMAC-SHA256 Credential=${accessKey}/${credentialScope}, SignedHeaders=host;x-amz-date, Signature=${'0'.repeat(64)}`;
     const res = await fetch(`${servers.http.url}/aws/protected`, {
-      headers: { authorization: authHeader, 'x-amz-date': amzDate, host: `127.0.0.1:${servers.http.port}` },
+      headers: {
+        authorization: authHeader,
+        'x-amz-date': amzDate,
+        host: `127.0.0.1:${servers.http.port}`,
+      },
     });
     expect(res.status).toBe(401);
   });

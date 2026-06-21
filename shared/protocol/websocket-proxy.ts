@@ -44,7 +44,7 @@ export interface WsValidationOptions {
 /** SSRF + scheme gate shared by Worker handler and Electron handler. */
 export function validateWsUrl(
   url: string,
-  opts: WsValidationOptions,
+  opts: WsValidationOptions
 ): { ok: true; url: URL } | { ok: false; error: string } {
   const v = validateURL(url, {
     allowLocalhost: opts.allowLocalhost,

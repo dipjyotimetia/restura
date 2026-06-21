@@ -14,7 +14,9 @@ import {
 
 describe('secretRef — predicates', () => {
   it('isSecretHandle distinguishes handles from inline / strings', () => {
-    expect(isSecretHandle({ kind: 'handle', id: '00000000-0000-4000-8000-000000000000' })).toBe(true);
+    expect(isSecretHandle({ kind: 'handle', id: '00000000-0000-4000-8000-000000000000' })).toBe(
+      true
+    );
     expect(isSecretHandle({ kind: 'inline', value: 'x' })).toBe(false);
     expect(isSecretHandle('plain')).toBe(false);
   });
@@ -53,7 +55,9 @@ describe('secretRef — describeSecret', () => {
   });
 
   it('summarises handles with the label when present', () => {
-    expect(describeSecret(handleSecret('00000000-0000-4000-8000-000000000000', 'AWS prod'))).toBe('Handle: AWS prod');
+    expect(describeSecret(handleSecret('00000000-0000-4000-8000-000000000000', 'AWS prod'))).toBe(
+      'Handle: AWS prod'
+    );
   });
 
   it('summarises handles with id prefix when no label', () => {
@@ -72,7 +76,10 @@ describe('secretRef — redactSecret (for export / logging)', () => {
   });
 
   it('reduces inline refs to empty inline (shape-preserving)', () => {
-    expect(redactSecret({ kind: 'inline', value: 'plaintext' })).toEqual({ kind: 'inline', value: '' });
+    expect(redactSecret({ kind: 'inline', value: 'plaintext' })).toEqual({
+      kind: 'inline',
+      value: '',
+    });
   });
 
   it('passes handles through unchanged (they are already opaque)', () => {
@@ -134,7 +141,9 @@ describe('secretRef — secretValueSchema (Zod)', () => {
 
   it('accepts handle SecretRef with and without label', () => {
     expect(secretValueSchema.safeParse({ kind: 'handle', id: 'id-1' }).success).toBe(true);
-    expect(secretValueSchema.safeParse({ kind: 'handle', id: 'id-1', label: 'AWS' }).success).toBe(true);
+    expect(secretValueSchema.safeParse({ kind: 'handle', id: 'id-1', label: 'AWS' }).success).toBe(
+      true
+    );
   });
 
   it('rejects malformed shapes', () => {
@@ -145,4 +154,3 @@ describe('secretRef — secretValueSchema (Zod)', () => {
     expect(secretValueSchema.safeParse({ kind: 'rogue', id: 'x' }).success).toBe(false);
   });
 });
-

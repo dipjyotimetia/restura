@@ -19,15 +19,16 @@ vi.mock('@/features/grpc/lib/grpcReflection', () => ({
 import { useGrpcReflection } from '../useGrpcReflection';
 import { toast } from 'sonner';
 
-const buildMethod = (overrides: Partial<ReflectionMethodInfo> = {}): ReflectionMethodInfo => ({
-  name: 'Greet',
-  fullName: 'greet.v1.GreetService.Greet',
-  inputType: '.greet.v1.GreetRequest',
-  outputType: '.greet.v1.GreetResponse',
-  clientStreaming: false,
-  serverStreaming: false,
-  ...overrides,
-} as ReflectionMethodInfo);
+const buildMethod = (overrides: Partial<ReflectionMethodInfo> = {}): ReflectionMethodInfo =>
+  ({
+    name: 'Greet',
+    fullName: 'greet.v1.GreetService.Greet',
+    inputType: '.greet.v1.GreetRequest',
+    outputType: '.greet.v1.GreetResponse',
+    clientStreaming: false,
+    serverStreaming: false,
+    ...overrides,
+  }) as ReflectionMethodInfo;
 
 const buildService = (overrides: Partial<ReflectionServiceInfo> = {}): ReflectionServiceInfo => ({
   name: 'GreetService',
@@ -36,9 +37,7 @@ const buildService = (overrides: Partial<ReflectionServiceInfo> = {}): Reflectio
   ...overrides,
 });
 
-const buildSuccessResult = (
-  overrides: Partial<ReflectionResult> = {}
-): ReflectionResult => ({
+const buildSuccessResult = (overrides: Partial<ReflectionResult> = {}): ReflectionResult => ({
   success: true,
   services: [buildService()],
   serverUrl: 'https://api.example.com',
@@ -84,9 +83,7 @@ describe('useGrpcReflection', () => {
   });
 
   it('does nothing (and surfaces a toast) when the URL is invalid', async () => {
-    const { result } = renderHook(() =>
-      useGrpcReflection({ ...baseOptions, url: 'not a url' })
-    );
+    const { result } = renderHook(() => useGrpcReflection({ ...baseOptions, url: 'not a url' }));
 
     await act(async () => {
       await result.current.discover(false);
@@ -218,9 +215,7 @@ describe('useGrpcReflection', () => {
   it('auto-discovers (silently) after the debounce when autoDiscover is on', async () => {
     vi.useFakeTimers();
     discoverMock.mockResolvedValueOnce(buildSuccessResult());
-    const { result } = renderHook(() =>
-      useGrpcReflection({ ...baseOptions, autoDiscover: true })
-    );
+    const { result } = renderHook(() => useGrpcReflection({ ...baseOptions, autoDiscover: true }));
 
     expect(discoverMock).not.toHaveBeenCalled();
 

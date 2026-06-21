@@ -48,7 +48,12 @@ const collection: Collection = {
       type: 'folder',
       items: [
         // non-HTTP should be skipped
-        { id: 'w1', name: 'socket', type: 'request', request: { id: 'w1', name: 'socket', type: 'websocket', url: 'wss://x' } as never },
+        {
+          id: 'w1',
+          name: 'socket',
+          type: 'request',
+          request: { id: 'w1', name: 'socket', type: 'websocket', url: 'wss://x' } as never,
+        },
       ],
     },
   ],
@@ -73,8 +78,28 @@ describe('buildMockRoutes', () => {
       {
         id: 'h1',
         timestamp: 2,
-        request: { id: 'r1', name: 'Get users', type: 'http', method: 'GET', url: 'https://api.example/users', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' } } as never,
-        response: { id: 'x', requestId: 'r1', status: 201, statusText: 'Created', headers: { 'content-type': 'application/json' }, body: '[{"id":1}]', size: 10, time: 5, timestamp: 2 },
+        request: {
+          id: 'r1',
+          name: 'Get users',
+          type: 'http',
+          method: 'GET',
+          url: 'https://api.example/users',
+          headers: [],
+          params: [],
+          body: { type: 'none' },
+          auth: { type: 'none' },
+        } as never,
+        response: {
+          id: 'x',
+          requestId: 'r1',
+          status: 201,
+          statusText: 'Created',
+          headers: { 'content-type': 'application/json' },
+          body: '[{"id":1}]',
+          size: 10,
+          time: 5,
+          timestamp: 2,
+        },
       },
     ];
     const routes = buildMockRoutes(collection, history);
@@ -89,8 +114,29 @@ describe('buildMockRoutes', () => {
       {
         id: 'h2',
         timestamp: 3,
-        request: { id: 'r1', name: 'Get users', type: 'http', method: 'GET', url: 'https://api.example/users', headers: [], params: [], body: { type: 'none' }, auth: { type: 'none' } } as never,
-        response: { id: 'y', requestId: 'r1', status: 200, statusText: 'OK', headers: { 'content-type': 'image/png' }, body: 'iVBORw0KGgo=', size: 8, time: 5, timestamp: 3, bodyEncoding: 'base64' },
+        request: {
+          id: 'r1',
+          name: 'Get users',
+          type: 'http',
+          method: 'GET',
+          url: 'https://api.example/users',
+          headers: [],
+          params: [],
+          body: { type: 'none' },
+          auth: { type: 'none' },
+        } as never,
+        response: {
+          id: 'y',
+          requestId: 'r1',
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'image/png' },
+          body: 'iVBORw0KGgo=',
+          size: 8,
+          time: 5,
+          timestamp: 3,
+          bodyEncoding: 'base64',
+        },
       },
     ];
     const route = buildMockRoutes(collection, history).find((r) => r.path === '/users')!;

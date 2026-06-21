@@ -92,6 +92,7 @@ docs/ROADMAP.md                   # mark Explain as shipped, NL→req + test-gen
 ## Task 1: Shared core types
 
 **Files:**
+
 - Create: `shared/protocol/ai/types.ts`
 
 - [ ] **Step 1: Write the types**
@@ -116,13 +117,13 @@ export interface ChatMessageWire {
 
 export interface ChatRequestSpec {
   provider: Provider;
-  model: string;                          // e.g. "claude-sonnet-4-x"
-  messages: ChatMessageWire[];            // system first, then alternating user/assistant
-  apiKeyHandleId: string;                 // resolved by secretResolver in the handler
-  baseUrlOverride?: string;               // user-set self-hosted / regional endpoint
-  rawMode: boolean;                       // toggles the backend paranoia pass
-  maxOutputTokens?: number;               // default per provider in provider-routes
-  signal?: AbortSignal;                   // wired from the handler's AbortController
+  model: string; // e.g. "claude-sonnet-4-x"
+  messages: ChatMessageWire[]; // system first, then alternating user/assistant
+  apiKeyHandleId: string; // resolved by secretResolver in the handler
+  baseUrlOverride?: string; // user-set self-hosted / regional endpoint
+  rawMode: boolean; // toggles the backend paranoia pass
+  maxOutputTokens?: number; // default per provider in provider-routes
+  signal?: AbortSignal; // wired from the handler's AbortController
 }
 
 export interface Usage {
@@ -155,6 +156,7 @@ git commit -m "feat(ai): add shared ChatRequestSpec / ChatStreamEvent types"
 ## Task 2: Redaction module (TDD)
 
 **Files:**
+
 - Test: `shared/protocol/ai/__tests__/redaction.test.ts`
 - Create: `shared/protocol/ai/redaction.ts`
 
@@ -181,7 +183,7 @@ describe('redactHeaders', () => {
         'Set-Cookie': 'x=y',
         'Content-Type': 'application/json',
       },
-      'default',
+      'default'
     );
     expect(out.Authorization).toBe('[REDACTED]');
     expect(out.Cookie).toBe('[REDACTED]');
@@ -192,7 +194,7 @@ describe('redactHeaders', () => {
   it('strips x-*-token / x-*-key / x-*-secret via regex', () => {
     const out = redactHeaders(
       { 'X-Auth-Token': 'abc', 'X-Api-Key': 'def', 'X-Client-Secret': 'ghi' },
-      'default',
+      'default'
     );
     expect(out['X-Auth-Token']).toBe('[REDACTED]');
     expect(out['X-Api-Key']).toBe('[REDACTED]');
@@ -213,14 +215,18 @@ describe('redactHeaders', () => {
 
 describe('redactBody', () => {
   it('masks JWTs in body text', () => {
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const jwt =
+      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
     const out = redactBody(`{"token": "${jwt}"}`, 'default');
     expect(out).not.toContain(jwt);
     expect(out).toContain('[REDACTED]');
   });
 
   it('masks Bearer <token> tails', () => {
-    const out = redactBody('curl -H "Authorization: Bearer sk-abcdefghijklmnopqrst" https://api', 'default');
+    const out = redactBody(
+      'curl -H "Authorization: Bearer sk-abcdefghijklmnopqrst" https://api',
+      'default'
+    );
     expect(out).not.toContain('sk-abcdefghijklmnopqrst');
   });
 
@@ -238,7 +244,10 @@ describe('redactBody', () => {
 
 describe('redactEnvironment', () => {
   it('exposes names but not values', () => {
-    const out = redactEnvironment({ baseUrl: 'https://example.com', apiKey: 'sk-12345' }, 'default');
+    const out = redactEnvironment(
+      { baseUrl: 'https://example.com', apiKey: 'sk-12345' },
+      'default'
+    );
     expect(out).toEqual({ baseUrl: '[REDACTED]', apiKey: '[REDACTED]' });
   });
 
@@ -300,11 +309,7 @@ const HEADER_DENYLIST_EXACT = new Set([
   'x-csrf-token',
 ]);
 
-const HEADER_DENYLIST_REGEX: RegExp[] = [
-  /^x-.*-token$/i,
-  /^x-.*-key$/i,
-  /^x-.*-secret$/i,
-];
+const HEADER_DENYLIST_REGEX: RegExp[] = [/^x-.*-token$/i, /^x-.*-key$/i, /^x-.*-secret$/i];
 
 const BODY_TOKEN_PATTERNS: RegExp[] = [
   /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT
@@ -320,7 +325,7 @@ function headerIsDenied(name: string): boolean {
 
 export function redactHeaders(
   headers: Record<string, string>,
-  mode: RedactionMode,
+  mode: RedactionMode
 ): Record<string, string> {
   if (mode === 'raw') return { ...headers };
   const out: Record<string, string> = {};
@@ -341,7 +346,7 @@ export function redactBody(body: string, mode: RedactionMode): string {
 
 export function redactEnvironment(
   env: Record<string, string>,
-  mode: RedactionMode,
+  mode: RedactionMode
 ): Record<string, string> {
   if (mode === 'raw') return { ...env };
   const out: Record<string, string> = {};
@@ -381,6 +386,7 @@ git commit -m "feat(ai): add redaction module in shared/protocol/ai with header 
 ## Task 3: Provider routes table
 
 **Files:**
+
 - Create: `shared/protocol/ai/provider-routes.ts`
 
 - [ ] **Step 1: Write the route table**
@@ -400,7 +406,10 @@ git commit -m "feat(ai): add redaction module in shared/protocol/ai with header 
 import type { Provider, ChatRequestSpec } from './types';
 
 export interface ProviderRoute {
-  buildRequest(spec: ChatRequestSpec, apiKey: string): {
+  buildRequest(
+    spec: ChatRequestSpec,
+    apiKey: string
+  ): {
     url: string;
     headers: Record<string, string>;
     body: string;
@@ -467,7 +476,7 @@ const openrouterRoute: ProviderRoute = {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://restura.dev',  // OpenRouter attribution
+        'HTTP-Referer': 'https://restura.dev', // OpenRouter attribution
         'X-Title': 'Restura',
       },
       body: JSON.stringify({
@@ -504,6 +513,7 @@ git commit -m "feat(ai): add provider-routes table for openai/anthropic/openrout
 ## Task 4: Provider-local types + OpenAI decoder (TDD)
 
 **Files:**
+
 - Create: `shared/protocol/ai/providers/types.ts`
 - Create: `shared/protocol/ai/providers/__fixtures__/openai-explain.sse.txt`
 - Create: `shared/protocol/ai/providers/__fixtures__/openai-error-429.sse.txt`
@@ -517,10 +527,10 @@ git commit -m "feat(ai): add provider-routes table for openai/anthropic/openrout
 import type { Provider, ChatStreamEvent } from '@shared/protocol/ai/types';
 
 export interface ModelInfo {
-  id: string;                       // "gpt-4o-mini"
-  label: string;                    // "GPT-4o mini"
-  contextWindow: number;            // tokens
-  inputUSDPerMTok: number;          // pricing snapshot, refresh quarterly
+  id: string; // "gpt-4o-mini"
+  label: string; // "GPT-4o mini"
+  contextWindow: number; // tokens
+  inputUSDPerMTok: number; // pricing snapshot, refresh quarterly
   outputUSDPerMTok: number;
 }
 
@@ -583,7 +593,7 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 
 function loadFixture(name: string): Uint8Array {
   return new TextEncoder().encode(
-    readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8'),
+    readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8')
   );
 }
 
@@ -604,9 +614,13 @@ function decodeFixture(fixtureName: string, model = 'gpt-4o-mini'): ChatStreamEv
 describe('openai decoder', () => {
   it('decodes a happy-path chunked completion', () => {
     const events = decodeFixture('openai-explain.sse.txt');
-    const deltas = events.filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta');
+    const deltas = events.filter(
+      (e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta'
+    );
     expect(deltas.map((d) => d.text).join('')).toBe('The request failed.');
-    const usage = events.find((e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage');
+    const usage = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage'
+    );
     expect(usage?.usage.promptTokens).toBe(42);
     expect(usage?.usage.completionTokens).toBe(3);
     expect(usage?.usage.estimatedCostUSD).toBeGreaterThan(0);
@@ -636,8 +650,20 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ModelInfo, ProviderModule, StreamDecoder } from './types';
 
 const MODELS: ModelInfo[] = [
-  { id: 'gpt-4o-mini', label: 'GPT-4o mini', contextWindow: 128_000, inputUSDPerMTok: 0.15, outputUSDPerMTok: 0.60 },
-  { id: 'gpt-4o', label: 'GPT-4o', contextWindow: 128_000, inputUSDPerMTok: 2.50, outputUSDPerMTok: 10.00 },
+  {
+    id: 'gpt-4o-mini',
+    label: 'GPT-4o mini',
+    contextWindow: 128_000,
+    inputUSDPerMTok: 0.15,
+    outputUSDPerMTok: 0.6,
+  },
+  {
+    id: 'gpt-4o',
+    label: 'GPT-4o',
+    contextWindow: 128_000,
+    inputUSDPerMTok: 2.5,
+    outputUSDPerMTok: 10.0,
+  },
 ];
 
 function modelFor(id: string): ModelInfo | undefined {
@@ -706,7 +732,11 @@ class OpenAIDecoder implements StreamDecoder {
         type: 'usage',
         usage: {
           ...this.pendingUsage,
-          estimatedCostUSD: estimateCost(this.model, this.pendingUsage.promptTokens, this.pendingUsage.completionTokens),
+          estimatedCostUSD: estimateCost(
+            this.model,
+            this.pendingUsage.promptTokens,
+            this.pendingUsage.completionTokens
+          ),
         },
       });
       this.pendingUsage = null;
@@ -752,6 +782,7 @@ git commit -m "feat(ai): add OpenAI provider decoder + fixture-based tests"
 ## Task 5: Anthropic decoder (TDD)
 
 **Files:**
+
 - Create: `shared/protocol/ai/providers/__fixtures__/anthropic-explain.sse.txt`
 - Create: `shared/protocol/ai/providers/__fixtures__/anthropic-error-malformed.sse.txt`
 - Test: `shared/protocol/ai/providers/__tests__/anthropic.test.ts`
@@ -808,7 +839,9 @@ import { anthropicModule } from '@shared/protocol/ai/providers/anthropic';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 
 function load(name: string): Uint8Array {
-  return new TextEncoder().encode(readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8'));
+  return new TextEncoder().encode(
+    readFileSync(join(__dirname, '..', '__fixtures__', name), 'utf8')
+  );
 }
 
 function decodeFixture(name: string, model = 'claude-sonnet-4-x'): ChatStreamEvent[] {
@@ -824,13 +857,18 @@ function decodeFixture(name: string, model = 'claude-sonnet-4-x'): ChatStreamEve
 describe('anthropic decoder', () => {
   it('reconstructs text from content_block_delta events', () => {
     const events = decodeFixture('anthropic-explain.sse.txt');
-    const text = events.filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta').map((d) => d.text).join('');
+    const text = events
+      .filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta')
+      .map((d) => d.text)
+      .join('');
     expect(text).toBe('The request failed.');
   });
 
   it('aggregates input_tokens from message_start and output_tokens from message_delta', () => {
     const events = decodeFixture('anthropic-explain.sse.txt');
-    const usage = events.find((e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage');
+    const usage = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'usage' }> => e.type === 'usage'
+    );
     expect(usage?.usage.promptTokens).toBe(42);
     expect(usage?.usage.completionTokens).toBe(3);
     expect(usage?.usage.estimatedCostUSD).toBeGreaterThan(0);
@@ -838,7 +876,9 @@ describe('anthropic decoder', () => {
 
   it('emits a provider error for error events', () => {
     const events = decodeFixture('anthropic-error-malformed.sse.txt');
-    const err = events.find((e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error');
+    const err = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error'
+    );
     expect(err?.code).toBe('provider');
     expect(err?.message).toContain('Overloaded');
   });
@@ -863,9 +903,27 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ModelInfo, ProviderModule, StreamDecoder } from './types';
 
 const MODELS: ModelInfo[] = [
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000, inputUSDPerMTok: 1.0, outputUSDPerMTok: 5.0 },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', contextWindow: 200_000, inputUSDPerMTok: 3.0, outputUSDPerMTok: 15.0 },
-  { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', contextWindow: 200_000, inputUSDPerMTok: 15.0, outputUSDPerMTok: 75.0 },
+  {
+    id: 'claude-haiku-4-5',
+    label: 'Claude Haiku 4.5',
+    contextWindow: 200_000,
+    inputUSDPerMTok: 1.0,
+    outputUSDPerMTok: 5.0,
+  },
+  {
+    id: 'claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6',
+    contextWindow: 200_000,
+    inputUSDPerMTok: 3.0,
+    outputUSDPerMTok: 15.0,
+  },
+  {
+    id: 'claude-opus-4-7',
+    label: 'Claude Opus 4.7',
+    contextWindow: 200_000,
+    inputUSDPerMTok: 15.0,
+    outputUSDPerMTok: 75.0,
+  },
 ];
 
 function modelFor(id: string): ModelInfo | undefined {
@@ -875,7 +933,10 @@ function modelFor(id: string): ModelInfo | undefined {
 function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
   const info = modelFor(model);
   if (!info) return 0;
-  return (inputTokens / 1_000_000) * info.inputUSDPerMTok + (outputTokens / 1_000_000) * info.outputUSDPerMTok;
+  return (
+    (inputTokens / 1_000_000) * info.inputUSDPerMTok +
+    (outputTokens / 1_000_000) * info.outputUSDPerMTok
+  );
 }
 
 class AnthropicDecoder implements StreamDecoder {
@@ -905,10 +966,15 @@ class AnthropicDecoder implements StreamDecoder {
     switch (evt) {
       case 'message_start':
         if (p.message?.usage?.input_tokens != null) this.inputTokens = p.message.usage.input_tokens;
-        if (p.message?.usage?.output_tokens != null) this.outputTokens = p.message.usage.output_tokens;
+        if (p.message?.usage?.output_tokens != null)
+          this.outputTokens = p.message.usage.output_tokens;
         break;
       case 'content_block_delta':
-        if (p.delta?.type === 'text_delta' && typeof p.delta.text === 'string' && p.delta.text.length > 0) {
+        if (
+          p.delta?.type === 'text_delta' &&
+          typeof p.delta.text === 'string' &&
+          p.delta.text.length > 0
+        ) {
           this.buffered.push({ type: 'delta', text: p.delta.text });
         }
         break;
@@ -919,7 +985,11 @@ class AnthropicDecoder implements StreamDecoder {
         this.finished = true;
         break;
       case 'error':
-        this.buffered.push({ type: 'error', code: 'provider', message: p.error?.message ?? 'Provider error' });
+        this.buffered.push({
+          type: 'error',
+          code: 'provider',
+          message: p.error?.message ?? 'Provider error',
+        });
         this.finished = true;
         break;
       default:
@@ -981,6 +1051,7 @@ git commit -m "feat(ai): add Anthropic provider decoder with content_block_delta
 ## Task 6: OpenRouter decoder + provider registry
 
 **Files:**
+
 - Create: `shared/protocol/ai/providers/openrouter.ts`
 - Test: `shared/protocol/ai/providers/__tests__/openrouter.test.ts`
 - Create: `shared/protocol/ai/providers/index.ts`
@@ -1038,10 +1109,34 @@ import type { ModelInfo, ProviderModule } from './types';
  * small starter set; users can type any model id in settings.
  */
 const MODELS: ModelInfo[] = [
-  { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (via OpenRouter)', contextWindow: 200_000, inputUSDPerMTok: 3.0, outputUSDPerMTok: 15.0 },
-  { id: 'openai/gpt-4o-mini', label: 'GPT-4o mini (via OpenRouter)', contextWindow: 128_000, inputUSDPerMTok: 0.15, outputUSDPerMTok: 0.60 },
-  { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', contextWindow: 1_000_000, inputUSDPerMTok: 0.30, outputUSDPerMTok: 2.50 },
-  { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B', contextWindow: 128_000, inputUSDPerMTok: 0.59, outputUSDPerMTok: 0.79 },
+  {
+    id: 'anthropic/claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6 (via OpenRouter)',
+    contextWindow: 200_000,
+    inputUSDPerMTok: 3.0,
+    outputUSDPerMTok: 15.0,
+  },
+  {
+    id: 'openai/gpt-4o-mini',
+    label: 'GPT-4o mini (via OpenRouter)',
+    contextWindow: 128_000,
+    inputUSDPerMTok: 0.15,
+    outputUSDPerMTok: 0.6,
+  },
+  {
+    id: 'google/gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
+    contextWindow: 1_000_000,
+    inputUSDPerMTok: 0.3,
+    outputUSDPerMTok: 2.5,
+  },
+  {
+    id: 'meta-llama/llama-3.3-70b-instruct',
+    label: 'Llama 3.3 70B',
+    contextWindow: 128_000,
+    inputUSDPerMTok: 0.59,
+    outputUSDPerMTok: 0.79,
+  },
 ];
 
 export const openrouterModule: ProviderModule = {
@@ -1095,6 +1190,7 @@ git commit -m "feat(ai): add OpenRouter (OpenAI-compatible) + provider registry"
 ## Task 7: ai-proxy orchestrator (TDD)
 
 **Files:**
+
 - Test: `shared/protocol/ai/__tests__/ai-proxy.test.ts`
 - Create: `shared/protocol/ai/ai-proxy.ts`
 
@@ -1127,7 +1223,7 @@ function makeSpec(over: Partial<ChatRequestSpec> = {}): ChatRequestSpec {
 
 function fixtureStream(filename: string): ReadableStream<Uint8Array> {
   const bytes = new TextEncoder().encode(
-    readFileSync(join(__dirname, '..', 'providers', '__fixtures__', filename), 'utf8'),
+    readFileSync(join(__dirname, '..', 'providers', '__fixtures__', filename), 'utf8')
   );
   return new ReadableStream({
     start(controller) {
@@ -1139,19 +1235,25 @@ function fixtureStream(filename: string): ReadableStream<Uint8Array> {
 
 function fakeFetcher(body: ReadableStream<Uint8Array>, status = 200): Fetcher {
   return {
-    fetch: vi.fn(async (): Promise<FetcherResponse> => ({
-      ok: status >= 200 && status < 300,
-      status,
-      statusText: String(status),
-      headers: new Headers({ 'content-type': 'text/event-stream' }),
-      body,
-      arrayBuffer: async () => new ArrayBuffer(0),
-      text: async () => '',
-    })),
+    fetch: vi.fn(
+      async (): Promise<FetcherResponse> => ({
+        ok: status >= 200 && status < 300,
+        status,
+        statusText: String(status),
+        headers: new Headers({ 'content-type': 'text/event-stream' }),
+        body,
+        arrayBuffer: async () => new ArrayBuffer(0),
+        text: async () => '',
+      })
+    ),
   };
 }
 
-async function collect(spec: ChatRequestSpec, fetcher: Fetcher, apiKey = 'sk-fake'): Promise<ChatStreamEvent[]> {
+async function collect(
+  spec: ChatRequestSpec,
+  fetcher: Fetcher,
+  apiKey = 'sk-fake'
+): Promise<ChatStreamEvent[]> {
   const events: ChatStreamEvent[] = [];
   for await (const ev of executeAiChat(spec, fetcher, async () => apiKey)) events.push(ev);
   return events;
@@ -1160,7 +1262,10 @@ async function collect(spec: ChatRequestSpec, fetcher: Fetcher, apiKey = 'sk-fak
 describe('executeAiChat', () => {
   it('streams deltas, usage, and done for a happy-path OpenAI call', async () => {
     const events = await collect(makeSpec(), fakeFetcher(fixtureStream('openai-explain.sse.txt')));
-    const text = events.filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta').map((e) => e.text).join('');
+    const text = events
+      .filter((e): e is Extract<ChatStreamEvent, { type: 'delta' }> => e.type === 'delta')
+      .map((e) => e.text)
+      .join('');
     expect(text).toBe('The request failed.');
     expect(events.at(-1)?.type).toBe('done');
   });
@@ -1181,24 +1286,32 @@ describe('executeAiChat', () => {
       ],
     });
     const events = await collect(spec, fakeFetcher(fixtureStream('openai-explain.sse.txt')));
-    const guardError = events.find((e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error' && e.code === 'guard');
+    const guardError = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'error' }> =>
+        e.type === 'error' && e.code === 'guard'
+    );
     expect(guardError).toBeDefined();
   });
 
   it('allows unredacted content when rawMode is true', async () => {
     const spec = makeSpec({
       rawMode: true,
-      messages: [
-        { role: 'user', content: 'Authorization: Bearer sk-realtoken12345678' },
-      ],
+      messages: [{ role: 'user', content: 'Authorization: Bearer sk-realtoken12345678' }],
     });
     const events = await collect(spec, fakeFetcher(fixtureStream('openai-explain.sse.txt')));
-    expect(events.some((e) => e.type === 'error' && (e as { code: string }).code === 'guard')).toBe(false);
+    expect(events.some((e) => e.type === 'error' && (e as { code: string }).code === 'guard')).toBe(
+      false
+    );
   });
 
   it('emits an error event on non-2xx upstream', async () => {
-    const events = await collect(makeSpec(), fakeFetcher(fixtureStream('openai-error-429.sse.txt'), 429));
-    const err = events.find((e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error');
+    const events = await collect(
+      makeSpec(),
+      fakeFetcher(fixtureStream('openai-error-429.sse.txt'), 429)
+    );
+    const err = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error'
+    );
     expect(err?.code).toBe('provider');
   });
 });
@@ -1235,7 +1348,7 @@ type SecretResolver = (handleId: string) => Promise<string | undefined>;
 export async function* executeAiChat(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
-  secretResolver: SecretResolver,
+  secretResolver: SecretResolver
 ): AsyncGenerator<ChatStreamEvent, void, unknown> {
   // 1. Paranoia pass on outgoing messages.
   if (!spec.rawMode) {
@@ -1340,10 +1453,12 @@ Expected: PASS (5 tests)
 - [ ] **Step 5: Type-check both worker and electron tsconfigs**
 
 Run:
+
 ```bash
 npx tsc --noEmit -p tsconfig.json
 npx tsc --noEmit -p electron/tsconfig.json
 ```
+
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -1358,6 +1473,7 @@ git commit -m "feat(ai): add ai-proxy orchestrator with secret resolution + para
 ## Task 8: IPC validators for AI
 
 **Files:**
+
 - Modify: `electron/main/ipc-validators.ts`
 
 - [ ] **Step 1: Append AI schemas**
@@ -1371,7 +1487,7 @@ Open `electron/main/ipc-validators.ts`. At the end of the file (before any `expo
 
 export const AiChatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant']),
-  content: z.string().max(200_000),  // ~50k tokens; over this is almost certainly a bug
+  content: z.string().max(200_000), // ~50k tokens; over this is almost certainly a bug
 });
 
 export const AiChatRequestSchema = z.object({
@@ -1407,6 +1523,7 @@ git commit -m "feat(ai): add Zod schemas for ai:chat and ai:chat:cancel IPC"
 ## Task 9: Electron ai-handler (TDD)
 
 **Files:**
+
 - Test: `electron/main/__tests__/ai-handler.test.ts`
 - Create: `electron/main/ai-handler.ts`
 
@@ -1515,7 +1632,7 @@ import type { ChatRequestSpec } from '@shared/protocol/ai/types';
 import { PROVIDER_ROUTES } from '@shared/protocol/ai/provider-routes';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 
-const rateLimiter = createKeyedRateLimiter(30, 60_000);   // 30 chat msgs / min / webContents
+const rateLimiter = createKeyedRateLimiter(30, 60_000); // 30 chat msgs / min / webContents
 const MAX_CONCURRENT_STREAMS = 5;
 
 interface ActiveStream {
@@ -1546,11 +1663,20 @@ async function resolveSecretFn(handleId: string): Promise<string | undefined> {
   return typeof v === 'string' ? v : undefined;
 }
 
-async function runChat(spec: ChatRequestSpec, streamId: string, webContentsId: number, abort: AbortController) {
+async function runChat(
+  spec: ChatRequestSpec,
+  streamId: string,
+  webContentsId: number,
+  abort: AbortController
+) {
   const chunkChannel = `ai:chat:chunk:${streamId}`;
   const endChannel = `ai:chat:end:${streamId}`;
   try {
-    for await (const ev of executeAiChat({ ...spec, signal: abort.signal }, nodeFetcher, resolveSecretFn)) {
+    for await (const ev of executeAiChat(
+      { ...spec, signal: abort.signal },
+      nodeFetcher,
+      resolveSecretFn
+    )) {
       emitTo(webContentsId, chunkChannel, ev);
       if (ev.type === 'done') {
         emitTo(webContentsId, endChannel, { reason: 'done' });
@@ -1578,7 +1704,9 @@ export function registerAiHandlers(): void {
       return { ok: false as const, error: 'Rate limited. Slow down.' };
     }
 
-    const streamsForSender = [...active.values()].filter((s) => s.webContentsId === senderId).length;
+    const streamsForSender = [...active.values()].filter(
+      (s) => s.webContentsId === senderId
+    ).length;
     if (streamsForSender >= MAX_CONCURRENT_STREAMS) {
       return { ok: false as const, error: 'Too many concurrent AI streams.' };
     }
@@ -1599,7 +1727,9 @@ export function registerAiHandlers(): void {
 
     const abort = new AbortController();
     active.set(spec.streamId, { streamId: spec.streamId, webContentsId: senderId, abort });
-    bindRendererCleanup(event.sender, () => disposeByOwner(senderId, active, (s) => s.abort.abort()));
+    bindRendererCleanup(event.sender, () =>
+      disposeByOwner(senderId, active, (s) => s.abort.abort())
+    );
 
     // Kick off the stream — do NOT await; the renderer expects this to return
     // immediately and to receive events via the chunk/end channels.
@@ -1647,6 +1777,7 @@ git commit -m "feat(ai): add Electron ai-handler with per-stream AbortController
 ## Task 10: Expose electronAPI.ai in preload
 
 **Files:**
+
 - Modify: `electron/main/preload.ts`
 
 - [ ] **Step 1: Find the `secrets:` block in preload.ts**
@@ -1721,6 +1852,7 @@ git commit -m "feat(ai): expose electronAPI.ai.{chat,cancel,onChunk,onEnd} via p
 ## Task 11: Register ai-handler in main.ts
 
 **Files:**
+
 - Modify: `electron/main/main.ts`
 
 - [ ] **Step 1: Find the registration block**
@@ -1736,11 +1868,13 @@ import { registerAiHandlers, unregisterAiHandlers } from './ai-handler';
 ```
 
 In the `whenReady` callback, alongside other `register*Handlers()` calls:
+
 ```ts
 registerAiHandlers();
 ```
 
 In the `before-quit` (or equivalent shutdown) handler, alongside other `unregister*Handlers()` calls:
+
 ```ts
 unregisterAiHandlers();
 ```
@@ -1748,10 +1882,12 @@ unregisterAiHandlers();
 - [ ] **Step 3: Type-check and smoke-launch**
 
 Run:
+
 ```bash
 npx tsc --noEmit -p electron/tsconfig.json
 npm run electron:compile
 ```
+
 Expected: both PASS.
 
 - [ ] **Step 4: Commit**
@@ -1766,6 +1902,7 @@ git commit -m "feat(ai): register ai-handler in Electron main lifecycle"
 ## Task 12: AiChatStateSchema in store-validators
 
 **Files:**
+
 - Modify: `src/lib/shared/store-validators.ts`
 
 - [ ] **Step 1: Append the schema**
@@ -1859,6 +1996,7 @@ git commit -m "feat(ai): add AiChatStateSchema for persisted chat state validati
 ## Task 13: useAiChatStore (TDD)
 
 **Files:**
+
 - Test: `src/features/ai/__tests__/store.test.ts`
 - Create: `src/features/ai/store.ts`
 - Create: `src/features/ai/protocol.ts`
@@ -1883,13 +2021,17 @@ describe('useAiChatStore', () => {
 
   it('appendUserMessage adds a message and returns its id', () => {
     useAiChatStore.getState().newConversation();
-    const msgId = useAiChatStore.getState().appendUserMessage(
-      'why did this fail?',
-      { kind: 'response', tabId: 't1', capturedAt: 1 },
-      false,
-    );
+    const msgId = useAiChatStore
+      .getState()
+      .appendUserMessage(
+        'why did this fail?',
+        { kind: 'response', tabId: 't1', capturedAt: 1 },
+        false
+      );
     const active = useAiChatStore.getState().activeConversationId!;
-    const msg = useAiChatStore.getState().conversations[active]?.messages.find((m) => m.id === msgId);
+    const msg = useAiChatStore
+      .getState()
+      .conversations[active]?.messages.find((m) => m.id === msgId);
     expect(msg?.text).toBe('why did this fail?');
     expect(msg?.role).toBe('user');
     expect(msg?.rawMode).toBe(false);
@@ -1897,9 +2039,11 @@ describe('useAiChatStore', () => {
 
   it('auto-derives conversation title from the first user message (≤60 chars)', () => {
     useAiChatStore.getState().newConversation();
-    useAiChatStore.getState().appendUserMessage('a'.repeat(80), { kind: 'none', capturedAt: 0 }, false);
+    useAiChatStore
+      .getState()
+      .appendUserMessage('a'.repeat(80), { kind: 'none', capturedAt: 0 }, false);
     const active = useAiChatStore.getState().activeConversationId!;
-    expect(useAiChatStore.getState().conversations[active]?.title.length).toBeLessThanOrEqual(63);  // 60 + ellipsis
+    expect(useAiChatStore.getState().conversations[active]?.title.length).toBeLessThanOrEqual(63); // 60 + ellipsis
   });
 
   it('appendAssistantDelta accumulates onto an existing streaming message', () => {
@@ -1908,13 +2052,19 @@ describe('useAiChatStore', () => {
     useAiChatStore.getState().appendAssistantDelta(aId, 'Hello ');
     useAiChatStore.getState().appendAssistantDelta(aId, 'world');
     const active = useAiChatStore.getState().activeConversationId!;
-    expect(useAiChatStore.getState().conversations[active]?.messages.find((m) => m.id === aId)?.text).toBe('Hello world');
+    expect(
+      useAiChatStore.getState().conversations[active]?.messages.find((m) => m.id === aId)?.text
+    ).toBe('Hello world');
   });
 
   it('finalizeAssistantMessage sets status to done and stores usage', () => {
     useAiChatStore.getState().newConversation();
     const aId = useAiChatStore.getState().appendAssistantPlaceholder();
-    useAiChatStore.getState().finalizeAssistantMessage(aId, { promptTokens: 5, completionTokens: 7, estimatedCostUSD: 0.0001 });
+    useAiChatStore.getState().finalizeAssistantMessage(aId, {
+      promptTokens: 5,
+      completionTokens: 7,
+      estimatedCostUSD: 0.0001,
+    });
     const active = useAiChatStore.getState().activeConversationId!;
     const msg = useAiChatStore.getState().conversations[active]?.messages.find((m) => m.id === aId);
     expect(msg?.status).toBe('done');
@@ -1951,7 +2101,7 @@ Expected: FAIL — module not found.
 // src/features/ai/store.ts
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { ulid } from '@/lib/shared/ulid';   // see step 3a if this doesn't exist
+import { ulid } from '@/lib/shared/ulid'; // see step 3a if this doesn't exist
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { AiChatStateSchema, type PersistedAiChatState } from '@/lib/shared/store-validators';
 import type { Provider } from '@shared/protocol/ai/types';
@@ -2086,7 +2236,10 @@ export const useAiChatStore = create<AiChatState>()(
               ...s.conversations,
               [activeId]: {
                 ...conv,
-                messages: [...conv.messages, { id, role: 'assistant', text: '', status: 'streaming', createdAt: now }],
+                messages: [
+                  ...conv.messages,
+                  { id, role: 'assistant', text: '', status: 'streaming', createdAt: now },
+                ],
                 updatedAt: now,
               },
             },
@@ -2105,7 +2258,9 @@ export const useAiChatStore = create<AiChatState>()(
               ...s.conversations,
               [activeId]: {
                 ...conv,
-                messages: conv.messages.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m)),
+                messages: conv.messages.map((m) =>
+                  m.id === id ? { ...m, text: m.text + delta } : m
+                ),
                 updatedAt: Date.now(),
               },
             },
@@ -2122,7 +2277,9 @@ export const useAiChatStore = create<AiChatState>()(
               ...s.conversations,
               [activeId]: {
                 ...conv,
-                messages: conv.messages.map((m) => (m.id === id ? { ...m, status: 'done', ...(usage ? { usage } : {}) } : m)),
+                messages: conv.messages.map((m) =>
+                  m.id === id ? { ...m, status: 'done', ...(usage ? { usage } : {}) } : m
+                ),
                 updatedAt: Date.now(),
               },
             },
@@ -2140,7 +2297,7 @@ export const useAiChatStore = create<AiChatState>()(
               [activeId]: {
                 ...conv,
                 messages: conv.messages.map((m) =>
-                  m.id === id ? { ...m, status: 'error', errorMessage: error } : m,
+                  m.id === id ? { ...m, status: 'error', errorMessage: error } : m
                 ),
                 updatedAt: Date.now(),
               },
@@ -2196,8 +2353,8 @@ export const useAiChatStore = create<AiChatState>()(
         }
         useAiChatStore.setState({ conversations });
       },
-    },
-  ),
+    }
+  )
 );
 ```
 
@@ -2234,6 +2391,7 @@ git commit -m "feat(ai): add useAiChatStore with persist + Zod-validated rehydra
 ## Task 14: contextSnapshot (TDD)
 
 **Files:**
+
 - Test: `src/features/ai/lib/__tests__/contextSnapshot.test.ts`
 - Create: `src/features/ai/lib/contextSnapshot.ts`
 
@@ -2268,18 +2426,38 @@ describe('captureActive', () => {
         {
           id: 't1',
           mode: 'http',
-          request: { method: 'GET', url: 'https://api/users', headers: { Authorization: 'Bearer x' }, body: '' },
+          request: {
+            method: 'GET',
+            url: 'https://api/users',
+            headers: { Authorization: 'Bearer x' },
+            body: '',
+          },
         },
       ],
     } as never);
     vi.mocked(useHistoryStore.getState).mockReturnValue({
       items: [
-        { id: 'h1', tabId: 't1', timestamp: 1, response: { status: 401, headers: { 'WWW-Authenticate': 'Bearer' }, body: '{"error":"unauth"}' } },
+        {
+          id: 'h1',
+          tabId: 't1',
+          timestamp: 1,
+          response: {
+            status: 401,
+            headers: { 'WWW-Authenticate': 'Bearer' },
+            body: '{"error":"unauth"}',
+          },
+        },
       ],
     } as never);
     vi.mocked(useEnvironmentStore.getState).mockReturnValue({
       activeEnvironmentId: 'staging',
-      environments: { staging: { id: 'staging', name: 'Staging', variables: { baseUrl: 'https://api', token: 'sk-1' } } },
+      environments: {
+        staging: {
+          id: 'staging',
+          name: 'Staging',
+          variables: { baseUrl: 'https://api', token: 'sk-1' },
+        },
+      },
     } as never);
   });
 
@@ -2330,10 +2508,19 @@ export interface RawSnapshot {
 export function captureActive(): RawSnapshot {
   const reqState = useRequestStore.getState() as unknown as {
     activeTabId: string | null;
-    tabs: Array<{ id: string; mode?: string; request?: { method: string; url: string; headers?: Record<string, string>; body?: string } }>;
+    tabs: Array<{
+      id: string;
+      mode?: string;
+      request?: { method: string; url: string; headers?: Record<string, string>; body?: string };
+    }>;
   };
   const histState = useHistoryStore.getState() as unknown as {
-    items: Array<{ id: string; tabId?: string; timestamp: number; response?: { status: number; headers?: Record<string, string>; body?: string } }>;
+    items: Array<{
+      id: string;
+      tabId?: string;
+      timestamp: number;
+      response?: { status: number; headers?: Record<string, string>; body?: string };
+    }>;
   };
   const envState = useEnvironmentStore.getState() as unknown as {
     activeEnvironmentId: string | null;
@@ -2400,6 +2587,7 @@ git commit -m "feat(ai): add contextSnapshot capturing active tab + latest respo
 ## Task 15: promptBuilder (TDD)
 
 **Files:**
+
 - Test: `src/features/ai/lib/__tests__/promptBuilder.test.ts`
 - Create: `src/features/ai/lib/promptBuilder.ts`
 
@@ -2413,7 +2601,12 @@ import type { RawSnapshot } from '@/features/ai/lib/contextSnapshot';
 
 const snapshot: RawSnapshot = {
   contextRef: { kind: 'response', tabId: 't1', capturedAt: 0 },
-  request: { method: 'GET', url: 'https://api/users', headers: { Authorization: 'Bearer sk-x' }, body: '' },
+  request: {
+    method: 'GET',
+    url: 'https://api/users',
+    headers: { Authorization: 'Bearer sk-x' },
+    body: '',
+  },
   response: { status: 401, headers: { 'WWW-Authenticate': 'Bearer' }, body: '{"error":"unauth"}' },
   environment: { baseUrl: 'https://api', token: 'sk-secret' },
 };
@@ -2428,7 +2621,10 @@ describe('buildMessages', () => {
   it('appends prior turns in order between system and user', () => {
     const msgs = buildMessages({
       snapshot,
-      priorTurns: [{ role: 'user', content: 'q1' }, { role: 'assistant', content: 'a1' }],
+      priorTurns: [
+        { role: 'user', content: 'q1' },
+        { role: 'assistant', content: 'a1' },
+      ],
       userText: 'q2',
       rawMode: false,
     });
@@ -2449,7 +2645,7 @@ describe('buildMessages', () => {
     expect(last).toContain('baseUrl');
     expect(last).toContain('token');
     expect(last).not.toContain('sk-secret');
-    expect(last).not.toContain('https://api');  // value redacted; name only
+    expect(last).not.toContain('https://api'); // value redacted; name only
   });
 
   it('passes secrets through in raw mode', () => {
@@ -2469,10 +2665,16 @@ Expected: FAIL.
 ```ts
 // src/features/ai/lib/promptBuilder.ts
 import type { ChatMessageWire } from '@shared/protocol/ai/types';
-import { redactHeaders, redactBody, redactEnvironment, type RedactionMode } from '@shared/protocol/ai/redaction';
+import {
+  redactHeaders,
+  redactBody,
+  redactEnvironment,
+  type RedactionMode,
+} from '@shared/protocol/ai/redaction';
 import type { RawSnapshot } from './contextSnapshot';
 
-export const SYSTEM_EXPLAIN_PROMPT = `You are an API debugging assistant inside Restura, a multi-protocol API client.
+export const SYSTEM_EXPLAIN_PROMPT =
+  `You are an API debugging assistant inside Restura, a multi-protocol API client.
 
 The user is looking at a request and (usually) its response in the app. Your job:
 - Explain what the request did and what the response means, plainly.
@@ -2485,7 +2687,7 @@ When the user refers to "this request" or "this response", they mean the one in 
 
 interface BuildArgs {
   snapshot: RawSnapshot;
-  priorTurns: ChatMessageWire[];   // already alternating user/assistant
+  priorTurns: ChatMessageWire[]; // already alternating user/assistant
   userText: string;
   rawMode: boolean;
 }
@@ -2548,6 +2750,7 @@ git commit -m "feat(ai): add promptBuilder with SYSTEM_EXPLAIN_PROMPT and redact
 ## Task 16: streamConsumer
 
 **Files:**
+
 - Create: `src/features/ai/lib/streamConsumer.ts`
 
 The consumer subscribes to the preload's `onChunk` and `onEnd` callbacks and exposes an `AsyncIterable<ChatStreamEvent>` so the UI can `for await` cleanly. Uses a small queue + resolver pattern (no third-party dep).
@@ -2560,7 +2763,10 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 
 interface ElectronAi {
   onChunk: (streamId: string, cb: (ev: ChatStreamEvent) => void) => () => void;
-  onEnd: (streamId: string, cb: (p: { reason: 'done' | 'cancelled' | 'error' }) => void) => () => void;
+  onEnd: (
+    streamId: string,
+    cb: (p: { reason: 'done' | 'cancelled' | 'error' }) => void
+  ) => () => void;
 }
 
 declare global {
@@ -2579,7 +2785,11 @@ export function consumeStream(streamId: string): AsyncIterable<ChatStreamEvent> 
   if (!ai) {
     return {
       async *[Symbol.asyncIterator]() {
-        yield { type: 'error', code: 'guard', message: 'AI not available (non-Electron build).' } as ChatStreamEvent;
+        yield {
+          type: 'error',
+          code: 'guard',
+          message: 'AI not available (non-Electron build).',
+        } as ChatStreamEvent;
         yield { type: 'done' } as ChatStreamEvent;
       },
     };
@@ -2650,6 +2860,7 @@ git commit -m "feat(ai): add streamConsumer bridging IPC chunks to AsyncIterable
 ## Task 17: Message + MessageList components
 
 **Files:**
+
 - Create: `src/features/ai/components/Message.tsx`
 - Create: `src/features/ai/components/MessageList.tsx`
 
@@ -2673,10 +2884,13 @@ function MessageImpl({ message }: Props) {
         className={cn(
           'glass-1 max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words',
           isUser ? 'bg-accent/10 border-accent/20' : 'border-border/40',
-          message.status === 'error' && 'border-destructive/40',
+          message.status === 'error' && 'border-destructive/40'
         )}
       >
-        {message.text || (message.status === 'streaming' ? <span className="text-muted-foreground italic">…</span> : null)}
+        {message.text ||
+          (message.status === 'streaming' ? (
+            <span className="text-muted-foreground italic">…</span>
+          ) : null)}
         {message.status === 'error' && message.errorMessage && (
           <div className="mt-2 text-xs text-destructive">{message.errorMessage}</div>
         )}
@@ -2685,7 +2899,8 @@ function MessageImpl({ message }: Props) {
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground/70">
           {message.usage && (
             <span>
-              {message.usage.promptTokens}+{message.usage.completionTokens} tok · ${message.usage.estimatedCostUSD.toFixed(4)}
+              {message.usage.promptTokens}+{message.usage.completionTokens} tok · $
+              {message.usage.estimatedCostUSD.toFixed(4)}
             </span>
           )}
           <span>AI can be wrong — verify before acting.</span>
@@ -2747,6 +2962,7 @@ git commit -m "feat(ai): add Message + MessageList components with autoscroll an
 ## Task 18: ContextPill
 
 **Files:**
+
 - Create: `src/features/ai/components/ContextPill.tsx`
 
 - [ ] **Step 1: Write the component**
@@ -2819,6 +3035,7 @@ git commit -m "feat(ai): add ContextPill showing active tab + method + URL + las
 ## Task 19: Composer (textarea + Send raw + Stop)
 
 **Files:**
+
 - Create: `src/features/ai/components/Composer.tsx`
 
 - [ ] **Step 1: Write the component**
@@ -2845,7 +3062,7 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
     if (!trimmed || disabled || streaming) return;
     onSend(trimmed, rawMode);
     setText('');
-    setRawMode(false);   // raw mode never persists across messages
+    setRawMode(false); // raw mode never persists across messages
   }, [text, rawMode, disabled, streaming, onSend]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2902,6 +3119,7 @@ git commit -m "feat(ai): add Composer with raw-mode toggle, Stop button, ⌘+Ent
 ## Task 20: ChatPanel (controller)
 
 **Files:**
+
 - Create: `src/features/ai/components/ChatPanel.tsx`
 
 Owns: starting a new conversation if none, wiring `Composer.onSend` → `electronAPI.ai.chat` + `streamConsumer`, dispatching deltas to `useAiChatStore` with 30ms RAF batching.
@@ -2963,7 +3181,9 @@ export function ChatPanel({ onClose }: Props) {
   const handleSend = async (text: string, rawMode: boolean) => {
     if (!providerConfig) return;
     const snapshot = captureActive();
-    const userMsgId = useAiChatStore.getState().appendUserMessage(text, snapshot.contextRef, rawMode);
+    const userMsgId = useAiChatStore
+      .getState()
+      .appendUserMessage(text, snapshot.contextRef, rawMode);
     void userMsgId;
     const assistantMsgId = useAiChatStore.getState().appendAssistantPlaceholder();
 
@@ -2980,19 +3200,25 @@ export function ChatPanel({ onClose }: Props) {
       model: providerConfig.defaultModel,
       messages,
       apiKeyHandleId: providerConfig.apiKeyRef.id,
-      ...(providerConfig.baseUrlOverride ? { baseUrlOverride: providerConfig.baseUrlOverride } : {}),
+      ...(providerConfig.baseUrlOverride
+        ? { baseUrlOverride: providerConfig.baseUrlOverride }
+        : {}),
       rawMode,
     };
 
     const ai = window.electronAPI?.ai;
     if (!ai) {
-      useAiChatStore.getState().setMessageError(assistantMsgId, 'AI not available (non-Electron build).');
+      useAiChatStore
+        .getState()
+        .setMessageError(assistantMsgId, 'AI not available (non-Electron build).');
       return;
     }
 
     const result = await ai.chat(spec);
     if (!result.ok) {
-      useAiChatStore.getState().setMessageError(assistantMsgId, 'error' in result ? result.error : 'Unknown error');
+      useAiChatStore
+        .getState()
+        .setMessageError(assistantMsgId, 'error' in result ? result.error : 'Unknown error');
       return;
     }
 
@@ -3000,7 +3226,8 @@ export function ChatPanel({ onClose }: Props) {
     flushBufferRef.current = { msgId: assistantMsgId, buffer: '' };
     cancelRef.current = () => void ai.cancel({ streamId });
 
-    let lastUsage: ChatStreamEvent extends { type: 'usage'; usage: infer U } ? U : undefined = undefined as never;
+    let lastUsage: ChatStreamEvent extends { type: 'usage'; usage: infer U } ? U : undefined =
+      undefined as never;
     try {
       for await (const ev of consumeStream(streamId)) {
         if (ev.type === 'delta') {
@@ -3041,20 +3268,27 @@ export function ChatPanel({ onClose }: Props) {
       <header className="flex items-center justify-between border-b border-border/40 px-3 py-2">
         <div className="flex flex-col">
           <span className="text-xs font-medium">AI chat</span>
-          {activeConv && activeConv.messages.length > 0 && (() => {
-            const total = activeConv.messages.reduce(
-              (sum, m) => sum + (m.usage?.estimatedCostUSD ?? 0),
-              0,
-            );
-            return total > 0 ? (
-              <span className="text-[10px] text-muted-foreground">
-                Conversation cost: ${total.toFixed(4)}
-              </span>
-            ) : null;
-          })()}
+          {activeConv &&
+            activeConv.messages.length > 0 &&
+            (() => {
+              const total = activeConv.messages.reduce(
+                (sum, m) => sum + (m.usage?.estimatedCostUSD ?? 0),
+                0
+              );
+              return total > 0 ? (
+                <span className="text-[10px] text-muted-foreground">
+                  Conversation cost: ${total.toFixed(4)}
+                </span>
+              ) : null;
+            })()}
         </div>
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={() => store.newConversation()} aria-label="New chat">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => store.newConversation()}
+            aria-label="New chat"
+          >
             <Plus className="h-4 w-4" />
           </Button>
           <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close AI panel">
@@ -3094,6 +3328,7 @@ git commit -m "feat(ai): add ChatPanel controller with RAF-batched delta flush a
 ## Task 21: ProviderSettings (BYO key UI)
 
 **Files:**
+
 - Create: `src/features/ai/components/ProviderSettings.tsx`
 
 - [ ] **Step 1: Write the component**
@@ -3106,7 +3341,13 @@ import { ALL_PROVIDERS, getProviderModule } from '@shared/protocol/ai/providers'
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { Provider } from '@shared/protocol/ai/types';
 
 const PROVIDER_LABELS: Record<Provider, string> = {
@@ -3130,7 +3371,8 @@ export function ProviderSettings() {
     if (!api) return;
     const result = (await api.put({ scope: `ai:${provider}`, value })) as { id: string };
     const module = getProviderModule(provider);
-    const defaultModel = store.providerConfigs[provider]?.defaultModel ?? module.models[0]?.id ?? '';
+    const defaultModel =
+      store.providerConfigs[provider]?.defaultModel ?? module.models[0]?.id ?? '';
     store.setProviderConfig(provider, {
       provider,
       defaultModel,
@@ -3160,7 +3402,9 @@ export function ProviderSettings() {
           </SelectTrigger>
           <SelectContent>
             {ALL_PROVIDERS.map((p) => (
-              <SelectItem key={p} value={p}>{PROVIDER_LABELS[p]}</SelectItem>
+              <SelectItem key={p} value={p}>
+                {PROVIDER_LABELS[p]}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -3181,14 +3425,20 @@ export function ProviderSettings() {
             </div>
             {cfg ? (
               <>
-                <div className="text-xs text-muted-foreground">API key configured (handle {cfg.apiKeyRef.id.slice(0, 8)}…)</div>
+                <div className="text-xs text-muted-foreground">
+                  API key configured (handle {cfg.apiKeyRef.id.slice(0, 8)}…)
+                </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Default model</Label>
                   <Select
                     value={cfg.defaultModel}
-                    onValueChange={(model) => store.setProviderConfig(provider, { ...cfg, defaultModel: model })}
+                    onValueChange={(model) =>
+                      store.setProviderConfig(provider, { ...cfg, defaultModel: model })
+                    }
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       {module.models.map((m) => (
                         <SelectItem key={m.id} value={m.id}>
@@ -3207,9 +3457,17 @@ export function ProviderSettings() {
                     type="password"
                     value={pendingKeys[provider]}
                     onChange={(e) => setPendingKeys((p) => ({ ...p, [provider]: e.target.value }))}
-                    placeholder={provider === 'anthropic' ? 'sk-ant-…' : provider === 'openai' ? 'sk-…' : 'sk-or-…'}
+                    placeholder={
+                      provider === 'anthropic'
+                        ? 'sk-ant-…'
+                        : provider === 'openai'
+                          ? 'sk-…'
+                          : 'sk-or-…'
+                    }
                   />
-                  <Button size="sm" onClick={() => saveKey(provider)}>Save</Button>
+                  <Button size="sm" onClick={() => saveKey(provider)}>
+                    Save
+                  </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   Stored encrypted in the OS keychain. Never sent to Restura's servers.
@@ -3233,8 +3491,14 @@ export function ProviderSettings() {
               variant="outline"
               onClick={() => {
                 const blob = new Blob(
-                  [JSON.stringify({ conversations: store.conversations, exportedAt: Date.now() }, null, 2)],
-                  { type: 'application/json' },
+                  [
+                    JSON.stringify(
+                      { conversations: store.conversations, exportedAt: Date.now() },
+                      null,
+                      2
+                    ),
+                  ],
+                  { type: 'application/json' }
                 );
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -3286,6 +3550,7 @@ git commit -m "feat(ai): add ProviderSettings UI for BYO key + model selection p
 ## Task 22: Mount ChatPanel in the home route (lazy + isElectron gate)
 
 **Files:**
+
 - Modify: `src/routes/index.tsx`
 
 - [ ] **Step 1: Add lazy import at top of file**
@@ -3313,22 +3578,26 @@ const enableAi = isElectron();
 Where the right side of the layout is composed (find `ResizableLayout` or the right-rail slot), add:
 
 ```tsx
-{enableAi && aiPanelOpen && <ChatPanel onClose={() => setAiPanelOpen(false)} />}
+{
+  enableAi && aiPanelOpen && <ChatPanel onClose={() => setAiPanelOpen(false)} />;
+}
 ```
 
 And in `TopBar` (or the closest header-action surface), conditionally render a "AI" toggle button:
 
 ```tsx
-{enableAi && (
-  <button
-    onClick={() => setAiPanelOpen(!aiPanelOpen)}
-    aria-pressed={aiPanelOpen}
-    aria-label="Toggle AI chat"
-    className="px-2 py-1 text-xs"
-  >
-    AI
-  </button>
-)}
+{
+  enableAi && (
+    <button
+      onClick={() => setAiPanelOpen(!aiPanelOpen)}
+      aria-pressed={aiPanelOpen}
+      aria-label="Toggle AI chat"
+      className="px-2 py-1 text-xs"
+    >
+      AI
+    </button>
+  );
+}
 ```
 
 (If `TopBar` already takes prop-injected actions, plumb through that prop; otherwise add it directly to the header markup in `src/routes/index.tsx`.)
@@ -3338,6 +3607,7 @@ And in `TopBar` (or the closest header-action surface), conditionally render a "
 Run: `npm run electron:dev`
 
 Verify:
+
 1. The "AI" button is visible in the top bar (in Electron dev).
 2. Clicking it slides the panel in.
 3. Composer shows "Add an API key in Settings → AI…" placeholder (no key configured yet).
@@ -3356,6 +3626,7 @@ git commit -m "feat(ai): mount ChatPanel in home route, gated by isElectron with
 ## Task 23: Add 'ai' section to SettingsDrawer
 
 **Files:**
+
 - Modify: `src/components/shared/SettingsDrawer.tsx`
 
 - [ ] **Step 1: Extend the SectionId union**
@@ -3393,16 +3664,21 @@ import { Sparkles } from 'lucide-react';
 Find the switch statement that renders content based on `activeSection`. Add a branch:
 
 ```tsx
-{activeSection === 'ai' && (() => {
-  const { ProviderSettings } = require('@/features/ai/components/ProviderSettings');
-  return <ProviderSettings />;
-})()}
+{
+  activeSection === 'ai' &&
+    (() => {
+      const { ProviderSettings } = require('@/features/ai/components/ProviderSettings');
+      return <ProviderSettings />;
+    })();
+}
 ```
 
 Or — preferred — add a lazy import at the top of the file:
 
 ```ts
-const ProviderSettings = lazyComponent(() => import('@/features/ai/components/ProviderSettings').then((m) => ({ default: m.ProviderSettings })));
+const ProviderSettings = lazyComponent(() =>
+  import('@/features/ai/components/ProviderSettings').then((m) => ({ default: m.ProviderSettings }))
+);
 ```
 
 and reference `<ProviderSettings />` directly.
@@ -3410,10 +3686,16 @@ and reference `<ProviderSettings />` directly.
 If `isElectron()` is false, render a stub instead:
 
 ```tsx
-{activeSection === 'ai' && !isElectron() && (
-  <div className="text-sm text-muted-foreground">AI features are available in the desktop app only.</div>
-)}
-{activeSection === 'ai' && isElectron() && <ProviderSettings />}
+{
+  activeSection === 'ai' && !isElectron() && (
+    <div className="text-sm text-muted-foreground">
+      AI features are available in the desktop app only.
+    </div>
+  );
+}
+{
+  activeSection === 'ai' && isElectron() && <ProviderSettings />;
+}
 ```
 
 - [ ] **Step 4: Type-check + smoke**
@@ -3432,6 +3714,7 @@ git commit -m "feat(ai): add 'AI' section to SettingsDrawer with isElectron gati
 ## Task 24: Echo server AI handlers
 
 **Files:**
+
 - Create: `echo/handlers/ai.ts`
 - Modify: `echo/index.ts`
 
@@ -3486,7 +3769,9 @@ function sseResponse(stream: ReadableStream<Uint8Array>): Response {
 export async function handleOpenAiChat(c: Context): Promise<Response> {
   const fail = c.req.query('fail');
   if (fail === '429') {
-    return new Response('{"error":{"message":"Rate limited","type":"rate_limit_exceeded"}}', { status: 429 });
+    return new Response('{"error":{"message":"Rate limited","type":"rate_limit_exceeded"}}', {
+      status: 429,
+    });
   }
   if (fail === 'malformed') {
     return sseResponse(streamChunks(['data: {not-json}\n\n']));
@@ -3497,7 +3782,10 @@ export async function handleOpenAiChat(c: Context): Promise<Response> {
 export async function handleAnthropicChat(c: Context): Promise<Response> {
   const fail = c.req.query('fail');
   if (fail === '429') {
-    return new Response('{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}', { status: 429 });
+    return new Response(
+      '{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}',
+      { status: 429 }
+    );
   }
   if (fail === 'malformed') {
     return sseResponse(streamChunks(['event: content_block_delta\ndata: {not-json}\n\n']));
@@ -3520,9 +3808,11 @@ app.post('/v1/messages', handleAnthropicChat);
 - [ ] **Step 3: Verify echo type-checks and dev-serves**
 
 Run:
+
 ```bash
 npx tsc --noEmit -p echo/tsconfig.json
 ```
+
 Expected: PASS
 
 - [ ] **Step 4: Commit**
@@ -3537,6 +3827,7 @@ git commit -m "feat(echo): add AI endpoints for OpenAI + Anthropic shapes with f
 ## Task 25: e2e test against echo
 
 **Files:**
+
 - Create: `e2e/real-ai.spec.ts`
 
 - [ ] **Step 1: Write the spec**
@@ -3575,7 +3866,7 @@ test.describe('AI chat', () => {
     // directly here:
     await page.evaluate(() => {
       const useAiChatStore = (window as unknown as { __aiChatStore?: unknown }).__aiChatStore;
-      void useAiChatStore;  // intentionally a no-op marker; v1 baseUrlOverride wired manually
+      void useAiChatStore; // intentionally a no-op marker; v1 baseUrlOverride wired manually
     });
 
     // Close settings
@@ -3628,6 +3919,7 @@ git commit -m "test(e2e): AI chat round-trip + cancel against echo server"
 ## Task 26: Security tests for redaction (property-based)
 
 **Files:**
+
 - Create: `tests/security/ai-redaction.test.ts`
 
 - [ ] **Step 1: Write the test**
@@ -3641,8 +3933,12 @@ const JWT_BODY = (s: string) => `{"token":"${s}"}`;
 
 function randomJwt(): string {
   const part = (n: number) =>
-    Array.from({ length: n }, () =>
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'[Math.floor(Math.random() * 64)],
+    Array.from(
+      { length: n },
+      () =>
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'[
+          Math.floor(Math.random() * 64)
+        ]
     ).join('');
   return `eyJ${part(20)}.${part(60)}.${part(30)}`;
 }
@@ -3706,6 +4002,7 @@ git commit -m "test(security): property-based redaction tests for JWTs, Bearer t
 ## Task 27: ROADMAP.md update
 
 **Files:**
+
 - Modify: `docs/ROADMAP.md`
 
 - [ ] **Step 1: Edit ROADMAP.md**
@@ -3793,5 +4090,4 @@ npm run validate
 
 ---
 
-*Plan complete. Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to execute.*
-
+_Plan complete. Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to execute._

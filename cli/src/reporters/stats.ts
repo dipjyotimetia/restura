@@ -40,7 +40,6 @@ export function formatLoadStatsReport(result: RunResult): string {
 /** Prints latency percentiles + throughput at the end of a run. */
 export class StatsReporter implements Reporter {
   onEnd(result: RunResult): void {
-    // eslint-disable-next-line no-console
     console.log(formatLoadStatsReport(result));
   }
 }

@@ -31,7 +31,10 @@ export function validateSocketIOUrl(url: string): UrlValidationResult {
   try {
     const parsed = new URL(url);
     if (!SOCKETIO_VALID_SCHEMES.has(parsed.protocol)) {
-      return { valid: false, error: `Invalid protocol "${parsed.protocol}". Use http(s):// or ws(s)://` };
+      return {
+        valid: false,
+        error: `Invalid protocol "${parsed.protocol}". Use http(s):// or ws(s)://`,
+      };
     }
     return { valid: true };
   } catch {

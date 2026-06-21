@@ -13,11 +13,17 @@ const listeners = new Set<MigrationListener>();
 export const migrationTelemetry = {
   on(cb: MigrationListener): () => void {
     listeners.add(cb);
-    return () => { listeners.delete(cb); };
+    return () => {
+      listeners.delete(cb);
+    };
   },
   emit(outcome: MigrationOutcome): void {
     for (const cb of listeners) {
-      try { cb(outcome); } catch { /* never let a listener crash the rest */ }
+      try {
+        cb(outcome);
+      } catch {
+        /* never let a listener crash the rest */
+      }
     }
   },
 };

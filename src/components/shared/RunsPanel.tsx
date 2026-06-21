@@ -12,7 +12,15 @@ import { cn } from '@/lib/shared/utils';
 import { CollectionRunDetail } from '@/features/collections/components/CollectionRunDetail';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
 
-function SectionHeader({ icon, title, right }: { icon: React.ReactNode; title: string; right?: React.ReactNode }) {
+function SectionHeader({
+  icon,
+  title,
+  right,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  right?: React.ReactNode;
+}) {
   return (
     <div className="flex items-center justify-between mb-2">
       <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
@@ -117,16 +125,22 @@ export function RunsPanel() {
             </div>
             <div className="rounded-md border border-border/40 divide-y divide-border/30 max-h-56 overflow-auto">
               {mockRoutes.map((r, i) => (
-                <div key={`${r.method}-${r.path}-${i}`} className="flex items-center gap-2 px-2 py-1">
+                <div
+                  key={`${r.method}-${r.path}-${i}`}
+                  className="flex items-center gap-2 px-2 py-1"
+                >
                   <MethodBadge method={r.method} />
-                  <span className="font-mono text-[11px] text-muted-foreground truncate">{r.path}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground truncate">
+                    {r.path}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
         ) : (
           <p className="text-[11px] text-muted-foreground/70 font-mono leading-relaxed">
-            Not running. Start one from a collection&rsquo;s ⋯ menu &rarr; &ldquo;Start mock server&rdquo;.
+            Not running. Start one from a collection&rsquo;s ⋯ menu &rarr; &ldquo;Start mock
+            server&rdquo;.
           </p>
         )}
       </section>
@@ -170,18 +184,27 @@ export function RunsPanel() {
                         ok ? 'bg-emerald-500' : 'bg-red-500'
                       )}
                     />
-                    <span className="font-mono text-[11px] text-foreground truncate flex-1" title={run.scopeName}>
+                    <span
+                      className="font-mono text-[11px] text-foreground truncate flex-1"
+                      title={run.scopeName}
+                    >
                       {run.scopeName}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">{formatRelativeTime(run.startedAt)}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {formatRelativeTime(run.startedAt)}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 font-mono text-[10px] tabular-nums pl-3.5">
-                    <span className="text-emerald-600 dark:text-emerald-400">{run.summary.passed} ✓</span>
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      {run.summary.passed} ✓
+                    </span>
                     {run.summary.failed > 0 && (
                       <span className="text-red-600 dark:text-red-400">{run.summary.failed} ✗</span>
                     )}
                     {run.summary.skipped > 0 && (
-                      <span className="text-amber-600 dark:text-amber-400">{run.summary.skipped} skip</span>
+                      <span className="text-amber-600 dark:text-amber-400">
+                        {run.summary.skipped} skip
+                      </span>
                     )}
                     <span className="text-muted-foreground/70 ml-auto">{run.durationMs}ms</span>
                   </div>
@@ -218,10 +241,16 @@ export function RunsPanel() {
         ) : (
           <div className="space-y-2">
             {runs.map((run) => (
-              <div key={run.id} className="rounded-md border border-border/50 bg-muted/20 p-2 space-y-1.5">
+              <div
+                key={run.id}
+                className="rounded-md border border-border/50 bg-muted/20 p-2 space-y-1.5"
+              >
                 <div className="flex items-center gap-2">
                   <MethodBadge method={run.method} />
-                  <span className="font-mono text-[11px] text-foreground truncate flex-1" title={run.url}>
+                  <span
+                    className="font-mono text-[11px] text-foreground truncate flex-1"
+                    title={run.url}
+                  >
                     {run.url}
                   </span>
                   <button

@@ -6,8 +6,17 @@ export { default as RequestSettingsEditor } from './components/RequestSettingsEd
 
 // Lib
 export { executeRequest } from './lib/requestExecutor';
-export { buildMultipartMixedBody, generateBoundary, parseMultipartMixedBody } from './lib/multipartBuilder';
-export { buildProxyUrl, shouldBypassProxy, shouldUseCorsProxy, isCorsError } from './lib/proxyHelper';
+export {
+  buildMultipartMixedBody,
+  generateBoundary,
+  parseMultipartMixedBody,
+} from './lib/multipartBuilder';
+export {
+  buildProxyUrl,
+  shouldBypassProxy,
+  shouldUseCorsProxy,
+  isCorsError,
+} from './lib/proxyHelper';
 export { sendStreamingRequest, supportsStreamingRequests } from './lib/streamingRequest';
 export { validateURL, sanitizeURL, validateURLWithVariables } from './lib/urlValidator';
 

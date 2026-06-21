@@ -65,17 +65,17 @@ on the server side.
 
 ## Environment variables
 
-| Var | Required | Default | Purpose |
-|-----|---------|---------|---------|
-| `WORKER_PROXY_TOKEN` | Yes¹ | _(unset → 503)_ | Shared secret. SPA sends it in `X-Restura-Proxy-Token`. |
-| `REQUIRE_CF_ACCESS` | Yes¹ | `false` | Trust a reverse-proxy `Cf-Access-Authenticated-User-Email` header instead of a Bearer token. |
-| `ENVIRONMENT` | No | `production` | Anything other than `development` enforces full auth + SSRF. |
-| `ALLOWED_ORIGIN` | No | _(echo request Origin)_ | Comma-separated CORS allow-list. Supports `*` inside hostnames. |
-| `ALLOW_PRIVATE_IPS` | No | `false` | Permit RFC 1918 / link-local / CGNAT upstreams. See _Internal-network access_ below. |
-| `RATE_LIMITER` | No | `map` | Always `map` in self-hosted (per-process limiter). |
-| `PORT` / `HOST` | No | `3000` / `0.0.0.0` | Bind address inside the container. |
-| `VITE_ECHO_*_URL` | No | _(public echo.restura.dev)_ | **Build-time.** Replace the SPA's placeholder URLs with internal echo endpoints. |
-| `DEV_BYPASS_AUTH` | _Never in prod_ | _(unset)_ | Local dev only. Bypasses auth + allows localhost SSRF. |
+| Var                  | Required        | Default                     | Purpose                                                                                      |
+| -------------------- | --------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
+| `WORKER_PROXY_TOKEN` | Yes¹            | _(unset → 503)_             | Shared secret. SPA sends it in `X-Restura-Proxy-Token`.                                      |
+| `REQUIRE_CF_ACCESS`  | Yes¹            | `false`                     | Trust a reverse-proxy `Cf-Access-Authenticated-User-Email` header instead of a Bearer token. |
+| `ENVIRONMENT`        | No              | `production`                | Anything other than `development` enforces full auth + SSRF.                                 |
+| `ALLOWED_ORIGIN`     | No              | _(echo request Origin)_     | Comma-separated CORS allow-list. Supports `*` inside hostnames.                              |
+| `ALLOW_PRIVATE_IPS`  | No              | `false`                     | Permit RFC 1918 / link-local / CGNAT upstreams. See _Internal-network access_ below.         |
+| `RATE_LIMITER`       | No              | `map`                       | Always `map` in self-hosted (per-process limiter).                                           |
+| `PORT` / `HOST`      | No              | `3000` / `0.0.0.0`          | Bind address inside the container.                                                           |
+| `VITE_ECHO_*_URL`    | No              | _(public echo.restura.dev)_ | **Build-time.** Replace the SPA's placeholder URLs with internal echo endpoints.             |
+| `DEV_BYPASS_AUTH`    | _Never in prod_ | _(unset)_                   | Local dev only. Bypasses auth + allows localhost SSRF.                                       |
 
 ¹ At least one of `WORKER_PROXY_TOKEN` or `REQUIRE_CF_ACCESS=true` MUST be
 set. The Worker fails-closed with HTTP 503 otherwise.
@@ -198,7 +198,7 @@ The ticket map is process-local and tickets expire in 30 seconds. This
 means:
 
 - **Multiple replicas behind a load balancer don't work** — if `/api/ws-
-  ticket` lands on replica A and `/api/ws` lands on replica B, the ticket
+ticket` lands on replica A and `/api/ws` lands on replica B, the ticket
   is unknown to B and the upgrade closes with code 1008.
 - **Container restarts invalidate in-flight tickets** — affects only the
   ~30-second window after each restart; usually harmless.
@@ -228,10 +228,10 @@ building their own Electron image can disable this by setting
 
 ## Healthchecks
 
-| Path | Purpose | Auth |
-|------|---------|------|
-| `/health` | Liveness — confirms the process is responsive. Returns 200 + JSON. | None |
-| `/ready` | Readiness — currently identical to `/health`; reserved for future per-replica readiness signals. | None |
+| Path      | Purpose                                                                                          | Auth |
+| --------- | ------------------------------------------------------------------------------------------------ | ---- |
+| `/health` | Liveness — confirms the process is responsive. Returns 200 + JSON.                               | None |
+| `/ready`  | Readiness — currently identical to `/health`; reserved for future per-replica readiness signals. | None |
 
 For Kubernetes:
 
@@ -295,13 +295,13 @@ effect.
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---------|--------------|
-| 503 on every `/api/*` request | Neither `WORKER_PROXY_TOKEN` nor `REQUIRE_CF_ACCESS=true` is set. |
-| CORS errors in the browser console | `ALLOWED_ORIGIN` doesn't include the SPA hostname. Use a comma-separated list or `*` wildcards. |
-| Upstreams to internal IPs return 400 "Private/internal IP addresses are not allowed" | Set `ALLOW_PRIVATE_IPS=true` (and read the DNS-rebind caveat above). |
-| WebSocket connects but no frames flow | Reverse proxy isn't forwarding the `Upgrade: websocket` header. Caddy / nginx need explicit WS config. |
-| `/health` returns 200 but the SPA shows "SPA bundle not found" | The build stage didn't run, or `RESTURA_STATIC_ROOT` is misconfigured. |
+| Symptom                                                                              | Likely cause                                                                                           |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| 503 on every `/api/*` request                                                        | Neither `WORKER_PROXY_TOKEN` nor `REQUIRE_CF_ACCESS=true` is set.                                      |
+| CORS errors in the browser console                                                   | `ALLOWED_ORIGIN` doesn't include the SPA hostname. Use a comma-separated list or `*` wildcards.        |
+| Upstreams to internal IPs return 400 "Private/internal IP addresses are not allowed" | Set `ALLOW_PRIVATE_IPS=true` (and read the DNS-rebind caveat above).                                   |
+| WebSocket connects but no frames flow                                                | Reverse proxy isn't forwarding the `Upgrade: websocket` header. Caddy / nginx need explicit WS config. |
+| `/health` returns 200 but the SPA shows "SPA bundle not found"                       | The build stage didn't run, or `RESTURA_STATIC_ROOT` is misconfigured.                                 |
 
 ---
 

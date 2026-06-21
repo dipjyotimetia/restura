@@ -91,13 +91,15 @@ function createStore<T>(initialState: T): Store<T> {
   let state = initialState;
   return {
     getState: () => state,
-    setState: (newState: T) => { state = newState; }
+    setState: (newState: T) => {
+      state = newState;
+    },
   };
 }
 
 // 6. Use const assertions for literal types
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE'] as const;
-type Method = typeof HTTP_METHODS[number];
+type Method = (typeof HTTP_METHODS)[number];
 
 // 7. Use discriminated unions for complex state
 type RequestState =
@@ -527,10 +529,12 @@ import { z } from 'zod';
 const RequestSchema = z.object({
   url: z.string().url('Invalid URL format'),
   method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']),
-  headers: z.array(z.object({
-    key: z.string().min(1),
-    value: z.string(),
-  })),
+  headers: z.array(
+    z.object({
+      key: z.string().min(1),
+      value: z.string(),
+    })
+  ),
   body: z.string().optional(),
 });
 
@@ -617,7 +621,7 @@ import { cn } from '@/lib/utils'; // Good - individual export
 
 ### Code Comments
 
-```typescript
+````typescript
 /**
  * Executes an HTTP request with the given configuration.
  *
@@ -641,7 +645,7 @@ import { cn } from '@/lib/utils'; // Good - individual export
 async function executeRequest(config: RequestConfig): Promise<Response> {
   // Implementation
 }
-```
+````
 
 ### README Structure
 

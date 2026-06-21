@@ -29,7 +29,13 @@ describe('loadIterationData', () => {
 
   it('loads JSON arrays of objects', async () => {
     const file = join(dir, 'rows.json');
-    await writeFile(file, JSON.stringify([{ a: 1, b: 'two' }, { a: 2, b: 'three' }]));
+    await writeFile(
+      file,
+      JSON.stringify([
+        { a: 1, b: 'two' },
+        { a: 2, b: 'three' },
+      ])
+    );
     const rows = await loadIterationData(file);
     expect(rows).toEqual([
       { a: '1', b: 'two' },

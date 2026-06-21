@@ -27,10 +27,7 @@ const TEXT_CONTENT_TYPE_RE =
  * `sanitizeResponseHeaders` preserves upstream key casing, so a plain
  * `headers['content-type']` lookup is not reliable across backends.
  */
-export function getHeaderCI(
-  headers: Record<string, string>,
-  name: string
-): string | undefined {
+export function getHeaderCI(headers: Record<string, string>, name: string): string | undefined {
   const target = name.toLowerCase();
   for (const key of Object.keys(headers)) {
     if (key.toLowerCase() === target) return headers[key];

@@ -28,6 +28,18 @@ pnpm-lock.yaml
 src/lib/opencollection/spec-types.ts
 docs/CAPABILITY_MATRIX.md
 
+# Vendored third-party schemas — keep upstream formatting, never rewrite
+vendor/
+
+# Test fixtures — formatting is intentional (some are asserted on byte-for-byte)
+tests/fixtures/
+cli/fixtures/
+
+# MDX (docs-site content): Prettier's MDX printer prose-wraps Markdown lists and
+# code fences nested inside JSX components (<TabItem>, <FileTree>, <Aside>), which
+# corrupts them. `astro check` validates these files in the docs CI job instead.
+*.mdx
+
 # Cache / tool dirs
 .cache/
 .turbo/

@@ -4,6 +4,9 @@
   "private": true,
   "description": "Documentation site for Restura (docs.restura.dev)",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",

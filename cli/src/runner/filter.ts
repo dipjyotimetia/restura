@@ -15,10 +15,7 @@ export interface FilterOptions {
  * `**` matches any chars including `/`. Plain substrings without wildcards
  * are treated as substring matches against name + relativePath.
  */
-export function applyFilters(
-  requests: LoadedRequest[],
-  opts: FilterOptions
-): LoadedRequest[] {
+export function applyFilters(requests: LoadedRequest[], opts: FilterOptions): LoadedRequest[] {
   const folder = opts.folder?.replace(/^\/+|\/+$/g, '');
   const includes = (opts.include ?? []).map(compile);
   const excludes = (opts.exclude ?? []).map(compile);

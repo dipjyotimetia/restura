@@ -12,11 +12,7 @@ function TransformNodeImpl({ id, data, selected }: NodeProps) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <NodeChrome
-        nodeId={id}
-        kindLabel="Transform"
-        selected={Boolean(selected)}
-      >
+      <NodeChrome nodeId={id} kindLabel="Transform" selected={Boolean(selected)}>
         <div className="flex items-start gap-2">
           <Code2 className="h-4 w-4 mt-0.5 text-purple-400" />
           <div className="min-w-0">

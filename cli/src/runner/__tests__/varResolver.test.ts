@@ -16,7 +16,6 @@ describe('resolveVarsDeep', () => {
   });
 
   it('runs user vars before dynamic helpers (no double-substitution issues)', () => {
-    expect(resolveVarsDeep('{{GREETING}} {{$randomInt}}', { GREETING: 'Hi' }))
-      .toMatch(/^Hi \d+$/);
+    expect(resolveVarsDeep('{{GREETING}} {{$randomInt}}', { GREETING: 'Hi' })).toMatch(/^Hi \d+$/);
   });
 });

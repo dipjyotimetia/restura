@@ -5,10 +5,7 @@ import type * as Monaco from 'monaco-editor';
 import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
 import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
-import {
-  parseVariables,
-  generateVariablesTemplate,
-} from '@/features/graphql/lib/queryParser';
+import { parseVariables, generateVariablesTemplate } from '@/features/graphql/lib/queryParser';
 import { validateQuery } from '@/features/graphql/lib/validation';
 import { buildSchemaFromIntrospection } from '@/features/graphql/lib/introspection';
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
@@ -91,15 +88,9 @@ export default function GraphQLBodyEditor({
   }, [query, executableSchema]);
 
   const handleQueryEditorMount = useCallback(
-    (
-      editor: Monaco.editor.IStandaloneCodeEditor,
-      monaco: typeof Monaco
-    ) => {
+    (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
       if (!completionProviderRegistered) {
-        registerGraphQLCompletionProvider(
-          monaco,
-          () => schemaRef.current?.schema ?? null
-        );
+        registerGraphQLCompletionProvider(monaco, () => schemaRef.current?.schema ?? null);
         completionProviderRegistered = true;
       }
       const model = editor.getModel();
@@ -163,9 +154,7 @@ export default function GraphQLBodyEditor({
             language="graphql"
             height="100%"
             onEditorMount={handleQueryEditorMount}
-            {...(activeTabId
-              ? { path: `tab-${activeTabId}-graphql-query` }
-              : {})}
+            {...(activeTabId ? { path: `tab-${activeTabId}-graphql-query` } : {})}
           />
         </div>
       </div>
@@ -216,9 +205,7 @@ export default function GraphQLBodyEditor({
                 onChange={onVariablesChange}
                 language="json"
                 height="140px"
-                {...(activeTabId
-                  ? { path: `tab-${activeTabId}-graphql-variables` }
-                  : {})}
+                {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables` } : {})}
               />
             </div>
           </div>

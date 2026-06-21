@@ -23,13 +23,7 @@
  */
 
 import { z } from 'zod';
-import type {
-  Collection,
-  CollectionItem,
-  Environment,
-  HistoryItem,
-  HttpRequest,
-} from '@/types';
+import type { Collection, CollectionItem, Environment, HistoryItem, HttpRequest } from '@/types';
 import {
   canExecute,
   canRead,
@@ -141,11 +135,7 @@ export type ToolResult<T = unknown> =
  * `name` is matched against {@link TOOLS}; an unknown name returns an
  * `ok: false` result with a clear error.
  */
-export function dispatchTool(
-  name: string,
-  rawInput: unknown,
-  ctx: McpDispatchContext
-): ToolResult {
+export function dispatchTool(name: string, rawInput: unknown, ctx: McpDispatchContext): ToolResult {
   switch (name) {
     case 'list_collections':
       return listCollections(ListCollectionsInputSchema, rawInput, ctx);
@@ -162,7 +152,7 @@ export function dispatchTool(
       return {
         ok: false,
         error:
-          "execute_request is not enabled in this build. The MCP server v1 ships read-only tools; subscribe to the v2 milestone for execution support.",
+          'execute_request is not enabled in this build. The MCP server v1 ships read-only tools; subscribe to the v2 milestone for execution support.',
       };
     default:
       return { ok: false, error: `Unknown tool: ${name}` };
@@ -173,7 +163,10 @@ export function dispatchTool(
 // Tool implementations
 // ---------------------------------------------------------------------------
 
-function parse<T>(schema: z.ZodType<T>, raw: unknown): { ok: true; data: T } | { ok: false; error: string } {
+function parse<T>(
+  schema: z.ZodType<T>,
+  raw: unknown
+): { ok: true; data: T } | { ok: false; error: string } {
   const result = schema.safeParse(raw);
   if (!result.success) {
     return { ok: false, error: `Invalid input: ${result.error.message}` };
@@ -275,8 +268,7 @@ function getHistory(
       if (!filter) return true;
       const url = 'url' in entry.request ? entry.request.url : '';
       return (
-        url.toLowerCase().includes(filter) ||
-        entry.request.name.toLowerCase().includes(filter)
+        url.toLowerCase().includes(filter) || entry.request.name.toLowerCase().includes(filter)
       );
     })
     .slice(0, limit)
@@ -339,9 +331,7 @@ function listEnvironments(
   if (!parsed.ok) return parsed;
   // Only surface environments the user has opted in. Hidden environments
   // are filtered out entirely — the agent can't discover their existence.
-  const visible = ctx.environments.filter((e) =>
-    canReadEnvironment(ctx.consent, e.id)
-  );
+  const visible = ctx.environments.filter((e) => canReadEnvironment(ctx.consent, e.id));
   return {
     ok: true,
     data: {

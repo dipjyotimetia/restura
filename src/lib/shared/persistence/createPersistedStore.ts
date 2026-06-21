@@ -17,9 +17,7 @@ import { migrationTelemetry } from './telemetry';
 import { quarantineState } from './quarantine';
 import type { MigrationDescriptor } from './types';
 
-export function createPersistedStore<T>(
-  descriptor: MigrationDescriptor<T>,
-): PersistOptions<T> {
+export function createPersistedStore<T>(descriptor: MigrationDescriptor<T>): PersistOptions<T> {
   // The adapter is a generic encrypted-blob store typed `PersistStorage<unknown>`;
   // each descriptor declares the exact T it persists, so narrowing here is
   // sound — descriptor.store selects the table whose typed slot matches T.

@@ -54,9 +54,7 @@ export function GrpcSettingsPanel({
               min={0}
               step={500}
               value={retryDelayMs}
-              onChange={(e) =>
-                onRetryDelayMsChange(Math.max(0, parseInt(e.target.value, 10) || 0))
-              }
+              onChange={(e) => onRetryDelayMsChange(Math.max(0, parseInt(e.target.value, 10) || 0))}
               aria-label="Retry delay in milliseconds"
             />
           </div>
@@ -64,8 +62,7 @@ export function GrpcSettingsPanel({
         {retryMaxAttempts > 1 && (
           <p className="text-sp-11 text-sp-muted font-mono">
             Will retry up to {retryMaxAttempts - 1} time
-            {retryMaxAttempts > 2 ? 's' : ''} on failure, waiting {retryDelayMs}ms between
-            attempts.
+            {retryMaxAttempts > 2 ? 's' : ''} on failure, waiting {retryDelayMs}ms between attempts.
           </p>
         )}
       </div>

@@ -2,7 +2,10 @@ import { io as ioClient, type Socket } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
-import { useSocketIOStore, type SocketIOTransport } from '@/features/socketio/store/useSocketIOStore';
+import {
+  useSocketIOStore,
+  type SocketIOTransport,
+} from '@/features/socketio/store/useSocketIOStore';
 import { buildSocketIOConnectUrl, validateSocketIOUrl } from '@/features/socketio/lib/url-helpers';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 
@@ -57,7 +60,8 @@ class SocketIOManager {
       auth: keyValuePairsToRecord(connection.auth),
       query: keyValuePairsToRecord(connection.query),
       extraHeaders: keyValuePairsToRecord(connection.extraHeaders),
-      transports: connection.transports.length > 0 ? connection.transports : ['websocket', 'polling'],
+      transports:
+        connection.transports.length > 0 ? connection.transports : ['websocket', 'polling'],
       reconnection: connection.autoReconnect,
       reconnectionAttempts: connection.reconnectionAttempts,
       reconnectionDelay: connection.reconnectionDelay,
@@ -72,11 +76,16 @@ class SocketIOManager {
       this.connectViaElectron(connectionId, config);
     } else {
       // Browser path: warn if extraHeaders are set (silently ignored by browser WebSocket transport)
-      if (Object.keys(config.extraHeaders).length > 0 && !config.transports.every((t) => t === 'polling')) {
+      if (
+        Object.keys(config.extraHeaders).length > 0 &&
+        !config.transports.every((t) => t === 'polling')
+      ) {
         store.addEvent(connectionId, {
           direction: 'system',
           eventName: '<system>',
-          args: ['Custom headers are ignored on the WebSocket transport in browsers. Force "polling" transport (or use the desktop app) to send extraHeaders to the server.'],
+          args: [
+            'Custom headers are ignored on the WebSocket transport in browsers. Force "polling" transport (or use the desktop app) to send extraHeaders to the server.',
+          ],
         });
       }
       this.connectViaBrowser(connectionId, config);
@@ -159,8 +168,16 @@ class SocketIOManager {
 
     const socket = this.browserSockets.get(connectionId);
     if (socket) {
-      try { socket.removeAllListeners(); } catch { /* ignore */ }
-      try { socket.disconnect(); } catch { /* ignore */ }
+      try {
+        socket.removeAllListeners();
+      } catch {
+        /* ignore */
+      }
+      try {
+        socket.disconnect();
+      } catch {
+        /* ignore */
+      }
       this.browserSockets.delete(connectionId);
     }
     const acks = this.browserAcks.get(connectionId);
@@ -206,7 +223,11 @@ class SocketIOManager {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to construct socket';
-      store.addEvent(connectionId, { direction: 'system', eventName: '<system>', args: [`Connection failed: ${msg}`] });
+      store.addEvent(connectionId, {
+        direction: 'system',
+        eventName: '<system>',
+        args: [`Connection failed: ${msg}`],
+      });
       store.updateConnectionStatus(connectionId, 'disconnected');
       return;
     }
@@ -365,12 +386,14 @@ class SocketIOManager {
     api.socketio.on(socketioChannels.ack(connectionId), (payload: unknown) => {
       const data = payload as { ackId?: string; args?: unknown[]; error?: string } | undefined;
       if (!data?.ackId) return;
-      useSocketIOStore.getState().resolveAck(
-        connectionId,
-        data.ackId,
-        data.args ?? [],
-        data.error === 'timeout' ? 'timeout' : 'ok'
-      );
+      useSocketIOStore
+        .getState()
+        .resolveAck(
+          connectionId,
+          data.ackId,
+          data.args ?? [],
+          data.error === 'timeout' ? 'timeout' : 'ok'
+        );
     });
 
     this.electronConnections.add(connectionId);

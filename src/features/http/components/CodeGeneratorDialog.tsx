@@ -103,12 +103,7 @@ export default function CodeGeneratorDialog({
 
           <div className="flex-1 overflow-hidden mt-4 relative">
             <div className="absolute top-2 right-2 z-10">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCopy}
-                className="gap-2"
-              >
+              <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
                 {copied ? (
                   <>
                     <Check className="h-4 w-4" />

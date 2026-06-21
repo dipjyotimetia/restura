@@ -12,7 +12,7 @@
  * (CLI, Electron) and by tests that assert on header values.
  */
 export function flattenHeaders(
-  headers: Headers | Record<string, string> | undefined,
+  headers: Headers | Record<string, string> | undefined
 ): Record<string, string> {
   if (!headers) return {};
   if (headers instanceof Headers) {

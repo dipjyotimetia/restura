@@ -136,6 +136,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation changes
@@ -146,6 +147,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `chore`: Maintenance tasks
 
 **Examples:**
+
 ```bash
 feat(auth): add OAuth 2.0 PKCE support
 fix(request): resolve URL encoding issue with special characters
@@ -306,22 +308,26 @@ npm run test -- RequestBuilder.test.tsx
 ### Before Submitting
 
 1. **Update your branch** with the latest main:
+
    ```bash
    git fetch origin
    git rebase origin/main
    ```
 
 2. **Run all validations**:
+
    ```bash
    npm run validate
    ```
 
 3. **Ensure tests pass**:
+
    ```bash
    npm run test:run
    ```
 
 4. **Check for type errors**:
+
    ```bash
    npm run type-check
    ```
@@ -347,21 +353,26 @@ npm run test -- RequestBuilder.test.tsx
 
 ```markdown
 ## Description
+
 Brief description of changes
 
 ## Type of Change
+
 - [ ] Bug fix
 - [ ] New feature
 - [ ] Breaking change
 - [ ] Documentation update
 
 ## How Has This Been Tested?
+
 Describe testing approach
 
 ## Screenshots (if applicable)
+
 Add screenshots
 
 ## Checklist
+
 - [ ] My code follows the style guidelines
 - [ ] I have performed a self-review
 - [ ] I have commented my code where necessary
@@ -384,6 +395,7 @@ Add screenshots
 ### Bug Reports
 
 Include:
+
 - Clear, descriptive title
 - Steps to reproduce
 - Expected behavior
@@ -394,6 +406,7 @@ Include:
 ### Feature Requests
 
 Include:
+
 - Use case description
 - Proposed solution
 - Alternative solutions considered
@@ -419,6 +432,7 @@ Include:
 ## Questions?
 
 Feel free to:
+
 - Open an issue for questions
 - Start a discussion
 - Reach out to maintainers

@@ -1,11 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
-import type {
-  KeyValue,
-  McpServerCapabilities,
-  McpTransportType,
-} from '@/types';
+import type { KeyValue, McpServerCapabilities, McpTransportType } from '@/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -134,7 +130,10 @@ export const useMcpStore = create<McpState>()(
           const c = s.connections[id];
           if (!c) return s;
           return {
-            connections: { ...s.connections, [id]: { ...c, headers: c.headers.filter((h) => h.id !== headerId) } },
+            connections: {
+              ...s.connections,
+              [id]: { ...c, headers: c.headers.filter((h) => h.id !== headerId) },
+            },
           };
         }),
 
@@ -185,7 +184,7 @@ export const useMcpStore = create<McpState>()(
 
       getActive: () => {
         const { connections, activeConnectionId } = get();
-        return activeConnectionId ? connections[activeConnectionId] ?? null : null;
+        return activeConnectionId ? (connections[activeConnectionId] ?? null) : null;
       },
     }),
     {

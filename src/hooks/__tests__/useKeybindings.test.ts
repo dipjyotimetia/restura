@@ -19,7 +19,9 @@ describe('comboMatches', () => {
   });
 
   it('requires shift when specified', () => {
-    expect(comboMatches('mod+shift+c', key({ key: 'c', metaKey: true, shiftKey: true }))).toBe(true);
+    expect(comboMatches('mod+shift+c', key({ key: 'c', metaKey: true, shiftKey: true }))).toBe(
+      true
+    );
     expect(comboMatches('mod+shift+c', key({ key: 'c', metaKey: true }))).toBe(false);
   });
 

@@ -25,6 +25,7 @@
 - [ ] E2E tests
 
 **Test Configuration:**
+
 - Node version:
 - OS:
 

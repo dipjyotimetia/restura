@@ -49,7 +49,9 @@ function sseResponse(stream: ReadableStream<Uint8Array>): Response {
 export async function handleOpenAiChat(c: Context): Promise<Response> {
   const fail = c.req.query('fail');
   if (fail === '429') {
-    return new Response('{"error":{"message":"Rate limited","type":"rate_limit_exceeded"}}', { status: 429 });
+    return new Response('{"error":{"message":"Rate limited","type":"rate_limit_exceeded"}}', {
+      status: 429,
+    });
   }
   if (fail === 'malformed') {
     return sseResponse(streamChunks(['data: {not-json}\n\n']));
@@ -60,7 +62,10 @@ export async function handleOpenAiChat(c: Context): Promise<Response> {
 export async function handleAnthropicChat(c: Context): Promise<Response> {
   const fail = c.req.query('fail');
   if (fail === '429') {
-    return new Response('{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}', { status: 429 });
+    return new Response(
+      '{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}',
+      { status: 429 }
+    );
   }
   if (fail === 'malformed') {
     return sseResponse(streamChunks(['event: content_block_delta\ndata: {not-json}\n\n']));

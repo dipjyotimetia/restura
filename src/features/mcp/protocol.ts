@@ -54,7 +54,9 @@ export interface McpRunJsonRpcOptions {
   cacheKey?: string;
 }
 
-async function initializeClient(client: McpClient): Promise<
+async function initializeClient(
+  client: McpClient
+): Promise<
   { ok: true } | { ok: false; error: string; jsonRpcError?: JsonRpcCallResult['jsonRpcError'] }
 > {
   const conn = await client.connect();
@@ -87,9 +89,7 @@ async function mcpRunJsonRpc(
   }
 
   const mcp = request as McpRequest;
-  const pooled = opts.clientPool && opts.cacheKey
-    ? opts.clientPool.get(opts.cacheKey)
-    : undefined;
+  const pooled = opts.clientPool && opts.cacheKey ? opts.clientPool.get(opts.cacheKey) : undefined;
 
   let client = pooled;
   let ownsClient = false;

@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type {
-  Workflow,
-  WorkflowGraph,
-  SseRequest,
-  CompletionPolicy,
-} from '@/types';
+import type { Workflow, WorkflowGraph, SseRequest, CompletionPolicy } from '@/types';
 
 // Controllable SSE stream — tests push events through `feedSseEvent`
 // and decide when the stream closes via `closeSseStream`. Each `startStream`
@@ -185,8 +180,7 @@ describe('sseSubscribe — completion policies', () => {
       kind: 'eventMatch',
       // Predicate is a JS expression that receives an `event` variable
       // pre-stringified by the executor. Parse and inspect.
-      expression:
-        'var e = JSON.parse(pm.variables.get("event")); return e.data === "stop";',
+      expression: 'var e = JSON.parse(pm.variables.get("event")); return e.data === "stop";',
     });
 
     const exec = executeDag({
@@ -215,8 +209,7 @@ describe('sseSubscribe — completion policies', () => {
     const workflow = makeWorkflow(
       {
         kind: 'eventMatch',
-        expression:
-          'var e = JSON.parse(pm.variables.get("event")); return e.data === "match";',
+        expression: 'var e = JSON.parse(pm.variables.get("event")); return e.data === "match";',
       },
       false
     );

@@ -18,7 +18,7 @@ describe('parseRequestCookies', () => {
     expect(parseRequestCookies({ Cookie: 'sid=abc' })).toEqual([{ name: 'sid', value: 'abc' }]);
   });
 
-  it('preserves URL-encoded values verbatim (decoding is the caller\'s problem)', () => {
+  it("preserves URL-encoded values verbatim (decoding is the caller's problem)", () => {
     expect(parseRequestCookies({ cookie: 'q=hello%20world' })).toEqual([
       { name: 'q', value: 'hello%20world' },
     ]);
@@ -42,15 +42,19 @@ describe('parseResponseCookies', () => {
     });
     expect(cookies).toHaveLength(2);
     expect(cookies[0]).toEqual({
-      name: 'session', value: 'xyz', path: '/', httpOnly: true, secure: true, sameSite: 'Lax',
+      name: 'session',
+      value: 'xyz',
+      path: '/',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax',
     });
     expect(cookies[1]).toMatchObject({ name: 'theme', value: 'dark', maxAge: 3600 });
   });
 
   it('splits a concatenated string on cookie boundaries, keeping Expires dates intact', () => {
     const cookies = parseResponseCookies({
-      'set-cookie':
-        'a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT; Path=/, b=2; Path=/api',
+      'set-cookie': 'a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT; Path=/, b=2; Path=/api',
     });
     expect(cookies.map((c) => c.name)).toEqual(['a', 'b']);
     expect(cookies[0]!.expires).toBe('Wed, 09 Jun 2027 10:18:14 GMT');

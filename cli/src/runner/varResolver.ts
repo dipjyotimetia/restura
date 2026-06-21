@@ -13,13 +13,10 @@ import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
  */
 export function resolveVarsDeep(text: string, vars: Record<string, string>): string {
   if (typeof text !== 'string') return text;
-  const userResolved = text.replace(
-    /\{\{\s*([A-Za-z0-9_$.]+)\s*\}\}/g,
-    (match, key: string) => {
-      // Leave $-prefixed (dynamic) placeholders for the next stage.
-      if (key.startsWith('$')) return match;
-      return vars[key] ?? `{{${key}}}`;
-    }
-  );
+  const userResolved = text.replace(/\{\{\s*([A-Za-z0-9_$.]+)\s*\}\}/g, (match, key: string) => {
+    // Leave $-prefixed (dynamic) placeholders for the next stage.
+    if (key.startsWith('$')) return match;
+    return vars[key] ?? `{{${key}}}`;
+  });
   return applyDynamicVariables(userResolved);
 }

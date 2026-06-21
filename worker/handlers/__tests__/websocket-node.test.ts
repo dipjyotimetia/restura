@@ -27,7 +27,7 @@ describe('createNodeWebsocketHandler — ticket lifecycle (Fix #5)', () => {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
     const mintRes = await wsTicket(mintCtx);
     const { ticket } = (await mintRes.json()) as { ticket: string };
@@ -39,13 +39,13 @@ describe('createNodeWebsocketHandler — ticket lifecycle (Fix #5)', () => {
     const createEventsSeen = vi.fn();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fakeUpgrade = (createEvents: (c: any) => unknown) =>
-      ((async (c: Context) => {
+      (async (c: Context) => {
         createEventsSeen();
         // Invoke createEvents like @hono/node-ws does — but DO NOT then call onOpen.
         const events = createEvents(c);
         return events;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handler = createNodeWebsocketHandler(fakeUpgrade as any);
@@ -56,7 +56,7 @@ describe('createNodeWebsocketHandler — ticket lifecycle (Fix #5)', () => {
         query: (k: string) => (k === 'ticket' ? ticket : undefined),
       },
       env: { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (handler as any)(probeCtx, () => undefined);

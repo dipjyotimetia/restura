@@ -95,7 +95,12 @@ describe('renderHtml', () => {
     expect(islandMatch?.[1]).toBeDefined();
     expect(islandMatch![1]).not.toContain('</script>');
     // And the escaped form must round-trip through JSON.parse.
-    const parsed = JSON.parse(islandMatch![1]!.replace(/\\u003c/g, '<').replace(/\\u003e/g, '>').replace(/\\u0026/g, '&'));
+    const parsed = JSON.parse(
+      islandMatch![1]!
+        .replace(/\\u003c/g, '<')
+        .replace(/\\u003e/g, '>')
+        .replace(/\\u0026/g, '&')
+    );
     expect(parsed.requests[0].request.request.name).toBe('</script><script>alert(1)</script>');
   });
 

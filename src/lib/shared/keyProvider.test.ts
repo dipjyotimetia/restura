@@ -163,14 +163,18 @@ describe('ElectronSafeStorageKeyProvider', () => {
 
   it('isHardwareBacked returns true', () => {
     const p = new ElectronSafeStorageKeyProvider({
-      get: vi.fn(), set: vi.fn(), has: vi.fn(),
+      get: vi.fn(),
+      set: vi.fn(),
+      has: vi.fn(),
     });
     expect(p.isHardwareBacked).toBe(true);
   });
 
   it('label mentions OS keychain', () => {
     const p = new ElectronSafeStorageKeyProvider({
-      get: vi.fn(), set: vi.fn(), has: vi.fn(),
+      get: vi.fn(),
+      set: vi.fn(),
+      has: vi.fn(),
     });
     expect(p.label).toMatch(/keychain|secure storage/i);
   });

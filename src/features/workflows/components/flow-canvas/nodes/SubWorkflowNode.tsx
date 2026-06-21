@@ -19,18 +19,11 @@ function SubWorkflowNodeImpl({ id, data, selected }: NodeProps) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <NodeChrome
-        nodeId={id}
-        kindLabel="Sub-workflow"
-        selected={Boolean(selected)}
-      >
+      <NodeChrome nodeId={id} kindLabel="Sub-workflow" selected={Boolean(selected)}>
         <div className="flex items-start gap-2">
           <WorkflowIcon className="h-4 w-4 mt-0.5 text-fuchsia-400" />
           <div className="min-w-0">
-            <div
-              className="text-xs font-medium truncate"
-              title={subName ?? d.workflowId}
-            >
+            <div className="text-xs font-medium truncate" title={subName ?? d.workflowId}>
               {subName ?? '⚠ Missing workflow'}
             </div>
             <div className="text-[10px] text-muted-foreground mt-0.5">

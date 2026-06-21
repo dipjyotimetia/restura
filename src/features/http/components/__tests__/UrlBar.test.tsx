@@ -4,15 +4,17 @@ import userEvent from '@testing-library/user-event';
 import { UrlBar } from '../UrlBar';
 import type { HttpMethod } from '@/types';
 
-function renderUrlBar(overrides: Partial<{
-  method: HttpMethod;
-  url: string;
-  isLoading: boolean;
-  onMethodChange: (m: HttpMethod) => void;
-  onUrlChange: (u: string) => void;
-  onSend: () => void;
-  onOpenCodeGen: () => void;
-}> = {}) {
+function renderUrlBar(
+  overrides: Partial<{
+    method: HttpMethod;
+    url: string;
+    isLoading: boolean;
+    onMethodChange: (m: HttpMethod) => void;
+    onUrlChange: (u: string) => void;
+    onSend: () => void;
+    onOpenCodeGen: () => void;
+  }> = {}
+) {
   const props = {
     method: 'GET' as HttpMethod,
     url: '',

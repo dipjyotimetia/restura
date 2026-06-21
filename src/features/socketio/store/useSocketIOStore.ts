@@ -75,10 +75,7 @@ interface SocketIOState {
   setLastConnectedAt: (id: string, ts: number) => void;
 
   // Events
-  addEvent: (
-    connectionId: string,
-    event: Omit<SocketIOEvent, 'id' | 'timestamp'>
-  ) => void;
+  addEvent: (connectionId: string, event: Omit<SocketIOEvent, 'id' | 'timestamp'>) => void;
   resolveAck: (
     connectionId: string,
     ackId: string,
@@ -88,21 +85,14 @@ interface SocketIOState {
   clearEvents: (connectionId: string) => void;
 
   // KeyValue helpers
-  addKv: (
-    connectionId: string,
-    field: 'auth' | 'query' | 'extraHeaders'
-  ) => void;
+  addKv: (connectionId: string, field: 'auth' | 'query' | 'extraHeaders') => void;
   updateKv: (
     connectionId: string,
     field: 'auth' | 'query' | 'extraHeaders',
     kvId: string,
     updates: Partial<KeyValue>
   ) => void;
-  removeKv: (
-    connectionId: string,
-    field: 'auth' | 'query' | 'extraHeaders',
-    kvId: string
-  ) => void;
+  removeKv: (connectionId: string, field: 'auth' | 'query' | 'extraHeaders', kvId: string) => void;
 
   // Subscriptions
   addSubscribedEvent: (connectionId: string, eventName: string) => void;
@@ -289,9 +279,7 @@ export const useSocketIOStore = create<SocketIOState>()(
           if (!c) return state;
           // Mark the original 'sent' row resolved and append a separate 'ack' row.
           const events = c.events.map((e) =>
-            e.ackId === ackId && e.direction === 'sent'
-              ? { ...e, ackStatus: status }
-              : e
+            e.ackId === ackId && e.direction === 'sent' ? { ...e, ackStatus: status } : e
           );
           const ackRow: SocketIOEvent = {
             id: uuidv4(),
@@ -393,7 +381,7 @@ export const useSocketIOStore = create<SocketIOState>()(
 
       getActiveConnection: () => {
         const { connections, activeConnectionId } = get();
-        return activeConnectionId ? connections[activeConnectionId] ?? null : null;
+        return activeConnectionId ? (connections[activeConnectionId] ?? null) : null;
       },
 
       getFilteredEvents: (connectionId) => {

@@ -1,6 +1,6 @@
 ---
 description: Scaffold a new protocol across all three Restura harnesses (shared core, Worker, Electron, renderer) following the established pattern.
-argument-hint: "<protocol-name> (e.g. amqp, signalr, redis-pubsub)"
+argument-hint: '<protocol-name> (e.g. amqp, signalr, redis-pubsub)'
 allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Task
 ---
 

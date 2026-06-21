@@ -11,10 +11,7 @@ export function generateBoundary(): string {
 }
 
 // Build multipart/mixed body from parts
-export function buildMultipartMixedBody(
-  parts: MultipartPart[],
-  boundary: string
-): string {
+export function buildMultipartMixedBody(parts: MultipartPart[], boundary: string): string {
   if (parts.length === 0) {
     return '';
   }
@@ -51,10 +48,7 @@ export function buildMultipartMixedBody(
 }
 
 // Parse multipart/mixed response body
-export function parseMultipartMixedBody(
-  body: string,
-  boundary: string
-): MultipartPart[] {
+export function parseMultipartMixedBody(body: string, boundary: string): MultipartPart[] {
   const parts: MultipartPart[] = [];
   const partDelimiter = `--${boundary}`;
 
@@ -111,9 +105,10 @@ export function parseMultipartMixedBody(
 }
 
 // Validate multipart parts
-export function validateMultipartParts(
-  parts: MultipartPart[]
-): { valid: boolean; errors: string[] } {
+export function validateMultipartParts(parts: MultipartPart[]): {
+  valid: boolean;
+  errors: string[];
+} {
   const errors: string[] = [];
 
   if (parts.length === 0) {

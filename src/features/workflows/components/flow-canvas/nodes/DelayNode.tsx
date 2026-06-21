@@ -19,16 +19,10 @@ function DelayNodeImpl({ id, data, selected }: NodeProps) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <NodeChrome
-        nodeId={id}
-        kindLabel="Delay"
-        selected={Boolean(selected)}
-      >
+      <NodeChrome nodeId={id} kindLabel="Delay" selected={Boolean(selected)}>
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-amber-400" />
-          <span className="text-sm font-medium">
-            Wait {formatDuration(d.ms ?? 0)}
-          </span>
+          <span className="text-sm font-medium">Wait {formatDuration(d.ms ?? 0)}</span>
         </div>
       </NodeChrome>
       <Handle type="source" position={Position.Bottom} />

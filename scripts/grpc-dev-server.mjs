@@ -164,7 +164,9 @@ function main() {
     console.log('  ──────────────────────────────────────────────────────');
     console.log(`  Listening   grpc://localhost:${port}   (http://localhost:${port} also works)`);
     console.log('  Service     echo.v1.EchoService');
-    console.log('  Methods     UnaryEcho · ServerStreamingEcho · ClientStreamingEcho · BidirectionalEcho');
+    console.log(
+      '  Methods     UnaryEcho · ServerStreamingEcho · ClientStreamingEcho · BidirectionalEcho'
+    );
     console.log('  Reflection  enabled (v1 + v1alpha) — use the "Discover" button');
     console.log('');
     console.log('  Point the DESKTOP app here (echo.restura.dev is web-only for gRPC).');

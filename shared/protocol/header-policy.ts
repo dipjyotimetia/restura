@@ -9,10 +9,7 @@ export const REQUEST_DENY = new Set<string>([
   'proxy-authorization',
 ]);
 
-export const REQUEST_DENY_MCP = new Set<string>([
-  ...REQUEST_DENY,
-  'cookie',
-]);
+export const REQUEST_DENY_MCP = new Set<string>([...REQUEST_DENY, 'cookie']);
 
 export const RESPONSE_DENY = new Set<string>([
   'transfer-encoding',

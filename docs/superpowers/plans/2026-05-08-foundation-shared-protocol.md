@@ -13,6 +13,7 @@
 ## File structure
 
 **Created:**
+
 - `shared/protocol/types.ts` — `RequestSpec`, `NormalizedResponse`, `Fetcher`, `ProtocolError` discriminated union
 - `shared/protocol/url-validation.ts` — unified SSRF guard (replaces both worker copy and Electron inline copy)
 - `shared/protocol/url-validation.test.ts`
@@ -29,6 +30,7 @@
 - `shared/protocol/mcp-proxy.test.ts`
 
 **Modified:**
+
 - `tsconfig.base.json` — add `paths` and `baseUrl` for `@shared/*`
 - `tsconfig.json` (root, renderer) — inherits paths
 - `worker/tsconfig.json` — add `../shared/**/*.ts` to `include`
@@ -44,6 +46,7 @@
 - `electron/main/mcp-handler.ts` — adapter
 
 **Deleted (after migration completes):**
+
 - `worker/shared/url-validation.ts`
 - `worker/shared/grpc-status.ts`
 - `worker/shared/constants.ts` if unused after migration
@@ -56,6 +59,7 @@
 ### Task 1: Wire up `shared/protocol/` directory and tsconfig paths
 
 **Files:**
+
 - Create: `shared/protocol/_smoke.ts`
 - Create: `shared/protocol/_smoke.test.ts`
 - Modify: `tsconfig.base.json`
@@ -119,7 +123,7 @@ Replace `tsconfig.base.json` with:
 }
 ```
 
-Note: `baseUrl: "."` is relative to each *extending* tsconfig, so the worker tsconfig (one level deep) and electron tsconfig need an override — handled in the next two steps.
+Note: `baseUrl: "."` is relative to each _extending_ tsconfig, so the worker tsconfig (one level deep) and electron tsconfig need an override — handled in the next two steps.
 
 - [ ] **Step 5: Update `worker/tsconfig.json`**
 
@@ -231,11 +235,12 @@ git commit -m "feat(foundation): wire up shared/protocol directory + @shared pat
 ### Task 2: Unified URL validation
 
 **Files:**
+
 - Create: `shared/protocol/url-validation.ts`
 - Create: `shared/protocol/url-validation.test.ts`
 - Reference: existing `worker/shared/url-validation.ts`, `electron/main/http-handler.ts:64-113`
 
-The shared module must satisfy *both* existing call sites. The Worker passes URL strings; the Electron handler uses the result both at request-build time and inside its DNS-resolved `lookup` callback. So we expose two functions: `validateURL(urlString, options)` (string-level) and `assertResolvedAddressAllowed(hostname, address, options)` (DNS-rebind guard for Node).
+The shared module must satisfy _both_ existing call sites. The Worker passes URL strings; the Electron handler uses the result both at request-build time and inside its DNS-resolved `lookup` callback. So we expose two functions: `validateURL(urlString, options)` (string-level) and `assertResolvedAddressAllowed(hostname, address, options)` (DNS-rebind guard for Node).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -243,11 +248,7 @@ Create `shared/protocol/url-validation.test.ts`. Copy the entire test body from 
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import {
-  validateURL,
-  assertResolvedAddressAllowed,
-  isPrivateAddress,
-} from './url-validation';
+import { validateURL, assertResolvedAddressAllowed, isPrivateAddress } from './url-validation';
 
 describe('validateURL', () => {
   it('accepts a public https URL', () => {
@@ -297,9 +298,9 @@ describe('validateURL', () => {
 
 describe('assertResolvedAddressAllowed', () => {
   it('throws if a public hostname resolves to a private IP (DNS rebind)', () => {
-    expect(() =>
-      assertResolvedAddressAllowed('attacker.example.com', '127.0.0.1', {})
-    ).toThrow(/private/);
+    expect(() => assertResolvedAddressAllowed('attacker.example.com', '127.0.0.1', {})).toThrow(
+      /private/
+    );
     expect(() =>
       assertResolvedAddressAllowed('attacker.example.com', '169.254.169.254', {})
     ).toThrow(/private/);
@@ -416,7 +417,10 @@ export function isPrivateAddress(hostname: string): boolean {
   return false;
 }
 
-export function validateURL(urlString: string, options: URLValidationOptions = {}): URLValidationResult {
+export function validateURL(
+  urlString: string,
+  options: URLValidationOptions = {}
+): URLValidationResult {
   const {
     allowPrivateIPs = false,
     allowLocalhost = false,
@@ -444,7 +448,10 @@ export function validateURL(urlString: string, options: URLValidationOptions = {
 
   const hostname = url.hostname.toLowerCase();
 
-  if (!allowLocalhost && (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')) {
+  if (
+    !allowLocalhost &&
+    (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')
+  ) {
     return { valid: false, error: 'Localhost URLs are not allowed' };
   }
 
@@ -487,8 +494,7 @@ export function assertResolvedAddressAllowed(
 
   const lower = hostname.toLowerCase();
   const isAllowedLocalhost =
-    options.allowLocalhost &&
-    (lower === 'localhost' || lower.endsWith('.localhost'));
+    options.allowLocalhost && (lower === 'localhost' || lower.endsWith('.localhost'));
 
   if (isAllowedLocalhost) return;
 
@@ -508,7 +514,12 @@ Expected: all PASS (worker-parity cases plus new DNS-rebind cases).
 Edit `worker/shared/url-validation.ts` to re-export from shared:
 
 ```ts
-export { validateURL, isPrivateAddress, type URLValidationResult, type URLValidationOptions } from '@shared/protocol/url-validation';
+export {
+  validateURL,
+  isPrivateAddress,
+  type URLValidationResult,
+  type URLValidationOptions,
+} from '@shared/protocol/url-validation';
 ```
 
 (Shim, not delete — Task 11 deletes it once all imports are updated and verified.)
@@ -535,7 +546,10 @@ import { assertResolvedAddressAllowed } from '@shared/protocol/url-validation';
 // delete: function isPrivateAddress(...) { ... }
 // delete: function hostAllowsPrivateAddress(...) { ... }
 
-function createSecureLookup(hostname: string, allowLocalhost: boolean): NonNullable<http.RequestOptions['lookup']> {
+function createSecureLookup(
+  hostname: string,
+  allowLocalhost: boolean
+): NonNullable<http.RequestOptions['lookup']> {
   return (lookupHostname, options, callback) => {
     dns.lookup(lookupHostname, options, (error, address, family) => {
       if (error) {
@@ -580,6 +594,7 @@ git commit -m "feat(foundation): unify URL validation in shared/protocol"
 ### Task 3: Unified header policy
 
 **Files:**
+
 - Create: `shared/protocol/header-policy.ts`
 - Create: `shared/protocol/header-policy.test.ts`
 - Modify: `worker/handlers/proxy.ts:7-26` (will reference shared in Task 7)
@@ -592,7 +607,12 @@ Create `shared/protocol/header-policy.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { sanitizeRequestHeaders, sanitizeResponseHeaders, REQUEST_DENY, RESPONSE_DENY } from './header-policy';
+import {
+  sanitizeRequestHeaders,
+  sanitizeResponseHeaders,
+  REQUEST_DENY,
+  RESPONSE_DENY,
+} from './header-policy';
 
 describe('sanitizeRequestHeaders', () => {
   it('strips hop-by-hop headers', () => {
@@ -668,10 +688,7 @@ export const REQUEST_DENY = new Set<string>([
   'proxy-authorization',
 ]);
 
-export const REQUEST_DENY_MCP = new Set<string>([
-  ...REQUEST_DENY,
-  'cookie',
-]);
+export const REQUEST_DENY_MCP = new Set<string>([...REQUEST_DENY, 'cookie']);
 
 export const RESPONSE_DENY = new Set<string>([
   'transfer-encoding',
@@ -733,6 +750,7 @@ git commit -m "feat(foundation): add shared header-policy module"
 ### Task 4: Unified body builder
 
 **Files:**
+
 - Create: `shared/protocol/body-builder.ts`
 - Create: `shared/protocol/body-builder.test.ts`
 - Reference: `worker/handlers/proxy.ts:55-113`
@@ -747,7 +765,10 @@ import { buildRequestBody } from './body-builder';
 
 describe('buildRequestBody', () => {
   it('returns empty body for type "none"', () => {
-    expect(buildRequestBody({ bodyType: 'none' })).toEqual({ body: undefined, contentType: undefined });
+    expect(buildRequestBody({ bodyType: 'none' })).toEqual({
+      body: undefined,
+      contentType: undefined,
+    });
   });
 
   it('returns JSON body with content-type', () => {
@@ -817,13 +838,7 @@ export interface FormField {
   contentType?: string;
 }
 
-export type BodyType =
-  | 'none'
-  | 'json'
-  | 'text'
-  | 'form-urlencoded'
-  | 'form-data'
-  | 'binary';
+export type BodyType = 'none' | 'json' | 'text' | 'form-urlencoded' | 'form-data' | 'binary';
 
 export interface BuildRequestBodyArgs {
   bodyType?: BodyType;
@@ -872,7 +887,9 @@ export function buildRequestBody(args: BuildRequestBodyArgs): BuiltRequestBody {
         for (const field of formData) {
           if (field.filename) {
             const bytes = base64ToUint8Array(field.value);
-            const blob = new Blob([bytes], { type: field.contentType || 'application/octet-stream' });
+            const blob = new Blob([bytes], {
+              type: field.contentType || 'application/octet-stream',
+            });
             fd.append(field.name, blob, field.filename);
           } else {
             fd.append(field.name, field.value);
@@ -905,6 +922,7 @@ git commit -m "feat(foundation): extract body-builder to shared/protocol"
 ### Task 5: Define `Fetcher` interface and shared types
 
 **Files:**
+
 - Create: `shared/protocol/types.ts`
 
 This file is types only (no tests; tsc validates it).
@@ -987,6 +1005,7 @@ git commit -m "feat(foundation): add Fetcher interface and shared protocol types
 ### Task 6: HTTP proxy core (`executeHttpProxy`)
 
 **Files:**
+
 - Create: `shared/protocol/http-proxy.ts`
 - Create: `shared/protocol/http-proxy.test.ts`
 
@@ -1264,6 +1283,7 @@ git commit -m "feat(foundation): add executeHttpProxy shared core"
 ### Task 7: Migrate worker HTTP proxy handler to use shared core
 
 **Files:**
+
 - Modify: `worker/handlers/proxy.ts`
 - Reference: existing tests `worker/handlers/__tests__/proxy.test.ts` must still pass.
 
@@ -1305,10 +1325,7 @@ interface ProxyRequestBody {
   upstreamProxy?: UpstreamProxyConfig;
 }
 
-function buildFetcher(
-  isDev: boolean,
-  upstream: UpstreamProxyConfig | undefined
-): Fetcher {
+function buildFetcher(isDev: boolean, upstream: UpstreamProxyConfig | undefined): Fetcher {
   return async (req) => {
     let response: Response;
     if (upstream) {
@@ -1330,9 +1347,10 @@ function buildFetcher(
         redirect: 'follow',
       };
       if (req.body !== undefined) init.body = req.body;
-      response = targetUrl.protocol === 'https:'
-        ? await httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
-        : await httpViaProxy(targetUrl, upstream, init, req.signal);
+      response =
+        targetUrl.protocol === 'https:'
+          ? await httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
+          : await httpViaProxy(targetUrl, upstream, init, req.signal);
     } else {
       const init: RequestInit = {
         method: req.method,
@@ -1421,11 +1439,12 @@ git commit -m "refactor(worker): collapse proxy.ts to shared/protocol adapter"
 ### Task 8: Migrate Electron HTTP handler to use shared core
 
 **Files:**
+
 - Modify: `electron/main/http-handler.ts`
 
 This is the most subtle task. Electron retains PAC, SOCKS, mTLS, interceptors, and manual redirect handling. The shared core handles validation, header sanitisation, body building, response sanitisation, and timeout. Strategy: extract the existing `makeHttpRequest` body into a `buildElectronFetcher(config)` that returns a `Fetcher`, then call `executeHttpProxy(spec, fetcher, { allowLocalhost: true })`.
 
-Manual redirects, SOCKS pre-tunnel, PAC resolution, interceptor pre/post hooks all happen *inside* the fetcher closure, not in shared.
+Manual redirects, SOCKS pre-tunnel, PAC resolution, interceptor pre/post hooks all happen _inside_ the fetcher closure, not in shared.
 
 - [ ] **Step 1: Run existing Electron HTTP tests as baseline**
 
@@ -1488,7 +1507,10 @@ function buildFetcherForConfig(
   };
 }
 
-async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Promise<HttpResponse> {
+async function makeHttpRequest(
+  config: HttpRequestConfig,
+  redirectCount = 0
+): Promise<HttpResponse> {
   // PAC resolution stays here (mutates `resolvedConfig`)
   let resolvedConfig = config;
   // ... existing PAC block ...
@@ -1502,8 +1524,15 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
     (interceptedConfig.proxy.type === 'socks4' || interceptedConfig.proxy.type === 'socks5')
   ) {
     const socksUrl = new URL(interceptedConfig.url);
-    const socksTargetPort = parseInt(socksUrl.port || (socksUrl.protocol === 'https:' ? '443' : '80'), 10);
-    socksSocket = await openSocksSocket(interceptedConfig.proxy, socksUrl.hostname, socksTargetPort);
+    const socksTargetPort = parseInt(
+      socksUrl.port || (socksUrl.protocol === 'https:' ? '443' : '80'),
+      10
+    );
+    socksSocket = await openSocksSocket(
+      interceptedConfig.proxy,
+      socksUrl.hostname,
+      socksTargetPort
+    );
   }
 
   let rawResult: HttpResponse;
@@ -1541,7 +1570,9 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
       if (location && redirectCount < max) {
         const locStr = Array.isArray(location) ? location[0] : (location as string);
         const newUrl = new URL(locStr, interceptedConfig.url).href;
-        const isMethodReset = [301, 302, 303].includes(rawResult.status) && (interceptedConfig.method ?? '').toUpperCase() === 'POST';
+        const isMethodReset =
+          [301, 302, 303].includes(rawResult.status) &&
+          (interceptedConfig.method ?? '').toUpperCase() === 'POST';
         const next: HttpRequestConfig = {
           ...interceptedConfig,
           url: newUrl,
@@ -1560,7 +1591,11 @@ async function makeHttpRequest(config: HttpRequestConfig, redirectCount = 0): Pr
 }
 
 function tryParseJson(text: string): unknown {
-  try { return JSON.parse(text); } catch { return text; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 ```
 
@@ -1591,6 +1626,7 @@ git commit -m "refactor(electron): route http-handler through shared/protocol co
 ### Task 9: Move grpc-status and migrate worker gRPC handler
 
 **Files:**
+
 - Create: `shared/protocol/grpc-status.ts` (move from `worker/shared/grpc-status.ts`)
 - Create: `shared/protocol/grpc-proxy.ts`
 - Create: `shared/protocol/grpc-proxy.test.ts`
@@ -1617,13 +1653,15 @@ import { executeGrpcProxy } from './grpc-proxy';
 import { GrpcStatusCode } from './grpc-status';
 import type { Fetcher } from './types';
 
-const passingFetcher = (status = 200, body = '{}', headers: Record<string,string> = {}): Fetcher => async () => ({
-  status,
-  statusText: status === 200 ? 'OK' : 'Error',
-  headers,
-  text: async () => body,
-  contentLengthHeader: String(body.length),
-});
+const passingFetcher =
+  (status = 200, body = '{}', headers: Record<string, string> = {}): Fetcher =>
+  async () => ({
+    status,
+    statusText: status === 200 ? 'OK' : 'Error',
+    headers,
+    text: async () => body,
+    contentLengthHeader: String(body.length),
+  });
 
 describe('executeGrpcProxy', () => {
   it('rejects invalid service name', async () => {
@@ -1647,7 +1685,13 @@ describe('executeGrpcProxy', () => {
   it('builds Connect URL and returns OK on 200', async () => {
     const fetcher = vi.fn(passingFetcher(200, '{"x":1}'));
     const r = await executeGrpcProxy(
-      { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', message: { a: 1 }, timeout: 1000 },
+      {
+        url: 'https://example.com',
+        service: 'svc.Foo',
+        method: 'Bar',
+        message: { a: 1 },
+        timeout: 1000,
+      },
       fetcher,
       { allowLocalhost: false }
     );
@@ -1702,6 +1746,7 @@ Expected: FAIL.
 - [ ] **Step 4: Implement `executeGrpcProxy`**
 
 Create `shared/protocol/grpc-proxy.ts`. Translate `worker/handlers/grpc.ts` to the same `Fetcher`-based shape used in `http-proxy.ts`. Key additions:
+
 - `validateServiceName` and `validateMethodName` helpers (move from `worker/handlers/grpc.ts:38-52`)
 - `parseConnectError` helper (move from `worker/handlers/grpc.ts:54-85`)
 - `GrpcResponse` shape with `grpcStatus`/`grpcStatusText`/`headers`/`trailers`/`data`/`size`
@@ -1761,7 +1806,10 @@ function parseConnectError(body: string): { code: number; message: string } {
         data_loss: GrpcStatusCode.DATA_LOSS,
         unauthenticated: GrpcStatusCode.UNAUTHENTICATED,
       };
-      return { code: map[error.code] ?? GrpcStatusCode.UNKNOWN, message: error.message || 'Unknown error' };
+      return {
+        code: map[error.code] ?? GrpcStatusCode.UNKNOWN,
+        message: error.message || 'Unknown error',
+      };
     }
     return { code: GrpcStatusCode.UNKNOWN, message: error.message || body };
   } catch {
@@ -1769,17 +1817,25 @@ function parseConnectError(body: string): { code: number; message: string } {
   }
 }
 
-export interface ExecuteGrpcOptions { allowLocalhost: boolean; }
+export interface ExecuteGrpcOptions {
+  allowLocalhost: boolean;
+}
 
 export async function executeGrpcProxy(
   spec: GrpcSpec,
   fetcher: Fetcher,
   options: ExecuteGrpcOptions
 ): Promise<GrpcExecuteResult> {
-  const urlValidation = validateURL(spec.url, { allowPrivateIPs: false, allowLocalhost: options.allowLocalhost });
-  if (!urlValidation.valid) return { ok: false, status: 400, payload: { error: `Invalid URL: ${urlValidation.error}` } };
-  if (!spec.service || !SERVICE_RE.test(spec.service)) return { ok: false, status: 400, payload: { error: 'Invalid service name format' } };
-  if (!spec.method || !METHOD_RE.test(spec.method)) return { ok: false, status: 400, payload: { error: 'Invalid method name format' } };
+  const urlValidation = validateURL(spec.url, {
+    allowPrivateIPs: false,
+    allowLocalhost: options.allowLocalhost,
+  });
+  if (!urlValidation.valid)
+    return { ok: false, status: 400, payload: { error: `Invalid URL: ${urlValidation.error}` } };
+  if (!spec.service || !SERVICE_RE.test(spec.service))
+    return { ok: false, status: 400, payload: { error: 'Invalid service name format' } };
+  if (!spec.method || !METHOD_RE.test(spec.method))
+    return { ok: false, status: 400, payload: { error: 'Invalid method name format' } };
 
   const baseUrl = spec.url.endsWith('/') ? spec.url.slice(0, -1) : spec.url;
   const connectUrl = `${baseUrl}/${spec.service}/${spec.method}`;
@@ -1827,7 +1883,11 @@ export async function executeGrpcProxy(
       grpcStatusText = GrpcStatusCodeName[grpcStatus as GrpcStatusCode] ?? 'UNKNOWN';
       data = { error: info.message };
     } else {
-      try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { raw: text };
+      }
     }
 
     return {
@@ -1917,14 +1977,17 @@ export async function grpc(c: Context<{ Bindings: Env }>) {
     body = await c.req.json<GrpcProxyRequestBody>();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return c.json({
-      grpcStatus: 13,
-      grpcStatusText: 'INTERNAL',
-      headers: {},
-      trailers: {},
-      data: { error: `Proxy error: ${message}` },
-      size: 0,
-    }, 500);
+    return c.json(
+      {
+        grpcStatus: 13,
+        grpcStatusText: 'INTERNAL',
+        headers: {},
+        trailers: {},
+        data: { error: `Proxy error: ${message}` },
+        size: 0,
+      },
+      500
+    );
   }
 
   const result = await executeGrpcProxy(body, fetcher, { allowLocalhost: isDev });
@@ -1958,6 +2021,7 @@ git commit -m "refactor(grpc): unify executeGrpcProxy in shared/protocol"
 ### Task 10: Migrate Electron gRPC handler and MCP handler
 
 **Files:**
+
 - Modify: `electron/main/grpc-handler.ts`
 - Modify: `electron/main/mcp-handler.ts`
 - Modify: `worker/handlers/mcp.ts`
@@ -2001,21 +2065,35 @@ export interface McpSpec {
 }
 
 export type McpValidation =
-  | { ok: true; targetUrl: string; headers: Record<string, string>; body: string; timeoutMs: number }
+  | {
+      ok: true;
+      targetUrl: string;
+      headers: Record<string, string>;
+      body: string;
+      timeoutMs: number;
+    }
   | { ok: false; status: number; error: string };
 
 export function validateMcpSpec(spec: McpSpec, allowLocalhost: boolean): McpValidation {
   if (spec.transport !== 'streamable-http' && spec.transport !== 'http-sse') {
-    return { ok: false, status: 400, error: 'Invalid `transport` (expected "streamable-http" or "http-sse")' };
+    return {
+      ok: false,
+      status: 400,
+      error: 'Invalid `transport` (expected "streamable-http" or "http-sse")',
+    };
   }
   if (!spec.jsonRpc || typeof spec.jsonRpc.method !== 'string' || spec.jsonRpc.id === undefined) {
     return { ok: false, status: 400, error: 'Invalid `jsonRpc` (method and id are required)' };
   }
 
-  const targetUrl = spec.transport === 'http-sse'
-    ? (spec.postEndpoint && spec.postEndpoint.length > 0 ? spec.postEndpoint : null)
-    : spec.url;
-  if (!targetUrl) return { ok: false, status: 400, error: 'http-sse transport requires `postEndpoint`' };
+  const targetUrl =
+    spec.transport === 'http-sse'
+      ? spec.postEndpoint && spec.postEndpoint.length > 0
+        ? spec.postEndpoint
+        : null
+      : spec.url;
+  if (!targetUrl)
+    return { ok: false, status: 400, error: 'http-sse transport requires `postEndpoint`' };
 
   const v = validateURL(targetUrl, { allowPrivateIPs: false, allowLocalhost });
   if (!v.valid) return { ok: false, status: 400, error: `Invalid URL: ${v.error}` };
@@ -2073,6 +2151,7 @@ git commit -m "refactor(mcp,grpc): route Electron and worker handlers through sh
 ### Task 11: Cleanup — delete shims and dead code
 
 **Files:**
+
 - Delete: `worker/shared/url-validation.ts`
 - Delete: `worker/shared/grpc-status.ts`
 - Delete: `worker/shared/constants.ts` (if no remaining importers)
@@ -2117,6 +2196,7 @@ git commit -m "chore(foundation): delete worker shims now that all imports use @
 ### Task 12: Documentation and ADR
 
 **Files:**
+
 - Modify: `docs/ARCHITECTURE.md`
 - Create: `docs/adr/0001-shared-protocol-layer.md`
 

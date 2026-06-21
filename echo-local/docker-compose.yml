@@ -86,16 +86,16 @@ services:
       - kafka-config:/etc/redpanda
       - kafka-certs:/etc/redpanda/certs:ro
     ports:
-      - "8081:8081" # Schema Registry
-      - "8082:8082" # HTTP proxy (pandaproxy)
-      - "9092:9092" # Kafka PLAINTEXT
-      - "9093:9093" # Kafka SSL
-      - "9094:9094" # Kafka SASL_PLAINTEXT
-      - "9095:9095" # Kafka SASL_SSL
-      - "9644:9644" # Admin API
+      - '8081:8081' # Schema Registry
+      - '8082:8082' # HTTP proxy (pandaproxy)
+      - '9092:9092' # Kafka PLAINTEXT
+      - '9093:9093' # Kafka SSL
+      - '9094:9094' # Kafka SASL_PLAINTEXT
+      - '9095:9095' # Kafka SASL_SSL
+      - '9644:9644' # Admin API
     healthcheck:
       # The internal listener (:29092) is anonymous, so this works pre-SASL-setup.
-      test: ["CMD", "rpk", "cluster", "info", "--brokers", "localhost:29092"]
+      test: ['CMD', 'rpk', 'cluster', 'info', '--brokers', 'localhost:29092']
       interval: 5s
       timeout: 5s
       retries: 24
@@ -111,7 +111,7 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    restart: "no"
+    restart: 'no'
     entrypoint:
       - sh
       - -c
@@ -129,18 +129,18 @@ services:
     image: emqx/emqx:5.8.6
     container_name: restura-echo-emqx
     environment:
-      EMQX_NODE__COOKIE: "restura-echo"
-      EMQX_DASHBOARD__DEFAULT_USERNAME: "admin"
-      EMQX_DASHBOARD__DEFAULT_PASSWORD: "public"
+      EMQX_NODE__COOKIE: 'restura-echo'
+      EMQX_DASHBOARD__DEFAULT_USERNAME: 'admin'
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: 'public'
       # Allow anonymous connect on the plaintext + TLS listeners (test broker).
-      EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN: "false"
-      EMQX_LISTENERS__SSL__DEFAULT__ENABLE_AUTHN: "false"
+      EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN: 'false'
+      EMQX_LISTENERS__SSL__DEFAULT__ENABLE_AUTHN: 'false'
     ports:
-      - "1883:1883" # MQTT
-      - "8883:8883" # MQTTS (EMQX built-in self-signed cert)
-      - "18083:18083" # dashboard
+      - '1883:1883' # MQTT
+      - '8883:8883' # MQTTS (EMQX built-in self-signed cert)
+      - '18083:18083' # dashboard
     healthcheck:
-      test: ["CMD", "emqx", "ctl", "status"]
+      test: ['CMD', 'emqx', 'ctl', 'status']
       interval: 5s
       timeout: 5s
       retries: 24

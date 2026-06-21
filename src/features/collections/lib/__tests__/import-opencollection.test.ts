@@ -18,7 +18,7 @@ describe('importOpenCollection', () => {
 
   it('throws a readable error on invalid input', () => {
     expect(() => importOpenCollection({ opencollection: '1.0.0', info: {} })).toThrow(
-      /Invalid OpenCollection document/,
+      /Invalid OpenCollection document/
     );
   });
 

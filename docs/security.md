@@ -16,7 +16,7 @@ warned at startup.
 **Persisted state is NOT encrypted at rest by default.** localStorage and
 IndexedDB on the web platform are protected only by the browser's same-
 origin policy. Users who require encryption at rest should either use the
-desktop app or — *once the UI lands* — opt in via:
+desktop app or — _once the UI lands_ — opt in via:
 
 ```
 Settings → Security → "Set workspace passphrase"   (PLANNED, not yet exposed in UI)
@@ -111,7 +111,7 @@ SSE, WebSocket, Socket.IO). It exposes:
   close).
 - `disposeByOwner(map, deadId, dispose)` — walks a connection map and
   invokes `dispose(entry)` on every entry whose `webContentsId ===
-  deadId`, then deletes the entry. Errors are swallowed (best-effort
+deadId`, then deletes the entry. Errors are swallowed (best-effort
   cleanup).
 
 See `docs/adr/0006-electron-connection-and-dns-hardening.md` for the

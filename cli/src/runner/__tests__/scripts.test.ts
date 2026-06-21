@@ -58,9 +58,7 @@ function find(result: RunResult, name: string): RequestRunResult | undefined {
 
 describe('runCollection — test scripts', () => {
   it('reports a passing pm.test assertion and marks the request passed', async () => {
-    const dir = makeCollection(
-      `pm.test('status is 200', () => pm.response.to.have.status(200));`
-    );
+    const dir = makeCollection(`pm.test('status is 200', () => pm.response.to.have.status(200));`);
     const result = await runCollection(
       dir,
       { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
@@ -73,9 +71,7 @@ describe('runCollection — test scripts', () => {
   });
 
   it('marks the request failed when a pm.test assertion fails', async () => {
-    const dir = makeCollection(
-      `pm.test('status is 500', () => pm.response.to.have.status(500));`
-    );
+    const dir = makeCollection(`pm.test('status is 500', () => pm.response.to.have.status(500));`);
     const result = await runCollection(
       dir,
       { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },

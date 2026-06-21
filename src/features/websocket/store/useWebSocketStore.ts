@@ -70,7 +70,13 @@ interface WebSocketState {
   setLastConnectedAt: (id: string, timestamp: number) => void;
 
   // Messages
-  addMessage: (connectionId: string, type: WebSocketMessageType, content: string, dataType?: WebSocketDataType, binaryData?: ArrayBuffer) => void;
+  addMessage: (
+    connectionId: string,
+    type: WebSocketMessageType,
+    content: string,
+    dataType?: WebSocketDataType,
+    binaryData?: ArrayBuffer
+  ) => void;
   clearMessages: (connectionId: string) => void;
 
   // Headers
@@ -379,7 +385,11 @@ export const useWebSocketStore = create<WebSocketState>()(
           return {
             connections: {
               ...state.connections,
-              [connectionId]: { ...connection, heartbeatInterval: interval, heartbeatMessage: message },
+              [connectionId]: {
+                ...connection,
+                heartbeatInterval: interval,
+                heartbeatMessage: message,
+              },
             },
           };
         }),
@@ -390,7 +400,7 @@ export const useWebSocketStore = create<WebSocketState>()(
 
       getActiveConnection: () => {
         const { connections, activeConnectionId } = get();
-        return activeConnectionId ? connections[activeConnectionId] ?? null : null;
+        return activeConnectionId ? (connections[activeConnectionId] ?? null) : null;
       },
 
       getFilteredMessages: (connectionId) => {
@@ -408,9 +418,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         // Filter by search query
         if (searchQuery.trim()) {
           const query = searchQuery.toLowerCase();
-          messages = messages.filter((m) =>
-            m.content.toLowerCase().includes(query)
-          );
+          messages = messages.filter((m) => m.content.toLowerCase().includes(query));
         }
 
         return messages;

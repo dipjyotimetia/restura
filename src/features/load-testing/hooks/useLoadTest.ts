@@ -13,32 +13,29 @@ export function useLoadTest() {
   const abortRef = useRef<AbortController | null>(null);
   const lastEmit = useRef(0);
 
-  const start = useCallback(
-    (request: HttpRequest, options: LoadTestOptions) => {
-      if (abortRef.current) return;
-      setProgress(null);
-      setRunning(true);
-      lastEmit.current = 0;
-      const ac = new AbortController();
-      abortRef.current = ac;
-      void runLoadTest(
-        request,
-        options,
-        (p) => {
-          const now = performance.now();
-          if (p.done || now - lastEmit.current > 100) {
-            lastEmit.current = now;
-            setProgress(p);
-          }
-        },
-        ac.signal
-      ).finally(() => {
-        abortRef.current = null;
-        setRunning(false);
-      });
-    },
-    []
-  );
+  const start = useCallback((request: HttpRequest, options: LoadTestOptions) => {
+    if (abortRef.current) return;
+    setProgress(null);
+    setRunning(true);
+    lastEmit.current = 0;
+    const ac = new AbortController();
+    abortRef.current = ac;
+    void runLoadTest(
+      request,
+      options,
+      (p) => {
+        const now = performance.now();
+        if (p.done || now - lastEmit.current > 100) {
+          lastEmit.current = now;
+          setProgress(p);
+        }
+      },
+      ac.signal
+    ).finally(() => {
+      abortRef.current = null;
+      setRunning(false);
+    });
+  }, []);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();

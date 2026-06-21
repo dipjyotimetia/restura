@@ -27,15 +27,13 @@ beforeEach(() => {
 
 describe('assertNodeHostnameSafe — literal IPs (Fix #27)', () => {
   it('rejects a literal RFC 1918 hostname when allowPrivateIPs is false', async () => {
-    await expect(
-      assertNodeHostnameSafe('10.0.0.1', { allowPrivateIPs: false })
-    ).rejects.toThrow();
+    await expect(assertNodeHostnameSafe('10.0.0.1', { allowPrivateIPs: false })).rejects.toThrow();
   });
 
   it('permits a literal RFC 1918 hostname when allowPrivateIPs is true', async () => {
-    await expect(
-      assertNodeHostnameSafe('10.0.0.1', { allowPrivateIPs: true })
-    ).resolves.toEqual([{ address: '10.0.0.1', family: 4 }]);
+    await expect(assertNodeHostnameSafe('10.0.0.1', { allowPrivateIPs: true })).resolves.toEqual([
+      { address: '10.0.0.1', family: 4 },
+    ]);
   });
 
   it('rejects cloud-metadata 169.254.169.254 regardless of allowPrivateIPs', async () => {
@@ -45,9 +43,7 @@ describe('assertNodeHostnameSafe — literal IPs (Fix #27)', () => {
   });
 
   it('rejects literal loopback when neither allowLocalhost nor allowPrivateIPs is set', async () => {
-    await expect(
-      assertNodeHostnameSafe('127.0.0.1')
-    ).rejects.toThrow();
+    await expect(assertNodeHostnameSafe('127.0.0.1')).rejects.toThrow();
   });
 
   it('permits literal loopback when allowPrivateIPs is true', async () => {
@@ -84,15 +80,13 @@ describe('assertNodeHostnameSafe — DNS-resolved hostnames (Fix #3)', () => {
 
   it('permits public-IP-resolving hostname with default options', async () => {
     mockedLookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-    await expect(
-      assertNodeHostnameSafe('example.com')
-    ).resolves.toEqual([{ address: '93.184.216.34', family: 4 }]);
+    await expect(assertNodeHostnameSafe('example.com')).resolves.toEqual([
+      { address: '93.184.216.34', family: 4 },
+    ]);
   });
 
   it('rejects when DNS lookup fails', async () => {
     mockedLookup.mockRejectedValue(new Error('ENOTFOUND'));
-    await expect(
-      assertNodeHostnameSafe('nope.invalid')
-    ).rejects.toThrow(/DNS lookup failed/);
+    await expect(assertNodeHostnameSafe('nope.invalid')).rejects.toThrow(/DNS lookup failed/);
   });
 });

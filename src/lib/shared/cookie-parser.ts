@@ -33,9 +33,7 @@ function findHeader(
 }
 
 /** Parse a request `Cookie: a=1; b=2` header into cookies. */
-export function parseRequestCookies(
-  headers: Record<string, string | string[]>
-): RequestCookie[] {
+export function parseRequestCookies(headers: Record<string, string | string[]>): RequestCookie[] {
   const raw = findHeader(headers, 'cookie');
   if (raw === undefined) return [];
   const flat = Array.isArray(raw) ? raw.join('; ') : raw;
@@ -45,22 +43,23 @@ export function parseRequestCookies(
 }
 
 /** Parse `Set-Cookie` (often an array) into structured response cookies. */
-export function parseResponseCookies(
-  headers: Record<string, string | string[]>
-): ResponseCookie[] {
+export function parseResponseCookies(headers: Record<string, string | string[]>): ResponseCookie[] {
   const raw = findHeader(headers, 'set-cookie');
   if (raw === undefined) return [];
   const list = Array.isArray(raw)
     ? raw
-    // Multiple Set-Cookie folded into one header — split on commas that
-    // precede a `name=` token, leaving date commas (e.g. `Expires=Wed, 01…`)
-    // intact.
-    : raw.split(/,(?=\s*[A-Za-z0-9!#$%&'*+\-.^_`|~]+\s*=)/);
+    : // Multiple Set-Cookie folded into one header — split on commas that
+      // precede a `name=` token, leaving date commas (e.g. `Expires=Wed, 01…`)
+      // intact.
+      raw.split(/,(?=\s*[A-Za-z0-9!#$%&'*+\-.^_`|~]+\s*=)/);
   return list.map(parseSetCookieValue).filter((c): c is ResponseCookie => c !== null);
 }
 
 function splitPairs(value: string, sep: string): string[] {
-  return value.split(sep).map((s) => s.trim()).filter(Boolean);
+  return value
+    .split(sep)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function parseNameValue(pair: string): RequestCookie | null {
@@ -84,18 +83,31 @@ function parseSetCookieValue(raw: string): ResponseCookie | null {
     const key = (eq < 0 ? seg : seg.slice(0, eq)).trim().toLowerCase();
     const val = eq < 0 ? '' : seg.slice(eq + 1).trim();
     switch (key) {
-      case 'domain': out.domain = val; break;
-      case 'path': out.path = val; break;
-      case 'expires': out.expires = val; break;
+      case 'domain':
+        out.domain = val;
+        break;
+      case 'path':
+        out.path = val;
+        break;
+      case 'expires':
+        out.expires = val;
+        break;
       case 'max-age': {
         const n = Number(val);
         if (Number.isFinite(n)) out.maxAge = n;
         break;
       }
-      case 'httponly': out.httpOnly = true; break;
-      case 'secure': out.secure = true; break;
-      case 'samesite': out.sameSite = val; break;
-      default: /* unknown attribute — silently ignored */ break;
+      case 'httponly':
+        out.httpOnly = true;
+        break;
+      case 'secure':
+        out.secure = true;
+        break;
+      case 'samesite':
+        out.sameSite = val;
+        break;
+      default:
+        /* unknown attribute — silently ignored */ break;
     }
   }
   return out;

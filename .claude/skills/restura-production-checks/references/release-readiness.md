@@ -1,15 +1,15 @@
 # Release / deploy readiness
 
-`validate` proves the code is correct. These prove it *ships*. Run before a release tag or a deploy. Source: `package.json` scripts, `electron-builder.json`, `.github/workflows/release.yml`, `scripts/`.
+`validate` proves the code is correct. These prove it _ships_. Run before a release tag or a deploy. Source: `package.json` scripts, `electron-builder.json`, `.github/workflows/release.yml`, `scripts/`.
 
 ## Builds (a type-clean change can still fail a build)
 
-| Target | Command | Failure modes |
-|--------|---------|---------------|
-| Web + Worker | `npm run build` | Cloudflare vite plugin emits SPA → `dist/web/client/`, Worker + `wrangler.json` → `dist/web/restura/`. `_worker.js` excluded from Electron. |
-| Electron main | `npm run electron:compile` | `tsc -p electron/tsconfig.json` + `tsc-alias` + esbuild preload bundle. Preload must stay self-contained (sandboxed). |
-| Electron full | `npm run electron:pack` (dir) / `electron:dist:{mac,win,linux}` | ASAR layout, renderer entry. |
-| Docker / self-host | `npm run build:docker` | esbuild `worker/node-entry.ts` → `dist/server/index.mjs`. `nodeEntry` must `Object.assign` onto `c.env`, not reassign. |
+| Target             | Command                                                         | Failure modes                                                                                                                               |
+| ------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web + Worker       | `npm run build`                                                 | Cloudflare vite plugin emits SPA → `dist/web/client/`, Worker + `wrangler.json` → `dist/web/restura/`. `_worker.js` excluded from Electron. |
+| Electron main      | `npm run electron:compile`                                      | `tsc -p electron/tsconfig.json` + `tsc-alias` + esbuild preload bundle. Preload must stay self-contained (sandboxed).                       |
+| Electron full      | `npm run electron:pack` (dir) / `electron:dist:{mac,win,linux}` | ASAR layout, renderer entry.                                                                                                                |
+| Docker / self-host | `npm run build:docker`                                          | esbuild `worker/node-entry.ts` → `dist/server/index.mjs`. `nodeEntry` must `Object.assign` onto `c.env`, not reassign.                      |
 
 ## Pre-release checklist
 

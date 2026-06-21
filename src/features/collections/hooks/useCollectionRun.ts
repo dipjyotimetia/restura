@@ -49,8 +49,7 @@ function pushConsoleEntry(info: RequestCompleteInfo): void {
   if ('headers' in req && Array.isArray(req.headers)) {
     for (const h of req.headers) if (h.enabled && h.key) headers[h.key] = h.value;
   }
-  const body =
-    req.type === 'http' && req.body.type !== 'none' ? req.body.raw : undefined;
+  const body = req.type === 'http' && req.body.type !== 'none' ? req.body.raw : undefined;
 
   const logs: ConsoleLog[] = [
     ...(info.scripts?.preRequest?.logs ?? []),
@@ -100,9 +99,8 @@ export function useCollectionRun() {
     const ac = new AbortController();
     abortRef.current = ac;
 
-    const env = useEnvironmentStore
-      .getState()
-      .environments.find((e) => e.id === args.environmentId) ?? null;
+    const env =
+      useEnvironmentStore.getState().environments.find((e) => e.id === args.environmentId) ?? null;
     const baseVars = buildBaseVars(env, args.collection);
 
     void runCollection(

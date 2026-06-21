@@ -96,6 +96,7 @@
 ### Task 1: Establish the Coverage Baseline
 
 **Files:**
+
 - Read: `coverage/coverage-summary.json` after running coverage.
 - Modify later: `vitest.config.ts`
 
@@ -122,6 +123,7 @@ Expected: table of files with weakest line coverage. Prioritize files that are c
 ### Task 2: Raise Coverage on Pure Protocol and Auth Utilities
 
 **Files:**
+
 - Test: `src/features/auth/lib/__tests__/oauth2.test.ts`
 - Test: `src/features/auth/lib/__tests__/authInheritance.test.ts`
 - Test: `shared/protocol/*.test.ts` as needed
@@ -129,6 +131,7 @@ Expected: table of files with weakest line coverage. Prioritize files that are c
 - [ ] **Step 1: Add OAuth2 refresh and PKCE unit tests**
 
 Cover:
+
 - `buildAuthorizationUrl` creates verifier, S256 challenge, and state.
 - `exchangeCodeForToken` sends `code_verifier`.
 - `fetchRefreshToken` sends `grant_type=refresh_token`.
@@ -142,12 +145,21 @@ import { buildAuthorizationUrl, exchangeCodeForToken, fetchRefreshToken } from '
 
 describe('oauth2 PKCE and refresh helpers', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      access_token: 'next-token',
-      token_type: 'Bearer',
-      expires_in: 3600,
-      refresh_token: 'refresh-next',
-    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              access_token: 'next-token',
+              token_type: 'Bearer',
+              expires_in: 3600,
+              refresh_token: 'refresh-next',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+      )
+    );
   });
 
   it('builds authorization URL with PKCE challenge and state', async () => {
@@ -196,6 +208,7 @@ Expected: new tests fail until refresh helper exists, then pass after Track 4 im
 ### Task 3: Cover Stores, Runners, and Edge Cases
 
 **Files:**
+
 - Modify: `src/store/__tests__/*.test.ts`
 - Modify: `src/features/collections/components/__tests__/CollectionRunner.test.tsx`
 - Modify: `src/features/workflows/lib/__tests__/workflowExecutor.test.ts`
@@ -221,6 +234,7 @@ Expected: pass after implementation.
 ### Task 4: Raise Coverage Thresholds
 
 **Files:**
+
 - Modify: `vitest.config.ts`
 
 - [ ] **Step 1: Change thresholds**
@@ -253,12 +267,14 @@ Expected: passes thresholds. If branch coverage remains below 70 because of plat
 ### Task 5: Add Renderer Streaming Transport over Electron IPC
 
 **Files:**
+
 - Modify: `src/features/grpc/lib/grpcStreamingClient.ts`
 - Test: `src/features/grpc/lib/__tests__/grpcStreamingClient.test.ts`
 
 - [ ] **Step 1: Add failing tests for client and bidi handles**
 
 Test behavior:
+
 - `client-streaming` creates a handle instead of throwing.
 - `send(message)` writes messages.
 - `closeSend()` ends outbound stream.
@@ -301,6 +317,7 @@ interface InteractiveStreamTransport<TIn, TOut> {
 ```
 
 Implementation rule:
+
 - `server-streaming` keeps the existing Connect streaming fetch path.
 - `client-streaming` and `bidirectional-streaming` use Electron IPC initially because `electron/main/grpc-handler.ts` already supports those calls.
 - In web mode, return an explicit error: `client-streaming is currently available in the desktop app only`.
@@ -318,6 +335,7 @@ Expected: pass.
 ### Task 6: Expose Streaming Send UI
 
 **Files:**
+
 - Modify: `src/features/grpc/components/GrpcStreamingPanel.tsx`
 - Modify: `src/features/grpc/components/GrpcRequestBuilder.tsx`
 - Test: `src/features/grpc/components/__tests__/GrpcStreamingPanel.test.tsx`
@@ -325,6 +343,7 @@ Expected: pass.
 - [ ] **Step 1: Add UI tests**
 
 Test cases:
+
 - Server streaming shows Start/Cancel only.
 - Client streaming shows Start, message editor, Send, End.
 - Bidi streaming shows Start, message editor, Send, End, Cancel, and inbound messages.
@@ -333,6 +352,7 @@ Test cases:
 - [ ] **Step 2: Implement message composer**
 
 Add:
+
 - `<textarea aria-label="Streaming message JSON">`
 - Send button disabled when not streaming or invalid JSON.
 - End button disabled after `closeSend()`.
@@ -351,12 +371,14 @@ Expected: pass.
 ### Task 7: Verify Electron IPC Validation
 
 **Files:**
+
 - Modify: `electron/main/ipc-validators.ts`
 - Test: `electron/main/__tests__/grpc-handler.test.ts` or `electron/main/__tests__/ipc-validators.test.ts`
 
 - [ ] **Step 1: Add schema tests**
 
 Assert:
+
 - valid stream request accepts `methodType: 'client-streaming'`.
 - valid send message accepts plain object and array payloads.
 - invalid request ID rejects empty strings.
@@ -382,6 +404,7 @@ npm run dev
 ```
 
 Verify at `http://localhost:5173`:
+
 - server-streaming works where supported.
 - client/bidi show desktop-only limitation in web mode if Electron-only path is retained.
 
@@ -394,6 +417,7 @@ npm run electron:dev
 ```
 
 Verify:
+
 - client-streaming can send multiple JSON messages and receive final response.
 - bidi can send messages and display inbound stream messages.
 - cancel cleans up the active stream.
@@ -405,6 +429,7 @@ Verify:
 ### Task 9: Add Accessibility Test Utilities
 
 **Files:**
+
 - Modify: `tests/setup.ts`
 - Add: `src/components/shared/__tests__/accessibility.test.tsx`
 
@@ -435,6 +460,7 @@ Expected: fail until landmarks/names are added.
 ### Task 10: Fix Landmarks, Labels, and Live Regions
 
 **Files:**
+
 - Modify: `src/routes/index.tsx`
 - Modify: `src/components/shared/IconRail.tsx`
 - Modify: `src/components/shared/TopBar.tsx`
@@ -444,6 +470,7 @@ Expected: fail until landmarks/names are added.
 - [ ] **Step 1: Add landmarks**
 
 Expected structure:
+
 - Icon rail: `<nav aria-label="Primary">`
 - Sidebar panel: `<aside aria-label="Collections, history, and workflows">`
 - Main work area: `<main aria-label="Request workspace">`
@@ -452,6 +479,7 @@ Expected structure:
 - [ ] **Step 2: Announce async state changes**
 
 Use existing `AriaLiveAnnouncerProvider` for:
+
 - request sent/completed/failed,
 - stream started/closed/error,
 - collection/workflow run completed,
@@ -460,6 +488,7 @@ Use existing `AriaLiveAnnouncerProvider` for:
 ### Task 11: Keyboard and Focus Remediation
 
 **Files:**
+
 - Modify: `src/components/shared/TabBar.tsx`
 - Modify: `src/components/shared/CommandPalette.tsx`
 - Modify: `src/features/collections/components/Sidebar.tsx`
@@ -468,6 +497,7 @@ Use existing `AriaLiveAnnouncerProvider` for:
 - [ ] **Step 1: TabBar keyboard behavior**
 
 Implement:
+
 - ArrowLeft/ArrowRight moves focus between tabs.
 - Enter/Space activates focused tab.
 - Delete closes focused tab when allowed.
@@ -490,6 +520,7 @@ Expected: pass.
 ### Task 12: Color Contrast and Error Semantics
 
 **Files:**
+
 - Modify: components with low-contrast `text-muted-foreground` on small text as discovered.
 - Modify: `src/features/auth/components/AuthConfig.tsx`
 - Modify: `src/features/grpc/components/GrpcStreamingPanel.tsx`
@@ -502,6 +533,7 @@ Auth errors, URL validation errors, stream errors, and import errors should be a
 - [ ] **Step 2: Ensure inputs bind labels**
 
 Every input must have either:
+
 - visible `<label htmlFor>` with matching `id`, or
 - `aria-label` when the visual layout has no label.
 
@@ -510,6 +542,7 @@ Every input must have either:
 Run app and inspect with `mcp__chrome_devtools__take_snapshot`.
 
 Expected:
+
 - controls have names,
 - no unlabeled textboxes/buttons in primary flows,
 - focus order follows visual order.
@@ -521,6 +554,7 @@ Expected:
 ### Task 13: Complete OAuth2 Token Metadata
 
 **Files:**
+
 - Modify: `src/types/index.ts`
 - Modify: `src/features/auth/lib/oauth2.ts`
 - Test: `src/features/auth/lib/__tests__/oauth2.test.ts`
@@ -581,6 +615,7 @@ export function tokenExpiresAt(nowMs: number, expiresInSeconds?: number): number
 - [ ] **Step 3: Persist refresh result from UI**
 
 When token is acquired, write:
+
 - `accessToken`
 - `tokenType`
 - `refreshToken`
@@ -591,6 +626,7 @@ Do not drop existing refresh token if a provider omits a new one.
 ### Task 14: Add Auto-Refresh Before Execution
 
 **Files:**
+
 - Add: `src/features/auth/lib/tokenRefresh.ts`
 - Test: `src/features/auth/lib/__tests__/tokenRefresh.test.ts`
 - Modify: `src/features/http/lib/requestExecutor.ts`
@@ -612,7 +648,12 @@ export function shouldRefreshOAuth2(auth: AuthConfig, nowMs = Date.now()): boole
 }
 
 export async function refreshOAuth2Auth(auth: AuthConfig, nowMs = Date.now()): Promise<AuthConfig> {
-  if (!shouldRefreshOAuth2(auth, nowMs) || !auth.oauth2?.refreshToken || !auth.oauth2.tokenUrl || !auth.oauth2.clientId) {
+  if (
+    !shouldRefreshOAuth2(auth, nowMs) ||
+    !auth.oauth2?.refreshToken ||
+    !auth.oauth2.tokenUrl ||
+    !auth.oauth2.clientId
+  ) {
     return auth;
   }
   const res = await fetchRefreshToken({
@@ -652,6 +693,7 @@ Expected: pass.
 ### Task 15: Add Collection-Level Auth Inheritance
 
 **Files:**
+
 - Add: `src/features/auth/lib/authInheritance.ts`
 - Test: `src/features/auth/lib/__tests__/authInheritance.test.ts`
 - Modify: `src/features/collections/components/CollectionRunner.tsx`
@@ -664,15 +706,25 @@ Expected: pass.
 ```ts
 import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
 
-export function resolveEffectiveAuth(requestAuth: AuthConfig, inheritedAuth?: AuthConfig): AuthConfig {
+export function resolveEffectiveAuth(
+  requestAuth: AuthConfig,
+  inheritedAuth?: AuthConfig
+): AuthConfig {
   if (requestAuth.type && requestAuth.type !== 'none') return requestAuth;
   return inheritedAuth ?? requestAuth;
 }
 
-export function findInheritedAuth(collection: Collection, requestId: string): AuthConfig | undefined {
-  const visit = (items: CollectionItem[], current: AuthConfig | undefined): AuthConfig | undefined => {
+export function findInheritedAuth(
+  collection: Collection,
+  requestId: string
+): AuthConfig | undefined {
+  const visit = (
+    items: CollectionItem[],
+    current: AuthConfig | undefined
+  ): AuthConfig | undefined => {
     for (const item of items) {
-      const next = item.request?.auth && item.request.auth.type !== 'none' ? item.request.auth : current;
+      const next =
+        item.request?.auth && item.request.auth.type !== 'none' ? item.request.auth : current;
       if (item.type === 'request' && item.request?.id === requestId) return current;
       if (item.items) {
         const found = visit(item.items, next);
@@ -697,19 +749,23 @@ Note: if folder-level auth is added later, extend `CollectionItem` with `auth?: 
 - [ ] **Step 2: Use resolver in runner/workflows/CLI**
 
 Collection runner:
+
 - get `selectedCollection.auth`
 - pass `withEffectiveAuth(item.request, selectedCollection.auth)` into `executeRequest`.
 
 Workflow executor:
+
 - add optional `getInheritedAuth?: (requestId: string) => AuthConfig | undefined` to options.
 - apply `withEffectiveAuth(request, getInheritedAuth?.(request.id))`.
 
 CLI:
+
 - when loading collection metadata, apply `loaded.meta.auth` to HTTP requests with no auth.
 
 - [ ] **Step 3: Add tests**
 
 Tests:
+
 - request auth overrides collection auth.
 - request `none` inherits collection bearer.
 - missing collection auth leaves request `none`.
@@ -718,6 +774,7 @@ Tests:
 ### Task 16: Update UI for Collection Auth
 
 **Files:**
+
 - Modify: `src/features/collections/components/Sidebar.tsx`
 - Add or reuse: collection settings dialog component.
 - Reuse: `src/features/auth/components/AuthConfig.tsx`
@@ -725,6 +782,7 @@ Tests:
 - [ ] **Step 1: Add collection settings action**
 
 For each collection menu, add “Collection settings”. Dialog contains:
+
 - collection name,
 - description,
 - auth section using `AuthConfiguration`,
@@ -787,6 +845,7 @@ npm run dev
 ```
 
 Verify:
+
 - core request flow,
 - auth token flow,
 - collection runner inherited auth,
@@ -801,6 +860,7 @@ npm run electron:dev
 ```
 
 Verify:
+
 - gRPC client-streaming,
 - gRPC bidirectional-streaming,
 - cancel/cleanup,
@@ -830,4 +890,3 @@ Verify:
 
 - **Risk:** Coverage target encourages low-value tests.
   **Mitigation:** prioritize pure protocol/auth/state modules and user-facing component behavior.
-

@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { diffLines, MAX_DIFF_LINES } from '@/lib/shared/line-diff';
 
-const ops = (left: string, right: string) =>
-  diffLines(left, right).map((e) => `${e.op}:${e.text}`);
+const ops = (left: string, right: string) => diffLines(left, right).map((e) => `${e.op}:${e.text}`);
 
 describe('diffLines', () => {
   it('emits only equal entries when inputs match', () => {

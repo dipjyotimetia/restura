@@ -72,7 +72,7 @@ export async function buildWsseHeader(authConfig: WsseConfig): Promise<string> {
  */
 export async function buildWsseDigest(
   authConfig: WsseConfig,
-  fixed: WsseDeterministicInputs,
+  fixed: WsseDeterministicInputs
 ): Promise<string> {
   const { nonce, created } = fixed;
   const password = authConfig.password ?? '';

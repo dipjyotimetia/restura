@@ -31,14 +31,12 @@ describe('useAiLabStore — providers', () => {
   });
 
   it('honors an explicit pricingKnown override', () => {
-    const id = useAiLabStore
-      .getState()
-      .addProvider({
-        provider: 'openai-compatible',
-        label: 'Groq',
-        baseUrl: 'https://api.groq.com',
-        pricingKnown: true,
-      });
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openai-compatible',
+      label: 'Groq',
+      baseUrl: 'https://api.groq.com',
+      pricingKnown: true,
+    });
     expect(useAiLabStore.getState().providers[id]?.pricingKnown).toBe(true);
   });
 

@@ -13,11 +13,7 @@ function TryCatchNodeImpl({ id, data, selected }: NodeProps) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <NodeChrome
-        nodeId={id}
-        kindLabel="Try / Catch"
-        selected={Boolean(selected)}
-      >
+      <NodeChrome nodeId={id} kindLabel="Try / Catch" selected={Boolean(selected)}>
         <div className="flex items-start gap-2">
           <ShieldAlert className="h-4 w-4 mt-0.5 text-yellow-400" />
           <div className="min-w-0">

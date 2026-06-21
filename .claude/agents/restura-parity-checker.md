@@ -16,15 +16,18 @@ You review Restura changes for cross-harness wiring parity. The renderer is ONE 
 ## Parity checklist
 
 **Renderer**
+
 - Executor in `src/features/<p>/lib/` branches on `isElectron()` (`src/lib/shared/platform.ts`) to pick IPC vs. HTTP transport. Both branches must exist and stay behaviorally equivalent.
 - `protocol.ts` schema updated if request shape changed.
 - Zustand store + Zod validator (`src/lib/shared/store-validators.ts`) updated if persisted state changed.
 
 **Web (Worker)**
+
 - A handler exists in `worker/handlers/` and is routed in `worker/app.ts` (shared `createApp`). Remember the Node/Docker entry (`worker/node-entry.ts`) reuses `createApp` — Node-native adapters (`worker/shared/*-node.ts`, `worker/handlers/websocket-node.ts`) may also need updating.
 - SSRF validation goes through `shared/protocol/url-validation.ts`.
 
 **Electron (main)**
+
 - A handler exists in `electron/main/<p>-handler.ts`.
 - IPC channel name declared in `electron/shared/channels.ts`.
 - Args validated by a Zod schema in `electron/main/ipc-validators.ts` (via `createValidatedHandler`), rate-limited (`ipc-rate-limiter.ts`), sender-checked (`assertTrustedSender`).
@@ -32,9 +35,11 @@ You review Restura changes for cross-harness wiring parity. The renderer is ONE 
 - Long-lived/streaming handlers use `connection-cleanup.ts` (`bindRendererCleanup` / `disposeByOwner`).
 
 **Capability parity (data-driven)**
+
 - If the feature behaves differently on web vs. desktop, `src/lib/shared/capabilities.ts` has a matching entry. Run `npm run capabilities:check` — stale matrix = missing/changed entry. Desktop-only examples: Kafka, MQTT, SOCKS/PAC/mTLS, custom CA, stdio MCP (no browser TCP).
 
 **Type-check reality (critical)**
+
 - The Electron and Worker layers are NOT covered by `npm run type-check` (root tsconfig excludes them). Run `npm run type-check:all` before trusting "it compiles." A missing/mismatched IPC type often only surfaces under `tsc -p electron/tsconfig.json`.
 
 ## Common silent failures to look for

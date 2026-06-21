@@ -1,6 +1,6 @@
 ---
 description: Run Restura's full production-grade gate (everything `npm run validate` covers plus what it misses) and triage failures to file:line.
-argument-hint: "[--quick | --full] (default: scope to the current diff)"
+argument-hint: '[--quick | --full] (default: scope to the current diff)'
 allowed-tools: Bash, Read, Grep, Glob, Task
 ---
 

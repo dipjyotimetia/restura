@@ -27,7 +27,9 @@ describe('ocToInternal', () => {
     const httpCount = types.filter((t) => t === 'http').length;
     expect(httpCount).toBeGreaterThanOrEqual(2);
     // WebSocket placeholder folder
-    const wsItems = collection.items.filter((i) => i.type === 'folder' && /websocket/i.test(i.name));
+    const wsItems = collection.items.filter(
+      (i) => i.type === 'folder' && /websocket/i.test(i.name)
+    );
     expect(wsItems.length).toBe(1);
   });
 

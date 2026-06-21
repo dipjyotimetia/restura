@@ -37,7 +37,7 @@ describe('loadCollection', () => {
     const getUser = result.requests.find((r) => r.request.name === 'Get user');
     expect(getUser).toBeDefined();
     expect(getUser!.type).toBe('http');
-    const req = getUser!.request as Extract<typeof getUser['request'], { type: 'http' }>;
+    const req = getUser!.request as Extract<(typeof getUser)['request'], { type: 'http' }>;
     expect(req.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(req.method).toBe('GET');
     expect(req.headers).toHaveLength(1);

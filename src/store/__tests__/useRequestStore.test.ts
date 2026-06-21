@@ -178,9 +178,7 @@ describe('useRequestStore — tabs', () => {
 
   describe('duplicateTab', () => {
     it('creates a new tab with the same request data but a fresh request id', () => {
-      const a = useRequestStore.getState().openTab(
-        makeHttp({ id: 'orig', url: 'https://a.com' })
-      );
+      const a = useRequestStore.getState().openTab(makeHttp({ id: 'orig', url: 'https://a.com' }));
       const dup = useRequestStore.getState().duplicateTab(a)!;
       expect(dup).not.toBe(a);
       const dupTab = useRequestStore.getState().tabs.find((t) => t.id === dup)!;
@@ -361,9 +359,9 @@ describe('useRequestStore — tabs', () => {
       // without losing any other state.
       useRequestStore.getState().openTab(makeHttp({ url: 'https://example.com' }));
       useRequestStore.getState().setStreamingEvents(emptyEvents());
-      const stripped = useRequestStore.getState().tabs.map(
-        ({ streamingEvents: _drop, ...rest }) => rest
-      );
+      const stripped = useRequestStore
+        .getState()
+        .tabs.map(({ streamingEvents: _drop, ...rest }) => rest);
       const json = JSON.stringify(stripped);
       const parsed = JSON.parse(json) as Array<{ streamingEvents?: unknown; request: HttpRequest }>;
       expect(parsed[0]!.streamingEvents).toBeUndefined();
@@ -421,7 +419,12 @@ describe('useRequestStore — tabs', () => {
       };
       const persisted = partialize(sample) as {
         activeTabId: string;
-        tabs: Array<{ id: string; savedRequestId?: string; isDirty?: boolean; request: HttpRequest }>;
+        tabs: Array<{
+          id: string;
+          savedRequestId?: string;
+          isDirty?: boolean;
+          request: HttpRequest;
+        }>;
       };
       expect(persisted.activeTabId).toBe('t1');
       expect(persisted.tabs[0]!.id).toBe('t1');

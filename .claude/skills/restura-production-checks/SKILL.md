@@ -19,7 +19,7 @@ Run `npm run validate` — it chains: `type-check:all` → `lint` → `verify:op
 
 1. **`npm run type-check` only covers the renderer.** The root `tsconfig.json` runs bare `tsc --noEmit` and **excludes `worker`, `electron/main`, and `cli`**. A clean `type-check` says nothing about whether the Electron main process, the Worker, the CLI, the echo server, or the http feature compiles. **Always use `npm run type-check:all`** — it runs all six `tsc` projects the way CI does. This is now chained into `validate`. If you see someone run plain `type-check` to "confirm it compiles," that's the trap.
 
-2. **The pre-commit hook skips tsc entirely.** `.husky/pre-commit` runs `lint-staged` (eslint --fix + prettier on *staged* files only). No type-check, no tests. **Type errors land in commits routinely.** Never treat "it committed cleanly" as "it type-checks." Run `type-check:all` yourself.
+2. **The pre-commit hook skips tsc entirely.** `.husky/pre-commit` runs `lint-staged` (eslint --fix + prettier on _staged_ files only). No type-check, no tests. **Type errors land in commits routinely.** Never treat "it committed cleanly" as "it type-checks." Run `type-check:all` yourself.
 
 3. **Generated files must be regenerated, never hand-edited.** Two CI gates diff generated artifacts:
    - `verify:opencollection-types` regenerates `src/lib/opencollection/spec-types.ts` from `vendor/opencollection/.../schema.json` and fails on any diff. Edit the schema, then `npm run gen:opencollection-types`.

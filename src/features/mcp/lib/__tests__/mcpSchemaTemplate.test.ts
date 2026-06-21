@@ -66,21 +66,19 @@ describe('generateMcpTemplate', () => {
   });
 
   it('nested objects work recursively', () => {
-    const tpl = generateMcpTemplate(
-      {
-        type: 'object',
-        properties: {
-          user: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-            },
-            required: ['name'],
+    const tpl = generateMcpTemplate({
+      type: 'object',
+      properties: {
+        user: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
           },
+          required: ['name'],
         },
-        required: ['user'],
-      }
-    );
+      },
+      required: ['user'],
+    });
     expect(tpl).toEqual({ user: { name: '' } });
   });
 
@@ -88,7 +86,15 @@ describe('generateMcpTemplate', () => {
     const deep = generateMcpTemplate(
       {
         type: 'object',
-        properties: { a: { type: 'object', properties: { b: { type: 'object', properties: { c: { type: 'string' } }, required: ['c'] } }, required: ['b'] } },
+        properties: {
+          a: {
+            type: 'object',
+            properties: {
+              b: { type: 'object', properties: { c: { type: 'string' } }, required: ['c'] },
+            },
+            required: ['b'],
+          },
+        },
         required: ['a'],
       },
       { maxDepth: 1 }

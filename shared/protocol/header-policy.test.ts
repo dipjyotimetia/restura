@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeRequestHeaders, sanitizeResponseHeaders, REQUEST_DENY, RESPONSE_DENY } from './header-policy';
+import {
+  sanitizeRequestHeaders,
+  sanitizeResponseHeaders,
+  REQUEST_DENY,
+  RESPONSE_DENY,
+} from './header-policy';
 
 describe('sanitizeRequestHeaders', () => {
   it('strips hop-by-hop headers', () => {

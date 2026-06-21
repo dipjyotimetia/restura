@@ -1,8 +1,14 @@
 import type { ChatMessageWire } from '@shared/protocol/ai/types';
-import { redactHeaders, redactBody, redactEnvironment, type RedactionMode } from '@shared/protocol/ai/redaction';
+import {
+  redactHeaders,
+  redactBody,
+  redactEnvironment,
+  type RedactionMode,
+} from '@shared/protocol/ai/redaction';
 import type { RawSnapshot } from './contextSnapshot';
 
-export const SYSTEM_EXPLAIN_PROMPT = `You are an API debugging assistant inside Restura, a multi-protocol API client.
+export const SYSTEM_EXPLAIN_PROMPT =
+  `You are an API debugging assistant inside Restura, a multi-protocol API client.
 
 The user is looking at a request and (usually) its response in the app. Your job:
 - Explain what the request did and what the response means, plainly.

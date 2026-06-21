@@ -12,7 +12,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { secretValueSchema, type SecretValue, handleSecret, inlineSecret } from '@/lib/shared/secretRef';
+import {
+  secretValueSchema,
+  type SecretValue,
+  handleSecret,
+  inlineSecret,
+} from '@/lib/shared/secretRef';
 import {
   protocolSecretValueSchema,
   isProtocolSecretHandle,

@@ -12,11 +12,7 @@ import { toast } from 'sonner';
 import { Lock, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import {
-  describeSecret,
-  isSecretHandle,
-  type SecretValue,
-} from '@/lib/shared/secretRef';
+import { describeSecret, isSecretHandle, type SecretValue } from '@/lib/shared/secretRef';
 
 interface HandleSummary {
   id: string;
@@ -54,7 +50,8 @@ export default function SecretInput({
 }: SecretInputProps) {
   const electron = isElectron();
   const [handles, setHandles] = useState<HandleSummary[]>([]);
-  const inlineValue = typeof value === 'string' ? value : value?.kind === 'inline' ? value.value : '';
+  const inlineValue =
+    typeof value === 'string' ? value : value?.kind === 'inline' ? value.value : '';
 
   const refreshHandles = async () => {
     if (!electron) return;
@@ -76,7 +73,9 @@ export default function SecretInput({
       toast.error('Enter a value before storing');
       return;
     }
-    const args = storageLabel ? { value: inlineValue, label: storageLabel } : { value: inlineValue };
+    const args = storageLabel
+      ? { value: inlineValue, label: storageLabel }
+      : { value: inlineValue };
     const result = await api.secrets.store(args);
     if (!result.ok) {
       toast.error(`Failed to store secret: ${result.error}`);
@@ -99,7 +98,12 @@ export default function SecretInput({
         <Lock className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden />
         <Input value={describeSecret(value)} readOnly disabled className="font-mono text-xs" />
         {!disabled && (
-          <Button type="button" variant="outline" size="sm" onClick={() => onChange({ kind: 'inline', value: '' })}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onChange({ kind: 'inline', value: '' })}
+          >
             Replace
           </Button>
         )}

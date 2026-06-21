@@ -87,7 +87,7 @@ function djb2Hash(s: string): string {
  */
 export function createBindingRateLimiter(
   binding: RateLimitBinding,
-  opts: { shadow?: boolean } = {},
+  opts: { shadow?: boolean } = {}
 ) {
   async function middleware(c: Context, next: Next): Promise<Response | void> {
     const key = await buildBucketKey(c);
@@ -99,11 +99,9 @@ export function createBindingRateLimiter(
         console.log(JSON.stringify({ kind: 'ratelimit.shadow-deny', ts: Date.now() }));
         return next();
       }
-      return c.json(
-        { error: 'Rate limit exceeded. Maximum 100 requests per minute.' },
-        429,
-        { 'Retry-After': '60' },
-      );
+      return c.json({ error: 'Rate limit exceeded. Maximum 100 requests per minute.' }, 429, {
+        'Retry-After': '60',
+      });
     }
     return next();
   }
@@ -114,18 +112,14 @@ export function createBindingRateLimiter(
 export function createIsolateRateLimiter(
   maxRequests = 100,
   windowMs = 60_000,
-  pruneIntervalMs = 5_000,
+  pruneIntervalMs = 5_000
 ) {
   return createRateLimiter(maxRequests, windowMs, pruneIntervalMs);
 }
 
 // Per-isolate sliding window. Good enough for burst protection; for cross-datacenter
 // enforcement provision a Cloudflare Rate Limiting namespace instead.
-export function createRateLimiter(
-  maxRequests = 100,
-  windowMs = 60_000,
-  pruneIntervalMs = 5_000,
-) {
+export function createRateLimiter(maxRequests = 100, windowMs = 60_000, pruneIntervalMs = 5_000) {
   const requestLog = new Map<string, number[]>();
   let lastPrune = 0;
 
@@ -159,7 +153,7 @@ export function createRateLimiter(
       return c.json(
         { error: `Rate limit exceeded. Maximum ${maxRequests} requests per minute.` },
         429,
-        { 'Retry-After': '60' },
+        { 'Retry-After': '60' }
       );
     }
     timestamps.push(now);

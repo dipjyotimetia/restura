@@ -13,6 +13,7 @@
 ## File structure
 
 **Created:**
+
 - `shared/protocol/streaming-types.ts` — `StreamingResponse`, `StreamingFetcher`, `StreamChunk` types
 - `shared/protocol/sse-parser.ts` — backend-agnostic SSE event-frame parser (consumed by worker MCP, renderer viewer, and electron SSE)
 - `shared/protocol/sse-parser.test.ts`
@@ -30,6 +31,7 @@
 - `docs/adr/0003-streaming-and-http2.md`
 
 **Modified:**
+
 - `shared/protocol/types.ts` — extend `FetcherResponse` with optional `body: ReadableStream<Uint8Array>`; add `negotiatedAlpn?: 'h1.1' | 'h2' | 'h3'` to `NormalizedResponse`
 - `shared/protocol/http-proxy.ts` — switch on streaming mode; do not buffer when `streamingMode: true`
 - `shared/protocol/http-proxy.test.ts` — tests for streaming mode
@@ -44,6 +46,7 @@
 - `src/features/grpc/components/GrpcRequestBuilder.tsx` — render `GrpcStreamingPanel` for streaming method types
 
 **Out of scope:**
+
 - HTTP/3 — wait for Node `undici` h3 to stabilise (tracked separately).
 - Server-sent gRPC events for the Worker streaming path — Worker is bypassed for gRPC streams (Connect-Web speaks directly to upstream when CORS permits). The Worker remains the proxy for unary gRPC and CORS-blocked streams.
 - Renderer-side h2 negotiation — browser fetch handles it transparently. ALPN is reported informationally.
@@ -55,6 +58,7 @@
 ### Task 1: Extend `Fetcher` and `NormalizedResponse` for streaming
 
 **Files:**
+
 - Modify: `shared/protocol/types.ts`
 
 The shared core's `FetcherResponse` currently exposes `text(): Promise<string>`. Add an optional `body: ReadableStream<Uint8Array> | null` so streaming-capable fetchers can hand off the upstream stream directly. Add `negotiatedAlpn` to `NormalizedResponse` so the renderer can surface "Served over HTTP/2".
@@ -116,6 +120,7 @@ git commit -m "feat(shared): extend Fetcher with optional streaming body + ALPN"
 ### Task 2: Add a streaming branch to `executeHttpProxy`
 
 **Files:**
+
 - Modify: `shared/protocol/http-proxy.ts`
 - Modify: `shared/protocol/http-proxy.test.ts`
 
@@ -168,7 +173,9 @@ describe('executeHttpProxyStreaming', () => {
       status: 200,
       statusText: 'OK',
       headers: { 'content-type': 'text/event-stream' },
-      text: async () => { throw new Error('text() must not be called in streaming mode'); },
+      text: async () => {
+        throw new Error('text() must not be called in streaming mode');
+      },
       contentLengthHeader: null,
       body: stream,
     }));
@@ -237,12 +244,14 @@ git commit -m "feat(shared): add executeHttpProxyStreaming for streaming respons
 ### Task 3: SSE event-frame parser in shared
 
 **Files:**
+
 - Create: `shared/protocol/sse-parser.ts`
 - Create: `shared/protocol/sse-parser.test.ts`
 
 Move and unify the SSE parsing logic that today lives in `worker/handlers/mcp.ts:36-81` (`readSseForReply`), `electron/main/sse-handler.ts`, and `src/features/sse/lib/sseParser.ts`. The shared parser is a pure transform: `Uint8Array` chunks → `SseEvent[]`. No I/O, no fetcher coupling.
 
 `SseEvent` shape:
+
 ```ts
 export interface SseEvent {
   id?: string;
@@ -253,6 +262,7 @@ export interface SseEvent {
 ```
 
 Public API:
+
 ```ts
 export class SseParser {
   feed(chunk: Uint8Array): SseEvent[];
@@ -267,6 +277,7 @@ Cover: simple `data: foo\n\n`, multiple data lines, `event:` field, `id:` field,
 - [ ] **Step 2: Implement**
 
 The implementation reads bytes via a streaming `TextDecoder`, accumulates into a string buffer, and splits on `\n\n` (after CRLF→LF normalisation). Per W3C SSE spec, lines:
+
 - starting with `:` are comments (skip)
 - starting with `data:` append to the current event's data (joined with `\n` if multiple)
 - `event:` sets event name
@@ -294,13 +305,15 @@ git commit -m "feat(shared): unify SSE parser; consume from worker/MCP, electron
 ### Task 4: NDJSON parser in shared
 
 **Files:**
+
 - Create: `shared/protocol/ndjson-parser.ts`
 - Create: `shared/protocol/ndjson-parser.test.ts`
 
 Line-delimited JSON. Public API:
+
 ```ts
 export class NdjsonParser {
-  feed(chunk: Uint8Array): unknown[];  // returns parsed JSON values
+  feed(chunk: Uint8Array): unknown[]; // returns parsed JSON values
   flush(): unknown[]; // emits trailing partial line if it parses
 }
 ```
@@ -323,15 +336,18 @@ git commit -m "feat(shared): add NdjsonParser"
 ### Task 5: Renderer streaming response reader
 
 **Files:**
+
 - Create: `src/features/http/lib/streamingResponseReader.ts`
 - Create: `src/features/http/lib/streamingResponseReader.test.ts`
 
 Consumes a `Response` and emits incremental events to the caller. Detects format from `Content-Type`:
+
 - `text/event-stream` → SseParser
 - `application/x-ndjson` / `application/jsonl` → NdjsonParser
 - `text/plain` / fallback → raw decoded chunks
 
 Public API:
+
 ```ts
 export interface StreamEvent {
   type: 'sse' | 'ndjson' | 'raw' | 'end' | 'error';
@@ -352,6 +368,7 @@ The async generator yields events as the stream produces them, and a final `{ ty
 - [ ] **Step 3: Wire into `requestExecutor.ts`**
 
 In `src/features/http/lib/requestExecutor.ts`, dispatch streaming when:
+
 ```ts
 const acceptHeader = headers['Accept'] ?? headers['accept'] ?? '';
 const isStreaming = /event-stream|x-ndjson|jsonl/.test(acceptHeader);
@@ -366,6 +383,7 @@ If streaming, call `executeRequestStreaming(...)` (a new sibling function) inste
 ### Task 6: Streaming response viewer (windowed)
 
 **Files:**
+
 - Create: `src/components/shared/lib/windowedList.tsx`
 - Create: `src/components/shared/lib/windowedList.test.tsx`
 - Create: `src/components/shared/StreamingResponseViewer.tsx`
@@ -374,6 +392,7 @@ If streaming, call `executeRequestStreaming(...)` (a new sibling function) inste
 `windowedList` is a small virtualization helper: given items[] and an itemHeight estimate, render only items visible in the viewport plus a small overscan. Roughly 50 LOC. Don't add `react-window` as a dep — the use case is constrained (uniform item height, append-only).
 
 `StreamingResponseViewer` accepts an `AsyncIterable<StreamEvent>` and renders incoming events. UI:
+
 - Top bar: "● Streaming" indicator with chunk count and total bytes; "Pause" button (stops `read()`) and "Resume"; "Close stream" button
 - Body: windowed list, one row per event. SSE event renders as a card (event name, id, data); NDJSON renders as a one-line preview with "expand" to see full JSON
 - Auto-scroll to bottom when new events arrive UNLESS the user scrolled up (then show "Jump to latest" pill)
@@ -384,6 +403,7 @@ If streaming, call `executeRequestStreaming(...)` (a new sibling function) inste
 - [ ] **Step 4: Wire into `ResponseViewer.tsx`**
 
 In `src/components/shared/ResponseViewer.tsx`, switch rendering based on response shape:
+
 - If response has `streamEvents: AsyncIterable<StreamEvent>` (new field on the active tab) → render `<StreamingResponseViewer events={...} />`
 - Else if `response.body.length > 1_000_000` → render `<StreamingResponseViewer events={asSyncStream(response.body)} />` (one synthetic raw chunk)
 - Else (existing path) → Monaco editor
@@ -404,12 +424,14 @@ npm run dev
 ### Task 7: Worker streaming proxy
 
 **Files:**
+
 - Modify: `worker/handlers/proxy.ts`
 - Modify: existing tests if needed
 
 When the proxied request has `Accept: text/event-stream | application/x-ndjson | application/jsonl` (or the request body contains an explicit `streamingMode: true` flag), the worker should pipe the upstream response body straight back to the renderer instead of `await response.text()`.
 
 Use Hono's stream helper:
+
 ```ts
 import { stream } from 'hono/streaming';
 
@@ -451,6 +473,7 @@ export async function proxy(c) {
 ### Task 8: gRPC server-streaming via Connect-Web
 
 **Files:**
+
 - Create: `src/features/grpc/lib/grpcStreamingClient.ts`
 - Create: `src/features/grpc/lib/grpcStreamingClient.test.ts`
 - Modify: `src/features/grpc/lib/grpcClient.ts` — delegate non-unary methods
@@ -460,6 +483,7 @@ export async function proxy(c) {
 Connect-Web exposes streaming via the transport's `serverStream`/`clientStream`/`bidiStream` methods. The current `grpcClient.ts` only wires unary. Add streaming.
 
 `grpcStreamingClient.ts` exports:
+
 ```ts
 export interface GrpcStreamingHandle {
   /** Async iterable of inbound messages from the server. */
@@ -471,13 +495,17 @@ export interface GrpcStreamingHandle {
   /** Cancel the entire RPC. */
   cancel(): void;
   /** Final headers + trailers, resolved when the stream ends. */
-  done: Promise<{ headers: Record<string, string>; trailers: Record<string, string>; status: GrpcStatus }>;
+  done: Promise<{
+    headers: Record<string, string>;
+    trailers: Record<string, string>;
+    status: GrpcStatus;
+  }>;
 }
 
 export async function startGrpcStream(
   request: GrpcRequest,
   resolveVariables: (text: string) => string,
-  proto: ProtoServiceDefinition  // the loaded service descriptor
+  proto: ProtoServiceDefinition // the loaded service descriptor
 ): Promise<GrpcStreamingHandle>;
 ```
 
@@ -496,6 +524,7 @@ Add a dispatch function: if `methodType === 'unary'`, use the existing path; oth
 - [ ] **Step 4: Build `GrpcStreamingPanel.tsx`**
 
 UI for streaming gRPC:
+
 - Header bar: "● Streaming • <N> messages • <connected/disconnected>"
 - Message list: incoming messages rendered via the windowed list helper from Task 6, with collapsed-by-default JSON (click to expand)
 - For client-streaming and bidi: an input area to compose outbound messages, "Send" button calls `handle.send(msg)`; "Close stream" calls `handle.closeSend()`
@@ -521,6 +550,7 @@ git commit -m "feat(grpc): server/client/bidi streaming via Connect-Web"
 ### Task 9: Electron undici migration
 
 **Files:**
+
 - Modify: `electron/main/http-handler.ts`
 
 Replace Node `http`/`https` `request()` calls inside `buildElectronFetcher` with `undici.request`. `undici` is the standard Node HTTP client since Node 18 and supports HTTP/2 over ALPN automatically when the upstream advertises h2.
@@ -532,7 +562,7 @@ Critical: preserve every existing feature.
 - **SOCKS proxy**: undici doesn't ship a SOCKS dispatcher. Two options:
   1. Open the SOCKS tunnel manually (existing code) and pass the resulting `net.Socket` to undici via a custom `Dispatcher.connect`.
   2. Use `socks-proxy-agent` (small dep) but only if the existing manual SOCKS code can't be adapted.
-  Pick option 1 (no new dep) — verify with a unit-style smoke test against a local SOCKS server (or skip; flag as needs-real-network test).
+     Pick option 1 (no new dep) — verify with a unit-style smoke test against a local SOCKS server (or skip; flag as needs-real-network test).
 - **mTLS / CA**: undici accepts `tls` options via the dispatcher. Pass `pfx`/`cert`/`key`/`ca` through `new Agent({ connect: { ... } })`.
 - **DNS rebind guard**: `createSecureLookup` is wired into `http.request({ lookup })`. undici accepts a custom `connect.lookup` via Agent options. Confirm and route.
 - **Manual redirect handling**: stays in `makeHttpRequest` (the wrapper, not the fetcher).
@@ -541,15 +571,16 @@ Critical: preserve every existing feature.
 - **Negotiated ALPN**: undici exposes `response.opaque` containing protocol info; capture into `negotiatedAlpn`.
 
 After undici migration, update `FetcherResponse.body` to expose the upstream stream:
+
 ```ts
 return {
   status: response.statusCode,
   statusText: '',
   headers: response.headers as Record<string, string | string[]>,
-  text: () => response.body.text(),  // undici body helper
+  text: () => response.body.text(), // undici body helper
   contentLengthHeader: (response.headers['content-length'] as string | undefined) ?? null,
-  body: Readable.toWeb(response.body) as ReadableStream<Uint8Array>,  // undici provides Web stream interop
-  negotiatedAlpn: response.opaque?.alpnProtocol,  // verify shape
+  body: Readable.toWeb(response.body) as ReadableStream<Uint8Array>, // undici provides Web stream interop
+  negotiatedAlpn: response.opaque?.alpnProtocol, // verify shape
 };
 ```
 
@@ -583,18 +614,22 @@ git commit -m "refactor(electron): migrate HTTP fetcher from node:http to undici
 ### Task 10: Renderer ALPN indicator
 
 **Files:**
+
 - Modify: `src/components/shared/ResponseViewer.tsx`
 - Modify: `src/features/http/lib/requestExecutor.ts` — pass `negotiatedAlpn` from electron response into `Response` shape
 
 In `requestExecutor.ts:ElectronResponse → ApiResponse` translation, propagate `negotiatedAlpn`. Add `negotiatedAlpn?: 'h1.1' | 'h2' | 'h3'` to the `Response` type in `src/types/index.ts`.
 
 In `ResponseViewer.tsx`, near the existing status/time/size metadata, render:
+
 ```tsx
-{response.negotiatedAlpn && (
-  <span title={`Negotiated ${response.negotiatedAlpn.toUpperCase()}`}>
-    {response.negotiatedAlpn === 'h2' ? 'HTTP/2' : 'HTTP/1.1'}
-  </span>
-)}
+{
+  response.negotiatedAlpn && (
+    <span title={`Negotiated ${response.negotiatedAlpn.toUpperCase()}`}>
+      {response.negotiatedAlpn === 'h2' ? 'HTTP/2' : 'HTTP/1.1'}
+    </span>
+  );
+}
 ```
 
 - [ ] **Step 1: Add type field; thread through executor**
@@ -606,10 +641,12 @@ In `ResponseViewer.tsx`, near the existing status/time/size metadata, render:
 ### Task 11: Documentation + ADR
 
 **Files:**
+
 - Modify: `docs/ARCHITECTURE.md` — add "Streaming and HTTP/2" section
 - Create: `docs/adr/0003-streaming-and-http2.md`
 
 ADR captures:
+
 - Why a separate `executeHttpProxyStreaming` instead of a flag on `executeHttpProxy` (different return shape; doesn't compose with size cap; sharper contract)
 - Why the worker streaming path doesn't enforce `MAX_RESPONSE_SIZE` (streaming is unbounded by intent; per-chunk budget protects against giant single chunks but not total volume; users opting into streaming accept the trade-off)
 - Why Connect-Web bypasses the worker for gRPC streaming (HTTP/2 client streams in browsers tunnel through the Worker poorly; same-origin restrictions only matter for the unary path)

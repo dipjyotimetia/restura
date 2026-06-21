@@ -32,20 +32,24 @@ Renderer-only most of the time. Check whether the feature needs filesystem acces
 These apply to every category.
 
 ### Path alias
+
 - Always use `@/` (resolves to `src/`). Never relative `../../` from `src/`.
 - **Cross-feature imports are forbidden.** Don't import from another feature's `lib/` or `store/`. Compose at the route or shared-component level.
 
 ### Platform detection
+
 - Always use `isElectron()` from `@/lib/shared/platform`. Never check `process.env`, `navigator.userAgent`, or `import.meta.env.VITE_IS_ELECTRON_BUILD` for runtime branching — those are build-time only.
 - `window.electron` is typed in `electron/types/electron.d.ts`. New IPC methods must be declared there, in the preload bridge, and have a Zod schema in `ipc-validators.ts` — **all three** or the call breaks at runtime in desktop.
 
 ### Validation philosophy — different at each layer
+
 - **Electron IPC handlers**: Zod is mandatory. Always wrap with `createValidatedHandler(channel, schema, fn)` from `electron/main/ipc-validators.ts`.
 - **Worker handlers**: No Zod. Manual checks (method allow-list, `validateURL()` for SSRF, header strip-list). Keeps the Worker bundle small for cold starts. Don't introduce Zod there.
 - **Zustand updates**: Soft Zod via `src/lib/shared/store-validators.ts` — failures log a warning but don't block the update. Mirror this for new stores.
 - **Renderer code**: Zod where boundaries are crossed (parsing imports, untrusted inputs), not on internal data flow.
 
 ### Type sharing — there isn't any, by design
+
 Types are duplicated across layers intentionally. For an IPC-bound config there are **three** definitions to keep in sync:
 
 1. `src/types/index.ts` — canonical renderer type
@@ -55,6 +59,7 @@ Types are duplicated across layers intentionally. For an IPC-bound config there 
 The Worker has its own local interface in each handler file too. Do not try to centralize this into a shared package — it's been considered and rejected as the cost of letting each layer build independently. When you change one definition, change all of them in the same PR.
 
 ### `'use client'` directive
+
 Several legacy files have `'use client'` at the top. **It's a no-op in Vite.** Don't add it to new files. Leave it where it exists.
 
 ## Step 3 — Wire the layers
@@ -108,7 +113,7 @@ The whole reason Worker and IPC handlers are separate is so each harness uses it
 - [ ] `npm run validate` passes
 - [ ] If dispatch path was touched: manually verified in both `npm run dev` and `npm run electron:dev`
 
-## When *not* to use this skill
+## When _not_ to use this skill
 
 - Pure documentation edits (README, CLAUDE.md, comments)
 - Dependency bumps with no behavior change

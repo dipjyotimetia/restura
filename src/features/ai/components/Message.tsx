@@ -14,10 +14,13 @@ function MessageImpl({ message }: Props) {
         className={cn(
           'glass-1 max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words',
           isUser ? 'bg-accent/10 border-accent/20' : 'border-border/40',
-          message.status === 'error' && 'border-destructive/40',
+          message.status === 'error' && 'border-destructive/40'
         )}
       >
-        {message.text || (message.status === 'streaming' ? <span className="text-muted-foreground italic">…</span> : null)}
+        {message.text ||
+          (message.status === 'streaming' ? (
+            <span className="text-muted-foreground italic">…</span>
+          ) : null)}
         {message.status === 'error' && message.errorMessage && (
           <div className="mt-2 text-xs text-destructive">{message.errorMessage}</div>
         )}
@@ -26,7 +29,8 @@ function MessageImpl({ message }: Props) {
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground/70">
           {message.usage && (
             <span>
-              {message.usage.promptTokens}+{message.usage.completionTokens} tok · ${message.usage.estimatedCostUSD.toFixed(4)}
+              {message.usage.promptTokens}+{message.usage.completionTokens} tok · $
+              {message.usage.estimatedCostUSD.toFixed(4)}
             </span>
           )}
           <span>AI can be wrong — verify before acting.</span>

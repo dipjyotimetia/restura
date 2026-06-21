@@ -13,6 +13,7 @@
 ## File structure
 
 **Created:**
+
 ```
 cli/
   package.json              # @restura/cli, bin: { restura: ./dist/index.js }
@@ -61,6 +62,7 @@ docs/adr/0005-cli-runner.md
 ```
 
 **Modified:**
+
 - `package.json` (root) — add `cli` to `workspaces` array if using npm workspaces, OR keep cli's package.json fully independent (decide based on existing repo setup; check for existing `workspaces` field)
 - `package-lock.json` — `npm install` with the new deps
 - `docs/ARCHITECTURE.md` — add "CLI runner" section explaining how it reuses the shared protocol layer
@@ -72,6 +74,7 @@ docs/adr/0005-cli-runner.md
 ### Task 1: CLI scaffolding (package, tsconfig, build)
 
 **Files:**
+
 - Create: `cli/package.json`
 - Create: `cli/tsconfig.json`
 - Create: `cli/src/index.ts` — minimal `restura --version` smoke
@@ -157,10 +160,7 @@ Note: `quickjs-emscripten` is duplicated in cli/ deps because the CLI runs scrip
 import { Command } from 'commander';
 
 const program = new Command();
-program
-  .name('restura')
-  .description('Restura CLI — run API collections in CI')
-  .version('0.1.0');
+program.name('restura').description('Restura CLI — run API collections in CI').version('0.1.0');
 
 program.parse();
 ```
@@ -186,6 +186,7 @@ git commit -m "feat(cli): scaffold restura CLI package"
 ### Task 2: Collection loader
 
 **Files:**
+
 - Create: `cli/src/runner/collectionLoader.ts`
 - Create: `cli/src/runner/__tests__/collectionLoader.test.ts`
 - Create: `cli/fixtures/sample-collection/_collection.yaml`
@@ -217,10 +218,11 @@ testScript: |
 - [ ] **Step 2: Write loader tests + implementation**
 
 Public API:
+
 ```ts
 export interface LoadedRequest {
-  filePath: string;        // absolute
-  relativePath: string;    // relative to collection root
+  filePath: string; // absolute
+  relativePath: string; // relative to collection root
   type: 'http' | 'grpc' | 'sse' | 'mcp';
   request: HttpRequest | GrpcRequest | SseRequest | McpRequest;
 }
@@ -247,6 +249,7 @@ git commit -m "feat(cli): collection loader from file-collection-schema"
 ### Task 3: Env loader
 
 **Files:**
+
 - Create: `cli/src/runner/envLoader.ts`
 - Create: `cli/src/runner/__tests__/envLoader.test.ts`
 
@@ -265,10 +268,12 @@ Detect format by extension. Resolve `${ENV_VAR}` references in values from `proc
 ### Task 4: undici Fetcher (the third backend)
 
 **Files:**
+
 - Create: `cli/src/runner/undiciFetcher.ts`
 - Create: `cli/src/runner/__tests__/undiciFetcher.test.ts`
 
 Implements the `Fetcher` interface from `@shared/protocol/types` using `undici.request`. ~50 lines. Should support:
+
 - All HTTP methods
 - Streaming response body via `Readable.toWeb`
 - ALPN capture (h1.1 / h2 — same pattern as the Electron undici fetcher in Plan 4)
@@ -282,7 +287,9 @@ import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/
 
 export const undiciFetcher: Fetcher = async (req: FetcherRequest): Promise<FetcherResponse> => {
   const response = await undiciRequest(req.url, {
-    method: req.method as Parameters<typeof undiciRequest>[1] extends { method?: infer M } ? M : never,
+    method: req.method as Parameters<typeof undiciRequest>[1] extends { method?: infer M }
+      ? M
+      : never,
     headers: req.headers,
     body: req.body as undefined,
     signal: req.signal,
@@ -307,6 +314,7 @@ export const undiciFetcher: Fetcher = async (req: FetcherRequest): Promise<Fetch
 ### Task 5: Script host
 
 **Files:**
+
 - Create: `cli/src/runner/scriptHost.ts`
 - Create: `cli/src/runner/__tests__/scriptHost.test.ts`
 
@@ -319,7 +327,14 @@ export interface ScriptRunArgs {
   script: string;
   envVars: Record<string, string>;
   request: { url: string; method: string; headers: Record<string, string>; body?: unknown };
-  response?: { status: number; statusText: string; headers: Record<string, string>; body: unknown; time: number; size: number };
+  response?: {
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    body: unknown;
+    time: number;
+    size: number;
+  };
 }
 
 export async function runScript(args: ScriptRunArgs): Promise<ScriptResult>;
@@ -342,12 +357,14 @@ If clean → CLI can import directly. If not → extract to `shared/protocol/`.
 ### Task 6: Runner core
 
 **Files:**
+
 - Create: `cli/src/runner/runner.ts`
 - Create: `cli/src/runner/__tests__/runner.test.ts`
 
 The orchestrator. Iterates the loaded collection, executes each request via `executeHttpProxy(spec, undiciFetcher, ...)`, runs pre/post test scripts, accumulates a result tree, and feeds reporters.
 
 Public API:
+
 ```ts
 export interface RunResult {
   meta: { name: string; startedAt: number; durationMs: number };
@@ -366,8 +383,8 @@ export interface RequestRunResult {
 
 export interface RunOptions {
   envVars: Record<string, string>;
-  bail: boolean;        // stop on first failure
-  parallel: number;     // concurrent requests; default 1
+  bail: boolean; // stop on first failure
+  parallel: number; // concurrent requests; default 1
 }
 
 export async function runCollection(
@@ -378,6 +395,7 @@ export async function runCollection(
 ```
 
 Report events as the run progresses:
+
 - `onStart(meta)`
 - `onRequestStart(request)`
 - `onRequestComplete(result)`
@@ -392,6 +410,7 @@ So the `live` reporter (default — prints to terminal) can show progress in rea
 ### Task 7: JSON reporter
 
 **Files:**
+
 - Create: `cli/src/reporters/types.ts`
 - Create: `cli/src/reporters/json.ts`
 - Create: `cli/src/reporters/__tests__/json.test.ts`
@@ -414,6 +433,7 @@ JSON reporter: writes a single JSON file at `--output path/to/results.json` cont
 ### Task 8: JUnit reporter
 
 **Files:**
+
 - Create: `cli/src/reporters/junit.ts`
 - Create: `cli/src/reporters/__tests__/junit.test.ts`
 
@@ -435,6 +455,7 @@ JUnit XML format consumed by every CI system on earth. Each `LoadedRequest` beco
 ### Task 9: HTML reporter
 
 **Files:**
+
 - Create: `cli/src/reporters/html.ts`
 - Create: `cli/src/reporters/__tests__/html.test.ts`
 
@@ -447,6 +468,7 @@ Self-contained HTML page (no external assets, no JS frameworks). Inline CSS, inl
 ### Task 10: `restura run` command
 
 **Files:**
+
 - Create: `cli/src/commands/run.ts`
 - Modify: `cli/src/index.ts`
 - Create: `cli/src/__tests__/cli-e2e.test.ts` — spawns the binary against the sample fixture
@@ -473,6 +495,7 @@ E2E test: spawn `node cli/dist/index.js run cli/fixtures/sample-collection --rep
 ### Task 11: gRPC unary support (HTTP support is enough for v0.1; gRPC is a value-add)
 
 **Files:**
+
 - Create: `cli/src/runner/grpcConnectClient.ts`
 - Create: `cli/src/runner/__tests__/grpcConnectClient.test.ts`
 - Modify: `cli/src/runner/runner.ts` — dispatch by request.type
@@ -488,6 +511,7 @@ For SSE, MCP — out of scope for v0.1 (CLI users hitting SSE would want streami
 ### Task 12: CI examples + ADR + docs
 
 **Files:**
+
 - Create: `docs/cli/README.md` — usage docs
 - Create: `docs/cli/ci-examples/github-actions.yml`
 - Create: `docs/cli/ci-examples/gitlab-ci.yml`
@@ -496,6 +520,7 @@ For SSE, MCP — out of scope for v0.1 (CLI users hitting SSE would want streami
 - Modify: `docs/ARCHITECTURE.md` — add CLI runner section
 
 GitHub Actions example:
+
 ```yaml
 name: API tests
 on: [push, pull_request]
@@ -514,6 +539,7 @@ jobs:
 ```
 
 ADR captures:
+
 - Why a separate package (vs bundling into the existing electron build): users want `npm install -g` for CI without pulling Electron + Monaco + React
 - Why undici (already a Plan 4 dep, single backend story)
 - Why no proto codegen for gRPC (Connect-JSON over HTTP works without it)

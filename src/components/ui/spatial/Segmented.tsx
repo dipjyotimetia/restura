@@ -49,9 +49,7 @@ export function Segmented<T extends string>({
             className={cn(
               'inline-flex items-center justify-center gap-1.5 transition-all',
               'font-medium rounded-[7px]',
-              size === 'sm'
-                ? 'h-6 px-2 text-sp-11'
-                : 'h-7 px-3 text-sp-12',
+              size === 'sm' ? 'h-6 px-2 text-sp-11' : 'h-7 px-3 text-sp-12',
               fullWidth && 'flex-1',
               selected
                 ? 'bg-sp-surface text-sp-text shadow-sm'

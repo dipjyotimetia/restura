@@ -18,7 +18,9 @@ const VALID_ID = /^[a-zA-Z0-9_-]{1,128}$/;
 
 export const requestIdMiddleware: MiddlewareHandler = async (c: Context, next: Next) => {
   const incoming = c.req.header(REQUEST_ID_HEADER);
-  const id = ensureRequestId({ requestId: incoming && VALID_ID.test(incoming) ? incoming : undefined });
+  const id = ensureRequestId({
+    requestId: incoming && VALID_ID.test(incoming) ? incoming : undefined,
+  });
   c.set('requestId', id);
   await next();
   c.res.headers.set(REQUEST_ID_HEADER, id);

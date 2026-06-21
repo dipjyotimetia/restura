@@ -40,7 +40,10 @@ describe('create_http_request', () => {
 describe('set_test_script', () => {
   it('updates the active HTTP request test script', () => {
     runAgentTool('create_http_request', JSON.stringify({ url: 'https://api.example/x' }));
-    const res = runAgentTool('set_test_script', JSON.stringify({ script: "pm.test('ok', () => {});" }));
+    const res = runAgentTool(
+      'set_test_script',
+      JSON.stringify({ script: "pm.test('ok', () => {});" })
+    );
     expect(res.ok).toBe(true);
     const st = useRequestStore.getState();
     const tab = st.tabs.find((t) => t.id === st.activeTabId);

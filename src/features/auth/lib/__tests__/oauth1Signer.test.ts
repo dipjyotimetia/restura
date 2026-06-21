@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildOAuth1Header,
-  hmacSha1Base64,
-  hmacSha256Base64,
-} from '../oauth1Signer';
+import { buildOAuth1Header, hmacSha1Base64, hmacSha256Base64 } from '../oauth1Signer';
 
 describe('hmacSha1Base64 / hmacSha256Base64', () => {
   // Test vectors from RFC 2202 §3 and RFC 4231 — let us verify the pure-JS
@@ -19,9 +15,7 @@ describe('hmacSha1Base64 / hmacSha256Base64', () => {
   it('matches RFC 4231 HMAC-SHA256 test vector 1', () => {
     const key = '\x0b'.repeat(20);
     // Expected hex: b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7
-    expect(hmacSha256Base64('Hi There', key)).toBe(
-      'sDRMYdjbOFNcqK/OrwvxK4gdwgDJgz2nJuk3bC4yz/c=',
-    );
+    expect(hmacSha256Base64('Hi There', key)).toBe('sDRMYdjbOFNcqK/OrwvxK4gdwgDJgz2nJuk3bC4yz/c=');
   });
 });
 
@@ -38,7 +32,7 @@ describe('buildOAuth1Header', () => {
       buildOAuth1Header('GET', 'https://example.com/', {
         consumerKey: '',
         consumerSecret: 'x',
-      }),
+      })
     ).toThrow(/consumerKey/);
   });
 
@@ -92,15 +86,11 @@ describe('buildOAuth1Header', () => {
     // the signature is well-formed (44 chars, base64 trailing '=' padding for
     // a 20-byte SHA-1 digest is 'XXXXXXXXXXXXXXXXXXXXXXXXXXXX=' → 28 chars
     // before percent-encoding; oauth-1.0a percent-encodes the value).
-    const header = buildOAuth1Header(
-      'POST',
-      'https://api.example.com/v1/resource',
-      {
-        ...baseConfig,
-        nonce: '7d8f3e2a1b4c',
-        timestamp: '1318622958',
-      },
-    );
+    const header = buildOAuth1Header('POST', 'https://api.example.com/v1/resource', {
+      ...baseConfig,
+      nonce: '7d8f3e2a1b4c',
+      timestamp: '1318622958',
+    });
     const sigMatch = /oauth_signature="([^"]+)"/.exec(header);
     expect(sigMatch).not.toBeNull();
     // Signature is a base64-encoded 20-byte digest — 28 chars (one '=' pad)
@@ -163,13 +153,13 @@ describe('buildOAuth1Header', () => {
       'POST',
       'https://api.example.com/post',
       { ...baseConfig, nonce: 'n', timestamp: '1' },
-      { foo: 'bar' },
+      { foo: 'bar' }
     );
     const withFlag = buildOAuth1Header(
       'POST',
       'https://api.example.com/post',
       { ...baseConfig, nonce: 'n', timestamp: '1', addParamsToBody: true },
-      { foo: 'bar' },
+      { foo: 'bar' }
     );
     const sigWithout = /oauth_signature="([^"]+)"/.exec(without)?.[1];
     const sigWith = /oauth_signature="([^"]+)"/.exec(withFlag)?.[1];

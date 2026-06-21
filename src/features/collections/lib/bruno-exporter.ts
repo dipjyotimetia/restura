@@ -249,7 +249,10 @@ function httpRequestToBruJson(
   return json;
 }
 
-function bodyToBruno(body: RequestBody): { bodyJson?: Record<string, unknown>; bodyDiscriminator?: string } {
+function bodyToBruno(body: RequestBody): {
+  bodyJson?: Record<string, unknown>;
+  bodyDiscriminator?: string;
+} {
   switch (body.type) {
     case 'none':
       return {};
@@ -317,7 +320,10 @@ function authToBruno(
     case 'basic':
       return {
         blocks: {
-          basic: { username: auth.basic?.username ?? '', password: brunoSecretValue(auth.basic?.password) },
+          basic: {
+            username: auth.basic?.username ?? '',
+            password: brunoSecretValue(auth.basic?.password),
+          },
         },
         discriminator: 'basic',
       };
@@ -352,7 +358,10 @@ function authToBruno(
     case 'digest':
       return {
         blocks: {
-          digest: { username: auth.digest?.username ?? '', password: brunoSecretValue(auth.digest?.password) },
+          digest: {
+            username: auth.digest?.username ?? '',
+            password: brunoSecretValue(auth.digest?.password),
+          },
         },
         discriminator: 'digest',
       };
@@ -409,23 +418,35 @@ function authToBruno(
     case 'wsse':
       return {
         blocks: {
-          wsse: { username: auth.wsse?.username ?? '', password: brunoSecretValue(auth.wsse?.password) },
+          wsse: {
+            username: auth.wsse?.username ?? '',
+            password: brunoSecretValue(auth.wsse?.password),
+          },
         },
         discriminator: 'wsse',
       };
     default: {
       if (strict) {
-        throw new Error(`Bruno export does not support auth type '${(auth as { type: string }).type}'`);
+        throw new Error(
+          `Bruno export does not support auth type '${(auth as { type: string }).type}'`
+        );
       }
       return null;
     }
   }
 }
 
-function nonHttpRequestStub(name: string, req: Collection['items'][number]['request'], seq: number): Record<string, unknown> {
+function nonHttpRequestStub(
+  name: string,
+  req: Collection['items'][number]['request'],
+  seq: number
+): Record<string, unknown> {
   // Preserve URL for everything that has one — Bruno will at least round-trip
   // the name and URL even if it can't run the request.
-  const url = req && 'url' in req && typeof (req as { url?: unknown }).url === 'string' ? (req as { url: string }).url : '';
+  const url =
+    req && 'url' in req && typeof (req as { url?: unknown }).url === 'string'
+      ? (req as { url: string }).url
+      : '';
   const type = req?.type ?? 'http';
   return {
     meta: { name, type, seq },

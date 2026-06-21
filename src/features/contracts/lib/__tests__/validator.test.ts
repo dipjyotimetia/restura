@@ -77,7 +77,11 @@ const spec = {
             description: 'not found',
             content: {
               'application/json': {
-                schema: { type: 'object', required: ['error'], properties: { error: { type: 'string' } } },
+                schema: {
+                  type: 'object',
+                  required: ['error'],
+                  properties: { error: { type: 'string' } },
+                },
               },
             },
           },
@@ -238,7 +242,9 @@ describe('validateResponse — edge cases', () => {
       openapi: '3.0.0',
       info: { title: 't', version: '1' },
       paths: {
-        '/ping': { get: { operationId: 'ping', responses: { '204': { description: 'noContent' } } } },
+        '/ping': {
+          get: { operationId: 'ping', responses: { '204': { description: 'noContent' } } },
+        },
       },
     } as unknown as AnyOpenAPISpec;
     const match: OperationMatch = {

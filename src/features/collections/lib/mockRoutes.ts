@@ -13,12 +13,10 @@ import type { Collection, CollectionItem, HistoryItem, HttpRequest, MockRoute } 
  * collapses into the host and is dropped. Tolerates non-absolute / bad URLs.
  */
 export function extractPath(url: string): string {
-  const withWildcards = url
-    .trim()
-    .replace(/\{\{\s*([^}]*?)\s*\}\}/g, (_m, name: string) => {
-      const clean = String(name).replace(/[^a-zA-Z0-9_]/g, '');
-      return `:${clean || 'param'}`;
-    });
+  const withWildcards = url.trim().replace(/\{\{\s*([^}]*?)\s*\}\}/g, (_m, name: string) => {
+    const clean = String(name).replace(/[^a-zA-Z0-9_]/g, '');
+    return `:${clean || 'param'}`;
+  });
   try {
     return new URL(withWildcards).pathname || '/';
   } catch {
@@ -30,7 +28,9 @@ export function extractPath(url: string): string {
   }
 }
 
-function pickContentType(headers: Record<string, string | string[]> | undefined): string | undefined {
+function pickContentType(
+  headers: Record<string, string | string[]> | undefined
+): string | undefined {
   if (!headers) return undefined;
   for (const [k, v] of Object.entries(headers)) {
     if (k.toLowerCase() === 'content-type') return Array.isArray(v) ? v[0] : v;

@@ -3,9 +3,7 @@ import { buildWsseHeader, buildWsseDigest } from '../wsseHeader';
 
 describe('buildWsseHeader (PasswordDigest)', () => {
   it('throws when username is missing', async () => {
-    await expect(
-      buildWsseHeader({ username: '', password: 'p' }),
-    ).rejects.toThrow(/username/i);
+    await expect(buildWsseHeader({ username: '', password: 'p' })).rejects.toThrow(/username/i);
   });
 
   it('produces a header with all four UsernameToken attributes', async () => {
@@ -75,19 +73,18 @@ describe('buildWsseDigest (deterministic)', () => {
   // input → known output pair. Reference: WS-Security UsernameToken Profile 1.1
   // §3.1 — digest = base64(SHA1(nonce + created + password)).
   const fixedNonce = new Uint8Array([
-    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
-    0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
+    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
   ]);
   const fixedCreated = '2024-01-15T12:34:56.000Z';
 
   it('produces a deterministic header for fixed nonce + created', async () => {
     const a = await buildWsseDigest(
       { username: 'alice', password: 'secret' },
-      { nonce: fixedNonce, created: fixedCreated },
+      { nonce: fixedNonce, created: fixedCreated }
     );
     const b = await buildWsseDigest(
       { username: 'alice', password: 'secret' },
-      { nonce: fixedNonce, created: fixedCreated },
+      { nonce: fixedNonce, created: fixedCreated }
     );
     expect(a).toBe(b);
   });
@@ -95,11 +92,11 @@ describe('buildWsseDigest (deterministic)', () => {
   it('changing the password changes the digest', async () => {
     const a = await buildWsseDigest(
       { username: 'alice', password: 'secret' },
-      { nonce: fixedNonce, created: fixedCreated },
+      { nonce: fixedNonce, created: fixedCreated }
     );
     const b = await buildWsseDigest(
       { username: 'alice', password: 'secret2' },
-      { nonce: fixedNonce, created: fixedCreated },
+      { nonce: fixedNonce, created: fixedCreated }
     );
     const digestA = /PasswordDigest="([^"]+)"/.exec(a)?.[1];
     const digestB = /PasswordDigest="([^"]+)"/.exec(b)?.[1];
@@ -110,11 +107,11 @@ describe('buildWsseDigest (deterministic)', () => {
     const otherNonce = new Uint8Array(16);
     const a = await buildWsseDigest(
       { username: 'u', password: 'p' },
-      { nonce: fixedNonce, created: fixedCreated },
+      { nonce: fixedNonce, created: fixedCreated }
     );
     const b = await buildWsseDigest(
       { username: 'u', password: 'p' },
-      { nonce: otherNonce, created: fixedCreated },
+      { nonce: otherNonce, created: fixedCreated }
     );
     const digestA = /PasswordDigest="([^"]+)"/.exec(a)?.[1];
     const digestB = /PasswordDigest="([^"]+)"/.exec(b)?.[1];
@@ -124,7 +121,7 @@ describe('buildWsseDigest (deterministic)', () => {
   it('emits the supplied nonce as base64', async () => {
     const header = await buildWsseDigest(
       { username: 'u', password: 'p' },
-      { nonce: fixedNonce, created: fixedCreated },
+      { nonce: fixedNonce, created: fixedCreated }
     );
     // base64 of [0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF,0x10,0x32,0x54,0x76,0x98,0xBA,0xDC,0xFE]
     expect(header).toContain('Nonce="ASNFZ4mrze8QMlR2mLrc/g=="');
@@ -138,7 +135,7 @@ describe('buildWsseDigest (deterministic)', () => {
     // implementation we ship — re-derived in the assertion below.)
     const header = await buildWsseDigest(
       { username: 'alice', password: 'secret' },
-      { nonce: fixedNonce, created: fixedCreated },
+      { nonce: fixedNonce, created: fixedCreated }
     );
     const digestMatch = /PasswordDigest="([^"]+)"/.exec(header);
     expect(digestMatch).not.toBeNull();
@@ -169,7 +166,7 @@ describe('applyAuth integration (oauth1 + wsse)', () => {
         url: 'https://example.com/',
         headers: {},
         body: undefined,
-      },
+      }
     );
     expect(out.headers.Authorization).toMatch(/^OAuth /);
     expect(out.headers.Authorization).toContain('oauth_consumer_key="k"');
@@ -187,7 +184,7 @@ describe('applyAuth integration (oauth1 + wsse)', () => {
         url: 'https://example.com/',
         headers: {},
         body: undefined,
-      },
+      }
     );
     expect(out.headers['X-WSSE']).toMatch(/^UsernameToken /);
     expect(out.headers['X-WSSE']).toContain('Username="u"');
@@ -197,7 +194,7 @@ describe('applyAuth integration (oauth1 + wsse)', () => {
     const { applyAuth } = await import('@shared/protocol/auth-signer');
     const out = await applyAuth(
       { type: 'oauth1' },
-      { method: 'GET', url: 'https://example.com/', headers: {}, body: undefined },
+      { method: 'GET', url: 'https://example.com/', headers: {}, body: undefined }
     );
     expect(out.headers).toEqual({});
   });
@@ -206,7 +203,7 @@ describe('applyAuth integration (oauth1 + wsse)', () => {
     const { applyAuth } = await import('@shared/protocol/auth-signer');
     const out = await applyAuth(
       { type: 'wsse' },
-      { method: 'GET', url: 'https://example.com/', headers: {}, body: undefined },
+      { method: 'GET', url: 'https://example.com/', headers: {}, body: undefined }
     );
     expect(out.headers).toEqual({});
   });

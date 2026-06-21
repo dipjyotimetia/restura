@@ -28,7 +28,6 @@ test.describe('gRPC — error codes', () => {
     expect(json.grpcStatus).toBe(Code.NotFound);
     expect(JSON.stringify(json.data)).toContain(FAIL_TRIGGERS.NotFound);
   });
-
 });
 
 test.describe('gRPC — Connect error codes via SDK client', () => {
@@ -40,7 +39,9 @@ test.describe('gRPC — Connect error codes via SDK client', () => {
     [FAIL_TRIGGERS.Internal, Code.Internal],
     [FAIL_TRIGGERS.Unimplemented, Code.Unimplemented],
   ] as const) {
-    test(`unary ${trigger} surfaces as ConnectError(${Code[expectedCode]})`, async ({ servers }) => {
+    test(`unary ${trigger} surfaces as ConnectError(${Code[expectedCode]})`, async ({
+      servers,
+    }) => {
       const transport = createConnectTransport({
         baseUrl: servers.grpc.url,
         httpVersion: '1.1',
@@ -68,7 +69,11 @@ test.describe('gRPC — metadata propagation', () => {
     const headerSeen: Record<string, string> = {};
     await client.unaryEcho(create(EchoRequestSchema, { message: 'metadata', count: 0 }), {
       headers: { 'x-echo-trace': 'abc-123', 'x-echo-tenant': 'acme' },
-      onHeader(headers) { headers.forEach((v, k) => { headerSeen[k.toLowerCase()] = v; }); },
+      onHeader(headers) {
+        headers.forEach((v, k) => {
+          headerSeen[k.toLowerCase()] = v;
+        });
+      },
     });
     expect(headerSeen['x-echo-trace']).toBe('abc-123');
     expect(headerSeen['x-echo-tenant']).toBe('acme');
@@ -87,7 +92,9 @@ test.describe('gRPC — metadata propagation', () => {
       create(EchoRequestSchema, { message: 'tick', count: 4 }),
       {
         onTrailer(t) {
-          t.forEach((v, k) => { trailers[k.toLowerCase()] = v; });
+          t.forEach((v, k) => {
+            trailers[k.toLowerCase()] = v;
+          });
         },
       }
     );
@@ -139,7 +146,9 @@ test.describe('gRPC — deadline / cancellation', () => {
         for await (const _ of client.serverStreamingEcho(
           create(EchoRequestSchema, { message: slowMessage(500, 'body'), count: 3 }),
           { timeoutMs: 50 }
-        )) { void _; }
+        )) {
+          void _;
+        }
         return null;
       } catch (e) {
         return e;
@@ -169,7 +178,9 @@ test.describe('gRPC — bidirectional with metadata', () => {
     const stream = client.bidirectionalEcho(inputs(), {
       headers: { 'x-echo-flow': 'bidi-1' },
       onTrailer(t) {
-        t.forEach((v, k) => { trailers[k.toLowerCase()] = v; });
+        t.forEach((v, k) => {
+          trailers[k.toLowerCase()] = v;
+        });
       },
     });
     for await (const r of stream) replies.push(r.message);

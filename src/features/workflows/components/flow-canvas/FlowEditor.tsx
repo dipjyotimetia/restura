@@ -102,10 +102,9 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
     if (typeof window !== 'undefined') {
       try {
         if (!window.localStorage.getItem(SUBGRAPH_TOUR_KEY)) {
-          toast.info(
-            'Now editing inside a sub-graph. Click "root" in the breadcrumb to go back.',
-            { duration: 8000 }
-          );
+          toast.info('Now editing inside a sub-graph. Click "root" in the breadcrumb to go back.', {
+            duration: 8000,
+          });
           window.localStorage.setItem(SUBGRAPH_TOUR_KEY, '1');
         }
       } catch {
@@ -133,11 +132,7 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
     <ReactFlowProvider>
       <div className="flex flex-col h-full w-full">
         <FlowToolbar workflow={workflow} onRun={onRun} canRun={canRun} />
-        <FlowBreadcrumb
-          workflow={workflow}
-          path={subgraphPath}
-          onNavigate={onNavigate}
-        />
+        <FlowBreadcrumb workflow={workflow} path={subgraphPath} onNavigate={onNavigate} />
         <div className="flex-1 flex min-h-0">
           <FlowSidebar collectionId={workflow.collectionId} />
           <div className="flex-1 min-w-0 flex flex-col">

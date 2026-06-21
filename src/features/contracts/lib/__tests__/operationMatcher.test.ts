@@ -90,7 +90,10 @@ describe('extractPath', () => {
   });
 
   it('falls back to the raw pathname when no server prefix matches', () => {
-    const spec: AnyOpenAPISpec = { ...minimalSpec, servers: [{ url: 'https://other.example.com' }] };
+    const spec: AnyOpenAPISpec = {
+      ...minimalSpec,
+      servers: [{ url: 'https://other.example.com' }],
+    };
     // No server prefix to strip — return the path as-is.
     expect(extractPath('https://api.example.com/v1/users/42', spec)).toBe('/v1/users/42');
   });
@@ -136,7 +139,9 @@ describe('matchOperation', () => {
 
   it('rejects unknown methods', () => {
     expect(matchOperation(minimalSpec, 'CONNECT', 'https://api.example.com/v1/users')).toBeNull();
-    expect(matchOperation(minimalSpec, 'FROBNICATE', 'https://api.example.com/v1/users')).toBeNull();
+    expect(
+      matchOperation(minimalSpec, 'FROBNICATE', 'https://api.example.com/v1/users')
+    ).toBeNull();
   });
 });
 

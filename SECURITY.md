@@ -36,12 +36,12 @@ Send an email to the project maintainers with:
 
 ### 4. Severity Levels
 
-| Severity | Description | Response Time |
-|----------|-------------|---------------|
-| Critical | Remote code execution, data breach | 24-48 hours |
-| High | Authentication bypass, privilege escalation | 3-5 days |
-| Medium | XSS, CSRF, information disclosure | 1-2 weeks |
-| Low | Minor information exposure | Next release |
+| Severity | Description                                 | Response Time |
+| -------- | ------------------------------------------- | ------------- |
+| Critical | Remote code execution, data breach          | 24-48 hours   |
+| High     | Authentication bypass, privilege escalation | 3-5 days      |
+| Medium   | XSS, CSRF, information disclosure           | 1-2 weeks     |
+| Low      | Minor information exposure                  | Next release  |
 
 ## Security Best Practices
 
@@ -104,7 +104,7 @@ Restura allows users to write pre-request and test scripts. These scripts are ex
 - **Limited API surface**: Only safe JavaScript APIs exposed (JSON, Math, Date, etc.)
 - **Timeout enforcement**: 5-second maximum execution time
 - **Memory limits**: 10MB maximum memory allocation
-- **Pattern blocking**: Dangerous patterns (eval, Function, __proto__) are blocked
+- **Pattern blocking**: Dangerous patterns (eval, Function, **proto**) are blocked
 - **Strict mode**: All scripts run in JavaScript strict mode
 
 ### URL Validation & SSRF Protection
@@ -126,6 +126,7 @@ Restura implements comprehensive URL validation to prevent Server-Side Request F
 - **Encryption available**: `src/lib/encryption.ts` provides secure encryption utilities
 
 **Security Features**:
+
 - Web Crypto API for AES-GCM encryption
 - PBKDF2 key derivation (100,000 iterations)
 - Random salt and IV per encryption operation
@@ -146,12 +147,14 @@ Restura supports proxy configuration which can be used to route requests through
 We regularly monitor and update our dependencies for known vulnerabilities:
 
 ### Frontend Dependencies
+
 - React, Vite, and core libraries are kept up-to-date
 - Radix UI primitives for accessible components
 - Monaco Editor for code editing
 - Regular `npm audit` checks
 
 ### Worker Dependencies
+
 - Hono and Node.js-compatible libraries kept up-to-date
 - Regular `npm audit` checks
 - Minimal dependency footprint
@@ -232,6 +235,7 @@ credentials.json
 ## Contact
 
 For security-related inquiries:
+
 - GitHub: Open a private security advisory
 - Email: Contact project maintainers directly
 

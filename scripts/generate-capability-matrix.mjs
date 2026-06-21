@@ -31,7 +31,10 @@ for (let i = bodyStart; i < source.length; i++) {
   if (ch === '{') depth++;
   else if (ch === '}') {
     depth--;
-    if (depth === 0) { bodyEnd = i; break; }
+    if (depth === 0) {
+      bodyEnd = i;
+      break;
+    }
   }
 }
 if (bodyEnd === -1) throw new Error('Unable to find end of CAPABILITIES literal');
@@ -73,9 +76,7 @@ rather than discover it experimentally.
 
 | Capability | Web | Desktop | Notes |
 | --- | :-: | :-: | --- |
-${rows
-  .map((r) => `| ${r.label} | ${yesNo(r.web)} | ${yesNo(r.desktop)} | ${r.notes} |`)
-  .join('\n')}
+${rows.map((r) => `| ${r.label} | ${yesNo(r.web)} | ${yesNo(r.desktop)} | ${r.notes} |`).join('\n')}
 
 ---
 

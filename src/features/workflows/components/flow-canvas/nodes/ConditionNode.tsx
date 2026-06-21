@@ -11,11 +11,7 @@ function ConditionNodeImpl({ id, data, selected }: NodeProps) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <NodeChrome
-        nodeId={id}
-        kindLabel="Condition"
-        selected={Boolean(selected)}
-      >
+      <NodeChrome nodeId={id} kindLabel="Condition" selected={Boolean(selected)}>
         <div className="flex items-start gap-2">
           <GitBranch className="h-4 w-4 mt-0.5 text-violet-400" />
           <div className="min-w-0">
@@ -36,18 +32,8 @@ function ConditionNodeImpl({ id, data, selected }: NodeProps) {
         </div>
       </NodeChrome>
       {/* Explicit named handles so React Flow routes edges by sourceHandle. */}
-      <Handle
-        type="source"
-        id="true"
-        position={Position.Bottom}
-        style={{ left: '30%' }}
-      />
-      <Handle
-        type="source"
-        id="false"
-        position={Position.Bottom}
-        style={{ left: '70%' }}
-      />
+      <Handle type="source" id="true" position={Position.Bottom} style={{ left: '30%' }} />
+      <Handle type="source" id="false" position={Position.Bottom} style={{ left: '70%' }} />
     </>
   );
 }
