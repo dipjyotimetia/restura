@@ -5,11 +5,15 @@
  * (on by default); no request fires once the user disables it in Settings.
  *
  * Never sends headers, response bodies, request payloads, or any field
- * outside the allowlist below.
+ * outside the allowlist below. The free-text `message`/`stack`/`componentStack`
+ * fields are run through the shared secret redactor first, so a token that got
+ * interpolated into an error string never reaches the logs (mirrors the
+ * desktop Sentry scrubber in electron/main/lifecycle/sentry.ts).
  */
 
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
+import { redactBody } from '@shared/protocol/ai/redaction';
 
 interface ErrorPayload {
   message: string;
@@ -35,9 +39,11 @@ export function reportError(payload: ErrorPayload): void {
   if (!base && typeof window !== 'undefined' && window.location.protocol === 'file:') return;
   const url = `${base}/api/telemetry/error`;
   const body = {
-    message: payload.message.slice(0, 2000),
-    stack: payload.stack?.slice(0, 8000),
-    componentStack: payload.componentStack?.slice(0, 4000),
+    message: redactBody(payload.message, 'default').slice(0, 2000),
+    stack: payload.stack ? redactBody(payload.stack, 'default').slice(0, 8000) : undefined,
+    componentStack: payload.componentStack
+      ? redactBody(payload.componentStack, 'default').slice(0, 4000)
+      : undefined,
     source: payload.source,
     build: import.meta.env.MODE,
     ua: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 256) : 'unknown',

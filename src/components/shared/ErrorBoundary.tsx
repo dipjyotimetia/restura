@@ -35,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo);
 
-    // Opt-in telemetry (off by default, gated on settings.telemetry.errorsEnabled).
+    // Opt-out telemetry (on by default, gated on settings.telemetry.errorsEnabled).
     reportError({
       message: error.message,
       ...(error.stack !== undefined ? { stack: error.stack } : {}),
@@ -66,9 +66,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
 
             <div className="space-y-2">
-              <h2 className="text-2xl font-semibold tracking-tight">
-                Something went wrong
-              </h2>
+              <h2 className="text-2xl font-semibold tracking-tight">Something went wrong</h2>
               <p className="text-muted-foreground">
                 An unexpected error occurred. Please try again or refresh the page.
               </p>
@@ -92,10 +90,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Try Again
               </Button>
-              <Button
-                onClick={() => window.location.reload()}
-                variant="outline"
-              >
+              <Button onClick={() => window.location.reload()} variant="outline">
                 Reload Page
               </Button>
             </div>
@@ -113,8 +108,7 @@ export function withErrorBoundary<P extends object>(
   WrappedComponent: React.ComponentType<P>,
   fallback?: ReactNode
 ) {
-  const displayName =
-    WrappedComponent.displayName || WrappedComponent.name || 'Component';
+  const displayName = WrappedComponent.displayName || WrappedComponent.name || 'Component';
 
   const ComponentWithErrorBoundary = (props: P) => (
     <ErrorBoundary fallback={fallback}>

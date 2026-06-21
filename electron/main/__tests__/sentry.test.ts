@@ -13,14 +13,16 @@ import { scrubEvent, initSentry, setSentryEnabled, isSentryEnabled } from '../li
 const initMock = Sentry.init as unknown as Mock;
 
 describe('scrubEvent', () => {
-  it('drops request context and server_name', () => {
+  it('drops request context, server_name, and user identity', () => {
     const out = scrubEvent({
       message: 'boom',
       request: { url: 'https://api.example.com/x', headers: { authorization: 'Bearer abc' } },
       server_name: 'my-machine',
+      user: { id: 'abc', ip_address: '1.2.3.4' },
     } as Sentry.Event);
     expect(out.request).toBeUndefined();
     expect(out.server_name).toBeUndefined();
+    expect(out.user).toBeUndefined();
   });
 
   it('redacts secrets in message and exception values', () => {

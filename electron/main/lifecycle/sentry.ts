@@ -78,12 +78,15 @@ function scrubString(value: string): string {
   return out;
 }
 
-/** Strip request context, frame locals, breadcrumb data, and redact strings. */
+/** Strip request context, user identity, frame locals, breadcrumb data, and redact strings. */
 export function scrubEvent<T extends Sentry.Event>(event: T): T {
   // Request context can carry the upstream URL, headers, and body — drop it.
   delete event.request;
   // Hostname can identify the user's machine.
   delete event.server_name;
+  // No user identity is ever set (sendDefaultPii: false, no Sentry.setUser call),
+  // but drop it defensively so a future integration or regression can't ship one.
+  delete event.user;
 
   if (event.message) event.message = scrubString(event.message);
 
