@@ -17,7 +17,8 @@ import { reportError } from './telemetry';
 
 describe('reportError redaction', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    // stubGlobal is undone by unstubAllGlobals, not restoreAllMocks.
+    vi.unstubAllGlobals();
   });
 
   it('redacts secrets from message and stack before sending', () => {
@@ -40,12 +41,13 @@ describe('reportError redaction', () => {
     expect(body.stack).toContain('[REDACTED]');
   });
 
-  it('does not send when telemetry payload is clean (no false redaction)', () => {
+  it('sends clean text unaltered (no false redaction)', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
     vi.stubGlobal('fetch', fetchMock);
 
     reportError({ message: 'plain render error', source: 'error-boundary' });
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const body = JSON.parse(init.body as string) as { message: string };
     expect(body.message).toBe('plain render error');
