@@ -40,6 +40,12 @@ The codebase is **mature and security-conscious** — the "easy" Electron mistak
 
 > **H6 residual (documented):** body-embedded secrets (`{"api_key":"…"}`) and URL-query-string secrets are **not** auto-redacted — rewriting arbitrary bodies risks corrupting them. Structured header/param/metadata rows (the common leak) are covered.
 
+### Post-review hardening (a self code-review of this PR caught a bug in the H6 fix)
+
+- **H6 follow-up — camelCase secret names were leaking.** The first-cut redactor matched secret field names with separator-anchored regexes (`(^|[-_])token($|[-_])`), so `accessToken`/`secretKey`/`jwt`/`sessionToken` (the **commonest** casing) slipped through _and_ pagination cursors (`page_token`, `next_token`) were wrongly blanked. Reworked `isSecretFieldName` to a segment-based model (splits camelCase + kebab + snake; strong-secret segments always redact; `token`/`key` redact unless qualified by a pagination/structural word). New unit test `keyvalue-secret-redaction.test.ts` pins both the camelCase catches and the pagination/innocuous exclusions.
+- **DiD — post-DNS metadata gate.** `assertResolvedAddressAllowed` now refuses a resolved `169.254.169.254` **unconditionally**, so a `*.localhost`/private-literal carve-out can't expose the metadata service even if a hostname resolves to it.
+- **Cleanup** — `isPrivateIPv6Groups` now reuses the shared `embeddedV4FromGroups` helper (removed the duplicated embedded-IPv4 extraction).
+
 ---
 
 ## HIGH — new gaps

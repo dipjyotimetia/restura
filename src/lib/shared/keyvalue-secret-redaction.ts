@@ -26,6 +26,7 @@ export interface SecretableRow {
   secret?: boolean;
 }
 
+// Full header/param names that are always credentials.
 const SECRET_NAME_EXACT = new Set([
   'authorization',
   'authentication',
@@ -52,23 +53,79 @@ const SECRET_NAME_EXACT = new Set([
   'signature',
 ]);
 
-// Segment-boundary patterns so `access_token` / `x-foo-secret` match while
-// innocuous names that merely contain the substring (e.g. `monkey`) do not.
-const SECRET_NAME_REGEX: RegExp[] = [
-  /(^|[-_])token($|[-_])/i,
-  /(^|[-_])secret($|[-_])/i,
-  /(^|[-_])pass(word|wd|phrase)?($|[-_])/i,
-  /(^|[-_])credentials?($|[-_])/i,
-  /(^|[-_])auth($|[-_])/i,
-  /api[-_]?key/i,
-  /access[-_]?key/i,
-];
+// A single name segment that, on its own, marks the field as a credential.
+const SECRET_SEGMENTS = new Set([
+  'password',
+  'passwd',
+  'pwd',
+  'passphrase',
+  'secret',
+  'secrets',
+  'credential',
+  'credentials',
+  'jwt',
+  'bearer',
+  'apikey',
+  'privatekey',
+  'signature',
+  'sig',
+  'cookie',
+  'sas',
+  'otp',
+  'totp',
+]);
+
+// `token` / `key` are credential-bearing UNLESS qualified by a pagination or
+// structural word — so `accessToken`/`apiKey`/`x-goog-api-key` redact while
+// `page_token`/`sortKey`/`idempotencyKey` do not. This is what the old
+// separator-anchored regex got wrong both ways: it missed camelCase
+// (`accessToken`) and blanked pagination cursors (`page_token`).
+const AMBIGUOUS_SEGMENTS = new Set(['token', 'key']);
+const BENIGN_QUALIFIERS = new Set([
+  'page',
+  'next',
+  'prev',
+  'previous',
+  'continuation',
+  'cursor',
+  'scroll',
+  'offset',
+  'sort',
+  'primary',
+  'partition',
+  'foreign',
+  'composite',
+  'range',
+  'row',
+  'idempotency',
+  'request',
+  'correlation',
+  'trace',
+  'span',
+  'dedup',
+  'sync',
+  'etag',
+]);
+
+/** Split a key into lowercase word segments across camelCase, kebab, and snake. */
+function nameSegments(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[-_.\s]+/)
+    .map((s) => s.toLowerCase())
+    .filter(Boolean);
+}
 
 /** True when a header/param/metadata key name looks credential-bearing. */
 export function isSecretFieldName(name: string): boolean {
   const lower = name.trim().toLowerCase();
   if (SECRET_NAME_EXACT.has(lower)) return true;
-  return SECRET_NAME_REGEX.some((re) => re.test(lower));
+  const segs = nameSegments(name);
+  if (segs.some((s) => SECRET_SEGMENTS.has(s))) return true;
+  if (segs.some((s) => AMBIGUOUS_SEGMENTS.has(s)) && !segs.some((s) => BENIGN_QUALIFIERS.has(s))) {
+    return true;
+  }
+  return false;
 }
 
 function rowIsSecret(row: SecretableRow): boolean {
