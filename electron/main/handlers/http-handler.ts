@@ -89,8 +89,24 @@ export function decodeBodyStream(source: Readable, encoding: string | undefined)
           : undefined;
   if (!decompressor) return source;
 
+  // pipeline tears down every stream (incl. the undici source, firing its
+  // 'close' → dispatcher cleanup) if decompression or the cap errors; the error
+  // surfaces on `cap`, so text()/arrayBuffer()/body all reject.
+  const cap = createSizeCapTransform();
+  pipeline(source, decompressor, cap, () => {
+    /* errors surface on `cap`; nothing to do here */
+  });
+  return cap;
+}
+
+/**
+ * A Transform that counts bytes and errors (tearing the pipeline down) once the
+ * total exceeds MAX_RESPONSE_SIZE. Shared by the decode path and the
+ * never-encoded body path so the cap logic + error string live in one place.
+ */
+function createSizeCapTransform(): Transform {
   let total = 0;
-  const cap = new Transform({
+  return new Transform({
     transform(chunk: Buffer, _enc, cb) {
       total += chunk.length;
       if (total > MAX_RESPONSE_SIZE) {
@@ -100,14 +116,6 @@ export function decodeBodyStream(source: Readable, encoding: string | undefined)
       cb(null, chunk);
     },
   });
-
-  // pipeline tears down every stream (incl. the undici source, firing its
-  // 'close' → dispatcher cleanup) if decompression or the cap errors; the error
-  // surfaces on `cap`, so text()/arrayBuffer()/body all reject.
-  pipeline(source, decompressor, cap, () => {
-    /* errors surface on `cap`; nothing to do here */
-  });
-  return cap;
 }
 
 /**
@@ -119,17 +127,7 @@ export function decodeBodyStream(source: Readable, encoding: string | undefined)
  * tears the stream down mid-flight, mirroring decodeBodyStream's cap.
  */
 function capBodyStream(source: Readable): Readable {
-  let total = 0;
-  const cap = new Transform({
-    transform(chunk: Buffer, _enc, cb) {
-      total += chunk.length;
-      if (total > MAX_RESPONSE_SIZE) {
-        cb(new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`));
-        return;
-      }
-      cb(null, chunk);
-    },
-  });
+  const cap = createSizeCapTransform();
   pipeline(source, cap, () => {
     /* errors surface on `cap` */
   });

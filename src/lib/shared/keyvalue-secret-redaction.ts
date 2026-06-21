@@ -15,10 +15,11 @@
  * arbitrary bodies risks corrupting them; that residual is documented in the
  * export flow.
  *
- * Dependency-free (a minimal structural row type, no `@/` alias) so both the
- * renderer and the Electron main process can import it under their own
- * tsconfigs.
+ * Imports only a flat string list from `@shared` (resolves under both the
+ * renderer and the Electron main tsconfigs), so it stays portable across both.
  */
+
+import { CREDENTIAL_HEADER_NAMES } from '@shared/protocol/credential-header-names';
 
 export interface SecretableRow {
   key: string;
@@ -26,22 +27,10 @@ export interface SecretableRow {
   secret?: boolean;
 }
 
-// Full header/param names that are always credentials.
+// Full header/param names that are always credentials: the shared base set
+// (kept in sync with the AI-context redactor) plus export-specific extras.
 const SECRET_NAME_EXACT = new Set([
-  'authorization',
-  'authentication',
-  'proxy-authorization',
-  'cookie',
-  'set-cookie',
-  'x-api-key',
-  'x-auth-token',
-  'x-csrf-token',
-  'x-amz-security-token',
-  'x-functions-key',
-  'api-key',
-  'apikey',
-  'api_key',
-  'private-token',
+  ...CREDENTIAL_HEADER_NAMES,
   'token',
   'access_token',
   'refresh_token',

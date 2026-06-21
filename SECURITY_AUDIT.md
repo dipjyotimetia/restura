@@ -46,6 +46,13 @@ The codebase is **mature and security-conscious** — the "easy" Electron mistak
 - **DiD — post-DNS metadata gate.** `assertResolvedAddressAllowed` now refuses a resolved `169.254.169.254` **unconditionally**, so a `*.localhost`/private-literal carve-out can't expose the metadata service even if a hostname resolves to it.
 - **Cleanup** — `isPrivateIPv6Groups` now reuses the shared `embeddedV4FromGroups` helper (removed the duplicated embedded-IPv4 extraction).
 
+Second review pass — remaining noted items all addressed:
+
+- **IPC subframe hardening** — `assertTrustedSender` now also rejects any sender frame that has a parent, so a subframe can't drive IPC even at a `/web/index.html` path (the `file:` suffix check is no longer the sole barrier). Test added.
+- **WS cross-host redirect** — documented at the `followRedirects` site that same-host handshake redirects are followed while cross-host ones fail closed via the pinned lookup (mechanism covered by `dns-rebind-pinning.test.ts`).
+- **De-dup** — extracted the shared credential-header base set into `shared/protocol/credential-header-names.ts` (used by both the AI-context redactor and the export redactor so they can't drift); extracted `createSizeCapTransform` shared by `decodeBodyStream` and `capBodyStream`.
+- **Accuracy** — renamed `MAX_SSE_EVENT_BYTES` → `MAX_SSE_EVENT_CHARS` (it bounds JS string length / UTF-16 code units, not bytes).
+
 ---
 
 ## HIGH — new gaps
