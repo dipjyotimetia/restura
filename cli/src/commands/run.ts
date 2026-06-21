@@ -8,13 +8,16 @@ import { JsonReporter } from '../reporters/json.js';
 import { JUnitReporter } from '../reporters/junit.js';
 import { HtmlReporter } from '../reporters/html.js';
 import { LiveReporter } from '../reporters/live.js';
+import { TuiReporter } from '../reporters/tui.js';
 import { StatsReporter } from '../reporters/stats.js';
 import { CompositeReporter } from '../reporters/composite.js';
 import type { Reporter } from '../reporters/types.js';
+import { interactive, showCursor } from '../ui/colors.js';
+import { runWizard } from '../ui/wizard.js';
 
-interface RunOpts {
+export interface RunOpts {
   env?: string;
-  reporter: string;
+  reporter?: string;
   output?: string;
   reporterOutput?: string[];
   bail: boolean;
@@ -49,29 +52,32 @@ function buildTls(opts: RunOpts): RunOptions['tls'] | undefined {
 }
 
 /**
- * Wires the `restura run <collection>` subcommand into the root program.
+ * Wires the `restura run [collection]` subcommand into the root program.
  *
- * `<collection>` accepts either a directory (OpenCollection or legacy layout)
- * or a single bundled OpenCollection `.yaml`/`.yml` file.
+ * `[collection]` accepts either a directory (OpenCollection or legacy layout)
+ * or a single bundled OpenCollection `.yaml`/`.yml` file. When omitted in an
+ * interactive terminal the wizard prompts for it; in a non-TTY (CI) a missing
+ * collection is exit 2 — the wizard never blocks on stdin.
  *
  * Exit codes:
  *   0 — every request passed AND at least one request was run
  *   1 — one or more requests failed or errored (or the collection was empty)
- *   2 — internal error (missing collection, bad reporter name, IO failure, …)
+ *   2 — internal error (missing collection in CI, bad reporter name, IO failure, …)
  */
 export function registerRunCommand(program: Command): void {
   program
     .command('run')
-    .description('Run a Restura collection')
+    .description(
+      'Run a Restura collection (omit <collection> in a terminal for an interactive wizard)'
+    )
     .argument(
-      '<collection>',
-      'Path to a collection directory (OpenCollection or legacy `_collection.yaml`) or a bundled YAML file'
+      '[collection]',
+      'Path to a collection directory (OpenCollection or legacy `_collection.yaml`) or a bundled YAML file. Omit in a TTY to pick one interactively.'
     )
     .option('--env <file>', 'Path to env file (json or yaml)')
     .option(
       '--reporter <list>',
-      'Reporter(s) to use, comma-separated: live | json | junit | html | stats',
-      'live'
+      'Reporter(s), comma-separated: tui | live | json | junit | html | stats (default: tui in a terminal, live otherwise)'
     )
     .option('--output <file>', 'Output path when only one file reporter is used')
     .option(
@@ -103,55 +109,80 @@ export function registerRunCommand(program: Command): void {
     .option('--client-key <file>', 'PEM client private key for mutual TLS')
     .option('--cert-passphrase <value>', 'Passphrase for an encrypted client key')
     .option('--proxy <url>', 'HTTP(S) proxy URL (overrides HTTP_PROXY; composes with TLS options)')
-    .action(async (collectionPath: string, opts: RunOpts) => {
-      try {
-        const envVars = opts.env ? await loadEnv(opts.env, { expandEnvVars: true }) : {};
-        const iterations = await loadIterationData(opts.data);
-        const reporter = buildReporters(opts);
-        const tls = buildTls(opts);
-
-        const result = await runCollection(
-          collectionPath,
-          {
-            envVars,
-            bail: Boolean(opts.bail),
-            timeoutMs: numericFlag('--timeout', opts.timeout, { min: 1 }),
-            allowLocalhost: Boolean(opts.allowLocalhost),
-            filter: {
-              ...(opts.folder ? { folder: opts.folder } : {}),
-              ...(opts.include ? { include: opts.include } : {}),
-              ...(opts.exclude ? { exclude: opts.exclude } : {}),
-            },
-            iterations,
-            ...(opts.maxIterations !== undefined
-              ? { maxIterations: numericFlag('--max-iterations', opts.maxIterations, { min: 1 }) }
-              : {}),
-            retry: {
-              retries: numericFlag('--retry', opts.retry, { min: 0 }),
-              retryOn: parseRetryOn(opts.retryOn),
-            },
-            ...(opts.sseDuration !== undefined
-              ? { sseDurationMs: numericFlag('--sse-duration', opts.sseDuration, { min: 0 }) }
-              : {}),
-            ...(opts.sseEvents !== undefined
-              ? { sseMaxEvents: numericFlag('--sse-events', opts.sseEvents, { min: 1 }) }
-              : {}),
-            ...(tls ? { tls } : {}),
-            ...(opts.proxy ? { proxy: opts.proxy } : {}),
-          },
-          reporter
-        );
-
-        const ok =
-          result.summary.passed === result.summary.total &&
-          result.summary.errored === 0 &&
-          result.summary.total > 0;
-        process.exit(ok ? 0 : 1);
-      } catch (err) {
-        console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
-        process.exit(2);
+    .action(async (collectionPath: string | undefined, opts: RunOpts) => {
+      // A missing collection launches the wizard in a TTY; in CI it's an error
+      // (never block on stdin) matching commander's required-argument behaviour.
+      if (!collectionPath) {
+        if (!interactive) {
+          console.error(
+            "✗ missing required argument 'collection'. Pass a path (e.g. `restura run ./my-collection`) " +
+              'or run in an interactive terminal to pick one.'
+          );
+          process.exit(2);
+        }
+        const wiz = await runWizard();
+        await executeRun(wiz.collectionPath, { ...opts, ...wiz.opts });
+        return;
       }
+      await executeRun(collectionPath, opts);
     });
+}
+
+/**
+ * Execute a fully-resolved run: load env + iteration data, build the reporter
+ * chain, run the collection, and exit with the documented code. Extracted from
+ * the command action so the interactive wizard and a direct `run <collection>`
+ * invocation share one code path. Always exits the process.
+ */
+export async function executeRun(collectionPath: string, opts: RunOpts): Promise<never> {
+  try {
+    const envVars = opts.env ? await loadEnv(opts.env, { expandEnvVars: true }) : {};
+    const iterations = await loadIterationData(opts.data);
+    const reporter = buildReporters(opts);
+    const tls = buildTls(opts);
+
+    const result = await runCollection(
+      collectionPath,
+      {
+        envVars,
+        bail: Boolean(opts.bail),
+        timeoutMs: numericFlag('--timeout', opts.timeout, { min: 1 }),
+        allowLocalhost: Boolean(opts.allowLocalhost),
+        filter: {
+          ...(opts.folder ? { folder: opts.folder } : {}),
+          ...(opts.include ? { include: opts.include } : {}),
+          ...(opts.exclude ? { exclude: opts.exclude } : {}),
+        },
+        iterations,
+        ...(opts.maxIterations !== undefined
+          ? { maxIterations: numericFlag('--max-iterations', opts.maxIterations, { min: 1 }) }
+          : {}),
+        retry: {
+          retries: numericFlag('--retry', opts.retry, { min: 0 }),
+          retryOn: parseRetryOn(opts.retryOn),
+        },
+        ...(opts.sseDuration !== undefined
+          ? { sseDurationMs: numericFlag('--sse-duration', opts.sseDuration, { min: 0 }) }
+          : {}),
+        ...(opts.sseEvents !== undefined
+          ? { sseMaxEvents: numericFlag('--sse-events', opts.sseEvents, { min: 1 }) }
+          : {}),
+        ...(tls ? { tls } : {}),
+        ...(opts.proxy ? { proxy: opts.proxy } : {}),
+      },
+      reporter
+    );
+
+    const ok =
+      result.summary.passed === result.summary.total &&
+      result.summary.errored === 0 &&
+      result.summary.total > 0;
+    process.exit(ok ? 0 : 1);
+  } catch (err) {
+    showCursor(); // the live dashboard hides the cursor — restore it before bailing
+    console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(2);
+  }
 }
 
 /**
@@ -161,7 +192,10 @@ export function registerRunCommand(program: Command): void {
  *   2. `--output <path>` (legacy single-reporter shorthand)
  */
 function buildReporters(opts: RunOpts): Reporter {
-  const names = opts.reporter
+  // Default reporter is TTY-aware: the live dashboard in an interactive
+  // terminal, plain lines otherwise (piped output / CI logs).
+  const spec = opts.reporter ?? (interactive ? 'tui' : 'live');
+  const names = spec
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -203,6 +237,8 @@ function parseReporterOutputs(pairs: string[] | undefined): Record<string, strin
 
 function buildOne(name: string, outputPath: string | undefined): Reporter {
   switch (name) {
+    case 'tui':
+      return new TuiReporter();
     case 'live':
       return new LiveReporter();
     case 'json':
@@ -220,6 +256,8 @@ function buildOne(name: string, outputPath: string | undefined): Reporter {
     case 'stats':
       return new StatsReporter();
     default:
-      throw new Error(`Unknown reporter '${name}'. Use one of: live | json | junit | html | stats`);
+      throw new Error(
+        `Unknown reporter '${name}'. Use one of: tui | live | json | junit | html | stats`
+      );
   }
 }

@@ -59,10 +59,18 @@ export async function runCollection(
 
   const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
 
+  // One iteration (with empty row vars) by default; multiple when --data is set.
+  let iterations = options.iterations && options.iterations.length > 0 ? options.iterations : [{}];
+  if (options.maxIterations !== undefined && options.maxIterations >= 0) {
+    iterations = iterations.slice(0, options.maxIterations);
+  }
+  const isDataDriven = iterations.length > 1 || (options.iterations?.length ?? 0) > 0;
+
   const meta: RunMeta = {
     collectionName: loaded.meta.name,
     collectionDir,
     startedAt: Date.now(),
+    total: filtered.length * iterations.length,
   };
   await reporter.onStart?.(meta);
 
@@ -73,13 +81,6 @@ export async function runCollection(
 
   // Dispatcher (TLS + explicit proxy) built once and reused for every request.
   const dispatcher = buildDispatcher(options.tls, options.proxy);
-
-  // One iteration (with empty row vars) by default; multiple when --data is set.
-  let iterations = options.iterations && options.iterations.length > 0 ? options.iterations : [{}];
-  if (options.maxIterations !== undefined && options.maxIterations >= 0) {
-    iterations = iterations.slice(0, options.maxIterations);
-  }
-  const isDataDriven = iterations.length > 1 || (options.iterations?.length ?? 0) > 0;
 
   const results: RequestRunResult[] = [];
   let bailed = false;

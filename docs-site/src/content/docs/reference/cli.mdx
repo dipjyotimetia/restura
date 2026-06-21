@@ -7,6 +7,8 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 `restura-cli` runs your collections headlessly with the same protocol implementations as the desktop and web apps. Drop it into CI to assert your API, get JUnit XML for your dashboard, ship an HTML report to your team.
 
+![Live dashboard — restura run](/cli/dashboard.png)
+
 ## How it fits
 
 ```mermaid
@@ -18,7 +20,7 @@ flowchart LR
   CLI -->|exec| S[SSE]
   CLI -->|exec| M[MCP]
   CLI -->|exec| W[WebSocket]
-  H --> R1[live · json · junit · html]
+  H --> R1[tui · live · json · junit · html · stats]
   G --> R1
   S --> R1
   M --> R1
@@ -51,6 +53,23 @@ restura run ./my-collection --reporter junit --reporter-output junit=results.xml
 
 Exit code is `0` when every request passed, `1` if any failed, `2` on internal errors (missing collection, bad flags).
 
+## Interactive mode
+
+Run `restura` (or `restura run`) with **no collection** in a terminal to launch a guided wizard — pick the collection, reporters, output paths, an optional env file, and whether to allow localhost — then it runs.
+
+![Interactive wizard](/cli/wizard.png)
+
+```bash
+restura            # bare → wizard
+restura run        # also → wizard when no collection is given
+```
+
+<Aside type="tip" title="CI-safe by design">
+The wizard is **terminal-only**: piped output and CI never prompt. There, a missing collection is an error (exit 2) and bare `restura` prints help — so existing scripts and pipelines are unaffected. Cancelling (Ctrl-C / Esc) exits `130`.
+</Aside>
+
+By default an interactive run shows the live `tui` dashboard; piped output and CI fall back to plain line output (`live`). See [Reporters](#reporters).
+
 ## Supported collection formats
 
 The loader auto-detects three layouts:
@@ -81,17 +100,17 @@ The CLI uses **Connect-over-HTTP**, not gRPC-over-HTTP/2 binary framing. If your
 ## Command reference
 
 ```bash
-restura run <collection> [options]
+restura run [collection] [options]
 ```
 
-`<collection>` accepts a directory (any supported layout) or a bundled `.yaml` / `.yml` file.
+`[collection]` accepts a directory (any supported layout) or a bundled `.yaml` / `.yml` file. Omit it in a terminal to pick one via the [interactive wizard](#interactive-mode); in CI it is required.
 
 ### Flags
 
 | Flag | Default | Description |
 |---|---|---|
 | `--env <file>` | | JSON or YAML env file. `${VAR}` placeholders are expanded from `process.env`. |
-| `--reporter <list>` | `live` | Comma-separated. Mix and match: `live`, `json`, `junit`, `html`. |
+| `--reporter <list>` | _auto_ | Comma-separated: `tui`, `live`, `json`, `junit`, `html`, `stats`. Defaults to `tui` in a terminal, `live` otherwise (piped / CI). |
 | `--output <file>` | | Shorthand for single file reporter. |
 | `--reporter-output <kv...>` | | Per-reporter output: `--reporter-output junit=results.xml html=report.html`. |
 | `--bail` | `false` | Stop on first failure. |
@@ -107,11 +126,11 @@ restura run <collection> [options]
 | `--sse-duration <ms>` | `5000` | How long to keep SSE streams open. |
 | `--sse-events <n>` | | Stop SSE early after N events. |
 | `--insecure` | `false` | Skip TLS certificate verification (self-signed / staging). |
-| `--ca <file>` | | PEM CA bundle to trust (private CA). |
-| `--client-cert <file>` | | PEM client certificate for mutual TLS. |
+| `--ca <file>` | | PEM CA bundle to trust (private CA) without disabling verification. |
+| `--client-cert <file>` | | PEM client certificate for mutual TLS (mTLS). |
 | `--client-key <file>` | | PEM client private key for mutual TLS. |
-| `--cert-passphrase <value>` | | Passphrase for an encrypted client key. |
-| `--proxy <url>` | | HTTP(S) proxy URL (overrides `HTTP_PROXY`; composes with TLS options). |
+| `--cert-passphrase <value>` | | Passphrase for an encrypted `--client-key`. |
+| `--proxy <url>` | | HTTP(S) proxy URL. Overrides `HTTP_PROXY` / `HTTPS_PROXY`; composes with the TLS flags. |
 
 ## Scripts and assertions
 
@@ -176,9 +195,14 @@ Each row exposes `username` and `role` as variables, overriding any same-named e
 
 ## Reporters
 
+The default is chosen automatically: the live `tui` dashboard when stdout is a terminal (and `NO_COLOR` is unset), `live` lines otherwise (piped output / CI).
+
 <Tabs>
+<TabItem label="tui">
+Live, in-place dashboard with a progress bar and a spinner on the in-flight request. The default in an interactive terminal; on completion it collapses to a clean failure list + summary.
+</TabItem>
 <TabItem label="live">
-Coloured progress to stdout. Default. Best for local runs.
+Plain one-line-per-request progress — the default when output is piped or in CI (no ANSI cursor control). Force it with `--reporter live` if the dashboard misbehaves.
 </TabItem>
 <TabItem label="json">
 Full `RunResult` dumped as JSON. Path required (`--output` or `--reporter-output json=...`). Pipe into anything.
@@ -189,7 +213,14 @@ JUnit XML for CI dashboards (GitLab, Azure DevOps, Jenkins, GitHub Actions test 
 <TabItem label="html">
 Self-contained HTML page with embedded data + summary table. Great for sharing failures.
 </TabItem>
+<TabItem label="stats">
+Latency percentiles (p50/p90/p95/p99) + throughput at the end of the run.
+</TabItem>
 </Tabs>
+
+The `live` reporter — also what CI logs get — prints one line per request:
+
+![Line reporter output](/cli/live.png)
 
 Combine with a comma: `--reporter live,junit --reporter-output junit=results.xml`.
 

@@ -4,6 +4,12 @@ export interface RunMeta {
   collectionName: string;
   collectionDir: string;
   startedAt: number;
+  /**
+   * Estimated total requests to run (filtered × iterations), for progress
+   * display. Best-effort: script flow control (`setNextRequest`) can make the
+   * actual count differ.
+   */
+  total?: number;
   /** Total iteration count when `--data` drove the run; absent for single runs. */
   iteration?: number;
 }
