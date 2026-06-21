@@ -87,10 +87,8 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="font-mono text-sm tracking-wide flex items-center gap-2">
-            <Gauge className="h-4 w-4" /> Load test
-          </DialogTitle>
+        <DialogHeader icon={Gauge}>
+          <DialogTitle>Load test</DialogTitle>
           <DialogDescription className="text-sp-12 text-sp-dim">
             {request ? `${request.method} ${request.url}` : 'No request'}
           </DialogDescription>

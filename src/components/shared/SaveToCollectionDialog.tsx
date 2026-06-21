@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { FolderPlus } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -82,7 +83,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
-        <DialogHeader>
+        <DialogHeader icon={FolderPlus}>
           <DialogTitle>Save to Collection</DialogTitle>
         </DialogHeader>
 

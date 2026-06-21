@@ -111,7 +111,7 @@ export function OpenApiGenDialog({ onCreated }: { onCreated?: (datasetId: string
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
-        <DialogHeader>
+        <DialogHeader icon={Sparkles}>
           <DialogTitle>Generate dataset from OpenAPI</DialogTitle>
           <DialogDescription>
             Paste an OpenAPI/Swagger JSON spec. A model will generate test cases as a new dataset.

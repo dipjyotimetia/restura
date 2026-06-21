@@ -168,9 +168,9 @@ export default function SettingsDrawer({
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
           )}
           style={{
-            background: 'rgba(0,0,0,0.45)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
           }}
         />
         <DialogPrimitive.Content
@@ -197,7 +197,7 @@ export default function SettingsDrawer({
             <div className="flex items-center gap-3">
               <Logo size={26} />
               <div className="flex flex-col leading-tight">
-                <span className="text-sp-15 font-bold text-sp-text">Settings</span>
+                <span className="text-sp-16 font-bold text-sp-text">Settings</span>
                 <span className="text-sp-11 text-sp-muted">Tune Restura to match how you work</span>
               </div>
             </div>
