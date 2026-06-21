@@ -1,4 +1,5 @@
 import { validateURL } from '@shared/protocol/url-validation';
+import type { WebSocket } from 'ws';
 import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
 
 /**
@@ -41,7 +42,7 @@ export async function executeWebSocket(
 
   // Dynamic import keeps `ws` out of the bundle for users who never run a
   // WebSocket — and lets us produce a clear error if the dep is missing.
-  let WebSocketCtor: typeof import('ws').WebSocket;
+  let WebSocketCtor: typeof WebSocket;
   try {
     const mod = await import('ws');
     WebSocketCtor = mod.WebSocket;
@@ -51,8 +52,7 @@ export async function executeWebSocket(
       passed: false,
       durationMs: 0,
       bodyBytes: 0,
-      errorMessage:
-        'WebSocket support requires the `ws` package. Install it as a CLI dependency.',
+      errorMessage: 'WebSocket support requires the `ws` package. Install it as a CLI dependency.',
     };
   }
 
@@ -91,7 +91,10 @@ export async function executeWebSocket(
       bodyBytes += buf.byteLength;
       const text = isLikelyText(buf) ? buf.toString('utf-8') : buf.toString('base64');
       events.push({ event: 'message', data: text, timestamp: Date.now() });
-      if (maxMessages !== undefined && events.filter((e) => e.event === 'message').length >= maxMessages) {
+      if (
+        maxMessages !== undefined &&
+        events.filter((e) => e.event === 'message').length >= maxMessages
+      ) {
         try {
           ws.close();
         } catch {

@@ -59,8 +59,26 @@ export default tseslint.config(
   },
   // Non-renderer environments: shared TS overrides only
   {
-    files: ['electron/main/**/*.ts', 'worker/**/*.ts', 'echo/**/*.ts'],
+    files: [
+      'electron/main/**/*.ts',
+      'worker/**/*.ts',
+      'echo/**/*.ts',
+      'cli/**/*.ts',
+      'shared/**/*.ts',
+    ],
     rules: sharedTsRules,
+  },
+  // Root tests/** — honor the `^_` intentionally-unused convention (the rest of
+  // the recommended profile already applies). Colocated tests under src/** pick
+  // this up from the renderer block above.
+  {
+    files: ['tests/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+    },
   },
   // Electron main uses require() for CJS-only packages (electron-store, electron-squirrel-startup)
   {

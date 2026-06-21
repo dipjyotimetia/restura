@@ -52,7 +52,7 @@ describe('NdjsonParser.feed', () => {
     const p = new NdjsonParser();
     const first = p.feed(enc('﻿{"a":1}\n'));
     expect(first).toEqual([{ a: 1 }]);
-    // A BOM mid-stream is content; the line "{...}﻿" is treated as JSON
+    // A BOM mid-stream is content; the line "{...}" is treated as JSON
     // and will likely produce a parseError sentinel since BOM is not valid JSON.
     const mid = p.feed(enc('﻿{"b":2}\n'));
     expect(mid).toHaveLength(1);
