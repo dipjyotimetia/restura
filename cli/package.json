@@ -6,9 +6,13 @@
   "author": "dipjyotimetia",
   "type": "module",
   "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "bin": {
     "restura": "./dist/index.js"
   },
+  "sideEffects": false,
   "keywords": [
     "api",
     "rest",

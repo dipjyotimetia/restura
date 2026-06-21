@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useMemo, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
+import type { ConsoleLog, ConsoleTest, ConsoleTabId } from '@/store/useConsoleStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -33,7 +33,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { buildExportFile, downloadExportFile } from '@/lib/shared/console-export';
 import { filterEntries } from '@/lib/shared/console-filter';
-import { type ConsoleTabId } from '@/store/useConsoleStore';
 import NetworkTab from './NetworkTab';
 import ScriptsTab from './ScriptsTab';
 import FramesTab from './FramesTab';

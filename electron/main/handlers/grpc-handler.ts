@@ -13,7 +13,7 @@ import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import { type GrpcTlsConfig } from './grpc-credentials';
+import type { GrpcTlsConfig } from './grpc-credentials';
 import {
   resolveGrpcDialAddress,
   executeConnectUnary,
