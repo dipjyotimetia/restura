@@ -2,6 +2,8 @@
 
 Run Restura API collections in CI — assert with scripts, get JUnit / HTML / JSON reports.
 
+![Live dashboard — restura run](./assets/dashboard.png)
+
 ## Install
 
 ```bash
@@ -21,6 +23,21 @@ restura run ./my-collection --reporter junit --reporter-output junit=results.xml
 ```
 
 Exit code is `0` when every request passed, `1` if any failed, `2` on internal errors (missing collection, bad flags).
+
+## Interactive mode
+
+Run `restura` (or `restura run`) with **no collection** in a terminal to launch a guided wizard — pick the collection, reporters, output paths, an optional env file, and whether to allow localhost, then it runs:
+
+```bash
+restura            # bare → wizard
+restura run        # also → wizard when no <collection> is given
+```
+
+![Interactive wizard](./assets/wizard.png)
+
+The wizard is **terminal-only**: piped output and CI never prompt. There, a missing collection is an error (exit 2) and bare `restura` prints help — so existing scripts and pipelines are unaffected. Cancelling (Ctrl-C / Esc) exits `130`.
+
+By default, an interactive run shows a live dashboard (the `tui` reporter); piped/CI runs fall back to plain line output (the `live` reporter). See [Reporters](#reporters).
 
 ## Supported collection formats
 
@@ -48,35 +65,35 @@ Header-based auth (Bearer, Basic, API-key, OAuth2) is applied to HTTP/GraphQL, g
 ## CLI reference
 
 ```
-restura run <collection> [options]
+restura run [collection] [options]
 ```
 
-`<collection>` accepts a directory (any supported layout) or a bundled `.yaml`/`.yml` file.
+`[collection]` accepts a directory (any supported layout) or a bundled `.yaml`/`.yml` file. Omit it in a terminal to choose one via the [interactive wizard](#interactive-mode); in CI it is required.
 
-| Flag                        | Default       | Description                                                                                               |
-| --------------------------- | ------------- | --------------------------------------------------------------------------------------------------------- |
-| `--env <file>`              |               | JSON or YAML env file. `${VAR}` placeholders are expanded from `process.env`.                             |
-| `--reporter <list>`         | `live`        | Comma-separated. Mix and match: `live`, `json`, `junit`, `html`.                                          |
-| `--output <file>`           |               | Shorthand for single file reporter.                                                                       |
-| `--reporter-output <kv...>` |               | Per-reporter output: `--reporter-output junit=results.xml html=report.html`.                              |
-| `--bail`                    | `false`       | Stop on first failure.                                                                                    |
-| `--timeout <ms>`            | `30000`       | Per-request timeout.                                                                                      |
-| `--allow-localhost`         | `false`       | Permit requests to `localhost` / `127.0.0.1`. Off by default (SSRF guard).                                |
-| `--folder <path>`           |               | Only run requests under this folder path (slash-joined).                                                  |
-| `--include <pattern...>`    |               | Substring or glob (e.g. `users/*`). Repeatable.                                                           |
-| `--exclude <pattern...>`    |               | Same syntax as `--include`. Applied after.                                                                |
-| `--data <file>`             |               | CSV (with header row) or JSON array. Runs the collection once per row; row keys are exposed as vars.      |
-| `--max-iterations <n>`      |               | Cap iterations when a `--data` file is large.                                                             |
-| `--retry <n>`               | `0`           | Retry attempts per failing request.                                                                       |
-| `--retry-on <list>`         | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`).                  |
-| `--sse-duration <ms>`       | `5000`        | How long to keep SSE streams open.                                                                        |
-| `--sse-events <n>`          |               | Stop SSE early after N events.                                                                            |
-| `--insecure`                | `false`       | Skip TLS certificate verification (self-signed / staging). Insecure — use only when you trust the target. |
-| `--ca <file>`               |               | PEM CA bundle to trust (private CA) without disabling verification.                                       |
-| `--client-cert <file>`      |               | PEM client certificate for mutual TLS (mTLS).                                                             |
-| `--client-key <file>`       |               | PEM client private key for mutual TLS.                                                                    |
-| `--cert-passphrase <value>` |               | Passphrase for an encrypted `--client-key`.                                                               |
-| `--proxy <url>`             |               | HTTP(S) proxy URL. Overrides `HTTP_PROXY`/`HTTPS_PROXY` and composes with the TLS options.                |
+| Flag                        | Default       | Description                                                                                                                       |
+| --------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `--env <file>`              |               | JSON or YAML env file. `${VAR}` placeholders are expanded from `process.env`.                                                     |
+| `--reporter <list>`         | _auto_        | Comma-separated: `tui`, `live`, `json`, `junit`, `html`, `stats`. Defaults to `tui` in a terminal, `live` otherwise (piped / CI). |
+| `--output <file>`           |               | Shorthand for single file reporter.                                                                                               |
+| `--reporter-output <kv...>` |               | Per-reporter output: `--reporter-output junit=results.xml html=report.html`.                                                      |
+| `--bail`                    | `false`       | Stop on first failure.                                                                                                            |
+| `--timeout <ms>`            | `30000`       | Per-request timeout.                                                                                                              |
+| `--allow-localhost`         | `false`       | Permit requests to `localhost` / `127.0.0.1`. Off by default (SSRF guard).                                                        |
+| `--folder <path>`           |               | Only run requests under this folder path (slash-joined).                                                                          |
+| `--include <pattern...>`    |               | Substring or glob (e.g. `users/*`). Repeatable.                                                                                   |
+| `--exclude <pattern...>`    |               | Same syntax as `--include`. Applied after.                                                                                        |
+| `--data <file>`             |               | CSV (with header row) or JSON array. Runs the collection once per row; row keys are exposed as vars.                              |
+| `--max-iterations <n>`      |               | Cap iterations when a `--data` file is large.                                                                                     |
+| `--retry <n>`               | `0`           | Retry attempts per failing request.                                                                                               |
+| `--retry-on <list>`         | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`).                                          |
+| `--sse-duration <ms>`       | `5000`        | How long to keep SSE streams open.                                                                                                |
+| `--sse-events <n>`          |               | Stop SSE early after N events.                                                                                                    |
+| `--insecure`                | `false`       | Skip TLS certificate verification (self-signed / staging). Insecure — use only when you trust the target.                         |
+| `--ca <file>`               |               | PEM CA bundle to trust (private CA) without disabling verification.                                                               |
+| `--client-cert <file>`      |               | PEM client certificate for mutual TLS (mTLS).                                                                                     |
+| `--client-key <file>`       |               | PEM client private key for mutual TLS.                                                                                            |
+| `--cert-passphrase <value>` |               | Passphrase for an encrypted `--client-key`.                                                                                       |
+| `--proxy <url>`             |               | HTTP(S) proxy URL. Overrides `HTTP_PROXY`/`HTTPS_PROXY` and composes with the TLS options.                                        |
 
 TLS options apply to all HTTPS traffic for the run (HTTP/GraphQL/gRPC/SSE/MCP). They are global flags rather than per-request settings; per-domain client certificates (collection `clientCertificates`) are not yet honored — pass the cert that the run needs via `--client-cert`.
 
@@ -145,12 +162,18 @@ Each row exposes `username` and `role` as variables, overriding any same-named e
 
 ## Reporters
 
-- **`live`** — coloured progress to stdout. Default.
+- **`tui`** — live, in-place dashboard with a progress bar and a spinner on the in-flight request. The default in an interactive terminal; on completion it collapses to a clean failure list + summary.
+- **`live`** — plain one-line-per-request progress. The default when output is piped or in CI (no ANSI cursor control). Force it with `--reporter live` if the dashboard misbehaves.
 - **`json`** — full `RunResult` dumped as JSON. Path required (`--output` or `--reporter-output json=...`).
 - **`junit`** — JUnit XML for CI dashboards. One `<testcase>` per request.
 - **`html`** — self-contained HTML page with embedded data + summary table.
+- **`stats`** — latency percentiles + throughput at the end of the run.
 
-Combine with a comma: `--reporter live,junit --reporter-output junit=results.xml`.
+The default reporter is chosen automatically: `tui` when stdout is a TTY (and `NO_COLOR` is unset), `live` otherwise. Combine reporters with a comma: `--reporter live,junit --reporter-output junit=results.xml`.
+
+The `live` reporter (also what CI logs get) prints one line per request:
+
+![Line reporter output](./assets/live.png)
 
 ## Exit codes
 

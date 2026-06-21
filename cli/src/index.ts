@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 import { registerRunCommand } from './commands/run.js';
+import { interactive } from './ui/colors.js';
 import { version } from '../package.json';
 
 // Honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY for all outbound requests — the
@@ -24,4 +25,15 @@ program.name('restura').description('Restura CLI — run API collections in CI')
 
 registerRunCommand(program);
 
-program.parse();
+// Bare `restura` (no args) launches the interactive run wizard in a terminal by
+// routing through the `run` action (which detects the missing collection and
+// prompts). Piped/CI invocations print help instead — never block on stdin.
+if (process.argv.length === 2) {
+  if (!interactive) {
+    program.outputHelp();
+    process.exit(0);
+  }
+  program.parse([...process.argv, 'run']);
+} else {
+  program.parse(process.argv);
+}
