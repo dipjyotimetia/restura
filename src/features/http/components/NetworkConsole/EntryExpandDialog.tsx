@@ -55,7 +55,8 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[min(96vw,1400px)] !w-[min(96vw,1400px)] max-h-[92vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-6 py-3 border-b border-border">
+        {/* pr-14 reserves the top-right corner for DialogContent's absolute close button */}
+        <DialogHeader className="py-3 pl-6 pr-14 border-b border-border">
           <DialogTitle className="text-sm flex items-center gap-3">
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold">
               {entry.request.method}
