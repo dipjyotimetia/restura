@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,8 +18,11 @@ import {
   ArrowRight,
   CheckCircle2,
   ShieldCheck,
+  Network,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
+import { isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { ToggleField } from '@/components/ui/spatial/ToggleField';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -31,6 +34,8 @@ interface OnboardingStep {
   tip: string;
   // 'privacy' renders an inline telemetry opt-out toggle below the description.
   kind?: 'privacy';
+  // Steps for desktop-only features (e.g. the AI assistant) are filtered out on web.
+  desktopOnly?: boolean;
 }
 
 const onboardingSteps: OnboardingStep[] = [
@@ -39,6 +44,21 @@ const onboardingSteps: OnboardingStep[] = [
     title: 'Send Your First Request',
     description: 'Enter a URL in the request builder and click Send to make your first API call.',
     tip: 'Press ⌘+↵ to quickly send a request',
+  },
+  {
+    icon: <Network className="h-7 w-7 text-violet-400" />,
+    title: 'One Client, Every Protocol',
+    description:
+      'Restura is more than REST — test gRPC, GraphQL, WebSocket, Socket.IO, SSE, and MCP, plus Kafka and MQTT on desktop.',
+    tip: 'Open ⌘+K → "New …" to start a request in any protocol',
+  },
+  {
+    desktopOnly: true,
+    icon: <Sparkles className="h-7 w-7 text-fuchsia-400" />,
+    title: 'Ask the AI Assistant',
+    description:
+      'Chat with an AI that can read your current request and response to help debug failures, explain errors, and draft payloads.',
+    tip: 'Your context is redacted — secrets and credentials are scrubbed before anything is sent',
   },
   {
     icon: <Globe className="h-7 w-7 text-emerald-400" />,
@@ -51,14 +71,14 @@ const onboardingSteps: OnboardingStep[] = [
     icon: <FolderOpen className="h-7 w-7 text-amber-400" />,
     title: 'Organize with Collections',
     description: 'Save your requests into collections for easy access and sharing with your team.',
-    tip: 'Import existing Postman or Insomnia collections with ⌘+I',
+    tip: 'Import from Postman, Insomnia, OpenAPI or Bruno via ⌘+K → "Import collection"',
   },
   {
     icon: <Code2 className="h-7 w-7 text-primary" />,
     title: 'Generate Code Snippets',
     description:
-      'Convert any request into code in multiple languages (JavaScript, Python, Go, etc.).',
-    tip: 'Click the "Code" button next to Send to generate snippets',
+      'Convert any request into code in multiple languages (cURL, Python, JavaScript, Go, and more).',
+    tip: 'Click the </> icon next to Send, or run "Generate code" from ⌘+K',
   },
   {
     icon: <Keyboard className="h-7 w-7 text-cyan-400" />,
@@ -83,6 +103,12 @@ export default function WelcomeOnboarding() {
   const [currentStep, setCurrentStep] = useState(0);
   const telemetryEnabled = useSettingsStore((s) => s.settings.telemetry?.errorsEnabled ?? true);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // AI is Electron-only; drop desktop-only steps on web so users aren't shown
+  // features they can't use. isElectron() is constant per session.
+  const steps = useMemo(
+    () => onboardingSteps.filter((step) => !step.desktopOnly || isElectron()),
+    []
+  );
 
   useEffect(() => {
     // secureStorage wraps localStorage with try/catch (private mode / disabled
@@ -96,7 +122,7 @@ export default function WelcomeOnboarding() {
   }, []);
 
   const handleNext = () => {
-    if (currentStep < onboardingSteps.length - 1) {
+    if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
     } else {
       handleComplete();
@@ -108,7 +134,7 @@ export default function WelcomeOnboarding() {
     setIsOpen(false);
   };
 
-  const currentStepData = onboardingSteps[currentStep];
+  const currentStepData = steps[currentStep];
 
   if (!currentStepData) {
     return null;
@@ -130,7 +156,7 @@ export default function WelcomeOnboarding() {
         <div className="py-4">
           {/* Progress dots */}
           <div className="flex items-center justify-center gap-1.5 mb-6">
-            {onboardingSteps.map((_, idx) => (
+            {steps.map((_, idx) => (
               <div
                 key={idx}
                 className={cn(
@@ -189,10 +215,10 @@ export default function WelcomeOnboarding() {
           </Button>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-muted-foreground">
-              {currentStep + 1}/{onboardingSteps.length}
+              {currentStep + 1}/{steps.length}
             </span>
             <Button variant="glow" size="sm" onClick={handleNext} className="font-mono text-xs">
-              {currentStep === onboardingSteps.length - 1 ? (
+              {currentStep === steps.length - 1 ? (
                 'Get Started'
               ) : (
                 <>
