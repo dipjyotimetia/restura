@@ -22,8 +22,8 @@ import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema'
  * Main-process resolution lives in `electron/main/security/secret-handle-store.ts`
  * and is invoked at the IPC boundary, never via IPC back to the renderer.
  *
- * Adoption is gradual. Existing `AuthConfig` fields stay as `string` for
- * now; a follow-up will widen them to `SecretValue` and add the migration.
+ * `AuthConfig`'s sensitive fields are typed as `SecretValue` (widened from
+ * the legacy `string`; see `secretRef-migrations.ts` for the store migration).
  * New auth descriptors should accept `SecretValue` from the start.
  */
 

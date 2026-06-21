@@ -31,7 +31,8 @@ import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types
  */
 export function importInsomniaCollection(data: unknown): ImportResult {
   // Guard depth/size before traversing — v5 collections are recursive, and a
-  // maliciously deep export would otherwise overflow the stack (see schemas.ts).
+  // maliciously deep export would otherwise overflow the stack (see
+  // `assertBoundedDocument` in `@/lib/opencollection`).
   assertBoundedDocument(data);
 
   const warnings: ImportWarning[] = [];

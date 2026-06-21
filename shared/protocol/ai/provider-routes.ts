@@ -3,10 +3,10 @@
  * Per-provider wire shape: where to call, how to authenticate, how to build
  * the request body, and where to find the streaming response.
  *
- * The decode logic itself lives in the renderer's provider modules
+ * The decode logic itself lives in the per-provider modules
  * (shared/protocol/ai/providers/*.ts) because each decoder is paired with a
- * fixture that exercises real provider output. The orchestrator here is
- * provider-agnostic — it just emits raw SSE bytes downstream.
+ * fixture that exercises real provider output. The orchestrator (ai-proxy.ts)
+ * is provider-agnostic — it just emits raw SSE bytes downstream.
  */
 
 import type { Provider, ChatRequestSpec } from './types';

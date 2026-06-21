@@ -1,8 +1,9 @@
 /**
- * Vite plugin that regenerates `sandboxLibraries/bundle.generated.ts`
- * before dev-server start and before `vite build`. Delegates to the
- * standalone Node script `scripts/build-sandbox-libs.mjs` so the CLI's
- * prebuild can reuse the exact same bundling logic.
+ * Vite plugin that generates `sandboxLibraries/bundle.generated.ts` at
+ * `buildStart` (dev-server start and `vite build`) when it's missing.
+ * Delegates to the standalone Node script `scripts/build-sandbox-libs.mjs`,
+ * which is the authoritative regen path (`npm run build:sandbox-libs`) and
+ * is also reused by the CLI's prebuild — same bundling logic everywhere.
  */
 import type { Plugin } from 'vite';
 import { spawnSync } from 'node:child_process';

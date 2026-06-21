@@ -409,8 +409,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           // Emit the single terminal event for the stream, carrying the captured
           // response headers + trailers and the real gRPC status. OK → `status`
           // channel; non-OK → `error` channel (mirrors the renderer's split).
-          // Guarded so the first terminal signal wins — a grpc-js `status`/`error`
-          // event, a size-limit trip, or a deadline. Previously this hardcoded
+          // Guarded so the first terminal signal wins — a connect-node close
+          // (status/error), a size-limit trip, or a deadline. Previously this hardcoded
           // status 0 and dropped headers/trailers on every streaming call.
           const finalize = (code: number, details: string) => {
             if (finalized) return;
@@ -548,7 +548,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         const call = activeCalls.get(requestId);
         if (call) {
           call.cancel();
-          removeActiveCall(requestId); // cleanup immediately; handleError AbortError path also calls cleanup but Map.delete is idempotent
+          removeActiveCall(requestId); // cleanup immediately; the stream's onCancelled path also calls cleanup but Map.delete is idempotent
         }
       }
     )

@@ -99,9 +99,8 @@ function toRunScriptResult(
   result: ScriptResult,
   originalVars: Record<string, string>
 ): RunScriptResult {
-  // The executor returns a fresh variables map; diff against originalVars so
-  // callers can detect new/changed values. We also pass back the full map for
-  // easy merging.
+  // The executor returns only the variables it touched; layer them over the
+  // originals so callers get the full, merge-ready map (script changes win).
   return {
     assertions: result.tests ?? [],
     logs: result.logs,

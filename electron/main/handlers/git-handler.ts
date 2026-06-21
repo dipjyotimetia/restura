@@ -494,8 +494,9 @@ export async function gitCheckoutBranch(directoryPath: string, name: string): Pr
   const dir = ensureDirectoryAllowed(directoryPath);
   const ref = sanitiseRefName(name);
   return withLock(dir, async () => {
-    // Switching branches rewrites files on disk; the collection-manager file
-    // watcher (chokidar) picks the change up and reloads the collection.
+    // Switching branches rewrites files on disk; the renderer reloads the
+    // collection explicitly afterwards (see useGit.checkout). The collection-manager
+    // file watcher (chokidar) is best-effort and not relied upon for the reload.
     await runGit(dir, ['checkout', ref]);
     return ref;
   });

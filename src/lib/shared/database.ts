@@ -1,6 +1,8 @@
 /**
- * Dexie IndexedDB database for offline-first, privacy-focused storage
- * All data is encrypted at rest using AES-256-GCM
+ * Dexie IndexedDB database for offline-first, privacy-focused storage.
+ * Records are stored as `encryptedData` strings; whether they are actually
+ * AES-GCM-encrypted depends on the active KeyProvider (encrypted on desktop
+ * via the OS keychain, plaintext on the web default — see keyProvider.ts).
  */
 
 import Dexie, { type Table } from 'dexie';
@@ -113,10 +115,7 @@ export interface MetadataRecord {
   value: string;
 }
 
-/**
- * Restura IndexedDB Database
- * Offline-first, privacy-focused storage with encryption
- */
+/** Restura IndexedDB database — offline-first, privacy-focused storage. */
 export class ResturaDB extends Dexie {
   // Declare tables
   collections!: Table<CollectionRecord, string>;

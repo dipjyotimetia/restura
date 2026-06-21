@@ -13,7 +13,7 @@
  * fail-closed: a misconfigured MCP client connecting before opt-in cannot
  * read any user data.
  *
- * Follow-up work (tracked in ADR-0007):
+ * Follow-up work (tracked in ADR-0011):
  *   1. Add a renderer→main state-sync IPC that mirrors the relevant Zustand
  *      slices into a main-process snapshot keyed by user-id.
  *   2. Persist that snapshot under `userData/mcp-context.json` so the

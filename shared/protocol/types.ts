@@ -196,8 +196,8 @@ export interface FetcherResponse {
   statusText: string;
   headers: Headers | Record<string, string | string[]>;
   /**
-   * Buffered text body. Streaming responses are out of scope for Plan 1 (foundation);
-   * Plan 4 (streaming) extends this contract with a streaming variant via `body`.
+   * Buffered text body. For streaming responses, use the optional `body`
+   * stream instead — the two are mutually exclusive (the body reads once).
    */
   text: () => Promise<string>;
   /**

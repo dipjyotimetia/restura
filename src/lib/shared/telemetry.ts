@@ -1,6 +1,6 @@
 /**
- * Opt-out renderer telemetry. Sends `{ requestId, message, stack, build, ua }`
- * to the Worker at `/api/telemetry/error`. Gated on
+ * Opt-out renderer telemetry. Sends `{ message, stack, componentStack, source,
+ * build, ua, ts }` to the Worker at `/api/telemetry/error`. Gated on
  * `useSettingsStore.getState().settings.telemetry?.errorsEnabled` — seeded `true`
  * (on by default); no request fires once the user disables it in Settings.
  *

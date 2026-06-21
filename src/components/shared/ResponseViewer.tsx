@@ -376,7 +376,7 @@ function ResponseViewer() {
       : []),
   ];
 
-  // Only the total `time` is available on Response — we render a single TTFB
+  // Only the total `time` is available on Response — we render a single "Wait"
   // segment rather than invent DNS/TCP/TLS splits we don't have data for.
   const waterfallSegments = currentResponse
     ? [{ label: 'Wait', ms: currentResponse.time, color: '#2e91ff', emphasised: true }]

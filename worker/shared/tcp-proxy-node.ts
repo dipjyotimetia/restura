@@ -492,7 +492,6 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
 
 // Backwards-compatible default exports — call-sites that don't care about the
 // DNS guard can use these (they apply the default guard, which blocks private
-// IPs unless DNS_GUARD_ALLOW_PRIVATE_IPS-style options are passed via the
-// adapter factory).
+// IPs unless `allowPrivateIPs` is passed via the factory's `dnsGuard` option).
 export const httpsViaConnectProxy = createHttpsViaConnectProxy();
 export const httpViaProxy = createHttpViaProxy();

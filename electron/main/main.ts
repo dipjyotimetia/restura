@@ -61,7 +61,7 @@ const log = createLogger('main');
 // crashes and main-process errors are armed from line one. @sentry/electron/main
 // owns the native crashReporter (minidumps); it only inits when the user has
 // opted in (read synchronously from the plain consent mirror), so opted-out
-// users upload nothing. See electron/main/sentry.ts.
+// users upload nothing. See electron/main/lifecycle/sentry.ts.
 initSentry({ enabled: readConsentSync() });
 
 // Sentry's default integrations already capture main-process uncaught

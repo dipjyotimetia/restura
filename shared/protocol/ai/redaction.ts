@@ -2,8 +2,9 @@
  * AI redaction — single source of truth for what the AI sees.
  *
  * Runs in the renderer before the request hits the IPC boundary. The backend
- * runs `detectUnredactedSecrets` as a defense-in-depth check and rejects the
- * call (HTTP 400) if anything obviously slipped through.
+ * (ai-proxy.ts) runs `detectUnredactedSecrets` as a defense-in-depth check and
+ * aborts the stream with a `guard` error event if anything obviously slipped
+ * through.
  *
  * `mode: 'raw'` is the per-message "Send raw" toggle. The toggle never sticks
  * — every new user message starts in `default` mode regardless.
@@ -92,7 +93,8 @@ export function redactEnvironment(
 /**
  * Backend paranoia check. Called by ai-proxy.ts on the assembled messages[]
  * content before the upstream provider call. If this returns true AND rawMode
- * is false, the request is rejected as a renderer programming error.
+ * is false, the stream is aborted with a `guard` error event — treating it as
+ * a renderer programming error (redaction should have run already).
  */
 export function detectUnredactedSecrets(text: string): boolean {
   for (const re of BODY_TOKEN_PATTERNS) {

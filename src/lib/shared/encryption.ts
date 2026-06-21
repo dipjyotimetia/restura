@@ -1,6 +1,8 @@
 /**
- * Client-side encryption utilities for sensitive data in localStorage
- * Uses Web Crypto API for AES-GCM encryption
+ * Client-side encryption utilities for sensitive data at rest.
+ * Uses the Web Crypto API for AES-GCM encryption (PBKDF2-derived key).
+ * The core encrypt/decrypt helpers back the Dexie/IndexedDB storage adapter;
+ * the `secureStorage` wrapper below is a thin localStorage convenience layer.
  */
 
 // Check if Web Crypto API is available

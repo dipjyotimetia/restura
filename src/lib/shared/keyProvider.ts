@@ -124,8 +124,9 @@ export class WebSessionPassphraseProvider implements KeyProvider {
 }
 
 /**
- * Minimal IPC contract for the Electron secureKey channel. Mirrors the API
- * exposed in electron/main/key-store.ts (Task 2).
+ * Minimal IPC contract for the Electron secure key-store channel. Mirrors the
+ * `api.store` surface backed by `electron/main/storage/store-handler.ts`
+ * (encrypted via safeStorage; see `electron/main/security/encrypted-key.ts`).
  */
 export interface SecureKeyIpc {
   get(key: string): Promise<string | undefined>;

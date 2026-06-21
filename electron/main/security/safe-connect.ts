@@ -1,5 +1,5 @@
 /**
- * DNS-pinning helper (Gap #4). Solves the TTL=0 rebind window that
+ * DNS-pinning helper. Solves the TTL=0 rebind window that
  * `assertUrlHostnameSafe` alone can't close: resolve once, validate every
  * returned record, then hand callers a pre-pinned IP + a Node `lookup`
  * function that always returns it.
@@ -47,7 +47,9 @@ export interface ResolveOptions extends DnsGuardOptions {
 
 /**
  * Resolve a URL once, validate every returned record via the shared SSRF
- * policy, return the first allowed address. Throws if no record passes.
+ * policy (any disallowed record throws), then return the first record.
+ * Fails closed: a single bad record rejects the whole resolution rather
+ * than silently picking a passing sibling.
  */
 export async function resolveSafeAddress(
   url: string,

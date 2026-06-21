@@ -282,7 +282,8 @@ function SocketIOClient() {
     URL.revokeObjectURL(url);
   };
 
-  // System event for parity with WS subscribe semantics.
+  // `addEvent` is destructured for parity with the WebSocket client but not yet
+  // used here (events are appended by socketioManager); reference it to satisfy lint.
   void addEvent;
 
   const connectionDuration =

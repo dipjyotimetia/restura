@@ -631,8 +631,9 @@ interface ElectronStoreAPI {
 }
 
 /**
- * Git operations for file-backed collections. Read-only in v1. All operations
- * are gated main-side by collection-manager's directory allowlist.
+ * Git operations for file-backed collections (read plus staging, commit, and
+ * local branch create/checkout; remote push/pull not yet exposed). All
+ * operations are gated main-side by collection-manager's directory allowlist.
  */
 interface ElectronGitAPI {
   init: (
@@ -858,7 +859,7 @@ interface ElectronAiAPI {
 /**
  * AI Lab (Electron-only). Superset of the chat providers — adds local runtimes
  * (Ollama, generic OpenAI-compatible) and a non-streaming `complete` for evals /
- * LLM-as-judge. See electron/main/ai-lab-handler.ts.
+ * LLM-as-judge. See electron/main/handlers/ai-lab-handler.ts.
  */
 interface AiLabModelSpec {
   provider: import('../../shared/protocol/ai/types').Provider;
@@ -943,7 +944,9 @@ interface ElectronAPI {
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
   telemetry: ElectronTelemetryAPI;
-  // Valid channels: 'menu:import' | 'menu:export' | 'menu:new-request' | 'app:focus' | 'deep-link'
+  // Valid channels are enumerated by VALID_EVENT_CHANNELS in electron/shared/channels.ts:
+  // 'menu:import' | 'menu:export' | 'menu:new-request' | 'menu:settings' | 'app:focus'
+  // | 'app:check-updates' | 'deep-link'.
   // 'deep-link' callback receives: { host: string; params: Record<string, string> }
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;

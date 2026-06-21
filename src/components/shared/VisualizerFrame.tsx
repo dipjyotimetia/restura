@@ -43,9 +43,9 @@ const CSP =
 /**
  * Build the iframe srcDoc. The pm-shim runs BEFORE the user's template
  * so any inline `<script>` in the template can already call `pm.getData()`.
- * JSON.stringify with a JSON.stringify wrapper handles the case where
- * data itself is a string (the template should still see a string, not
- * a quoted-string).
+ * `data` is JSON-stringified and embedded as a JS literal, so the shim
+ * hands the template back the original value (a string stays a string,
+ * not a quoted-string).
  */
 function composeSrcDoc(template: string, data: unknown): string {
   let dataJson: string;

@@ -4,7 +4,7 @@ export interface RunMeta {
   collectionName: string;
   collectionDir: string;
   startedAt: number;
-  /** 0-based iteration when `--data` is set; absent for single runs. */
+  /** Total iteration count when `--data` drove the run; absent for single runs. */
   iteration?: number;
 }
 
