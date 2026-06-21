@@ -172,7 +172,7 @@
     "@grpc/proto-loader": "^0.8.1",
     "@grpc/reflection": "^1.0.4",
     "@playwright/test": "^1.61.0",
-    "@sentry/cli": "^3.5.0",
+    "@sentry/cli": "^3.5.1",
     "@size-limit/file": "^12.1.0",
     "@tailwindcss/vite": "^4.3.0",
     "@testing-library/dom": "^10.4.1",
