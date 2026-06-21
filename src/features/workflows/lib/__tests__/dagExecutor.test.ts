@@ -119,6 +119,72 @@ describe('dagExecutor — happy path', () => {
     expect(result.steps.find((s) => s.nodeId === 'req')?.status).toBe('success');
     expect(httpRunRequest).toHaveBeenCalledTimes(1);
   });
+
+  it('chains two requests: a variable extracted from response #1 is injected into request #2', async () => {
+    // Closes the previously-untested "two-request chain" path: response
+    // extraction (extractVariables) feeding a downstream request's {{var}}.
+    httpRunRequest
+      .mockResolvedValueOnce(okResponse({ body: JSON.stringify({ token: 'tok-123' }) }))
+      .mockResolvedValueOnce(okResponse());
+
+    const workflow = makeGraphWorkflow(
+      {
+        version: 1,
+        nodes: [
+          { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+          {
+            id: 'req1',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr1' },
+          },
+          {
+            id: 'req2',
+            kind: 'request',
+            position: { x: 0, y: 0 },
+            data: { workflowRequestId: 'wr2' },
+          },
+          { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+        ],
+        edges: [
+          { id: 'e1', source: 'start', target: 'req1' },
+          { id: 'e2', source: 'req1', target: 'req2' },
+          { id: 'e3', source: 'req2', target: 'end' },
+        ],
+      },
+      {
+        requests: [
+          {
+            id: 'wr1',
+            requestId: 'r1',
+            name: 'login',
+            extractVariables: [
+              { id: 'x1', variableName: 'authToken', extractionMethod: 'jsonpath', path: 'token' },
+            ],
+          },
+          { id: 'wr2', requestId: 'r2', name: 'use-token' },
+        ],
+      }
+    );
+
+    const result = await executeDag({
+      workflow,
+      // req2's URL references the extracted variable.
+      getRequestById: (id) =>
+        id === 'r2'
+          ? { ...baseHttpRequest, id: 'r2', url: 'https://api.example.com/{{authToken}}' }
+          : baseHttpRequest,
+      envVars: {},
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.finalVariables.authToken).toBe('tok-123');
+    // The second request was injected with the extracted variable in scope.
+    const secondInjectCall = httpInjectVariables.mock.calls[1];
+    expect(secondInjectCall?.[1]).toMatchObject({ authToken: 'tok-123' });
+    const injectedReq2 = httpInjectVariables.mock.results[1]?.value as HttpRequest;
+    expect(injectedReq2.url).toBe('https://api.example.com/tok-123');
+  });
 });
 
 describe('dagExecutor — inherited auth on request nodes', () => {

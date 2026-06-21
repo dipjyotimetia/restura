@@ -9,11 +9,10 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
-import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
 import type { Workflow, WorkflowGraph, SubgraphPath } from '@/types';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
-import { selectAtPath } from '../../lib/flowTypes';
+import { selectAtPath, emptyStubGraph } from '../../lib/flowTypes';
 
 const SUBGRAPH_TOUR_KEY = 'restura.tour.subgraphDrillDown.v1';
 import { deriveGraphFromLinear, layoutGraph } from './layout/autoLayout';
@@ -27,20 +26,6 @@ import FlowCanvas from './FlowCanvas';
 interface FlowEditorProps {
   workflow: Workflow;
   onRun: () => void;
-}
-
-/** Seed a brand-new subgraph with start + end so the user has a fixed
- *  anchor and the validator's "exactly one start" rule passes. */
-function emptyStubGraph(): WorkflowGraph {
-  return {
-    version: 1,
-    nodes: [
-      { id: `start-${uuidv4()}`, kind: 'start', position: { x: 240, y: 80 } },
-      { id: `end-${uuidv4()}`, kind: 'end', position: { x: 240, y: 240 } },
-    ],
-    edges: [],
-    viewport: { x: 0, y: 0, zoom: 1 },
-  };
 }
 
 export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {

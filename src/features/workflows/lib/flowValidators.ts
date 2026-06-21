@@ -339,6 +339,35 @@ export function validateWorkflowGraph(graph: unknown):
           });
         }
       }
+      if (node.kind === 'switch') {
+        // A switch routes by the outgoing edge whose sourceHandle === the matched
+        // case.id, falling back to the 'default' handle when the matched case has
+        // no edge or no case matched (executor: dagExecutor walkOutgoing). Two
+        // ways this silently dead-ends while still reporting success:
+        //   1. no 'default' edge — a no-match (or unwired matched case) routes
+        //      nowhere and the run is marked successful having done nothing;
+        //   2. an outgoing edge whose handle is neither a known case id nor
+        //      'default' — a stale edge left behind after a case was edited/
+        //      removed, which is never taken.
+        // (An unwired case is allowed: it intentionally falls through to default.)
+        const out = getOutgoingEdges(sg, node.id);
+        const validHandles = new Set<string>([...node.data.cases.map((c) => c.id), 'default']);
+        if (!out.some((e) => e.sourceHandle === 'default')) {
+          issues.push({
+            path: `${label}.nodes.${node.id}`,
+            message:
+              'switch node must have a "default" outgoing edge so no case silently dead-ends',
+          });
+        }
+        for (const e of out) {
+          if (e.sourceHandle !== undefined && !validHandles.has(e.sourceHandle)) {
+            issues.push({
+              path: `${label}.edges.${e.id}.sourceHandle`,
+              message: `switch outgoing edge references unknown handle "${e.sourceHandle}" (stale wiring?)`,
+            });
+          }
+        }
+      }
     }
 
     if (hasCycle(sg)) {

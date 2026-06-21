@@ -131,7 +131,7 @@ export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputPro
                         <span className="font-mono text-xs truncate">{v.key}</span>
                       </div>
                       <span className="text-xs text-muted-foreground truncate max-w-[100px] ml-2">
-                        {v.value}
+                        {v.secret ? '••••••' : v.value}
                       </span>
                     </CommandItem>
                   ))}
