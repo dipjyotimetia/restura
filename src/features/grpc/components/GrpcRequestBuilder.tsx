@@ -333,9 +333,11 @@ function GrpcRequestBuilder() {
       setResolvedProto({ content: protoContent, fileName: protoFileName });
 
       if (grpcRequest.methodType !== 'unary') {
-        // Streaming paths stay on the bespoke Electron IPC stream — the
+        // Streaming paths stay on the bespoke startGrpcStream handle — the
         // registry runner doesn't model long-lived streams yet
-        // (TODO(registry-streaming) on grpcProtocol).
+        // (TODO(registry-streaming) on grpcProtocol). This builder gates
+        // streaming to Electron; the web Connect path lives in
+        // GrpcStreamingPanel (the "Web Stream" tab).
         if (!isElectron()) {
           toast.error('Streaming gRPC requires the desktop app', {
             description: 'Unary requests are supported in the browser via the proxy.',

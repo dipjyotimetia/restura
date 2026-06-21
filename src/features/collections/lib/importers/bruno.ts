@@ -209,7 +209,7 @@ function bruRequestToItem(
   // bru-importer currently models everything as HttpRequest — GraphQL bodies
   // are handled inside bruToHttpRequest by detecting body.graphql, but
   // gRPC and WebSocket requests need the dedicated request types we don't
-  // map yet. Warn so users see what was downgraded.
+  // map yet. Warn for those (not graphql) so users see what was downgraded.
   const metaType = typeof meta.type === 'string' ? meta.type : 'http';
   if (metaType !== 'http' && metaType !== 'graphql') {
     warnings.push({

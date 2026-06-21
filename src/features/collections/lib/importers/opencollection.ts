@@ -57,8 +57,8 @@ export function importOpenCollection(data: unknown): ImportResult {
 }
 
 /**
- * Legacy detailed result. Returns just the bodyCount field that early
- * callers depended on. New code should use {@link importOpenCollection}.
+ * Legacy detailed result. Returns just the `unrecognizedBodies` count that
+ * early callers depended on. New code should use {@link importOpenCollection}.
  */
 export function importOpenCollectionDetailed(data: unknown): OpenCollectionImportResult {
   const r = importOpenCollection(data);

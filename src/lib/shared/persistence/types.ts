@@ -2,10 +2,10 @@
  * State-migration framework types (Gap #6). Single source of truth for the
  * shape of every Zustand store's persistence and migration graph.
  *
- * Each store registers a `MigrationDescriptor` in `registry.ts`; the
- * `createPersistedStore` factory builds the corresponding zustand `persist`
- * options. Migration failures quarantine the raw bytes into `metadata` so
- * pre-1.0 data is recoverable rather than silently dropped.
+ * Each store declares a `MigrationDescriptor`; the `createPersistedStore`
+ * factory builds the corresponding zustand `persist` options from it.
+ * Migration failures quarantine the raw bytes into `metadata` so pre-1.0
+ * data is recoverable rather than silently dropped.
  */
 
 import type { ZodType } from 'zod';

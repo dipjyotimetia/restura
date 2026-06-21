@@ -841,7 +841,8 @@ const apiKeyQueryEndpoint: AuthRoute = {
   },
 };
 
-// SHA-256 Digest auth — RFC 7616. We accept MD5 + SHA-256 to be permissive.
+// Digest auth (RFC 7616), MD5 algorithm — the realm challenge advertises
+// algorithm=MD5 and `verifyDigest` hashes with MD5 accordingly.
 const digestEndpoint: AuthRoute = {
   method: 'GET',
   test: /^\/digest-auth\/([^/]+)\/([^/]+)$/,

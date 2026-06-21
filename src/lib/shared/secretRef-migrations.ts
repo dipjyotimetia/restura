@@ -25,7 +25,7 @@ function pickString<K extends string>(
 }
 
 /**
- * Walk an AuthConfig and rewrap the 13 sensitive fields (see ADR-0007) as
+ * Walk an AuthConfig and rewrap the 14 sensitive fields (see ADR-0007) as
  * `{ kind: 'inline', value }`. Non-sensitive metadata (usernames, region,
  * realm, URLs, etc.) is untouched. Idempotent — running twice is safe.
  */

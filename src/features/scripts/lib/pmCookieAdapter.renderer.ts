@@ -37,7 +37,7 @@ function inferDomainPath(url: string): { domain: string; path: string; secure: b
 
 /**
  * Build a cookie adapter scoped to the supplied request URL. The
- * `forCurrentUrl` getter is what `pm.cookies.get(name)` / `pm.cookies.has(name)`
+ * `forCurrentUrl()` method is what `pm.cookies.get(name)` / `pm.cookies.has(name)`
  * read; jar operations take an explicit URL.
  */
 export function makeCookieAdapter(currentUrl: string | undefined): PmCookieAdapter {

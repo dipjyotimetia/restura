@@ -3,7 +3,7 @@
  * work on which target. Read by:
  *
  *   - the `<CapabilityBadge>` component (renders "Desktop only" tags)
- *   - the doc generator at `scripts/generate-capability-matrix.ts` (writes
+ *   - the doc generator at `scripts/generate-capability-matrix.mjs` (writes
  *     `docs/CAPABILITY_MATRIX.md`; CI checks for drift)
  *
  * Keep keys stable — they're referenced by `<CapabilityBadge feature="...">`.

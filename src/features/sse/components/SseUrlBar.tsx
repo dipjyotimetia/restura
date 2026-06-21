@@ -51,10 +51,9 @@ export function SseUrlBar({
           className="w-full h-8 bg-transparent border-0 outline-none font-mono text-sp-12 text-sp-text placeholder:text-sp-dim px-2 disabled:cursor-not-allowed disabled:opacity-70"
           style={{ caretColor: 'var(--sp-accent)' }}
         />
-        {/* Read-only highlight overlay for {{vars}} when not focused — render
-            absolutely on top but only when the input isn't being edited. We
-            keep it purely decorative here since the native input is the
-            source of truth. */}
+        {/* Decorative {{vars}} highlight overlay layered on top of the input.
+            The text is transparent so it only contributes color spans behind
+            the native input, which stays the source of truth for editing. */}
         {url && (
           <div
             className="pointer-events-none absolute inset-0 flex items-center px-2 font-mono text-sp-12"

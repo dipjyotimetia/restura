@@ -26,7 +26,7 @@ import type { SecretValue } from '@/lib/shared/secretRef';
 import { loadBrunoLang } from './bruno-lang';
 
 /**
- * Bruno's `.bru` format is text-only — render handles as `{{handle:<label>}}`
+ * Bruno's `.bru` format is text-only — renders handles as `{{handle:<label>}}`
  * placeholders so the export carries a reference without leaking plaintext.
  */
 function brunoSecretValue(value: SecretValue | undefined): string {

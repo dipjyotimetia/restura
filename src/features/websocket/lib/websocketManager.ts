@@ -10,7 +10,6 @@ class WebSocketManager {
   private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map();
   private static DEFAULT_CONNECTION_TIMEOUT = 30000; // 30 seconds
 
-  // Validate WebSocket URL
   private validateUrl(url: string): { valid: boolean; error?: string } {
     if (!url || !url.trim()) {
       return { valid: false, error: 'URL is required' };
@@ -401,7 +400,7 @@ class WebSocketManager {
       .join(' ');
   }
 
-  // Convert hex string back to ArrayBuffer for sending binary
+  /** Parse a space-separated hex string (the binary compose format) into an ArrayBuffer for sending. */
   hexToArrayBuffer(hex: string): ArrayBuffer {
     const bytes = hex
       .split(/\s+/)
@@ -410,7 +409,6 @@ class WebSocketManager {
     return new Uint8Array(bytes).buffer;
   }
 
-  // Cleanup all connections
   cleanup(): void {
     for (const [connectionId] of this.connections) {
       this.disconnect(connectionId);

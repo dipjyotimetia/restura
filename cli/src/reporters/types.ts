@@ -10,7 +10,7 @@ export interface RunMeta {
    * actual count differ.
    */
   total?: number;
-  /** 0-based iteration when `--data` is set; absent for single runs. */
+  /** Total iteration count when `--data` drove the run; absent for single runs. */
   iteration?: number;
 }
 

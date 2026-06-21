@@ -3,7 +3,7 @@ import type { ExecuteOutcome } from './executors/types.js';
 export interface RetryOptions {
   /** Number of additional attempts (0 = no retry). */
   retries: number;
-  /** Comma-separated list: 'network', '5xx', or specific status codes. */
+  /** Retry triggers: 'network', '5xx', '4xx', or specific status codes. */
   retryOn: Array<'network' | '5xx' | '4xx' | number>;
   /** Base delay in ms between attempts; exponential backoff multiplier of 2. */
   baseDelayMs: number;

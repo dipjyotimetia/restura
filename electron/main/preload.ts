@@ -1,7 +1,7 @@
 // Renderer-side Sentry shim. Must be imported in the sandboxed preload so that
 // @sentry/electron/renderer can forward events to the main-process SDK over IPC
 // via contextBridge. Without it the SDK falls back to a custom HTTP protocol +
-// window.fetch, which Restura's CSP blocks. See electron/main/sentry.ts.
+// window.fetch, which Restura's CSP blocks. See electron/main/lifecycle/sentry.ts.
 import '@sentry/electron/preload';
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
@@ -535,10 +535,11 @@ const electronAPI = {
     has: (key: string): Promise<boolean> => ipcRenderer.invoke(IPC.store.has, key),
   },
 
-  // Git operations for file-backed collections. Read-only in v1 — write
-  // operations (commit, branch switch, push/pull) land with the auth model.
-  // All operations are gated by collection-manager's directory allowlist
-  // so an attacker cannot point these at arbitrary directories.
+  // Git operations for file-backed collections (init/status/log/diff plus
+  // staging, commit, and local branch create/checkout). Remote operations
+  // (push/pull) land with the auth model. All operations are gated by
+  // collection-manager's directory allowlist so an attacker cannot point
+  // these at arbitrary directories.
   git: {
     init: (
       directoryPath: string
@@ -719,7 +720,7 @@ const electronAPI = {
 
   // pm.vault — user-named encrypted key-value secret store. Separate from
   // `secrets` above so user-chosen names can't collide with UUID handles
-  // and the access surface stays simple. See electron/main/vault-handler.ts.
+  // and the access surface stays simple. See electron/main/storage/vault-handler.ts.
   vault: {
     get: (key: string): Promise<{ value: string | null }> =>
       ipcRenderer.invoke(IPC.vault.get, { key }),

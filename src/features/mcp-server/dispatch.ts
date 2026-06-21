@@ -19,7 +19,7 @@
  *
  * `execute_request` is deferred — it needs an architectural decision
  * about whether main proxies the call back to the renderer or runs its
- * own copy of the request executor. See ADR-0007 for the current sketch.
+ * own copy of the request executor. See ADR-0011 (MCP server mode).
  */
 
 import { z } from 'zod';

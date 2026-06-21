@@ -5,8 +5,9 @@
 
 /**
  * Base URL for the Cloudflare Worker API.
- * In production the SPA lives on restura.pages.dev and the Worker on restura.workers.dev,
- * so we need an absolute origin. In dev both run together via Miniflare so the origin is empty.
+ * In production the SPA lives on restura.dev and the Worker on api.restura.dev
+ * (set via VITE_WORKER_URL at build time), so we need an absolute origin. In
+ * dev both run together via Miniflare so the origin is empty.
  */
 export function workerBaseUrl(): string {
   return import.meta.env.VITE_WORKER_URL ?? '';

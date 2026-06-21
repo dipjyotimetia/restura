@@ -5,9 +5,10 @@
  * the Authorization header. The Electron HTTP handler calls this helper to
  * resolve the handle main-side and emit the header/query before dispatching.
  *
- * Sign-at-wire types (aws-signature, oauth1, wsse, ntlm) are handled by
- * `shared/protocol/auth-signer.ts` via the `resolveSecret` option threaded
- * through `executeHttpProxy`.
+ * The remaining types (aws-signature, oauth1, wsse, ntlm, digest) are handled
+ * downstream — most by `shared/protocol/auth-signer.ts` via the `resolveSecret`
+ * option threaded through `executeHttpProxy`. This helper returns nothing for
+ * them.
  */
 
 import type { ProtocolAuthConfig } from '@shared/protocol/types';

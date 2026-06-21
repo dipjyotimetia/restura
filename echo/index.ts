@@ -1,7 +1,8 @@
 /**
  * Restura echo Worker — controlled upstream for cross-cutting integration tests.
  *
- * Hosts: HTTP, GraphQL, SSE, plain WebSocket, gRPC-Web/Connect.
+ * Hosts: HTTP, GraphQL, SSE, plain WebSocket, gRPC-Web/Connect, and OpenAI/
+ * Anthropic-shaped AI chat endpoints (`/v1/chat/completions`, `/v1/messages`).
  *
  * Does NOT host Socket.IO. Socket.IO has a stateful handshake / polling-to-
  * WebSocket upgrade lifecycle that depends on Node `http.Server` and per-client

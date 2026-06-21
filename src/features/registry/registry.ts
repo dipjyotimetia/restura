@@ -18,6 +18,6 @@ export function createProtocolRegistry(): ProtocolRegistry {
   };
 }
 
-// Singleton for the running app. Bootstrap (Task 4.2) registers the
-// known protocols against this instance.
+// Singleton for the running app. `./bootstrap` registers the known
+// protocols against this instance at startup.
 export const protocolRegistry: ProtocolRegistry = createProtocolRegistry();

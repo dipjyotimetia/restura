@@ -291,9 +291,9 @@ class ScriptExecutor {
   }
 
   /**
-   * True iff any host bridge is wired in (sendRequest, cookies, vault).
+   * True iff any host bridge is wired in (sendRequest, vault, cookies, judge).
    * Bridged scripts get the longer async ceiling because a sub-request /
-   * keychain unwrap can legitimately take a few seconds.
+   * keychain unwrap / LLM judge call can legitimately take a few seconds.
    */
   private hasAsyncBridges(): boolean {
     return Boolean(

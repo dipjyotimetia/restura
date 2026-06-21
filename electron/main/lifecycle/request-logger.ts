@@ -39,8 +39,8 @@ export interface LogEntry {
  * after a crash, or hand-edited — a bad line should be skipped, not crash
  * the renderer's request-history view.
  *
- * `requestId` is optional so older entries (pre-Gap-#2 rollout) load without
- * warnings.
+ * `requestId` is optional so older entries (written before the field was
+ * introduced) load without warnings.
  */
 const LogEntrySchema = z.object({
   ts: z.number(),

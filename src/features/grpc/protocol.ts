@@ -4,7 +4,7 @@
  * Drives **unary** gRPC calls through the registry runner. Streaming
  * (server / client / bidi) is intentionally out of scope — see the
  * TODO(registry-streaming) note below — so the GrpcRequestBuilder keeps
- * its bespoke wiring for those paths via `startElectronGrpcStream`.
+ * its bespoke wiring for those paths via `startGrpcStream`.
  *
  * Two transport branches:
  *  - Electron: full reflection support, requires proto content. The
@@ -111,7 +111,7 @@ export const grpcProtocol: ProtocolModule = {
   injectVariables: injectGrpcVariables,
   // Builder is intentionally undefined — GrpcRequestBuilder remains
   // mounted by the route. It calls `useRequestRunner` for unary and
-  // talks to startElectronGrpcStream directly for streaming methods.
+  // talks to startGrpcStream directly for streaming methods.
   runRequest: async (request, ctx): Promise<ApiResponse> => {
     if (request.type !== 'grpc') {
       throw new Error(`gRPC protocol cannot run ${request.type} request`);
@@ -119,9 +119,9 @@ export const grpcProtocol: ProtocolModule = {
     if (request.methodType !== 'unary') {
       // TODO(registry-streaming): server / client / bidirectional streams
       // need an iterator-shaped contract on RunContext. Until then the
-      // builder owns these paths via startElectronGrpcStream.
+      // builder owns these paths via startGrpcStream.
       throw new Error(
-        `gRPC ${request.methodType} requires the streaming pipeline; use startElectronGrpcStream, not the registry runner.`
+        `gRPC ${request.methodType} requires the streaming pipeline; use startGrpcStream, not the registry runner.`
       );
     }
     if (ctx.signal.aborted) {
