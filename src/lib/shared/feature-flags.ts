@@ -2,10 +2,10 @@
  * Feature-flag client (Gap #7). Fetches once at boot, caches in memory with
  * a 5min TTL, fails open. Renderer gates protocol UIs via `useFlag(name)`.
  *
- * Failure posture: if the Worker is unreachable we return `defaultsTrue` for
- * every flag. A Worker outage should never block the desktop app from doing
- * its local work — kill-switches are an incident-response tool, not a
- * dependency.
+ * Failure posture: if the Worker is unreachable every flag reads as `true`
+ * (empty `DEFAULT_FLAGS` + `getFlag`'s absent-is-true rule). A Worker outage
+ * should never block the desktop app from doing its local work — kill-switches
+ * are an incident-response tool, not a dependency.
  */
 
 import { useEffect, useState } from 'react';

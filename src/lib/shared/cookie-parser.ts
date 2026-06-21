@@ -1,9 +1,10 @@
 /**
  * Best-effort Cookie / Set-Cookie parsing for the console detail view.
- * Not RFC 6265 perfect — for example, no handling of `Expires=...; <day>, <date>`
- * commas inside a single Set-Cookie value. We accept the array shape the proxy
- * already produces (each Set-Cookie is a separate array element) and fall back
- * to a comma-aware splitter only when given a single concatenated string.
+ * Not RFC 6265 perfect, but it does keep `Expires=...; <day>, <date>` commas
+ * intact when splitting a folded Set-Cookie header. We accept the array shape
+ * the proxy already produces (each Set-Cookie is a separate array element) and
+ * fall back to a comma-aware splitter only when given a single concatenated
+ * string.
  */
 
 export interface RequestCookie {

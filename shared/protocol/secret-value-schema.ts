@@ -8,10 +8,10 @@ import type { ProtocolSecretValue } from './types';
  * — there was a pre-cleanup state where the same union was declared in three
  * places and drift was already starting.
  *
- * Type annotation is intentionally absent — Zod's inferred output uses
- * `label?: string | undefined`, while `ProtocolSecretRef` uses `label?: string`.
- * Under `exactOptionalPropertyTypes: true` those are distinct, so we let
- * inference speak and consumers cast at the boundary if needed.
+ * An explicit `z.ZodType<ProtocolSecretValue>` annotation is intentionally
+ * absent — letting Zod infer the output type avoids the mismatch between the
+ * inferred `label?: string | undefined` and `ProtocolSecretRef`'s
+ * `label?: string`. Consumers cast at the boundary if needed.
  */
 // Length caps: 64 KB comfortably covers the largest real secrets (PEM keys,
 // long JWTs) while bounding memory; handle ids are UUIDs (~36 chars) so 128 is

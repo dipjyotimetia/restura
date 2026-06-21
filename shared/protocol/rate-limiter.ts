@@ -33,10 +33,10 @@ async function tokenFingerprint(token: string): Promise<string> {
 /**
  * Bucket key composition: `${ip}|${tokenFingerprint}`.
  *
- * The token fingerprint is the first 16 chars of SHA-256(token). Falls back
- * through `True-Client-IP`, then dev-only `X-Real-IP`, then a UA-derived hash
- * — NEVER collapses to a shared `'unknown'` bucket the way the legacy
- * isolate limiter did (`shared/protocol/rate-limiter.ts:27` pre-Gap-#3).
+ * The token fingerprint is the first 16 chars of SHA-256(token). The IP falls
+ * back through `True-Client-IP`, then dev-only `X-Real-IP`, then a UA-derived
+ * hash — it NEVER collapses to a single shared `'unknown'` bucket, which would
+ * let one noisy client exhaust the limit for everyone.
  *
  * Token preference: explicit proxy token > Authorization Bearer > CF Access
  * email. Anonymous requests get a literal `anon` token bucket.

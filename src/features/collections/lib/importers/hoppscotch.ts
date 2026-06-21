@@ -25,9 +25,10 @@ import { assertBoundedDocument } from '@/lib/opencollection';
  * either string or numeric `v` markers. We don't enforce a `v` value;
  * we just trust the structure.
  *
- * Collection-level pre-request and test scripts are inherited by every
- * descendant request as a header comment, so users can see exactly what
- * Hoppscotch would have run before their request and after the response.
+ * Collection-level pre-request and test scripts are prepended to every
+ * descendant request under a `// --- inherited from collection ---` marker,
+ * so users can see exactly what Hoppscotch would have run before their
+ * request and after the response.
  */
 
 const hoppHeader = z

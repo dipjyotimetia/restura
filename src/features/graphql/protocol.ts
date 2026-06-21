@@ -47,10 +47,11 @@ function defaultResolveVariables(text: string, vars: Record<string, string>): st
 /**
  * GraphQL requests ride on an HTTP envelope: `body.raw` is the JSON
  * `{query, variables, operationName}` payload. Substitute into the
- * envelope by JSON-parsing it, walking the `variables` map for
- * `{{var}}` references, and re-serialising. If the envelope isn't
- * parseable (the user is still typing), fall back to plain string
- * substitution so partial input still resolves the obvious cases.
+ * envelope by JSON-parsing it, resolving `{{var}}` references in the
+ * `query`, `variables`, and `operationName` fields, and re-serialising.
+ * If the envelope isn't parseable (the user is still typing), fall back
+ * to plain string substitution so partial input still resolves the
+ * obvious cases.
  */
 function injectGraphQLVariables(request: Request, variables: Record<string, string>): Request {
   if (request.type !== 'http') return request;

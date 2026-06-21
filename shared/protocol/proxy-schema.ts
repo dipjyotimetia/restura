@@ -132,13 +132,6 @@ export const UpstreamProxyConfigSchema = z.object({
 });
 
 /**
- * The proxy handler accepts any standard HTTP method; `executeHttpProxy`
- * already rejects the dangerous ones (TRACE/CONNECT). We keep the schema
- * permissive on method and let `validateMethod` in `http-proxy.ts` do the
- * allow-list filtering — that way the 400 message stays consistent with
- * pre-Zod behaviour.
- */
-/**
  * Redirect policy passed alongside a request. Mirrors RedirectPolicy in
  * shared/protocol/types.ts. All fields optional — absent means "default".
  */
@@ -150,12 +143,15 @@ export const RedirectPolicySchema = z.object({
 });
 
 export const ProxyRequestBodySchema = z.object({
+  // Permissive on method: `executeHttpProxy` enforces its own `ALLOWED_METHODS`
+  // allow-list, so the precise 400 message comes from there, not from Zod.
   method: z.string().min(1),
   url: z.string().min(1).max(2048),
   headers: z.record(z.string(), z.string()).optional(),
   params: z.record(z.string(), z.string()).optional(),
   bodyType: BodyTypeSchema.optional(),
-  // 50 MB cap matches MAX_REQUEST_BODY_SIZE in http-proxy.ts.
+  // 50 MB request-body cap — a boundary check independent of the 10 MB
+  // response cap (`MAX_RESPONSE_SIZE`) in http-proxy.ts.
   data: z
     .string()
     .max(50 * 1024 * 1024)

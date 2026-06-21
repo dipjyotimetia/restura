@@ -74,7 +74,7 @@ export interface ConnectCallResult {
 }
 
 // Custom DNS lookup that pins every resolution to the pre-validated IP, closing
-// the grpc-js TTL=0 rebind window. Node 24's net.connect calls lookup with
+// the TTL=0 DNS-rebind window. Node 24's net.connect calls lookup with
 // `{ all: true }` and expects an array of { address, family }; the positional
 // (err, address, family) form is only used otherwise — support both.
 function pinnedLookup(dial: PinnedDial) {

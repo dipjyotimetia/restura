@@ -115,9 +115,10 @@ function buildFetcher(
 }
 
 /**
- * Build a /api/proxy handler with the supplied TCP-proxy adapter injected.
- * The Cloudflare entry passes `cloudflareTcpProxy` (uses `cloudflare:sockets`);
- * the Node entry passes `nodeTcpProxy` (uses `node:net`/`node:tls`).
+ * Build a /api/proxy handler with the platform's TCP-proxy adapter injected.
+ * The Cloudflare entry passes the `tcp-proxy` adapter (uses `cloudflare:sockets`);
+ * the Node entry passes the `tcp-proxy-node` adapter (uses `node:net`/`node:tls`)
+ * along with `nodeHostnameGuard`, a pre-flight SSRF DNS check that Workers don't need.
  */
 export function createProxyHandler(
   tcpProxy: TcpProxyAdapter,

@@ -8,8 +8,11 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 
 /**
- * Hook to rehydrate all Zustand stores from localStorage after client mount.
- * This prevents SSR/CSR hydration mismatches.
+ * Rehydrate the persisted Zustand stores from their async backing store
+ * (Dexie/IndexedDB on web, encrypted electron-store on desktop) after mount,
+ * and report when hydration has settled. Because the persist storage is async,
+ * components gate on the returned `isHydrated` flag to avoid rendering against
+ * empty pre-hydration state.
  */
 export function useStoreHydration() {
   const [isHydrated, setIsHydrated] = useState(false);

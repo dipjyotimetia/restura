@@ -2,10 +2,11 @@ import type { z } from 'zod';
 
 /**
  * Outcome of {@link parseJsonBody}. `ok: true` carries the parsed value;
- * `ok: false` carries an HTTP 400 status and a short human-readable error
- * string ready to surface in a JSON response envelope.
+ * `ok: false` carries a 4xx status (400 for malformed/invalid JSON, 413 when
+ * the `maxBytes` cap is exceeded) and a short human-readable error string
+ * ready to surface in a JSON response envelope.
  *
- * The narrow status type (`400`) lets handlers feed this straight into
+ * The narrow status type (`400 | 413`) lets handlers feed this straight into
  * `c.json(payload, status)` without TypeScript widening the StatusCode union.
  */
 export type ParseResult<T> =

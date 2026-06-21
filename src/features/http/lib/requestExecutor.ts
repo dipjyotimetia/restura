@@ -75,19 +75,6 @@ interface BuiltSpec {
 }
 
 /**
- * Assemble the desktop-only transport config from per-request settings,
- * falling back to global settings. Proxy precedence follows
- * `getEffectiveProxy` (per-request overrides global); a proxy whose host is
- * on its own bypass list is dropped for this URL. Cert / verifySsl / TLS
- * knobs prefer the per-request value and fall back to the global one.
- *
- * Returns undefined when nothing desktop-specific applies, so the web path
- * stays a pure no-op.
- *
- * Exported for unit testing — this is the precedence logic (per-request >
- * per-domain match > global) that the type system can't verify end-to-end.
- */
-/**
  * Per-request settings with a global-settings fallback. Used by every transport
  * entry point (HTTP executor, the request page, GraphQL introspection) so the
  * fallback shape stays in one place.
@@ -107,6 +94,19 @@ export function resolveEffectiveSettings(
   );
 }
 
+/**
+ * Assemble the desktop-only transport config from per-request settings,
+ * falling back to global settings. Proxy precedence follows
+ * `getEffectiveProxy` (per-request overrides global); a proxy whose host is
+ * on its own bypass list is dropped for this URL. Cert / verifySsl / TLS
+ * knobs prefer the per-request value and fall back to the global one.
+ *
+ * Returns undefined when nothing desktop-specific applies, so the web path
+ * stays a pure no-op.
+ *
+ * Exported for unit testing — this is the precedence logic (per-request >
+ * per-domain match > global) that the type system can't verify end-to-end.
+ */
 export function buildDesktopTransportConfig(
   effectiveSettings: RequestSettings,
   globalSettings: AppSettings,

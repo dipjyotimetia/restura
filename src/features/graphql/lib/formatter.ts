@@ -23,8 +23,8 @@ export function minifyQuery(query: string): string {
 
   try {
     const ast = parse(query);
-    // print() with default options produces compact output
-    // We'll manually minify further
+    // print() pretty-prints across multiple lines, so collapse whitespace
+    // afterwards to produce a minified single-line query.
     const printed = print(ast);
     return printed
       .replace(/\s+/g, ' ')

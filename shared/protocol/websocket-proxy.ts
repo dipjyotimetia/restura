@@ -1,5 +1,5 @@
 /**
- * Shared WebSocket protocol primitives (Gap #5). Backend-agnostic.
+ * Shared WebSocket protocol primitives. Backend-agnostic.
  *
  * Both backends consume the same `WsTransport` contract:
  *   - WorkerWsTransport (web)      — opens `wss://api/.../ws?ticket=…`
