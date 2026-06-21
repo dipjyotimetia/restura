@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1120"/>
+      <stop offset="1" stop-color="#111a2e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2e91ff"/>
+      <stop offset="1" stop-color="#7c5cff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="6" fill="url(#accent)"/>
+
+  <!-- wordmark -->
+  <text x="80" y="190" font-size="96" font-weight="800" fill="#f8fafc" letter-spacing="-2">Restura</text>
+
+  <!-- tagline -->
+  <text x="82" y="262" font-size="40" font-weight="600" fill="url(#accent)">One client. Every protocol.</text>
+
+  <!-- subline -->
+  <text x="82" y="320" font-size="28" fill="#94a3b8">HTTP · GraphQL · gRPC · WebSocket · Socket.IO · SSE · Kafka · MQTT · MCP</text>
+  <text x="82" y="362" font-size="28" fill="#94a3b8">Web · Desktop · Self-hosted · No account, no cloud sync, no tracking</text>
+
+  <!-- protocol chips -->
+  <g font-size="26" font-weight="600" fill="#e2e8f0">
+    <g>
+      <rect x="82" y="430" width="150" height="58" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="157" y="468" text-anchor="middle">HTTP</text>
+    </g>
+    <g>
+      <rect x="250" y="430" width="180" height="58" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="340" y="468" text-anchor="middle">GraphQL</text>
+    </g>
+    <g>
+      <rect x="448" y="430" width="140" height="58" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="518" y="468" text-anchor="middle">gRPC</text>
+    </g>
+    <g>
+      <rect x="606" y="430" width="210" height="58" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="711" y="468" text-anchor="middle">WebSocket</text>
+    </g>
+    <g>
+      <rect x="834" y="430" width="130" height="58" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="899" y="468" text-anchor="middle">Kafka</text>
+    </g>
+    <g>
+      <rect x="982" y="430" width="130" height="58" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="1047" y="468" text-anchor="middle">MCP</text>
+    </g>
+  </g>
+
+  <!-- footer -->
+  <text x="82" y="560" font-size="26" fill="#64748b">docs.restura.dev</text>
+</svg>
