@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP** (Model Context Protocol), plus an **AI assistant** that can read request context. It ships from a single React renderer to three targets: a web app (Cloudflare Pages + Workers), a self-hostable Node/Docker server, and an Electron desktop app. Restura can also act _as_ an MCP server (`src/features/mcp-server`, `electron/main/mcp-server-handler.ts`). Node.js 24+ required.
+Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP** (Model Context Protocol), plus an **AI assistant** that can read request context. It ships from a single React renderer to three targets: a web app (Cloudflare Pages + Workers), a self-hostable Node/Docker server, and an Electron desktop app. Restura can also act _as_ an MCP server (`src/features/mcp-server`, `electron/main/handlers/mcp-server-handler.ts`). Node.js 24+ required.
 
 ## Development Commands
 
@@ -106,11 +106,11 @@ Key modules:
 
 ### AI assistant (`src/features/ai/`)
 
-A chat assistant that can read the current request/response context. **Electron-first**: the renderer streams via the IPC bridge (`window.electron.ai` → `ai:chat` / `ai:chat:cancel`, with `ai:chat:chunk:<id>` / `ai:chat:end:<id>` event channels) → `electron/main/ai-handler.ts` → `shared/protocol/ai/ai-proxy.ts`. There is **no `/api/ai` Worker route**, so the web path is not wired through the proxy — confirm platform support before assuming parity. Renderer pieces: `lib/promptBuilder.ts`, `lib/contextSnapshot.ts` (captures request context; URLs/secrets redacted), `lib/streamConsumer.ts` (subscribe to chunk channel **before** invoking `chat`). Providers (OpenAI, Anthropic, OpenRouter) decode in `shared/protocol/ai/providers/*` against fixtures. See `docs/adr/0010-ai-assistant-architecture.md`.
+A chat assistant that can read the current request/response context. **Electron-first**: the renderer streams via the IPC bridge (`window.electron.ai` → `ai:chat` / `ai:chat:cancel`, with `ai:chat:chunk:<id>` / `ai:chat:end:<id>` event channels) → `electron/main/handlers/ai-handler.ts` → `shared/protocol/ai/ai-proxy.ts`. There is **no `/api/ai` Worker route**, so the web path is not wired through the proxy — confirm platform support before assuming parity. Renderer pieces: `lib/promptBuilder.ts`, `lib/contextSnapshot.ts` (captures request context; URLs/secrets redacted), `lib/streamConsumer.ts` (subscribe to chunk channel **before** invoking `chat`). Providers (OpenAI, Anthropic, OpenRouter) decode in `shared/protocol/ai/providers/*` against fixtures. See `docs/adr/0010-ai-assistant-architecture.md`.
 
 ### AI Lab (`src/features/ai-lab/`) — Electron-only LLM/eval workbench
 
-A separate workbench for testing prompts and models: per-provider config, a multi-model Playground, datasets, an eval runner with LLM-as-judge + scorers, and OpenAPI-driven test generation. Renderer state persists to Dexie tables `aiLab`/`evalRuns`; provider API keys are stored only as `SecretRef` handles (`apiKeyHandleId`, resolved in main). Backed by `electron/main/ai-lab-handler.ts` — a sibling to `ai-handler.ts` kept separate so the chat path is untouched. It adds a non-streaming `complete` (used heavily by the eval runner/judge, bounded by a queueing semaphore), model discovery + connection test, and a **localhost SSRF carve-out**: the same shared URL guard runs, but `allowLocalhost` is derived from provider kind — true only for local runtimes (Ollama, OpenAI-compatible), never for cloud providers.
+A separate workbench for testing prompts and models: per-provider config, a multi-model Playground, datasets, an eval runner with LLM-as-judge + scorers, and OpenAPI-driven test generation. Renderer state persists to Dexie tables `aiLab`/`evalRuns`; provider API keys are stored only as `SecretRef` handles (`apiKeyHandleId`, resolved in main). Backed by `electron/main/handlers/ai-lab-handler.ts` — a sibling to `ai-handler.ts` kept separate so the chat path is untouched. It adds a non-streaming `complete` (used heavily by the eval runner/judge, bounded by a queueing semaphore), model discovery + connection test, and a **localhost SSRF carve-out**: the same shared URL guard runs, but `allowLocalhost` is derived from provider kind — true only for local runtimes (Ollama, OpenAI-compatible), never for cloud providers.
 
 ### Feature-based renderer layout (`src/features/`)
 
@@ -141,25 +141,35 @@ All global state lives in Zustand stores with the `persist` middleware. Stores a
 
 Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, `useKafkaStore`, `useCollectionRunStore` (persisted run history, Dexie `collectionRuns`), AI store (`src/features/ai/store.ts`).
 
-**Secret handling — `SecretRef` (ADR-0007).** Secret-bearing auth fields are migrating from plaintext `string` to `SecretValue = string | SecretRef`, where `SecretRef` is `{ kind: 'inline'; value }` or `{ kind: 'handle'; id; label? }`. With a `handle`, the renderer **never sees the plaintext** — `electron/main/secret-handle-store.ts` (electron-store + `safeStorage`) holds the encrypted value and resolves it only at wire-signing time in the main process. This keeps secrets out of the Zustand store, Dexie/electron-store persistence, exported collections, crash logs, and the MCP-server's agent-readable surface. Migration is incremental (per-descriptor); see `docs/adr/0007-secret-ref-pattern.md` and `electron/main/collection-export-redactor.ts`.
+**Secret handling — `SecretRef` (ADR-0007).** Secret-bearing auth fields are migrating from plaintext `string` to `SecretValue = string | SecretRef`, where `SecretRef` is `{ kind: 'inline'; value }` or `{ kind: 'handle'; id; label? }`. With a `handle`, the renderer **never sees the plaintext** — `electron/main/security/secret-handle-store.ts` (electron-store + `safeStorage`) holds the encrypted value and resolves it only at wire-signing time in the main process. This keeps secrets out of the Zustand store, Dexie/electron-store persistence, exported collections, crash logs, and the MCP-server's agent-readable surface. Migration is incremental (per-descriptor); see `docs/adr/0007-secret-ref-pattern.md` and `electron/main/security/collection-export-redactor.ts`.
 
 ### Electron main process (`electron/main/`)
 
-One handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts` (+ `kafka-broker-guard.ts`), `mqtt-handler.ts` (+ `mqtt-broker-guard.ts`), `ai-handler.ts`, `ai-lab-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `vault-handler.ts`, `git-handler.ts`, `sentry.ts` + `telemetry-consent.ts` (opt-out error reporting — on by default, disabled in Settings). Plus:
+The main process is organised into purpose-based subfolders. Files that compute `__dirname`-relative paths at runtime (preload location, bundled resources, `dist/web/index.html`) **must stay at the `electron/main/` root** — moving them into a subfolder adds a path segment that nothing in `tsc` or the unit tests catches (only a packaged/e2e run would). See the NOTE block in `window-manager.ts`.
 
-- `main.ts` — entry / orchestrator
-- `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod
-- `preload.ts` — context-isolated IPC bridge (`window.electron`); bundled by esbuild (`electron:bundle-preload`) so the sandboxed preload is self-contained. Channel names come from `electron/shared/channels.ts`; the exposed surface is type-checked against `electron/types/electron-api.ts` via `satisfies ElectronAPI`
-- `ipc-validators.ts` + `ipc-rate-limiter.ts` — input validation and rate limits at the IPC boundary (legacy rate-limiter API deprecated; see ADR-0006)
-- `connection-cleanup.ts` — idempotent renderer-`destroyed` listener dedupe (`bindRendererCleanup`) + walk-and-dispose helper (`disposeByOwner`). Shared by every long-lived streaming handler.
-- `dns-guard.ts` — pre-flight SSRF guard. `assertHostnameSafe` / `assertUrlHostnameSafe` resolve the hostname and call `assertResolvedAddressAllowed` from `shared/protocol/url-validation` against every record. Pre-flight only — does NOT mitigate true DNS-rebind (TTL=0 swap during connect).
-- `store-handler.ts`, `collection-manager.ts` — persistent storage bridge (encryption key fetched from OS keychain via `safeStorage`; warns at startup if unavailable)
-- `secret-handle-store.ts`, `encrypted-key.ts`, `keychain-status-handler.ts` — `SecretRef` handle store + key management (see ADR-0007)
-- `safe-connect.ts` — SSRF-guarded `net`/`tls` connect helper shared by streaming handlers; `auth-applier.ts` — applies resolved auth/secrets to outbound requests
-- `interceptor-registry.ts`, `request-logger.ts`, `deep-link-handler.ts`, `auto-updater.ts`, `menu.ts`, `system-tray.ts`, `notifications.ts`, `window-controls.ts`
-- `file-operations.ts` — async fs helpers (no behavioral change; was sync)
+- **Root (`electron/main/`)** — the `__dirname`-sensitive entry points:
+  - `main.ts` — entry / orchestrator. Owns the `IPC_MODULES` registry that couples each handler's `register` to its `dispose`, so teardown can't drift out of sync with registration.
+  - `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod; resolves resource/icon paths.
+  - `preload.ts` — context-isolated IPC bridge (`window.electron`); bundled by esbuild (`electron:bundle-preload`) so the sandboxed preload is self-contained. Channel names come from `electron/shared/channels.ts`; the exposed surface is type-checked against `electron/types/electron-api.ts` via `satisfies ElectronAPI`.
+  - `notifications.ts` — native notifications + its rate limiter.
 
-Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-flight DNS guard via `dns-guard.ts`, manual redirect handling) live inside the Electron fetcher closure — **not** in `shared/protocol/`. Keep `shared/` backend-agnostic. See `docs/adr/0006-electron-connection-and-dns-hardening.md` for the cleanup/DNS-guard design.
+- **`handlers/`** — one handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts`, `mqtt-handler.ts`, `ai-handler.ts`, `ai-lab-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `git-handler.ts`, plus shared helpers `interceptor-registry.ts`, `channel-event-bridge.ts`, `fetch-fetcher.ts`, `grpc-connect.ts`, `grpc-credentials.ts`, `kafka-serde.ts`, `sse-parser.ts`.
+
+- **`ipc/`** — the IPC boundary: `ipc-validators.ts` + `ipc-rate-limiter.ts` (input validation and rate limits; legacy rate-limiter API deprecated, see ADR-0006), `ipc-utils.ts`, `rate-limiter-cleanup.ts`, and `connection-cleanup.ts` — idempotent renderer-`destroyed` listener dedupe (`bindRendererCleanup`) + walk-and-dispose helper (`disposeByOwner`), shared by every long-lived streaming handler.
+
+- **`security/`** — outbound-safety and secret handling:
+  - `dns-guard.ts` — pre-flight SSRF guard. `assertHostnameSafe` / `assertUrlHostnameSafe` resolve the hostname and call `assertResolvedAddressAllowed` from `shared/protocol/url-validation` against every record. Pre-flight only — does NOT mitigate true DNS-rebind (TTL=0 swap during connect).
+  - `safe-connect.ts` — SSRF-guarded `net`/`tls` connect helper shared by streaming handlers; `auth-applier.ts` — applies resolved auth/secrets to outbound requests; `aws-sigv4-smithy.ts`, `env-proxy.ts`, `collection-export-redactor.ts`.
+  - `kafka-broker-guard.ts`, `mqtt-broker-guard.ts` — broker-address SSRF guards for the Kafka/MQTT handlers.
+  - `secret-handle-store.ts`, `encrypted-key.ts`, `keychain-status-handler.ts` — `SecretRef` handle store + key management (see ADR-0007).
+
+- **`storage/`** — persistence bridge: `store-handler.ts`, `collection-manager.ts` (encryption key fetched from OS keychain via `safeStorage`; warns at startup if unavailable), `vault-handler.ts`, `file-operations.ts` (async fs helpers).
+
+- **`lifecycle/`** — app lifecycle and ops: `request-logger.ts`, `logging.ts`, `deep-link-handler.ts`, `auto-updater.ts`, `menu.ts`, `system-tray.ts`, `window-controls.ts`, `sentry.ts` + `telemetry-consent.ts` (opt-out error reporting — on by default, disabled in Settings).
+
+- **`util/`** — small shared helpers (e.g. `debounce.ts`).
+
+Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-flight DNS guard via `security/dns-guard.ts`, manual redirect handling) live inside the Electron fetcher closure — **not** in `shared/protocol/`. Keep `shared/` backend-agnostic. See `docs/adr/0006-electron-connection-and-dns-hardening.md` for the cleanup/DNS-guard design.
 
 ### Worker (`worker/`)
 
