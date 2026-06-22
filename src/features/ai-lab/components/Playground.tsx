@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Sparkles, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -48,6 +48,16 @@ export function Playground() {
   }, [providers]);
 
   const promptVars = useMemo(() => extractVars(`${system}\n${user}`), [system, user]);
+
+  // Cancel any in-flight streams when this tab unmounts (AI Lab sub-tabs unmount
+  // on switch). Without this, orphaned streams keep running and fire setState on
+  // the unmounted component. Only `.cancel()` here — no setState on unmount.
+  useEffect(() => {
+    return () => {
+      for (const h of handlesRef.current) h.cancel();
+      handlesRef.current = [];
+    };
+  }, []);
 
   const toggle = (key: string) =>
     setSelected((prev) => {

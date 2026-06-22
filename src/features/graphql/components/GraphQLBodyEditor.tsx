@@ -47,7 +47,6 @@ export default function GraphQLBodyEditor({
   onVariablesChange,
 }: GraphQLBodyEditorProps) {
   const [showVariables, setShowVariables] = useState(true);
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const { getSchema } = useGraphQLSchemaStore();
   const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
   const activeTabId = useActiveTab()?.id;
@@ -78,14 +77,13 @@ export default function GraphQLBodyEditor({
     }
   }, [query, extractedVariables, variables, onVariablesChange]);
 
-  useEffect(() => {
-    if (query.trim()) {
-      const result = validateQuery(query, executableSchema);
-      setValidationErrors(result.errors.map((e) => e.message));
-    } else {
-      setValidationErrors([]);
-    }
-  }, [query, executableSchema]);
+  // Validation is synchronous and purely derived from the query + schema, so
+  // compute it during render rather than mirroring it into state via an effect
+  // (which would force an extra render pass on every keystroke).
+  const validationErrors = useMemo(
+    () => (query.trim() ? validateQuery(query, executableSchema).errors.map((e) => e.message) : []),
+    [query, executableSchema]
+  );
 
   const handleQueryEditorMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {

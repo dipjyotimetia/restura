@@ -35,25 +35,24 @@ export function normalizeProtocol(p: string): ProtocolName {
 
 export interface ProtoChipProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'children'> {
   protocol: string;
+  ref?: React.Ref<HTMLSpanElement>;
 }
 
-export const ProtoChip = React.forwardRef<HTMLSpanElement, ProtoChipProps>(
-  ({ protocol, className, style, ...props }, ref) => {
-    const key = normalizeProtocol(protocol);
-    const { color, bg, label } = protoStyles[key];
-    return (
-      <span
-        ref={ref}
-        className={cn(
-          'inline-flex items-center h-5 px-1.5 font-mono font-bold uppercase tracking-wide text-sp-9 rounded-sp-chip',
-          className
-        )}
-        style={{ color, background: bg, ...style }}
-        {...props}
-      >
-        {label}
-      </span>
-    );
-  }
-);
+export function ProtoChip({ protocol, className, style, ref, ...props }: ProtoChipProps) {
+  const key = normalizeProtocol(protocol);
+  const { color, bg, label } = protoStyles[key];
+  return (
+    <span
+      ref={ref}
+      className={cn(
+        'inline-flex items-center h-5 px-1.5 font-mono font-bold uppercase tracking-wide text-sp-9 rounded-sp-chip',
+        className
+      )}
+      style={{ color, background: bg, ...style }}
+      {...props}
+    >
+      {label}
+    </span>
+  );
+}
 ProtoChip.displayName = 'ProtoChip';

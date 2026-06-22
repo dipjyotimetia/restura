@@ -85,7 +85,7 @@ export default function Home() {
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
   const openTabWithMode = useRequestStore((s) => s.openTabWithMode);
-  const { settings } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
 
   const aiPanelOpen = useAiChatStore((s) => s.panelOpen);
   const setAiPanelOpen = useAiChatStore((s) => s.setPanelOpen);

@@ -18,31 +18,38 @@ export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
   status: number;
   text?: string;
   showGlow?: boolean;
+  ref?: React.Ref<HTMLSpanElement>;
 }
 
-export const StatusPill = React.forwardRef<HTMLSpanElement, StatusPillProps>(
-  ({ status, text, showGlow = true, className, style, ...props }, ref) => {
-    const { color, bg, glow } = pickColor(status);
-    return (
-      <span
-        ref={ref}
-        className={cn(
-          'inline-flex items-center gap-1.5 h-7 px-2.5 font-mono font-bold text-sp-12 tabular-nums rounded-sp-btn',
-          className
-        )}
-        style={{
-          color,
-          background: bg,
-          boxShadow: showGlow ? glow : undefined,
-          ...style,
-        }}
-        {...props}
-      >
-        <span aria-hidden="true">●</span>
-        <span>{status}</span>
-        {text && <span className="font-normal opacity-80">{text}</span>}
-      </span>
-    );
-  }
-);
+export function StatusPill({
+  status,
+  text,
+  showGlow = true,
+  className,
+  style,
+  ref,
+  ...props
+}: StatusPillProps) {
+  const { color, bg, glow } = pickColor(status);
+  return (
+    <span
+      ref={ref}
+      className={cn(
+        'inline-flex items-center gap-1.5 h-7 px-2.5 font-mono font-bold text-sp-12 tabular-nums rounded-sp-btn',
+        className
+      )}
+      style={{
+        color,
+        background: bg,
+        boxShadow: showGlow ? glow : undefined,
+        ...style,
+      }}
+      {...props}
+    >
+      <span aria-hidden="true">●</span>
+      <span>{status}</span>
+      {text && <span className="font-normal opacity-80">{text}</span>}
+    </span>
+  );
+}
 StatusPill.displayName = 'StatusPill';
