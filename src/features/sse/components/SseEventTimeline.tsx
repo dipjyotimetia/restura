@@ -1,4 +1,4 @@
-import * as React from 'react';
+import { useEffect, useRef } from 'react';
 import { Search, Trash2 } from 'lucide-react';
 import { Floater } from '@/components/ui/spatial';
 import type { SseLogEntry } from '@/features/sse/store/useSseStore';
@@ -70,10 +70,10 @@ export function SseEventTimeline({
   eventNames,
   onClearLog,
 }: SseEventTimelineProps) {
-  const listRef = React.useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new entries arrive.
-  React.useEffect(() => {
+  useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [log.length]);
 
