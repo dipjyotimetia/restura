@@ -54,11 +54,24 @@ processor) and follows its recommended practices.
   render as raw highlighted code. Keep this until astro-mermaid supports Sätteri natively.
 - **Content-layer loaders — in use.** `src/content.config.ts` uses the loader API
   (`docsLoader()`), the content-collections pattern Astro 7 standardises on.
-- **Strict TypeScript — in use.** `tsconfig.json` extends `astro/tsconfigs/strict`.
+- **Strictest TypeScript — in use.** `tsconfig.json` extends `astro/tsconfigs/strictest`.
 
 Astro 7's Rust compiler is stricter: unclosed tags now error and JSX whitespace rules apply
 (use `{' '}` for explicit spaces in `.astro` files). Run `npm run check` and `npm run build`
 after any dependency bump.
+
+## SEO & social cards
+
+- `public/robots.txt` allows crawling and points to `sitemap-index.xml` (emitted by the
+  Starlight-bundled `@astrojs/sitemap` because `site` is set in `astro.config.mjs`).
+- `public/og-image.png` is the Open Graph / Twitter card (1200×630). Social scrapers don't
+  render SVG, so it's a rasterised copy of `public/og-image.svg` (the editable source). The
+  `head` meta in `astro.config.mjs` references the PNG with explicit dimensions. Regenerate
+  after editing the SVG:
+
+  ```bash
+  node -e "require('sharp')(require('fs').readFileSync('public/og-image.svg'),{density:200}).resize(1200,630).png({compressionLevel:9}).toFile('public/og-image.png')"
+  ```
 
 ## Deployment
 

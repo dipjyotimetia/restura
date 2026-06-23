@@ -391,6 +391,9 @@ header.header {
 .protocol-grid a[data-color='cyan'] {
   --pc: 34 211 238;
 }
+.protocol-grid a[data-color='teal'] {
+  --pc: 20 184 166;
+}
 .protocol-grid a[data-color='violet'] {
   --pc: 123 110 246;
 }
