@@ -142,6 +142,17 @@ describe('StreamRegistry', () => {
     expect(registry.size()).toBe(1);
   });
 
+  it('values() iterates live entries and clear() drops them without disposing', () => {
+    const { registry, disposed, entry } = env;
+    const wc = makeWc(1);
+    registry.add('c1', wc.wc as never, entry('c1', 1));
+    registry.add('c2', wc.wc as never, entry('c2', 1));
+    expect([...registry.values()].map((e) => e.connectionId).sort()).toEqual(['c1', 'c2']);
+    registry.clear();
+    expect(registry.size()).toBe(0);
+    expect(disposed).toEqual([]); // clear() must NOT dispose
+  });
+
   it('disposeAll() tears down everything and clears', () => {
     const { registry, disposed, entry } = env;
     const wc = makeWc(1);

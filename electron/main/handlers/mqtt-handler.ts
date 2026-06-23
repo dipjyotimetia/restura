@@ -3,7 +3,7 @@ import type { WebContents } from 'electron';
 import type { IClientOptions, MqttClient, IConnackPacket, IPublishPacket } from 'mqtt';
 import type * as MqttLib from 'mqtt';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import { MQTT_CHANNEL, mqttChannel } from '../../shared/mqtt-channels';
 import { IPC } from '../../shared/channels';
@@ -47,7 +47,16 @@ interface ActiveMqtt {
   createdAt: number;
 }
 
-const activeConnections = new Map<string, ActiveMqtt>();
+// Shared connection bookkeeping (map + renderer-destroyed cleanup). Like Kafka,
+// MQTT keeps its cached-WebContents emit (emitToEntry) and awaited async teardown
+// (endClient) — so same-id replace, explicit disconnect, and stopMqttCleanup stay
+// manual (awaited) loops. dispose() serves ONLY the renderer-destroyed path, where
+// fire-and-forget endClient matches the previous `void endClient(e)`.
+const activeConnections = new StreamRegistry<ActiveMqtt>({
+  dispose: (e) => {
+    void endClient(e);
+  },
+});
 
 function emitToEntry(entry: ActiveMqtt, channel: string, ...args: unknown[]): void {
   if (entry.wc && !entry.wc.isDestroyed()) {
@@ -197,7 +206,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size >= MAX_CONCURRENT_MQTT_CONNECTIONS) {
+    if (activeConnections.size() >= MAX_CONCURRENT_MQTT_CONNECTIONS) {
       logEntry(503, 'Too many open connections');
       return { success: false, error: 'Too many open MQTT connections.' };
     }
@@ -219,7 +228,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         });
       }
       await endClient(existing);
-      activeConnections.delete(connectionId);
+      activeConnections.remove(connectionId);
     }
 
     try {
@@ -243,19 +252,13 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         brokerUrl: cfg.brokerUrl,
         createdAt: Date.now(),
       };
-      activeConnections.set(connectionId, entry);
+      // add() stores the entry and wires renderer-destroyed cleanup: if the
+      // renderer dies without disconnecting, dispose() fire-and-forget ends the
+      // client so the broker socket doesn't leak until process exit (a real leak
+      // under hot-reload). Dedupes the destroyed-listener across reconnects and
+      // centralises the owner→dispose walk (ADR-0006).
+      activeConnections.add(connectionId, event.sender, entry);
       bindClientListeners(entry);
-
-      // Tear the connection down if the renderer dies without disconnecting,
-      // otherwise the broker socket leaks until the Electron process exits — a
-      // real leak under hot-reload. Shared helper dedupes the destroyed
-      // listener across reconnects and centralises the owner→dispose walk used
-      // by every streaming handler (ADR-0006).
-      bindRendererCleanup(activeConnections, event.sender, (deadId) => {
-        disposeByOwner(activeConnections, deadId, (e) => {
-          void endClient(e);
-        });
-      });
 
       // CONNACK arrives asynchronously via the 'connect' event → CONNECTED
       // channel; we only confirm the client was constructed here.
@@ -384,7 +387,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       const entry = activeConnections.get(cfg.connectionId);
       if (entry) {
         await endClient(entry, false);
-        activeConnections.delete(cfg.connectionId);
+        activeConnections.remove(cfg.connectionId);
         emitTo(entry.webContentsId, mqttChannel(MQTT_CHANNEL.CLOSE, cfg.connectionId), {});
       }
       return { success: true };
@@ -393,7 +396,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 }
 
 export async function stopMqttCleanup(): Promise<void> {
-  for (const [, entry] of activeConnections) {
+  for (const entry of activeConnections.values()) {
     await endClient(entry);
   }
   activeConnections.clear();

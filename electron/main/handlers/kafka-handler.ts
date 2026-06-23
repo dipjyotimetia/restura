@@ -16,7 +16,7 @@ import type * as KafkaLib from '@platformatic/kafka';
 import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type { ZodSchema } from 'zod';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
 import { IPC } from '../../shared/channels';
@@ -140,7 +140,17 @@ interface KafkaClientOptions {
   };
 }
 
-const activeConnections = new Map<string, ActiveKafka>();
+// Shared connection bookkeeping (map + renderer-destroyed cleanup). Kafka keeps
+// its own cached-WebContents emit (emitToEntry) and awaited async teardown
+// (closeConnection) — those don't fit the registry's sync emit/dispose seam — so
+// same-id replace, explicit disconnect, and stopKafkaCleanup stay manual (awaited)
+// loops over get()/values(). dispose() here serves ONLY the renderer-destroyed
+// path, where fire-and-forget close matches the previous `void closeConnection(e)`.
+const activeConnections = new StreamRegistry<ActiveKafka>({
+  dispose: (e) => {
+    void closeConnection(e);
+  },
+});
 
 function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): void {
   // Prefer the cached WebContents (faster than `webContents.fromId` per call);
@@ -291,7 +301,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size >= MAX_CONCURRENT_KAFKA_CONNECTIONS) {
+    if (activeConnections.size() >= MAX_CONCURRENT_KAFKA_CONNECTIONS) {
       logEntry(503, 'Too many open connections');
       return { success: false, error: 'Too many open Kafka connections.' };
     }
@@ -314,7 +324,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         });
       }
       await closeConnection(existing);
-      activeConnections.delete(connectionId);
+      activeConnections.remove(connectionId);
     }
 
     try {
@@ -382,18 +392,12 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         ...(wc ? { wc } : {}),
         createdAt: Date.now(),
       };
-      activeConnections.set(connectionId, entry);
-
-      // Tear the connection down if the renderer dies without disconnecting.
-      // Otherwise the producer/consumer keep their broker sockets open until
-      // the Electron process exits — a real leak under hot-reload. Shared
-      // helper dedupes the destroyed-listener across reconnects and centralises
-      // the owner→dispose walk used by every streaming handler (ADR-0006).
-      bindRendererCleanup(activeConnections, event.sender, (deadId) => {
-        disposeByOwner(activeConnections, deadId, (e) => {
-          void closeConnection(e);
-        });
-      });
+      // add() stores the entry and wires renderer-destroyed cleanup: if the
+      // renderer dies without disconnecting, dispose() fire-and-forget closes the
+      // producer/consumer so their broker sockets don't leak until process exit
+      // (a real leak under hot-reload). Dedupes the destroyed-listener across
+      // reconnects and centralises the owner→dispose walk (ADR-0006).
+      activeConnections.add(connectionId, event.sender, entry);
 
       emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), {
         timestamp: Date.now(),
@@ -622,7 +626,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       const entry = activeConnections.get(cfg.connectionId);
       if (entry) {
         await closeConnection(entry);
-        activeConnections.delete(cfg.connectionId);
+        activeConnections.remove(cfg.connectionId);
         emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CLOSE, cfg.connectionId), {});
       }
       return { success: true };
@@ -847,7 +851,7 @@ async function closeAdmin(admin: Admin): Promise<void> {
 }
 
 export async function stopKafkaCleanup(): Promise<void> {
-  for (const [, entry] of activeConnections) {
+  for (const entry of activeConnections.values()) {
     await closeConnection(entry);
   }
   activeConnections.clear();

@@ -5,7 +5,7 @@ import type { Socket } from 'socket.io-client';
 import type * as SocketIoClient from 'socket.io-client';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
 import {
   SocketIoConnectSchema,
@@ -70,7 +70,12 @@ function disposeSocketIo(entry: ActiveSocketIO): void {
   }
 }
 
-const activeConnections = new Map<string, ActiveSocketIO>();
+// Shared connection bookkeeping (map + same-id replace + renderer-destroyed
+// cleanup + disposeAll), with disposeSocketIo as the dispose seam. Socket.IO
+// keeps direct emitTo with `socketioChannels` (its channel names are builder
+// functions, not the eventChannel(prefix,id) shape registry.emit uses), so the
+// registry is used purely for bookkeeping here.
+const activeConnections = new StreamRegistry<ActiveSocketIO>({ dispose: disposeSocketIo });
 
 function buildConnectUrl(rawUrl: string, namespace: string | undefined): string {
   // Socket.IO joins the namespace by appending it to the URL's pathname.
@@ -101,16 +106,12 @@ export function registerSocketIoHandlerIPC(): void {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size >= MAX_CONCURRENT_SOCKETIO_CONNECTIONS) {
+    if (activeConnections.size() >= MAX_CONCURRENT_SOCKETIO_CONNECTIONS) {
       return { success: false, error: 'Too many open Socket.IO connections.' };
     }
 
-    // Close existing connection with the same id
-    const existing = activeConnections.get(connectionId);
-    if (existing) {
-      disposeSocketIo(existing);
-      activeConnections.delete(connectionId);
-    }
+    // Close an existing connection with the same id (dispose tears it down).
+    activeConnections.cancel(connectionId);
 
     // Resolve + validate once, then PIN every transport to that IP. socket.io
     // re-resolves DNS on connect (and on each reconnect), so a one-shot
@@ -199,11 +200,9 @@ export function registerSocketIoHandlerIPC(): void {
         emitTo(webContentsId, socketioChannels.event(connectionId), { eventName, args });
       });
 
-      activeConnections.set(connectionId, entry);
-
-      bindRendererCleanup(activeConnections, event.sender, (deadId) => {
-        disposeByOwner(activeConnections, deadId, disposeSocketIo);
-      });
+      // add() stores the entry and wires renderer-destroyed cleanup (dispose
+      // tears the transport/timers/agent down).
+      activeConnections.add(connectionId, event.sender, entry);
 
       return { success: true };
     } catch (err) {
@@ -268,19 +267,12 @@ export function registerSocketIoHandlerIPC(): void {
   ipcMain.handle(
     IPC.socketio.disconnect,
     createValidatedHandler(IPC.socketio.disconnect, SocketIoDisconnectSchema, async (config) => {
-      const entry = activeConnections.get(config.connectionId);
-      if (entry) {
-        disposeSocketIo(entry);
-        activeConnections.delete(config.connectionId);
-      }
+      activeConnections.cancel(config.connectionId);
       return { success: true };
     })
   );
 }
 
 export function stopSocketIoCleanup(): void {
-  for (const [, entry] of activeConnections) {
-    disposeSocketIo(entry);
-  }
-  activeConnections.clear();
+  activeConnections.disposeAll();
 }

@@ -89,6 +89,24 @@ export class StreamRegistry<E extends StreamEntryBase> {
     return this.map.size;
   }
 
+  /**
+   * Iterate the live entries — for handlers whose teardown is async or otherwise
+   * bespoke (Kafka/MQTT await a graceful `closeConnection`), which don't fit the
+   * synchronous {@link dispose} seam. Pair with {@link clear} after disposing.
+   */
+  values(): IterableIterator<E> {
+    return this.map.values();
+  }
+
+  /**
+   * Drop every entry WITHOUT disposing — for a handler that has already torn its
+   * connections down itself (e.g. an awaited async teardown loop over
+   * {@link values}). Use {@link disposeAll} when you want the registry to dispose.
+   */
+  clear(): void {
+    this.map.clear();
+  }
+
   /** Number of live entries owned by a given renderer — for per-sender caps. */
   countForSender(webContentsId: number): number {
     let n = 0;
