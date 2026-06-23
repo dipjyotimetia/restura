@@ -136,6 +136,21 @@ describe('StreamRegistry', () => {
     expect(mockEmitTo).not.toHaveBeenCalled();
   });
 
+  it('emitAndRemove() emits the terminal event and then drops the entry', () => {
+    const { registry, entry } = env;
+    const wc = makeWc(7);
+    registry.add('c1', wc.wc as never, entry('c1', 7));
+    registry.emitAndRemove('c1', 'close', { reason: 'done' });
+    // Emitted to the live entry, then removed.
+    expect(mockEmitTo).toHaveBeenCalledWith(7, 'test:close:c1', { reason: 'done' });
+    expect(registry.has('c1')).toBe(false);
+    // A second emit for the same id is now a no-op (entry gone) — the foot-gun
+    // emitAndRemove exists to prevent.
+    mockEmitTo.mockClear();
+    registry.emit('c1', 'close', { reason: 'again' });
+    expect(mockEmitTo).not.toHaveBeenCalled();
+  });
+
   it('disposes exactly the destroyed renderer’s entries on renderer cleanup', () => {
     const { registry, disposed, entry } = env;
     const a = makeWc(1);

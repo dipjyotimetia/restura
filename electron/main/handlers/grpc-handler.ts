@@ -167,6 +167,10 @@ const addActiveCall = (
   // tryAdd rejects a duplicate id (a renderer bug) rather than replacing.
   if (!activeCalls.tryAdd(id, sender, entry)) {
     log.warn('duplicate stream rejected', { streamId: id });
+    // Drop any writes/half-close that raced in under this id — the stream was
+    // rejected, so they'd otherwise orphan in pendingStreamMessages until the
+    // size cap or stopStreamCleanup evicts them.
+    pendingStreamMessages.delete(id);
     return false;
   }
   // Flush any writes / half-close that raced ahead of registration (see

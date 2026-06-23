@@ -50,8 +50,7 @@ async function readStream(
 ): Promise<void> {
   if (!body) {
     connections.emit(entry.connectionId, 'error', { message: 'No response body' });
-    connections.emit(entry.connectionId, 'close', { reason: 'no body' });
-    connections.remove(entry.connectionId);
+    connections.emitAndRemove(entry.connectionId, 'close', { reason: 'no body' });
     return;
   }
 
@@ -84,12 +83,11 @@ async function readStream(
     } catch {
       /* already done */
     }
-    // Emit the terminal close BEFORE dropping the entry — emit() resolves the
-    // owning renderer from the live entry, so removing first would no-op it.
     if (!entry.explicitlyClosed) {
-      connections.emit(entry.connectionId, 'close', { reason: 'stream ended' });
+      connections.emitAndRemove(entry.connectionId, 'close', { reason: 'stream ended' });
+    } else {
+      connections.remove(entry.connectionId);
     }
-    connections.remove(entry.connectionId);
   }
 }
 
@@ -168,8 +166,7 @@ export function registerSseHandlerIPC(): void {
 
       if (!result.ok) {
         connections.emit(connectionId, 'error', { message: result.payload.error });
-        connections.emit(connectionId, 'close', { reason: result.payload.error });
-        connections.remove(connectionId);
+        connections.emitAndRemove(connectionId, 'close', { reason: result.payload.error });
         return { success: false, error: result.payload.error };
       }
 
@@ -178,8 +175,7 @@ export function registerSseHandlerIPC(): void {
         connections.emit(connectionId, 'error', {
           message: `HTTP ${response.status} ${response.statusText}`,
         });
-        connections.emit(connectionId, 'close', { reason: `HTTP ${response.status}` });
-        connections.remove(connectionId);
+        connections.emitAndRemove(connectionId, 'close', { reason: `HTTP ${response.status}` });
         return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
       }
 

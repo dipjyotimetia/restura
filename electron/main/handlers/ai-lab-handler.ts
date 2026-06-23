@@ -20,7 +20,7 @@ import { ipcMain } from 'electron';
 import type { Fetcher } from '@shared/protocol/types';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { resolveSecretHandle } from '../security/secret-handle-store';
 import {
   AiLabCompleteSchema,
@@ -89,8 +89,13 @@ interface ActiveAbort {
   abort: AbortController;
 }
 
-const activeStreams = new Map<string, ActiveAbort & { streamId: string }>();
-const activeCompletes = new Map<string, ActiveAbort>();
+// Shared connection bookkeeping (map + renderer-destroyed cleanup + disposeAll).
+// Emits use emitTo with the captured webContentsId, so the registries are used
+// for bookkeeping only — dispose aborts the in-flight call.
+const activeStreams = new StreamRegistry<ActiveAbort & { streamId: string }>({
+  dispose: (s) => s.abort.abort(),
+});
+const activeCompletes = new StreamRegistry<ActiveAbort>({ dispose: (c) => c.abort.abort() });
 
 /**
  * Resolve the provider's base URL and return a DNS-pinned, manual-redirect
@@ -155,7 +160,7 @@ async function runStream(
     emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
     emitTo(webContentsId, endChannel, { reason: 'error' });
   } finally {
-    activeStreams.delete(streamId);
+    activeStreams.remove(streamId);
   }
 }
 
@@ -184,10 +189,7 @@ export function registerAiLabHandlers(): void {
     // from the same sender in the same tick, leaking an AbortController).
     const completeId = crypto.randomUUID();
     const abort = new AbortController();
-    activeCompletes.set(completeId, { webContentsId: senderId, abort });
-    bindRendererCleanup(activeCompletes, event.sender, (deadId) =>
-      disposeByOwner(activeCompletes, deadId, (c) => c.abort.abort())
-    );
+    activeCompletes.add(completeId, event.sender, { webContentsId: senderId, abort });
 
     await completeSlots.acquire();
     try {
@@ -203,7 +205,7 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: msg };
     } finally {
       completeSlots.release();
-      activeCompletes.delete(completeId);
+      activeCompletes.remove(completeId);
     }
   });
 
@@ -216,10 +218,7 @@ export function registerAiLabHandlers(): void {
     if (!streamRateLimiter.check(senderId)) {
       return { ok: false as const, error: 'Rate limited. Slow down.' };
     }
-    const streamsForSender = [...activeStreams.values()].filter(
-      (s) => s.webContentsId === senderId
-    ).length;
-    if (streamsForSender >= MAX_CONCURRENT_STREAMS) {
+    if (activeStreams.countForSender(senderId) >= MAX_CONCURRENT_STREAMS) {
       return { ok: false as const, error: 'Too many concurrent AI Lab streams.' };
     }
     const data = parsed.data;
@@ -230,10 +229,11 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: (e as Error).message };
     }
     const abort = new AbortController();
-    activeStreams.set(data.streamId, { streamId: data.streamId, webContentsId: senderId, abort });
-    bindRendererCleanup(activeStreams, event.sender, (deadId) =>
-      disposeByOwner(activeStreams, deadId, (s) => s.abort.abort())
-    );
+    activeStreams.add(data.streamId, event.sender, {
+      streamId: data.streamId,
+      webContentsId: senderId,
+      abort,
+    });
     void runStream(buildSpec(data), fetcher, data.streamId, senderId, abort);
     return { ok: true as const, streamId: data.streamId };
   });
@@ -244,9 +244,11 @@ export function registerAiLabHandlers(): void {
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const entry = activeStreams.get(parsed.data.streamId);
     if (!entry) return { ok: true as const, alreadyDone: true };
-    entry.abort.abort();
-    activeStreams.delete(parsed.data.streamId);
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.aiLab.end, parsed.data.streamId), {
+    // cancel() disposes (aborts) + removes; capture webContentsId first so the
+    // end event still reaches the renderer after the entry is gone.
+    const { webContentsId } = entry;
+    activeStreams.cancel(parsed.data.streamId);
+    emitTo(webContentsId, eventChannel(EVENT_PREFIX.aiLab.end, parsed.data.streamId), {
       reason: 'cancelled',
     });
     return { ok: true as const };
@@ -315,8 +317,6 @@ export function unregisterAiLabHandlers(): void {
   ipcMain.removeHandler(IPC.aiLab.streamCancel);
   ipcMain.removeHandler(IPC.aiLab.listModels);
   ipcMain.removeHandler(IPC.aiLab.testConnection);
-  for (const s of activeStreams.values()) s.abort.abort();
-  for (const c of activeCompletes.values()) c.abort.abort();
-  activeStreams.clear();
-  activeCompletes.clear();
+  activeStreams.disposeAll();
+  activeCompletes.disposeAll();
 }

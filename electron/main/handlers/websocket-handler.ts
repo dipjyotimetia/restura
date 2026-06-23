@@ -138,12 +138,12 @@ export function registerWebSocketHandlerIPC(): void {
 
       ws.on('close', (code: number, reason: Buffer) => {
         // Only forward unexpected closes; explicit ws:disconnect / teardown sets
-        // explicitlyClosed. Emit BEFORE removing — emit() resolves the renderer
-        // from the live entry.
+        // explicitlyClosed. emitAndRemove keeps the emit-before-remove ordering.
         if (!explicitlyClosed) {
-          connections.emit(connectionId, 'close', { code, reason: reason.toString() });
+          connections.emitAndRemove(connectionId, 'close', { code, reason: reason.toString() });
+        } else {
+          connections.remove(connectionId);
         }
-        connections.remove(connectionId);
       });
 
       entry.setExplicitlyClosed = () => {

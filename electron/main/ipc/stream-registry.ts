@@ -153,6 +153,10 @@ export class StreamRegistry<E extends StreamEntryBase> {
    * Emit a templated per-connection event to the entry's owning renderer using
    * the configured `prefixes`. No-op if the entry is gone or `prefixes` was not
    * supplied. `eventName` keys into `prefixes`.
+   *
+   * For a TERMINAL event (close/error that ends the connection) use
+   * {@link emitAndRemove} instead — `emit` resolves the renderer from the live
+   * map entry, so emitting after a bare {@link remove} would silently no-op.
    */
   emit(connectionId: string, eventName: string, payload?: unknown): void {
     const entry = this.map.get(connectionId);
@@ -160,6 +164,17 @@ export class StreamRegistry<E extends StreamEntryBase> {
     const prefix = this.prefixes[eventName];
     if (prefix === undefined) return;
     emitTo(entry.webContentsId, eventChannel(prefix, connectionId), payload);
+  }
+
+  /**
+   * Emit a templated event and THEN drop the entry — the safe way to send a
+   * terminal event. Bundles the emit + removal in the correct order so callers
+   * can't accidentally remove first and silently no-op the final event (the
+   * foot-gun that {@link emit}'s live-entry lookup creates).
+   */
+  emitAndRemove(connectionId: string, eventName: string, payload?: unknown): void {
+    this.emit(connectionId, eventName, payload);
+    this.map.delete(connectionId);
   }
 
   /** Dispose every entry and clear the map — for the handler's `stop*Cleanup()`. */
