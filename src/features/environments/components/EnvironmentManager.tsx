@@ -352,7 +352,7 @@ function EnvDetailHeader({
             }}
             className={cn(
               'w-full h-7 px-2 rounded-sp-btn',
-              'bg-sp-surface-lo border border-sp-line-strong text-sp-text text-sp-15 font-bold',
+              'bg-sp-surface-lo border border-sp-line-strong text-sp-text text-sp-14 font-bold',
               'focus:outline-none focus:ring-2 focus:ring-sp-accent'
             )}
           />
@@ -361,7 +361,7 @@ function EnvDetailHeader({
             type="button"
             onClick={() => setEditing(true)}
             className={cn(
-              'group flex items-center gap-2 text-sp-15 font-bold text-sp-text',
+              'group flex items-center gap-2 text-sp-14 font-bold text-sp-text',
               'rounded-sp-btn px-1 -mx-1 hover:bg-sp-hover transition-colors',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
             )}
@@ -588,7 +588,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                 <Globe size={18} className="text-sp-accent" />
               </div>
               <div className="flex flex-col leading-tight">
-                <h1 className="text-sp-18 font-bold text-sp-text">Environments</h1>
+                <h1 className="text-sp-16 font-bold text-sp-text">Environments</h1>
                 <p className="text-sp-12-5 text-sp-muted mt-0.5">
                   Reusable variables per stage — dev, staging, production.
                 </p>

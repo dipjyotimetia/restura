@@ -523,7 +523,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
                 <Download size={18} className="text-sp-accent" />
               </div>
               <div className="flex flex-col leading-tight">
-                <h1 className="text-sp-18 font-bold text-sp-text">Import collection</h1>
+                <h1 className="text-sp-16 font-bold text-sp-text">Import collection</h1>
                 <p className="text-sp-12-5 text-sp-muted mt-0.5">
                   Bring requests, environments, and scripts from another API client.
                 </p>

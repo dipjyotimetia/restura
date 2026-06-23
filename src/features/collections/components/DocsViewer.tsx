@@ -57,7 +57,8 @@ export function DocsViewer({ collection, onClose }: DocsViewerProps) {
   return (
     <Dialog open={collection !== null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-4 py-3 border-b border-sp-line flex-row items-center justify-between space-y-0">
+        {/* pr-14 reserves the top-right corner for DialogContent's absolute close button */}
+        <DialogHeader className="py-3 pl-4 pr-14 border-b border-sp-line flex-row items-center justify-between space-y-0">
           <div>
             <DialogTitle className="font-mono text-sm tracking-wide flex items-center gap-2">
               <FileText className="h-4 w-4" /> {collection?.name ?? ''} — API Docs

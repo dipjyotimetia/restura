@@ -91,7 +91,7 @@ export function VariableExtractorConfig({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
+        <DialogHeader icon={TestTube}>
           <DialogTitle>Configure Variable Extractions</DialogTitle>
         </DialogHeader>
 

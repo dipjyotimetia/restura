@@ -39,6 +39,7 @@ import {
   Download,
   Upload,
   GitBranch,
+  Workflow as WorkflowIcon,
 } from 'lucide-react';
 
 interface WorkflowManagerProps {
@@ -282,7 +283,7 @@ export function WorkflowManager({
       {/* New Workflow Dialog */}
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
         <DialogContent>
-          <DialogHeader>
+          <DialogHeader icon={WorkflowIcon}>
             <DialogTitle>Create Workflow</DialogTitle>
           </DialogHeader>
           <div className="py-4">

@@ -68,11 +68,8 @@ export function ConflictDialog({ conflict, onClose }: ConflictDialogProps) {
   return (
     <Dialog open={!!conflict} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-yellow-500" />
-            File Conflict Detected
-          </DialogTitle>
+        <DialogHeader icon={AlertTriangle} tone="warning">
+          <DialogTitle>File Conflict Detected</DialogTitle>
           <DialogDescription>
             The file has been modified externally while you were editing. Choose how to resolve this
             conflict.

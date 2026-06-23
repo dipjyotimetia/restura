@@ -142,12 +142,9 @@ export default function WelcomeOnboarding() {
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogContent className="max-w-md bg-card border-border">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 font-mono text-sm tracking-wide">
-            <Rocket className="h-4 w-4 text-primary" />
-            WELCOME TO RESTURA
-          </DialogTitle>
+      <DialogContent className="max-w-md">
+        <DialogHeader icon={Rocket}>
+          <DialogTitle>WELCOME TO RESTURA</DialogTitle>
           <DialogDescription className="font-mono text-xs">
             Your modern API testing companion. Let&apos;s get you started.
           </DialogDescription>

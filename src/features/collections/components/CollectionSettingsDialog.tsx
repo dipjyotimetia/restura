@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -119,7 +120,7 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
+        <DialogHeader icon={SlidersHorizontal}>
           <DialogTitle>
             {isCollection ? 'Collection settings' : 'Folder settings'} — {name}
           </DialogTitle>

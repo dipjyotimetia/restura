@@ -29,11 +29,8 @@ export function ExportSecretsDialog({ secretCount, open, onCancel, onExport }: P
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 text-amber-500" />
-            This export contains secrets
-          </DialogTitle>
+        <DialogHeader icon={ShieldAlert} tone="warning">
+          <DialogTitle>This export contains secrets</DialogTitle>
           <DialogDescription>
             {secretCount} plaintext credential{secretCount === 1 ? '' : 's'} (tokens, passwords, API
             keys) would be written into the exported file. Redacted exports keep the auth
