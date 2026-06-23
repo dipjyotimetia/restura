@@ -17,6 +17,9 @@ import {
 } from '../ipc/ipc-validators';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 import { IPC } from '../../shared/channels';
+import { createLogger } from '../../../src/lib/shared/logger';
+
+const log = createLogger('socketio');
 
 export const socketIoRateLimiter = createKeyedRateLimiter(20, 60_000);
 
@@ -175,6 +178,7 @@ export function registerSocketIoHandlerIPC(): void {
       });
 
       socket.on('connect_error', (err: Error) => {
+        log.warn('connect error', { connectionId, error: err.message });
         emitTo(webContentsId, socketioChannels.error(connectionId), { message: err.message });
       });
 
@@ -203,9 +207,11 @@ export function registerSocketIoHandlerIPC(): void {
 
       return { success: true };
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to connect';
+      log.warn('connect failed', { connectionId, error: message });
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to connect',
+        error: message,
       };
     }
   });

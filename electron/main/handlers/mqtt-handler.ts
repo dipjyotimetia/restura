@@ -20,6 +20,9 @@ import {
   assertTrustedSender,
   type MqttConnectConfig,
 } from '../ipc/ipc-validators';
+import { createLogger } from '../../../src/lib/shared/logger';
+
+const log = createLogger('mqtt');
 
 // `mqtt` is moderately heavy and most sessions never open a connection. Load it
 // lazily on first use rather than at module load (which runs before
@@ -139,6 +142,11 @@ function bindClientListeners(entry: ActiveMqtt): void {
 
   client.on('error', (err: Error) => {
     const code = (err as NodeJS.ErrnoException).code;
+    log.warn('client error', {
+      connectionId: entry.connectionId,
+      error: err.message,
+      ...(code ? { code } : {}),
+    });
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.ERROR, entry.connectionId), {
       message: err.message,
       ...(code ? { code } : {}),

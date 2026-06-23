@@ -22,6 +22,9 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { createLogger } from '../../../src/lib/shared/logger';
+
+const log = createLogger('mcp');
 
 /**
  * MCP IPC handler, backed by the official `@modelcontextprotocol/sdk` client.
@@ -141,8 +144,10 @@ export function registerMcpHandlerIPC(): void {
     };
     client.onerror = (err) => {
       if (session.disposed) return;
+      const message = errorMessage(err);
+      log.warn('client error', { connectionId: config.connectionId, error: message });
       emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.error, config.connectionId), {
-        message: errorMessage(err),
+        message,
       });
     };
     client.onclose = () => {
@@ -167,7 +172,9 @@ export function registerMcpHandlerIPC(): void {
     } catch (err) {
       session.disposed = true;
       void client.close().catch(() => {});
-      return { success: false, error: errorMessage(err) };
+      const message = errorMessage(err);
+      log.warn('connect failed', { connectionId: config.connectionId, error: message });
+      return { success: false, error: message };
     }
   });
 

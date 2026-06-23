@@ -48,17 +48,29 @@ export const electronLogSink: LogSink = (record) => {
   }
 };
 
+export interface InitLoggingOptions {
+  /**
+   * Headless MCP stdio-server mode (`restura --mcp-server`). The MCP SDK owns
+   * stdout for the JSON-RPC stream, and electron-log's console transport routes
+   * info/debug to `console.info`/`console.debug` → stdout — which would corrupt
+   * the protocol. Force the console transport off so the stream stays pristine;
+   * the file transport still persists everything for debugging.
+   */
+  mcpServerMode?: boolean;
+}
+
 /**
  * Configure electron-log transports and point the shared logger's sink at it.
  * Call once, early in main.ts (before any log call), so module-init warnings
  * and the global error handlers are persisted from the first line.
  */
-export function initLogging(isDev: boolean): void {
+export function initLogging(isDev: boolean, options: InitLoggingOptions = {}): void {
   const level = resolveLevel(isDev);
 
   log.transports.file.level = level;
-  // Console is invisible in packaged builds; only emit it during dev.
-  log.transports.console.level = isDev ? 'debug' : false;
+  // Console is invisible in packaged builds (only emitted during dev) and MUST
+  // stay off in MCP stdio mode, where any stdout write corrupts JSON-RPC.
+  log.transports.console.level = options.mcpServerMode ? false : isDev ? 'debug' : false;
   log.transports.file.maxSize = 5 * 1024 * 1024; // 5 MB, then rotate to *.old.log
 
   // Single-line JSON, mirroring the shared logger's consoleSink convention so
