@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { assertBoundedDocument, openCollectionSchema, type OpenCollection } from './schemas';
 
 export function parseOpenCollectionYAML(raw: string): OpenCollection {
@@ -23,7 +23,8 @@ export function serializeOpenCollectionYAML(oc: OpenCollection): string {
     lineWidth: 120,
     noRefs: true,
     sortKeys: false,
-    quotingType: '"',
+    // js-yaml v5 renamed `quotingType: '"'` to `quoteStyle: 'double'`.
+    quoteStyle: 'double',
     forceQuotes: true,
   });
 }

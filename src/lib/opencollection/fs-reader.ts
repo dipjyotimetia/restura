@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, basename } from 'node:path';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 import type { OpenCollection } from './schemas';
 

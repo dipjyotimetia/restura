@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type DragEvent } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X, Upload, CheckCircle2, AlertCircle, Lock, Download, Check } from 'lucide-react';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { Floater } from '@/components/ui/spatial';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useCollectionStore } from '@/store/useCollectionStore';
