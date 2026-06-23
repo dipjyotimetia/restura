@@ -124,7 +124,7 @@
     "@radix-ui/react-tooltip": "^1.2.10",
     "@sentry/electron": "^7.13.0",
     "@smithy/protocol-http": "^5.5.1",
-    "@smithy/signature-v4": "^5.5.1",
+    "@smithy/signature-v4": "^5.5.2",
     "@usebruno/lang": "^0.36.0",
     "@xyflow/react": "^12.11.0",
     "ajv": "^8.20.0",
