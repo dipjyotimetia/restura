@@ -131,7 +131,9 @@ describe('graphqlEcho handler', () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as ErrorResponse;
     expect(json.errors.length).toBeGreaterThan(0);
-    expect(json.errors[0]?.message).toMatch(/argument "message".*is required/i);
+    // graphql v16 phrased this as `Argument "message" of required type ...`;
+    // graphql v17 phrases it as `Argument "Query.echo(message:)" ... is required`.
+    expect(json.errors[0]?.message).toMatch(/argument.*message.*required/i);
   });
 
   it('Syntax error → 200 with parse errors', async () => {
