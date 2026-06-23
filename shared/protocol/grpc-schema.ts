@@ -11,7 +11,7 @@ import { z } from 'zod';
  * `ReflectionRequest` interface in `worker/handlers/grpc-reflection.ts`.
  */
 
-/** Mirrors `GrpcSpec` in `./grpc-proxy.ts`. */
+/** Mirrors `GrpcSpec` in `./grpc-proxy.ts`. Guarded by `tests/grpc-spec-parity.test.ts`. */
 export const GrpcProxyRequestBodySchema = z.object({
   url: z.string().min(1),
   service: z.string().min(1),

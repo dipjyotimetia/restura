@@ -20,7 +20,7 @@ import { ipcMain } from 'electron';
 import type { Fetcher } from '@shared/protocol/types';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { resolveSecretHandle } from '../security/secret-handle-store';
 import {
   AiLabCompleteSchema,
@@ -36,10 +36,20 @@ import { listModels, testConnection } from '@shared/protocol/ai/model-discovery'
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
 import { makePinnedFetcher } from './fetch-fetcher';
+import { createLogger } from '../../../src/lib/shared/logger';
 
-// Evals fan out into many completes; the per-minute budget is generous but still
-// an abuse ceiling. Concurrency (not rate) is the real throttle — see semaphore.
-const rateLimiter = createKeyedRateLimiter(300, 60_000);
+const log = createLogger('ai-lab');
+
+// Per-webContents budget for Playground streams (a handful of models at a time).
+const streamRateLimiter = createKeyedRateLimiter(300, 60_000);
+// `complete` is throttled primarily by COMPLETE_CONCURRENCY (the real bound); this
+// per-minute ceiling sits well ABOVE the semaphore's sustainable throughput so it
+// never trips a legitimate eval run — it only stops a runaway/compromised renderer
+// from firing unbounded completes.
+const completeRateLimiter = createKeyedRateLimiter(1200, 60_000);
+// Discovery is user-initiated (click "test connection" / "refresh models"); a modest
+// cap is plenty and bounds a renderer probing arbitrary hosts in a tight loop.
+const discoveryRateLimiter = createKeyedRateLimiter(60, 60_000);
 const MAX_CONCURRENT_STREAMS = 6; // Playground compares a handful of models at once.
 const COMPLETE_CONCURRENCY = 8; // Hard ceiling on simultaneous upstream model calls.
 
@@ -79,8 +89,13 @@ interface ActiveAbort {
   abort: AbortController;
 }
 
-const activeStreams = new Map<string, ActiveAbort & { streamId: string }>();
-const activeCompletes = new Map<string, ActiveAbort>();
+// Shared connection bookkeeping (map + renderer-destroyed cleanup + disposeAll).
+// Emits use emitTo with the captured webContentsId, so the registries are used
+// for bookkeeping only — dispose aborts the in-flight call.
+const activeStreams = new StreamRegistry<ActiveAbort & { streamId: string }>({
+  dispose: (s) => s.abort.abort(),
+});
+const activeCompletes = new StreamRegistry<ActiveAbort>({ dispose: (c) => c.abort.abort() });
 
 /**
  * Resolve the provider's base URL and return a DNS-pinned, manual-redirect
@@ -140,10 +155,12 @@ async function runStream(
     emitTo(webContentsId, endChannel, { reason: 'done' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Persist the main-process trace — the renderer only sees the error event.
+    log.warn('stream failed', { streamId, provider: spec.provider, error: msg });
     emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
     emitTo(webContentsId, endChannel, { reason: 'error' });
   } finally {
-    activeStreams.delete(streamId);
+    activeStreams.remove(streamId);
   }
 }
 
@@ -154,9 +171,12 @@ export function registerAiLabHandlers(): void {
     const parsed = AiLabCompleteSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const senderId = event.sender.id;
-    // No per-minute rate cap here: a single eval run fans out cases × models into
-    // hundreds of completes, and the concurrency semaphore (COMPLETE_CONCURRENCY)
-    // is the real throttle. A per-minute cap would spuriously fail evals midway.
+    // The concurrency semaphore (COMPLETE_CONCURRENCY) is the real throttle for
+    // eval fan-out; completeRateLimiter is only a high abuse ceiling that sits
+    // above sustainable throughput, so it won't spuriously fail a legitimate run.
+    if (!completeRateLimiter.check(senderId)) {
+      return { ok: false as const, error: 'Rate limited. Slow down.' };
+    }
     const data = parsed.data;
     let fetcher: Fetcher;
     try {
@@ -169,10 +189,7 @@ export function registerAiLabHandlers(): void {
     // from the same sender in the same tick, leaking an AbortController).
     const completeId = crypto.randomUUID();
     const abort = new AbortController();
-    activeCompletes.set(completeId, { webContentsId: senderId, abort });
-    bindRendererCleanup(activeCompletes, event.sender, (deadId) =>
-      disposeByOwner(activeCompletes, deadId, (c) => c.abort.abort())
-    );
+    activeCompletes.add(completeId, event.sender, { webContentsId: senderId, abort });
 
     await completeSlots.acquire();
     try {
@@ -183,10 +200,12 @@ export function registerAiLabHandlers(): void {
       );
       return { ok: true as const, result };
     } catch (e) {
-      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn('complete failed', { provider: data.provider, model: data.model, error: msg });
+      return { ok: false as const, error: msg };
     } finally {
       completeSlots.release();
-      activeCompletes.delete(completeId);
+      activeCompletes.remove(completeId);
     }
   });
 
@@ -196,13 +215,10 @@ export function registerAiLabHandlers(): void {
     const parsed = AiLabStreamSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const senderId = event.sender.id;
-    if (!rateLimiter.check(senderId)) {
+    if (!streamRateLimiter.check(senderId)) {
       return { ok: false as const, error: 'Rate limited. Slow down.' };
     }
-    const streamsForSender = [...activeStreams.values()].filter(
-      (s) => s.webContentsId === senderId
-    ).length;
-    if (streamsForSender >= MAX_CONCURRENT_STREAMS) {
+    if (activeStreams.countForSender(senderId) >= MAX_CONCURRENT_STREAMS) {
       return { ok: false as const, error: 'Too many concurrent AI Lab streams.' };
     }
     const data = parsed.data;
@@ -213,10 +229,11 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: (e as Error).message };
     }
     const abort = new AbortController();
-    activeStreams.set(data.streamId, { streamId: data.streamId, webContentsId: senderId, abort });
-    bindRendererCleanup(activeStreams, event.sender, (deadId) =>
-      disposeByOwner(activeStreams, deadId, (s) => s.abort.abort())
-    );
+    activeStreams.add(data.streamId, event.sender, {
+      streamId: data.streamId,
+      webContentsId: senderId,
+      abort,
+    });
     void runStream(buildSpec(data), fetcher, data.streamId, senderId, abort);
     return { ok: true as const, streamId: data.streamId };
   });
@@ -227,9 +244,11 @@ export function registerAiLabHandlers(): void {
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const entry = activeStreams.get(parsed.data.streamId);
     if (!entry) return { ok: true as const, alreadyDone: true };
-    entry.abort.abort();
-    activeStreams.delete(parsed.data.streamId);
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.aiLab.end, parsed.data.streamId), {
+    // cancel() disposes (aborts) + removes; capture webContentsId first so the
+    // end event still reaches the renderer after the entry is gone.
+    const { webContentsId } = entry;
+    activeStreams.cancel(parsed.data.streamId);
+    emitTo(webContentsId, eventChannel(EVENT_PREFIX.aiLab.end, parsed.data.streamId), {
       reason: 'cancelled',
     });
     return { ok: true as const };
@@ -240,6 +259,9 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.listModels, event);
     const parsed = AiLabDiscoverSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    if (!discoveryRateLimiter.check(event.sender.id)) {
+      return { ok: false as const, error: 'Rate limited. Slow down.' };
+    }
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
     try {
       const fetcher = await buildSafeFetcher(provider, baseUrl);
@@ -252,7 +274,9 @@ export function registerAiLabHandlers(): void {
       });
       return { ok: true as const, models };
     } catch (e) {
-      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn('listModels failed', { provider, error: msg });
+      return { ok: false as const, error: msg };
     }
   });
 
@@ -260,6 +284,9 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.testConnection, event);
     const parsed = AiLabDiscoverSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    if (!discoveryRateLimiter.check(event.sender.id)) {
+      return { ok: false as const, error: 'Rate limited. Slow down.' };
+    }
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
     let fetcher: Fetcher;
     try {
@@ -277,7 +304,9 @@ export function registerAiLabHandlers(): void {
       });
       return result;
     } catch (e) {
-      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn('testConnection failed', { provider, error: msg });
+      return { ok: false as const, error: msg };
     }
   });
 }
@@ -288,8 +317,6 @@ export function unregisterAiLabHandlers(): void {
   ipcMain.removeHandler(IPC.aiLab.streamCancel);
   ipcMain.removeHandler(IPC.aiLab.listModels);
   ipcMain.removeHandler(IPC.aiLab.testConnection);
-  for (const s of activeStreams.values()) s.abort.abort();
-  for (const c of activeCompletes.values()) c.abort.abort();
-  activeStreams.clear();
-  activeCompletes.clear();
+  activeStreams.disposeAll();
+  activeCompletes.disposeAll();
 }

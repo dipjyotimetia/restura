@@ -35,6 +35,9 @@ const sdkState = vi.hoisted(() => ({
   streamables: [] as Array<{ url: URL; opts: Record<string, unknown> }>,
   sses: [] as Array<{ url: URL; opts: Record<string, unknown> }>,
   nextConnectError: undefined as Error | undefined,
+  // When true, the next connect() fires the client's onclose mid-handshake
+  // (server closed during initialize) to exercise the connect-time race guard.
+  fireCloseOnConnect: false,
 }));
 
 interface MockClientShape {
@@ -61,6 +64,12 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
         const err = sdkState.nextConnectError;
         sdkState.nextConnectError = undefined;
         throw err;
+      }
+      if (sdkState.fireCloseOnConnect) {
+        sdkState.fireCloseOnConnect = false;
+        // Transport closed during the handshake — fires before the session is
+        // registered, so onclose's `sessions.get(...) === session` guard is false.
+        this.onclose?.();
       }
       return undefined;
     });
@@ -143,6 +152,8 @@ describe('mcp-handler (SDK-backed)', () => {
     sdkState.clients.length = 0;
     sdkState.streamables.length = 0;
     sdkState.sses.length = 0;
+    sdkState.nextConnectError = undefined;
+    sdkState.fireCloseOnConnect = false;
     registerMcpHandlerIPC();
   });
 
@@ -196,6 +207,21 @@ describe('mcp-handler (SDK-backed)', () => {
     expect(res).toEqual({ success: false, error: 'HTTP 401 Unauthorized' });
     expect(sdkState.clients[0]!.close).toHaveBeenCalled();
     // No session was stored — requests must fail.
+    const reqRes = await handlerFor('mcp:request')(trustedEvent(), {
+      connectionId: 'conn-1',
+      method: 'tools/list',
+    });
+    expect(reqRes).toEqual({ success: false, error: 'Not connected' });
+  });
+
+  it('treats an onclose during connect as a failed connection (no dead session, no mcp:open)', async () => {
+    sdkState.fireCloseOnConnect = true;
+    const res = await connect();
+    expect(res).toEqual({ success: false, error: 'Connection closed during initialization' });
+    // The disposed session must NOT be registered and the renderer must NOT be
+    // told the connection opened (the bug: a dead session reported as live).
+    expect(mockEmitTo).not.toHaveBeenCalledWith(1, 'mcp:open:conn-1');
+    expect(sdkState.clients[0]!.close).toHaveBeenCalled();
     const reqRes = await handlerFor('mcp:request')(trustedEvent(), {
       connectionId: 'conn-1',
       method: 'tools/list',

@@ -17,7 +17,7 @@ import { protocolSecretValueSchema, isProtocolSecretHandle } from './secret-valu
  * it here.
  */
 
-/** Mirrors `ProxyBodyType` from `./body-builder.ts`. */
+/** Mirrors `ProxyBodyType` from `./body-builder.ts`. Guarded by `tests/body-type-parity.test.ts`. */
 export const BodyTypeSchema = z.enum([
   'none',
   'json',
@@ -28,7 +28,7 @@ export const BodyTypeSchema = z.enum([
   'binary',
 ]);
 
-/** Mirrors `FormField` from `./body-builder.ts`. */
+/** Mirrors `FormField` from `./body-builder.ts`. Guarded by `tests/body-type-parity.test.ts`. */
 export const FormFieldSchema = z.object({
   name: z.string(),
   value: z.string(),
@@ -41,6 +41,8 @@ export const FormFieldSchema = z.object({
  * shared protocol core actually consumes are validated structurally; the
  * `type` discriminator accepts the full union so renderer-side auth types
  * (basic/bearer/etc) still pass through as no-ops.
+ *
+ * Guarded by `tests/auth-config-parity.test.ts` (renderer ↔ protocol ↔ schema).
  */
 export const ProtocolAuthConfigSchema = z.object({
   type: z.enum([
@@ -134,6 +136,7 @@ export const UpstreamProxyConfigSchema = z.object({
 /**
  * Redirect policy passed alongside a request. Mirrors RedirectPolicy in
  * shared/protocol/types.ts. All fields optional — absent means "default".
+ * Guarded by `tests/redirect-policy-parity.test.ts`.
  */
 export const RedirectPolicySchema = z.object({
   followOriginalMethod: z.boolean().optional(),

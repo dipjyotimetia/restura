@@ -11,7 +11,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import {
   McpConnectSchema,
@@ -59,8 +59,6 @@ interface McpSession {
   disposed: boolean;
 }
 
-const sessions = new Map<string, McpSession>();
-
 function disposeSession(s: McpSession): void {
   s.disposed = true;
   if (s.transport instanceof StreamableHTTPClientTransport) {
@@ -71,12 +69,12 @@ function disposeSession(s: McpSession): void {
   void s.client.close().catch(() => {});
 }
 
-function teardownSession(connectionId: string): void {
-  const s = sessions.get(connectionId);
-  if (!s) return;
-  disposeSession(s);
-  sessions.delete(connectionId);
-}
+// Shared connection bookkeeping. MCP keeps direct `emitTo` for its events (a
+// notification/onclose/onerror can fire before the session is added to the
+// registry — i.e. during connect), so the registry is used only for the map,
+// same-id replace, renderer-destroyed cleanup, and disposeAll. dispose() runs
+// disposeSession (DELETE the session + close the client/transport).
+const sessions = new StreamRegistry<McpSession>({ dispose: disposeSession });
 
 export function registerMcpHandlerIPC(): void {
   ipcMain.handle(IPC.mcp.connect, async (event, rawConfig: unknown) => {
@@ -87,11 +85,12 @@ export function registerMcpHandlerIPC(): void {
     if (!mcpRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded.' };
     }
-    if (sessions.size >= MAX_CONCURRENT_MCP) {
+    if (sessions.size() >= MAX_CONCURRENT_MCP) {
       return { success: false, error: 'Too many open MCP connections.' };
     }
 
-    teardownSession(config.connectionId);
+    // Tear down any existing session with this id (dispose closes it).
+    sessions.cancel(config.connectionId);
 
     // SSRF guard: resolve once, validate every record, and pin the connection
     // to the validated IP (closes the TTL=0 DNS-rebind window). MCP is
@@ -104,10 +103,6 @@ export function registerMcpHandlerIPC(): void {
     } catch (err) {
       return { success: false, error: errorMessage(err) };
     }
-
-    bindRendererCleanup(sessions, event.sender, (deadId) => {
-      disposeByOwner(sessions, deadId, disposeSession);
-    });
 
     // User headers ride as the transport's base `requestInit`; the SDK applies
     // them to every request (the GET SSE stream included) and sets its own
@@ -154,7 +149,7 @@ export function registerMcpHandlerIPC(): void {
       if (session.disposed) return;
       session.disposed = true;
       if (sessions.get(config.connectionId) === session) {
-        sessions.delete(config.connectionId);
+        sessions.remove(config.connectionId);
         emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.close, config.connectionId), {
           reason: 'stream ended',
         });
@@ -166,7 +161,21 @@ export function registerMcpHandlerIPC(): void {
       // opens the optional standalone SSE stream). Auth/connectivity errors
       // surface here rather than on the first request.
       await client.connect(transport);
-      sessions.set(config.connectionId, session);
+      // Guard the connect-time race: if onclose/onerror fired DURING the
+      // handshake, `session.disposed` is already true but the session was not in
+      // the registry yet, so onclose's `sessions.get(...) === session` guard
+      // skipped its close emit. Adding it now + emitting `mcp:open` would tell
+      // the renderer a dead connection is live (every later request fails, with
+      // no close ever sent). Treat it as a failed connect instead.
+      if (session.disposed) {
+        void client.close().catch(() => {});
+        log.warn('connect closed during initialization', { connectionId: config.connectionId });
+        return { success: false, error: 'Connection closed during initialization' };
+      }
+      // add() stores the session and wires renderer-destroyed cleanup. If the
+      // renderer already died during connect, bindRendererCleanup disposes it
+      // immediately (closing the session we just opened).
+      sessions.add(config.connectionId, event.sender, session);
       emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.open, config.connectionId));
       return { success: true };
     } catch (err) {
@@ -241,12 +250,12 @@ export function registerMcpHandlerIPC(): void {
   ipcMain.handle(
     IPC.mcp.disconnect,
     createValidatedHandler(IPC.mcp.disconnect, McpDisconnectSchema, async (config) => {
-      teardownSession(config.connectionId);
+      sessions.cancel(config.connectionId);
       return { success: true };
     })
   );
 }
 
 export function stopMcpCleanup(): void {
-  for (const id of [...sessions.keys()]) teardownSession(id);
+  sessions.disposeAll();
 }

@@ -17,7 +17,7 @@ import { ipcMain } from 'electron';
 import type { Fetcher } from '@shared/protocol/types';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { resolveSecretHandle } from '../security/secret-handle-store';
 import {
   AiChatRequestSchema,
@@ -42,7 +42,11 @@ interface ActiveStream {
   abort: AbortController;
 }
 
-const active = new Map<string, ActiveStream>();
+// Shared connection bookkeeping (map + same-id replace + renderer-destroyed
+// cleanup + disposeAll). Chat emits go through emitTo with the captured
+// webContentsId (an end event fires after the entry is removed on cancel), so
+// the registry is used for bookkeeping only — dispose aborts the in-flight stream.
+const active = new StreamRegistry<ActiveStream>({ dispose: (s) => s.abort.abort() });
 
 /**
  * Resolve the chat provider's base URL and return a DNS-pinned, manual-redirect
@@ -92,7 +96,7 @@ async function runChat(
     emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
     emitTo(webContentsId, endChannel, { reason: 'error' });
   } finally {
-    active.delete(streamId);
+    active.remove(streamId);
   }
 }
 
@@ -107,14 +111,22 @@ export function registerAiHandlers(): void {
       return { ok: false as const, error: 'Rate limited. Slow down.' };
     }
 
-    const streamsForSender = [...active.values()].filter(
-      (s) => s.webContentsId === senderId
-    ).length;
-    if (streamsForSender >= MAX_CONCURRENT_STREAMS) {
+    if (active.countForSender(senderId) >= MAX_CONCURRENT_STREAMS) {
       return { ok: false as const, error: 'Too many concurrent AI streams.' };
     }
 
     const data = parsed.data;
+
+    // Register the stream + renderer-cleanup listener BEFORE the async
+    // buildSafeFetcher await (which does a DNS resolve). add() binds the
+    // renderer-destroyed cleanup — as sse-handler does — closing the window
+    // where a renderer destroyed mid-connect would leave no teardown attached.
+    const abort = new AbortController();
+    active.add(data.streamId, event.sender, {
+      streamId: data.streamId,
+      webContentsId: senderId,
+      abort,
+    });
 
     // Validate + DNS-pin the (default or overridden) provider host and get a
     // fetcher locked to it. Replaces the old pre-flight-only string check, which
@@ -124,14 +136,15 @@ export function registerAiHandlers(): void {
     try {
       fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
     } catch (e) {
+      active.remove(data.streamId);
       return { ok: false as const, error: (e as Error).message };
     }
 
-    const abort = new AbortController();
-    active.set(data.streamId, { streamId: data.streamId, webContentsId: senderId, abort });
-    bindRendererCleanup(active, event.sender, (deadId) =>
-      disposeByOwner(active, deadId, (s) => s.abort.abort())
-    );
+    // If the renderer went away during the await, the cleanup listener already
+    // aborted + removed the entry — don't start the stream.
+    if (!active.has(data.streamId)) {
+      return { ok: false as const, error: 'Renderer closed before stream started.' };
+    }
 
     const spec: ChatRequestSpec = {
       provider: data.provider,
@@ -158,9 +171,11 @@ export function registerAiHandlers(): void {
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const entry = active.get(parsed.data.streamId);
     if (!entry) return { ok: true as const, alreadyDone: true };
-    entry.abort.abort();
-    active.delete(parsed.data.streamId);
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.ai.end, parsed.data.streamId), {
+    // cancel() disposes (aborts) + removes; capture webContentsId first so the
+    // end event still reaches the renderer after the entry is gone.
+    const { webContentsId } = entry;
+    active.cancel(parsed.data.streamId);
+    emitTo(webContentsId, eventChannel(EVENT_PREFIX.ai.end, parsed.data.streamId), {
       reason: 'cancelled',
     });
     return { ok: true as const };
@@ -170,8 +185,7 @@ export function registerAiHandlers(): void {
 export function unregisterAiHandlers(): void {
   ipcMain.removeHandler(IPC.ai.chat);
   ipcMain.removeHandler(IPC.ai.chatCancel);
-  for (const e of active.values()) e.abort.abort();
-  active.clear();
+  active.disposeAll();
 }
 
 export const __testing = { resolveSecretFn };
