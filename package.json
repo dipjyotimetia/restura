@@ -203,7 +203,7 @@
     "cross-env": "^10.1.0",
     "crypto-js": "^4.2.0",
     "csv-parse": "^6.2.1",
-    "electron": "^42.3.3",
+    "electron": "^42.4.1",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "eslint": "^9.0.0",
