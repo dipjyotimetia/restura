@@ -1,9 +1,17 @@
 import { defineConfig } from 'astro/config';
+import { unified } from '@astrojs/markdown-remark';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
 
 export default defineConfig({
   site: 'https://docs.restura.dev',
+  // Astro 7 defaults to the Rust-based Sätteri Markdown processor, which does not
+  // run remark/rehype plugins. astro-mermaid relies on a rehype plugin to turn
+  // ```mermaid code blocks into rendered diagrams, so opt back into the unified
+  // pipeline — astro-mermaid detects this processor and injects its plugins.
+  markdown: {
+    processor: unified(),
+  },
   integrations: [
     mermaid({
       theme: 'forest',
