@@ -161,6 +161,17 @@ export function registerMcpHandlerIPC(): void {
       // opens the optional standalone SSE stream). Auth/connectivity errors
       // surface here rather than on the first request.
       await client.connect(transport);
+      // Guard the connect-time race: if onclose/onerror fired DURING the
+      // handshake, `session.disposed` is already true but the session was not in
+      // the registry yet, so onclose's `sessions.get(...) === session` guard
+      // skipped its close emit. Adding it now + emitting `mcp:open` would tell
+      // the renderer a dead connection is live (every later request fails, with
+      // no close ever sent). Treat it as a failed connect instead.
+      if (session.disposed) {
+        void client.close().catch(() => {});
+        log.warn('connect closed during initialization', { connectionId: config.connectionId });
+        return { success: false, error: 'Connection closed during initialization' };
+      }
       // add() stores the session and wires renderer-destroyed cleanup. If the
       // renderer already died during connect, bindRendererCleanup disposes it
       // immediately (closing the session we just opened).
