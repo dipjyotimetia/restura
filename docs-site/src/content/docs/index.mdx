@@ -1,9 +1,9 @@
 ---
 title: Restura
-description: The API client that speaks every protocol — HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, MCP. Web · Desktop · Self-hosted.
+description: The API client that speaks every protocol — HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, MCP. Web · Desktop · Self-hosted. No account, no cloud sync.
 template: splash
 hero:
-  tagline: One client. Every protocol. No account, no cloud sync, no tracking.
+  tagline: One client for every protocol your stack uses. No account required.
   image:
     file: ../../../public/favicon.svg
   actions:
@@ -25,6 +25,8 @@ import DesktopDownload from '../../components/DesktopDownload.astro';
 
 <DesktopDownload />
 
+I got tired of opening a different tool for every protocol. Postman for HTTP, a separate gRPC client, a WebSocket tab somewhere, Kafka buried in Docker. Then Postman changed its pricing and Insomnia went cloud-first, and I realised my request history — including auth tokens and internal endpoints — was syncing to someone else's server. Restura is what I wanted instead: one client that speaks every protocol I actually use, with everything staying on my machine.
+
 ## Speaks every protocol
 
 <div class="protocol-grid">
@@ -36,29 +38,29 @@ import DesktopDownload from '../../components/DesktopDownload.astro';
   <a href="/protocols/sse/" data-color="rose" data-live><div class="label">SSE</div><div class="name">Server-Sent Events</div><div class="desc">Live stream viewer with reconnection.</div></a>
   <a href="/protocols/kafka/" data-color="orange"><div class="label">KFK</div><div class="name">Kafka</div><div class="desc">Produce / consume — desktop.</div></a>
   <a href="/protocols/mqtt/" data-color="teal" data-live><div class="label">MQTT</div><div class="name">MQTT</div><div class="desc">Publish / subscribe, QoS, TLS — desktop.</div></a>
-  <a href="/protocols/mcp/" data-color="blue"><div class="label">MCP</div><div class="name">Model Context Protocol</div><div class="desc">Proxy to any MCP server.</div></a>
+  <a href="/protocols/mcp/" data-color="blue"><div class="label">MCP</div><div class="name">Model Context Protocol</div><div class="desc">Proxy to any MCP server — or be one.</div></a>
 </div>
 
 ## Why Restura
 
 <CardGrid stagger>
-  <Card title="Three platforms, one renderer" icon="laptop">
-    Web app on Cloudflare Pages, native desktop apps for macOS / Windows / Linux, and a self-hostable Docker image. The same React UI ships everywhere.
+  <Card title="Web, desktop, or self-hosted" icon="laptop">
+    Runs as a web app on Cloudflare, a native desktop app for macOS / Windows / Linux, or a Docker container behind your own firewall. All three use the same UI — one codebase — so features don't lag between platforms.
   </Card>
-  <Card title="Privacy first" icon="seti:lock">
-    No account, no cloud sync, no analytics or behavioural tracking. The only data that can leave is opt-out crash & error reports — redacted, and off with one switch in Settings. Collections, history and secrets live on your machine — IndexedDB on web, OS keychain on desktop.
+  <Card title="Nothing leaves your machine" icon="seti:lock">
+    No account to create. Collections, history, environments, and secrets live in your browser's IndexedDB or your OS keychain on desktop. The only thing that can leave is opt-out crash reports, which are scrubbed of request content before they go anywhere. You can turn that off in Settings too.
   </Card>
-  <Card title="Scriptable, sandboxed" icon="seti:code-search">
-    Pre-request and test scripts run in an isolated QuickJS WASM sandbox using the native `rs.*` API — fully Postman `pm.*` compatible. No DOM, no network escape.
+  <Card title="Scripts that can't escape the sandbox" icon="seti:code-search">
+    Pre-request and test scripts run in a QuickJS WASM sandbox. No DOM, no filesystem, no network. Memory and execution time are capped. If someone sends you a collection with a dodgy pre-request script, it doesn't get far. Fully `pm.*` compatible if you're coming from Postman.
   </Card>
-  <Card title="Chain requests with workflows" icon="seti:plan">
-    Build request graphs with branching, switches, loops, and parallel steps. Extract variables with JSONPath, regex, or headers. Run anywhere — including in CI.
+  <Card title="Chain requests together" icon="seti:plan">
+    String requests into workflows with branching, loops, retries, and variable extraction via JSONPath or regex. Run them in the app, or run them headless in CI using `restura-cli`. Outputs JUnit, HTML, and JSON reports.
   </Card>
-  <Card title="Built-in AI assistant" icon="seti:notebook">
-    Chat with OpenAI, Anthropic, or OpenRouter. The assistant can read the current request and response for context — with redaction baked in.
+  <Card title="Ask an AI about your request" icon="seti:notebook">
+    The AI assistant can see the current request and response — useful for explaining errors, writing test assertions, or generating follow-up requests. Secrets and internal URLs are stripped before anything reaches the model.
   </Card>
-  <Card title="Speaks MCP both ways" icon="puzzle">
-    Restura proxies any MCP server, and it can *be* an MCP server — exposing collections, environments, and history to agents like Claude.
+  <Card title="Debug MCP servers, or be one" icon="puzzle">
+    Connect to any MCP server as a client to inspect what's being sent and returned. Or flip it around: expose your own collections as an MCP server so agents like Claude can discover and run your requests, with your permission.
   </Card>
 </CardGrid>
 

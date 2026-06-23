@@ -13,8 +13,9 @@ Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, We
 npm run dev                    # Start Vite dev server (port 5173) — boots the Worker locally too
 npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
-npm run type-check             # TypeScript strict mode (all tsconfigs)
-npm run lint                   # ESLint over src/ electron/main worker/ echo/ scripts/
+npm run type-check             # TypeScript strict mode — renderer only (excludes worker, electron/main, cli)
+npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
+npm run lint                   # ESLint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
 npm run lint:fix               # ESLint --fix
 npm run format                 # Prettier write
 npm run format:check           # Prettier check
@@ -26,6 +27,7 @@ npx tsc --noEmit -p worker/tsconfig.json    # Type-check Worker independently
 npm run test                   # Vitest interactive
 npm run test:run               # Vitest single run
 npm run test:watch             # Vitest watch
+npm run test:ui                # Vitest browser UI dashboard
 npm run test:coverage          # Coverage report
 npm run test:e2e               # Playwright (boots dev server via webServer; needs .dev.vars)
 npm run test:e2e:ui            # Playwright UI mode
@@ -33,12 +35,14 @@ npm run test:e2e:headed        # Playwright headed
 npm run test:e2e:electron:build && npm run test:e2e:electron   # Desktop e2e: _electron launch of the unpacked prod build (e2e-electron/), per-protocol smoke vs local mocks + native gRPC dev server. Kafka/MQTT specs auto-bring-up the Dockerised Redpanda+EMQX brokers (echo-local/docker-compose.yml) via the `brokers` fixture and skip if Docker is absent
 npm run test:contract          # Contract tests (vitest run tests/contract)
 npm run grpc:server            # Native gRPC dev server on :50051 — desktop gRPC e2e needs real h2; the echo Worker's Connect endpoint is web-only
+npm run echo:local             # Full-protocol local upstream for desktop testing (HTTP, gRPC, WebSocket, SSE, mTLS, local CA); Kafka/MQTT need Docker
+
 vitest run path/to/file.test.ts                  # Run a single Vitest file
 vitest run -t "test name pattern"                # Filter by test name
 npx playwright test e2e/real-http.spec.ts        # Run a single e2e spec
 
 # Full validation (matches CI)
-npm run validate               # type-check + lint + verify:opencollection-types + capabilities:check + test:run
+npm run validate               # type-check:all + lint + format:check + verify:opencollection-types + capabilities:check + test:run + cli test
 
 # Generated code
 npm run proto:gen                       # buf generate (regenerates protobuf TS)
