@@ -53,7 +53,7 @@
     "@faker-js/faker": "^10.4.0",
     "commander": "^15.0.0",
     "csv-parse": "^6.2.1",
-    "js-yaml": "^4.2.0",
+    "js-yaml": "^5.1.0",
     "log-update": "^8.0.0",
     "quickjs-emscripten": "^0.32.0",
     "undici": "^8.5.0",
