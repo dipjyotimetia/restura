@@ -140,7 +140,7 @@
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",
     "framer-motion": "^12.40.0",
-    "graphql": "^16.14.1",
+    "graphql": "^17.0.1",
     "graphql-ws": "^6.0.8",
     "hono": "^4.12.26",
     "js-yaml": "^4.2.0",
@@ -233,6 +233,11 @@
   "optionalDependencies": {
     "png-to-ico": "^3.0.1",
     "sharp": "^0.35.2"
+  },
+  "overrides": {
+    "graphql-ws": {
+      "graphql": "$graphql"
+    }
   },
   "engines": {
     "node": ">=24"
