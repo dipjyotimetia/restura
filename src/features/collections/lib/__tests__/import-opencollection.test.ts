@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { importOpenCollection } from '../importers/opencollection';
 
 const FIXTURES = 'tests/fixtures/opencollection';

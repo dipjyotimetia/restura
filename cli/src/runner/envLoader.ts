@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 
 export interface EnvLoadOptions {
   /** When true, `${VAR}` placeholders in values resolve from `process.env`. */

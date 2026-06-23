@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, extname } from 'node:path';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
 import {
   fileCollectionMetaSchema,
