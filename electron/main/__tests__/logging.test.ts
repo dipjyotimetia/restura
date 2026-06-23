@@ -73,6 +73,15 @@ describe('initLogging', () => {
     expect(mockLog.transports.console.level).toBe(false);
   });
 
+  it('forces the console transport off in MCP stdio-server mode, even in dev', () => {
+    // The MCP SDK owns stdout for JSON-RPC; electron-log's console transport
+    // routes info/debug to stdout and would corrupt the protocol stream.
+    initLogging(true, { mcpServerMode: true });
+    expect(mockLog.transports.console.level).toBe(false);
+    // File transport still persists everything for debugging.
+    expect(mockLog.transports.file.level).toBe('debug');
+  });
+
   it('honors a valid RESTURA_LOG_LEVEL override', () => {
     process.env['RESTURA_LOG_LEVEL'] = 'warn';
     initLogging(false);

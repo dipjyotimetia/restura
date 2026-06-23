@@ -15,6 +15,9 @@ import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
 import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import { makeFetchFetcher } from './fetch-fetcher';
+import { createLogger } from '../../../src/lib/shared/logger';
+
+const log = createLogger('sse');
 
 export const sseRateLimiter = createKeyedRateLimiter(20, 60_000);
 const MAX_CONCURRENT_SSE_CONNECTIONS = 50;
@@ -64,8 +67,10 @@ async function readStream(
     parser.feed(decoder.decode(), onEvent);
   } catch (err) {
     if (!entry.explicitlyClosed) {
+      const message = err instanceof Error ? err.message : 'Stream read error';
+      log.warn('stream read error', { connectionId: entry.connectionId, error: message });
       emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.error, entry.connectionId), {
-        message: err instanceof Error ? err.message : 'Stream read error',
+        message,
       });
     }
   } finally {
@@ -203,9 +208,11 @@ export function registerSseHandlerIPC(): void {
       clearTimeout(timeoutId);
       activeConnections.delete(connectionId);
       if (err instanceof RedirectPolicyError) {
+        log.warn('connect rejected by redirect policy', { connectionId, error: err.message });
         return { success: false, error: err.message };
       }
       const message = err instanceof Error ? err.message : 'Connection failed';
+      log.warn('connect failed', { connectionId, error: message });
       return { success: false, error: message };
     }
   });

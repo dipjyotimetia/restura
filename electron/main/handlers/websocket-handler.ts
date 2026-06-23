@@ -13,6 +13,9 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { createLogger } from '../../../src/lib/shared/logger';
+
+const log = createLogger('websocket');
 
 export const wsRateLimiter = createKeyedRateLimiter(20, 60_000);
 
@@ -127,6 +130,7 @@ export function registerWebSocketHandlerIPC(): void {
       });
 
       ws.on('error', (err: Error) => {
+        log.warn('socket error', { connectionId, error: err.message });
         emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.error, connectionId), {
           message: err.message,
         });
@@ -161,9 +165,11 @@ export function registerWebSocketHandlerIPC(): void {
 
       return { success: true };
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to connect';
+      log.warn('connect failed', { connectionId, error: message });
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to connect',
+        error: message,
       };
     }
   });

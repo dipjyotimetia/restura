@@ -51,9 +51,14 @@ if (process.env.RESTURA_USER_DATA_DIR) {
   app.setPath('userData', process.env.RESTURA_USER_DATA_DIR);
 }
 
+// Headless MCP-server mode (`restura --mcp-server`) — computed here, before
+// initLogging, because the MCP SDK owns stdout for JSON-RPC and the console log
+// transport must be forced off so it can't corrupt the stream (see logging.ts).
+const isMcpServerMode = process.argv.includes('--mcp-server');
+
 // Wire the shared logger to electron-log before anything logs, so module-init
 // warnings and the global error handlers below are persisted from line one.
-initLogging(isDev);
+initLogging(isDev, { mcpServerMode: isMcpServerMode });
 
 const log = createLogger('main');
 
@@ -92,8 +97,8 @@ if (require('electron-squirrel-startup')) {
  * per-environment / history consent settings persisted in the electron-store
  * `restura-encrypted-store`. `loadMcpDispatchContext()` reads those off disk
  * each tool call so the headless server always sees the latest user choices.
+ * (`isMcpServerMode` is computed near the top, before initLogging.)
  */
-const isMcpServerMode = process.argv.includes('--mcp-server');
 
 // Helper to get the renderer window UI surfaces should target. Delegates to
 // the window-manager registry so multi-window scenarios (window:new IPC,

@@ -29,6 +29,9 @@ import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
 import { makePinnedFetcher } from './fetch-fetcher';
+import { createLogger } from '../../../src/lib/shared/logger';
+
+const log = createLogger('ai');
 
 const rateLimiter = createKeyedRateLimiter(30, 60_000); // 30 chat msgs / min / webContents
 const MAX_CONCURRENT_STREAMS = 5;
@@ -83,6 +86,9 @@ async function runChat(
     emitTo(webContentsId, endChannel, { reason: 'done' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Persist the main-process trace — the renderer only sees the error event,
+    // so without this an upstream/provider failure leaves nothing in main.log.
+    log.warn('chat stream failed', { streamId, provider: spec.provider, error: msg });
     emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
     emitTo(webContentsId, endChannel, { reason: 'error' });
   } finally {
