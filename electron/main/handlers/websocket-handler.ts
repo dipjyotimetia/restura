@@ -1,8 +1,7 @@
 import { ipcMain } from 'electron';
 import WebSocket from 'ws';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
-import { emitTo } from '../ipc/ipc-utils';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
 import {
   WsConnectSchema,
@@ -12,7 +11,7 @@ import {
   createValidatedHandler,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { IPC, EVENT_PREFIX } from '../../shared/channels';
 import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('websocket');
@@ -31,7 +30,22 @@ interface ActiveWebSocket {
   setExplicitlyClosed?: () => void;
 }
 
-const activeConnections = new Map<string, ActiveWebSocket>();
+// Shared connection bookkeeping. dispose() flags the connection as explicitly
+// closed (so the ws 'close' handler suppresses the trailing close event) and
+// hard-terminates the socket — used for same-id replace, renderer-destroyed
+// cleanup, and disposeAll. Explicit ws:disconnect is handled separately with a
+// graceful close(1000).
+const connections = new StreamRegistry<ActiveWebSocket>({
+  prefixes: EVENT_PREFIX.ws,
+  dispose: (e) => {
+    e.setExplicitlyClosed?.();
+    try {
+      e.ws.terminate();
+    } catch {
+      /* ignore */
+    }
+  },
+});
 
 // Maximum message size (1MB)
 const MAX_MESSAGE_SIZE = 1024 * 1024;
@@ -49,16 +63,12 @@ export function registerWebSocketHandlerIPC(): void {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
+    if (connections.size() >= MAX_CONCURRENT_WS_CONNECTIONS) {
       return { success: false, error: 'Too many open connections.' };
     }
 
-    // Close existing connection with same id
-    const existing = activeConnections.get(connectionId);
-    if (existing) {
-      existing.ws.terminate();
-      activeConnections.delete(connectionId);
-    }
+    // Close an existing connection with the same id (dispose terminates it).
+    connections.cancel(connectionId);
 
     // Resolve + validate once, then PIN the handshake to that IP via a Node
     // `lookup` hook (closes the DNS-rebind window pre-flight validation alone
@@ -106,9 +116,7 @@ export function registerWebSocketHandlerIPC(): void {
       ws.on('open', () => {
         // Surface the negotiated subprotocol so the renderer can satisfy callers
         // that verify it (graphql-transport-ws requires socket.protocol to match).
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.open, connectionId), {
-          protocol: ws.protocol ?? '',
-        });
+        connections.emit(connectionId, 'open', { protocol: ws.protocol ?? '' });
       });
 
       ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
@@ -117,51 +125,32 @@ export function registerWebSocketHandlerIPC(): void {
           const b64 = Buffer.isBuffer(data)
             ? data.toString('base64')
             : Buffer.from(data as ArrayBuffer).toString('base64');
-          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.message, connectionId), {
-            type: 'binary',
-            data: b64,
-          });
+          connections.emit(connectionId, 'message', { type: 'binary', data: b64 });
         } else {
-          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.message, connectionId), {
-            type: 'text',
-            data: data.toString(),
-          });
+          connections.emit(connectionId, 'message', { type: 'text', data: data.toString() });
         }
       });
 
       ws.on('error', (err: Error) => {
         log.warn('socket error', { connectionId, error: err.message });
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.error, connectionId), {
-          message: err.message,
-        });
+        connections.emit(connectionId, 'error', { message: err.message });
       });
 
       ws.on('close', (code: number, reason: Buffer) => {
-        activeConnections.delete(connectionId);
-        // Only forward unexpected closes; explicit ws:disconnect is already acked to the renderer
+        // Only forward unexpected closes; explicit ws:disconnect / teardown sets
+        // explicitlyClosed. Emit BEFORE removing — emit() resolves the renderer
+        // from the live entry.
         if (!explicitlyClosed) {
-          emitTo(webContentsId, eventChannel(EVENT_PREFIX.ws.close, connectionId), {
-            code,
-            reason: reason.toString(),
-          });
+          connections.emit(connectionId, 'close', { code, reason: reason.toString() });
         }
+        connections.remove(connectionId);
       });
 
       entry.setExplicitlyClosed = () => {
         explicitlyClosed = true;
       };
-      activeConnections.set(connectionId, entry);
-
-      bindRendererCleanup(activeConnections, event.sender, (deadId) => {
-        disposeByOwner(activeConnections, deadId, (e) => {
-          e.setExplicitlyClosed?.();
-          try {
-            e.ws.terminate();
-          } catch {
-            /* ignore */
-          }
-        });
-      });
+      // add() stores the entry and wires renderer-destroyed cleanup (dispose terminates).
+      connections.add(connectionId, event.sender, entry);
 
       return { success: true };
     } catch (err) {
@@ -178,7 +167,7 @@ export function registerWebSocketHandlerIPC(): void {
     IPC.ws.send,
     createValidatedHandler(IPC.ws.send, WsSendSchema, async (config) => {
       const connectionId = config.connectionId;
-      const entry = activeConnections.get(connectionId);
+      const entry = connections.get(connectionId);
 
       if (!entry || entry.ws.readyState !== WebSocket.OPEN) {
         return { success: false, error: 'Not connected' };
@@ -206,11 +195,13 @@ export function registerWebSocketHandlerIPC(): void {
     IPC.ws.disconnect,
     createValidatedHandler(IPC.ws.disconnect, WsDisconnectSchema, async (config) => {
       const connectionId = config.connectionId;
-      const entry = activeConnections.get(connectionId);
+      const entry = connections.get(connectionId);
       if (entry) {
+        // Graceful close (1000) for an explicit disconnect — distinct from the
+        // hard terminate() that dispose() uses for teardown.
         entry.setExplicitlyClosed?.();
         entry.ws.close(1000, 'Client disconnected');
-        activeConnections.delete(connectionId);
+        connections.remove(connectionId);
       }
       return { success: true };
     })
@@ -218,12 +209,5 @@ export function registerWebSocketHandlerIPC(): void {
 }
 
 export function stopWebSocketCleanup(): void {
-  for (const [, entry] of activeConnections) {
-    try {
-      entry.ws.terminate();
-    } catch {
-      /* ignore */
-    }
-  }
-  activeConnections.clear();
+  connections.disposeAll();
 }
