@@ -1,9 +1,17 @@
 import { defineConfig } from 'astro/config';
+import { unified } from '@astrojs/markdown-remark';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
 
 export default defineConfig({
   site: 'https://docs.restura.dev',
+  // Astro 7 defaults to the Rust-based Sätteri Markdown processor, which does not
+  // run remark/rehype plugins. astro-mermaid relies on a rehype plugin to turn
+  // ```mermaid code blocks into rendered diagrams, so opt back into the unified
+  // pipeline — astro-mermaid detects this processor and injects its plugins.
+  markdown: {
+    processor: unified(),
+  },
   integrations: [
     mermaid({
       theme: 'forest',
@@ -34,13 +42,43 @@ export default defineConfig({
       lastUpdated: true,
       customCss: ['./src/styles/custom.css'],
       head: [
+        // Social cards. Use a rasterised PNG — Twitter/Facebook/LinkedIn/Slack/
+        // Discord scrapers do not render SVG og:images. Dimensions + type help
+        // crawlers lay out the card without fetching the bytes first.
         {
           tag: 'meta',
-          attrs: { property: 'og:image', content: 'https://docs.restura.dev/og-image.svg' },
+          attrs: { property: 'og:type', content: 'website' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'og:image', content: 'https://docs.restura.dev/og-image.png' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'og:image:type', content: 'image/png' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'og:image:width', content: '1200' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'og:image:height', content: '630' },
+        },
+        {
+          tag: 'meta',
+          attrs: {
+            property: 'og:image:alt',
+            content: 'Restura — the API client that speaks every protocol',
+          },
         },
         {
           tag: 'meta',
           attrs: { name: 'twitter:card', content: 'summary_large_image' },
+        },
+        {
+          tag: 'meta',
+          attrs: { name: 'twitter:image', content: 'https://docs.restura.dev/og-image.png' },
         },
       ],
       sidebar: [
