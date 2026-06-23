@@ -36,10 +36,20 @@ import { listModels, testConnection } from '@shared/protocol/ai/model-discovery'
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
 import { makePinnedFetcher } from './fetch-fetcher';
+import { createLogger } from '../../../src/lib/shared/logger';
 
-// Evals fan out into many completes; the per-minute budget is generous but still
-// an abuse ceiling. Concurrency (not rate) is the real throttle — see semaphore.
-const rateLimiter = createKeyedRateLimiter(300, 60_000);
+const log = createLogger('ai-lab');
+
+// Per-webContents budget for Playground streams (a handful of models at a time).
+const streamRateLimiter = createKeyedRateLimiter(300, 60_000);
+// `complete` is throttled primarily by COMPLETE_CONCURRENCY (the real bound); this
+// per-minute ceiling sits well ABOVE the semaphore's sustainable throughput so it
+// never trips a legitimate eval run — it only stops a runaway/compromised renderer
+// from firing unbounded completes.
+const completeRateLimiter = createKeyedRateLimiter(1200, 60_000);
+// Discovery is user-initiated (click "test connection" / "refresh models"); a modest
+// cap is plenty and bounds a renderer probing arbitrary hosts in a tight loop.
+const discoveryRateLimiter = createKeyedRateLimiter(60, 60_000);
 const MAX_CONCURRENT_STREAMS = 6; // Playground compares a handful of models at once.
 const COMPLETE_CONCURRENCY = 8; // Hard ceiling on simultaneous upstream model calls.
 
@@ -140,6 +150,8 @@ async function runStream(
     emitTo(webContentsId, endChannel, { reason: 'done' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Persist the main-process trace — the renderer only sees the error event.
+    log.warn('stream failed', { streamId, provider: spec.provider, error: msg });
     emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
     emitTo(webContentsId, endChannel, { reason: 'error' });
   } finally {
@@ -154,9 +166,12 @@ export function registerAiLabHandlers(): void {
     const parsed = AiLabCompleteSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const senderId = event.sender.id;
-    // No per-minute rate cap here: a single eval run fans out cases × models into
-    // hundreds of completes, and the concurrency semaphore (COMPLETE_CONCURRENCY)
-    // is the real throttle. A per-minute cap would spuriously fail evals midway.
+    // The concurrency semaphore (COMPLETE_CONCURRENCY) is the real throttle for
+    // eval fan-out; completeRateLimiter is only a high abuse ceiling that sits
+    // above sustainable throughput, so it won't spuriously fail a legitimate run.
+    if (!completeRateLimiter.check(senderId)) {
+      return { ok: false as const, error: 'Rate limited. Slow down.' };
+    }
     const data = parsed.data;
     let fetcher: Fetcher;
     try {
@@ -183,7 +198,9 @@ export function registerAiLabHandlers(): void {
       );
       return { ok: true as const, result };
     } catch (e) {
-      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn('complete failed', { provider: data.provider, model: data.model, error: msg });
+      return { ok: false as const, error: msg };
     } finally {
       completeSlots.release();
       activeCompletes.delete(completeId);
@@ -196,7 +213,7 @@ export function registerAiLabHandlers(): void {
     const parsed = AiLabStreamSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const senderId = event.sender.id;
-    if (!rateLimiter.check(senderId)) {
+    if (!streamRateLimiter.check(senderId)) {
       return { ok: false as const, error: 'Rate limited. Slow down.' };
     }
     const streamsForSender = [...activeStreams.values()].filter(
@@ -240,6 +257,9 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.listModels, event);
     const parsed = AiLabDiscoverSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    if (!discoveryRateLimiter.check(event.sender.id)) {
+      return { ok: false as const, error: 'Rate limited. Slow down.' };
+    }
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
     try {
       const fetcher = await buildSafeFetcher(provider, baseUrl);
@@ -252,7 +272,9 @@ export function registerAiLabHandlers(): void {
       });
       return { ok: true as const, models };
     } catch (e) {
-      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn('listModels failed', { provider, error: msg });
+      return { ok: false as const, error: msg };
     }
   });
 
@@ -260,6 +282,9 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.testConnection, event);
     const parsed = AiLabDiscoverSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    if (!discoveryRateLimiter.check(event.sender.id)) {
+      return { ok: false as const, error: 'Rate limited. Slow down.' };
+    }
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
     let fetcher: Fetcher;
     try {
@@ -277,7 +302,9 @@ export function registerAiLabHandlers(): void {
       });
       return result;
     } catch (e) {
-      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn('testConnection failed', { provider, error: msg });
+      return { ok: false as const, error: msg };
     }
   });
 }

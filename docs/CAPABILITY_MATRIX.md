@@ -32,7 +32,8 @@ rather than discover it experimentally.
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
 | MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
 | Socket.IO client | ✅ | ✅ |  |
-| AI assistant (chat) | ❌ | ✅ | Electron-first; streams via IPC. No Worker /api/ai route |
+| AI assistant (streaming chat) | ❌ | ✅ | Electron-only; tokens stream over IPC (ai:chat:chunk/end). No Worker /api/ai route |
+| AI assistant tool calls | ❌ | ✅ | Provider tool-call decoding (OpenAI / Anthropic / OpenRouter) in the chat path |
 | AI Lab (prompt/model workbench) | ❌ | ✅ | Electron-only; model calls + SSRF localhost carve-out run in main |
 | AI Lab local runtimes (Ollama / OpenAI-compatible) | ❌ | ✅ | Needs the localhost SSRF carve-out; no browser access to 127.0.0.1 |
 | AI Lab dataset evals (deterministic + script scorers) | ❌ | ✅ | QuickJS scorers + bounded-concurrency runner over case × model cells |

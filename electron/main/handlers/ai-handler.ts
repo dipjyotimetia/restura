@@ -116,6 +116,16 @@ export function registerAiHandlers(): void {
 
     const data = parsed.data;
 
+    // Register the stream + renderer-cleanup listener BEFORE the async
+    // buildSafeFetcher await (which does a DNS resolve). Binding first — as
+    // sse-handler does — closes the window where a renderer destroyed
+    // mid-connect would leave no teardown listener attached.
+    const abort = new AbortController();
+    active.set(data.streamId, { streamId: data.streamId, webContentsId: senderId, abort });
+    bindRendererCleanup(active, event.sender, (deadId) =>
+      disposeByOwner(active, deadId, (s) => s.abort.abort())
+    );
+
     // Validate + DNS-pin the (default or overridden) provider host and get a
     // fetcher locked to it. Replaces the old pre-flight-only string check, which
     // left the default-provider path unpinned and let an overridden host follow a
@@ -124,14 +134,15 @@ export function registerAiHandlers(): void {
     try {
       fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
     } catch (e) {
+      active.delete(data.streamId);
       return { ok: false as const, error: (e as Error).message };
     }
 
-    const abort = new AbortController();
-    active.set(data.streamId, { streamId: data.streamId, webContentsId: senderId, abort });
-    bindRendererCleanup(active, event.sender, (deadId) =>
-      disposeByOwner(active, deadId, (s) => s.abort.abort())
-    );
+    // If the renderer went away during the await, the cleanup listener already
+    // aborted + removed the entry — don't start the stream.
+    if (!active.has(data.streamId)) {
+      return { ok: false as const, error: 'Renderer closed before stream started.' };
+    }
 
     const spec: ChatRequestSpec = {
       provider: data.provider,

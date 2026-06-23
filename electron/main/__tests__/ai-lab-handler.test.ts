@@ -11,6 +11,9 @@ const mockRunToCompletion = vi.hoisted(() =>
 );
 const mockListModels = vi.hoisted(() => vi.fn(async () => [{ id: 'llama3.2' }]));
 const mockTestConnection = vi.hoisted(() => vi.fn(async () => ({ ok: true, modelCount: 1 })));
+// Shared across the stream / complete / discovery limiters; default-allow, flipped
+// per-test to assert the rate-limit ceilings reject.
+const mockRateCheck = vi.hoisted(() => vi.fn(() => true));
 
 // safe-connect fake mimicking the real loopback-only SSRF policy so we can assert
 // the handler resolves+pins the right host with the correct `allowLocalhost` flag
@@ -41,7 +44,7 @@ vi.mock('../ipc/connection-cleanup', () => ({
   disposeByOwner: mockDispose,
 }));
 vi.mock('../ipc/ipc-rate-limiter', () => ({
-  createKeyedRateLimiter: () => ({ check: () => true }),
+  createKeyedRateLimiter: () => ({ check: mockRateCheck }),
 }));
 // fetch-fetcher is left REAL so `makePinnedFetcher` forwards to the mocked
 // safe-connect below — that's what the resolveSafeAddress assertions verify.
@@ -72,6 +75,8 @@ describe('ai-lab-handler', () => {
     mockRunToCompletion.mockClear();
     mockListModels.mockClear();
     mockTestConnection.mockClear();
+    mockRateCheck.mockReset();
+    mockRateCheck.mockReturnValue(true);
     registerAiLabHandlers();
   });
   afterEach(() => unregisterAiLabHandlers());
@@ -156,5 +161,34 @@ describe('ai-lab-handler', () => {
   it('rejects invalid input', async () => {
     const res = await handlerFor('ai-lab:complete')(TRUSTED, { not: 'valid' });
     expect(res.ok).toBe(false);
+  });
+
+  describe('rate-limit ceilings', () => {
+    const completeArgs = {
+      provider: 'ollama',
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      rawMode: false,
+      baseUrlOverride: 'http://localhost:11434',
+    };
+
+    it('complete rejects (without an upstream call) when the limiter denies', async () => {
+      mockRateCheck.mockReturnValue(false);
+      const res = await handlerFor('ai-lab:complete')(TRUSTED, completeArgs);
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/rate limit/i);
+      expect(mockRunToCompletion).not.toHaveBeenCalled();
+    });
+
+    it('discovery (list-models) rejects when the limiter denies', async () => {
+      mockRateCheck.mockReturnValue(false);
+      const res = await handlerFor('ai-lab:list-models')(TRUSTED, {
+        provider: 'ollama',
+        baseUrl: 'http://localhost:11434',
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/rate limit/i);
+      expect(mockListModels).not.toHaveBeenCalled();
+    });
   });
 });

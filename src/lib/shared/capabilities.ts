@@ -33,6 +33,7 @@ export type CapabilityName =
   | 'mqtt.basic'
   | 'socketio.basic'
   | 'ai.basic'
+  | 'ai.toolCalls'
   | 'aiLab.basic'
   | 'aiLab.localProviders'
   | 'aiLab.evals'
@@ -155,10 +156,16 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   },
   'socketio.basic': { label: 'Socket.IO client', web: true, desktop: true },
   'ai.basic': {
-    label: 'AI assistant (chat)',
+    label: 'AI assistant (streaming chat)',
     web: false,
     desktop: true,
-    notes: 'Electron-first; streams via IPC. No Worker /api/ai route',
+    notes: 'Electron-only; tokens stream over IPC (ai:chat:chunk/end). No Worker /api/ai route',
+  },
+  'ai.toolCalls': {
+    label: 'AI assistant tool calls',
+    web: false,
+    desktop: true,
+    notes: 'Provider tool-call decoding (OpenAI / Anthropic / OpenRouter) in the chat path',
   },
   'aiLab.basic': {
     label: 'AI Lab (prompt/model workbench)',
