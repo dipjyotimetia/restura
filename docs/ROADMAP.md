@@ -1,155 +1,128 @@
 # Restura — Roadmap
 
-## Current Status: v0.1.0
+Current version: **v0.4.1**
 
-Core functionality is complete and shipping. Web (Cloudflare Pages) and desktop (Electron) apps are both available.
+This is an honest picture of what's done, what's being worked on, and what's next. It's not a commitment or a sprint board — things move around based on what surfaces as the most painful problem.
 
 ---
 
-## Shipped ✅
+## What's shipped
 
-### Core API Client
+### Protocol support
 
-- [x] HTTP Request Builder (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD)
-- [x] Query parameters with enable/disable toggle
-- [x] Custom headers management
-- [x] Body types: JSON, XML, form-data, x-www-form-urlencoded, raw, binary
-- [x] Authentication: Basic, Bearer, API Key, OAuth2, Digest, AWS Signature v4, mTLS
-- [x] Environment variables with `{{variable}}` substitution
-- [x] Collections and folder hierarchy
-- [x] Import: Postman v2.1, Insomnia, OpenAPI/Swagger
-- [x] Export: Postman v2.1, Insomnia
-- [x] Code generation: cURL, JS, Python, Go, Ruby, PHP
-- [x] Response viewer with Monaco Editor syntax highlighting
-- [x] Request history with favorites
-- [x] Dark/Light/System theme
-- [x] Pre-request and test scripts (QuickJS sandbox)
-- [x] Electron desktop app (macOS, Windows, Linux)
-- [x] Web client on Cloudflare Pages + Workers
-- [x] Proxy support with mTLS and proxy chaining
-- [x] Cookie management
-- [x] Command palette
+- HTTP/REST — all methods, body types, cookies, code gen (cURL, JS, Python, Go, Ruby, PHP)
+- GraphQL — query builder, schema introspection, subscriptions
+- gRPC — unary calls, server streaming, server reflection
+- WebSocket — connect, send/receive, full message history
+- Socket.IO — emit/listen, acks, full transcript (desktop)
+- Server-Sent Events — live stream viewer with reconnection
+- Kafka — produce/consume, SASL + TLS (desktop)
+- MQTT — publish/subscribe, QoS levels, TLS (desktop)
+- MCP — proxy to any MCP server, and Restura can expose itself as one
 
-### Extended Protocols
+### Auth
 
-- [x] gRPC unary calls
-- [x] gRPC server streaming
-- [x] gRPC server reflection
-- [x] WebSocket connection management with message history
-- [x] GraphQL query builder with schema introspection
-- [x] GraphQL subscriptions
-- [x] Server-Sent Events (SSE) client
-- [x] Model Context Protocol (MCP) client
+Basic, Bearer, API Key, OAuth 2.0 (auth code with PKCE, client credentials, device, password), OAuth 1.0, Digest, NTLM, AWS SigV4, WSSE, mTLS (desktop). Auth signs at the wire — in the Worker or Electron main process — not in the renderer.
+
+### Collections and environments
+
+Folder hierarchy, environment variables with `{{variable}}` substitution, collection-level auth inheritance, multi-tab request model, request history with favorites.
+
+### Import / export
+
+Postman v2.1 (import + export), Insomnia (import + export), OpenAPI / Swagger (import), Bruno (import), Hoppscotch (import), OpenCollection (import + export), cURL (import). HAR import is not done yet.
+
+### Scripting
+
+Pre-request and test scripts in a QuickJS WASM sandbox — memory and time capped, no DOM, no network. Native `rs.*` API with full Postman `pm.*` compatibility.
 
 ### Workflows
 
-- [x] Request chaining with sequential execution
-- [x] Variable extraction: JSONPath, regex, response headers
-- [x] Precondition scripts for conditional step execution
-- [x] Retry policies: fixed delay, exponential backoff
-- [x] Real-time execution progress and logging
-- [x] Visual workflow builder
+Request chaining with branching, switches, loops, and parallel steps. Variable extraction via JSONPath, regex, or headers. Retry with fixed or exponential backoff. Visual builder.
+
+### CLI runner
+
+`restura-cli` runs OpenCollection collections in CI with JUnit, HTML, and JSON reporters.
+
+### Load testing
+
+Collection-based load runner with configurable concurrency and duration.
+
+### Mock server
+
+Local mock server for stubbing responses without a real upstream (desktop).
 
 ### AI
 
-- [x] Sidebar chat panel (Electron only)
-- [x] BYO key for OpenAI / Anthropic / OpenRouter via OS keychain (SecretRef)
-- [x] Explain mode — model explains current request/response, suggests next steps
-- [x] Aggressive default redaction (Authorization / Cookie / JWT / token patterns) with per-message "Send raw" override
-- [x] Streaming with cancel
-- [x] Per-message token + cost estimate
+Chat panel with OpenAI, Anthropic, or OpenRouter. Sees the current request and response as context. Secrets and URLs redacted before reaching the model. BYO API key, stored in OS keychain.
+
+AI Lab (desktop) — multi-model playground, datasets, eval runner with LLM-as-judge, OpenAPI-driven test generation.
+
+### Contract testing
+
+Import OpenAPI specs and validate responses against them.
+
+### Platforms
+
+Web app (Cloudflare Pages + Worker), desktop app (Electron — macOS, Windows, Linux), self-hosted Docker image. Same UI on all three — one React renderer.
 
 ---
 
-## In Progress 🔄
+## Actively being worked on
 
-- [ ] Test coverage improvement (target: 80%)
-- [ ] gRPC client streaming and bidirectional streaming
-- [ ] Accessibility improvements (WCAG 2.1 AA)
-
----
-
-## Planned
-
-Features below are planned but not yet scheduled. Contributions welcome.
-
-### Collaboration & Cloud Sync
-
-- [ ] Cloud storage for collections
-- [ ] Sync across devices
-- [ ] Conflict resolution
-- [ ] Shared workspaces
-- [ ] Team collections with role-based access
-- [ ] Comments on requests
-- [ ] Version history for collections
-
-### Import & Export Expansion
-
-- [ ] cURL import
-- [ ] HAR import
-- [ ] Environment export
-- [ ] OpenAPI export
-
-### Auth Improvements
-
-- [ ] OAuth 2.0 Authorization Code + PKCE flows
-- [ ] Token auto-refresh
-- [ ] Collection-level auth inheritance
-
-### Testing & Automation
-
-- [ ] Test suites with HTML/JUnit reports
-- [ ] Scheduled test runs
-- [ ] Mock servers
-- [ ] CI/CD integration guide
-
-### Performance Testing
-
-- [ ] Load testing (ghz integration for gRPC)
-- [ ] Performance metrics visualization
-
-### Plugin System
-
-- [ ] Plugin architecture for custom auth, code gen, and importers
-- [ ] Plugin marketplace
-
-### AI (planned)
-
-- [ ] Natural-language → request builder (own spec)
-- [ ] Test generation from response (own spec)
-- [ ] Tool calling — chat acts on Restura state via MCP server (v2)
-- [ ] Web build support (re-add worker/handlers/ai.ts)
-- [ ] Multi-modal (image / screenshot input)
+- **gRPC client streaming and bidirectional streaming** — unary and server streaming are done; the bidirectional path is next.
+- **Test coverage** — currently patchy in places, working toward meaningful coverage on the protocol core and IPC layer.
+- **Accessibility** — keyboard navigation and screen reader support needs work, particularly in the workflow builder and response viewer.
 
 ---
 
-## Long-term Vision
+## What's next (no fixed dates)
 
-### IDE Integration
+These are things that are clearly needed and will happen, roughly in order of how much they're being asked for.
 
-- [ ] VS Code extension
-- [ ] JetBrains plugin
-- [ ] In-editor request execution
+**HAR import** — useful for capturing real browser traffic and replaying it. Not complicated, just not done yet.
 
-### Browser Extension
+**OpenAPI export** — you can import OpenAPI, you should also be able to export to it. The reverse path.
 
-- [ ] Chrome / Firefox extension
-- [ ] Capture requests from DevTools
+**Environment export** — environments can't currently be exported standalone, only as part of a collection. That's a gap.
 
-### Enterprise
+**WebSocket bidirectional scripting** — the scripting sandbox currently works for HTTP request/response. Extending it to WebSocket (run a script on each incoming message) is on the list.
 
-- [ ] Single Sign-On (SSO)
-- [ ] Audit logging
-- [ ] Data residency options
+**AI on web** — the AI assistant currently only works on the desktop app because there's no `/api/ai` route in the Worker. Adding web support requires some care around API key handling in the browser, but it's wanted.
+
+**Connect/gRPC transcoding** — the echo Worker uses Connect for gRPC over HTTP/2. Bringing that to the web client so gRPC works without the desktop app.
 
 ---
 
-## Contributing
+## What we're probably not doing
 
-Pick up any open issue or propose a new feature via the [feature request template](https://github.com/dipjyotimetia/restura/issues/new?template=feature_request.md).
+**Cloud sync and shared workspaces** — the whole point of Restura is that your data stays on your machine. Adding cloud sync would mean becoming the thing we were trying to avoid. If you want to share collections across a team, self-host a Docker instance and share that — that's the intended path.
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to get started.
+**Plugin marketplace** — a plugin system is interesting but a marketplace is a product in itself. Not something we're taking on.
+
+**Browser extension** — capturing traffic from DevTools and piping it into the client is genuinely useful, but the maintenance surface of a browser extension is high. It's not a priority right now.
+
+**SSO and enterprise auth** — Restura doesn't have accounts, so SSO doesn't have anywhere to attach to. If this is something you need, the self-hosted Docker path with your own reverse proxy and auth layer in front is the right model.
 
 ---
 
-_Last updated: May 2026_
+## Longer term, no timeline
+
+These are things that would be good to have but aren't being actively planned.
+
+- VS Code and JetBrains extensions for in-editor request execution
+- Natural-language to request builder (describe what you want, get a request)
+- Scheduled test runs
+- Audit logging for the self-hosted deployment
+
+---
+
+## How to influence this
+
+Open an issue or add a 👍 to an existing one. The things that get built fastest are the ones where it's clear someone actually needs them — a concrete use case is worth more than a vote count.
+
+[Feature request template](https://github.com/dipjyotimetia/restura/issues/new?template=feature_request.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
+
+---
+
+_Last updated: June 2026_

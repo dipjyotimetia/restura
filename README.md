@@ -22,11 +22,11 @@
 
 <br/>
 
-> **One client. Every protocol.** Test HTTP endpoints, debug gRPC services, send WebSocket frames, watch SSE streams, and call MCP servers — all from one place. No account. No data leaving your machine.
+I kept opening four different tools to debug the same service. Postman for HTTP, a separate gRPC client, something else for WebSocket frames, and a Kafka UI buried in a Docker container. Each one had its own collection format, its own auth setup, and at least one wanted me to create an account before I could do anything useful.
 
-Restura is a multi-protocol API client for developers who are tired of switching tools. It runs as a **web app** on Cloudflare's edge and as a native **desktop app** for macOS, Windows, and Linux — built from a single React renderer, so the two stay perfectly in sync.
+Then Postman changed its pricing model and Insomnia got acquired and went cloud-first. Suddenly my request history — auth tokens, internal service hostnames, payload bodies — was syncing to someone's server by default. That felt wrong.
 
-**Both are free forever.**
+So I built Restura. One client that speaks all the protocols I actually use, stores everything locally, and doesn't need an account to work. It runs in the browser or as a native desktop app for macOS, Windows, and Linux. Self-hosts in Docker if you want it behind a firewall. And it's free — not "free tier with the useful stuff locked," just free.
 
 <br/>
 
@@ -60,19 +60,20 @@ Restura is a multi-protocol API client for developers who are tired of switching
 |  `IO`  | Socket.IO              | Connect, emit/listen events, acks · _desktop only_          |
 | `SSE`  | Server-Sent Events     | Live event stream viewer with reconnection                  |
 | `KFK`  | Kafka                  | Produce / consume, SASL + TLS · _desktop only_              |
-| `MCP`  | Model Context Protocol | Proxy to any MCP server                                     |
+| `MQT`  | MQTT                   | Publish / subscribe, QoS, TLS · _desktop only_              |
+| `MCP`  | Model Context Protocol | Proxy to any MCP server — and Restura _can be_ one          |
 
 ## Highlights
 
 |                        |                                                                                                                                    |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | **Request scripting**  | Pre-request and test scripts in JavaScript, sandboxed in [QuickJS](https://bellard.org/quickjs/) WASM — no DOM, no network escape. |
-| **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff.                            |
-| **Import everything**  | Postman v2.1, Insomnia, and OpenAPI / Swagger — drop it in and start testing.                                                      |
+| **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff. Runs in the app or in CI.  |
+| **Import everything**  | Postman v2.1, Insomnia, Bruno, OpenAPI / Swagger, Hoppscotch — drop it in and start testing.                                       |
 | **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                        |
 | **Auth built-in**      | Basic, Bearer, API Key, OAuth 2.0, Digest, AWS SigV4, mTLS — per request or inherited from a collection or folder.                 |
-| **Proxy support**      | HTTP/HTTPS proxies, proxy chaining, client certificates.                                                                           |
-| **Private by default** | Everything stored locally. No accounts, no cloud sync.                                                                             |
+| **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire.     |
+| **Private by default** | Everything stored locally. No accounts, no cloud sync, no analytics or behavioural tracking.                                       |
 
 ## Security
 
@@ -82,13 +83,13 @@ Restura signs auth **at the wire** and guards every outbound request — on both
 - **Web** — Encryption keys default to ephemeral in-memory (regenerated per session) — strictly better than storing the key beside the ciphertext, though it means encrypted data doesn't survive a reload. mTLS, custom CA, SOCKS, and "Verify SSL = off" aren't exposed by the browser sandbox.
 - **Network** — SSRF guards (RFC 1918, RFC 6598 CGNAT, link-local `169.254/16`, cloud-metadata endpoints, IPv6 unique-local, IPv4-mapped IPv6) on every path. Desktop adds a DNS-rebind guard at lookup time. AWS SigV4 is signed in the Worker / Electron handler — never the renderer — so the signature matches the exact bytes upstream receives.
 - **Sandbox** — User scripts run in a [QuickJS](https://bellard.org/quickjs/) WASM VM with memory and time limits. No host bridge, no filesystem, no network.
-- **Privacy** — No accounts, no cloud sync. Optional crash & error reporting (desktop, Sentry) captures stack traces, native crash reports, and URL-free performance signals — request context, headers, bodies, secrets, and file paths are aggressively scrubbed before anything is sent (`sendDefaultPii: false`), and it can be turned off in Settings. Your requests and responses never leave your machine.
+- **Privacy** — No accounts, no cloud sync. Optional crash & error reporting (desktop, Sentry) captures stack traces and URL-free performance signals — request context, headers, bodies, secrets, and file paths are aggressively scrubbed before anything is sent (`sendDefaultPii: false`), and it can be turned off in Settings. Your requests and responses never leave your machine.
 
 See [`docs/adr/0004-security-hardening.md`](docs/adr/0004-security-hardening.md) for the design rationale.
 
 ## Quick start
 
-**Prerequisites:** Node.js 24+ and npm.
+**Prerequisites:** Node.js 24+ and npm. Or skip the setup and [open the web app](https://restura.dev/) directly.
 
 ```bash
 git clone https://github.com/dipjyotimetia/restura.git
@@ -135,7 +136,7 @@ See [**docs/SELF_HOSTING.md**](docs/SELF_HOSTING.md) for the full operations gui
 
 ## How it works
 
-The same React SPA powers both targets. The only thing that differs is the transport, chosen at runtime by `isElectron()`.
+The same React SPA powers both targets. The only thing that differs is the transport layer, chosen at runtime by `isElectron()`.
 
 ```
           ┌──────────────────────────────────────┐
@@ -155,7 +156,7 @@ The same React SPA powers both targets. The only thing that differs is the trans
                        Target API / Service
 ```
 
-The Cloudflare Worker is never bundled into the desktop app. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full breakdown.
+Protocol logic lives once in `shared/protocol/` — SSRF validation, header policy, body construction, response shaping — and each backend supplies only a thin `Fetcher` adapter. The Cloudflare Worker is never bundled into the desktop app. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full breakdown.
 
 <details>
 <summary><b>Project layout</b></summary>
@@ -172,6 +173,7 @@ src/
 │   ├── graphql/       # GraphQL builder + schema explorer
 │   ├── sse/           # Server-Sent Events client
 │   ├── kafka/         # Kafka producer/consumer (desktop only)
+│   ├── mqtt/          # MQTT client (desktop only)
 │   ├── mcp/           # MCP client
 │   ├── workflows/     # Request chaining + variable extraction
 │   ├── collections/   # Sidebar, runner, Postman/Insomnia import
@@ -179,6 +181,7 @@ src/
 │   ├── auth/          # Auth config (shared across protocols)
 │   └── scripts/       # Script editor + QuickJS executor
 │
+shared/protocol/       # Backend-agnostic protocol orchestrators
 worker/                # Cloudflare Pages Function (Hono, web only)
 electron/main/         # Electron main process + IPC handlers
 ```
@@ -198,34 +201,36 @@ electron/main/         # Electron main process + IPC handlers
 | Script VM  | QuickJS WASM (`quickjs-emscripten`)                             |
 | Worker     | Hono on Cloudflare Pages Functions                              |
 | Desktop    | Electron 42                                                     |
-| Tests      | Vitest + React Testing Library                                  |
+| Tests      | Vitest + React Testing Library + Playwright                     |
 
 ## Development
 
 ```bash
 npm run dev              # web dev server (port 5173)
 npm run validate         # type-check + lint + tests (same as CI)
-npm run test:run         # tests once
+npm run test:run         # run tests once
 npm run test:coverage    # coverage report
 npm run lint             # ESLint
 npm run format           # Prettier
 ```
 
-Every PR runs type-check (renderer + Electron main + Worker), lint, security audit, tests, build, and a Cloudflare Pages preview deploy with the URL posted to the PR.
+Every PR runs type-check (renderer + Electron main + Worker), lint, security audit, tests, build, and a Cloudflare Pages preview deploy — the URL is posted to the PR automatically.
 
 ## Contributing
 
-All contributions are welcome — bug fixes, new features, docs.
+This started as a personal tool and I'd genuinely love help making it better. Bug fixes, new protocol support, UI polish, docs, security hardening — all welcome.
 
 ```bash
 git checkout -b fix/my-thing
-# make changes
-npm run validate
+# make your changes
+npm run validate          # type-check + lint + tests — same gates as CI
 git commit -m 'fix: my thing'
 # open a PR
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit format, and the PR checklist. By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+If you're thinking about adding a new protocol or something significant, open an issue first so we can talk through the approach before you invest time on it. For smaller things, just send the PR.
+
+Issues tagged [`good first issue`](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue) are a good place to start if you're new here. Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming and commit format. By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Links
 
@@ -241,6 +246,6 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit format, and th
 
 **MIT License** · Hosted on Cloudflare Pages · Made by [**dipjyotimetia**](https://github.com/dipjyotimetia)
 
-<sub>If Restura saves you a tab, consider leaving a ⭐ — it genuinely helps.</sub>
+<sub>If this saves you a context-switch, a ⭐ helps other developers find it.</sub>
 
 </div>
