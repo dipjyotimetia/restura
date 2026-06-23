@@ -1,7 +1,6 @@
 import { ipcMain } from 'electron';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
-import { emitTo } from '../ipc/ipc-utils';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import {
   SseConnectSchema,
@@ -11,7 +10,7 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { SseParser, type ParsedSseEvent } from './sse-parser';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { IPC, EVENT_PREFIX } from '../../shared/channels';
 import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import { makeFetchFetcher } from './fetch-fetcher';
@@ -33,20 +32,26 @@ interface ActiveSse {
   explicitlyClosed: boolean;
 }
 
-const activeConnections = new Map<string, ActiveSse>();
+// Shared connection bookkeeping (map + same-id replace + renderer-destroyed
+// cleanup + per-connection event emit + disposeAll). dispose() encapsulates the
+// SSE-specific teardown: flag the connection as explicitly closed (so the read
+// loop suppresses the trailing error/close events) and abort the fetch.
+const connections = new StreamRegistry<ActiveSse>({
+  prefixes: EVENT_PREFIX.sse,
+  dispose: (e) => {
+    e.explicitlyClosed = true;
+    e.abortController.abort();
+  },
+});
 
 async function readStream(
   entry: ActiveSse,
   body: ReadableStream<Uint8Array> | null
 ): Promise<void> {
   if (!body) {
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.error, entry.connectionId), {
-      message: 'No response body',
-    });
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.close, entry.connectionId), {
-      reason: 'no body',
-    });
-    activeConnections.delete(entry.connectionId);
+    connections.emit(entry.connectionId, 'error', { message: 'No response body' });
+    connections.emit(entry.connectionId, 'close', { reason: 'no body' });
+    connections.remove(entry.connectionId);
     return;
   }
 
@@ -55,7 +60,7 @@ async function readStream(
   const reader = body.getReader();
 
   const onEvent = (e: ParsedSseEvent) => {
-    emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.event, entry.connectionId), e);
+    connections.emit(entry.connectionId, 'event', e);
   };
 
   try {
@@ -69,9 +74,7 @@ async function readStream(
     if (!entry.explicitlyClosed) {
       const message = err instanceof Error ? err.message : 'Stream read error';
       log.warn('stream read error', { connectionId: entry.connectionId, error: message });
-      emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.error, entry.connectionId), {
-        message,
-      });
+      connections.emit(entry.connectionId, 'error', { message });
     }
   } finally {
     // Releasing the reader lets the underlying socket be closed promptly instead
@@ -81,12 +84,12 @@ async function readStream(
     } catch {
       /* already done */
     }
-    activeConnections.delete(entry.connectionId);
+    // Emit the terminal close BEFORE dropping the entry — emit() resolves the
+    // owning renderer from the live entry, so removing first would no-op it.
     if (!entry.explicitlyClosed) {
-      emitTo(entry.webContentsId, eventChannel(EVENT_PREFIX.sse.close, entry.connectionId), {
-        reason: 'stream ended',
-      });
+      connections.emit(entry.connectionId, 'close', { reason: 'stream ended' });
     }
+    connections.remove(entry.connectionId);
   }
 }
 
@@ -101,17 +104,13 @@ export function registerSseHandlerIPC(): void {
     if (!sseRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
-    if (activeConnections.size >= MAX_CONCURRENT_SSE_CONNECTIONS) {
+    if (connections.size() >= MAX_CONCURRENT_SSE_CONNECTIONS) {
       return { success: false, error: 'Too many open connections.' };
     }
 
-    // Close existing connection with same id
-    const existing = activeConnections.get(connectionId);
-    if (existing) {
-      existing.explicitlyClosed = true;
-      existing.abortController.abort();
-      activeConnections.delete(connectionId);
-    }
+    // Close an existing connection with the same id (dispose aborts it) before
+    // we start a new one — frees the socket promptly.
+    connections.cancel(connectionId);
 
     // Resolve + validate once, then PIN the connection to that IP (closes the
     // DNS-rebind window a pre-flight-only check leaves open). createPinnedFetch
@@ -137,18 +136,8 @@ export function registerSseHandlerIPC(): void {
       createdAt: Date.now(),
       explicitlyClosed: false,
     };
-    activeConnections.set(connectionId, entry);
-
-    bindRendererCleanup(activeConnections, event.sender, (deadId) => {
-      disposeByOwner(activeConnections, deadId, (e) => {
-        e.explicitlyClosed = true;
-        try {
-          e.abortController.abort();
-        } catch {
-          /* ignore */
-        }
-      });
-    });
+    // add() stores the entry and wires renderer-destroyed cleanup (dispose aborts).
+    connections.add(connectionId, event.sender, entry);
 
     // `redirect: 'manual'` so followRedirects can validate every hop (matches
     // the Worker proxy's policy — Location pointing at metadata IPs etc. is
@@ -178,35 +167,29 @@ export function registerSseHandlerIPC(): void {
       clearTimeout(timeoutId);
 
       if (!result.ok) {
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.error, connectionId), {
-          message: result.payload.error,
-        });
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.close, connectionId), {
-          reason: result.payload.error,
-        });
-        activeConnections.delete(connectionId);
+        connections.emit(connectionId, 'error', { message: result.payload.error });
+        connections.emit(connectionId, 'close', { reason: result.payload.error });
+        connections.remove(connectionId);
         return { success: false, error: result.payload.error };
       }
 
       const response = result.response;
       if (response.status < 200 || response.status >= 300) {
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.error, connectionId), {
+        connections.emit(connectionId, 'error', {
           message: `HTTP ${response.status} ${response.statusText}`,
         });
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.close, connectionId), {
-          reason: `HTTP ${response.status}`,
-        });
-        activeConnections.delete(connectionId);
+        connections.emit(connectionId, 'close', { reason: `HTTP ${response.status}` });
+        connections.remove(connectionId);
         return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
       }
 
-      emitTo(webContentsId, eventChannel(EVENT_PREFIX.sse.open, connectionId));
+      connections.emit(connectionId, 'open');
       // Drain the stream in the background — we already returned success.
       void readStream(entry, response.body ?? null);
       return { success: true };
     } catch (err) {
       clearTimeout(timeoutId);
-      activeConnections.delete(connectionId);
+      connections.remove(connectionId);
       if (err instanceof RedirectPolicyError) {
         log.warn('connect rejected by redirect policy', { connectionId, error: err.message });
         return { success: false, error: err.message };
@@ -220,25 +203,13 @@ export function registerSseHandlerIPC(): void {
   ipcMain.handle(
     IPC.sse.disconnect,
     createValidatedHandler(IPC.sse.disconnect, SseDisconnectSchema, async (config) => {
-      const entry = activeConnections.get(config.connectionId);
-      if (entry) {
-        entry.explicitlyClosed = true;
-        entry.abortController.abort();
-        activeConnections.delete(config.connectionId);
-      }
+      // cancel() disposes (sets explicitlyClosed + aborts) and removes the entry.
+      connections.cancel(config.connectionId);
       return { success: true };
     })
   );
 }
 
 export function stopSseCleanup(): void {
-  for (const entry of activeConnections.values()) {
-    try {
-      entry.explicitlyClosed = true;
-      entry.abortController.abort();
-    } catch {
-      /* ignore */
-    }
-  }
-  activeConnections.clear();
+  connections.disposeAll();
 }
