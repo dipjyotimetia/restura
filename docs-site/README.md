@@ -49,8 +49,7 @@ processor) and follows its recommended practices.
   in `package.json`. Remove those overrides once Starlight publishes Astro 7 support.
 - **Mermaid needs the `unified` Markdown processor.** Astro 7 defaults to the Rust-based
   Sätteri processor, which does **not** run remark/rehype plugins. `astro-mermaid` turns
-  ```mermaid code fences into diagrams via a rehype plugin, so `astro.config.mjs` sets
-  `markdown.processor: unified()` to opt back into the plugin pipeline. Without it, diagrams
+  ```mermaid code fences into diagrams via a rehype plugin, so `astro.config.mjs`sets`markdown.processor: unified()` to opt back into the plugin pipeline. Without it, diagrams
   render as raw highlighted code. Keep this until astro-mermaid supports Sätteri natively.
 - **Content-layer loaders — in use.** `src/content.config.ts` uses the loader API
   (`docsLoader()`), the content-collections pattern Astro 7 standardises on.
