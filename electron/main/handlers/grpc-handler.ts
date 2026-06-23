@@ -9,7 +9,7 @@ import {
   createValidatedListener,
 } from '../ipc/ipc-validators';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
@@ -51,8 +51,12 @@ interface ActiveCall {
   webContentsId: number;
 }
 
-// Store active calls for streaming with improved management
-const activeCalls = new Map<string, ActiveCall>();
+// Store active calls for streaming. The registry owns the map + renderer-destroyed
+// cleanup (dispose = cancel the call). gRPC keeps its own bespoke bits — the
+// stale-stream sweeper (createdAt), the duplicate-id rejection (tryAdd, not the
+// replacing add), and the pendingStreamMessages race buffer — as custom logic
+// over get()/values()/tryAdd().
+const activeCalls = new StreamRegistry<ActiveCall>({ dispose: (c) => c.cancel() });
 
 // `grpc:start-stream` is async (it awaits a DNS SSRF pre-flight before it can
 // register the ActiveCall). A `grpc:send-message` / `grpc:end-stream` that races
@@ -113,24 +117,22 @@ function sanitizeErrorMessage(message: string | undefined): string {
 // Clean up stale streams periodically
 const cleanupStaleStreams = () => {
   const now = Date.now();
+  // Collect first, then cancel — cancel() disposes + removes, so mutating the
+  // map mid-iteration is avoided.
   const staleIds: string[] = [];
-
-  activeCalls.forEach((call, id) => {
-    if (now - call.createdAt > STREAM_TIMEOUT_MS) {
-      staleIds.push(id);
-      try {
-        call.cancel();
-      } catch (error) {
-        log.error('error canceling stale stream', {
-          streamId: id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  });
-
+  for (const call of activeCalls.values()) {
+    if (now - call.createdAt > STREAM_TIMEOUT_MS) staleIds.push(call.requestId);
+  }
   staleIds.forEach((id) => {
-    activeCalls.delete(id);
+    try {
+      // cancel() runs dispose (c.cancel()) and removes the entry.
+      activeCalls.cancel(id);
+    } catch (error) {
+      log.error('error canceling stale stream', {
+        streamId: id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     log.info('cleaned up stale stream', { streamId: id });
   });
 };
@@ -148,29 +150,25 @@ export function stopStreamCleanup(): void {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
   }
-  // Cancel all active streams so we don't block process exit
-  activeCalls.forEach((call) => {
-    try {
-      call.cancel();
-    } catch {
-      /* ignore */
-    }
-  });
-  activeCalls.clear();
+  // Cancel all active streams so we don't block process exit (dispose = cancel).
+  activeCalls.disposeAll();
   pendingStreamMessages.clear();
 }
 
-// Safe method to add a stream with collision detection
-const addActiveCall = (id: string, call: Omit<ActiveCall, 'createdAt' | 'requestId'>): boolean => {
-  if (activeCalls.has(id)) {
+// Safe method to add a stream with collision detection. `sender` is threaded to
+// the registry so renderer-destroyed cleanup is wired at store time (tryAdd binds
+// it; if the renderer already died, it disposes immediately).
+const addActiveCall = (
+  id: string,
+  sender: Electron.WebContents,
+  call: Omit<ActiveCall, 'createdAt' | 'requestId'>
+): boolean => {
+  const entry: ActiveCall = { ...call, createdAt: Date.now(), requestId: id };
+  // tryAdd rejects a duplicate id (a renderer bug) rather than replacing.
+  if (!activeCalls.tryAdd(id, sender, entry)) {
     log.warn('duplicate stream rejected', { streamId: id });
     return false;
   }
-  activeCalls.set(id, {
-    ...call,
-    createdAt: Date.now(),
-    requestId: id,
-  });
   // Flush any writes / half-close that raced ahead of registration (see
   // pendingStreamMessages). For server-streaming write/end are no-ops, so this
   // is harmless there.
@@ -184,8 +182,8 @@ const addActiveCall = (id: string, call: Omit<ActiveCall, 'createdAt' | 'request
 };
 
 // Safe method to remove a stream
-const removeActiveCall = (id: string): boolean => {
-  return activeCalls.delete(id);
+const removeActiveCall = (id: string): void => {
+  activeCalls.remove(id);
 };
 
 // Pull the TLS trust / mTLS material out of a request config for the
@@ -390,10 +388,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
 
-        bindRendererCleanup(activeCalls, event.sender, (deadId) => {
-          disposeByOwner(activeCalls, deadId, (c) => c.cancel());
-        });
-
+        // Renderer-destroyed cleanup is wired by addActiveCall → registry.tryAdd
+        // (below), once the call is registered. The isDestroyed bail above already
+        // covers a renderer that died during the DNS lookup.
         const streamStartTime = Date.now();
 
         try {
@@ -475,7 +472,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               }
             },
           });
-          const added = addActiveCall(requestId, {
+          const added = addActiveCall(requestId, event.sender, {
             cancel: controls.cancel,
             write: controls.write,
             end: controls.end,

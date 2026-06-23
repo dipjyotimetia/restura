@@ -91,6 +91,17 @@ describe('StreamRegistry', () => {
     expect(registry.size()).toBe(1); // not duplicated
   });
 
+  it('tryAdd() stores a new id but rejects a duplicate without disposing', () => {
+    const { registry, disposed, entry } = env;
+    const wc = makeWc(1);
+    expect(registry.tryAdd('c1', wc.wc as never, entry('c1', 1))).toBe(true);
+    const dup = entry('c1', 1);
+    expect(registry.tryAdd('c1', wc.wc as never, dup)).toBe(false);
+    expect(dup.disposed).toBe(false); // existing entry untouched, no dispose
+    expect(disposed).toEqual([]);
+    expect(registry.size()).toBe(1);
+  });
+
   it('remove() drops an entry without disposing it', () => {
     const { registry, disposed, entry } = env;
     const wc = makeWc(1);

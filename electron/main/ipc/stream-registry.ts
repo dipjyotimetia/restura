@@ -77,6 +77,20 @@ export class StreamRegistry<E extends StreamEntryBase> {
     );
   }
 
+  /**
+   * Like {@link add}, but REJECTS (returns false) when an entry already exists
+   * for `connectionId` instead of disposing+replacing it. For handlers where a
+   * duplicate id is a caller bug rather than a reconnect (gRPC stream ids).
+   */
+  tryAdd(connectionId: string, webContents: WebContents, entry: E): boolean {
+    if (this.map.has(connectionId)) return false;
+    this.map.set(connectionId, entry);
+    bindRendererCleanup(this, webContents, (deadId) =>
+      disposeByOwner(this.map, deadId, (e) => this.safeDispose(e))
+    );
+    return true;
+  }
+
   get(connectionId: string): E | undefined {
     return this.map.get(connectionId);
   }
