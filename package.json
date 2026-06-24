@@ -49,6 +49,7 @@
     "verify:opencollection-types": "npm run gen:opencollection-types && git diff --exit-code src/lib/opencollection/spec-types.ts",
     "capabilities:matrix": "node scripts/generate-capability-matrix.mjs",
     "capabilities:check": "node scripts/generate-capability-matrix.mjs --check",
+    "skills:report": "node scripts/skill-usage-report.mjs",
     "build:sandbox-libs": "node scripts/build-sandbox-libs.mjs",
     "grpc:server": "node scripts/grpc-dev-server.mjs",
     "echo:local:build": "esbuild echo-local/cli.ts --bundle --platform=node --format=cjs --target=node24 --outfile=dist/echo-local/cli.cjs --log-level=warning",
