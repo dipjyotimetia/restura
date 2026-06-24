@@ -19,7 +19,7 @@ secret scanning, required reviewers, secrets).
 | **Scorecard**             | `.github/workflows/scorecard.yml`             | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                               |
 | **Dependency Review**     | `.github/workflows/dependency-review.yml`     | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                  |
 | **Security Audit**        | `.github/workflows/security-audit.yml`        | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                             |
-| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml` | PR (Dependabot only)                     | Approves + enables auto-merge for patch/minor dependency updates once required checks pass.                                               |
+| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml` | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                              |
 | **Release**               | `.github/workflows/release.yml`               | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                     |
 
 > Releases are **never** cut on merge to `main`. Production ships only from a
@@ -128,10 +128,9 @@ default setup is enabled`), which is why there is no `codeql.yml` here.
 
 ### 4. Dependabot auto-merge
 
-Patch & minor dependency updates from Dependabot are approved and queued for
-auto-merge by `dependabot-auto-merge.yml`; GitHub merges them once the required
-status checks (step 1) go green. Major bumps and non-semver updates are left for
-manual review.
+Patch & minor dependency updates from Dependabot are queued for auto-merge by
+`dependabot-auto-merge.yml`; GitHub merges them once the required status checks
+(step 1) go green. Major bumps and non-semver updates are left for manual review.
 
 To make it work:
 
@@ -139,10 +138,17 @@ To make it work:
   this, `gh pr merge --auto` errors and nothing merges.
 - ✅ **Branch protection with required status checks** (step 1). `--auto` waits
   on _required_ checks only; a red required check holds the merge.
-- **Approvals.** The workflow self-approves so a generic "require N approvals"
-  rule is satisfied. If you require **Code Owner** review specifically, a bot
-  approval does _not_ count — either drop the code-owner requirement for the
-  auto-merge to complete, or keep approving Dependabot PRs by hand.
+- **Approvals.** The workflow does **not** self-approve — the default
+  `GITHUB_TOKEN` (`github-actions[bot]`) is not permitted to approve PRs, and
+  trying to do so fails with _"GitHub Actions is not permitted to approve pull
+  requests. (addPullRequestReview)"_. So if `main` has a "require N approvals"
+  (or Code Owner review) rule, an auto-merge-enabled Dependabot PR will sit
+  un-merged until a human approves it. To get true hands-off merging, **exempt
+  Dependabot patch/minor PRs from the approval requirement** — e.g. a branch
+  ruleset whose bypass list / target conditions exclude `dependabot[bot]` PRs —
+  or keep approving them by hand. (If you'd rather keep the required-approval
+  rule enforced for bots too, restore the approve step but authenticate it with
+  a PAT or GitHub App token — a real user identity — instead of `GITHUB_TOKEN`.)
 
 How Dependabot runs are hardened (in `ci.yml`):
 
