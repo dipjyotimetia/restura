@@ -1,9 +1,17 @@
 name: Dependabot auto-merge
 
-# Approve and enable auto-merge for Dependabot patch & minor updates. GitHub
-# then merges the PR automatically once all REQUIRED status checks pass (see
-# the required-check list in docs/CI_CD.md). Major bumps — and anything that
-# isn't a clean semver patch/minor — are left for manual review.
+# Enable auto-merge for Dependabot patch & minor updates. GitHub then merges the
+# PR automatically once all REQUIRED status checks pass (see the required-check
+# list in docs/CI_CD.md). Major bumps — and anything that isn't a clean semver
+# patch/minor — are left for manual review.
+#
+# We deliberately do NOT self-approve the PR here: the default GITHUB_TOKEN
+# (github-actions[bot]) is not permitted to approve pull requests, so a
+# `gh pr review --approve` step fails with
+#   "GitHub Actions is not permitted to approve pull requests. (addPullRequestReview)"
+# Instead, the merge proceeds on required status checks alone. If branch
+# protection on `main` requires approvals, exempt Dependabot patch/minor PRs
+# from that rule (or approve them manually) — see docs/CI_CD.md.
 #
 # Prerequisites (one-time, in repo settings — see docs/CI_CD.md):
 #   - Settings → General → "Allow auto-merge" enabled.
@@ -35,14 +43,13 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Approve and enable auto-merge (patch & minor only)
+      - name: Enable auto-merge (patch & minor only)
         if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor' }}
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Approve so a "require approvals" rule is satisfied, then queue the
-          # merge. --auto waits for required checks; nothing merges red.
-          gh pr review --approve "$PR_URL"
+          # Queue the merge. --auto waits for required checks; nothing merges red.
+          # We do not approve here — github-actions[bot] cannot approve PRs.
           gh pr merge --auto --squash "$PR_URL"
