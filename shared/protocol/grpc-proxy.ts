@@ -1,8 +1,8 @@
 import { GrpcStatusCode, GrpcStatusCodeName } from './grpc-status';
-import { validateURL } from './url-validation';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
-import type { Fetcher } from './types';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
+import type { Fetcher } from './types';
+import { validateURL } from './url-validation';
 
 export interface GrpcSpec {
   url: string;

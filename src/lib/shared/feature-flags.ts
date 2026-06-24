@@ -8,9 +8,9 @@
  * are an incident-response tool, not a dependency.
  */
 
+import type { FeatureFlags } from '@shared/feature-flags-types';
 import { useEffect, useState } from 'react';
 import { workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
-import type { FeatureFlags } from '@shared/feature-flags-types';
 
 export type { FeatureFlags };
 

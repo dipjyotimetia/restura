@@ -8,8 +8,8 @@
  * embedded graph through the same Zod gate the store uses.
  */
 import { v4 as uuidv4 } from 'uuid';
-import type { Workflow } from '@/types';
 import { validateWorkflowGraph } from './flowValidators';
+import type { Workflow } from '@/types';
 
 export const WORKFLOW_EXPORT_FORMAT = 'restura-workflow';
 export const WORKFLOW_EXPORT_VERSION = 1;

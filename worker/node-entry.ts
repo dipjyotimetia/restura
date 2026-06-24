@@ -4,19 +4,19 @@
  * factory the Cloudflare entry uses, but supplies Node-native adapters for
  * the two Cloudflare-only features (CONNECT proxy, native WebSocket).
  */
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { Hono } from 'hono';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
-import path from 'node:path';
-import fs from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
 import type { Env } from './env';
-import { createHttpsViaConnectProxy, createHttpViaProxy } from './shared/tcp-proxy-node';
-import { assertNodeHostnameSafe } from './shared/dns-guard-node';
 import { createNodeWebsocketHandler } from './handlers/websocket-node';
+import { assertNodeHostnameSafe } from './shared/dns-guard-node';
+import { createHttpsViaConnectProxy, createHttpViaProxy } from './shared/tcp-proxy-node';
 
 // The Node bundle lives at `dist/server/index.mjs`; the SPA at `dist/web/`.
 // Resolve relative to the bundle so the same Docker WORKDIR works for both.

@@ -1,10 +1,10 @@
-import type { AuthConfig, Request } from '@/types';
-import { useCollectionStore } from '@/store/useCollectionStore';
 import {
   findInheritedAuthWithSource,
   isConfiguredAuth,
   type InheritedAuth,
 } from './authInheritance';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import type { AuthConfig, Request } from '@/types';
 
 /**
  * Resolve the folder/collection auth a request inherits at SEND time, by

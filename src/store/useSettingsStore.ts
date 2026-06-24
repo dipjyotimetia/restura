@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import type {
   AppSettings,
   ProxyConfig,
@@ -10,10 +13,7 @@ import type {
   HostCaCert,
   JudgeSettings,
 } from '@/types';
-import type { SecretValue } from '@/lib/shared/secretRef';
 import { DEFAULT_AUTO_UPDATE_SETTINGS, DEFAULT_JUDGE_SETTINGS } from '@/types';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
 interface SettingsState {
   settings: AppSettings;

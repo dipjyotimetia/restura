@@ -12,14 +12,14 @@
  * is wired into `e2e/fixtures/servers.ts` alongside the other mock servers.
  */
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import { upgradeWebSocket } from 'hono/cloudflare-workers';
-import { httpEcho } from './handlers/http';
+import { cors } from 'hono/cors';
+import { handleOpenAiChat, handleAnthropicChat } from './handlers/ai';
+import { connectEcho } from './handlers/connect';
 import { graphqlEcho } from './handlers/graphql';
+import { httpEcho } from './handlers/http';
 import { sseEcho } from './handlers/sse';
 import { websocketEcho } from './handlers/websocket';
-import { connectEcho } from './handlers/connect';
-import { handleOpenAiChat, handleAnthropicChat } from './handlers/ai';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
 
 export type EchoEnv = {

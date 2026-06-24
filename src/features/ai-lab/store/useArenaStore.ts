@@ -1,9 +1,9 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { v4 as uuidv4 } from 'uuid';
+import type { ArenaMatch, ArenaRun, EvalRunStatus } from '../types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ArenaStateSchema } from '@/lib/shared/store-validators';
-import type { ArenaMatch, ArenaRun, EvalRunStatus } from '../types';
 
 /** Bound arena history like eval runs — the whole table is re-encrypted on write. */
 const MAX_RUNS = 30;

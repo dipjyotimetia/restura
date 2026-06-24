@@ -1,8 +1,8 @@
+import type { LoadedRequest } from './collectionLoader.js';
+import type { ExecuteOutcome } from './executors/types.js';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import type { HttpRequest } from '@/types';
-import type { LoadedRequest } from './collectionLoader.js';
-import type { ExecuteOutcome } from './executors/types.js';
 
 export interface RunScriptResult {
   /** All `pm.test(...)` outcomes; empty if the script defined no tests. */

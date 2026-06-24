@@ -6,8 +6,26 @@
  */
 'use client';
 
+import { Plus, Trash2, ArrowRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { flattenRequests } from '../../lib/collectionHelpers';
+import { selectAtPath } from '../../lib/flowTypes';
+import { VariableExtractorConfig } from '../VariableExtractorConfig';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type {
   Workflow,
   FlowNode,
@@ -37,24 +55,6 @@ import type {
   VariableExtraction,
   SubgraphPath,
 } from '@/types';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
-import { selectAtPath } from '../../lib/flowTypes';
-import { flattenRequests } from '../../lib/collectionHelpers';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { VariableExtractorConfig } from '../VariableExtractorConfig';
-import { Plus, Trash2, ArrowRight } from 'lucide-react';
 
 interface FlowInspectorProps {
   workflow: Workflow;
@@ -1229,6 +1229,7 @@ function SseSubscribeInspector({
         <input
           type="checkbox"
           id={`accum-${node.id}`}
+          aria-label="Accumulate all events"
           checked={node.data.accumulateAll ?? true}
           onChange={(e) => update((d) => ({ ...d, accumulateAll: e.target.checked }))}
         />

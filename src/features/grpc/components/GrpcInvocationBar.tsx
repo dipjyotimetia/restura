@@ -1,10 +1,10 @@
 import { AlertCircle, Loader2, Play, X } from 'lucide-react';
-import { Floater, Segmented } from '@/components/ui/spatial';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/shared/utils';
 import GrpcStreamingControls from './GrpcStreamingControls';
-import type { GrpcMethodType } from '@/types';
+import { Button } from '@/components/ui/button';
+import { Floater, Segmented } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { cn } from '@/lib/shared/utils';
+import type { GrpcMethodType } from '@/types';
 
 interface StreamControl {
   sendMessage: (msg: unknown) => void;

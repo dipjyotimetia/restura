@@ -12,19 +12,9 @@
  * Both expose the same async-iterator handle so the UI is transport-agnostic.
  */
 
+import type { DescMethod, DescService } from '@bufbuild/protobuf';
 import { createClient, ConnectError, type Transport } from '@connectrpc/connect';
 import { createConnectTransport } from '@connectrpc/connect-web';
-import type { DescMethod, DescService } from '@bufbuild/protobuf';
-import type { GrpcRequest } from '@/types';
-import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
-import {
-  buildAuthMetadata,
-  grpcAuthNeedsMainSideApply,
-  prepareGrpcRequest,
-  validateGrpcUrl,
-  validateServiceName,
-  validateMethodName,
-} from './grpcClient';
 import {
   registryFromDescriptors,
   registryFromProtoText,
@@ -34,8 +24,18 @@ import {
   outputToJson,
 } from '@shared/protocol/grpc-registry';
 import { flattenHeaders } from '@shared/protocol/header-utils';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import {
+  buildAuthMetadata,
+  grpcAuthNeedsMainSideApply,
+  prepareGrpcRequest,
+  validateGrpcUrl,
+  validateServiceName,
+  validateMethodName,
+} from './grpcClient';
 import { resolveGrpcTls } from './grpcTls';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
+import type { GrpcRequest } from '@/types';
 
 export interface GrpcStreamFinal {
   headers: Record<string, string>;

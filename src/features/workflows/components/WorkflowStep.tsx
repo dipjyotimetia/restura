@@ -1,9 +1,5 @@
 'use client';
 
-import type { WorkflowRequest, WorkflowExecutionStep, HttpMethod } from '@/types';
-import { cn } from '@/lib/shared/utils';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   CheckCircle2,
   XCircle,
@@ -15,6 +11,10 @@ import {
   Settings,
   Variable,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/shared/utils';
+import type { WorkflowRequest, WorkflowExecutionStep, HttpMethod } from '@/types';
 
 interface WorkflowStepProps {
   workflowRequest: WorkflowRequest;

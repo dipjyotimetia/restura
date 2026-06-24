@@ -1,16 +1,16 @@
+import { Play, Save, Sparkles, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Play, Save, Sparkles, Square } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Floater, Stat } from '@/components/ui/spatial';
-import { renderTemplate, extractVars } from '../lib/promptTemplate';
 import { specFor, streamLlm, type StreamHandle } from '../lib/llmClient';
+import { renderTemplate, extractVars } from '../lib/promptTemplate';
 import { useAiLabStore } from '../store/useAiLabStore';
+import type { AiLabProviderConfig } from '../types';
 import { EmptyState } from './EmptyState';
 import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
-import type { AiLabProviderConfig } from '../types';
+import { Button } from '@/components/ui/button';
+import { Floater, Stat } from '@/components/ui/spatial';
+import { Textarea } from '@/components/ui/textarea';
 
 interface ModelOption {
   key: string;

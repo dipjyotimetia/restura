@@ -1,11 +1,11 @@
-import type { Context } from 'hono';
-import type { Env } from '../env';
-import type { NodeHostnameGuard } from '../adapters';
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
-import type { Fetcher } from '@shared/protocol/types';
 import { GrpcProxyRequestBodySchema } from '@shared/protocol/grpc-schema';
-import { parseJsonBody } from '../shared/validate-body';
+import type { Fetcher } from '@shared/protocol/types';
+import type { Context } from 'hono';
+import type { NodeHostnameGuard } from '../adapters';
+import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { parseJsonBody } from '../shared/validate-body';
 
 function buildFetcher(
   isDev: boolean,

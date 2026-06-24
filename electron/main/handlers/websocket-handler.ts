@@ -1,8 +1,8 @@
 import { ipcMain } from 'electron';
 import WebSocket from 'ws';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC, EVENT_PREFIX } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
-import { StreamRegistry } from '../ipc/stream-registry';
-import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
 import {
   WsConnectSchema,
   WsSendSchema,
@@ -11,8 +11,8 @@ import {
   createValidatedHandler,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
-import { IPC, EVENT_PREFIX } from '../../shared/channels';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { StreamRegistry } from '../ipc/stream-registry';
+import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
 
 const log = createLogger('websocket');
 

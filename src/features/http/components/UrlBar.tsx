@@ -1,14 +1,14 @@
 'use client';
 
-import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Send, Code2, Loader2, Link2 } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
-import { Floater, Kbd, MethodChip, VariableText, methodLabel } from '@/components/ui/spatial';
-import { Button } from '@/components/ui/button';
-import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import type { HttpMethod } from '@/types';
+import { useState } from 'react';
 import { VariableInput } from '@/components/shared/VariableInput';
+import { Button } from '@/components/ui/button';
+import { Floater, Kbd, MethodChip, VariableText, methodLabel } from '@/components/ui/spatial';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { cn } from '@/lib/shared/utils';
+import type { HttpMethod } from '@/types';
 
 const HTTP_METHODS: ReadonlyArray<HttpMethod> = [
   'GET',

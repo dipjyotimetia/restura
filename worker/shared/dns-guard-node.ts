@@ -10,8 +10,8 @@
  * (Electron uses `safe-connect.ts`). Worth doing here as a layered defence,
  * given the Cloudflare path doesn't even need this.
  */
-import * as dns from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
+import * as dns from 'node:dns/promises';
 import * as net from 'node:net';
 import { assertResolvedAddressAllowed } from '@shared/protocol/url-validation';
 

@@ -1,6 +1,10 @@
 'use client';
 
+import { Lock, Loader2, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
+import SecretInput from './SecretInput';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -9,12 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import type { AuthConfig } from '@/types';
-import { Lock, Loader2, AlertTriangle } from 'lucide-react';
-import { unwrapSecret } from '@/lib/shared/secretRef';
-import SecretInput from './SecretInput';
 import {
   fetchClientCredentialsToken,
   fetchPasswordToken,
@@ -24,6 +22,8 @@ import {
   fetchDeviceCode,
   pollForDeviceToken,
 } from '@/features/auth/lib/oauth2';
+import { unwrapSecret } from '@/lib/shared/secretRef';
+import type { AuthConfig } from '@/types';
 
 interface AuthConfigProps {
   auth: AuthConfig;
@@ -154,8 +154,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         return (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Username</label>
+              <label htmlFor="auth-basic-username" className="text-sm font-medium mb-2 block">
+                Username
+              </label>
               <Input
+                id="auth-basic-username"
                 value={auth.basic?.username || ''}
                 onChange={(e) =>
                   onChange({
@@ -168,8 +171,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Password</label>
+              <label htmlFor="auth-basic-password" className="text-sm font-medium mb-2 block">
+                Password
+              </label>
               <SecretInput
+                id="auth-basic-password"
                 value={auth.basic?.password}
                 onChange={(next) =>
                   onChange({
@@ -189,8 +195,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         return (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Token</label>
+              <label htmlFor="auth-bearer-token" className="text-sm font-medium mb-2 block">
+                Token
+              </label>
               <SecretInput
+                id="auth-bearer-token"
                 value={auth.bearer?.token}
                 onChange={(next) =>
                   onChange({
@@ -210,8 +219,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         return (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Key</label>
+              <label htmlFor="auth-apikey-key" className="text-sm font-medium mb-2 block">
+                Key
+              </label>
               <Input
+                id="auth-apikey-key"
                 value={auth.apiKey?.key || ''}
                 onChange={(e) =>
                   onChange({
@@ -223,8 +235,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Value</label>
+              <label htmlFor="auth-apikey-value" className="text-sm font-medium mb-2 block">
+                Value
+              </label>
               <SecretInput
+                id="auth-apikey-value"
                 value={auth.apiKey?.value}
                 onChange={(next) =>
                   onChange({
@@ -237,7 +252,9 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Add to</label>
+              <label htmlFor="auth-apikey-in" className="text-sm font-medium mb-2 block">
+                Add to
+              </label>
               <Select
                 value={auth.apiKey?.in || 'header'}
                 onValueChange={(value: 'header' | 'query') =>
@@ -247,7 +264,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                   })
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger id="auth-apikey-in">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -266,14 +283,16 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         return (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Grant Type</label>
+              <label htmlFor="auth-oauth2-grant-type" className="text-sm font-medium mb-2 block">
+                Grant Type
+              </label>
               <Select
                 value={grantType}
                 onValueChange={(v) =>
                   onChange({ ...auth, oauth2: { ...o!, grantType: v as typeof grantType } })
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger id="auth-oauth2-grant-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -285,16 +304,22 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               </Select>
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Client ID</label>
+              <label htmlFor="auth-oauth2-client-id" className="text-sm font-medium mb-2 block">
+                Client ID
+              </label>
               <Input
+                id="auth-oauth2-client-id"
                 value={o?.clientId ?? ''}
                 onChange={(e) => onChange({ ...auth, oauth2: { ...o!, clientId: e.target.value } })}
                 placeholder="Enter client ID"
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Client Secret</label>
+              <label htmlFor="auth-oauth2-client-secret" className="text-sm font-medium mb-2 block">
+                Client Secret
+              </label>
               <SecretInput
+                id="auth-oauth2-client-secret"
                 value={o?.clientSecret}
                 onChange={(next) => onChange({ ...auth, oauth2: { ...o!, clientSecret: next } })}
                 placeholder="Enter client secret (optional for PKCE)"
@@ -303,8 +328,14 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             {grantType === 'authorization_code' && (
               <div>
-                <label className="text-sm font-medium mb-2 block">Authorization URL</label>
+                <label
+                  htmlFor="auth-oauth2-authorization-url"
+                  className="text-sm font-medium mb-2 block"
+                >
+                  Authorization URL
+                </label>
                 <Input
+                  id="auth-oauth2-authorization-url"
                   value={o?.authorizationUrl ?? ''}
                   onChange={(e) =>
                     onChange({ ...auth, oauth2: { ...o!, authorizationUrl: e.target.value } })
@@ -316,8 +347,14 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             )}
             {grantType === 'device_code' && (
               <div>
-                <label className="text-sm font-medium mb-2 block">Device Authorization URL</label>
+                <label
+                  htmlFor="auth-oauth2-device-authorization-url"
+                  className="text-sm font-medium mb-2 block"
+                >
+                  Device Authorization URL
+                </label>
                 <Input
+                  id="auth-oauth2-device-authorization-url"
                   value={o?.deviceAuthorizationUrl ?? ''}
                   onChange={(e) =>
                     onChange({ ...auth, oauth2: { ...o!, deviceAuthorizationUrl: e.target.value } })
@@ -328,8 +365,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               </div>
             )}
             <div>
-              <label className="text-sm font-medium mb-2 block">Token URL</label>
+              <label htmlFor="auth-oauth2-token-url" className="text-sm font-medium mb-2 block">
+                Token URL
+              </label>
               <Input
+                id="auth-oauth2-token-url"
                 value={o?.tokenUrl ?? ''}
                 onChange={(e) => onChange({ ...auth, oauth2: { ...o!, tokenUrl: e.target.value } })}
                 placeholder="https://auth.example.com/token"
@@ -338,8 +378,14 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             </div>
             {grantType === 'authorization_code' && (
               <div>
-                <label className="text-sm font-medium mb-2 block">Redirect URI</label>
+                <label
+                  htmlFor="auth-oauth2-redirect-uri"
+                  className="text-sm font-medium mb-2 block"
+                >
+                  Redirect URI
+                </label>
                 <Input
+                  id="auth-oauth2-redirect-uri"
                   value={o?.redirectUri ?? ''}
                   onChange={(e) =>
                     onChange({ ...auth, oauth2: { ...o!, redirectUri: e.target.value } })
@@ -350,8 +396,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               </div>
             )}
             <div>
-              <label className="text-sm font-medium mb-2 block">Scope (optional)</label>
+              <label htmlFor="auth-oauth2-scope" className="text-sm font-medium mb-2 block">
+                Scope (optional)
+              </label>
               <Input
+                id="auth-oauth2-scope"
                 value={o?.scope ?? ''}
                 onChange={(e) => onChange({ ...auth, oauth2: { ...o!, scope: e.target.value } })}
                 placeholder="openid email profile"
@@ -360,8 +409,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
             {grantType === 'password' && (
               <>
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Username</label>
+                  <label htmlFor="auth-oauth2-username" className="text-sm font-medium mb-2 block">
+                    Username
+                  </label>
                   <Input
+                    id="auth-oauth2-username"
                     value={o?.username ?? ''}
                     onChange={(e) =>
                       onChange({ ...auth, oauth2: { ...o!, username: e.target.value } })
@@ -370,8 +422,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Password</label>
+                  <label htmlFor="auth-oauth2-password" className="text-sm font-medium mb-2 block">
+                    Password
+                  </label>
                   <SecretInput
+                    id="auth-oauth2-password"
                     value={o?.password}
                     onChange={(next) => onChange({ ...auth, oauth2: { ...o!, password: next } })}
                     placeholder="Password"
@@ -412,8 +467,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               </p>
             )}
             <div className="border-t border-border pt-4">
-              <label className="text-sm font-medium mb-2 block">Access Token</label>
+              <label htmlFor="auth-oauth2-access-token" className="text-sm font-medium mb-2 block">
+                Access Token
+              </label>
               <SecretInput
+                id="auth-oauth2-access-token"
                 value={o?.accessToken}
                 onChange={(next) => onChange({ ...auth, oauth2: { ...o!, accessToken: next } })}
                 placeholder="Token will appear here after authorization"
@@ -421,8 +479,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Token Type (optional)</label>
+              <label htmlFor="auth-oauth2-token-type" className="text-sm font-medium mb-2 block">
+                Token Type (optional)
+              </label>
               <Input
+                id="auth-oauth2-token-type"
                 value={o?.tokenType ?? ''}
                 onChange={(e) =>
                   onChange({ ...auth, oauth2: { ...o!, tokenType: e.target.value } })
@@ -439,8 +500,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
           <div className="space-y-4">
             <UnappliedAuthNotice scheme="Digest" />
             <div>
-              <label className="text-sm font-medium mb-2 block">Username</label>
+              <label htmlFor="auth-digest-username" className="text-sm font-medium mb-2 block">
+                Username
+              </label>
               <Input
+                id="auth-digest-username"
                 value={auth.digest?.username || ''}
                 onChange={(e) =>
                   onChange({
@@ -452,8 +516,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Password</label>
+              <label htmlFor="auth-digest-password" className="text-sm font-medium mb-2 block">
+                Password
+              </label>
               <SecretInput
+                id="auth-digest-password"
                 value={auth.digest?.password}
                 onChange={(next) =>
                   onChange({
@@ -473,8 +540,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         return (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Access Key</label>
+              <label htmlFor="auth-aws-access-key" className="text-sm font-medium mb-2 block">
+                Access Key
+              </label>
               <Input
+                id="auth-aws-access-key"
                 value={auth.awsSignature?.accessKey || ''}
                 onChange={(e) =>
                   onChange({
@@ -486,8 +556,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Secret Key</label>
+              <label htmlFor="auth-aws-secret-key" className="text-sm font-medium mb-2 block">
+                Secret Key
+              </label>
               <SecretInput
+                id="auth-aws-secret-key"
                 value={auth.awsSignature?.secretKey}
                 onChange={(next) =>
                   onChange({
@@ -500,8 +573,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Region</label>
+              <label htmlFor="auth-aws-region" className="text-sm font-medium mb-2 block">
+                Region
+              </label>
               <Input
+                id="auth-aws-region"
                 value={auth.awsSignature?.region || ''}
                 onChange={(e) =>
                   onChange({
@@ -513,8 +589,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Service</label>
+              <label htmlFor="auth-aws-service" className="text-sm font-medium mb-2 block">
+                Service
+              </label>
               <Input
+                id="auth-aws-service"
                 value={auth.awsSignature?.service || ''}
                 onChange={(e) =>
                   onChange({
@@ -535,8 +614,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         return (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Consumer Key</label>
+              <label htmlFor="auth-oauth1-consumer-key" className="text-sm font-medium mb-2 block">
+                Consumer Key
+              </label>
               <Input
+                id="auth-oauth1-consumer-key"
                 value={o?.consumerKey ?? ''}
                 onChange={(e) =>
                   onChange({
@@ -552,8 +634,14 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Consumer Secret</label>
+              <label
+                htmlFor="auth-oauth1-consumer-secret"
+                className="text-sm font-medium mb-2 block"
+              >
+                Consumer Secret
+              </label>
               <SecretInput
+                id="auth-oauth1-consumer-secret"
                 value={o?.consumerSecret}
                 onChange={(next) =>
                   onChange({
@@ -569,8 +657,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Access Token (optional)</label>
+              <label htmlFor="auth-oauth1-access-token" className="text-sm font-medium mb-2 block">
+                Access Token (optional)
+              </label>
               <SecretInput
+                id="auth-oauth1-access-token"
                 value={o?.accessToken}
                 onChange={(next) =>
                   onChange({
@@ -586,10 +677,14 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">
+              <label
+                htmlFor="auth-oauth1-access-token-secret"
+                className="text-sm font-medium mb-2 block"
+              >
                 Access Token Secret (optional)
               </label>
               <SecretInput
+                id="auth-oauth1-access-token-secret"
                 value={o?.accessTokenSecret}
                 onChange={(next) =>
                   onChange({
@@ -605,7 +700,12 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Signature Method</label>
+              <label
+                htmlFor="auth-oauth1-signature-method"
+                className="text-sm font-medium mb-2 block"
+              >
+                Signature Method
+              </label>
               <Select
                 value={signatureMethod}
                 onValueChange={(v) =>
@@ -618,7 +718,10 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                   })
                 }
               >
-                <SelectTrigger className="bg-background border-border">
+                <SelectTrigger
+                  id="auth-oauth1-signature-method"
+                  className="bg-background border-border"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -629,8 +732,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               </Select>
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Realm (optional)</label>
+              <label htmlFor="auth-oauth1-realm" className="text-sm font-medium mb-2 block">
+                Realm (optional)
+              </label>
               <Input
+                id="auth-oauth1-realm"
                 value={o?.realm ?? ''}
                 onChange={(e) =>
                   onChange({
@@ -676,8 +782,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
           <div className="space-y-4">
             <UnappliedAuthNotice scheme="NTLM" />
             <div>
-              <label className="text-sm font-medium mb-2 block">Username</label>
+              <label htmlFor="auth-ntlm-username" className="text-sm font-medium mb-2 block">
+                Username
+              </label>
               <Input
+                id="auth-ntlm-username"
                 value={n?.username ?? ''}
                 onChange={(e) =>
                   onChange({
@@ -690,8 +799,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Password</label>
+              <label htmlFor="auth-ntlm-password" className="text-sm font-medium mb-2 block">
+                Password
+              </label>
               <SecretInput
+                id="auth-ntlm-password"
                 value={n?.password}
                 onChange={(next) =>
                   onChange({
@@ -704,8 +816,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Domain (optional)</label>
+              <label htmlFor="auth-ntlm-domain" className="text-sm font-medium mb-2 block">
+                Domain (optional)
+              </label>
               <Input
+                id="auth-ntlm-domain"
                 value={n?.domain ?? ''}
                 onChange={(e) =>
                   onChange({
@@ -718,8 +833,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Workstation (optional)</label>
+              <label htmlFor="auth-ntlm-workstation" className="text-sm font-medium mb-2 block">
+                Workstation (optional)
+              </label>
               <Input
+                id="auth-ntlm-workstation"
                 value={n?.workstation ?? ''}
                 onChange={(e) =>
                   onChange({
@@ -741,8 +859,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
         return (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Username</label>
+              <label htmlFor="auth-wsse-username" className="text-sm font-medium mb-2 block">
+                Username
+              </label>
               <Input
+                id="auth-wsse-username"
                 value={w?.username ?? ''}
                 onChange={(e) =>
                   onChange({
@@ -755,8 +876,11 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Password</label>
+              <label htmlFor="auth-wsse-password" className="text-sm font-medium mb-2 block">
+                Password
+              </label>
               <SecretInput
+                id="auth-wsse-password"
                 value={w?.password}
                 onChange={(next) =>
                   onChange({
@@ -769,7 +893,9 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Password Type</label>
+              <label htmlFor="auth-wsse-password-type" className="text-sm font-medium mb-2 block">
+                Password Type
+              </label>
               <Select
                 value={passwordType}
                 onValueChange={(v) =>
@@ -782,7 +908,7 @@ export default function AuthConfiguration({ auth, onChange }: AuthConfigProps) {
                   })
                 }
               >
-                <SelectTrigger className="bg-background border-border">
+                <SelectTrigger id="auth-wsse-password-type" className="bg-background border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

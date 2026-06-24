@@ -1,16 +1,16 @@
 import { useEffect } from 'react';
 import { createHashRouter, RouterProvider } from 'react-router-dom';
 import { toast, Toaster } from 'sonner';
-import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { AccentProvider } from '@/components/providers/AccentProvider';
 import { PlatformProvider } from '@/components/providers/PlatformProvider';
+import { ThemeProvider } from '@/components/providers/ThemeProvider';
+import AriaLiveAnnouncerProvider from '@/components/shared/AriaLiveAnnouncer';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeychainStatusBanner } from '@/components/shared/KeychainStatusBanner';
 import { UpdateNotification } from '@/components/shared/UpdateNotification';
-import AriaLiveAnnouncerProvider from '@/components/shared/AriaLiveAnnouncer';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import Home from '@/routes/index';
 import NotFound from '@/routes/not-found';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
 import {
   useFileCollectionStore,
   isElectronEnvironment,

@@ -1,16 +1,16 @@
-import { useState } from 'react';
 import { Copy, Square, Server, Gauge, Trash2, RotateCw, ListChecks } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
-import { useMockStore } from '@/store/useMockStore';
-import { useLoadTestStore } from '@/store/useLoadTestStore';
-import { useCollectionRunStore } from '@/store/useCollectionRunStore';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useUiStore } from '@/store/useUiStore';
-import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { getMethodColor, formatRelativeTime } from '@/lib/shared/console-format';
-import { cn } from '@/lib/shared/utils';
 import { CollectionRunDetail } from '@/features/collections/components/CollectionRunDetail';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
+import { getMethodColor, formatRelativeTime } from '@/lib/shared/console-format';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
+import { useCollectionRunStore } from '@/store/useCollectionRunStore';
+import { useLoadTestStore } from '@/store/useLoadTestStore';
+import { useMockStore } from '@/store/useMockStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useUiStore } from '@/store/useUiStore';
 
 function SectionHeader({
   icon,

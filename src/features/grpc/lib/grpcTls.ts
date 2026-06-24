@@ -9,8 +9,8 @@
  * the Worker has no per-request TLS control. Returns `undefined` when nothing
  * applies so the IPC payload stays clean.
  */
-import { useSettingsStore } from '@/store/useSettingsStore';
 import { selectCertForUrl } from '@/lib/shared/certMatcher';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ClientCert, CaCert } from '@/types';
 
 export interface GrpcTlsOptions {

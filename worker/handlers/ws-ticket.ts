@@ -14,10 +14,10 @@
  * Workers KV (or a Durable Object) before this sees real load. Tracked.
  */
 
+import { validateWsUrl } from '@shared/protocol/websocket-proxy';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../env';
-import { validateWsUrl } from '@shared/protocol/websocket-proxy';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
 

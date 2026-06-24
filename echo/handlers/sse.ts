@@ -1,5 +1,5 @@
-import { streamSSE } from 'hono/streaming';
 import type { Context } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import type { EchoEnv } from '../index';
 
 const MAX_DURATION_MS = 60_000;

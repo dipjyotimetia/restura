@@ -1,6 +1,9 @@
 'use client';
 
+import { Radio, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -9,21 +12,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Radio, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner';
+import { validateGrpcUrl } from '@/features/grpc/lib/grpcClient';
 import {
   GrpcReflectionClient,
   generateRequestTemplate,
   formatMessageSchemaForDisplay,
 } from '@/features/grpc/lib/grpcReflection';
-import { validateGrpcUrl } from '@/features/grpc/lib/grpcClient';
 import type {
   ReflectionServiceInfo,
   ReflectionMethodInfo,
   ReflectionResult,
   GrpcMethodType,
 } from '@/types';
-import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 
 interface GrpcReflectionPanelProps {
   url: string;

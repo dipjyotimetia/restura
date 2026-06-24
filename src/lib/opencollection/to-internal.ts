@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import type { OpenCollection } from './schemas';
 import type {
   Collection,
   CollectionItem,
@@ -13,7 +14,6 @@ import type {
   GrpcMethodType,
   BodyType,
 } from '@/types';
-import type { OpenCollection } from './schemas';
 
 /**
  * Bridge from OpenCollection (v1.0.0) → Restura's internal `Collection` shape.

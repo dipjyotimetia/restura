@@ -7,9 +7,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { TextField } from '@/components/ui/spatial';
-import type { ReflectionMethodInfo, ReflectionServiceInfo } from '@/types';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
+import type { ReflectionMethodInfo, ReflectionServiceInfo } from '@/types';
 
 interface FieldValidation {
   valid: boolean;

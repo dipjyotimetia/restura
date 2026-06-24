@@ -1,11 +1,11 @@
 'use client';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Terminal, Trash2, CheckCircle2, XCircle, AlertCircle, Info } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface ConsoleLog {
   type: 'log' | 'error' | 'warn' | 'info';

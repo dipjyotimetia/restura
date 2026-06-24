@@ -46,15 +46,15 @@
 
 import { execFile } from 'child_process';
 import { existsSync } from 'fs';
-import { ipcMain } from 'electron';
-import type { GitStatusFile, GitStatus, GitBranch, GitCommit } from '@shared/git-types';
-import { IPC } from '../../shared/channels';
-import { assertTrustedSender } from '../ipc/ipc-validators';
-import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
-import { promisify } from 'util';
 import * as path from 'path';
+import { promisify } from 'util';
+import type { GitStatusFile, GitStatus, GitBranch, GitCommit } from '@shared/git-types';
+import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC } from '../../shared/channels';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
+import { assertTrustedSender } from '../ipc/ipc-validators';
 
 const log = createLogger('git');
 

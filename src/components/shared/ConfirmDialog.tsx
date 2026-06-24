@@ -1,5 +1,7 @@
 'use client';
 
+import { useState, useCallback } from 'react';
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,8 +60,6 @@ export function ConfirmDialog({
 }
 
 // Hook for easier usage
-import { useState, useCallback } from 'react';
-
 interface UseConfirmDialogOptions {
   title: string;
   description: string;

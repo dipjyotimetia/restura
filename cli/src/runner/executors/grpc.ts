@@ -1,10 +1,10 @@
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
-import type { GrpcRequest } from '@/types';
+import type { LoadedRequest } from '../collectionLoader';
 import { undiciFetcher, createUndiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
-import type { LoadedRequest } from '../collectionLoader';
-import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import type { ExecuteOptions, ExecuteOutcome } from './types';
+import type { GrpcRequest } from '@/types';
 
 /**
  * gRPC executor. Uses the shared `executeGrpcProxy` which speaks the Connect

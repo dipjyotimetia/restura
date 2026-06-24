@@ -1,3 +1,13 @@
+import { v4 as uuidv4 } from 'uuid';
+import { resolveGrpcTls } from './grpcTls';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import {
+  getElectronAPI,
+  isElectron,
+  workerAuthHeaders,
+  workerBaseUrl,
+} from '@/lib/shared/platform';
+import { generateTraceparent } from '@/lib/shared/utils';
 import type {
   AuthConfig,
   GrpcRequest,
@@ -7,16 +17,6 @@ import type {
   ProtoMessageDefinition,
 } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
-import {
-  getElectronAPI,
-  isElectron,
-  workerAuthHeaders,
-  workerBaseUrl,
-} from '@/lib/shared/platform';
-import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
-import { generateTraceparent } from '@/lib/shared/utils';
-import { resolveGrpcTls } from './grpcTls';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {

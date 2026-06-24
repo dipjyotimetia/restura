@@ -3,6 +3,7 @@
  * Use these with shallow equality for optimal re-render performance
  */
 
+import { useRequestStore } from './useRequestStore';
 import type {
   HistoryItem,
   Collection,
@@ -15,7 +16,6 @@ import type {
   Response as ApiResponse,
   StreamEventLike,
 } from '@/types';
-import { useRequestStore } from './useRequestStore';
 
 // History Store Types
 interface HistoryState {

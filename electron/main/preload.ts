@@ -3,15 +3,9 @@
 // via contextBridge. Without it the SDK falls back to a custom HTTP protocol +
 // window.fetch, which Restura's CSP blocks. See electron/main/lifecycle/sentry.ts.
 import '@sentry/electron/preload';
-import { contextBridge, ipcRenderer } from 'electron';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import type {
-  ElectronAPI,
-  UpdaterStatus,
-  AiLabModelSpec,
-  AiLabDiscoverArgs,
-} from '../types/electron-api';
 import type { ProtocolSecretValue } from '@shared/protocol/types';
+import { contextBridge, ipcRenderer } from 'electron';
 import {
   IPC,
   EVENT,
@@ -20,6 +14,12 @@ import {
   CHANNEL_PREFIXES,
   VALID_EVENT_CHANNELS,
 } from '../shared/channels';
+import type {
+  ElectronAPI,
+  UpdaterStatus,
+  AiLabModelSpec,
+  AiLabDiscoverArgs,
+} from '../types/electron-api';
 import { channelEventBridge } from './handlers/channel-event-bridge';
 
 const validEventChannels: readonly string[] = VALID_EVENT_CHANNELS;

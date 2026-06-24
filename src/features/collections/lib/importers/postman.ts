@@ -1,17 +1,4 @@
 import type {
-  AuthConfig,
-  Collection,
-  CollectionItem,
-  FormDataItem,
-  HttpRequest,
-  KeyValue,
-  PostmanCollection,
-} from '@/types';
-import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
-import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
-import { coerceHttpMethod, type ImportWarning } from './types';
-import { v4 as uuidv4 } from 'uuid';
-import type {
   FormParam,
   Header,
   Item,
@@ -22,6 +9,19 @@ import type {
   RequestBody,
   Variable,
 } from 'postman-collection';
+import { v4 as uuidv4 } from 'uuid';
+import { coerceHttpMethod, type ImportWarning } from './types';
+import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
+import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
+import type {
+  AuthConfig,
+  Collection,
+  CollectionItem,
+  FormDataItem,
+  HttpRequest,
+  KeyValue,
+  PostmanCollection,
+} from '@/types';
 
 function getDescriptionContent(
   desc: string | { content?: string } | undefined

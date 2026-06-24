@@ -1,11 +1,11 @@
 import { Globe, Settings, Sparkles, FlaskConical } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { Floater, Kbd } from '@/components/ui/spatial';
-import { cn } from '@/lib/shared/utils';
-import { isElectron, getPlatform } from '@/lib/shared/platform';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint } from '@/features/environments/lib/envHint';
+import { isElectron, getPlatform } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { RequestMode } from '@/types';
 
 // Re-exported so existing callers (`import { envColorFor } from '@/components/shared/TopBar'`)

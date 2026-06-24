@@ -5,8 +5,8 @@
  * implementation; everything else in the Hono app reuses the same code.
  */
 import type { MiddlewareHandler } from 'hono';
-import type { UpstreamProxy } from './shared/tcp-proxy';
 import type { NodeDnsGuardOptions } from './shared/dns-guard-node';
+import type { UpstreamProxy } from './shared/tcp-proxy';
 
 export interface TcpProxyAdapter {
   httpsViaConnectProxy: (

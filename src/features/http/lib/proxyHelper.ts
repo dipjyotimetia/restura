@@ -1,6 +1,6 @@
-import type { ProxyConfig, RequestSettings, AppSettings } from '@/types';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
+import type { ProxyConfig, RequestSettings, AppSettings } from '@/types';
 
 /**
  * Build proxy URL from ProxyConfig

@@ -4,6 +4,7 @@
  */
 
 import { ipcMain } from 'electron';
+import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
 import {
   StoreKeySchema,
@@ -12,7 +13,6 @@ import {
   createValidatedHandler,
 } from '../ipc/ipc-validators';
 import { getOrCreateEncryptedKey } from '../security/encrypted-key';
-import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('store');
 

@@ -1,21 +1,21 @@
-import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron';
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
+import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron';
 import { z } from 'zod';
-import { createApplicationMenu } from './lifecycle/menu';
-import { SAFE_OPEN_PROTOCOLS, createValidatedHandler, NoInputSchema } from './ipc/ipc-validators';
+import { createLogger } from '../../src/lib/shared/logger';
 import { IPC } from '../shared/channels';
-import { bindLimiterToWebContents } from './ipc/rate-limiter-cleanup';
-import { httpRateLimiter } from './handlers/http-handler';
+import { gitRateLimiter } from './handlers/git-handler';
 import { grpcRateLimiter } from './handlers/grpc-handler';
-import { wsRateLimiter } from './handlers/websocket-handler';
+import { httpRateLimiter } from './handlers/http-handler';
+import { kafkaRateLimiter } from './handlers/kafka-handler';
+import { mcpRateLimiter } from './handlers/mcp-handler';
 import { socketIoRateLimiter } from './handlers/socketio-handler';
 import { sseRateLimiter } from './handlers/sse-handler';
-import { mcpRateLimiter } from './handlers/mcp-handler';
-import { kafkaRateLimiter } from './handlers/kafka-handler';
-import { gitRateLimiter } from './handlers/git-handler';
+import { wsRateLimiter } from './handlers/websocket-handler';
+import { SAFE_OPEN_PROTOCOLS, createValidatedHandler, NoInputSchema } from './ipc/ipc-validators';
+import { bindLimiterToWebContents } from './ipc/rate-limiter-cleanup';
+import { createApplicationMenu } from './lifecycle/menu';
 import { notificationRateLimiter } from './notifications';
-import { createLogger } from '../../src/lib/shared/logger';
 
 const log = createLogger('window-manager');
 

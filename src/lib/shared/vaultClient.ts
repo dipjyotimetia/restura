@@ -11,8 +11,8 @@
  * `scripts.vault` as desktop-only (Phase A); this message points users
  * at the alternatives (Restura Desktop or `pm.environment.set`).
  */
-import { isElectron } from '@/lib/shared/platform';
 import type { PmVaultAdapter } from '@/features/scripts/lib/scriptExecutor';
+import { isElectron } from '@/lib/shared/platform';
 
 const WEB_NOT_AVAILABLE_MSG =
   'pm.vault is not available in the web build — open in Restura Desktop, or use pm.environment.set for in-session secrets.';

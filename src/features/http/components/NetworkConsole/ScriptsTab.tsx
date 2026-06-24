@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo } from 'react';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Terminal, CheckCircle2, XCircle, AlertCircle, Info, History } from 'lucide-react';
+import { useMemo } from 'react';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useConsoleStore, type ConsoleLog, type ConsoleTest } from '@/store/useConsoleStore';
 
 interface ScriptsTabProps {

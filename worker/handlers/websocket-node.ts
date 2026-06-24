@@ -20,15 +20,15 @@
  *     a hostile upstream can buffer multi-GB frames before our onMessage
  *     check fires and OOM the process.
  */
+import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
+import { validateWsUrl } from '@shared/protocol/websocket-proxy';
 import type { Context, MiddlewareHandler } from 'hono';
 import type { WSContext, WSEvents } from 'hono/ws';
 import WebSocket from 'ws';
 import type { Env } from '../env';
-import { consumeTicket } from './ws-ticket';
-import { validateWsUrl } from '@shared/protocol/websocket-proxy';
-import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
-import { allowPrivateIPs as readAllowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from '../shared/dns-guard-node';
+import { allowPrivateIPs as readAllowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { consumeTicket } from './ws-ticket';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024;
 const TEXT_ENCODER = new TextEncoder();

@@ -1,8 +1,8 @@
-import { request as undiciRequest, Agent, ProxyAgent, type Dispatcher } from 'undici';
-import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
-import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
+import { Readable } from 'node:stream';
 import { flattenHeaders } from '@shared/protocol/header-utils';
+import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
+import { request as undiciRequest, Agent, ProxyAgent, type Dispatcher } from 'undici';
 
 /**
  * Serialise a WHATWG `FormData` to a `multipart/form-data` body. undici's

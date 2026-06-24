@@ -1,10 +1,10 @@
-import type { ChatMessageWire } from '@shared/protocol/ai/types';
 import {
   redactHeaders,
   redactBody,
   redactEnvironment,
   type RedactionMode,
 } from '@shared/protocol/ai/redaction';
+import type { ChatMessageWire } from '@shared/protocol/ai/types';
 import type { RawSnapshot } from './contextSnapshot';
 
 export const SYSTEM_EXPLAIN_PROMPT =

@@ -1,7 +1,5 @@
 'use client';
 
-import * as React from 'react';
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Search,
@@ -23,16 +21,18 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import * as React from 'react';
 import { Kbd, MethodChip, ProtoChip } from '@/components/ui/spatial';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { useHistoryStore } from '@/store/useHistoryStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useUiStore } from '@/store/useUiStore';
-import { useActiveResponse, useActiveTab } from '@/store/selectors';
-import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
+import { useActiveResponse, useActiveTab } from '@/store/selectors';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useUiStore } from '@/store/useUiStore';
 import { isConnectionMode } from '@/types';
 import type { Collection, CollectionItem, RequestType } from '@/types';
 
@@ -526,9 +526,11 @@ export default function CommandPalette({
           >
             <Search size={15} className="text-sp-dim shrink-0" aria-hidden="true" />
             <input
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on palette open
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search requests, actions, settings"
               placeholder="Search requests, actions, settings..."
               className="flex-1 bg-transparent outline-none text-sp-text placeholder:text-sp-dim text-sp-14"
               style={{ fontFamily: 'Geist, var(--font-sans, sans-serif)' }}
@@ -620,9 +622,16 @@ function PaletteRow({ item, index, active, onMouseEnter, onClick }: PaletteRowPr
     <div
       role="option"
       aria-selected={active}
+      tabIndex={-1}
       data-cmd-index={index}
       onMouseEnter={onMouseEnter}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className={cn(
         'relative flex items-center gap-3 mx-2 px-3 py-2 rounded-sp-btn cursor-pointer',
         'text-sp-13 text-sp-text',

@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEffect, useRef, useState } from 'react';
+import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -16,11 +15,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
-import { cn } from '@/lib/shared/utils';
 import { isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useRequestStore } from '@/store/useRequestStore';
 import { isConnectionMode } from '@/types';
 import type { RequestMode, TabModeOverride } from '@/types';
-import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 
 type NewRequestMode = RequestMode;
 
@@ -221,6 +221,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                         aria-label="Rename request"
                       />
                     ) : (
+                      // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- double-click rename shortcut on the label; the tab button is the primary control
                       <span
                         className="truncate font-sans text-sp-12"
                         style={{ maxWidth: 130 }}

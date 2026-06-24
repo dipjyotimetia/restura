@@ -1,14 +1,14 @@
 import { ipcMain, webContents } from 'electron';
 import type { WebContents } from 'electron';
+// eslint-disable-next-line import/no-duplicates -- namespace + named type imports from 'mqtt' can't be merged into a single statement
 import type { IClientOptions, MqttClient, IConnackPacket, IPublishPacket } from 'mqtt';
+// eslint-disable-next-line import/no-duplicates -- see above
 import type * as MqttLib from 'mqtt';
-import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
-import { StreamRegistry } from '../ipc/stream-registry';
-import { emitTo, errorMessage } from '../ipc/ipc-utils';
-import { MQTT_CHANNEL, mqttChannel } from '../../shared/mqtt-channels';
+import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
-import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
-import type { LogEntry } from '../lifecycle/request-logger';
+import { MQTT_CHANNEL, mqttChannel } from '../../shared/mqtt-channels';
+import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
+import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   MqttConnectSchema,
   MqttPublishSchema,
@@ -20,7 +20,9 @@ import {
   assertTrustedSender,
   type MqttConnectConfig,
 } from '../ipc/ipc-validators';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { StreamRegistry } from '../ipc/stream-registry';
+import type { LogEntry } from '../lifecycle/request-logger';
+import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
 
 const log = createLogger('mqtt');
 

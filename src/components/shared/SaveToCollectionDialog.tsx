@@ -1,6 +1,7 @@
+import { FolderPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { FolderPlus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -8,7 +9,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -18,8 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useRequestStore } from '@/store/useRequestStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useRequestStore } from '@/store/useRequestStore';
 
 interface SaveToCollectionDialogProps {
   tabId: string;
@@ -95,6 +95,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
               onChange={(e) => setRequestName(e.target.value)}
               className="h-8 text-sm"
               placeholder="Request name"
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on the primary field when the dialog opens
               autoFocus
             />
           </div>

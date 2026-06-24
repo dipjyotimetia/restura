@@ -8,8 +8,8 @@
 
 import type { Context } from 'hono';
 import { z } from 'zod';
-import { parseJsonBody } from '../shared/validate-body';
 import type { Env } from '../env';
+import { parseJsonBody } from '../shared/validate-body';
 
 const TelemetryErrorSchema = z.object({
   message: z.string().min(1).max(2000),

@@ -1,7 +1,6 @@
-import { ipcMain } from 'electron';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   McpError,
   ResultSchema,
@@ -9,10 +8,11 @@ import {
   type ClientRequest,
   type ClientNotification,
 } from '@modelcontextprotocol/sdk/types.js';
+import { ipcMain } from 'electron';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
-import { StreamRegistry } from '../ipc/stream-registry';
-import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import {
   McpConnectSchema,
   McpRequestSchema,
@@ -21,8 +21,8 @@ import {
   createValidatedHandler,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { StreamRegistry } from '../ipc/stream-registry';
+import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 
 const log = createLogger('mcp');
 

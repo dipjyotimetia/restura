@@ -17,6 +17,10 @@
 //                     the barrel; only languages are trimmed.
 //   - language/*    → worker-backed services for json / ts+js / html / css
 //   - basic xml     → tokenizer-only highlighting for xml (no language service)
+//
+/* eslint-disable import/order -- the imports below are hand-ordered: the
+   side-effect language contributions must register in this exact sequence
+   (see the inline notes), so import/order's alphabetical grouping is wrong. */
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import 'monaco-editor/esm/vs/editor/editor.all.js';
 import 'monaco-editor/esm/vs/language/json/monaco.contribution';
@@ -33,9 +37,9 @@ import 'monaco-editor/esm/vs/language/css/monaco.contribution';
 import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';
 import { loader } from '@monaco-editor/react';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
+import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
 self.MonacoEnvironment = {

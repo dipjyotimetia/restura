@@ -1,9 +1,9 @@
 'use client';
 
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Component } from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { reportError } from '@/lib/shared/telemetry';
 
 interface Props {

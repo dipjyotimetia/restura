@@ -1,16 +1,16 @@
-import type { AuthConfig, Collection, CollectionItem } from '@/types';
-import {
-  isSecretHandle,
-  redactSecret,
-  unwrapSecret,
-  type SecretValue,
-} from '@/lib/shared/secretRef';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
 import {
   redactSecretKeyValues,
   countSecretKeyValues,
   type SecretableRow,
 } from '@/lib/shared/keyvalue-secret-redaction';
+import {
+  isSecretHandle,
+  redactSecret,
+  unwrapSecret,
+  type SecretValue,
+} from '@/lib/shared/secretRef';
+import type { AuthConfig, Collection, CollectionItem } from '@/types';
 
 /**
  * Redacts secret-bearing auth fields from a collection before it goes through

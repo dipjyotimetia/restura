@@ -1,12 +1,30 @@
 'use client';
 
+import {
+  Plus,
+  MoreVertical,
+  Play,
+  Pencil,
+  Trash2,
+  Download,
+  Upload,
+  GitBranch,
+  Workflow as WorkflowIcon,
+} from 'lucide-react';
 import { useRef, useState, useMemo } from 'react';
 import { toast } from 'sonner';
-import type { Workflow } from '@/types';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { exportWorkflow, parseWorkflowImport } from '../lib/workflowIO';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -20,27 +38,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-  Plus,
-  MoreVertical,
-  Play,
-  Pencil,
-  Trash2,
-  Download,
-  Upload,
-  GitBranch,
-  Workflow as WorkflowIcon,
-} from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
+import type { Workflow } from '@/types';
 
 interface WorkflowManagerProps {
   collectionId: string;
@@ -146,6 +146,7 @@ export function WorkflowManager({
             ref={importInputRef}
             type="file"
             accept="application/json,.json"
+            aria-label="Import workflow from JSON"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -190,8 +191,16 @@ export function WorkflowManager({
             return (
               <div
                 key={workflow.id}
+                role="button"
+                tabIndex={0}
                 className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 group cursor-pointer"
                 onClick={() => onSelectWorkflow(workflow)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectWorkflow(workflow);
+                  }
+                }}
               >
                 <GitBranch className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -292,6 +301,7 @@ export function WorkflowManager({
               value={workflowName}
               onChange={(e) => setWorkflowName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on dialog open
               autoFocus
             />
           </div>
@@ -318,6 +328,7 @@ export function WorkflowManager({
               value={workflowName}
               onChange={(e) => setWorkflowName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleUpdate()}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on dialog open
               autoFocus
             />
           </div>

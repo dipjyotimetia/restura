@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -8,15 +9,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { cn } from '@/lib/shared/utils';
 import {
   detectLanguage,
   formatLongTimestamp,
   getStatusTextColor,
 } from '@/lib/shared/console-format';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { diffLines, type LineDiffEntry } from '@/lib/shared/line-diff';
+import { cn } from '@/lib/shared/utils';
 import type { ConsoleEntry } from '@/store/useConsoleStore';
 
 interface EntryCompareDialogProps {

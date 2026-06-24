@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { serializeOpenCollectionYAML } from './serializer';
 import type { OpenCollection } from './schemas';
+import { serializeOpenCollectionYAML } from './serializer';
 
 /**
  * Write a bundled OpenCollection YAML file.

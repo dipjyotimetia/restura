@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Plus, Trash2, Shield, Globe, Zap } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -13,13 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import SecretInput from '@/features/auth/components/SecretInput';
+import { isWeb } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ProxyType } from '@/types';
-import { Plus, Trash2, Shield, Globe, Zap } from 'lucide-react';
-import { isWeb } from '@/lib/shared/platform';
-import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
-import SecretInput from '@/features/auth/components/SecretInput';
 
 export default function ProxySettings() {
   const {

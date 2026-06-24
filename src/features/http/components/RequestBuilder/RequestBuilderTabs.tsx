@@ -1,18 +1,18 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ComboboxInput, ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/components/ui/spatial';
-import RequestBodyEditor from '@/features/http/components/RequestBodyEditor';
+import type { ComboboxSuggestion, ParamRowData } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
-import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+import RequestBodyEditor from '@/features/http/components/RequestBodyEditor';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
-import { STANDARD_HTTP_HEADERS, getHeaderDef } from '@/lib/shared/http-headers';
-import type { AppSettings, AuthType, BodyType, HttpRequest, KeyValue } from '@/types';
-import type { ComboboxSuggestion, ParamRowData } from '@/components/ui/spatial';
 import type { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
+import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+import { STANDARD_HTTP_HEADERS, getHeaderDef } from '@/lib/shared/http-headers';
+import { cn } from '@/lib/shared/utils';
+import type { AppSettings, AuthType, BodyType, HttpRequest, KeyValue } from '@/types';
 
 const HEADER_KEY_SUGGESTIONS: ReadonlyArray<ComboboxSuggestion> = STANDARD_HTTP_HEADERS.map(
   (h) => ({
@@ -463,6 +463,7 @@ function ParamHeaderTable({
           matter most — while typing the new header); variable highlighting
           still applies only once the row is committed above.
         */}
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- container delegates blur/keydown from the nested ghost-row inputs */}
         <div
           className="grid items-stretch border-b border-sp-line/50 opacity-40 focus-within:opacity-75 transition-opacity"
           style={{ gridTemplateColumns: PARAM_GRID }}

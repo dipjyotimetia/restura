@@ -11,8 +11,8 @@
  * Keeping this pure means the correctness-critical part (prompt + parse +
  * validate) is testable without an Electron harness or a live model.
  */
-import type { WorkflowGraph } from '@/types';
 import { validateWorkflowGraph } from './flowValidators';
+import type { WorkflowGraph } from '@/types';
 
 /**
  * System prompt that constrains the model to emit a single WorkflowGraph

@@ -1,11 +1,11 @@
-import { useMemo } from 'react';
 import { Zap } from 'lucide-react';
+import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { envColorFor } from '@/components/shared/TopBar';
+import { Kbd } from '@/components/ui/spatial';
+import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
-import { Kbd } from '@/components/ui/spatial';
-import { envColorFor } from '@/components/shared/TopBar';
-import { cn } from '@/lib/shared/utils';
 
 interface StatusBarProps {
   // Optional — orchestrator wires this when migrating to the new chrome.

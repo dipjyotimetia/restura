@@ -1,15 +1,15 @@
-import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, BarChart3, Download, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Floater, Stat } from '@/components/ui/spatial';
-import { cn } from '@/lib/shared/utils';
-import { percentile } from '@/lib/shared/loadStats';
-import { downloadBlob } from '@/lib/shared/file-utils';
-import { useEvalRunStore } from '../store/useEvalRunStore';
+import { useMemo, useState } from 'react';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
+import { useEvalRunStore } from '../store/useEvalRunStore';
+import type { EvalCellResult, EvalRun } from '../types';
 import { EmptyState } from './EmptyState';
 import { StatusChip } from './StatusChip';
-import type { EvalCellResult, EvalRun } from '../types';
+import { Button } from '@/components/ui/button';
+import { Floater, Stat } from '@/components/ui/spatial';
+import { downloadBlob } from '@/lib/shared/file-utils';
+import { percentile } from '@/lib/shared/loadStats';
+import { cn } from '@/lib/shared/utils';
 
 interface ModelStats {
   label: string;

@@ -1,14 +1,14 @@
 'use client';
 
 import '@/lib/shared/monaco-setup';
-import { useRef, useState, useEffect } from 'react';
 import type { OnMount } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
-import { useTheme } from 'next-themes';
-import type * as Monaco from 'monaco-editor';
 import { Copy, Check } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import type * as Monaco from 'monaco-editor';
+import { useTheme } from 'next-themes';
+import { useRef, useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { registerGraphQLLanguage } from '@/features/graphql/lib/monacoGraphql';
 
 interface CodeEditorProps {

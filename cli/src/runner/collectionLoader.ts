@@ -2,6 +2,9 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, extname } from 'node:path';
 import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
+import { resolveEffectiveAuth, isConfiguredAuth } from '@/features/auth/lib/authInheritance';
+import { loadCollectionFromFile, loadCollectionFromDir } from '@/lib/opencollection/fs-reader';
+import { ocToInternal } from '@/lib/opencollection/to-internal';
 import {
   fileCollectionMetaSchema,
   fileHttpRequestSchema,
@@ -10,9 +13,6 @@ import {
   fileMcpRequestSchema,
   getRequestTypeFromFilename,
 } from '@/lib/shared/file-collection-schema';
-import { loadCollectionFromFile, loadCollectionFromDir } from '@/lib/opencollection/fs-reader';
-import { ocToInternal } from '@/lib/opencollection/to-internal';
-import { resolveEffectiveAuth, isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import type {
   HttpRequest,
   GrpcRequest,

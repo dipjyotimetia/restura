@@ -1,8 +1,8 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { SwitchFlowNode } from '@/types';
-import { NodeChrome } from './NodeChrome';
 import { Split } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import type { SwitchFlowNode } from '@/types';
 
 type Data = SwitchFlowNode['data'];
 

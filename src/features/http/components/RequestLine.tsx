@@ -1,4 +1,6 @@
+import { Send, Code2, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { badgeVariants } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Kbd } from '@/components/ui/kbd';
@@ -9,11 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { badgeVariants } from '@/components/ui/badge';
-import type { HttpMethod } from '@/types';
-import { Send, Code2, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { cn } from '@/lib/shared/utils';
+import type { HttpMethod } from '@/types';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'] as const;
 

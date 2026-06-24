@@ -10,14 +10,14 @@
  * to enable Sentry. A non-secret boolean does not warrant encryption.
  */
 
-import { app, ipcMain } from 'electron';
-import { z } from 'zod';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { app, ipcMain } from 'electron';
+import { z } from 'zod';
+import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
 import { createValidatedHandler } from '../ipc/ipc-validators';
 import { setSentryEnabled } from './sentry';
-import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('telemetry-consent');
 

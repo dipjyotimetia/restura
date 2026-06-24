@@ -1,9 +1,9 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { SubWorkflowFlowNode } from '@/types';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
-import { NodeChrome } from './NodeChrome';
 import { Workflow as WorkflowIcon } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
+import type { SubWorkflowFlowNode } from '@/types';
 
 type Data = SubWorkflowFlowNode['data'];
 

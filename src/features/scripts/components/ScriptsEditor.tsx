@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
 import { ChevronDown, Code2, FileText, RotateCcw } from 'lucide-react';
-import { Segmented } from '@/components/ui/spatial';
-import { Button } from '@/components/ui/button';
+import { useState } from 'react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { Button } from '@/components/ui/button';
+import { Segmented } from '@/components/ui/spatial';
 import { registerScriptIntellisense } from '@/features/scripts/lib/scriptApiTypes';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
 
 const CodeEditor = lazyComponent(

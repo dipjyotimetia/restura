@@ -7,7 +7,25 @@
  * with explicit input/output mapping; tryCatch respects each request
  * node's `failureMode` to decide what counts as failure.
  */
+import { validateURL } from '@shared/protocol/url-validation';
 import { v4 as uuidv4 } from 'uuid';
+import { findStartNode, getOutgoingEdges, getNodeById } from './flowTypes';
+import { validateWorkflowGraph } from './flowValidators';
+import { executeWithRetry, sleepWithAbort, isAbortError } from './retryHelpers';
+import {
+  evalScriptBoolean,
+  evalScriptValue,
+  evalScriptForVariables,
+  createPooledScriptEvaluator,
+  type PooledEvaluator,
+} from './scriptHelpers';
+import { extractVariables } from './variableExtractor';
+import { injectString } from './variableHelpers';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import type { McpClient } from '@/features/mcp/lib/mcpClient';
+import type { McpClientPool, McpRunJsonRpcOptions } from '@/features/mcp/protocol';
+import { protocolRegistry } from '@/features/registry/registry';
+import type { RunContext, ProtocolStreamHandle } from '@/features/registry/types';
 import type {
   Workflow,
   WorkflowGraph,
@@ -25,24 +43,6 @@ import type {
   WsExchangeFlowNode,
   McpCallFlowNode,
 } from '@/types';
-import { protocolRegistry } from '@/features/registry/registry';
-import type { RunContext, ProtocolStreamHandle } from '@/features/registry/types';
-import type { McpClient } from '@/features/mcp/lib/mcpClient';
-import type { McpClientPool, McpRunJsonRpcOptions } from '@/features/mcp/protocol';
-import { extractVariables } from './variableExtractor';
-import { injectString } from './variableHelpers';
-import { executeWithRetry, sleepWithAbort, isAbortError } from './retryHelpers';
-import { validateURL } from '@shared/protocol/url-validation';
-import {
-  evalScriptBoolean,
-  evalScriptValue,
-  evalScriptForVariables,
-  createPooledScriptEvaluator,
-  type PooledEvaluator,
-} from './scriptHelpers';
-import { findStartNode, getOutgoingEdges, getNodeById } from './flowTypes';
-import { validateWorkflowGraph } from './flowValidators';
-import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 
 export interface DagExecutorOptions {
   workflow: Workflow;

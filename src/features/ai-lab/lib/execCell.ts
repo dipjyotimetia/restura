@@ -4,11 +4,11 @@
 // the runner receives `runRequest` injected, and only this module pulls in the
 // renderer-heavy executor + stores.
 import { v4 as uuidv4 } from 'uuid';
+import type { ExtractedRequest } from './requestExtractor';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpRequest, HttpMethod, BodyType } from '@/types/http';
 import type { KeyValue } from '@/types/common';
-import type { ExtractedRequest } from './requestExtractor';
+import type { HttpRequest, HttpMethod, BodyType } from '@/types/http';
 
 /** Normalized result of executing an extracted request, fed back to scorers. */
 export interface ExecResult {

@@ -1,11 +1,11 @@
+import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
 import { loadCollection } from './collectionLoader.js';
+import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
-import { runPreRequestScript, runTestScript, type RunScriptResult } from './scriptRunner.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
+import { runPreRequestScript, runTestScript, type RunScriptResult } from './scriptRunner.js';
 import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
-import type { CliIterationRow } from './dataLoader.js';
-import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
 
 export interface RunOptions {
   envVars: Record<string, string>;

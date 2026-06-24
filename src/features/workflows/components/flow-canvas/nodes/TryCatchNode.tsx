@@ -1,8 +1,8 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { TryCatchFlowNode } from '@/types';
-import { NodeChrome } from './NodeChrome';
 import { ShieldAlert } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import type { TryCatchFlowNode } from '@/types';
 
 type Data = TryCatchFlowNode['data'];
 

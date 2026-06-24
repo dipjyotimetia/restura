@@ -1,6 +1,7 @@
-import { createConnectRouter } from '@connectrpc/connect';
 import { create, toBinary, type MessageInitShape } from '@bufbuild/protobuf';
 import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
+import { createConnectRouter } from '@connectrpc/connect';
+import { bytesToBase64 } from '@shared/protocol/crypto-utils';
 import {
   EchoService,
   EchoReplySchema,
@@ -12,7 +13,6 @@ import {
   ServerReflectionResponseSchema,
   type ServerReflectionRequest,
 } from '../../e2e/mocks/proto/gen/grpc/reflection/v1/reflection_pb';
-import { bytesToBase64 } from '@shared/protocol/crypto-utils';
 
 const COUNT_MIN = 1;
 const COUNT_MAX = 10;

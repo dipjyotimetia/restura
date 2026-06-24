@@ -22,15 +22,15 @@
  * Console panel updates without re-implementing the pipeline.
  */
 import { v4 as uuidv4 } from 'uuid';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
-import type { ProtocolModule } from '@/features/registry/types';
-import type { GrpcRequest, GrpcResponse, Request, Response as ApiResponse } from '@/types';
 import { makeProxyGrpcRequest, makeElectronGrpcRequest } from './lib/grpcClient';
+import type { ProtocolModule } from '@/features/registry/types';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
-import { useGlobalsStore } from '@/store/useGlobalsStore';
-import { isElectron } from '@/lib/shared/platform';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { isElectron } from '@/lib/shared/platform';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
+import type { GrpcRequest, GrpcResponse, Request, Response as ApiResponse } from '@/types';
 
 function createDefaultGrpcRequest(): GrpcRequest {
   return {

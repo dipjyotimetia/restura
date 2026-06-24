@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron';
-import { emitTo } from './ipc-utils';
-import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
 import { eventChannel } from '../../shared/channels';
+import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+import { emitTo } from './ipc-utils';
 
 /**
  * Shared bookkeeping for the per-connection streaming handlers (SSE, WebSocket,

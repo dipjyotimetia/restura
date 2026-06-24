@@ -1,13 +1,13 @@
+import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 import { io as ioClient, type Socket } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { buildSocketIOConnectUrl, validateSocketIOUrl } from '@/features/socketio/lib/url-helpers';
 import {
   useSocketIOStore,
   type SocketIOTransport,
 } from '@/features/socketio/store/useSocketIOStore';
-import { buildSocketIOConnectUrl, validateSocketIOUrl } from '@/features/socketio/lib/url-helpers';
-import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { keyValuePairsToRecord } from '@/lib/shared/utils';
 
 interface ConnectConfig {
   url: string;

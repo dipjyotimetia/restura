@@ -1,10 +1,10 @@
 import type { CloudProvider, Provider } from '@shared/protocol/ai/types';
-import type { ProviderModule } from './types';
-import { openaiModule } from './openai';
 import { anthropicModule } from './anthropic';
-import { openrouterModule } from './openrouter';
 import { ollamaModule } from './ollama';
+import { openaiModule } from './openai';
 import { openaiCompatibleModule } from './openai-compatible';
+import { openrouterModule } from './openrouter';
+import type { ProviderModule } from './types';
 
 const REGISTRY: Record<Provider, ProviderModule> = {
   openai: openaiModule,

@@ -21,8 +21,8 @@
 import SwaggerParser from '@apidevtools/swagger-parser';
 import * as yaml from 'js-yaml';
 import type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
-import type { ContractSpecSource } from '@/types';
 import { isElectron } from '@/lib/shared/platform';
+import type { ContractSpecSource } from '@/types';
 
 export type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
 

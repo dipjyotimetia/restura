@@ -1,3 +1,15 @@
+import { v4 as uuidv4 } from 'uuid';
+import { executeWithRetry } from './retryHelpers';
+import { evalScriptBoolean } from './scriptHelpers';
+import { extractVariables } from './variableExtractor';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { protocolRegistry } from '@/features/registry/registry';
+import {
+  useConsoleStore,
+  createProtocolConsoleEntry,
+  type ConsoleProtocol,
+} from '@/store/useConsoleStore';
 import type {
   Workflow,
   WorkflowRequest,
@@ -8,18 +20,6 @@ import type {
   AppSettings,
   AuthConfig,
 } from '@/types';
-import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
-import { v4 as uuidv4 } from 'uuid';
-import { executeRequest } from '@/features/http/lib/requestExecutor';
-import { protocolRegistry } from '@/features/registry/registry';
-import { extractVariables } from './variableExtractor';
-import { executeWithRetry } from './retryHelpers';
-import { evalScriptBoolean } from './scriptHelpers';
-import {
-  useConsoleStore,
-  createProtocolConsoleEntry,
-  type ConsoleProtocol,
-} from '@/store/useConsoleStore';
 
 /**
  * Mirror an executed workflow step into the unified console, tagged with the

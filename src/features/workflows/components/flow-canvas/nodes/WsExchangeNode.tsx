@@ -1,8 +1,8 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { WsExchangeFlowNode } from '@/types';
-import { NodeChrome } from './NodeChrome';
 import { Plug } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import type { WsExchangeFlowNode } from '@/types';
 
 type Data = WsExchangeFlowNode['data'];
 

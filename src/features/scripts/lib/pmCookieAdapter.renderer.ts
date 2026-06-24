@@ -9,8 +9,8 @@
  * the CLI compile graph. The CLI either omits cookies entirely or
  * supplies its own file-backed jar.
  */
-import { useCookieStore } from '@/features/http/store/useCookieStore';
 import type { PmCookieAdapter, PmCookieRecord } from './pmCookieAdapter';
+import { useCookieStore } from '@/features/http/store/useCookieStore';
 
 function toPmRecord(
   c: ReturnType<typeof useCookieStore.getState>['cookies'][number]

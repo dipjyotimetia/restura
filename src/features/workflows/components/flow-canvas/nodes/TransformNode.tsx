@@ -1,8 +1,8 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { TransformFlowNode } from '@/types';
-import { NodeChrome } from './NodeChrome';
 import { Code2 } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import type { TransformFlowNode } from '@/types';
 
 type Data = TransformFlowNode['data'];
 

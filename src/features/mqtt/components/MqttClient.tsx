@@ -1,10 +1,12 @@
+import { Send, Trash2, Plug, PlugZap, RefreshCw, Search, Pause, Play } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -12,19 +14,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Send, Trash2, Plug, PlugZap, RefreshCw, Search, Pause, Play } from 'lucide-react';
-import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import { cn } from '@/lib/shared/utils';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import { useActiveTabId } from '@/store/selectors';
 import { Floater, ProtoChip, Stat, VariableText, CodeEditorFrame } from '@/components/ui/spatial';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
 import { useMqttStore, MQTT_SECRET_SENTINEL } from '@/features/mqtt/store/useMqttStore';
 import type { MqttMessage, MqttProtocolVersion, MqttQoS } from '@/features/mqtt/store/useMqttStore';
-import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import { cn } from '@/lib/shared/utils';
+import { useActiveTabId } from '@/store/selectors';
 
 const MQTT_GREEN = '#10b981';
 const QOS_VALUES: MqttQoS[] = [0, 1, 2];
@@ -84,7 +84,16 @@ const MessageRow = memo(function MessageRow({
 }) {
   return (
     <li
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- selectable grid row; li carries the grid layout
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(m.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(m.id);
+        }
+      }}
       className={cn(
         'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors',
         selected ? 'bg-sp-active border-l-sp-accent' : 'border-l-transparent hover:bg-sp-hover'

@@ -22,10 +22,10 @@
  * `pm.sendRequest` native binding wraps the response in a Postman-shaped
  * object inside QuickJS.
  */
-import { executeProxiedRequest } from '@/lib/shared/transport';
-import { injectString } from '@/features/workflows/lib/variableHelpers';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import type { PmSendRequestInput, PmSubResponse } from './scriptExecutor';
+import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { executeProxiedRequest } from '@/lib/shared/transport';
 
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 

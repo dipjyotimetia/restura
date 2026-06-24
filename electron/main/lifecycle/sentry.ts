@@ -22,11 +22,11 @@
  *    secrets/file-paths from free-text strings (reusing the AI redaction core).
  */
 
-import * as Sentry from '@sentry/electron/main';
-import { app } from 'electron';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import * as Sentry from '@sentry/electron/main';
 import { redactBody } from '@shared/protocol/ai/redaction';
+import { app } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('sentry');

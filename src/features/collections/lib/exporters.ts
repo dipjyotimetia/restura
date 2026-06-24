@@ -1,4 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
+import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
+import { migrateScriptRsToPm } from '@/features/scripts/lib/scriptMigrations';
+import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import type {
   Collection,
   CollectionItem,
@@ -9,10 +13,6 @@ import type {
   PostmanAuth,
   InsomniaResource,
 } from '@/types';
-import type { SecretValue } from '@/lib/shared/secretRef';
-import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
-import { migrateScriptRsToPm } from '@/features/scripts/lib/scriptMigrations';
-import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 
 /**
  * Append a request's enabled params to its URL as a query string. `encode`

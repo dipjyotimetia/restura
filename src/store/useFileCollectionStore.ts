@@ -8,11 +8,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ElectronAPI } from '../../electron/types/electron-api';
-import type { Collection } from '@/types';
-import { isElectron } from '@/lib/shared/platform';
+import { useCollectionStore } from './useCollectionStore';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
-import { useCollectionStore } from './useCollectionStore';
+import { isElectron } from '@/lib/shared/platform';
+import type { Collection } from '@/types';
 
 // Runtime UI sync state (distinct from the persisted file `SyncState` in
 // file-collection-schema.ts, which tracks git file states like 'new'/'deleted').

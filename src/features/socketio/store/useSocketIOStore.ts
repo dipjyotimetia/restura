@@ -1,10 +1,10 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { v4 as uuidv4 } from 'uuid';
-import type { KeyValue } from '@/types';
+import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { useConsoleStore, type FrameDirection } from '@/store/useConsoleStore';
-import { socketioManager } from '@/features/socketio/lib/socketioManager';
+import type { KeyValue } from '@/types';
 
 export type SocketIOStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 export type SocketIOEventDirection = 'sent' | 'received' | 'system' | 'ack';

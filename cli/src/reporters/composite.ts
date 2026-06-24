@@ -1,5 +1,5 @@
-import type { Reporter, RunMeta, RunResult, RequestRunResult } from './types.js';
 import type { LoadedRequest } from '../runner/collectionLoader.js';
+import type { Reporter, RunMeta, RunResult, RequestRunResult } from './types.js';
 
 /**
  * Fan-out reporter. Forwards each lifecycle event to every wrapped reporter

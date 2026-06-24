@@ -9,8 +9,6 @@
 //
 // Depends only on @shared/protocol/ai/* and @/lib/shared/platform — no
 // cross-feature imports (the script-sandbox host owns this glue).
-import { isElectron } from '@/lib/shared/platform';
-import type { JudgeSettings } from '@/types';
 import {
   runJudge,
   type JudgeComplete,
@@ -19,6 +17,8 @@ import {
 } from '@shared/protocol/ai/judge';
 import { redactBody } from '@shared/protocol/ai/redaction';
 import { isLocalProvider } from '@shared/protocol/ai/types';
+import { isElectron } from '@/lib/shared/platform';
+import type { JudgeSettings } from '@/types';
 
 type JudgeTool = { name: string; description: string; inputSchema: Record<string, unknown> };
 

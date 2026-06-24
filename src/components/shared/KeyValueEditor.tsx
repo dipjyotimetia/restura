@@ -1,10 +1,6 @@
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { VariableInput } from '@/components/shared/VariableInput';
-import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, ListPlus, Eye, EyeOff, Lock } from 'lucide-react';
-import type { KeyValue } from '@/types';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useState } from 'react';
+import { VariableInput } from '@/components/shared/VariableInput';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,7 +12,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import type { KeyValue } from '@/types';
 
 interface KeyValueEditorProps {
   items: KeyValue[];

@@ -1,7 +1,11 @@
 import type { BrowserWindow } from 'electron';
 import { app, BrowserWindow as BrowserWindowCtor, ipcMain } from 'electron';
+import electronLog from 'electron-log/main';
 import type { UpdateCheckResult, UpdateInfo } from 'electron-updater';
 import { autoUpdater, CancellationToken } from 'electron-updater';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { EVENT, IPC } from '../../shared/channels';
+import type { UpdaterStatus } from '../../types/electron-api';
 import {
   createValidatedHandler,
   NoInputSchema,
@@ -9,10 +13,6 @@ import {
   type UpdaterConfig,
 } from '../ipc/ipc-validators';
 import { showNativeNotification } from '../notifications';
-import { EVENT, IPC } from '../../shared/channels';
-import type { UpdaterStatus } from '../../types/electron-api';
-import electronLog from 'electron-log/main';
-import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('updater');
 

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
 import { JSONPath } from 'jsonpath-plus';
 import { X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 interface JsonPathQueryProps {
   /** The (text) JSON response body. */

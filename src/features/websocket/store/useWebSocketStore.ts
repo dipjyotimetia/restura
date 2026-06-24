@@ -1,11 +1,11 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { KeyValue } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
+import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { useConsoleStore } from '@/store/useConsoleStore';
-import { websocketManager } from '@/features/websocket/lib/websocketManager';
+import type { KeyValue } from '@/types';
 
 export type WebSocketMessageType = 'sent' | 'received' | 'system';
 export type WebSocketDataType = 'text' | 'binary';

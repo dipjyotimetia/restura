@@ -16,9 +16,9 @@
 // keeps the renderer ignorant of wire-byte details and centralises the auth
 // pipeline so Electron + Worker behave identically.
 
-import type { ProtocolAuthConfig, ProtocolSecretValue } from './types';
-import { isProtocolSecretHandle } from './secret-value-schema';
 import { buildOAuth1Header } from './oauth1-signer';
+import { isProtocolSecretHandle } from './secret-value-schema';
+import type { ProtocolAuthConfig, ProtocolSecretValue } from './types';
 import { buildWsseHeader } from './wsse-header';
 
 /**

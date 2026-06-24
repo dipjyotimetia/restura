@@ -16,8 +16,8 @@
 // Web Crypto's SHA-1 when available and falls back to a tiny pure-JS SHA-1
 // implementation otherwise.
 
-import type { ProtocolAuthConfig } from './types';
 import { bytesToBase64, concatBytes, randomBytes, sha1, utf8 } from './crypto-utils';
+import type { ProtocolAuthConfig } from './types';
 
 /**
  * Resolved WSSE credentials — the caller (auth-signer's `applyAuth`) has

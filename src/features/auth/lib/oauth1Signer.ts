@@ -6,9 +6,9 @@
 // renderer's `AuthConfig` shape — the shared `ProtocolAuthConfig.oauth1`
 // is structurally identical, so this is a zero-cost adapter.
 
-import type { AuthConfig } from '@/types';
-import { unwrapSecret } from '@/lib/shared/secretRef';
 import { buildOAuth1Header as buildShared } from '@shared/protocol/oauth1-signer';
+import { unwrapSecret } from '@/lib/shared/secretRef';
+import type { AuthConfig } from '@/types';
 
 export { hmacSha1Base64, hmacSha256Base64 } from '@shared/protocol/oauth1-signer';
 

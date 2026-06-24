@@ -16,9 +16,9 @@
  */
 
 import { ipcMain, safeStorage } from 'electron';
-import { getKeyStoreStatus, type KeyStoreStatus } from './encrypted-key';
 import { IPC } from '../../shared/channels';
 import { assertTrustedSender } from '../ipc/ipc-validators';
+import { getKeyStoreStatus, type KeyStoreStatus } from './encrypted-key';
 
 export interface RotateResult {
   rotated: boolean;

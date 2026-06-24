@@ -1,7 +1,9 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import type { BrowserWindow } from 'electron';
 import { Notification, ipcMain, app } from 'electron';
-import * as path from 'path';
-import * as fs from 'fs';
+import { IPC } from '../shared/channels';
+import { createKeyedRateLimiter, rateLimited } from './ipc/ipc-rate-limiter';
 import {
   NotificationOptionsSchema,
   NotificationRequestCompleteSchema,
@@ -10,8 +12,6 @@ import {
   NoInputSchema,
   createValidatedHandler,
 } from './ipc/ipc-validators';
-import { createKeyedRateLimiter, rateLimited } from './ipc/ipc-rate-limiter';
-import { IPC } from '../shared/channels';
 
 export const notificationRateLimiter = createKeyedRateLimiter(10, 60_000);
 

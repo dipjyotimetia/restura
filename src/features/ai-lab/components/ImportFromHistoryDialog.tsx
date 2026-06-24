@@ -1,6 +1,10 @@
+import { Import } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Import } from 'lucide-react';
+import { capturedRequestsToCases, type CapturedRequest } from '../lib/datasetFromHistory';
+import { useAiLabStore } from '../store/useAiLabStore';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -10,16 +14,12 @@ import {
   DialogFooter,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { useHistoryStore } from '@/store/useHistoryStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
 import type { CollectionItem } from '@/types/collection';
 import type { HttpRequest, Response as HttpResponse } from '@/types/http';
-import { useAiLabStore } from '../store/useAiLabStore';
-import { capturedRequestsToCases, type CapturedRequest } from '../lib/datasetFromHistory';
 
 interface Candidate {
   key: string;

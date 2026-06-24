@@ -1,25 +1,23 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveRequest, useActiveTab } from '@/store/selectors';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
-import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
-import {
-  buildDesktopTransportConfig,
-  resolveEffectiveSettings,
-} from '@/features/http/lib/requestExecutor';
 import { CheckCircle, Download, PanelLeft, Plug, PlugZap, Send, Wand2 } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import type { HttpRequest, AuthConfig as AuthConfigType } from '@/types';
-import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import SchemaExplorer from './SchemaExplorer';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Floater, SubTabBar, type SubTab } from '@/components/ui/spatial';
+import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import { formatQuery } from '@/features/graphql/lib/formatter';
+import {
+  buildSchemaFromIntrospection,
+  exportSchemaToSDL,
+} from '@/features/graphql/lib/introspection';
 import {
   buildGraphQLRequestBody,
   extractGraphQLErrors,
@@ -29,21 +27,23 @@ import {
   GraphQLSubscriptionClient,
   type SubscriptionMessage,
 } from '@/features/graphql/lib/subscriptionClient';
-import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
-import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
-import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
-import { useRequestRunner } from '@/features/registry/useRequestRunner';
-import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
-import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { Floater, SubTabBar, type SubTab } from '@/components/ui/spatial';
-import { cn } from '@/lib/shared/utils';
-import { formatQuery } from '@/features/graphql/lib/formatter';
 import {
-  buildSchemaFromIntrospection,
-  exportSchemaToSDL,
-} from '@/features/graphql/lib/introspection';
-import SchemaExplorer from './SchemaExplorer';
+  buildDesktopTransportConfig,
+  resolveEffectiveSettings,
+} from '@/features/http/lib/requestExecutor';
+import { useRequestRunner } from '@/features/registry/useRequestRunner';
+import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { cn } from '@/lib/shared/utils';
+import { useActiveRequest, useActiveTab } from '@/store/selectors';
+import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import type { HttpRequest, AuthConfig as AuthConfigType } from '@/types';
 
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 const CodeEditor = lazyComponent(

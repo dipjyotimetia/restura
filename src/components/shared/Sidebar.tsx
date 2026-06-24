@@ -1,8 +1,8 @@
 import { Download } from 'lucide-react';
-import CollectionsSidebar from '@/features/collections/components/Sidebar';
-import { Floater } from '@/components/ui/spatial';
 import { Logo } from '@/components/shared/Logo';
+import { Floater } from '@/components/ui/spatial';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import CollectionsSidebar from '@/features/collections/components/Sidebar';
 import { cn } from '@/lib/shared/utils';
 import type { ActivePanel } from '@/types';
 

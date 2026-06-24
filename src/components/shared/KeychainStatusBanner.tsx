@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AlertTriangle, RefreshCw, ShieldOff } from 'lucide-react';
-import { getElectronAPI, isElectron, getPlatform } from '@/lib/shared/platform';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { KeychainStatus } from '../../../electron/types/electron-api';
+import { getElectronAPI, isElectron, getPlatform } from '@/lib/shared/platform';
 
 function installHint(platform: ReturnType<typeof getPlatform>): string {
   if (platform === 'linux') {

@@ -5,10 +5,8 @@ import {
   type RequestCompleteInfo,
   type RunProgress,
 } from '../lib/collectionRunner';
-import type { RunnableRequest } from '../lib/flattenRunnables';
 import type { IterationRow } from '../lib/dataLoader';
-import type { Collection, Environment } from '@/types';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import type { RunnableRequest } from '../lib/flattenRunnables';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import {
   useConsoleStore,
@@ -16,6 +14,8 @@ import {
   type ConsoleProtocol,
   type ConsoleTest,
 } from '@/store/useConsoleStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import type { Collection, Environment } from '@/types';
 
 export interface StartRunArgs {
   collection: Collection;

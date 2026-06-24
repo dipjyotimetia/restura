@@ -1,5 +1,5 @@
-import { connect } from 'cloudflare:sockets';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import { connect } from 'cloudflare:sockets';
 
 const ENCODER = new TextEncoder();
 

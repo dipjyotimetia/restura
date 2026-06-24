@@ -5,7 +5,6 @@
  */
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -26,8 +25,33 @@ import {
   type EdgeChange,
   type Connection,
 } from '@xyflow/react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import './flow-canvas.css';
+import { v4 as uuidv4 } from 'uuid';
+import { emptyStubGraph } from '../../lib/flowTypes';
+import { useFlowRunStore } from '../../store/useFlowRunStore';
+import { DefaultEdge } from './edges/DefaultEdge';
+import { FLOW_DRAG_KIND_MIME, FLOW_DRAG_REQUEST_MIME } from './FlowSidebar';
+import { ConditionNode } from './nodes/ConditionNode';
+import { DelayNode } from './nodes/DelayNode';
+import { DisplayNode } from './nodes/DisplayNode';
+import { EndNode } from './nodes/EndNode';
+import { ForEachNode } from './nodes/ForEachNode';
+import { LoopNode } from './nodes/LoopNode';
+import { McpCallNode } from './nodes/McpCallNode';
+import { ParallelNode } from './nodes/ParallelNode';
+import { RequestNode } from './nodes/RequestNode';
+import { SetVariableNode } from './nodes/SetVariableNode';
+import { SseSubscribeNode } from './nodes/SseSubscribeNode';
+import { StartNode } from './nodes/StartNode';
+import { SubWorkflowNode } from './nodes/SubWorkflowNode';
+import { SwitchNode } from './nodes/SwitchNode';
+import { TemplateNode } from './nodes/TemplateNode';
+import { TransformNode } from './nodes/TransformNode';
+import { TryCatchNode } from './nodes/TryCatchNode';
+import { WsExchangeNode } from './nodes/WsExchangeNode';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type {
   Workflow,
   FlowNode,
@@ -36,30 +60,6 @@ import type {
   FlowNodeKind,
   SubgraphPath,
 } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
-import { emptyStubGraph } from '../../lib/flowTypes';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
-import { useFlowRunStore } from '../../store/useFlowRunStore';
-import { RequestNode } from './nodes/RequestNode';
-import { StartNode } from './nodes/StartNode';
-import { EndNode } from './nodes/EndNode';
-import { ConditionNode } from './nodes/ConditionNode';
-import { SwitchNode } from './nodes/SwitchNode';
-import { SetVariableNode } from './nodes/SetVariableNode';
-import { DelayNode } from './nodes/DelayNode';
-import { TransformNode } from './nodes/TransformNode';
-import { TemplateNode } from './nodes/TemplateNode';
-import { DisplayNode } from './nodes/DisplayNode';
-import { ParallelNode } from './nodes/ParallelNode';
-import { ForEachNode } from './nodes/ForEachNode';
-import { LoopNode } from './nodes/LoopNode';
-import { TryCatchNode } from './nodes/TryCatchNode';
-import { SubWorkflowNode } from './nodes/SubWorkflowNode';
-import { SseSubscribeNode } from './nodes/SseSubscribeNode';
-import { WsExchangeNode } from './nodes/WsExchangeNode';
-import { McpCallNode } from './nodes/McpCallNode';
-import { DefaultEdge } from './edges/DefaultEdge';
-import { FLOW_DRAG_KIND_MIME, FLOW_DRAG_REQUEST_MIME } from './FlowSidebar';
 
 const nodeTypes: NodeTypes = {
   start: StartNode,
@@ -431,6 +431,7 @@ export default function FlowCanvas({
   );
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drop target for nodes dragged from the sidebar palette
     <div className="restura-flow-canvas" ref={wrapperRef} onDrop={onDrop} onDragOver={onDragOver}>
       <ReactFlow
         nodes={displayedNodes}

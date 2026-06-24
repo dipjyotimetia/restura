@@ -1,31 +1,7 @@
 'use client';
 
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
-import { Logo } from '@/components/shared/Logo';
-import { Floater, Kbd, Segmented, Stepper, TextField, ToggleField } from '@/components/ui/spatial';
-import { CertificateOverride } from '@/features/http/components/CertificateOverride';
-import { useStorageMonitor } from '@/hooks/useStorageMonitor';
-import {
-  clearDexieStorage,
-  exportDexieData,
-  importDexieData,
-  secureDeleteAllDexieData,
-} from '@/lib/shared/dexie-storage';
-import { downloadBlob, readFileAsText } from '@/lib/shared/file-utils';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { cn } from '@/lib/shared/utils';
-import { useSettingsStore } from '@/store/useSettingsStore';
-import type { ClientCert, ProxyType } from '@/types';
-import {
-  DEFAULT_AUTO_UPDATE_SETTINGS,
-  DEFAULT_JUDGE_SETTINGS,
-  SPATIAL_ACCENT_PRESETS,
-  type SpatialAccent,
-} from '@/types';
-import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import {
   Check,
   Database,
@@ -49,7 +25,32 @@ import { useTheme } from 'next-themes';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import { Logo } from '@/components/shared/Logo';
+import { Floater, Kbd, Segmented, Stepper, TextField, ToggleField } from '@/components/ui/spatial';
+import { CertificateOverride } from '@/features/http/components/CertificateOverride';
+import { useStorageMonitor } from '@/hooks/useStorageMonitor';
+import {
+  clearDexieStorage,
+  exportDexieData,
+  importDexieData,
+  secureDeleteAllDexieData,
+} from '@/lib/shared/dexie-storage';
+import { downloadBlob, readFileAsText } from '@/lib/shared/file-utils';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import {
+  DEFAULT_AUTO_UPDATE_SETTINGS,
+  DEFAULT_JUDGE_SETTINGS,
+  SPATIAL_ACCENT_PRESETS,
+  type ClientCert,
+  type ProxyType,
+  type SpatialAccent,
+} from '@/types';
 
 const ProviderSettings = lazyComponent(async () => {
   const m = await import('@/features/ai/components/ProviderSettings');
@@ -962,6 +963,7 @@ function CertificatesSection() {
           </label>
           <textarea
             id="ca-pem-paste"
+            aria-label="Paste a PEM bundle"
             value={pastedCa}
             onChange={(e) => handleCaPaste(e.target.value)}
             placeholder="-----BEGIN CERTIFICATE-----&#10;..."
@@ -1009,6 +1011,7 @@ function HostScopeFields({
       <input
         value={host}
         onChange={(e) => onHostChange(e.target.value)}
+        aria-label="Host or host pattern"
         placeholder="api.example.com or *.example.com"
         spellCheck={false}
         className={cn(
@@ -1024,6 +1027,7 @@ function HostScopeFields({
           onPortChange(v === '' ? undefined : Number(v));
         }}
         inputMode="numeric"
+        aria-label="Port"
         placeholder="port"
         spellCheck={false}
         className={cn(
@@ -1152,6 +1156,7 @@ function PerDomainCertificates() {
             <textarea
               value={entry.pem}
               onChange={(e) => upsertHostCaCert({ ...entry, pem: e.target.value })}
+              aria-label="CA certificate PEM"
               placeholder="-----BEGIN CERTIFICATE-----&#10;..."
               spellCheck={false}
               className={cn(
@@ -1587,6 +1592,7 @@ function AuthorAvatar({ username, initials, alt }: AuthorAvatarProps) {
     >
       <span aria-hidden={!failed}>{initials}</span>
       {!failed && (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onError is a load-failure fallback, not a user interaction
         <img
           src={`https://github.com/${username}.png?size=80`}
           alt={alt}

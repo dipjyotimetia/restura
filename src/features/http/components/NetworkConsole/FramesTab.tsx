@@ -1,16 +1,16 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { ArrowDownLeft, ArrowUpRight, Cable, Copy, Info, Layers, Search, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { useShallow } from 'zustand/react/shallow';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { formatBytes, formatClockTime } from '@/lib/shared/console-format';
 import { cn } from '@/lib/shared/utils';
 import { useConsoleStore, type ConsoleFrame, type FrameProtocol } from '@/store/useConsoleStore';
-import { formatBytes, formatClockTime } from '@/lib/shared/console-format';
 
 const PROTOCOL_FILTERS: Array<{ value: FrameProtocol | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -107,7 +107,15 @@ export default function FramesTab() {
     return (
       <div
         key={frame.id}
+        role="button"
+        tabIndex={0}
         onClick={() => setSelectedId(frame.id)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setSelectedId(frame.id);
+          }
+        }}
         className={cn(
           'px-3 py-1.5 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
           isSelected && 'bg-accent',

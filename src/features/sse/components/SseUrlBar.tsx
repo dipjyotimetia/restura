@@ -1,6 +1,6 @@
 import { Play, Square } from 'lucide-react';
-import { MethodChip, VariableText } from '@/components/ui/spatial';
 import { Button } from '@/components/ui/button';
+import { MethodChip, VariableText } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
 

@@ -1,3 +1,5 @@
+import { enumSchemaCache, messageSchemaCache } from './protoParser';
+import type { ServiceDescriptorProto } from './types';
 import type {
   FieldSchema,
   FieldType,
@@ -5,8 +7,6 @@ import type {
   ReflectionMethodInfo,
   ReflectionServiceInfo,
 } from '@/types';
-import type { ServiceDescriptorProto } from './types';
-import { enumSchemaCache, messageSchemaCache } from './protoParser';
 
 export function buildServiceInfo(
   svc: ServiceDescriptorProto,

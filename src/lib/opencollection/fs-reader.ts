@@ -1,8 +1,8 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import * as yaml from 'js-yaml';
-import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 import type { OpenCollection } from './schemas';
+import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 
 const ROOT_FILES = ['opencollection.yml', 'opencollection.yaml'];
 const FOLDER_META = '_folder.yaml';

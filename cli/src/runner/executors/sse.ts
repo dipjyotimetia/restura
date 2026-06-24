@@ -1,11 +1,11 @@
-import { request as undiciRequest } from 'undici';
 import { SseParser } from '@shared/protocol/sse-parser';
 import { validateURL } from '@shared/protocol/url-validation';
-import type { SseRequest } from '@/types';
-import { resolveVarsDeep } from '../varResolver';
+import { request as undiciRequest } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
-import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
+import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
+import type { SseRequest } from '@/types';
 
 const DEFAULT_DURATION_MS = 5000;
 

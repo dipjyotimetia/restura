@@ -1,8 +1,8 @@
-import type { KeyValue } from './common';
+import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import type { AuthConfig } from './auth';
+import type { KeyValue } from './common';
 import type { Response } from './http';
 // gRPC status codes — single source of truth in the shared protocol core.
-import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 
 // gRPC Methods
 export type GrpcMethodType =

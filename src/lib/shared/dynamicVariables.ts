@@ -1,5 +1,5 @@
-import { v4 as uuidv4 } from 'uuid';
 import { faker } from '@faker-js/faker/locale/en';
+import { v4 as uuidv4 } from 'uuid';
 import { generateTraceparent } from '@/lib/shared/utils';
 
 type Generator = () => string;

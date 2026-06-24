@@ -1,7 +1,9 @@
+import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
+import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import { ipcMain } from 'electron';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC, EVENT_PREFIX } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
-import { StreamRegistry } from '../ipc/stream-registry';
-import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import {
   SseConnectSchema,
   SseDisconnectSchema,
@@ -9,12 +11,10 @@ import {
   createValidatedHandler,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
-import { SseParser, type ParsedSseEvent } from './sse-parser';
-import { IPC, EVENT_PREFIX } from '../../shared/channels';
-import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
-import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
+import { StreamRegistry } from '../ipc/stream-registry';
+import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import { makeFetchFetcher } from './fetch-fetcher';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { SseParser, type ParsedSseEvent } from './sse-parser';
 
 const log = createLogger('sse');
 

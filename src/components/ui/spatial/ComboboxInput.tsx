@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
+import { VariableInput } from '@/components/shared/VariableInput';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/shared/utils';
-import { VariableInput } from '@/components/shared/VariableInput';
 
 export interface ComboboxSuggestion {
   value: string;
@@ -164,6 +164,7 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
             if (t?.closest('[role="combobox"]')) e.preventDefault();
           }}
         >
+          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- ARIA combobox popup listbox pattern */}
           <ul id={listboxId} role="listbox" className="py-1">
             {filtered.map((s, idx) => {
               const active = idx === activeIdx;
@@ -171,6 +172,7 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
                 <li
                   key={s.value}
                   id={`${optionPrefix}-${idx}`}
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- ARIA listbox option pattern
                   role="option"
                   aria-selected={active}
                   onMouseDown={(e) => {

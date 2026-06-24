@@ -1,4 +1,7 @@
 import { v4 as uuid } from 'uuid';
+import { loadBrunoLang } from '../bruno-lang';
+import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
+import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
 import type {
   AuthConfig,
   Collection,
@@ -9,8 +12,6 @@ import type {
   KeyValue,
   RequestBody,
 } from '@/types';
-import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
-import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
 /**
  * Source for a Bruno legacy `.bru` import.
@@ -37,8 +38,6 @@ const BRUNO_SYNTAX_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\{\{\$res\.[\w.]+\}\}/g, label: 'response-chain reference' },
   { pattern: /\{\{\$randomInt\(\d+,\s*\d+\)\}\}/g, label: 'randomInt with range' },
 ];
-
-import { loadBrunoLang } from '../bruno-lang';
 
 export async function importBrunoCollection(source: BrunoSource): Promise<ImportResult> {
   const lang = await loadBrunoLang();

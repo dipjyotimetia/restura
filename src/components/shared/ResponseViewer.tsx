@@ -1,22 +1,13 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
-import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
-import { useSettingsStore } from '@/store/useSettingsStore';
-import { formatBytes, formatTime } from '@/lib/shared/utils';
-import { detectLanguage } from '@/lib/shared/console-format';
-import { isCsvResponse } from '@/lib/shared/csvParser';
-import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
-import { ImagePreview } from '@/components/shared/ImagePreview';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Copy, Check, Zap, Rows, Columns, Search, Download, Braces, FileDown } from 'lucide-react';
+import type * as Monaco from 'monaco-editor';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/shared/utils';
-import { Scale, Stagger, StaggerItem, AnimatePresence, motion } from '@/components/ui/motion';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { ImagePreview } from '@/components/shared/ImagePreview';
+import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
+import { Scale, Stagger, StaggerItem, AnimatePresence, motion } from '@/components/ui/motion';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Floater,
   StatusPill,
@@ -27,7 +18,15 @@ import {
   WaterfallBar,
   type SubTab,
 } from '@/components/ui/spatial';
-import type * as Monaco from 'monaco-editor';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
+import { detectLanguage } from '@/lib/shared/console-format';
+import { isCsvResponse } from '@/lib/shared/csvParser';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { cn, formatBytes, formatTime } from '@/lib/shared/utils';
+import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 // Bodies above this size skip pretty-print to avoid freezing the main thread
 // on multi-MB responses; raw text still renders fine through Monaco.

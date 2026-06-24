@@ -1,11 +1,3 @@
-import { memo, type DragEvent, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
 import {
   ChevronDown,
   ChevronRight,
@@ -18,8 +10,16 @@ import {
   Copy,
   Trash2,
 } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
+import { memo, type DragEvent, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
+import { cn } from '@/lib/shared/utils';
 import type { CollectionItem } from '@/types';
 
 /**
@@ -207,6 +207,14 @@ const FolderRow = memo(function FolderRow({
           aria-expanded={!isCollapsed}
           draggable={!isRenaming}
           onClick={handleClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (isRenaming) return;
+              actions.clearSelection();
+              actions.toggleCollapse(item.id);
+            }
+          }}
           onDragStart={(e) => actions.dragStart(e, collectionId, item.id)}
           onDragEnd={actions.dragEnd}
           onDragOver={(e) => {

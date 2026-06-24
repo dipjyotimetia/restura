@@ -1,21 +1,5 @@
 'use client';
 
-import { cn } from '@/lib/shared/utils';
-import {
-  entryToCurl,
-  entryToHttpRequest,
-  useConsoleStore,
-  type ConsoleEntry,
-} from '@/store/useConsoleStore';
-import { Badge } from '@/components/ui/badge';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Copy,
   ExternalLink,
@@ -28,14 +12,30 @@ import {
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveTab } from '@/store/selectors';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {
   formatBytes,
   formatRelativeTime,
   getMethodColor,
   getStatusTextColor,
 } from '@/lib/shared/console-format';
+import { cn } from '@/lib/shared/utils';
+import { useActiveTab } from '@/store/selectors';
+import {
+  entryToCurl,
+  entryToHttpRequest,
+  useConsoleStore,
+  type ConsoleEntry,
+} from '@/store/useConsoleStore';
+import { useRequestStore } from '@/store/useRequestStore';
 
 interface RequestEntryItemProps {
   entry: ConsoleEntry;
@@ -139,7 +139,15 @@ export default function RequestEntryItem({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
+          role="button"
+          tabIndex={0}
           onClick={onClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onClick();
+            }
+          }}
           className={cn(
             'group/entry px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
             isSelected && 'bg-accent',

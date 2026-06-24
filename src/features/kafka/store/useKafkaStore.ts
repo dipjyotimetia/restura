@@ -1,10 +1,10 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { v4 as uuidv4 } from 'uuid';
+import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages } from '@/lib/shared/message-cap';
 import { useConsoleStore } from '@/store/useConsoleStore';
-import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
 export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';

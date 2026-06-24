@@ -1,32 +1,32 @@
-import { useCallback } from 'react';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveRequest } from '@/store/selectors';
-import { useHistoryStore } from '@/store/useHistoryStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useGlobalsStore } from '@/store/useGlobalsStore';
-import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpMethod, AuthConfig, RequestSettings, RequestBody, FormDataItem } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
+import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import type { AxiosProxyConfig } from 'axios';
 import axios, { isAxiosError } from 'axios';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { useCallback } from 'react';
 import { toast } from 'sonner';
-import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { v4 as uuidv4 } from 'uuid';
 import { applyAuthHeaders, applyApiKeyQueryParam } from '@/features/auth/lib/applyAuthHeaders';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
-import { unwrapSecret } from '@/lib/shared/secretRef';
-import { isElectron } from '@/lib/shared/platform';
-import { executeProxiedRequest } from '@/lib/shared/transport';
 import {
   buildDesktopTransportConfig,
   buildFormFields,
   mapBodyType,
   resolveEffectiveSettings,
 } from '@/features/http/lib/requestExecutor';
-import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { isElectron } from '@/lib/shared/platform';
+import { unwrapSecret } from '@/lib/shared/secretRef';
+import { executeProxiedRequest } from '@/lib/shared/transport';
+import { useActiveRequest } from '@/store/selectors';
+import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import type { HttpMethod, AuthConfig, RequestSettings, RequestBody, FormDataItem } from '@/types';
 
 /**
  * Capture the headers the request actually went out with for the Console.

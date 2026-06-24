@@ -34,6 +34,7 @@ export function Stepper({
     >
       <input
         type="number"
+        aria-label={ariaLabel ?? 'Value'}
         value={value}
         min={min}
         max={max}

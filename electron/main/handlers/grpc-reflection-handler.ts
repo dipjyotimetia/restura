@@ -1,10 +1,10 @@
 import { ipcMain } from 'electron';
+import { IPC } from '../../shared/channels';
 import {
   createValidatedHandler,
   ReflectionIpcConfigSchema,
   type ReflectionIpcConfig,
 } from '../ipc/ipc-validators';
-import { IPC } from '../../shared/channels';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
 
 /** The subset of ServerReflectionResponse the renderer consumes. */

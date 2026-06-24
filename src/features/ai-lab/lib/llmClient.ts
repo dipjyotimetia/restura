@@ -1,9 +1,9 @@
 // Renderer → IPC bridge for AI Lab model calls. Wraps window.electron.aiLab so
 // the rest of the feature (runner, scorers, Playground) never touches the raw
 // bridge. Electron-only — throws a clear error on web.
-import { getElectronAPI } from '@/lib/shared/platform';
 import type { ChatStreamEvent, CompletionResult, Provider } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
+import { getElectronAPI } from '@/lib/shared/platform';
 
 export interface LlmChatMessage {
   role: 'system' | 'user' | 'assistant';

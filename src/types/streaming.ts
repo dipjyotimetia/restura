@@ -1,5 +1,5 @@
-import type { KeyValue } from './common';
 import type { AuthConfig } from './auth';
+import type { KeyValue } from './common';
 import type { Response } from './http';
 
 // SSE (Server-Sent Events) Request

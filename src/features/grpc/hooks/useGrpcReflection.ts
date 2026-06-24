@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import type { ReflectionMethodInfo, ReflectionResult, ReflectionServiceInfo } from '@/types';
 import { GrpcReflectionClient } from '@/features/grpc/lib/grpcReflection';
 import { validateGrpcUrl } from '@/features/grpc/lib/grpcValidation';
+import type { ReflectionMethodInfo, ReflectionResult, ReflectionServiceInfo } from '@/types';
 
 const AUTO_DISCOVER_DEBOUNCE_MS = 1500;
 

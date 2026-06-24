@@ -1,4 +1,8 @@
+import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -19,17 +23,13 @@ import {
   VariableText,
   CodeEditorFrame,
 } from '@/components/ui/spatial';
-import { useShallow } from 'zustand/react/shallow';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useActiveTabId } from '@/store/selectors';
+import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
-import { websocketManager } from '@/features/websocket/lib/websocketManager';
-import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
-import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
+import { useActiveTabId } from '@/store/selectors';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
 type SendFormat = 'json' | 'text' | 'binary';
 
@@ -353,8 +353,11 @@ function WebSocketClient() {
       {!isConnected && !isConnecting && (
         <Floater radius="panel" className="flex flex-col gap-3 px-3 py-3 shrink-0">
           <div>
-            <label className="text-sp-11 font-medium text-sp-muted">Subprotocols</label>
+            <label htmlFor="ws-subprotocols" className="text-sp-11 font-medium text-sp-muted">
+              Subprotocols
+            </label>
             <Input
+              id="ws-subprotocols"
               value={connection.protocols.join(', ')}
               onChange={(e) =>
                 setProtocols(
@@ -371,7 +374,7 @@ function WebSocketClient() {
             />
           </div>
           <div>
-            <label className="text-sp-11 font-medium text-sp-muted">Handshake headers</label>
+            <span className="text-sp-11 font-medium text-sp-muted">Handshake headers</span>
             <div className="mt-1">
               <KeyValueEditor
                 items={connection.headers}
@@ -592,6 +595,7 @@ function WebSocketClient() {
                 <textarea
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
+                  aria-label="Message to send"
                   placeholder={
                     sendFormat === 'binary'
                       ? 'Enter hex bytes (e.g., 48 65 6c 6c 6f)…'

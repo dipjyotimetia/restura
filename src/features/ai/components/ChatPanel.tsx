@@ -1,17 +1,17 @@
+import { isLocalProvider, type Usage } from '@shared/protocol/ai/types';
+import { Plus, X, Wand2, Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useAiChatStore, type ChatMessage } from '@/features/ai/store';
+import { toast } from 'sonner';
+import { Composer } from './Composer';
+import { ContextPill } from './ContextPill';
+import { MessageList } from './MessageList';
+import { Button } from '@/components/ui/button';
+import { agentToolDefs, runAgentTool } from '@/features/ai/agent/tools';
 import { captureActive } from '@/features/ai/lib/contextSnapshot';
 import { buildMessages } from '@/features/ai/lib/promptBuilder';
 import { consumeStream } from '@/features/ai/lib/streamConsumer';
+import { useAiChatStore, type ChatMessage } from '@/features/ai/store';
 import { getElectronAPI } from '@/lib/shared/platform';
-import { ContextPill } from './ContextPill';
-import { MessageList } from './MessageList';
-import { Composer } from './Composer';
-import { Button } from '@/components/ui/button';
-import { Plus, X, Wand2, Check } from 'lucide-react';
-import { toast } from 'sonner';
-import { agentToolDefs, runAgentTool } from '@/features/ai/agent/tools';
-import { isLocalProvider, type Usage } from '@shared/protocol/ai/types';
 
 interface PendingToolCall {
   id: string;

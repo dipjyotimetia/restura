@@ -6,8 +6,8 @@
  * on `node:net` / `node:tls` / `ws`.
  */
 import { createApp } from './app';
-import { httpsViaConnectProxy, httpViaProxy } from './shared/tcp-proxy';
 import { websocketHandler } from './handlers/websocket';
+import { httpsViaConnectProxy, httpViaProxy } from './shared/tcp-proxy';
 
 // `Env` lives in ./env — import it from there directly. The re-export that
 // previously lived here has been removed since all handlers/middleware now

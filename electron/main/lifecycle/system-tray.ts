@@ -1,8 +1,8 @@
+import * as fs from 'fs';
 import type { BrowserWindow } from 'electron';
 import { Tray, Menu, nativeImage } from 'electron';
-import * as fs from 'fs';
-import { getResourcePath } from '../window-manager';
 import { createLogger } from '../../../src/lib/shared/logger';
+import { getResourcePath } from '../window-manager';
 
 const log = createLogger('tray');
 

@@ -1,19 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
-import { useSseStore } from '@/features/sse/store/useSseStore';
-import { sseManager } from '@/features/sse/lib/sseManager';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { keyValuePairsToRecord } from '@/lib/shared/utils';
-import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
-
-import SseUrlBar from './SseUrlBar';
-import SseStatsRow from './SseStatsRow';
-import SseEventTimeline from './SseEventTimeline';
 import SseAssembledOutput, { type SsePhase } from './SseAssembledOutput';
 import SseCounters from './SseCounters';
+import SseEventTimeline from './SseEventTimeline';
+import SseStatsRow from './SseStatsRow';
+import SseUrlBar from './SseUrlBar';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import { sseManager } from '@/features/sse/lib/sseManager';
+import { useSseStore } from '@/features/sse/store/useSseStore';
+import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
 /**
  * SSE view — Spatial Depth redesign.

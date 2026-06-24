@@ -29,11 +29,11 @@
  *    with a loud warning (matching the credential store's policy).
  */
 
+import * as crypto from 'crypto';
 import { ipcMain } from 'electron';
+import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { assertTrustedSender } from '../ipc/ipc-validators';
-import * as crypto from 'crypto';
-import { z } from 'zod';
 import { getOrCreateEncryptedKey } from './encrypted-key';
 
 // electron-store v9+ is ESM-only; require() returns the module namespace under Node 22+

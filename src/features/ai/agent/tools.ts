@@ -9,10 +9,10 @@
  * multi-turn provider continuation in this version (documented as the next
  * increment).
  */
+import type { AiToolDef } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { useRequestStore } from '@/store/useRequestStore';
-import type { AiToolDef } from '@shared/protocol/ai/types';
 import type { HttpRequest, KeyValue, Request } from '@/types';
 
 export type AgentToolResult = { ok: true; summary: string } | { ok: false; error: string };

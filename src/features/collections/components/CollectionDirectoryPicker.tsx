@@ -1,5 +1,6 @@
 'use client';
 
+import { FolderOpen, FolderPlus } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,14 +13,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { FolderOpen, FolderPlus } from 'lucide-react';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import {
   selectCollectionDirectory,
   loadCollectionFromDirectory,
   exportCollectionToFiles,
   isElectronEnvironment,
 } from '@/store/useFileCollectionStore';
-import { useCollectionStore } from '@/store/useCollectionStore';
 
 interface CollectionDirectoryPickerProps {
   open: boolean;

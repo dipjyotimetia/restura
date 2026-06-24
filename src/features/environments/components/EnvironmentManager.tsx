@@ -1,4 +1,3 @@
-import { useMemo, useState, useEffect, useRef, type ReactNode } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as DropdownPrimitive from '@radix-ui/react-dropdown-menu';
 import {
@@ -15,15 +14,16 @@ import {
   KeyRound,
   Sparkles,
 } from 'lucide-react';
+import { useMemo, useState, useEffect, useRef, type ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { envColorFor } from '@/features/environments/lib/envColor';
-import { envHostHint as hostHint } from '@/features/environments/lib/envHint';
-import { Floater } from '@/components/ui/spatial';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { Floater } from '@/components/ui/spatial';
+import { envColorFor } from '@/features/environments/lib/envColor';
+import { envHostHint as hostHint } from '@/features/environments/lib/envHint';
 import { cn } from '@/lib/shared/utils';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { Environment, KeyValue } from '@/types';
 
 interface EnvironmentManagerProps {
@@ -340,6 +340,7 @@ function EnvDetailHeader({
         {editing ? (
           <input
             ref={inputRef}
+            aria-label="Environment name"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}

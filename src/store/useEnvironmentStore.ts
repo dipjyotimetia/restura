@@ -1,11 +1,11 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Environment, KeyValue } from '@/types';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
-import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
+import type { Environment, KeyValue } from '@/types';
 
 interface EnvironmentState {
   environments: Environment[];

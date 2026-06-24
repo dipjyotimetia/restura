@@ -5,10 +5,10 @@
  * policy, body construction, and sign-at-wire auth. The renderer must
  * never speak HTTP to a user-supplied upstream directly.
  */
-import axios, { type AxiosError } from 'axios';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
-import type { ProxyConfig, ClientCert, CaCert, MinTlsVersion } from '@/types';
+import axios, { type AxiosError } from 'axios';
 import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from './platform';
+import type { ProxyConfig, ClientCert, CaCert, MinTlsVersion } from '@/types';
 
 /** Buffered JSON response shape returned by the Worker's `/api/proxy`. */
 export interface ProxyJsonResponse {

@@ -1,17 +1,17 @@
 import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
-import { runCollection, type RunOptions } from '../runner/runner.js';
-import { loadEnv } from '../runner/envLoader.js';
-import { loadIterationData } from '../runner/dataLoader.js';
-import { parseRetryOn } from '../runner/retry.js';
+import { CompositeReporter } from '../reporters/composite.js';
+import { HtmlReporter } from '../reporters/html.js';
 import { JsonReporter } from '../reporters/json.js';
 import { JUnitReporter } from '../reporters/junit.js';
-import { HtmlReporter } from '../reporters/html.js';
 import { LiveReporter } from '../reporters/live.js';
-import { TuiReporter } from '../reporters/tui.js';
 import { StatsReporter } from '../reporters/stats.js';
-import { CompositeReporter } from '../reporters/composite.js';
+import { TuiReporter } from '../reporters/tui.js';
 import type { Reporter } from '../reporters/types.js';
+import { loadIterationData } from '../runner/dataLoader.js';
+import { loadEnv } from '../runner/envLoader.js';
+import { parseRetryOn } from '../runner/retry.js';
+import { runCollection, type RunOptions } from '../runner/runner.js';
 import { interactive, showCursor } from '../ui/colors.js';
 import { runWizard } from '../ui/wizard.js';
 

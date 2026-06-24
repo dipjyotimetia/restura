@@ -1,4 +1,3 @@
-import * as React from 'react';
 import {
   motion,
   type HTMLMotionProps,
@@ -6,6 +5,7 @@ import {
   type Transition,
   AnimatePresence,
 } from 'framer-motion';
+import * as React from 'react';
 
 import { cn } from '@/lib/shared/utils';
 

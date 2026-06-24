@@ -1,10 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
-import type { ProtocolModule } from '@/features/registry/types';
-import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
 import { executeRequest } from './lib/requestExecutor';
-import { useSettingsStore } from '@/store/useSettingsStore';
+import type { ProtocolModule } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
 
 function createDefaultHttpRequest(): HttpRequest {
   return {

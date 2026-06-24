@@ -1,32 +1,5 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
-import {
-  entryToCurl,
-  entryToHttpRequest,
-  useConsoleStore,
-  type ConsoleProtocol,
-  type ConsoleStatusFilter,
-} from '@/store/useConsoleStore';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveTab } from '@/store/selectors';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   Network,
   FileText,
@@ -45,20 +18,47 @@ import {
   Cookie as CookieIcon,
   HelpCircle,
 } from 'lucide-react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import RequestEntryItem from './RequestEntryItem';
+import { useShallow } from 'zustand/react/shallow';
 import EntryCompareDialog from './EntryCompareDialog';
 import EntryExpandDialog from './EntryExpandDialog';
-import { cn } from '@/lib/shared/utils';
+import RequestEntryItem from './RequestEntryItem';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { codeGenerators, type CodeGeneratorType } from '@/lib/shared/codeGenerators';
+import { filterEntries, sortEntries, statusClassCounts } from '@/lib/shared/console-filter';
 import {
   detectLanguage,
   formatBytes,
   formatClockTime,
   getStatusBadgeColor,
 } from '@/lib/shared/console-format';
-import { filterEntries, sortEntries, statusClassCounts } from '@/lib/shared/console-filter';
 import { parseRequestCookies, parseResponseCookies } from '@/lib/shared/cookie-parser';
-import { codeGenerators, type CodeGeneratorType } from '@/lib/shared/codeGenerators';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { cn } from '@/lib/shared/utils';
+import { useActiveTab } from '@/store/selectors';
+import {
+  entryToCurl,
+  entryToHttpRequest,
+  useConsoleStore,
+  type ConsoleProtocol,
+  type ConsoleStatusFilter,
+} from '@/store/useConsoleStore';
+import { useRequestStore } from '@/store/useRequestStore';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
