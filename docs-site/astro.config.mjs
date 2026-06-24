@@ -214,6 +214,10 @@ export default defineConfig({
                   label: '0022 — gRPC over ConnectRPC',
                   slug: 'architecture/adrs/0022-grpc-connectrpc-transport',
                 },
+                {
+                  label: '0023 — AI Lab http-exec',
+                  slug: 'architecture/adrs/0023-ai-lab-http-exec',
+                },
               ],
             },
           ],
