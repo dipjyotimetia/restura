@@ -1,0 +1,48 @@
+name: Dependabot auto-merge
+
+# Approve and enable auto-merge for Dependabot patch & minor updates. GitHub
+# then merges the PR automatically once all REQUIRED status checks pass (see
+# the required-check list in docs/CI_CD.md). Major bumps — and anything that
+# isn't a clean semver patch/minor — are left for manual review.
+#
+# Prerequisites (one-time, in repo settings — see docs/CI_CD.md):
+#   - Settings → General → "Allow auto-merge" enabled.
+#   - Branch protection on `main` with required status checks. Without required
+#     checks, "auto-merge" can't be enabled and `gh pr merge --auto` errors.
+#
+# Safety: Dependabot-triggered runs get a read-only token and NO repo secrets,
+# and CI installs with --ignore-scripts (ci.yml), so no untrusted package code
+# executes in the path that gates the merge. The write token below is scoped to
+# this workflow only and limited to contents + pull-requests.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-merge Dependabot PR
+    runs-on: ubuntu-latest
+    # Only ever act on Dependabot's own PRs.
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    timeout-minutes: 5
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve and enable auto-merge (patch & minor only)
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor' }}
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Approve so a "require approvals" rule is satisfied, then queue the
+          # merge. --auto waits for required checks; nothing merges red.
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto --squash "$PR_URL"

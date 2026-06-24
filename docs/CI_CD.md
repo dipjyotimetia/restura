@@ -12,14 +12,15 @@ secret scanning, required reviewers, secrets).
 
 ## Workflows at a glance
 
-| Workflow              | File                                      | Trigger                                  | Purpose                                                                                                                                   |
-| --------------------- | ----------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **CI**                | `.github/workflows/ci.yml`                | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy. |
-| **CodeQL**            | `.github/workflows/codeql.yml`            | PR + push to `main`, weekly              | SAST over `javascript-typescript` **and** the workflow files (`actions`).                                                                 |
-| **Scorecard**         | `.github/workflows/scorecard.yml`         | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                               |
-| **Dependency Review** | `.github/workflows/dependency-review.yml` | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                  |
-| **Security Audit**    | `.github/workflows/security-audit.yml`    | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                             |
-| **Release**           | `.github/workflows/release.yml`           | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                     |
+| Workflow                  | File                                          | Trigger                                  | Purpose                                                                                                                                   |
+| ------------------------- | --------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **CI**                    | `.github/workflows/ci.yml`                    | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy. |
+| **CodeQL**                | `.github/workflows/codeql.yml`                | PR + push to `main`, weekly              | SAST over `javascript-typescript` **and** the workflow files (`actions`).                                                                 |
+| **Scorecard**             | `.github/workflows/scorecard.yml`             | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                               |
+| **Dependency Review**     | `.github/workflows/dependency-review.yml`     | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                  |
+| **Security Audit**        | `.github/workflows/security-audit.yml`        | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                             |
+| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml` | PR (Dependabot only)                     | Approves + enables auto-merge for patch/minor dependency updates once required checks pass.                                               |
+| **Release**               | `.github/workflows/release.yml`               | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                     |
 
 > Releases are **never** cut on merge to `main`. Production ships only from a
 > manually-dispatched **Release** run. See the runbook below.
@@ -120,7 +121,42 @@ rules_) for `main`:
 - ✅ **Push protection** — on (blocks commits that contain a recognized secret).
 - ✅ **Validity checks** (where available).
 
-### 4. OpenSSF Scorecard
+### 4. Dependabot auto-merge
+
+Patch & minor dependency updates from Dependabot are approved and queued for
+auto-merge by `dependabot-auto-merge.yml`; GitHub merges them once the required
+status checks (step 1) go green. Major bumps and non-semver updates are left for
+manual review.
+
+To make it work:
+
+- ✅ **Settings → General → Pull Requests → "Allow auto-merge"** — on. Without
+  this, `gh pr merge --auto` errors and nothing merges.
+- ✅ **Branch protection with required status checks** (step 1). `--auto` waits
+  on _required_ checks only; a red required check holds the merge.
+- **Approvals.** The workflow self-approves so a generic "require N approvals"
+  rule is satisfied. If you require **Code Owner** review specifically, a bot
+  approval does _not_ count — either drop the code-owner requirement for the
+  auto-merge to complete, or keep approving Dependabot PRs by hand.
+
+How Dependabot runs are hardened (in `ci.yml`):
+
+- **`--ignore-scripts`** on every `npm ci` — the updated package's lifecycle
+  scripts never execute in the merge-gating jobs. (Dependabot runs also get a
+  read-only token and no secrets by default.)
+- **`electron-smoke` and `e2e-electron` are skipped** — they need the
+  `electron-builder install-app-deps` postinstall that `--ignore-scripts`
+  suppresses. They aren't required checks, so skipping never blocks the merge;
+  Electron dep bumps still get desktop coverage at release preflight.
+- **`deploy-preview` is skipped** — Dependabot has no Cloudflare secrets and a
+  preview of a dep bump has no value.
+- **PR test-result / coverage comments are skipped** — the read-only Dependabot
+  token can't post them (would 403 and fail the job).
+
+Tune the auto-merge scope (e.g. patch-only, or include `github-actions`) by
+editing the `update-type` condition in `dependabot-auto-merge.yml`.
+
+### 5. OpenSSF Scorecard
 
 - No token needed for a **public** repo — `scorecard.yml` uses OIDC
   (`id-token: write`) and `publish_results: true`.
@@ -128,7 +164,7 @@ rules_) for `main`:
   scheduled/`main` run completes.
 - Scorecard will score higher once branch protection (step 1) is in place.
 
-### 5. Release secrets
+### 6. Release secrets
 
 The Release **preflight** job fails fast if a stable release is missing any of
 these. Set them in **Settings → Secrets and variables → Actions**:
@@ -147,7 +183,7 @@ these. Set them in **Settings → Secrets and variables → Actions**:
 
 > `GITHUB_TOKEN` is automatic. `GHCR` publish uses it (`packages: write`).
 
-### 6. (Optional) Protected production environment
+### 7. (Optional) Protected production environment
 
 For an extra approval gate on the production Cloudflare deploy, create a
 **Settings → Environments → `production`** environment with **required
