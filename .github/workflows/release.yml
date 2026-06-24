@@ -483,7 +483,7 @@ jobs:
       # span all three OS targets; only the patterns matching this runner's
       # output contribute subjects, which is fine as long as at least one does.
       - name: Attest installer provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/installers/*.dmg
@@ -622,7 +622,7 @@ jobs:
       # Signed SLSA build-provenance for the image, pushed alongside it in GHCR.
       # Verify with `gh attestation verify oci://ghcr.io/<owner>/<repo>:<tag>`.
       - name: Attest image provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}
