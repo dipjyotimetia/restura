@@ -12,8 +12,7 @@
 // to Claude as the reason. On any internal error we exit 0 (fail open — never
 // block on a hook bug).
 
-import { readFileSync } from 'node:fs';
-import * as path from 'node:path';
+import { projectDir, projectRelative, readPayload } from './_shared.mjs';
 
 // relPath -> how to regenerate it.
 const GENERATED_FILES = new Map([
@@ -36,18 +35,12 @@ const GENERATED_SUFFIXES = [
 ];
 
 try {
-  const payload = JSON.parse(readFileSync(0, 'utf8'));
-  const file = payload?.tool_input?.file_path;
-  const cwd = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  if (!file) process.exit(0);
-
-  const rel = path.relative(cwd, file).split(path.sep).join('/');
+  const cwd = projectDir();
+  const rel = projectRelative(readPayload()?.tool_input?.file_path, cwd);
+  if (!rel) process.exit(0); // no file / outside the project
 
   let how = GENERATED_FILES.get(rel);
-  if (!how) {
-    const match = GENERATED_SUFFIXES.find((g) => rel.endsWith(g.suffix));
-    if (match) how = match.how;
-  }
+  if (!how) how = GENERATED_SUFFIXES.find((g) => rel.endsWith(g.suffix))?.how;
 
   if (how) {
     process.stderr.write(
