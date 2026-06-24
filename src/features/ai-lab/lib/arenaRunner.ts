@@ -7,6 +7,7 @@ import type { AiLabProviderConfig, Dataset, ModelRef } from '../types';
 import { runPairwiseJudge, type JudgeComplete } from '@shared/protocol/ai/judge';
 import { completeLlm, specFor, type LlmChatMessage, type LlmCallSpec } from './llmClient';
 import { completeWithRetry } from '@/lib/shared/completeRetry';
+import { runPool } from './concurrencyPool';
 import type { PairwiseMatch } from './elo';
 
 export interface ArenaInput {
@@ -47,26 +48,6 @@ function buildMessages(system: string | undefined, userText: string): LlmChatMes
 /** The user text for a case: its `prompt` var, else `input`, else the whole vars JSON. */
 function caseUserText(vars: Record<string, string>): string {
   return vars.prompt ?? vars.input ?? vars.question ?? JSON.stringify(vars);
-}
-
-async function runPool<T>(
-  items: T[],
-  concurrency: number,
-  signal: AbortSignal,
-  work: (item: T) => Promise<void>
-): Promise<void> {
-  let next = 0;
-  const worker = async () => {
-    for (;;) {
-      if (signal.aborted) return;
-      const idx = next++;
-      const item = items[idx];
-      if (item === undefined) return;
-      await work(item);
-    }
-  };
-  const pool = Math.max(1, Math.min(concurrency, items.length || 1));
-  await Promise.all(Array.from({ length: pool }, () => worker()));
 }
 
 /** Run the arena end-to-end. Returns the raw pairwise matches for Elo folding. */
@@ -122,10 +103,13 @@ export async function runArena(
     }
   }
 
-  const matches: PairwiseMatch[] = [];
+  // Place each result at its task index, NOT in completion order: Elo is
+  // path-dependent, so folding matches in a stable order is what makes a run
+  // reproducible for identical inputs (computeElo's contract).
+  const slots: Array<PairwiseMatch | undefined> = new Array(judgeTasks.length);
   let judgeDone = 0;
   if (judgeCfg) {
-    await runPool(judgeTasks, input.concurrency, signal, async (t) => {
+    await runPool(judgeTasks, input.concurrency, signal, async (t, idx) => {
       const outA = outputs[t.caseId]?.[t.aKey] ?? '';
       const outB = outputs[t.caseId]?.[t.bKey] ?? '';
       let winner: PairwiseMatch['winner'] = 'tie';
@@ -140,12 +124,14 @@ export async function runArena(
           winner = 'tie';
         }
       }
-      matches.push({ a: t.aKey, b: t.bKey, winner });
+      slots[idx] = { a: t.aKey, b: t.bKey, winner };
       judgeDone++;
       onProgress({ phase: 'judging', completed: judgeDone, total: judgeTasks.length });
     });
   }
 
   onProgress({ phase: 'done', completed: judgeDone, total: judgeTasks.length });
-  return { matches, modelKeys };
+  // filter(Boolean) drops holes left by an aborted run; a completed run is dense
+  // and in judgeTasks (round-robin) order.
+  return { matches: slots.filter((m): m is PairwiseMatch => m !== undefined), modelKeys };
 }

@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
-import { precomputeModelOutputs, runEval, type EvalProgress } from '../lib/evalRunner';
+import { runEval, type EvalProgress } from '../lib/evalRunner';
 import { executeExtractedRequest } from '../lib/execCell';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
-import type { EvalConfig, ModelRef } from '../types';
+import type { EvalConfig } from '../types';
 
 /**
  * Drives an eval run: resolves the config's prompt/dataset/providers from the
@@ -60,26 +60,6 @@ export function useEvalRun() {
       try {
         const target = config.target ?? { kind: 'text' };
 
-        // Pairwise scorers vs a baseline MODEL need that model's outputs first.
-        const baselineModels = config.scorers
-          .filter(
-            (s): s is Extract<typeof s, { kind: 'pairwise' }> =>
-              s.kind === 'pairwise' && typeof s.baseline === 'object'
-          )
-          .map((s) => s.baseline as ModelRef);
-        let baselineByCase: Record<string, string> | undefined;
-        if (baselineModels.length > 0) {
-          const m = baselineModels[0]!; // one baseline model supported per run
-          baselineByCase = await precomputeModelOutputs(
-            prompt,
-            dataset,
-            m,
-            lab.providers,
-            config.concurrency,
-            ac.signal
-          );
-        }
-
         await runEval(
           {
             prompt,
@@ -91,7 +71,6 @@ export function useEvalRun() {
             target,
             ...(config.tools ? { tools: config.tools } : {}),
             ...(target.kind === 'http-exec' ? { runRequest: executeExtractedRequest } : {}),
-            ...(baselineByCase ? { baselineByCase } : {}),
           },
           onProgress,
           ac.signal

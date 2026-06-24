@@ -31,8 +31,6 @@ export interface ScorerContext {
   usage?: { promptTokens: number; completionTokens: number };
   /** Structured tool calls from the completion (for the `tool-call` scorer). */
   toolCalls?: ChatToolCall[];
-  /** Baseline output the cell is compared against (for the `pairwise` scorer). */
-  baselineOutput?: string;
   /** Provided by the runner for `judge` scorers. Returns the aggregated verdict. */
   judge?: (args: { judgeModel: ModelRef; input: JudgeRequestInput }) => Promise<JudgeVerdict>;
   /** Provided by the runner for `pairwise` scorers. */
@@ -127,12 +125,9 @@ export async function runScorer(scorer: ScorerConfig, ctx: ScorerContext): Promi
       return scoreToolCall(scorer, ctx);
     case 'pairwise': {
       if (!ctx.pairwise) return pass(scorer, false, 'pairwise runner unavailable');
-      const outputB =
-        scorer.baseline === 'reference'
-          ? (ctx.testCase.reference ?? '')
-          : (ctx.baselineOutput ?? '');
+      const outputB = ctx.testCase.reference ?? '';
       if (!outputB) {
-        return pass(scorer, false, 'no baseline output to compare against');
+        return pass(scorer, false, 'case has no reference to compare against');
       }
       try {
         const v = await ctx.pairwise({

@@ -31,16 +31,19 @@ function statsByModel(run: EvalRun): ModelStats[] {
   }
   return [...groups.entries()].map(([key, cells]) => {
     const latencies = cells.map((c) => c.latencyMs);
-    const passed = cells.filter((c) => c.passed).length;
+    // notEvaluated cells (no scorers) are neither pass nor fail — exclude them
+    // from the pass-rate denominator so a zero-scorer run doesn't read as 0%.
+    const evaluated = cells.filter((c) => !c.notEvaluated);
+    const passed = evaluated.filter((c) => c.passed).length;
     const costs = cells.map((c) => c.cost);
     const cost = costs.some((c) => c === null)
       ? null
       : costs.reduce<number>((a, c) => a + (c ?? 0), 0);
     return {
       label: key.split(':').slice(1).join(':') || key,
-      total: cells.length,
+      total: evaluated.length,
       passed,
-      passRate: cells.length ? passed / cells.length : 0,
+      passRate: evaluated.length ? passed / evaluated.length : 0,
       p50: percentile(latencies, 50),
       p95: percentile(latencies, 95),
       cost,

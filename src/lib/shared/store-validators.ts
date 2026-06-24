@@ -411,7 +411,6 @@ const EvalCellResultSchema = z.object({
       ok: z.boolean(),
     })
     .optional(),
-  baselineOutput: z.string().optional(),
 });
 
 const EvalRunSchema = z.object({

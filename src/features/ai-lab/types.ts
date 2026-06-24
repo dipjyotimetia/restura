@@ -140,8 +140,8 @@ export type ScorerConfig =
   | (ScorerBase & {
       kind: 'pairwise';
       judgeModel: ModelRef;
-      /** Compare the cell output against the case reference, or a baseline model. */
-      baseline: 'reference' | ModelRef;
+      /** Compare the cell output against the case reference. */
+      baseline: 'reference';
       passThreshold: number;
       /** Multi-criteria rubric for the comparison (optional). */
       criteria?: JudgeCriterion[];
@@ -224,8 +224,6 @@ export interface EvalCellResult {
   notEvaluated?: boolean;
   /** Present for `http-exec` targets: the executed upstream response summary. */
   executed?: ExecutedSummary;
-  /** Present for pairwise scoring: the baseline output the cell was compared to. */
-  baselineOutput?: string;
 }
 
 export type EvalRunStatus = 'running' | 'done' | 'cancelled' | 'error';

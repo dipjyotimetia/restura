@@ -5,6 +5,7 @@
 // CSV: a header row; an `expected`/`reference` column maps to those fields, every
 // other column becomes a `vars.<column>` entry. (Multi-turn isn't expressible in
 // flat CSV — use JSONL for that.)
+import Papa from 'papaparse';
 import type { DatasetCase } from '../types';
 
 export type DatasetCaseInput = Omit<DatasetCase, 'id'>;
@@ -32,32 +33,32 @@ export function casesFromJsonl(text: string): DatasetCaseInput[] {
 }
 
 // --- CSV --------------------------------------------------------------------
+// Quoting/parsing delegated to papaparse (same dependency the response-viewer
+// CSV path uses, src/lib/shared/csvParser.ts) so there's one CSV implementation.
 
 /** Serialize cases to CSV. `vars` keys across all cases form the var columns. */
 export function casesToCsv(cases: DatasetCaseInput[]): string {
   const varKeys = new Set<string>();
   for (const c of cases) for (const k of Object.keys(c.vars ?? {})) varKeys.add(k);
   const cols = [...varKeys, 'expected', 'reference'];
-  const rows = [cols.map(csvEscape).join(',')];
-  for (const c of cases) {
-    const cells = cols.map((col) => {
-      if (col === 'expected') return csvEscape(c.expected ?? '');
-      if (col === 'reference') return csvEscape(c.reference ?? '');
-      return csvEscape(c.vars?.[col] ?? '');
-    });
-    rows.push(cells.join(','));
-  }
-  return rows.join('\n');
+  const rows = cases.map((c) =>
+    cols.map((col) => {
+      if (col === 'expected') return c.expected ?? '';
+      if (col === 'reference') return c.reference ?? '';
+      return c.vars?.[col] ?? '';
+    })
+  );
+  return Papa.unparse([cols, ...rows]);
 }
 
 export function casesFromCsv(text: string): DatasetCaseInput[] {
-  const rows = parseCsv(text);
-  if (rows.length === 0) return [];
-  const header = rows[0]!;
+  const parsed = Papa.parse<string[]>(text.trim(), { skipEmptyLines: 'greedy' });
+  const rows = (parsed.data ?? []).filter((r): r is string[] => Array.isArray(r));
+  const header = rows[0];
+  if (!header) return [];
   const out: DatasetCaseInput[] = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i]!;
-    if (row.length === 1 && row[0] === '') continue; // blank line
     const vars: Record<string, string> = {};
     let expected: string | undefined;
     let reference: string | undefined;
@@ -97,54 +98,4 @@ function coerceCase(v: unknown): DatasetCaseInput {
     if (turns.length) out.turns = turns;
   }
   return out;
-}
-
-function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
-}
-
-/** Minimal RFC-4180 CSV parser (handles quoted fields, escaped quotes, newlines). */
-export function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += ch;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ',') {
-      row.push(field);
-      field = '';
-    } else if (ch === '\n') {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = '';
-    } else if (ch === '\r') {
-      // swallow; \n handles row break
-    } else {
-      field += ch;
-    }
-  }
-  // flush last field/row if any content
-  if (field !== '' || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows;
 }

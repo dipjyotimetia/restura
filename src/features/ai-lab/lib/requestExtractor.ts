@@ -83,23 +83,22 @@ function normalizeBody(body: unknown): string {
 }
 
 /**
- * Build a GraphQL HTTP body from an extracted request. The model may emit a
- * GraphQL request as `{ query, variables }` directly (no method/url), so this
- * accepts the looser shape and produces a POST body.
+ * Build a GraphQL request from extracted model output. Executing it needs an
+ * endpoint, so the model must emit a full request object that includes a `url`
+ * (with the GraphQL body, e.g. `{ "url": "...", "body": { "query": "..." } }`);
+ * this just forces POST + a JSON content type. A bare `{ query, variables }`
+ * with no `url` can't be executed and surfaces the parse error from
+ * `extractRequestSpec` ("request is missing a url").
  */
 export function extractGraphqlSpec(text: string, mode: ParseMode): ExtractResult {
   const base = extractRequestSpec(text, mode);
-  if (base.ok) {
-    // Already a full request — ensure POST + JSON content type for GraphQL.
-    return {
-      ok: true,
-      request: {
-        ...base.request,
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...base.request.headers },
-      },
-    };
-  }
-  // Fall back to a bare { query, variables } object with no url — caller supplies the endpoint.
-  return base;
+  if (!base.ok) return base;
+  return {
+    ok: true,
+    request: {
+      ...base.request,
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...base.request.headers },
+    },
+  };
 }

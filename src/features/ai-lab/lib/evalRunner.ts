@@ -20,6 +20,7 @@ import { renderTemplate } from './promptTemplate';
 import { runScorer, type ScorerContext } from './scorers';
 import { extractGraphqlSpec, extractRequestSpec } from './requestExtractor';
 import type { ExecResult } from './execCell';
+import { runPool } from './concurrencyPool';
 import { completeWithRetry } from '@/lib/shared/completeRetry';
 
 /** Injected executor for the `http-exec` target (real one wraps execCell). */
@@ -47,8 +48,6 @@ export interface EvalRunInput {
   target?: EvalTarget;
   /** Executor for the `http-exec` target. Required when target is http-exec. */
   runRequest?: RunRequestFn;
-  /** Baseline outputs per caseId, precomputed for `pairwise` scorers vs a model. */
-  baselineByCase?: Record<string, string>;
 }
 
 export interface EvalProgress {
@@ -155,7 +154,6 @@ interface RunCellOptions {
   tools?: AiToolDef[];
   target?: EvalTarget;
   runRequest?: RunRequestFn;
-  baselineOutput?: string;
 }
 
 /** Execute a single (case × model) cell end-to-end. */
@@ -294,7 +292,6 @@ async function runCell(
         latencyMs,
         cost,
         toolCalls: completion.toolCalls,
-        ...(opts.baselineOutput !== undefined ? { baselineOutput: opts.baselineOutput } : {}),
         ...usagePatch,
       },
       providers
@@ -309,7 +306,6 @@ async function runCell(
       cost,
       ...usagePatch,
       ...(executed ? { executed } : {}),
-      ...(opts.baselineOutput !== undefined ? { baselineOutput: opts.baselineOutput } : {}),
       error: `scoring failed: ${e instanceof Error ? e.message : String(e)}`,
       scores: [],
       passed: false,
@@ -325,7 +321,6 @@ async function runCell(
     cost,
     ...usagePatch,
     ...(executed ? { executed } : {}),
-    ...(opts.baselineOutput !== undefined ? { baselineOutput: opts.baselineOutput } : {}),
     scores,
     // A cell with no scorers is "not evaluated", not a pass — otherwise a
     // misconfigured eval reads as 100% green.
@@ -350,79 +345,25 @@ export async function runEval(
   }
   const total = cells.length;
   const results: EvalCellResult[] = [];
-  let next = 0;
   let completed = 0;
 
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      if (signal.aborted) return;
-      const idx = next++;
-      if (idx >= cells.length) return;
-      const cell = cells[idx];
-      if (!cell) return;
-      const result = await runCell(
-        input.prompt,
-        cell.c,
-        cell.modelRef,
-        input.scorers,
-        input.providers,
-        {
-          ...(input.tools ? { tools: input.tools } : {}),
-          ...(input.target ? { target: input.target } : {}),
-          ...(input.runRequest ? { runRequest: input.runRequest } : {}),
-          ...(input.baselineByCase && input.baselineByCase[cell.c.id] !== undefined
-            ? { baselineOutput: input.baselineByCase[cell.c.id] }
-            : {}),
-        }
-      );
-      results.push(result);
-      completed += 1;
-      onProgress({ completed, total, cells: [...results], done: completed === total });
-    }
-  };
-
-  const pool = Math.max(1, Math.min(input.concurrency, total || 1));
-  await Promise.all(Array.from({ length: pool }, () => worker()));
+  await runPool(cells, input.concurrency, signal, async (cell) => {
+    const result = await runCell(
+      input.prompt,
+      cell.c,
+      cell.modelRef,
+      input.scorers,
+      input.providers,
+      {
+        ...(input.tools ? { tools: input.tools } : {}),
+        ...(input.target ? { target: input.target } : {}),
+        ...(input.runRequest ? { runRequest: input.runRequest } : {}),
+      }
+    );
+    results.push(result);
+    completed += 1;
+    onProgress({ completed, total, cells: [...results], done: completed === total });
+  });
   if (!signal.aborted) onProgress({ completed, total, cells: [...results], done: true });
   return results;
-}
-
-/**
- * Run one model over every dataset case and return `{ caseId: output }`. Used to
- * precompute the baseline outputs a `pairwise` scorer compares against when its
- * baseline is another model (rather than the case reference). Bounded concurrency;
- * a failed case maps to an empty string (the scorer then reports no baseline).
- */
-export async function precomputeModelOutputs(
-  prompt: PromptTemplate,
-  dataset: Dataset,
-  modelRef: ModelRef,
-  providers: Record<string, AiLabProviderConfig>,
-  concurrency: number,
-  signal: AbortSignal
-): Promise<Record<string, string>> {
-  const cfg = providers[modelRef.providerConfigId];
-  const out: Record<string, string> = {};
-  if (!cfg) return out;
-  const cases = dataset.cases;
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      if (signal.aborted) return;
-      const idx = next++;
-      const c = cases[idx];
-      if (!c) return;
-      try {
-        const completion = await completeWithRetry(() =>
-          completeLlm(specFor(cfg, modelRef.model, buildMessages(prompt, c)))
-        );
-        out[c.id] = completion.ok ? completion.text : '';
-      } catch {
-        out[c.id] = '';
-      }
-    }
-  };
-  const pool = Math.max(1, Math.min(concurrency, cases.length || 1));
-  await Promise.all(Array.from({ length: pool }, () => worker()));
-  return out;
 }

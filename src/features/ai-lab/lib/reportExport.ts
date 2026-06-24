@@ -1,14 +1,10 @@
 // Flatten an EvalRun into shareable report formats (CSV / JSON / Markdown).
 // Pure — the ReportView wires download buttons to these.
+import Papa from 'papaparse';
 import type { EvalRun, EvalCellResult } from '../types';
 
 function modelLabel(cell: EvalCellResult): string {
   return cell.modelRef.model || `${cell.modelRef.providerConfigId}:${cell.modelRef.model}`;
-}
-
-function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
 }
 
 /** One row per cell: case, model, pass, latency, cost, scorer summary. */
@@ -23,30 +19,25 @@ export function runToCsv(run: EvalRun): string {
     'scores',
     'error',
   ];
-  const rows = [header.join(',')];
-  for (const cell of run.cells) {
+  const rows = run.cells.map((cell) => {
     const scores = cell.scores
       .map(
         (s) =>
           `${s.kind}:${s.passed ? 'pass' : 'fail'}${s.score !== undefined ? `(${s.score.toFixed(2)})` : ''}`
       )
       .join(' ');
-    rows.push(
-      [
-        cell.caseId,
-        modelLabel(cell),
-        String(cell.passed),
-        String(cell.notEvaluated ?? false),
-        String(Math.round(cell.latencyMs)),
-        cell.cost === null ? '' : String(cell.cost),
-        scores,
-        cell.error ?? '',
-      ]
-        .map(csvEscape)
-        .join(',')
-    );
-  }
-  return rows.join('\n');
+    return [
+      cell.caseId,
+      modelLabel(cell),
+      String(cell.passed),
+      String(cell.notEvaluated ?? false),
+      String(Math.round(cell.latencyMs)),
+      cell.cost === null ? '' : String(cell.cost),
+      scores,
+      cell.error ?? '',
+    ];
+  });
+  return Papa.unparse([header, ...rows]);
 }
 
 /** Full structured export (the run object verbatim, pretty-printed). */
@@ -63,9 +54,11 @@ export function runToMarkdown(run: EvalRun): string {
   lines.push(`- Cells: ${run.cells.length}/${run.totalCells}`);
   lines.push('');
 
-  // Per-model pass rate.
+  // Per-model pass rate. notEvaluated cells (no scorers) are excluded from the
+  // denominator — they're neither pass nor fail.
   const byModel = new Map<string, { passed: number; total: number }>();
   for (const cell of run.cells) {
+    if (cell.notEvaluated) continue;
     const label = modelLabel(cell);
     const e = byModel.get(label) ?? { passed: 0, total: 0 };
     e.total++;
