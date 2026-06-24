@@ -2,7 +2,7 @@
 name: restura-docs-steward
 description: Use to find which documentation a code change made stale. Trigger before merging any non-trivial change, and especially after adding a protocol, changing a security boundary, altering build/self-host, or making an architectural decision. Reports which docs/, docs/adr/, docs-site/, and root markdown files need updating, and whether the change warrants a new ADR. Nothing in CI checks doc-vs-code content parity, so this is the gate.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: sonnet
 effort: medium
 ---
 
