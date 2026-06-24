@@ -26,7 +26,14 @@ const SDL = /* GraphQL */ `
   }
 `;
 
-const schema = buildSchema(SDL);
+// Built lazily on first request rather than at module load. The Cloudflare
+// runtime forbids certain operations in global scope during startup
+// validation, and buildSchema() trips that check — so defer it into the
+// request handler where a worker handler context is active.
+let schema: ReturnType<typeof buildSchema> | undefined;
+function getSchema(): ReturnType<typeof buildSchema> {
+  return (schema ??= buildSchema(SDL));
+}
 
 interface EchoContext {
   rawQuery: string;
@@ -85,7 +92,7 @@ export async function graphqlEcho(c: Context<{ Bindings: EchoEnv }>): Promise<Re
   // graphql-over-http: with application/json, parse/validation/execution
   // errors come back as 200 with an errors[] array.
   const result = await graphql({
-    schema,
+    schema: getSchema(),
     source: query,
     rootValue,
     contextValue: { rawQuery: query, variables: body.variables ?? null } satisfies EchoContext,
