@@ -5,7 +5,7 @@ sidebar:
   order: 20
 ---
 
-import { Badge } from '@astrojs/starlight/components';
+import { Badge, Aside } from '@astrojs/starlight/components';
 
 <Badge text="Accepted · 2026-05-20" variant="note" />
 
@@ -25,8 +25,12 @@ Add **AI Lab** as a **separate, Electron-only feature** (`src/features/ai-lab`) 
 - **Provider model** — widen the `Provider` union into `CloudProvider` (openai/anthropic/openrouter) and `LocalProvider` (ollama/openai-compatible), with `isLocalProvider()` as the single predicate. Ollama and OpenAI-compatible share one route — the OpenAI wire shape — differing only in that auth is optional and the base URL is user-supplied. The OpenAI decoder is reused unchanged.
 - **Security** — the Electron AI Lab handler sets `allowLocalhost = isLocalProvider(provider)` and passes it into the *same* shared SSRF guard everything else uses. Local providers reach `127.0.0.1` / `::1` and nothing else; LAN, RFC 1918/6598, link-local, IPv6 unique-local, and metadata stay blocked for everyone, across redirects and DNS rebind. Cloud providers get no carve-out. No second guard to drift.
 - **Eval engine** — `ai-complete.ts` drains the provider stream to one `CompletionResult`. A bounded-concurrency runner sweeps (case × model) cells with `AbortSignal` cancel. Only the model call crosses IPC; scorers run in the renderer — the `json-schema` (Ajv) and `script` scorers included, the latter on the [QuickJS sandbox](/architecture/adrs/0015-quickjs-script-sandbox/). The `judge` and dataset-generation paths use structured output. Cost is `null` (unknown) for unpriced gateways rather than coerced to `$0`.
-- **Persistence** — new `aiLab` / `evalRuns` Dexie tables with Zod validators; `evalRuns` uses the shared `debouncedStorage` wrapper. API keys are [`SecretRef`](/architecture/adrs/0007-secret-ref-pattern/) handles, never plaintext.
-- **Capabilities** — four `aiLab.*` rows added to `capabilities.ts` (the [single source of truth](/architecture/adrs/0012-capability-matrix-source-of-truth/)), all desktop-only.
+- **Persistence** — new `aiLab` / `evalRuns` (and later `arenaRuns`) Dexie tables with Zod validators; `evalRuns` uses the shared `debouncedStorage` wrapper. API keys are [`SecretRef`](/architecture/adrs/0007-secret-ref-pattern/) handles, never plaintext.
+- **Capabilities** — `aiLab.*` rows added to `capabilities.ts` (the [single source of truth](/architecture/adrs/0012-capability-matrix-source-of-truth/)), all desktop-only.
+
+<Aside type="note" title="Addendum — 2026-06-24">
+The workbench has since grown, all following the patterns above: **`tool-call`** and **`pairwise`** scorers (the latter via a new `runPairwiseJudge` with position-bias swap); datasets from **request history/collections** (redacted), **CSV/JSONL** import/export, **red-team** generation, and **multi-turn** cases; an **Arena** tab (round-robin pairwise → Elo leaderboard + win-rate matrix) with its own `arenaRuns` Dexie table; report **export (CSV/JSON/Markdown)**, per-case drill-down, and cross-model diff; and the **`http-exec` execute-and-score target** — recorded separately in [ADR 0023](/architecture/adrs/0023-ai-lab-http-exec/) because it executes AI-generated requests through the real request executor. The feature is now six tabs and three stores.
+</Aside>
 
 ## Consequences
 
@@ -40,7 +44,7 @@ Add **AI Lab** as a **separate, Electron-only feature** (`src/features/ai-lab`) 
 **Negative**
 
 - Desktop-only — like the AI assistant's web gap, there is no Worker route (recorded in the capability matrix, not hidden).
-- A new feature surface (5 tabs, two stores, an engine) to maintain alongside the assistant.
+- A new feature surface (six tabs, three stores, an engine) to maintain alongside the assistant.
 - `script` scorers run user code; safety rests entirely on the QuickJS sandbox boundary (ADR 0015), now exercised by a second caller.
 
 ## References

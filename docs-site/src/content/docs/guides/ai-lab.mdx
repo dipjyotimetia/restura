@@ -1,6 +1,6 @@
 ---
 title: AI Lab
-description: A desktop-only workbench for testing prompts and models — Playground stream-compare, dataset-driven evals, deterministic + script + LLM-as-judge scorers, against local (Ollama) and cloud models.
+description: A desktop-only workbench for testing prompts and models — Playground stream-compare, dataset-driven evals, deterministic + script + LLM-as-judge + tool-call + pairwise scorers, an execute-and-score target, and a model-vs-model Arena, against local (Ollama) and cloud models.
 ---
 
 import { Badge, Aside, Steps } from '@astrojs/starlight/components';
@@ -43,11 +43,26 @@ A **dataset** is a list of cases. Each case carries:
 
 - `vars` — template variables substituted into the prompt's `{{placeholders}}`.
 - `expected` *(optional)* — an exact expected output, for exact-match scoring.
-- `reference` *(optional)* — a gold/reference answer, for reference-based scorers and the judge.
+- `reference` *(optional)* — a gold/reference answer, for reference-based scorers, the judge, and the pairwise scorer.
+- `turns` *(optional)* — a multi-turn conversation (`{ role: 'user' | 'assistant'; content }[]`). When present, the runner replays these turns as the model input instead of the prompt's single user message (`{{vars}}` still resolve inside each turn).
+
+Cases are edited as a compact JSON array, and you can **import / export** a dataset as **CSV** or **JSONL** (JSONL preserves `turns`; flat CSV does not). Beyond hand-authoring, four generators seed a dataset:
 
 ### Generate from an OpenAPI spec
 
 The **Datasets** tab can seed a dataset from an OpenAPI 3 / Swagger 2 document. AI Lab extracts a compact operation summary (method, path, summary, parameter names — no `$ref` dereferencing) and asks a model to emit diverse test cases as a structured tool call. Review and edit the generated cases before saving.
+
+### Import from request history / collections
+
+Turn real traffic into eval cases: **From history** lists your saved HTTP requests (request history and saved collection requests), and each selected request becomes a case — its method, URL, headers, and body become `vars`, and the captured response body becomes the `reference`. Secrets are **redacted** (credential headers, `Bearer`/JWT/`key=value` tokens, recognizable provider keys) by the same redactor the AI assistant uses before anything reaches a model.
+
+### Generate adversarial / red-team cases
+
+**Red-team** asks a model to generate jailbreak, prompt-injection, or boundary/abuse inputs to probe a prompt's robustness. Describe the system under test and pick a focus; each generated case's `reference` describes the safe expected behavior, so you can pair it with a judge scorer.
+
+### Save Playground outputs as a dataset
+
+After a Playground run, **Save outputs as dataset** captures the current vars plus each finished model output (as the case `reference`) into a new dataset — a quick way to bootstrap a regression set from a good run.
 
 ## Evals
 
@@ -76,14 +91,35 @@ A cell passes only when its model call succeeded **and** every scorer passed. Ea
 | `cost` | Estimated USD ≤ `maxUSD`. **Unknown cost fails** — an unpriced gateway can't satisfy a budget. |
 | `script` | A [QuickJS](/architecture/adrs/0015-quickjs-script-sandbox/) test script passes (the output is exposed as `pm.response.text()`). |
 | `judge` | An **LLM-as-judge** scores the output ≥ a pass threshold. |
+| `tool-call` | The model called the expected tool, and its JSON arguments validate against a JSON Schema and/or match the case's `expected` / `reference` args. |
+| `pairwise` | A **preference judge** prefers the cell output over the case's `reference` (head-to-head A/B, with optional position-bias swap). |
 
 ### LLM-as-judge
 
-The `judge` scorer calls a model of your choosing with the output, the case's reference, and a rubric, and asks it to return a structured judgement (`score` 0–1, `reasoning`, `pass`) via a tool call. Use any provider for the judge, including a cheaper or local model than the one under test.
+The `judge` scorer calls a model of your choosing with the output, the case's reference, and a rubric, and asks it to return a structured judgement (`score` 0–1, `reasoning`, `pass`) via a tool call. Use any provider for the judge, including a cheaper or local model than the one under test. The judge engine supports **multi-criteria weighted rubrics** (each criterion scored independently; a `gate` criterion fails the cell regardless of the weighted score), **self-consistency** (run the judge N≤5 times and aggregate by median, reporting score variance), and **calibration anchors** (reference-scored examples that pin the 0–1 scale).
+
+### Tool-call & pairwise scorers
+
+- **`tool-call`** grades function-calling: expose tool definitions to the model and assert it called the right tool with arguments that validate against a schema (or match the case's expected args). Useful for agent/MCP-style prompts.
+- **`pairwise`** is preference judging — instead of an absolute score, a judge picks a winner between the cell output and the case `reference`. Enable **position swap** to run both A/B orderings and cancel position bias (a flip-flop is scored as a tie). For model-vs-model ranking across a whole dataset, use the [Arena](#arena) instead.
+
+### Execute-and-score (http-exec target)
+
+By default a cell scores the model's **text**. Switch the eval's **target** to **Execute as HTTP request** (or GraphQL) and the cell instead: calls the model → parses an HTTP/GraphQL request out of the output (a JSON object, or a fenced <code>```json</code> block) → **executes it through Restura's real request executor** → scores the upstream **response**. This answers "did the model produce a request that actually *works*", not just "did it read correctly". The executed request goes through the same SSRF guard, redirect policy, and cookie jar as any request you'd send by hand.
+
+<Aside type="caution" title="http-exec sends live requests">
+The model — not you — chooses the URL, method, and body. Within the SSRF boundary it can still reach any **public** endpoint you could reach manually, so only run an http-exec eval against endpoints you trust. Private/CGNAT/link-local/loopback/metadata addresses stay blocked. See [ADR 0023](/architecture/adrs/0023-ai-lab-http-exec/).
+</Aside>
 
 ## Reports
 
-The **Reports** tab shows a **leaderboard** across a run (pass rate, latency, cost per model) and a **regression compare** against an earlier run of the same eval config. Eval-run ids are stable per config so re-running and comparing works across sessions.
+The **Reports** tab shows a **leaderboard** across a run (pass rate, p50/p95 latency, cost per model) and a **regression compare** against an earlier run of the same eval config. Eval-run ids are stable per config so re-running and comparing works across sessions. Pass rate excludes "not evaluated" cells (a run with no scorers), so a misconfigured eval reads as neither 0% nor 100%.
+
+Each run can be **exported** as CSV, JSON, or Markdown. A **per-case drill-down** opens any case to see every model's full output, per-scorer detail, and judge per-criterion reasoning side by side — a **cross-model diff** for that case.
+
+## Arena
+
+The **Arena** ranks models head-to-head. Pick a dataset and **two or more contestant models** plus a **judge model**; the Arena runs every model pair against every case as a **round-robin pairwise** comparison (with position-bias swap) and folds the results into an **Elo leaderboard** and a **win-rate matrix**. It's the model-vs-model counterpart to the per-cell `pairwise` scorer, and the right tool when you want a ranking across many models rather than a pass/fail per cell. Runs are bounded-concurrency and cancellable, and persist to their own history (the `arenaRuns` store).
 
 ## Security & SSRF
 
@@ -92,6 +128,7 @@ Every outbound model call goes through the Electron AI Lab handler, which applie
 - **Loopback only.** Local providers may reach `127.0.0.1` / `::1`. Nothing else opens up — LAN, RFC 1918/6598 private ranges, link-local `169.254/16`, IPv6 unique-local, and cloud-metadata endpoints remain blocked for everyone, including across redirects and DNS rebind.
 - **Cloud providers get no carve-out** — they can only reach their public endpoints.
 - The handler also enforces a hard concurrency ceiling independent of the renderer-side cap.
+- **http-exec** (the execute-and-score target) adds **no new outbound path**: AI-generated requests run through the standard request executor and the same SSRF guard as user-issued requests. The residual risk is that the *model* picks the destination — see the caution above and [ADR 0023](/architecture/adrs/0023-ai-lab-http-exec/).
 
 ## Where it runs
 
@@ -103,4 +140,5 @@ Every outbound model call goes through the Electron AI Lab handler, which applie
 - [AI assistant](/guides/ai-assistant/) — the request-aware chat panel (shares the provider core).
 - [Scripts](/guides/scripts/) — the same QuickJS sandbox the `script` scorer uses.
 - [ADR 0020 — AI Lab eval workbench](/architecture/adrs/0020-ai-lab-eval-workbench/) — the architecture decision behind this feature.
+- [ADR 0023 — AI Lab http-exec](/architecture/adrs/0023-ai-lab-http-exec/) — scoring AI-generated requests through the real executor.
 - [Capability matrix](/reference/capability-matrix/) — what's desktop-only and why.

@@ -135,3 +135,104 @@ describe('judge scorer (structured, injected)', () => {
     expect(r.variance).toBe(0.01);
   });
 });
+
+describe('tool-call scorer', () => {
+  const toolCall = (name: string, input: string) => ({ id: '1', name, input });
+
+  it('fails when the model made no tool call', async () => {
+    const s: ScorerConfig = { id: 's', kind: 'tool-call', expectedTool: 'do_thing' };
+    const r = await runScorer(s, ctx({ toolCalls: [] }));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/no tool call/);
+  });
+
+  it('passes when the expected tool was called', async () => {
+    const s: ScorerConfig = { id: 's', kind: 'tool-call', expectedTool: 'do_thing' };
+    const r = await runScorer(s, ctx({ toolCalls: [toolCall('do_thing', '{"x":1}')] }));
+    expect(r.passed).toBe(true);
+  });
+
+  it('fails when a different tool was called', async () => {
+    const s: ScorerConfig = { id: 's', kind: 'tool-call', expectedTool: 'do_thing' };
+    const r = await runScorer(s, ctx({ toolCalls: [toolCall('other', '{}')] }));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/not called/);
+  });
+
+  it('validates args against a JSON schema', async () => {
+    const s: ScorerConfig = {
+      id: 's',
+      kind: 'tool-call',
+      expectedTool: 'req',
+      argsSchema: JSON.stringify({ type: 'object', required: ['url'] }),
+    };
+    expect((await runScorer(s, ctx({ toolCalls: [toolCall('req', '{"url":"x"}')] }))).passed).toBe(
+      true
+    );
+    expect((await runScorer(s, ctx({ toolCalls: [toolCall('req', '{"q":1}')] }))).passed).toBe(
+      false
+    );
+  });
+
+  it('matches args against the case expected (order-insensitive)', async () => {
+    const s: ScorerConfig = {
+      id: 's',
+      kind: 'tool-call',
+      expectedTool: 'req',
+      expectedArgsFrom: 'expected',
+    };
+    const c: DatasetCase = { id: 'c', vars: {}, expected: '{"a":1,"b":2}' };
+    const ok = await runScorer(s, {
+      ...ctx(),
+      testCase: c,
+      toolCalls: [toolCall('req', '{"b":2,"a":1}')],
+    });
+    expect(ok.passed).toBe(true);
+    const bad = await runScorer(s, {
+      ...ctx(),
+      testCase: c,
+      toolCalls: [toolCall('req', '{"a":9}')],
+    });
+    expect(bad.passed).toBe(false);
+  });
+});
+
+describe('pairwise scorer (injected)', () => {
+  it('passes when the cell output wins above threshold', async () => {
+    const pairwise = vi.fn(async () => ({ winner: 'A' as const, score: 1, reasoning: 'A better' }));
+    const s: ScorerConfig = {
+      id: 's',
+      kind: 'pairwise',
+      judgeModel: { providerConfigId: 'p1', model: 'm' },
+      baseline: 'reference',
+      passThreshold: 0.5,
+    };
+    const r = await runScorer(s, ctx({ pairwise }));
+    expect(pairwise).toHaveBeenCalledOnce();
+    expect(r.passed).toBe(true);
+    expect(r.score).toBe(1);
+  });
+
+  it('fails when there is no baseline to compare against', async () => {
+    const pairwise = vi.fn(async () => ({ winner: 'A' as const, score: 1, reasoning: '' }));
+    const s: ScorerConfig = {
+      id: 's',
+      kind: 'pairwise',
+      judgeModel: { providerConfigId: 'p1', model: 'm' },
+      baseline: 'reference',
+      passThreshold: 0.5,
+    };
+    const noRef: DatasetCase = { id: 'c', vars: {} };
+    const r = await runScorer(s, { ...ctx({ pairwise }), testCase: noRef });
+    expect(r.passed).toBe(false);
+    expect(pairwise).not.toHaveBeenCalled();
+  });
+});
+
+describe('json-schema scorer error handling', () => {
+  it('fails closed on a malformed scorer schema', async () => {
+    const s: ScorerConfig = { id: 's', kind: 'json-schema', schema: 'not json' };
+    const r = await runScorer(s, ctx({ output: '{"a":1}' }));
+    expect(r.passed).toBe(false);
+  });
+});

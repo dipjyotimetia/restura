@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Database, Plus, Trash2 } from 'lucide-react';
+import { Database, Download, Plus, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Floater } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
+import { downloadBlob } from '@/lib/shared/file-utils';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { OpenApiGenDialog } from './OpenApiGenDialog';
+import { RedteamGenDialog } from './RedteamGenDialog';
+import { ImportFromHistoryDialog } from './ImportFromHistoryDialog';
 import { EmptyState } from './EmptyState';
+import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../lib/datasetIo';
 import type { DatasetCase } from '../types';
 
 /**
@@ -23,6 +27,7 @@ export function DatasetEditor() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [casesText, setCasesText] = useState('[]');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const active = activeId ? datasets[activeId] : undefined;
 
@@ -59,9 +64,43 @@ export function DatasetEditor() {
       vars: c.vars ?? {},
       ...(c.expected !== undefined ? { expected: c.expected } : {}),
       ...(c.reference !== undefined ? { reference: c.reference } : {}),
+      ...(c.turns !== undefined ? { turns: c.turns } : {}),
     }));
     upsertDataset({ id: activeId, name: name.trim() || 'Untitled', cases });
     toast.success('Dataset saved');
+  };
+
+  /** Export the active dataset's cases (sans ids) as CSV or JSONL. */
+  const exportCases = (format: 'jsonl' | 'csv') => {
+    if (!active) return;
+    const cases = active.cases.map(({ id: _id, ...rest }) => rest);
+    const safeName = active.name.replace(/[^a-z0-9-_]+/gi, '_') || 'dataset';
+    if (format === 'jsonl') {
+      downloadBlob(casesToJsonl(cases), `${safeName}.jsonl`, 'application/x-ndjson');
+    } else {
+      downloadBlob(casesToCsv(cases), `${safeName}.csv`, 'text/csv');
+    }
+  };
+
+  /** Import cases from a picked .jsonl/.csv file into the active dataset. */
+  const onImportFile = async (file: File) => {
+    if (!activeId) return;
+    const text = await file.text();
+    try {
+      const incoming = file.name.toLowerCase().endsWith('.csv')
+        ? casesFromCsv(text)
+        : casesFromJsonl(text);
+      if (incoming.length === 0) {
+        toast.error('No cases found in file.');
+        return;
+      }
+      const cases: DatasetCase[] = incoming.map((c) => ({ id: crypto.randomUUID(), ...c }));
+      upsertDataset({ id: activeId, name: name.trim() || active?.name || 'Untitled', cases });
+      setCasesText(JSON.stringify(incoming, null, 2));
+      toast.success(`Imported ${cases.length} cases`);
+    } catch (e) {
+      toast.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   };
 
   return (
@@ -72,6 +111,8 @@ export function DatasetEditor() {
           <Plus className="mr-2 h-3.5 w-3.5" /> New dataset
         </Button>
         <OpenApiGenDialog onCreated={(id) => setActiveId(id)} />
+        <RedteamGenDialog onCreated={(id) => setActiveId(id)} />
+        <ImportFromHistoryDialog onCreated={(id) => setActiveId(id)} />
         {Object.values(datasets).map((d) => (
           <button
             key={d.id}
@@ -117,7 +158,7 @@ export function DatasetEditor() {
             </div>
             <div className="flex min-h-0 flex-1 flex-col gap-1.5">
               <span className="sp-label">
-                Cases — JSON array of {'{ vars, expected?, reference? }'}
+                Cases — JSON array of {'{ vars, expected?, reference?, turns? }'}
               </span>
               <Textarea
                 value={casesText}
@@ -125,9 +166,32 @@ export function DatasetEditor() {
                 className="min-h-[16rem] flex-1 resize-none font-mono text-sp-13"
               />
             </div>
-            <Button variant="secondary" size="sm" onClick={save} className="self-start">
-              Save dataset
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={save}>
+                Save dataset
+              </Button>
+              <span className="mx-1 h-4 w-px bg-sp-line" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".jsonl,.csv,.json,.ndjson,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void onImportFile(f);
+                  e.target.value = '';
+                }}
+              />
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="mr-1.5 h-3.5 w-3.5" /> Import file
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => exportCases('jsonl')}>
+                <Download className="mr-1.5 h-3.5 w-3.5" /> JSONL
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => exportCases('csv')}>
+                <Download className="mr-1.5 h-3.5 w-3.5" /> CSV
+              </Button>
+            </div>
           </Floater>
         ) : (
           <EmptyState

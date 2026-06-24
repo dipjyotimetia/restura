@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Sparkles, Square } from 'lucide-react';
+import { toast } from 'sonner';
+import { Play, Save, Sparkles, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Floater, Stat } from '@/components/ui/spatial';
@@ -29,6 +30,7 @@ interface CellState {
 
 export function Playground() {
   const providers = useAiLabStore((s) => s.providers);
+  const upsertDataset = useAiLabStore((s) => s.upsertDataset);
   const [system, setSystem] = useState('You are a helpful assistant.');
   const [user, setUser] = useState('Explain {{topic}} in one sentence.');
   const [varsText, setVarsText] = useState('{\n  "topic": "HTTP caching"\n}');
@@ -71,6 +73,25 @@ export function Playground() {
     for (const h of handlesRef.current) h.cancel();
     handlesRef.current = [];
     setActiveCount(0);
+  };
+
+  /** Save the current vars + each finished model output as cases in a new dataset. */
+  const saveAsCases = () => {
+    let vars: Record<string, string> = {};
+    try {
+      vars = JSON.parse(varsText || '{}') as Record<string, string>;
+    } catch {
+      // tolerate — empty vars
+    }
+    const cases = modelOptions
+      .filter((m) => cells[m.key] && cells[m.key]!.status === 'done' && cells[m.key]!.text)
+      .map((m, i) => ({ id: `${Date.now()}-${i}`, vars, reference: cells[m.key]!.text }));
+    if (cases.length === 0) {
+      toast.error('No finished outputs to save.');
+      return;
+    }
+    upsertDataset({ name: 'From Playground', cases });
+    toast.success(`Saved ${cases.length} case(s) to a new dataset`);
   };
 
   const run = async () => {
@@ -211,6 +232,11 @@ export function Playground() {
               className="w-full"
             >
               <Play className="h-3.5 w-3.5" /> Run on {selected.size} model(s)
+            </Button>
+          )}
+          {hasResults && activeCount === 0 && (
+            <Button variant="outline" size="sm" onClick={saveAsCases} className="w-full">
+              <Save className="h-3.5 w-3.5" /> Save outputs as dataset
             </Button>
           )}
         </div>

@@ -5,18 +5,34 @@
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import type {
   AiLabProviderConfig,
+  AiToolDef,
   Dataset,
   DatasetCase,
   EvalCellResult,
+  EvalTarget,
   ModelRef,
   PromptTemplate,
   ScorerConfig,
 } from '../types';
-import { runJudge, type JudgeComplete } from '@shared/protocol/ai/judge';
+import { runJudge, runPairwiseJudge, type JudgeComplete } from '@shared/protocol/ai/judge';
 import { completeLlm, specFor, type LlmChatMessage, type LlmCallSpec } from './llmClient';
 import { renderTemplate } from './promptTemplate';
 import { runScorer, type ScorerContext } from './scorers';
+import { extractGraphqlSpec, extractRequestSpec } from './requestExtractor';
+import type { ExecResult } from './execCell';
+import { runPool } from './concurrencyPool';
 import { completeWithRetry } from '@/lib/shared/completeRetry';
+
+/** Injected executor for the `http-exec` target (real one wraps execCell). */
+export type RunRequestFn = (req: {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+}) => Promise<ExecResult>;
+
+/** Excerpt cap for the stored executed-response summary. */
+const EXEC_EXCERPT_LIMIT = 2000;
 
 export interface EvalRunInput {
   prompt: PromptTemplate;
@@ -26,6 +42,12 @@ export interface EvalRunInput {
   /** Resolve a ModelRef's providerConfigId. */
   providers: Record<string, AiLabProviderConfig>;
   concurrency: number;
+  /** Tool definitions exposed to the model (enables the tool-call scorer). */
+  tools?: AiToolDef[];
+  /** What each cell scores. Defaults to scoring the model text. */
+  target?: EvalTarget;
+  /** Executor for the `http-exec` target. Required when target is http-exec. */
+  runRequest?: RunRequestFn;
 }
 
 export interface EvalProgress {
@@ -51,6 +73,13 @@ function buildMessages(prompt: PromptTemplate, c: DatasetCase): LlmChatMessage[]
   const messages: LlmChatMessage[] = [];
   const system = renderTemplate(prompt.system, c.vars).trim();
   if (system) messages.push({ role: 'system', content: system });
+  // Multi-turn case: replay the conversation (vars still resolved per turn).
+  if (c.turns && c.turns.length > 0) {
+    for (const t of c.turns) {
+      messages.push({ role: t.role, content: renderTemplate(t.content, c.vars) });
+    }
+    return messages;
+  }
   messages.push({ role: 'user', content: renderTemplate(prompt.user, c.vars) });
   return messages;
 }
@@ -80,26 +109,51 @@ export async function runScriptScorer(args: { code: string; output: string; late
 /** Score one completed cell against all configured scorers. */
 async function scoreCell(
   scorers: ScorerConfig[],
-  ctx: Omit<ScorerContext, 'judge' | 'runScript'>,
+  ctx: Omit<ScorerContext, 'judge' | 'runScript' | 'pairwise'>,
   providers: Record<string, AiLabProviderConfig>
 ): Promise<EvalCellResult['scores']> {
-  const judge: ScorerContext['judge'] = async ({ judgeModel, input }) => {
-    const cfg = providers[judgeModel.providerConfigId];
+  const completeFor = (model: ModelRef): JudgeComplete => {
+    const cfg = providers[model.providerConfigId];
     if (!cfg) throw new Error('judge provider not configured');
     // The judge algorithm (criteria, sampling, aggregation) lives in shared
     // runJudge; we inject only transport — a retry-wrapped completeLlm.
-    const complete: JudgeComplete = (messages, tools) =>
+    return (messages, tools) =>
       completeWithRetry(() =>
         completeLlm(
-          specFor(cfg, judgeModel.model, messages as LlmChatMessage[], {
+          specFor(cfg, model.model, messages as LlmChatMessage[], {
             tools: tools as LlmCallSpec['tools'],
           })
         )
       );
-    return runJudge(input, complete);
   };
-  const full: ScorerContext = { ...ctx, judge, runScript: runScriptScorer };
+  const judge: ScorerContext['judge'] = async ({ judgeModel, input }) =>
+    runJudge(input, completeFor(judgeModel));
+  const pairwise: ScorerContext['pairwise'] = async ({
+    judgeModel,
+    outputA,
+    outputB,
+    passThreshold,
+    criteria,
+    swapPositions,
+  }) =>
+    runPairwiseJudge(
+      {
+        outputA,
+        outputB,
+        passThreshold,
+        ...(criteria ? { criteria } : {}),
+        ...(swapPositions !== undefined ? { swapPositions } : {}),
+      },
+      completeFor(judgeModel)
+    );
+  const full: ScorerContext = { ...ctx, judge, pairwise, runScript: runScriptScorer };
   return Promise.all(scorers.map((s) => runScorer(s, full)));
+}
+
+interface RunCellOptions {
+  tools?: AiToolDef[];
+  target?: EvalTarget;
+  runRequest?: RunRequestFn;
 }
 
 /** Execute a single (case × model) cell end-to-end. */
@@ -108,7 +162,8 @@ async function runCell(
   c: DatasetCase,
   modelRef: ModelRef,
   scorers: ScorerConfig[],
-  providers: Record<string, AiLabProviderConfig>
+  providers: Record<string, AiLabProviderConfig>,
+  opts: RunCellOptions = {}
 ): Promise<EvalCellResult> {
   const cfg = providers[modelRef.providerConfigId];
   const base: Omit<EvalCellResult, 'scores' | 'passed'> = {
@@ -127,7 +182,14 @@ async function runCell(
   let completion;
   try {
     completion = await completeWithRetry(() =>
-      completeLlm(specFor(cfg, modelRef.model, buildMessages(prompt, c)))
+      completeLlm(
+        specFor(
+          cfg,
+          modelRef.model,
+          buildMessages(prompt, c),
+          opts.tools ? { tools: opts.tools } : {}
+        )
+      )
     );
   } catch (e) {
     return {
@@ -151,6 +213,72 @@ async function runCell(
   }
 
   const cost = computeCost(cfg, completion.usage?.estimatedCostUSD);
+  const usagePatch = completion.usage
+    ? {
+        usage: {
+          promptTokens: completion.usage.promptTokens,
+          completionTokens: completion.usage.completionTokens,
+        },
+      }
+    : {};
+
+  // http-exec target: parse a request out of the completion and execute it. The
+  // executed response (status + body) becomes the scoring input; the model prose
+  // is no longer what's graded.
+  let scoringOutput = completion.text;
+  let executed: EvalCellResult['executed'];
+  if (opts.target?.kind === 'http-exec') {
+    if (!opts.runRequest) {
+      return {
+        ...base,
+        output: completion.text,
+        latencyMs,
+        cost,
+        ...usagePatch,
+        error: 'request executor unavailable',
+        scores: [],
+        passed: false,
+      };
+    }
+    const extracted =
+      opts.target.protocol === 'graphql'
+        ? extractGraphqlSpec(completion.text, opts.target.parseFrom)
+        : extractRequestSpec(completion.text, opts.target.parseFrom);
+    if (!extracted.ok) {
+      return {
+        ...base,
+        output: completion.text,
+        latencyMs,
+        cost,
+        ...usagePatch,
+        error: `could not extract request: ${extracted.error}`,
+        scores: [],
+        passed: false,
+      };
+    }
+    try {
+      const exec = await opts.runRequest(extracted.request);
+      scoringOutput = exec.body;
+      executed = {
+        status: exec.status,
+        latencyMs: exec.latencyMs,
+        bodyExcerpt: exec.body.slice(0, EXEC_EXCERPT_LIMIT),
+        ok: exec.ok,
+      };
+    } catch (e) {
+      return {
+        ...base,
+        output: completion.text,
+        latencyMs,
+        cost,
+        ...usagePatch,
+        error: `request execution failed: ${e instanceof Error ? e.message : String(e)}`,
+        scores: [],
+        passed: false,
+      };
+    }
+  }
+
   // Individual scorers fail closed inside runScorer; this guard is the backstop
   // for an UNEXPECTED throw (e.g. a scorer dependency failing to load) so one bad
   // cell fails on its own instead of rejecting the whole worker pool.
@@ -159,18 +287,12 @@ async function runCell(
     scores = await scoreCell(
       scorers,
       {
-        output: completion.text,
+        output: scoringOutput,
         testCase: c,
         latencyMs,
         cost,
-        ...(completion.usage
-          ? {
-              usage: {
-                promptTokens: completion.usage.promptTokens,
-                completionTokens: completion.usage.completionTokens,
-              },
-            }
-          : {}),
+        toolCalls: completion.toolCalls,
+        ...usagePatch,
       },
       providers
     );
@@ -178,18 +300,12 @@ async function runCell(
     return {
       caseId: c.id,
       modelRef,
-      output: completion.text,
+      output: scoringOutput,
       ok: true,
       latencyMs,
       cost,
-      ...(completion.usage
-        ? {
-            usage: {
-              promptTokens: completion.usage.promptTokens,
-              completionTokens: completion.usage.completionTokens,
-            },
-          }
-        : {}),
+      ...usagePatch,
+      ...(executed ? { executed } : {}),
       error: `scoring failed: ${e instanceof Error ? e.message : String(e)}`,
       scores: [],
       passed: false,
@@ -199,20 +315,17 @@ async function runCell(
   return {
     caseId: c.id,
     modelRef,
-    output: completion.text,
+    output: scoringOutput,
     ok: true,
     latencyMs,
     cost,
-    ...(completion.usage
-      ? {
-          usage: {
-            promptTokens: completion.usage.promptTokens,
-            completionTokens: completion.usage.completionTokens,
-          },
-        }
-      : {}),
+    ...usagePatch,
+    ...(executed ? { executed } : {}),
     scores,
-    passed: scores.length > 0 ? scores.every((s) => s.passed) : true,
+    // A cell with no scorers is "not evaluated", not a pass — otherwise a
+    // misconfigured eval reads as 100% green.
+    passed: scores.length > 0 && scores.every((s) => s.passed),
+    ...(scores.length === 0 ? { notEvaluated: true } : {}),
   };
 }
 
@@ -232,31 +345,25 @@ export async function runEval(
   }
   const total = cells.length;
   const results: EvalCellResult[] = [];
-  let next = 0;
   let completed = 0;
 
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      if (signal.aborted) return;
-      const idx = next++;
-      if (idx >= cells.length) return;
-      const cell = cells[idx];
-      if (!cell) return;
-      const result = await runCell(
-        input.prompt,
-        cell.c,
-        cell.modelRef,
-        input.scorers,
-        input.providers
-      );
-      results.push(result);
-      completed += 1;
-      onProgress({ completed, total, cells: [...results], done: completed === total });
-    }
-  };
-
-  const pool = Math.max(1, Math.min(input.concurrency, total || 1));
-  await Promise.all(Array.from({ length: pool }, () => worker()));
+  await runPool(cells, input.concurrency, signal, async (cell) => {
+    const result = await runCell(
+      input.prompt,
+      cell.c,
+      cell.modelRef,
+      input.scorers,
+      input.providers,
+      {
+        ...(input.tools ? { tools: input.tools } : {}),
+        ...(input.target ? { target: input.target } : {}),
+        ...(input.runRequest ? { runRequest: input.runRequest } : {}),
+      }
+    );
+    results.push(result);
+    completed += 1;
+    onProgress({ completed, total, cells: [...results], done: completed === total });
+  });
   if (!signal.aborted) onProgress({ completed, total, cells: [...results], done: true });
   return results;
 }

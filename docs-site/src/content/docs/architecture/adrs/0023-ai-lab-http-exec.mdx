@@ -1,0 +1,49 @@
+---
+title: ADR 0023 — AI Lab http-exec
+description: Scoring AI-generated requests by executing them through Restura's real request executor — inheriting the SSRF guard, redirects, and cookie jar rather than building a parallel client.
+sidebar:
+  order: 23
+---
+
+import { Badge, Aside } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-06-24" variant="success" />
+
+Extends [ADR 0020 — AI Lab eval workbench](/architecture/adrs/0020-ai-lab-eval-workbench/).
+
+## Context
+
+[AI Lab](/guides/ai-lab/) evals score a model **completion**: render a prompt, call the model, grade the text. But Restura is an API client with real protocol executors, so the higher-value question for an API-generation prompt isn't "did the model say the right words" — it's "did the model produce a request that actually **works**": correct method, URL, headers, and body, against a real upstream.
+
+Answering that means executing a model-authored request. The design tension: doing so must not open a new outbound path that bypasses the SSRF guard ([ADR 0004](/architecture/adrs/0004-security-hardening/)). A naive "just fetch the URL the model gave us" in the renderer would be exactly such a bypass.
+
+## Decision
+
+Add an **`http-exec` eval target** (`EvalConfig.target`). When set, a cell runs `prompt → complete → parse a request out of the output → EXECUTE it → score the upstream response` instead of scoring the model prose.
+
+- **Parse, don't trust.** `lib/requestExtractor.ts` is a pure parser: it pulls a `{ method, url, headers?, body? }` object out of the completion (a bare JSON object, or the first fenced <code>```json</code> block), method-allowlisted to a fixed set, never throwing — a parse failure fails the cell cleanly. No `eval`, no template execution.
+- **Reuse the real executor, never a parallel client.** `lib/execCell.ts` builds a minimal `HttpRequest` (`auth: none`) and calls `executeRequest()` — the exact function user-issued requests use. So the model-authored request inherits the **renderer pre-check + the authoritative proxy-layer SSRF/DNS guard, redirect policy, and cookie jar** with zero new addressing code. There is no second transport to drift. GraphQL is the same path with a forced POST + JSON content type (the model must emit the endpoint `url`).
+- **Inject the executor into the runner.** The eval runner stays pure and unit-testable: it receives `runRequest` injected, parallel to how the judge/script capabilities are injected. The executed response body becomes the scoring input, so existing scorers (`contains`, `json-schema`, `script`, `judge`, …) grade the real upstream result. An `executed` summary (status, latency, body excerpt) is stored on the cell.
+
+## Consequences
+
+**Positive**
+
+- Evals can assert that a generated request *works*, not just that it reads correctly — unique to Restura's position as an API client.
+- No new SSRF surface: model-authored URLs flow through the same chokepoint as hand-typed ones. Private/CGNAT/link-local/loopback/cloud-metadata stay blocked across redirects and DNS rebind.
+
+**Negative / residual risk**
+
+<Aside type="caution">
+The **model**, not the user, now chooses the URL/method/body of a live outbound request. Within the SSRF boundary it can still reach any **public** endpoint the user could reach manually, and a poisoned dataset/prompt could steer it. This is surfaced with an explicit warning on the http-exec target in the eval builder — only run against endpoints you trust.
+</Aside>
+
+- `executeRequest` attaches the cookie jar for the resolved origin. Cookies only attach for origins the user already holds cookies for, so this isn't a leak to an arbitrary attacker origin unless the model targets that same origin.
+- The executed response body feeds scorers/judges and is persisted to the eval-run store verbatim. This matches the existing eval posture (model outputs are already persisted unredacted); pattern-based redaction is best-effort.
+
+## Related
+
+- [Guide: AI Lab](/guides/ai-lab/) — the execute-and-score target in context.
+- [ADR 0020 — AI Lab eval workbench](/architecture/adrs/0020-ai-lab-eval-workbench/)
+- [ADR 0004 — Security hardening](/architecture/adrs/0004-security-hardening/)
+- [ADR 0012 — Capability matrix](/architecture/adrs/0012-capability-matrix-source-of-truth/)

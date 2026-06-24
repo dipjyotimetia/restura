@@ -308,6 +308,7 @@ const DatasetCaseSchema = z.object({
   vars: z.record(z.string(), z.string()),
   reference: z.string().optional(),
   expected: z.string().optional(),
+  turns: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string() })).optional(),
 });
 
 const DatasetSchema = z.object({
@@ -333,6 +334,8 @@ const ScorerConfigSchema = z.object({
     'cost',
     'script',
     'judge',
+    'tool-call',
+    'pairwise',
   ]),
 });
 
@@ -344,6 +347,18 @@ const EvalConfigSchema = z.object({
   models: z.array(ModelRefSchema),
   scorers: z.array(ScorerConfigSchema),
   concurrency: z.number().int().positive().max(32),
+  // Validated loosely (kind only) — the runner narrows the rest. Keeps the
+  // schema from rejecting future target kinds, matching the scorer approach.
+  target: z.object({ kind: z.string() }).optional(),
+  tools: z
+    .array(
+      z.object({
+        name: z.string(),
+        description: z.string(),
+        inputSchema: z.record(z.string(), z.unknown()),
+      })
+    )
+    .optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -363,6 +378,17 @@ const ScoreResultSchema = z.object({
   passed: z.boolean(),
   score: z.number().optional(),
   detail: z.string().optional(),
+  perCriterion: z
+    .array(
+      z.object({
+        name: z.string(),
+        score: z.number(),
+        pass: z.boolean(),
+        reasoning: z.string(),
+      })
+    )
+    .optional(),
+  variance: z.number().optional(),
 });
 
 const EvalCellResultSchema = z.object({
@@ -376,6 +402,15 @@ const EvalCellResultSchema = z.object({
   cost: z.number().nullable(),
   scores: z.array(ScoreResultSchema),
   passed: z.boolean(),
+  notEvaluated: z.boolean().optional(),
+  executed: z
+    .object({
+      status: z.number(),
+      latencyMs: z.number(),
+      bodyExcerpt: z.string(),
+      ok: z.boolean(),
+    })
+    .optional(),
 });
 
 const EvalRunSchema = z.object({
@@ -394,6 +429,30 @@ export const EvalRunStateSchema = z.object({
 });
 
 export type PersistedEvalRunState = z.infer<typeof EvalRunStateSchema>;
+
+const ArenaMatchSchema = z.object({
+  a: z.string(),
+  b: z.string(),
+  winner: z.enum(['a', 'b', 'tie']),
+});
+
+const ArenaRunSchema = z.object({
+  id: z.string(),
+  datasetId: z.string(),
+  datasetName: z.string(),
+  modelKeys: z.array(z.string()),
+  modelLabels: z.record(z.string(), z.string()),
+  matches: z.array(ArenaMatchSchema),
+  startedAt: z.number(),
+  finishedAt: z.number().optional(),
+  status: z.enum(['running', 'done', 'cancelled', 'error']),
+});
+
+export const ArenaStateSchema = z.object({
+  runs: z.record(z.string(), ArenaRunSchema),
+});
+
+export type PersistedArenaRunState = z.infer<typeof ArenaStateSchema>;
 
 /**
  * Validates URL format

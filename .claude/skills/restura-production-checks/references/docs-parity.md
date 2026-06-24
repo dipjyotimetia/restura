@@ -2,6 +2,8 @@
 
 Nothing in `validate` or the pre-commit hook checks that documentation still matches the code. `npm run docs:check` is only `astro check` (broken links + types in `docs-site/`) — it does **not** verify content parity. So docs drift silently. This file is the map from a code change to the docs that own it. The `restura-docs-steward` agent and `/docs-sync` command both run off this map.
 
+> **Reminder hook.** A `Stop` hook (`.claude/hooks/docs-site-reminder.mjs`) watches the branch's changed files and surfaces a one-time, non-blocking nudge to run `/docs-sync` when a major surface changed (`src/features/`, `shared/protocol/`, `electron/main/`, `worker/`, `docs/adr/`, `capabilities.ts`) but nothing under `docs-site/` did. It's a tripwire, not a gate — this map is still the authority for what's actually stale.
+
 ## Documentation surfaces
 
 - `docs/` — long-form reference: `ARCHITECTURE.md`, `security.md`, `DEVELOPMENT_STANDARDS.md`, `BUILD_QUIRKS.md`, `SELF_HOSTING.md`, `DISTRIBUTION.md`, `notary.md`, `opencollection.md`, `postman-compat.md`, `workflows.md`, `API.md`, `ROADMAP.md`, `CHANGELOG.md`, generated `CAPABILITY_MATRIX.md`, `cli/`.

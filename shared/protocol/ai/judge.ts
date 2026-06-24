@@ -351,6 +351,164 @@ export async function runJudge(
   return aggregateVerdicts(verdicts, criteria, passThreshold);
 }
 
+// --- pairwise / preference judging -----------------------------------------
+
+/** Tool the pairwise judge calls to submit a head-to-head comparison. */
+export const PAIRWISE_TOOL = {
+  name: 'submit_comparison',
+  description: 'Submit your head-to-head comparison of the two candidate answers.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      winner: {
+        type: 'string',
+        enum: ['A', 'B', 'tie'],
+        description: 'Which answer is better: A, B, or tie.',
+      },
+      reasoning: { type: 'string', description: 'Brief justification for the choice.' },
+    },
+    required: ['winner', 'reasoning'],
+  },
+} as const;
+
+export interface PairwiseInput {
+  outputA: string;
+  outputB: string;
+  reference?: string;
+  vars?: Record<string, string>;
+  criteria?: JudgeCriterion[];
+  passThreshold?: number;
+  /** Run both orderings (A-first and B-first) and cancel position bias. */
+  swapPositions?: boolean;
+}
+
+export interface PairwiseVerdict {
+  /** 'A' = first output wins, 'B' = second wins, 'tie'. */
+  winner: 'A' | 'B' | 'tie';
+  /** Preference score for output A: 1 = clear A win, 0 = clear B win, 0.5 = tie. */
+  score: number;
+  reasoning: string;
+  /** True when both orderings were run and disagreed (forced to tie). */
+  swapped?: boolean;
+}
+
+/** Build the comparison prompt. `label` lets the caller name the two sides. */
+export function buildPairwiseMessages(args: {
+  outputA: string;
+  outputB: string;
+  reference?: string;
+  vars?: Record<string, string>;
+  criteria?: JudgeCriterion[];
+}): ChatMessageWire[] {
+  const vars = args.vars ?? {};
+  const varsBlock = Object.keys(vars).length
+    ? `\n\nInput variables:\n${JSON.stringify(vars, null, 2)}`
+    : '';
+  const refBlock = args.reference ? `\n\nReference answer:\n${args.reference}` : '';
+  const criteriaBlock =
+    args.criteria && args.criteria.length > 0
+      ? `\n\nJudge on these criteria:\n${args.criteria.map((c, i) => `${i + 1}. ${c.name}: ${c.rubric}`).join('\n')}`
+      : '';
+
+  const system =
+    'You are a strict, impartial judge comparing two AI answers (A and B) to the same task. ' +
+    'Decide which answer is better overall, or tie if they are equivalent. Call the ' +
+    'submit_comparison tool. Judge substance, not length or confident tone, and do not favor ' +
+    'an answer because of its position.';
+  const user =
+    `Task / criteria:${criteriaBlock || ' overall quality'}` +
+    varsBlock +
+    refBlock +
+    `\n\nAnswer A:\n${args.outputA}\n\nAnswer B:\n${args.outputB}\n\nCompare them now.`;
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+/** Parse winner from a comparison completion. Defaults to tie on a missing/garbled tool call. */
+export function parseComparison(completion: CompletionResult): {
+  winner: 'A' | 'B' | 'tie';
+  reasoning: string;
+} {
+  const raw =
+    completion.toolCalls.find((t) => t.name === PAIRWISE_TOOL.name)?.input ??
+    extractFirstJsonObject(completion.text);
+  let parsed: Record<string, unknown> = {};
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      parsed = {};
+    }
+  }
+  const w = typeof parsed.winner === 'string' ? parsed.winner.toUpperCase() : '';
+  const winner: 'A' | 'B' | 'tie' = w === 'A' ? 'A' : w === 'B' ? 'B' : 'tie';
+  const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : '';
+  return { winner, reasoning };
+}
+
+/**
+ * Run a pairwise comparison of output A vs B. With `swapPositions`, the judge is
+ * asked twice (A-first, then B-first); a consistent winner stands, a flip-flop
+ * collapses to a tie — the standard position-bias-cancellation used by LMArena /
+ * MT-Bench-style evals. Score is from A's perspective (1 = A wins, 0 = B wins).
+ */
+export async function runPairwiseJudge(
+  input: PairwiseInput,
+  complete: JudgeComplete
+): Promise<PairwiseVerdict> {
+  const tool = buildPairwiseTool();
+  const firstMessages = buildPairwiseMessages({
+    outputA: input.outputA,
+    outputB: input.outputB,
+    ...(input.reference !== undefined ? { reference: input.reference } : {}),
+    ...(input.vars ? { vars: input.vars } : {}),
+    ...(input.criteria ? { criteria: input.criteria } : {}),
+  });
+  const first = await complete(firstMessages, [tool]);
+  if (!first.ok) throw new Error(first.error?.message ?? 'pairwise judge call failed');
+  const a = parseComparison(first);
+
+  if (!input.swapPositions) {
+    return { winner: a.winner, score: scoreForWinner(a.winner), reasoning: a.reasoning };
+  }
+
+  // Swapped order: A and B exchanged. A "B wins" here means the original A won.
+  const swapMessages = buildPairwiseMessages({
+    outputA: input.outputB,
+    outputB: input.outputA,
+    ...(input.reference !== undefined ? { reference: input.reference } : {}),
+    ...(input.vars ? { vars: input.vars } : {}),
+    ...(input.criteria ? { criteria: input.criteria } : {}),
+  });
+  const second = await complete(swapMessages, [tool]);
+  if (!second.ok) throw new Error(second.error?.message ?? 'pairwise judge call failed');
+  const bRaw = parseComparison(second);
+  // Translate the swapped verdict back to original A/B frame.
+  const bForOriginal: 'A' | 'B' | 'tie' =
+    bRaw.winner === 'A' ? 'B' : bRaw.winner === 'B' ? 'A' : 'tie';
+
+  if (a.winner === bForOriginal) {
+    return { winner: a.winner, score: scoreForWinner(a.winner), reasoning: a.reasoning };
+  }
+  // Disagreement across orderings → position bias detected, call it a tie.
+  return {
+    winner: 'tie',
+    score: 0.5,
+    reasoning: `position bias detected (A-first: ${a.winner}, B-first: ${bForOriginal}); scored as tie`,
+    swapped: true,
+  };
+}
+
+function buildPairwiseTool() {
+  return PAIRWISE_TOOL;
+}
+
+function scoreForWinner(w: 'A' | 'B' | 'tie'): number {
+  return w === 'A' ? 1 : w === 'B' ? 0 : 0.5;
+}
+
 // --- helpers ---------------------------------------------------------------
 
 function toNumber(v: unknown): number {

@@ -32,6 +32,7 @@ timeline
   2026-05-20 : 0020 — AI Lab eval workbench
   2026-06-10 : 0021 — Maintenance harness
   2026-06-17 : 0022 — gRPC over ConnectRPC
+  2026-06-24 : 0023 — AI Lab http-exec
 ```
 
 <CardGrid>
@@ -144,5 +145,10 @@ timeline
     title="0022 — gRPC over ConnectRPC"
     description="One ConnectRPC stack across web and desktop: Connect protocol on web, native gRPC over connect-node on desktop, one runtime descriptor registry. Replaces Connect-Web + grpc-js."
     href="/architecture/adrs/0022-grpc-connectrpc-transport/"
+  />
+  <LinkCard
+    title="0023 — AI Lab http-exec"
+    description="Scoring AI-generated requests by executing them through the real request executor — inheriting the SSRF guard, redirects, and cookie jar instead of building a parallel client."
+    href="/architecture/adrs/0023-ai-lab-http-exec/"
   />
 </CardGrid>

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { runEval, type EvalProgress } from '../lib/evalRunner';
+import { executeExtractedRequest } from '../lib/execCell';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import type { EvalConfig } from '../types';
@@ -41,41 +42,48 @@ export function useEvalRun() {
     abortRef.current = ac;
     let lastCount = 0;
 
-    void runEval(
-      {
-        prompt,
-        dataset,
-        models: config.models,
-        scorers: config.scorers,
-        providers: lab.providers,
-        concurrency: config.concurrency,
-      },
-      (p) => {
-        // Persist newly-completed cells (progress.cells is cumulative).
-        for (let i = lastCount; i < p.cells.length; i++) {
-          const cell = p.cells[i];
-          if (cell) useEvalRunStore.getState().addCell(runId, cell);
-        }
-        lastCount = p.cells.length;
-        const now = performance.now();
-        if (p.done || now - lastEmit.current > 100) {
-          lastEmit.current = now;
-          setProgress(p);
-        }
-      },
-      ac.signal
-    )
-      .then(() => {
+    const onProgress = (p: EvalProgress) => {
+      // Persist newly-completed cells (progress.cells is cumulative).
+      for (let i = lastCount; i < p.cells.length; i++) {
+        const cell = p.cells[i];
+        if (cell) useEvalRunStore.getState().addCell(runId, cell);
+      }
+      lastCount = p.cells.length;
+      const now = performance.now();
+      if (p.done || now - lastEmit.current > 100) {
+        lastEmit.current = now;
+        setProgress(p);
+      }
+    };
+
+    void (async () => {
+      try {
+        const target = config.target ?? { kind: 'text' };
+
+        await runEval(
+          {
+            prompt,
+            dataset,
+            models: config.models,
+            scorers: config.scorers,
+            providers: lab.providers,
+            concurrency: config.concurrency,
+            target,
+            ...(config.tools ? { tools: config.tools } : {}),
+            ...(target.kind === 'http-exec' ? { runRequest: executeExtractedRequest } : {}),
+          },
+          onProgress,
+          ac.signal
+        );
         useEvalRunStore.getState().finishRun(runId, ac.signal.aborted ? 'cancelled' : 'done');
-      })
-      .catch((e: unknown) => {
+      } catch (e: unknown) {
         setError(e instanceof Error ? e.message : String(e));
         useEvalRunStore.getState().finishRun(runId, 'error');
-      })
-      .finally(() => {
+      } finally {
         abortRef.current = null;
         setRunning(false);
-      });
+      }
+    })();
   }, []);
 
   const stop = useCallback(() => {

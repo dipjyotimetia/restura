@@ -76,6 +76,7 @@ type StorageTableName =
   | 'aiChat'
   | 'aiLab'
   | 'evalRuns'
+  | 'arenaRuns'
   | 'collectionRuns'
   | 'globals';
 
@@ -323,6 +324,9 @@ export const dexieStorageAdapters = {
   aiLab: () => createDexieStorage({ tableName: 'aiLab', encrypt: true }),
 
   evalRuns: () => createDexieStorage({ tableName: 'evalRuns', encrypt: true }),
+
+  // AI Lab Arena (Electron-only) — pairwise model-vs-model leaderboard runs.
+  arenaRuns: () => createDexieStorage({ tableName: 'arenaRuns', encrypt: true }),
 
   collectionRuns: () => createDexieStorage({ tableName: 'collectionRuns', encrypt: true }),
 

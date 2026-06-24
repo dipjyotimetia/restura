@@ -19,7 +19,22 @@ import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRun } from '../hooks/useEvalRun';
 import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
-import type { AiLabProviderConfig, EvalConfig, ModelRef, ScorerConfig, ScorerKind } from '../types';
+import type {
+  AiLabProviderConfig,
+  EvalConfig,
+  EvalTarget,
+  ModelRef,
+  ScorerConfig,
+  ScorerKind,
+} from '../types';
+
+/** UI selection for what a cell scores. */
+type TargetMode = 'text' | 'http' | 'graphql';
+
+function targetFor(mode: TargetMode): EvalTarget {
+  if (mode === 'text') return { kind: 'text' };
+  return { kind: 'http-exec', parseFrom: 'fenced', protocol: mode };
+}
 
 interface ModelOption {
   key: string;
@@ -38,6 +53,8 @@ const SCORER_KINDS: Array<{ kind: ScorerKind; label: string }> = [
   { kind: 'cost', label: 'Cost under (USD)' },
   { kind: 'script', label: 'Script (pm.test)' },
   { kind: 'judge', label: 'LLM-as-judge' },
+  { kind: 'tool-call', label: 'Tool call' },
+  { kind: 'pairwise', label: 'Pairwise (vs reference)' },
 ];
 
 const SCORER_LABEL: Record<ScorerKind, string> = Object.fromEntries(
@@ -80,6 +97,17 @@ function defaultScorer(kind: ScorerKind, judgeModel: ModelRef | undefined): Scor
         passThreshold: 0.7,
         samples: 1,
       };
+    case 'tool-call':
+      return { id, kind, expectedTool: '', argsSchema: '' };
+    case 'pairwise':
+      return {
+        id,
+        kind,
+        judgeModel: judgeModel ?? { providerConfigId: '', model: '' },
+        baseline: 'reference',
+        passThreshold: 0.5,
+        swapPositions: true,
+      };
   }
 }
 
@@ -97,6 +125,7 @@ export function EvalBuilder() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [scorers, setScorers] = useState<ScorerConfig[]>([]);
   const [concurrency, setConcurrency] = useState(4);
+  const [targetMode, setTargetMode] = useState<TargetMode>('text');
   // Stable id for this eval across re-runs: upsertEvalConfig overwrites instead
   // of accumulating a new config per run (which would also leak unbounded into
   // the store), and a stable evalConfigId lets ReportView's "Δ vs prev"
@@ -147,6 +176,7 @@ export function EvalBuilder() {
       models,
       scorers,
       concurrency,
+      target: targetFor(targetMode),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -207,6 +237,26 @@ export function EvalBuilder() {
               onChange={(e) => setConcurrency(Number(e.target.value) || 1)}
               className="w-20"
             />
+          </div>
+          <div className="space-y-1.5">
+            <span className="sp-label">Score target</span>
+            <Select value={targetMode} onValueChange={(v) => setTargetMode(v as TargetMode)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="text">Model output (text)</SelectItem>
+                <SelectItem value="http">Execute as HTTP request</SelectItem>
+                <SelectItem value="graphql">Execute as GraphQL request</SelectItem>
+              </SelectContent>
+            </Select>
+            {targetMode !== 'text' && (
+              <p className="text-sp-11 text-amber-500">
+                ⚠ Each cell sends the model-authored request to the live endpoint (through the same
+                SSRF guard as normal requests) and scores the real upstream response. Only run
+                against endpoints you trust.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -375,8 +425,63 @@ function ScorerRow({
       {scorer.kind === 'judge' && (
         <JudgeScorerEditor scorer={scorer} modelOptions={modelOptions} onChange={onChange} />
       )}
+      {scorer.kind === 'tool-call' && (
+        <div className="space-y-2">
+          <Input
+            placeholder="expected tool name (blank = any tool call)"
+            value={scorer.expectedTool ?? ''}
+            onChange={(e) => onChange({ expectedTool: e.target.value })}
+          />
+          <Textarea
+            className="font-mono text-sp-13"
+            rows={3}
+            placeholder='args JSON schema (optional), e.g. {"type":"object","required":["url"]}'
+            value={scorer.argsSchema ?? ''}
+            onChange={(e) => onChange({ argsSchema: e.target.value })}
+          />
+        </div>
+      )}
+      {scorer.kind === 'pairwise' && (
+        <div className="space-y-2">
+          <span className="sp-label">Judge model</span>
+          <Select
+            value={modelKey(scorer.judgeModel)}
+            onValueChange={(v) => onChange({ judgeModel: parseModelKey(v) })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="pick a judge model" />
+            </SelectTrigger>
+            <SelectContent>
+              {modelOptions.map((m) => (
+                <SelectItem key={m.key} value={m.key}>
+                  {m.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <label className="flex items-center gap-2 text-sp-12 text-sp-text">
+            <Checkbox
+              checked={scorer.swapPositions ?? false}
+              onCheckedChange={(v) => onChange({ swapPositions: v === true })}
+            />
+            Swap positions (cancel bias)
+          </label>
+          <p className="text-sp-11 text-sp-text-dim">
+            Compares the output against each case&apos;s reference.
+          </p>
+        </div>
+      )}
     </Floater>
   );
+}
+
+/** `providerConfigId:model` round-trip for the model select. */
+function modelKey(m: ModelRef): string {
+  return `${m.providerConfigId}:${m.model}`;
+}
+function parseModelKey(key: string): ModelRef {
+  const idx = key.indexOf(':');
+  return { providerConfigId: key.slice(0, idx), model: key.slice(idx + 1) };
 }
 
 /**

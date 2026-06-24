@@ -98,6 +98,19 @@ to the renderer.
 > them onto connect-time pinning is tracked in
 > `docs/adr/0006-electron-connection-and-dns-hardening.md`.
 
+> **AI Lab http-exec.** The AI Lab `http-exec` eval target executes an
+> **AI-generated** HTTP/GraphQL request and scores the upstream response. It
+> does **not** add a new outbound path: it builds an `HttpRequest`
+> (`auth: none`) and calls the standard `executeRequest`
+> (`src/features/http/lib/requestExecutor.ts`), so the model-authored request
+> flows through the same renderer pre-check + proxy-layer SSRF guard, redirect
+> policy, and cookie jar as any user-issued HTTP request. Residual risk: the
+> model (not the user) chooses the URL/method/body, so a poisoned dataset could
+> steer a request to any _public_ endpoint the user could reach manually
+> (private/CGNAT/link-local/loopback/metadata stay blocked). The eval builder
+> surfaces an explicit warning on this target. See
+> `docs/adr/0023-ai-lab-http-exec.md`.
+
 ## Long-lived connection cleanup (Electron)
 
 `electron/main/connection-cleanup.ts` is the shared bookkeeping for
