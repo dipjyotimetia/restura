@@ -227,3 +227,14 @@ upstreams or the local echo server. Coverage thresholds gate the test job.
 The renderer entry is `dist/web/index.html` loaded via `file://` with hash
 routing. The Electron main process has its own `tsconfig.json` at
 `electron/tsconfig.json`.
+
+## When summarizing this conversation
+
+Preserve: the task objective + which harness(es) are in scope (web Worker /
+self-host Node / Electron) and that **parity across them** must hold; files
+read/modified; security-boundary decisions (SSRF/`url-validation`, IPC
+validation, `SecretRef`); gate results with `file:line` (`type-check:all`,
+`lint`, security suite, `capabilities:check`); and whether codegen
+(`capabilities.ts` / OpenCollection types) still needs regenerating. Drop
+verbose tool output before dropping any of that. (Mirrors the fuller section in
+CLAUDE.md.)

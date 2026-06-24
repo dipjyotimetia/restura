@@ -231,3 +231,16 @@ Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.de
 3. `electron-builder` — Packages from `dist/` per target (`electron:dist:{mac,win,linux}`)
 
 The renderer entry is `dist/web/index.html` loaded via `file://` with hash routing. `_worker.js` is excluded from the Electron bundle.
+
+## Summary instructions (for context compaction)
+
+When this conversation is summarized to free context, **preserve** the following — they are load-bearing for Restura work and expensive to reconstruct:
+
+- **The task objective and acceptance criteria**, and which **harness(es)** are in scope: web (Cloudflare Worker), self-host (Node entry), Electron (IPC). Parity across them is the #1 bug class — never drop "this also needs the other harness wired."
+- **Files read or modified**, and any pending edits not yet applied.
+- **Security-boundary decisions**: SSRF/`url-validation` changes, new outbound transports, Electron IPC validation (`createValidatedHandler`), DNS/broker guards, `SecretRef` handling. These must survive summarization verbatim.
+- **Gate results and failures** with `file:line`: `type-check:all` (not just renderer `type-check`), `lint`, the security suite, `capabilities:check`, `verify:opencollection-types`.
+- **Codegen state**: whether `capabilities.ts` → `CAPABILITY_MATRIX.md` or the OpenCollection types still need regenerating (never hand-edit the generated files).
+- **Decisions and their reasoning**, especially any ADR that the change warrants.
+
+Drop verbose tool output (full file dumps, passing test logs) before dropping any of the above.
