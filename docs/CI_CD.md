@@ -15,7 +15,7 @@ secret scanning, required reviewers, secrets).
 | Workflow                  | File                                          | Trigger                                  | Purpose                                                                                                                                   |
 | ------------------------- | --------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | **CI**                    | `.github/workflows/ci.yml`                    | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy. |
-| **CodeQL**                | `.github/workflows/codeql.yml`                | PR + push to `main`, weekly              | SAST over `javascript-typescript` **and** the workflow files (`actions`).                                                                 |
+| **CodeQL**                | _GitHub default setup_ (no workflow file)     | PR + push to `main`, weekly              | SAST over `javascript-typescript`. Managed in **Settings → Code security → Code scanning**, not a committed workflow.                     |
 | **Scorecard**             | `.github/workflows/scorecard.yml`             | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                               |
 | **Dependency Review**     | `.github/workflows/dependency-review.yml`     | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                  |
 | **Security Audit**        | `.github/workflows/security-audit.yml`        | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                             |
@@ -31,7 +31,7 @@ secret scanning, required reviewers, secrets).
 
 | Layer                          | Where                                  | What it gives you                                                                    |
 | ------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------ |
-| **SAST**                       | CodeQL (`security-extended`)           | Code-scanning alerts on the app source and the workflow YAML.                        |
+| **SAST**                       | CodeQL (default setup)                 | Code-scanning alerts on the app source.                                              |
 | **Supply-chain scoring**       | OpenSSF Scorecard                      | Public score + SARIF; backs the README badge.                                        |
 | **Dependency gate**            | `dependency-review-action`, Dependabot | High-severity / disallowed-license deps blocked at PR; weekly update + security PRs. |
 | **Build provenance (npm)**     | `npm publish --provenance`             | Signed SLSA provenance for `restura-cli` on npm.                                     |
@@ -72,13 +72,12 @@ rules_) for `main`:
   up to date**. Select these checks (names must match exactly — these are the
   job `name:` values that run on **pull requests**):
 
-  | Required check                    | From              |
-  | --------------------------------- | ----------------- |
-  | `Type-check, lint, test, build`   | CI / `validate`   |
-  | `Docs site (type-check + build)`  | CI / `docs`       |
-  | `Review dependency changes`       | Dependency Review |
-  | `Analyze (javascript-typescript)` | CodeQL            |
-  | `Analyze (actions)`               | CodeQL            |
+  | Required check                          | From              |
+  | --------------------------------------- | ----------------- |
+  | `Type-check, lint, test, build`         | CI / `validate`   |
+  | `Docs site (type-check + build)`        | CI / `docs`       |
+  | `Review dependency changes`             | Dependency Review |
+  | `CodeQL` (the default-setup check name) | Code scanning     |
 
   Recommended-but-heavier (enable once you're comfortable with their runtime /
   flakiness budget):
@@ -107,11 +106,17 @@ rules_) for `main`:
 
 ### 2. Code scanning (CodeQL)
 
-- Use the committed **`codeql.yml` (advanced setup)**. Do **not** also enable
-  CodeQL _default setup_ in **Settings → Code security → Code scanning** — the
-  two conflict and default setup will refuse to run alongside a workflow.
-- Confirm **Settings → Code security → Code scanning** shows results after the
-  first push to `main`.
+CodeQL runs via GitHub **default setup** (enabled in **Settings → Code security
+→ Code scanning**), not a committed workflow. Default setup and an advanced
+`codeql.yml` are mutually exclusive — enabling both makes the advanced run fail
+to upload (`analyses from advanced configurations cannot be processed when the
+default setup is enabled`), which is why there is no `codeql.yml` here.
+
+- To broaden coverage, edit default setup and switch the query suite to
+  **`security-extended`** and/or add the **`actions`** language.
+- To switch to an advanced workflow instead (e.g. for `security-extended` +
+  `actions` + a weekly schedule in code), first **disable default setup**, then
+  add a `codeql.yml`. Don't run both.
 
 ### 3. Secret scanning + push protection
 
