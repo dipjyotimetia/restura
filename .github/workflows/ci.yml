@@ -31,7 +31,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Type-check (all projects)
         # Single source of truth for the project set — same six tsc projects
@@ -205,7 +205,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Generate icons
         # Produces icon.ico (Windows) / icon.icns / PNGs from icon.svg. The .ico
@@ -264,7 +264,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       # Pin the Playwright browser cache to the package-lock so a version bump
       # invalidates it automatically and we don't run on stale binaries.
@@ -325,7 +325,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       # Electron bundles Chromium, so it needs the same shared system libs
       # (libnss3, libgbm, libatk, GTK, …). `playwright install-deps chromium`
@@ -386,7 +386,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build
         env:
@@ -441,7 +441,7 @@ jobs:
           command: pages deploy dist/web/client --project-name=restura --branch=${{ steps.branch.outputs.slug }}
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund
 
       - name: Build docs site
         run: npm --prefix docs-site run build
@@ -503,7 +503,7 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund
 
       - name: Type-check docs (astro check)
         run: npm --prefix docs-site run check
