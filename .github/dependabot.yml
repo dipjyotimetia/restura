@@ -1,9 +1,31 @@
 version: 2
+
+# Supply-chain note — dependency cooldown
+# --------------------------------------
+# Each ecosystem below sets a `cooldown` so Dependabot will not open a
+# version-update PR until a release has been public for N days. This defuses the
+# dominant npm supply-chain pattern (a maintainer account is compromised, a
+# malicious version is published, and it is live for hours-to-days before the
+# registry pulls it): the weekly run + patch/minor auto-merge would otherwise
+# pull a hours-old version straight to `main`. Letting versions age past the
+# typical detection-and-yank window means we skip the poisoned release entirely.
+#
+# Cooldown applies to ROUTINE version updates only — Dependabot SECURITY updates
+# (driven by published advisories) are exempt and still land immediately, so a
+# real CVE fix is never delayed by this.
+#
+# npm core has no client-side equivalent yet: `minimum-release-age` is not a
+# recognised key in npm@11.17.0 (verified — returns `undefined`, like a bogus
+# key), so the cooldown lives here in Dependabot rather than in `.npmrc`.
 updates:
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
       interval: 'monthly'
+    # Actions are referenced by mutable tags, so a poisoned tag-repoint lands as
+    # a "new version". A cooldown gives that the same age-out window as npm deps.
+    cooldown:
+      default-days: 5
     labels:
       - 'dependencies'
       - 'github-actions'
@@ -16,6 +38,14 @@ updates:
       time: '11:00'
       timezone: Australia/Melbourne
     rebase-strategy: 'auto'
+    # Hold routine bumps until they've been public long enough to be yanked if
+    # malicious. Majors wait longest; patches (lowest blast radius, most likely
+    # to be a genuine fix) clear soonest. Security advisories bypass this.
+    cooldown:
+      default-days: 5
+      semver-major-days: 7
+      semver-minor-days: 5
+      semver-patch-days: 3
     labels:
       - 'security'
       - 'dependencies'
@@ -58,6 +88,11 @@ updates:
       time: '11:00'
       timezone: Australia/Melbourne
     rebase-strategy: 'auto'
+    cooldown:
+      default-days: 5
+      semver-major-days: 7
+      semver-minor-days: 5
+      semver-patch-days: 3
     labels:
       - 'dependencies'
       - 'npm'
