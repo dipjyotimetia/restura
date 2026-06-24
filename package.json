@@ -98,7 +98,7 @@
     "@connectrpc/connect-node": "^2.1.2",
     "@connectrpc/connect-web": "^2.1.2",
     "@dagrejs/dagre": "^3.0.0",
-    "@faker-js/faker": "^10.4.0",
+    "@faker-js/faker": "^10.5.0",
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource/fira-code": "^5.2.7",
     "@fontsource/jetbrains-mono": "^5.2.8",
