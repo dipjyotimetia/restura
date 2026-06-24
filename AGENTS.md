@@ -165,7 +165,7 @@ paths (`main.ts`, `window-manager.ts`, `preload.ts`) **must stay at the
 
 The renderer's executors branch on `isElectron()` to use IPC instead of HTTP.
 New IPC methods need **all three**: a Zod schema + `createValidatedHandler` in
-`electron/main/ipc-validators.ts`, the preload bridge in `preload.ts`, and a
+`electron/main/ipc/ipc-validators.ts`, the preload bridge in `preload.ts`, and a
 type declaration checked against `electron/types/electron-api.ts` — or the call
 breaks at runtime on desktop.
 
