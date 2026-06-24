@@ -240,6 +240,7 @@ Issues tagged [`good first issue`](https://github.com/dipjyotimetia/restura/labe
 - [**Architecture**](docs/ARCHITECTURE.md) — system design, security model, IPC internals
 - [**Roadmap**](docs/ROADMAP.md) — what's planned
 - [**Changelog**](docs/CHANGELOG.md) — what's shipped
+- [**CI/CD & Releases**](docs/CI_CD.md) — pipeline, supply-chain hardening, release runbook
 - [**Security**](SECURITY.md) — how to report vulnerabilities
 
 <br/>
