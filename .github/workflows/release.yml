@@ -150,7 +150,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Validate application
         env:
@@ -191,7 +191,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Determine next version
         id: bump
@@ -374,6 +374,12 @@ jobs:
     # job was killed mid-notarize. Windows/Linux finish in <7 min, so the
     # higher ceiling only ever applies to a slow mac leg.
     timeout-minutes: 120
+    permissions:
+      # electron-builder uploads installers to the release via GH_TOKEN.
+      contents: write
+      # Sigstore build-provenance attestation for each installer (below).
+      id-token: write
+      attestations: write
     strategy:
       # One platform failing (e.g. a flaky notarization) shouldn't discard
       # installers that built cleanly on the others.
@@ -393,7 +399,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       # For prerelease builds the release job tags current HEAD without bumping
       # package.json on main. Set the version locally here so the packaged app
@@ -471,6 +477,22 @@ jobs:
             npm run electron:publish
           fi
 
+      # Generate a signed SLSA build-provenance attestation for every installer
+      # this runner produced, so consumers can verify the binaries came from
+      # this workflow at this commit (`gh attestation verify <file>`). Globs
+      # span all three OS targets; only the patterns matching this runner's
+      # output contribute subjects, which is fine as long as at least one does.
+      - name: Attest installer provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/installers/*.dmg
+            dist/installers/*.zip
+            dist/installers/*.exe
+            dist/installers/*.AppImage
+            dist/installers/*.deb
+            dist/installers/*.rpm
+
   publish-cli:
     name: Publish restura-cli to npm
     needs: [release]
@@ -499,7 +521,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build CLI
         # The `cli` workspace (by dir path, so it survives a package rename).
@@ -535,6 +557,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Sigstore build-provenance attestation for the pushed image (below).
+      id-token: write
+      attestations: write
+      # Upload the Trivy vulnerability scan to code scanning.
+      security-events: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -561,6 +588,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -570,6 +598,35 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Scan the pushed image for known CVEs. Report-only (exit-code 0): a
+      # fixable advisory in an upstream base layer shouldn't block an opt-in
+      # release. ignore-unfixed drops noise we can't action; results land in the
+      # Security → Code scanning tab via the SARIF upload below.
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Upload Trivy scan to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
+      # Signed SLSA build-provenance for the image, pushed alongside it in GHCR.
+      # Verify with `gh attestation verify oci://ghcr.io/<owner>/<repo>:<tag>`.
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   deploy-web:
     name: Deploy web to production (Cloudflare)
@@ -597,7 +654,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build
         env:
@@ -646,7 +703,7 @@ jobs:
           command: pages deploy dist/web/client --project-name=restura --branch=main
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund
 
       - name: Build docs site
         run: npm --prefix docs-site run build

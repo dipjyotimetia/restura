@@ -31,7 +31,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Type-check (all projects)
         # Single source of truth for the project set — same six tsc projects
@@ -87,7 +87,7 @@ jobs:
         # Same-repo only: forked PRs get a read-only GITHUB_TOKEN (the job's
         # `pull-requests: write` is silently ignored), so createComment would 403
         # and fail an otherwise-green run. External PRs simply skip the comment.
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: actions/github-script@v9
         with:
           script: |
@@ -156,7 +156,7 @@ jobs:
       - name: Vitest Coverage Report
         # Same-repo only — posts a PR comment, so it 403s on forked PRs (read-only
         # token). The coverage artifact upload below still runs for every PR.
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           json-summary-path: coverage/coverage-summary.json
@@ -188,7 +188,11 @@ jobs:
 
   electron-smoke:
     name: Electron pack smoke (${{ matrix.os }})
-    if: github.event_name == 'pull_request'
+    # Skip for Dependabot: this job needs the `electron-builder install-app-deps`
+    # postinstall (native rebuild), which the Dependabot runs deliberately skip
+    # via --ignore-scripts. Electron dep bumps still get desktop coverage at
+    # release-preflight time. Not a required check, so skipping never blocks merge.
+    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
     needs: [validate]
     strategy:
       fail-fast: false
@@ -205,7 +209,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Generate icons
         # Produces icon.ico (Windows) / icon.icns / PNGs from icon.svg. The .ico
@@ -264,7 +268,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       # Pin the Playwright browser cache to the package-lock so a version bump
       # invalidates it automatically and we don't run on stale binaries.
@@ -305,7 +309,9 @@ jobs:
           retention-days: 7
 
   e2e-electron:
-    if: github.event_name == 'pull_request'
+    # Skip for Dependabot (see electron-smoke): needs the native-rebuild
+    # postinstall that --ignore-scripts skips on Dependabot runs.
+    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
     # Desktop e2e: launches the compiled, unpacked app via Playwright's
     # `_electron` API (no electron-builder packaging, no Vite dev server). The
     # specs spin up in-process mock upstreams + a spawned native gRPC server,
@@ -325,7 +331,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       # Electron bundles Chromium, so it needs the same shared system libs
       # (libnss3, libgbm, libatk, GTK, …). `playwright install-deps chromium`
@@ -368,7 +374,9 @@ jobs:
     needs: [validate, e2e]
     # Same-repo PRs only. Forked PRs receive neither the Cloudflare secrets nor a
     # writable token, so every step here would fail — skip the job for forks.
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # Dependabot is also excluded: its runs get no secrets (deploy would fail)
+    # and a preview deploy of a dep bump has no value.
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-preview-${{ github.event.pull_request.number }}
@@ -386,7 +394,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Build
         env:
@@ -441,7 +449,7 @@ jobs:
           command: pages deploy dist/web/client --project-name=restura --branch=${{ steps.branch.outputs.slug }}
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Build docs site
         run: npm --prefix docs-site run build
@@ -503,7 +511,7 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Type-check docs (astro check)
         run: npm --prefix docs-site run check

@@ -5,6 +5,7 @@
 <br/>
 
 [![CI](https://img.shields.io/github/actions/workflow/status/dipjyotimetia/restura/ci.yml?style=flat-square&label=CI&labelColor=14121F&color=6366F1)](https://github.com/dipjyotimetia/restura/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/dipjyotimetia/restura/badge?style=flat-square)](https://securityscorecards.dev/viewer/?uri=github.com/dipjyotimetia/restura)
 [![Release](https://img.shields.io/github/v/release/dipjyotimetia/restura?style=flat-square&label=release&labelColor=14121F&color=6366F1)](https://github.com/dipjyotimetia/restura/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-6366F1?style=flat-square&labelColor=14121F)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A524-6366F1?style=flat-square&labelColor=14121F)](https://nodejs.org)
@@ -238,6 +239,7 @@ Issues tagged [`good first issue`](https://github.com/dipjyotimetia/restura/labe
 - [**Architecture**](docs/ARCHITECTURE.md) — system design, security model, IPC internals
 - [**Roadmap**](docs/ROADMAP.md) — what's planned
 - [**Changelog**](docs/CHANGELOG.md) — what's shipped
+- [**CI/CD & Releases**](docs/CI_CD.md) — pipeline, supply-chain hardening, release runbook
 - [**Security**](SECURITY.md) — how to report vulnerabilities
 
 <br/>
