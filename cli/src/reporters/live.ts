@@ -1,5 +1,5 @@
-import type { Reporter, RunResult, RequestRunResult, RunMeta } from './types.js';
 import { formatRequestLine, formatSummaryLine } from './format.js';
+import type { Reporter, RunResult, RequestRunResult, RunMeta } from './types.js';
 
 /**
  * Line-based reporter for non-interactive runs (piped output, CI logs). Prints

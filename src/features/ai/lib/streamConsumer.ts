@@ -1,5 +1,5 @@
-import { getElectronAPI } from '@/lib/shared/platform';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
+import { getElectronAPI } from '@/lib/shared/platform';
 
 /**
  * Bridges IPC chunk events to an AsyncIterable. Unsubscribes on completion

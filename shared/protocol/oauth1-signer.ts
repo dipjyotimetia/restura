@@ -17,8 +17,8 @@
 // against published test vectors (see the colocated test file).
 
 import OAuth from 'oauth-1.0a';
-import type { ProtocolAuthConfig } from './types';
 import { bytesToBase64, concatBytes, sha1Sync, utf8 } from './crypto-utils';
+import type { ProtocolAuthConfig } from './types';
 
 // ---------------------------------------------------------------------------
 // SHA-256 — pure-JS, sync. SHA-1 lives in crypto-utils (shared with WSSE).

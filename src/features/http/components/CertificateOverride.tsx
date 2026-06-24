@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
-import type { ClientCert } from '@/types';
+import { useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import SecretInput from '@/features/auth/components/SecretInput';
 import { readFileAsBase64, readFileAsText } from '@/lib/shared/file-utils';
 import { unwrapSecret, type SecretValue } from '@/lib/shared/secretRef';
-import SecretInput from '@/features/auth/components/SecretInput';
+import type { ClientCert } from '@/types';
 
 interface CertificateOverrideProps {
   clientCert: ClientCert | undefined;
@@ -126,6 +126,7 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
                 type="file"
                 accept=".p12,.pfx"
                 onChange={handlePfxSelect}
+                aria-label="Certificate file (.p12 / .pfx)"
                 className="hidden"
               />
               <Button
@@ -164,6 +165,7 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
                 type="file"
                 accept=".pem,.crt"
                 onChange={handlePemCertSelect}
+                aria-label="Certificate (.pem / .crt)"
                 className="hidden"
               />
               <Button
@@ -188,6 +190,7 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
                 type="file"
                 accept=".pem,.key"
                 onChange={handlePemKeySelect}
+                aria-label="Private key (.pem / .key)"
                 className="hidden"
               />
               <Button

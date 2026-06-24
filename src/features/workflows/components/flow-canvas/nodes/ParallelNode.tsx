@@ -1,8 +1,8 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { ParallelFlowNode } from '@/types';
-import { NodeChrome } from './NodeChrome';
 import { GitFork } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import type { ParallelFlowNode } from '@/types';
 
 type Data = ParallelFlowNode['data'];
 

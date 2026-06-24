@@ -1,8 +1,15 @@
-import { useMemo, useState } from 'react';
 import { Play, Square, Trophy } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useArenaRun } from '../hooks/useArenaRun';
+import { computeElo, winRateMatrix } from '../lib/elo';
+import { useAiLabStore } from '../store/useAiLabStore';
+import { useArenaStore } from '../store/useArenaStore';
+import type { AiLabProviderConfig, ModelRef } from '../types';
+import { EmptyState } from './EmptyState';
+import { ModelChecklist } from './ModelChecklist';
+import { StatusChip } from './StatusChip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -10,14 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAiLabStore } from '../store/useAiLabStore';
-import { useArenaStore } from '../store/useArenaStore';
-import { useArenaRun } from '../hooks/useArenaRun';
-import { computeElo, winRateMatrix } from '../lib/elo';
-import { ModelChecklist } from './ModelChecklist';
-import { StatusChip } from './StatusChip';
-import { EmptyState } from './EmptyState';
-import type { AiLabProviderConfig, ModelRef } from '../types';
+import { Textarea } from '@/components/ui/textarea';
 
 interface ModelOption {
   key: string;
@@ -216,7 +216,7 @@ export function Arena() {
                   <table className="text-sp-11">
                     <thead>
                       <tr>
-                        <th className="p-1.5" />
+                        <th className="p-1.5" aria-label="Model" />
                         {activeRun.modelKeys.map((k) => (
                           <th key={k} className="max-w-[7rem] truncate p-1.5 text-sp-muted">
                             {activeRun.modelLabels[k] ?? k}

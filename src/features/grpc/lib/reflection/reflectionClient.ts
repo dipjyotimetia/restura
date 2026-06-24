@@ -1,15 +1,15 @@
-import type { ReflectionResult, ReflectionServiceInfo } from '@/types';
-import { GrpcStatusCode } from '@/types';
 import { GrpcClientError, httpStatusToGrpcStatus } from '../grpcClient';
-import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
+import { resolveGrpcTls, type GrpcTlsOptions } from '../grpcTls';
+import { cacheMessageTypes, parseFileDescriptor } from './protoParser';
+import { buildServiceInfo } from './serviceDiscovery';
 import {
   REFLECTION_SERVICE_V1,
   REFLECTION_SERVICE_V1_ALPHA,
   type RawReflectionResponse,
 } from './types';
-import { cacheMessageTypes, parseFileDescriptor } from './protoParser';
-import { buildServiceInfo } from './serviceDiscovery';
-import { resolveGrpcTls, type GrpcTlsOptions } from '../grpcTls';
+import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
+import type { ReflectionResult, ReflectionServiceInfo } from '@/types';
+import { GrpcStatusCode } from '@/types';
 
 export class GrpcReflectionClient {
   private baseUrl: string;

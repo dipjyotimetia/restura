@@ -1,13 +1,13 @@
+import { Plus, Trash2, Paperclip, ListPlus } from 'lucide-react';
 import { useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Plus, Trash2, Paperclip, ListPlus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { VariableInput } from '@/components/shared/VariableInput';
+import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/spatial';
-import type { FormDataItem } from '@/types';
+import { Switch } from '@/components/ui/switch';
 import { base64ByteLength, formatBytes } from '@/features/http/lib/fileEncoding';
 import { readFileAsBase64 } from '@/lib/shared/file-utils';
+import type { FormDataItem } from '@/types';
 
 interface FormDataEditorProps {
   items: FormDataItem[];
@@ -140,6 +140,7 @@ function FilePickerCell({
       <input
         ref={inputRef}
         type="file"
+        aria-label="Choose file"
         className="hidden"
         onChange={(e) => onPick(e.target.files?.[0])}
       />

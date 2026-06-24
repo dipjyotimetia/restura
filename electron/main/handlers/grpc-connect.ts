@@ -11,16 +11,13 @@
 //    knob — and an encrypted client key + passphrase is handled natively.
 //  - SSRF IP-pinning is a `nodeOptions.lookup` that returns the pre-validated
 //    IP; the authority/SNI stay on the hostname so cert validation is unchanged.
+import type { DescMethod, Registry } from '@bufbuild/protobuf';
 import { createClient, ConnectError, type Transport } from '@connectrpc/connect';
 import {
   createGrpcTransport,
   createConnectTransport,
   compressionGzip,
 } from '@connectrpc/connect-node';
-import type { DescMethod, Registry } from '@bufbuild/protobuf';
-import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
-import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import { flattenHeaders } from '@shared/protocol/header-utils';
 import {
   registryFromDescriptors,
   registryFromProtoText,
@@ -29,6 +26,9 @@ import {
   inputFromJson,
   outputToJson,
 } from '@shared/protocol/grpc-registry';
+import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
+import { flattenHeaders } from '@shared/protocol/header-utils';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { resolveUrlHostnameSafe } from '../security/dns-guard';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import type { GrpcTlsConfig } from './grpc-credentials';

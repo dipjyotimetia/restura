@@ -1,5 +1,5 @@
-import type { ZodType } from 'zod';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
+import type { ZodType } from 'zod';
 
 /**
  * SecretRef — discriminated union representing a secret value that may be

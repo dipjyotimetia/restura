@@ -1,5 +1,5 @@
-import type { AuthConfig, CollectionItem, Request } from '@/types';
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
+import type { AuthConfig, CollectionItem, Request } from '@/types';
 
 /**
  * A single executable leaf extracted from a collection tree, preserving the

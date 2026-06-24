@@ -1,5 +1,5 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { memo } from 'react';
 import { cn } from '@/lib/shared/utils';
 
 function StartNodeImpl({ selected }: NodeProps) {

@@ -1,5 +1,8 @@
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { ipcMain } from 'electron';
-import type { LogEntry } from '../lifecycle/request-logger';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import type { GrpcRequestConfig } from '../ipc/ipc-validators';
 import {
   GrpcRequestConfigSchema,
@@ -8,12 +11,9 @@ import {
   createValidatedHandler,
   createValidatedListener,
 } from '../ipc/ipc-validators';
-import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { StreamRegistry } from '../ipc/stream-registry';
+import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
-import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import type { GrpcTlsConfig } from './grpc-credentials';
 import {
   resolveGrpcDialAddress,
   executeConnectUnary,
@@ -21,7 +21,7 @@ import {
   runConnectStream,
   type PinnedDial,
 } from './grpc-connect';
-import { createLogger } from '../../../src/lib/shared/logger';
+import type { GrpcTlsConfig } from './grpc-credentials';
 
 const log = createLogger('grpc');
 

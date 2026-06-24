@@ -1,5 +1,5 @@
-import type { Context } from 'hono';
 import { graphql, buildSchema, type GraphQLResolveInfo } from 'graphql';
+import type { Context } from 'hono';
 import type { EchoEnv } from '../index';
 
 // A real, executable schema (graphql-js) — introspection comes for free and

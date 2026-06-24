@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { RequestBuilderTabs } from './RequestBuilderTabs';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Floater } from '@/components/ui/spatial';
-import UrlBar from '@/features/http/components/UrlBar';
 import CodeGeneratorDialog from '@/features/http/components/CodeGeneratorDialog';
-import { RequestBuilderTabs } from './RequestBuilderTabs';
+import UrlBar from '@/features/http/components/UrlBar';
 import { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
-import { useUiStore } from '@/store/useUiStore';
 import LoadTestDialog from '@/features/load-testing/components/LoadTestDialog';
+import { useUiStore } from '@/store/useUiStore';
 
 type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings';
 

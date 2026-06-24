@@ -1,5 +1,5 @@
-import type { KeyValue, MultipartPart } from './common';
 import type { AuthConfig } from './auth';
+import type { KeyValue, MultipartPart } from './common';
 import type { ClientCert, CaCert, ProxyConfig, MinTlsVersion } from './security';
 
 // HTTP Methods

@@ -1,13 +1,3 @@
-import { useKafkaStore, KAFKA_SECRET_SENTINEL } from '@/features/kafka/store/useKafkaStore';
-import type {
-  KafkaAuth,
-  KafkaCompression,
-  KafkaConnection,
-  KafkaMessageDirection,
-  KafkaRegistry,
-} from '@/features/kafka/store/useKafkaStore';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
 import type {
   KafkaAuthIpc,
@@ -18,6 +8,16 @@ import type {
   KafkaRegistryIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
+import { useKafkaStore, KAFKA_SECRET_SENTINEL } from '@/features/kafka/store/useKafkaStore';
+import type {
+  KafkaAuth,
+  KafkaCompression,
+  KafkaConnection,
+  KafkaMessageDirection,
+  KafkaRegistry,
+} from '@/features/kafka/store/useKafkaStore';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { secureStorage } from '@/lib/shared/secure-storage';
 
 export type KafkaSecretField =
   | 'sasl-password'

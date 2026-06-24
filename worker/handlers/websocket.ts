@@ -9,12 +9,12 @@
  * parsing. Same SSRF / header policy applies as for /api/proxy.
  */
 
+import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
+import { validateWsUrl } from '@shared/protocol/websocket-proxy';
 import type { Context } from 'hono';
 import type { Env } from '../env';
-import { consumeTicket } from './ws-ticket';
-import { validateWsUrl } from '@shared/protocol/websocket-proxy';
-import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
 import { allowPrivateIPs as readAllowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { consumeTicket } from './ws-ticket';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024; // mirror Electron's MAX_MESSAGE_SIZE
 // Hoisted: TextEncoder is stateless, allocating one per frame would churn GC.

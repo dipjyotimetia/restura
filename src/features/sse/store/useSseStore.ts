@@ -1,9 +1,9 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AuthConfig, KeyValue } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import type { AuthConfig, KeyValue } from '@/types';
 
 export type SseConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 

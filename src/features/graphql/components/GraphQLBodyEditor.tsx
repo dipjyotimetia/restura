@@ -1,17 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
 import type * as Monaco from 'monaco-editor';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
 import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
-import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
+import { buildSchemaFromIntrospection } from '@/features/graphql/lib/introspection';
 import { parseVariables, generateVariablesTemplate } from '@/features/graphql/lib/queryParser';
 import { validateQuery } from '@/features/graphql/lib/validation';
-import { buildSchemaFromIntrospection } from '@/features/graphql/lib/introspection';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
-import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
+import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),

@@ -1,5 +1,6 @@
 'use client';
 
+import { AlertTriangle, FileText, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,14 +11,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AlertTriangle, FileText, Clock } from 'lucide-react';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { ConflictState } from '@/store/useFileCollectionStore';
 import {
   useFileCollectionStore,
   loadCollectionFromDirectory,
   syncFileCollection,
 } from '@/store/useFileCollectionStore';
-import { useCollectionStore } from '@/store/useCollectionStore';
 
 interface ConflictDialogProps {
   conflict: ConflictState | null;

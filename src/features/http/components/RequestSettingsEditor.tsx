@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { Label } from '@/components/ui/label';
+import { useState } from 'react';
+import { CertificateOverride } from './CertificateOverride';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -12,10 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { MinTlsVersion, RequestSettings, GlobalSettings } from '@/types';
-import { CertificateOverride } from './CertificateOverride';
-import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/shared/utils';
+import type { MinTlsVersion, RequestSettings, GlobalSettings } from '@/types';
 
 interface RequestSettingsEditorProps {
   settings: RequestSettings | undefined;

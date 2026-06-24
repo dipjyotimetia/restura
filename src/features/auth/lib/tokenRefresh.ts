@@ -1,6 +1,6 @@
-import type { AuthConfig } from '@/types';
-import { isSecretHandle, unwrapSecret } from '@/lib/shared/secretRef';
 import { fetchRefreshToken, tokenExpiresAt } from './oauth2';
+import { isSecretHandle, unwrapSecret } from '@/lib/shared/secretRef';
+import type { AuthConfig } from '@/types';
 
 const REFRESH_SKEW_MS = 60_000;
 

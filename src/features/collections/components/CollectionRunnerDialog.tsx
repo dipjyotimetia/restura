@@ -1,19 +1,3 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Progress } from '@/components/ui/progress';
-import { Input } from '@/components/ui/input';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import {
   Play,
   StopCircle,
@@ -26,13 +10,29 @@ import {
   Upload,
   RotateCcw,
 } from 'lucide-react';
-import { flattenRunnables, findFolder } from '../lib/flattenRunnables';
-import { loadDataFile, type IterationRow } from '../lib/dataLoader';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { useCollectionRun } from '../hooks/useCollectionRun';
+import { loadDataFile, type IterationRow } from '../lib/dataLoader';
+import { flattenRunnables, findFolder } from '../lib/flattenRunnables';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { cn } from '@/lib/shared/utils';
-import { toast } from 'sonner';
-import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
 export interface RunnerScope {
   collectionId: string;
@@ -190,9 +190,11 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
           {/* Config */}
           <div className="col-span-1 border-r pr-5 space-y-4 overflow-auto">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Environment</label>
+              <label htmlFor="cr-environment" className="text-xs font-medium">
+                Environment
+              </label>
               <Select value={environmentId} onValueChange={setEnvironmentId} disabled={running}>
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger id="cr-environment" className="h-8 text-xs">
                   <SelectValue placeholder="Select environment" />
                 </SelectTrigger>
                 <SelectContent>
@@ -224,11 +226,15 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Data file (CSV / JSON)</label>
+              <label htmlFor="cr-data-file" className="text-xs font-medium">
+                Data file (CSV / JSON)
+              </label>
               <input
+                id="cr-data-file"
                 ref={fileInputRef}
                 type="file"
                 accept=".csv,.json,text/csv,application/json"
+                aria-label="Data file (CSV / JSON)"
                 className="hidden"
                 onChange={(e) => void handleDataFile(e.target.files?.[0] ?? undefined)}
               />
@@ -268,8 +274,11 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Delay between requests (ms)</label>
+              <label htmlFor="cr-delay" className="text-xs font-medium">
+                Delay between requests (ms)
+              </label>
               <Input
+                id="cr-delay"
                 type="number"
                 min={0}
                 value={delayMs}
@@ -279,8 +288,12 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
               />
             </div>
 
-            <label className="flex items-center gap-2 text-xs font-medium">
+            <label
+              htmlFor="cr-stop-on-failure"
+              className="flex items-center gap-2 text-xs font-medium"
+            >
               <Checkbox
+                id="cr-stop-on-failure"
                 checked={stopOnFailure}
                 onCheckedChange={(c) => setStopOnFailure(!!c)}
                 disabled={running}

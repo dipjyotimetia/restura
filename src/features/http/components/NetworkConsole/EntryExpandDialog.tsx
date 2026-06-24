@@ -1,6 +1,8 @@
 'use client';
 
+import { Clock, Cookie as CookieIcon } from 'lucide-react';
 import { useMemo } from 'react';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -8,11 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Clock, Cookie as CookieIcon } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
 import {
   detectLanguage,
   formatBytes,
@@ -20,6 +18,8 @@ import {
   getStatusBadgeColor,
 } from '@/lib/shared/console-format';
 import { parseRequestCookies, parseResponseCookies } from '@/lib/shared/cookie-parser';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { cn } from '@/lib/shared/utils';
 import type { ConsoleEntry } from '@/store/useConsoleStore';
 
 const CodeEditor = lazyComponent(

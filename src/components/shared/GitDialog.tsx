@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
 import {
   GitBranch as GitBranchIcon,
   Check,
   RefreshCw,
   GitCommit as GitCommitIcon,
 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -170,6 +170,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                         >
                           <input
                             type="checkbox"
+                            aria-label={`Stage ${f.path}`}
                             checked={selected.has(f.path)}
                             onChange={() => toggle(f.path)}
                           />
@@ -187,6 +188,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                     <textarea
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
+                      aria-label="Commit message"
                       placeholder="Commit message"
                       rows={2}
                       className="w-full px-2.5 py-2 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono outline-none focus:border-sp-line-strong resize-none"
@@ -236,6 +238,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                   <input
                     value={newBranch}
                     onChange={(e) => setNewBranch(e.target.value)}
+                    aria-label="New branch name"
                     placeholder="new-branch-name"
                     className="flex-1 h-7 px-2 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono outline-none focus:border-sp-line-strong"
                   />

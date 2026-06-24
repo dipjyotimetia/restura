@@ -1,14 +1,9 @@
-import { useState, type ChangeEvent, type DragEvent } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { X, Upload, CheckCircle2, AlertCircle, Lock, Download, Check } from 'lucide-react';
 import * as yaml from 'js-yaml';
-import { Floater } from '@/components/ui/spatial';
+import { X, Upload, CheckCircle2, AlertCircle, Lock, Download, Check } from 'lucide-react';
+import { useState, type ChangeEvent, type DragEvent } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { cn } from '@/lib/shared/utils';
-import { isElectron } from '@/lib/shared/platform';
-import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
+import { Floater } from '@/components/ui/spatial';
 import {
   importPostmanCollection,
   importPostmanEnvironment,
@@ -24,6 +19,11 @@ import {
   type ImportResult,
   type ImportWarning,
 } from '@/features/collections/lib/importers';
+import { isElectron } from '@/lib/shared/platform';
+import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
+import { cn } from '@/lib/shared/utils';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
 type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection' | 'hoppscotch' | 'bruno';
 
@@ -243,6 +243,7 @@ function DropZone({ format, onFileUpload, onDrop }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drop zone for drag-and-drop only; keyboard/pointer access is provided by the file input + label inside
     <div
       onDrop={(e) => {
         setIsDragging(false);
@@ -282,6 +283,7 @@ function DropZone({ format, onFileUpload, onDrop }: DropZoneProps) {
         type="file"
         accept={format.accept}
         onChange={onFileUpload}
+        aria-label={`Choose ${format.name} file`}
         className="hidden"
         id={`file-upload-${format.id}`}
       />
@@ -649,8 +651,12 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
           {/* Footer */}
           <div className="flex items-center justify-between gap-4 px-6 py-4 border-t border-sp-line shrink-0">
             {isElectron() ? (
-              <label className="inline-flex items-center gap-2 cursor-pointer">
+              <label
+                htmlFor="import-store-secrets-as-handles"
+                className="inline-flex items-center gap-2 cursor-pointer"
+              >
                 <Checkbox
+                  id="import-store-secrets-as-handles"
                   checked={storeSecretsAsHandles}
                   onCheckedChange={(checked) => setStoreSecretsAsHandles(checked === true)}
                 />

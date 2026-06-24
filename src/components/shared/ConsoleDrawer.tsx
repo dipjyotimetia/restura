@@ -1,11 +1,11 @@
-import { useMemo } from 'react';
 import { ChevronUp } from 'lucide-react';
+import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import NetworkConsole from '@/features/http/components/NetworkConsole';
-import { useConsoleStore } from '@/store/useConsoleStore';
-import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
 import { getStatusTextColor } from '@/lib/shared/console-format';
 import { cn } from '@/lib/shared/utils';
+import { useConsoleStore } from '@/store/useConsoleStore';
+import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
 
 /**
  * Relative time formatter — only used for the "last · Xm ago" hint.

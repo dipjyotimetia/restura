@@ -1,12 +1,12 @@
 export type { GenerateOptions } from './types';
 
 import { generateCurl } from './curl';
-import { generatePython } from './python';
+import { generateGo } from './go';
 import { generateJavaScript } from './javascript';
 import { generateNodeJS } from './nodejs';
-import { generateGo } from './go';
-import { generateRuby } from './ruby';
 import { generatePhp } from './php';
+import { generatePython } from './python';
+import { generateRuby } from './ruby';
 
 export {
   generateCurl,

@@ -1,5 +1,5 @@
-import type { Request, RequestTab, Response, TabModeOverride } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import type { Request, RequestTab, Response, TabModeOverride } from '@/types';
 
 export function createTabFromRequest(
   request: Request,

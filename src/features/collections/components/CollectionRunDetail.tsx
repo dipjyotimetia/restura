@@ -1,7 +1,7 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import type { CollectionRunResult, CollectionRequestResult } from '../lib/collectionRunner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { PROTOCOL_LABELS, PROTOCOL_COLORS } from '@/lib/shared/constants';
 import { cn } from '@/lib/shared/utils';
 

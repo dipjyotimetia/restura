@@ -6,11 +6,11 @@
  * (gated via capabilities `mock.localServer`).
  */
 import http from 'node:http';
+import type { MockRoute, MockServerStatus } from '@shared/mock-types';
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { assertTrustedSender } from '../ipc/ipc-validators';
-import type { MockRoute, MockServerStatus } from '@shared/mock-types';
 
 export type { MockRoute, MockServerStatus };
 

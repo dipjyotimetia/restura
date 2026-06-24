@@ -1,6 +1,8 @@
+import { Lock, KeyRound } from 'lucide-react';
 import { useState } from 'react';
-import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -8,11 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { toast } from 'sonner';
-import { Lock, KeyRound } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { describeSecret, isSecretHandle, type SecretValue } from '@/lib/shared/secretRef';
+import { cn } from '@/lib/shared/utils';
 
 interface HandleSummary {
   id: string;
@@ -32,6 +32,8 @@ interface SecretInputProps {
    */
   storageLabel?: string;
   disabled?: boolean;
+  /** Forwarded to the inline text input so an external <label htmlFor> can target it. */
+  id?: string;
 }
 
 /**
@@ -47,6 +49,7 @@ export default function SecretInput({
   className,
   storageLabel,
   disabled,
+  id,
 }: SecretInputProps) {
   const electron = isElectron();
   const [handles, setHandles] = useState<HandleSummary[]>([]);
@@ -115,6 +118,7 @@ export default function SecretInput({
     <div className={cn('flex items-center gap-2', className)}>
       <Input
         type="password"
+        id={id}
         value={inlineValue}
         onChange={(e) => onChange({ kind: 'inline', value: e.target.value })}
         placeholder={placeholder}

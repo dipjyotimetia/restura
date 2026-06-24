@@ -1,7 +1,7 @@
-import type { KeyValue } from './common';
 import type { AuthConfig } from './auth';
-import type { Request } from './request';
+import type { KeyValue } from './common';
 import type { Response } from './http';
+import type { Request } from './request';
 
 // Environment
 export interface Environment {

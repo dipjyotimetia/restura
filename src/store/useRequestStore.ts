@@ -1,5 +1,16 @@
+import { toast } from 'sonner';
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
+import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
+import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
+import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
+import { validateRequestUpdate } from '@/lib/shared/store-validators';
 import type {
   Request,
   Response,
@@ -13,17 +24,6 @@ import type {
   StreamEventLike,
   TabModeOverride,
 } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
-import { toast } from 'sonner';
-import { validateRequestUpdate } from '@/lib/shared/store-validators';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
-import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
-import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
-import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
-import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
-import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
 
 interface ScriptResults {
   preRequest?: ScriptResult;

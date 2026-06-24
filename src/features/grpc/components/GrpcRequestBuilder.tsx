@@ -1,27 +1,33 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { AlertCircle, Loader2, Radio } from 'lucide-react';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveRequest, useActiveTab } from '@/store/selectors';
-import { useHistoryStore } from '@/store/useHistoryStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import type {
-  AuthConfig as AuthConfigType,
-  GrpcMethodType,
-  GrpcRequest,
-  GrpcResponse,
-  ReflectionMethodInfo,
-  ReflectionServiceInfo,
-} from '@/types';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { toast } from 'sonner';
+import { GrpcInvocationBar } from './GrpcInvocationBar';
+import { GrpcMessageEditor } from './GrpcMessageEditor';
+import { GrpcMethodContext } from './GrpcMethodContext';
+import { GrpcMethodSelector } from './GrpcMethodSelector';
+import GrpcProtoUploader from './GrpcProtoUploader';
+import { GrpcSettingsPanel } from './GrpcSettingsPanel';
+import { GrpcStreamingMessages } from './GrpcStreamingControls';
+import { GrpcStreamingPanel } from './GrpcStreamingPanel';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { Button } from '@/components/ui/button';
+import { Floater, SubTabBar, TextField } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
+import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import {
   getMethodTypeDescription,
   GrpcClientError,
   buildAuthMetadata,
   createErrorResponse,
 } from '@/features/grpc/lib/grpcClient';
+import {
+  generateRequestTemplate,
+  generateProtoFromReflection,
+  validateRequestAgainstSchema,
+} from '@/features/grpc/lib/grpcReflection';
 import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
-import { GrpcStatusCodeName, type GrpcStatusCode } from '@/types';
 import {
   validateGrpcUrl,
   validateServiceField,
@@ -30,30 +36,25 @@ import {
   INITIAL_VALIDATION_STATE,
   type GrpcValidationState,
 } from '@/features/grpc/lib/grpcValidation';
-import { isElectron } from '@/lib/shared/platform';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
-import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
-import {
-  generateRequestTemplate,
-  generateProtoFromReflection,
-  validateRequestAgainstSchema,
-} from '@/features/grpc/lib/grpcReflection';
-import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
-import { toast } from 'sonner';
-import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
-import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
-import { GrpcStreamingMessages } from './GrpcStreamingControls';
-import { GrpcStreamingPanel } from './GrpcStreamingPanel';
-import { GrpcMessageEditor } from './GrpcMessageEditor';
-import { GrpcMethodSelector } from './GrpcMethodSelector';
-import { GrpcSettingsPanel } from './GrpcSettingsPanel';
-import { GrpcInvocationBar } from './GrpcInvocationBar';
-import { GrpcMethodContext } from './GrpcMethodContext';
-import GrpcProtoUploader from './GrpcProtoUploader';
-import { Floater, SubTabBar, TextField } from '@/components/ui/spatial';
-import { Button } from '@/components/ui/button';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { isElectron } from '@/lib/shared/platform';
+import { useActiveRequest, useActiveTab } from '@/store/selectors';
+import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import { GrpcStatusCodeName } from '@/types';
+import type {
+  AuthConfig as AuthConfigType,
+  GrpcMethodType,
+  GrpcRequest,
+  GrpcResponse,
+  GrpcStatusCode,
+  ReflectionMethodInfo,
+  ReflectionServiceInfo,
+} from '@/types';
 
 type GrpcSubTab =
   | 'message'

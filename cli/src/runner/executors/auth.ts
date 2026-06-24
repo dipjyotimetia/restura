@@ -1,8 +1,8 @@
-import type { AuthConfig } from '@/types';
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
-import { fetchClientCredentialsToken, tokenExpiresAt } from '@/features/auth/lib/oauth2';
 import { validateURL } from '@shared/protocol/url-validation';
 import { resolveVarsDeep } from '../varResolver';
+import { fetchClientCredentialsToken, tokenExpiresAt } from '@/features/auth/lib/oauth2';
+import type { AuthConfig } from '@/types';
 
 /**
  * Auth helpers shared by every CLI executor.

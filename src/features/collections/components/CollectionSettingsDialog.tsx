@@ -1,10 +1,8 @@
+import { SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { SlidersHorizontal } from 'lucide-react';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -13,6 +11,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -20,8 +19,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import AuthConfigComponent from '@/features/auth/components/AuthConfig';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { AuthConfig, Collection, CollectionItem, ContractSpecSource, KeyValue } from '@/types';

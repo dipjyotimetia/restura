@@ -1,8 +1,8 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { ForEachFlowNode } from '@/types';
-import { NodeChrome } from './NodeChrome';
 import { Repeat } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import type { ForEachFlowNode } from '@/types';
 
 type Data = ForEachFlowNode['data'];
 

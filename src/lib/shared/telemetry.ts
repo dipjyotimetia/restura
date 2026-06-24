@@ -11,9 +11,9 @@
  * desktop Sentry scrubber in electron/main/lifecycle/sentry.ts).
  */
 
-import { useSettingsStore } from '@/store/useSettingsStore';
-import { workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
 import { redactBody } from '@shared/protocol/ai/redaction';
+import { workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface ErrorPayload {
   message: string;

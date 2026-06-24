@@ -1,7 +1,7 @@
+import type { GitStatusFile, GitStatus, GitBranch, GitCommit } from '@shared/git-types';
 import { useCallback, useEffect, useState } from 'react';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { loadCollectionFromDirectory } from '@/store/useFileCollectionStore';
-import type { GitStatusFile, GitStatus, GitBranch, GitCommit } from '@shared/git-types';
 
 export type { GitStatusFile, GitStatus, GitBranch, GitCommit };
 

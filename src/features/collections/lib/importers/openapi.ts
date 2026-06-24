@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from 'uuid';
+import { coerceHttpMethod, type ImportWarning } from './types';
 import type {
   AuthConfig,
   Collection,
@@ -12,8 +14,6 @@ import type {
   OpenAPISchema,
   OpenAPISecurityScheme,
 } from '@/types';
-import { coerceHttpMethod, type ImportWarning } from './types';
-import { v4 as uuidv4 } from 'uuid';
 
 /**
  * `swagger-parser` references the Node `Buffer` global while dereferencing

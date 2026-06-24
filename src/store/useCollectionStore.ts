@@ -1,10 +1,10 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Collection, CollectionItem } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
+import type { Collection, CollectionItem } from '@/types';
 
 /**
  * Walk a collection tree and re-wrap every request's `auth` plus the

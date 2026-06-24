@@ -1,35 +1,13 @@
+import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
+import type * as KafkaLib from '@platformatic/kafka';
 import { ipcMain, webContents } from 'electron';
 import type { WebContents } from 'electron';
-import type {
-  Admin,
-  AdminOptions,
-  Consumer,
-  ConsumerOptions,
-  Message,
-  MessagesStream,
-  Producer,
-  ProducerOptions,
-  TopicWithPartitionAndOffset,
-} from '@platformatic/kafka';
-import type { SchemaRegistry } from '@kafkajs/confluent-schema-registry';
-import type * as KafkaLib from '@platformatic/kafka';
-import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type { ZodSchema } from 'zod';
-import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
-import { StreamRegistry } from '../ipc/stream-registry';
-import { emitTo, errorMessage } from '../ipc/ipc-utils';
-import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
+import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
-import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
-import {
-  encodeSchemaField,
-  decodeField,
-  topicWatermarks,
-  flattenConfigDescriptions,
-  flattenGroup,
-  computeGroupLag,
-} from './kafka-serde';
-import type { LogEntry } from '../lifecycle/request-logger';
+import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
+import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   KafkaConnectSchema,
   KafkaProduceSchema,
@@ -50,9 +28,32 @@ import {
   type KafkaConnectConfig,
   type KafkaProduceConfig,
 } from '../ipc/ipc-validators';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { StreamRegistry } from '../ipc/stream-registry';
+import type { LogEntry } from '../lifecycle/request-logger';
+import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
+import {
+  encodeSchemaField,
+  decodeField,
+  topicWatermarks,
+  flattenConfigDescriptions,
+  flattenGroup,
+  computeGroupLag,
+} from './kafka-serde';
 
 const log = createLogger('kafka');
+
+// Named types re-aliased from the lazy namespace imports above so the rest of
+// the file reads unchanged. Kept as type-only aliases (erased at compile time).
+type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
+type Admin = KafkaLib.Admin;
+type AdminOptions = KafkaLib.AdminOptions;
+type Consumer<K, V, HK, HV> = KafkaLib.Consumer<K, V, HK, HV>;
+type ConsumerOptions<K, V, HK, HV> = KafkaLib.ConsumerOptions<K, V, HK, HV>;
+type Message<K, V, HK, HV> = KafkaLib.Message<K, V, HK, HV>;
+type MessagesStream<K, V, HK, HV> = KafkaLib.MessagesStream<K, V, HK, HV>;
+type Producer<K, V, HK, HV> = KafkaLib.Producer<K, V, HK, HV>;
+type ProducerOptions<K, V, HK, HV> = KafkaLib.ProducerOptions<K, V, HK, HV>;
+type TopicWithPartitionAndOffset = KafkaLib.TopicWithPartitionAndOffset;
 
 // @platformatic/kafka is heavy to evaluate and most sessions never open a Kafka
 // connection. Load it lazily on first use rather than at module load (which ran

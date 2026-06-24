@@ -1,8 +1,7 @@
-import { useState } from 'react';
-import { useAiChatStore, type Conversation } from '@/features/ai/store';
 import { CLOUD_PROVIDERS, getProviderModule } from '@shared/protocol/ai/providers';
 import { redactBody } from '@shared/protocol/ai/redaction';
-import { getElectronAPI } from '@/lib/shared/platform';
+import type { ChatProvider, CloudProvider } from '@shared/protocol/ai/types';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { ChatProvider, CloudProvider } from '@shared/protocol/ai/types';
+import { useAiChatStore, type Conversation } from '@/features/ai/store';
+import { getElectronAPI } from '@/lib/shared/platform';
 
 // The chat panel talks to the cloud providers plus a local OpenAI-compatible
 // endpoint (Ollama/LM Studio/vLLM at a user-supplied base URL, no API key).

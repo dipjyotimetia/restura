@@ -20,8 +20,8 @@
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
-import { getOrCreateEncryptedKey } from '../security/encrypted-key';
 import { createValidatedHandler } from '../ipc/ipc-validators';
+import { getOrCreateEncryptedKey } from '../security/encrypted-key';
 
 // electron-store v9+ ESM-only; .default is the constructor under Node 22+.
 const Store = require('electron-store').default;

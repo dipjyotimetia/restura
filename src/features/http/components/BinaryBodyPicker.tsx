@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { base64ByteLength, formatBytes } from '@/features/http/lib/fileEncoding';
 import { readFileAsBase64 } from '@/lib/shared/file-utils';
@@ -64,6 +64,7 @@ export default function BinaryBodyPicker({ base64, onChange }: BinaryBodyPickerP
       <input
         ref={inputRef}
         type="file"
+        aria-label="Choose request body file"
         className="hidden"
         onChange={(e) => void pick(e.target.files?.[0])}
       />

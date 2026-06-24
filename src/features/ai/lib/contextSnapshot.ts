@@ -1,8 +1,8 @@
-import { useRequestStore } from '@/store/useRequestStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { keyValuePairsToRecord } from '@/lib/shared/utils';
-import type { KeyValue } from '@/types';
 import type { ContextRef } from '@/features/ai/store';
+import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import type { KeyValue } from '@/types';
 
 export interface RawSnapshot {
   contextRef: ContextRef;

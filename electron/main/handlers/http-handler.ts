@@ -1,8 +1,6 @@
-import { ipcMain, session } from 'electron';
+import * as dns from 'dns';
 import type * as http from 'http';
 import * as net from 'net';
-import * as tls from 'tls';
-import * as dns from 'dns';
 import * as diagnosticsChannel from 'node:diagnostics_channel';
 import { Readable, Transform, pipeline } from 'node:stream';
 import {
@@ -10,18 +8,10 @@ import {
   arrayBuffer as readStreamArrayBuffer,
 } from 'node:stream/consumers';
 import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
-import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
-import {
-  HttpRequestConfigSchema,
-  createValidatedHandler,
-  MAX_HTTP_BODY_BYTES,
-} from '../ipc/ipc-validators';
-import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
-import { interceptorRegistry } from './interceptor-registry';
-import type { LogEntry } from '../lifecycle/request-logger';
-import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
-import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import * as tls from 'tls';
 import type { ProxyBodyType, FormField } from '@shared/protocol/body-builder';
+import { flattenHeaders } from '@shared/protocol/header-utils';
+import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import type {
   Fetcher,
   FetcherRequest,
@@ -29,13 +19,23 @@ import type {
   ProtocolAuthConfig,
   ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
-import { flattenHeaders } from '@shared/protocol/header-utils';
-import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
+import { ipcMain, session } from 'electron';
+import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC } from '../../shared/channels';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
+import {
+  HttpRequestConfigSchema,
+  createValidatedHandler,
+  MAX_HTTP_BODY_BYTES,
+} from '../ipc/ipc-validators';
+import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
-import { IPC } from '../../shared/channels';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { interceptorRegistry } from './interceptor-registry';
 
 const log = createLogger('http');
 

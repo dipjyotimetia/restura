@@ -1,6 +1,6 @@
+import { domainMatch, pathMatch, getPublicSuffix } from 'tough-cookie';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { domainMatch, pathMatch, getPublicSuffix } from 'tough-cookie';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 

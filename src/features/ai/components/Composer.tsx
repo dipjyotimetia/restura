@@ -31,6 +31,7 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
   return (
     <div className="glass-1 border-sp-line m-2 rounded-lg border p-2 focus-within:border-sp-accent/50 focus-within:ring-1 focus-within:ring-sp-accent/30">
       <textarea
+        aria-label="Chat message"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
@@ -44,8 +45,12 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
         className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
       />
       <div className="mt-2 flex items-center justify-between gap-2">
-        <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <label
+          htmlFor="composer-raw-mode"
+          className="flex items-center gap-2 text-[11px] text-muted-foreground"
+        >
           <Switch
+            id="composer-raw-mode"
             checked={rawMode}
             onCheckedChange={(c) => setRawMode(c)}
             disabled={disabled || streaming}

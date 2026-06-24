@@ -1,3 +1,7 @@
+import { v4 as uuidv4 } from 'uuid';
+import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
+import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
+import { assertBoundedDocument } from '@/lib/opencollection';
 import type {
   AuthConfig,
   Collection,
@@ -11,10 +15,6 @@ import type {
   InsomniaV5Item,
   KeyValue,
 } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
-import { assertBoundedDocument } from '@/lib/opencollection';
-import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
-import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
 /**
  * Import an Insomnia export and convert to Restura's internal Collection +

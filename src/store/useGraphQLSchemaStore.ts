@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { IntrospectionResult } from '@/features/graphql/types';
 import type { IntrospectionOptions } from '@/features/graphql/lib/introspection';
 import { introspectSchema } from '@/features/graphql/lib/introspection';
+import type { IntrospectionResult } from '@/features/graphql/types';
 
 interface GraphQLSchemaState {
   // Cached schemas by endpoint URL

@@ -1,9 +1,9 @@
+import { MQTT_CHANNEL, mqttChannel } from '../../../../electron/shared/mqtt-channels';
+import type { MqttConnectIpc } from '../../../../electron/types/electron-api';
 import { useMqttStore, MQTT_SECRET_SENTINEL } from '@/features/mqtt/store/useMqttStore';
 import type { MqttConnection, MqttMessage, MqttQoS } from '@/features/mqtt/store/useMqttStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
-import { MQTT_CHANNEL, mqttChannel } from '../../../../electron/shared/mqtt-channels';
-import type { MqttConnectIpc } from '../../../../electron/types/electron-api';
 
 /**
  * Inbound PUBLISH messages are buffered and flushed to the store on this

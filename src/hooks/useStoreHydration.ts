@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 /**
  * Rehydrate the persisted Zustand stores from their async backing store

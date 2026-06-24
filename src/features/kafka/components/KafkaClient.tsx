@@ -1,20 +1,3 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import {
   Send,
   Trash2,
@@ -27,10 +10,25 @@ import {
   Plus,
   Users,
 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
+import { KafkaGroupInspector } from './KafkaGroupInspector';
+import { KafkaTopicInspector } from './KafkaTopicInspector';
+import { KAFKA_PINK, partitionColor } from './shared';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import { cn } from '@/lib/shared/utils';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import { useActiveTabId } from '@/store/selectors';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Floater,
   ProtoChip,
@@ -39,6 +37,10 @@ import {
   VariableText,
   CodeEditorFrame,
 } from '@/components/ui/spatial';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import { useKafkaStore, KAFKA_SECRET_SENTINEL } from '@/features/kafka/store/useKafkaStore';
 import type {
   KafkaAuth,
@@ -49,12 +51,10 @@ import type {
   KafkaMessage,
   KafkaRegistry,
 } from '@/features/kafka/store/useKafkaStore';
-import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
-import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
-import { KAFKA_PINK, partitionColor } from './shared';
-import { KafkaTopicInspector } from './KafkaTopicInspector';
-import { KafkaGroupInspector } from './KafkaGroupInspector';
+import { cn } from '@/lib/shared/utils';
+import { useActiveTabId } from '@/store/selectors';
 
 const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
   'PLAINTEXT',
@@ -804,7 +804,16 @@ function KafkaClient() {
                       return (
                         <li
                           key={m.id}
+                          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- selectable grid row; li carries the grid layout
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setSelectedMessageId(m.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedMessageId(m.id);
+                            }
+                          }}
                           className={cn(
                             'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors',
                             selected

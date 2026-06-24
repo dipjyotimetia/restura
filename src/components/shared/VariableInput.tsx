@@ -1,5 +1,5 @@
+import { Braces, Variable } from 'lucide-react';
 import React, { useRef, useState } from 'react';
-import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover';
 import {
   Command,
   CommandEmpty,
@@ -8,10 +8,10 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
+import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover';
 import { POSTMAN_VARIABLES } from '@/lib/shared/dynamicVariables';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { Input } from '@/components/ui/input';
-import { Braces, Variable } from 'lucide-react';
 
 interface VariableInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   value: string;

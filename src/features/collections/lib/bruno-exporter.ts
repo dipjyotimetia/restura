@@ -13,6 +13,8 @@
  * never exports to Bruno doesn't pay the bundle cost.
  */
 
+import { loadBrunoLang } from './bruno-lang';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import type {
   AuthConfig,
   Collection,
@@ -22,8 +24,6 @@ import type {
   KeyValue,
   RequestBody,
 } from '@/types';
-import type { SecretValue } from '@/lib/shared/secretRef';
-import { loadBrunoLang } from './bruno-lang';
 
 /**
  * Bruno's `.bru` format is text-only — renders handles as `{{handle:<label>}}`

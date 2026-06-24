@@ -1,8 +1,8 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
 import { Upload, FileText } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { parseProtoFile } from '@/features/grpc/lib/grpcClient';
 import type { ProtoFileInfo, GrpcMethodType } from '@/types';
 
@@ -85,6 +85,7 @@ export default function GrpcProtoUploader({
       <div className="relative">
         <input
           type="file"
+          aria-label="Upload .proto file"
           accept=".proto"
           onChange={handleProtoUpload}
           className="hidden"

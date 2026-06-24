@@ -1,0 +1,5 @@
+# Type-check the renderer before pushing. lint-staged (pre-commit) lints and
+# formats staged files but does not type-check, so type errors otherwise only
+# surface in CI. Kept to the renderer-only `type-check` (not `type-check:all`,
+# which runs 6 tsc passes) to stay fast. Bypass with `git push --no-verify`.
+npm run type-check

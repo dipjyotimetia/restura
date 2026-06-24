@@ -1,21 +1,21 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { HardDrive, RefreshCw, Trash2, ExternalLink, RotateCw, Copy } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/shared/utils';
-import { getElectronAPI } from '@/lib/shared/platform';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveTab } from '@/store/selectors';
-import { diskEntryToHttpRequest } from '@/store/useConsoleStore';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   formatLongTimestamp,
   getMethodColor,
   getStatusTextColor,
 } from '@/lib/shared/console-format';
+import { getElectronAPI } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
+import { useActiveTab } from '@/store/selectors';
+import { diskEntryToHttpRequest } from '@/store/useConsoleStore';
+import { useRequestStore } from '@/store/useRequestStore';
 
 interface DiskLogEntry {
   ts: number;
@@ -166,7 +166,15 @@ export default function DiskTab() {
             return (
               <div
                 key={`${entry.ts}-${idx}`}
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelected(entry)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelected(entry);
+                  }
+                }}
                 className={cn(
                   'px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
                   isSelected && 'bg-accent'

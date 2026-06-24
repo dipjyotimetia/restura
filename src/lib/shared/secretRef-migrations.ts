@@ -1,6 +1,6 @@
-import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
 import { isElectron, getElectronAPI } from './platform';
 import { coerceToInlineSecret, isInlineSecretRef } from './secretRef';
+import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
 
 /** Internal: only include the field if the source had it (preserves optional-undefined shape). */
 function pickSecret<K extends string>(

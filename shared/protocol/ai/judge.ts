@@ -12,8 +12,8 @@
 // Depends ONLY on shared/protocol/ai/types — never on anything under
 // src/features/. Consumers (AI Lab eval runner, rs.judge bridge) inject only
 // transport via runJudge.
-import type { ChatMessageWire, CompletionResult } from './types';
 import { extractFirstJsonObject } from './json-extract';
+import type { ChatMessageWire, CompletionResult } from './types';
 
 /** Max self-consistency samples. Caps cost: each sample is a full judge call. */
 export const MAX_JUDGE_SAMPLES = 5;

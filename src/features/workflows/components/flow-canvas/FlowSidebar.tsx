@@ -6,15 +6,6 @@
  */
 'use client';
 
-import { useMemo, useState, type DragEvent } from 'react';
-import type { FlowNodeKind } from '@/types';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/shared/utils';
-import { flattenRequests, type RequestSummary } from '../../lib/collectionHelpers';
-import { methodBadgeVariant } from '../../lib/methodBadge';
 import {
   GitBranch,
   Split,
@@ -34,6 +25,15 @@ import {
   Plug,
   Sparkles,
 } from 'lucide-react';
+import { useMemo, useState, type DragEvent } from 'react';
+import { flattenRequests, type RequestSummary } from '../../lib/collectionHelpers';
+import { methodBadgeVariant } from '../../lib/methodBadge';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/shared/utils';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import type { FlowNodeKind } from '@/types';
 
 export const FLOW_DRAG_KIND_MIME = 'application/x-restura-flow-kind';
 export const FLOW_DRAG_REQUEST_MIME = 'application/x-restura-flow-request';
@@ -209,6 +209,7 @@ export function FlowSidebar({ collectionId }: FlowSidebarProps) {
             {PALETTE.map((entry) => {
               const Icon = entry.icon;
               return (
+                // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drag source for the flow canvas; no native equivalent
                 <div
                   key={entry.kind}
                   draggable
@@ -254,6 +255,7 @@ export function FlowSidebar({ collectionId }: FlowSidebarProps) {
               </div>
             ) : (
               filtered.map((req) => (
+                // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drag source for the flow canvas; no native equivalent
                 <div
                   key={req.id}
                   draggable

@@ -1,10 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Collection, Request, Response as ApiResponse } from '@/types';
+import type { IterationRow } from './dataLoader';
+import type { RunnableRequest } from './flattenRunnables';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
-import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
-import type { RunnableRequest } from './flattenRunnables';
-import type { IterationRow } from './dataLoader';
+import type { Collection, Request, Response as ApiResponse } from '@/types';
 
 /**
  * Postman-style collection / folder runner. Mirrors the CLI's orchestration

@@ -3,8 +3,8 @@
  * sidebar that displays a method chip next to a request name. Falls
  * back to `'mono'` for non-HTTP methods (e.g. SSE, GRPC, MCP).
  */
-import type { badgeVariants } from '@/components/ui/badge';
 import type { VariantProps } from 'class-variance-authority';
+import type { badgeVariants } from '@/components/ui/badge';
 
 type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>['variant']>;
 

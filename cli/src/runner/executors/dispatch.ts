@@ -1,9 +1,9 @@
 import type { LoadedRequest } from '../collectionLoader';
-import type { ExecuteOptions, ExecuteOutcome } from './types';
-import { executeHttp } from './http';
 import { executeGrpc } from './grpc';
-import { executeSse } from './sse';
+import { executeHttp } from './http';
 import { executeMcp } from './mcp';
+import { executeSse } from './sse';
+import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { executeWebSocket } from './websocket';
 
 /**

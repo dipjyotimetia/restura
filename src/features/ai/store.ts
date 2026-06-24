@@ -1,10 +1,10 @@
+import type { ChatProvider, Provider } from '@shared/protocol/ai/types';
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { v4 as uuidv4 } from 'uuid';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { debouncedStorage } from '@/lib/shared/debouncedStorage';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { AiChatStateSchema, type PersistedAiChatState } from '@/lib/shared/store-validators';
-import type { ChatProvider, Provider } from '@shared/protocol/ai/types';
 
 type SecretRefHandle = { kind: 'handle'; id: string; label?: string };
 

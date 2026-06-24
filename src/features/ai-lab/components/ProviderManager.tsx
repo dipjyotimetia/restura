@@ -1,6 +1,11 @@
+import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
+import { Server, Trash2, Wifi, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Server, Trash2, Wifi, RefreshCw } from 'lucide-react';
+import { listModels, testConnection } from '../lib/llmClient';
+import { useAiLabStore } from '../store/useAiLabStore';
+import type { AiLabProviderConfig } from '../types';
+import { EmptyState } from './EmptyState';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -12,11 +17,6 @@ import {
 } from '@/components/ui/select';
 import { Floater } from '@/components/ui/spatial';
 import { getElectronAPI } from '@/lib/shared/platform';
-import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
-import { listModels, testConnection } from '../lib/llmClient';
-import { useAiLabStore } from '../store/useAiLabStore';
-import { EmptyState } from './EmptyState';
-import type { AiLabProviderConfig } from '../types';
 
 const PROVIDER_OPTIONS: Array<{ value: Provider; label: string; needsBaseUrl: boolean }> = [
   { value: 'ollama', label: 'Ollama (local)', needsBaseUrl: true },

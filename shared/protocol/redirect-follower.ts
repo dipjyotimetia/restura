@@ -1,5 +1,5 @@
-import { validateURL } from './url-validation';
 import type { Fetcher, FetcherRequest, FetcherResponse } from './types';
+import { validateURL } from './url-validation';
 
 /**
  * Manual redirect follower for the shared HTTP proxy. The Worker and Electron

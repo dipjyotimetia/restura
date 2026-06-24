@@ -9,10 +9,10 @@
  */
 'use client';
 
-import type { Workflow, SubgraphPath, FlowNode } from '@/types';
-import { Button } from '@/components/ui/button';
 import { ChevronRight, GitBranch } from 'lucide-react';
 import { pathSegmentLabel, selectAtPath } from '../../lib/flowTypes';
+import { Button } from '@/components/ui/button';
+import type { Workflow, SubgraphPath, FlowNode } from '@/types';
 
 interface FlowBreadcrumbProps {
   workflow: Workflow;

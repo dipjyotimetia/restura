@@ -16,8 +16,8 @@
  * it opens the upstream connection.
  */
 
-import { validateURL } from './url-validation';
 import { base64ToBytes, bytesToBase64 } from './crypto-utils';
+import { validateURL } from './url-validation';
 
 export interface WsConnectSpec {
   url: string;

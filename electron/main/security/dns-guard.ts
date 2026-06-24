@@ -1,5 +1,5 @@
-import * as dns from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
+import * as dns from 'node:dns/promises';
 import * as net from 'node:net';
 import {
   assertResolvedAddressAllowed,

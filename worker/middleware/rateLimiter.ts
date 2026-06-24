@@ -8,12 +8,12 @@
  * before flipping enforcement in production.
  */
 
-import type { Context, Next } from 'hono';
 import {
   createBindingRateLimiter,
   createIsolateRateLimiter,
   type RateLimitBinding,
 } from '@shared/protocol/rate-limiter';
+import type { Context, Next } from 'hono';
 import type { Env } from '../env';
 
 const isolateLimiter = createIsolateRateLimiter();

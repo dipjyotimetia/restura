@@ -5,8 +5,8 @@
  * end-to-end from `wrangler tail` / DiskTab / upstream access log.
  */
 
-import type { Context, MiddlewareHandler, Next } from 'hono';
 import { REQUEST_ID_HEADER, ensureRequestId } from '@shared/protocol/types';
+import type { Context, MiddlewareHandler, Next } from 'hono';
 
 declare module 'hono' {
   interface ContextVariableMap {

@@ -1,13 +1,12 @@
+import type { ProxyBodyType as ProtocolBodyType, FormField } from '@shared/protocol/body-builder';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
-import type { ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
-import type { FormField } from '@shared/protocol/body-builder';
 import type { RedirectPolicy } from '@shared/protocol/types';
-import type { HttpRequest, BodyType, FormDataItem } from '@/types';
+import type { LoadedRequest } from '../collectionLoader';
 import { undiciFetcher, createUndiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
-import type { LoadedRequest } from '../collectionLoader';
-import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { applyAuthHeaders, toProtocolAuth, resolveOAuth2Token } from './auth';
+import type { ExecuteOptions, ExecuteOutcome } from './types';
+import type { HttpRequest, BodyType, FormDataItem } from '@/types';
 
 /**
  * HTTP + GraphQL executor. GraphQL is represented internally as an HttpRequest

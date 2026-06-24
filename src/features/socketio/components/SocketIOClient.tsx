@@ -1,5 +1,8 @@
+import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -19,18 +22,15 @@ import {
   VariableText,
   CodeEditorFrame,
 } from '@/components/ui/spatial';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useActiveTabId } from '@/store/selectors';
+import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import {
   useSocketIOStore,
   type SocketIOEventDirection,
   type SocketIOEventFilter,
 } from '@/features/socketio/store/useSocketIOStore';
-import { socketioManager } from '@/features/socketio/lib/socketioManager';
-import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { cn } from '@/lib/shared/utils';
-import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
+import { useActiveTabId } from '@/store/selectors';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
 const formatDuration = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
@@ -395,7 +395,7 @@ function SocketIOClient() {
       {!isConnected && !isConnecting && (
         <Floater radius="panel" className="flex flex-col gap-3 px-3 py-3 shrink-0">
           <div>
-            <label className="text-sp-11 font-medium text-sp-muted">Auth (handshake payload)</label>
+            <span className="text-sp-11 font-medium text-sp-muted">Auth (handshake payload)</span>
             <div className="mt-1">
               <KeyValueEditor
                 items={connection.auth}
@@ -410,7 +410,7 @@ function SocketIOClient() {
             </div>
           </div>
           <div>
-            <label className="text-sp-11 font-medium text-sp-muted">Query params</label>
+            <span className="text-sp-11 font-medium text-sp-muted">Query params</span>
             <div className="mt-1">
               <KeyValueEditor
                 items={connection.query}
@@ -639,6 +639,7 @@ function SocketIOClient() {
                   value={emitArgsText}
                   onChange={(e) => setEmitArgsText(e.target.value)}
                   placeholder='JSON value or array, e.g. "hello" or [{"id":1},"text"]'
+                  aria-label="Emit arguments (JSON)"
                   disabled={!isConnected}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {

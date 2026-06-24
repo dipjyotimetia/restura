@@ -19,12 +19,12 @@
  * so the Worker's SSRF/header/auth pipeline applies uniformly.
  */
 import { v4 as uuidv4 } from 'uuid';
-import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
-import type { Request, SseRequest } from '@/types';
-import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
-import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
-import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { SseParser, type ParsedSseEvent } from './lib/sseParser';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
+import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
+import type { Request, SseRequest } from '@/types';
 
 function createDefaultSseRequest(): SseRequest {
   return {

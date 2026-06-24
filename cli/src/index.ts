@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
+import { version } from '../package.json';
 import { registerRunCommand } from './commands/run.js';
 import { interactive } from './ui/colors.js';
-import { version } from '../package.json';
 
 // Honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY for all outbound requests — the
 // behaviour every other CLI behind a corporate proxy has. undici's

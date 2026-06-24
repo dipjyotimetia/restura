@@ -1,9 +1,9 @@
-import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 import { SseParser } from '@shared/protocol/sse-parser';
-import { detectUnredactedSecrets } from './redaction';
-import type { ChatRequestSpec, ChatStreamEvent } from './types';
+import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 import { PROVIDER_ROUTES } from './provider-routes';
 import { getProviderModule } from './providers';
+import { detectUnredactedSecrets } from './redaction';
+import type { ChatRequestSpec, ChatStreamEvent } from './types';
 
 type SecretResolver = (handleId: string) => Promise<string | undefined>;
 

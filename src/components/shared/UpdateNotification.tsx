@@ -1,10 +1,10 @@
+import { Download, RefreshCw, RotateCw } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
-import { Download, RefreshCw, RotateCw } from 'lucide-react';
+import type { UpdaterStatus } from '../../../electron/types/electron-api';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
-import type { UpdaterStatus } from '../../../electron/types/electron-api';
 
 /**
  * In-app auto-updater UI for the Electron desktop app. Subscribes to the

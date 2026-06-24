@@ -63,6 +63,7 @@ export default function ResizableLayout({
       >
         {children[0]}
       </div>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- ARIA separator resize handle: keyboard-operable splitter */}
       <div
         className={cn(
           'bg-sp-line hover:bg-sp-accent/50 transition-colors duration-200 shrink-0 relative z-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
@@ -86,6 +87,7 @@ export default function ResizableLayout({
         aria-valuenow={Math.round(splitPosition)}
         aria-valuemin={minSplit}
         aria-valuemax={maxSplit}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- ARIA separator must be focusable for keyboard resize
         tabIndex={0}
       />
       <div

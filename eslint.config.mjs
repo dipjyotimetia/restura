@@ -3,6 +3,8 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
+import jsxA11yPlugin from 'eslint-plugin-jsx-a11y';
+import importPlugin from 'eslint-plugin-import';
 
 // Shared TypeScript overrides applied to all three environments (renderer, electron, worker).
 // Defined once here to avoid duplicating the same rule set across multiple config objects.
@@ -28,7 +30,34 @@ const sharedTsRules = {
   // `import type {}` so the import is fully erased at emit (no accidental
   // module-initialisation side effects). Complements consistent-type-imports.
   '@typescript-eslint/no-import-type-side-effects': 'error',
+  // Import hygiene (warn-only baseline, auto-fixable). Purely syntactic — no
+  // resolver needed, so no eslint-import-resolver-typescript dependency.
+  'import/order': [
+    'warn',
+    {
+      groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index'],
+      // 'ignore' so the autofix only sorts within groups — it never adds or
+      // strips blank lines between groups, respecting the existing style.
+      'newlines-between': 'ignore',
+      alphabetize: { order: 'asc', caseInsensitive: true },
+    },
+  ],
+  'import/no-duplicates': 'warn',
 };
+
+// Accessibility lint for the React/Radix renderer. The recommended ruleset
+// ships as `error`; we land it as a non-blocking `warn` baseline (the root
+// `lint` script has no `--max-warnings 0`) to be promoted after cleanup.
+const jsxA11yWarnRules = Object.fromEntries(
+  Object.keys(jsxA11yPlugin.flatConfigs.recommended.rules).map((rule) => [rule, 'warn'])
+);
+
+// Same rule set, all disabled — applied to test files (see the trailing test
+// override). Tests deliberately order imports for mock hoisting and render
+// throwaway fixtures, so the import-hygiene and a11y baselines add noise here.
+const jsxA11yOffRules = Object.fromEntries(
+  Object.keys(jsxA11yPlugin.flatConfigs.recommended.rules).map((rule) => [rule, 'off'])
+);
 
 export default tseslint.config(
   {
@@ -56,6 +85,8 @@ export default tseslint.config(
     plugins: {
       react: reactPlugin,
       'react-hooks': reactHooksPlugin,
+      'jsx-a11y': jsxA11yPlugin,
+      import: importPlugin,
     },
     rules: {
       'react/react-in-jsx-scope': 'off',
@@ -63,6 +94,10 @@ export default tseslint.config(
       'react/display-name': 'warn',
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      ...jsxA11yWarnRules,
+      // Deprecated and redundant with label-has-associated-control (which we
+      // keep). Disabling avoids double-reporting the same label issues.
+      'jsx-a11y/label-has-for': 'off',
       ...sharedTsRules,
     },
     settings: {
@@ -78,6 +113,9 @@ export default tseslint.config(
       'cli/**/*.ts',
       'shared/**/*.ts',
     ],
+    plugins: {
+      import: importPlugin,
+    },
     rules: sharedTsRules,
   },
   // Root tests/** — honor the `^_` intentionally-unused convention (the rest of
@@ -141,6 +179,20 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  // Test files: exempt from the newly-added import-hygiene + a11y baselines.
+  // Placed last so it wins over the renderer/non-renderer blocks above.
+  {
+    files: ['**/__tests__/**/*.{ts,tsx}', '**/*.{test,spec}.{ts,tsx}'],
+    plugins: {
+      import: importPlugin,
+      'jsx-a11y': jsxA11yPlugin,
+    },
+    rules: {
+      'import/order': 'off',
+      'import/no-duplicates': 'off',
+      ...jsxA11yOffRules,
     },
   }
 );

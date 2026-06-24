@@ -1,6 +1,6 @@
-import { z } from 'zod';
-import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { FormFieldSchema } from '@shared/protocol/proxy-schema';
+import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
+import { z } from 'zod';
 import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('ipc');

@@ -1,9 +1,9 @@
 import { X } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
+import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
 import { ToggleField } from './ToggleField';
 import { VariableText } from './VariableText';
-import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
 import { VariableInput } from '@/components/shared/VariableInput';
+import { cn } from '@/lib/shared/utils';
 
 export interface ParamRowData {
   id: string;
@@ -146,6 +146,7 @@ export function ParamRow({
       </div>
       <div className="border-l border-sp-line/40 flex items-center min-w-0">
         <input
+          aria-label="Description"
           value={row.description ?? ''}
           onChange={(e) => onChange({ ...row, description: e.target.value })}
           placeholder="description"

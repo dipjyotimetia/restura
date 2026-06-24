@@ -1,6 +1,7 @@
+import { Gauge, Play, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Gauge, Play, Square } from 'lucide-react';
+import { useLoadTest } from '../hooks/useLoadTest';
 import {
   Dialog,
   DialogContent,
@@ -8,11 +9,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { useLoadTest } from '../hooks/useLoadTest';
 import { computeLoadStats } from '@/lib/shared/loadStats';
-import { useLoadTestStore } from '@/store/useLoadTestStore';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
+import { useLoadTestStore } from '@/store/useLoadTestStore';
 import type { HttpRequest } from '@/types';
 
 interface LoadTestDialogProps {
@@ -99,6 +99,7 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
             <label className="flex-1">
               <span className="sp-label">Total requests</span>
               <input
+                aria-label="Total requests"
                 type="number"
                 min={1}
                 max={100000}
@@ -111,6 +112,7 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
             <label className="flex-1">
               <span className="sp-label">Concurrency</span>
               <input
+                aria-label="Concurrency"
                 type="number"
                 min={1}
                 max={500}

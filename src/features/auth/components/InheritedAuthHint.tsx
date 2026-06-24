@@ -1,11 +1,11 @@
-import { useMemo } from 'react';
 import { KeyRound } from 'lucide-react';
-import { useCollectionStore } from '@/store/useCollectionStore';
+import { useMemo } from 'react';
 import {
   findInheritedAuthWithSource,
   isConfiguredAuth,
   type InheritedAuth,
 } from '@/features/auth/lib/authInheritance';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { AuthConfig, AuthType, Request } from '@/types';
 
 const AUTH_TYPE_LABELS: Partial<Record<AuthType, string>> = {

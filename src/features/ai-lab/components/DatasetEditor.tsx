@@ -1,19 +1,19 @@
+import { Database, Download, Plus, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Database, Download, Plus, Trash2, Upload } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Floater } from '@/components/ui/spatial';
-import { cn } from '@/lib/shared/utils';
-import { downloadBlob } from '@/lib/shared/file-utils';
+import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../lib/datasetIo';
 import { useAiLabStore } from '../store/useAiLabStore';
+import type { DatasetCase } from '../types';
+import { EmptyState } from './EmptyState';
+import { ImportFromHistoryDialog } from './ImportFromHistoryDialog';
 import { OpenApiGenDialog } from './OpenApiGenDialog';
 import { RedteamGenDialog } from './RedteamGenDialog';
-import { ImportFromHistoryDialog } from './ImportFromHistoryDialog';
-import { EmptyState } from './EmptyState';
-import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../lib/datasetIo';
-import type { DatasetCase } from '../types';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Floater } from '@/components/ui/spatial';
+import { Textarea } from '@/components/ui/textarea';
+import { downloadBlob } from '@/lib/shared/file-utils';
+import { cn } from '@/lib/shared/utils';
 
 /**
  * Cases are edited as a JSON array of { vars, expected?, reference? } — compact
@@ -174,6 +174,7 @@ export function DatasetEditor() {
               <input
                 ref={fileInputRef}
                 type="file"
+                aria-label="Import dataset file"
                 accept=".jsonl,.csv,.json,.ndjson,text/csv"
                 className="hidden"
                 onChange={(e) => {

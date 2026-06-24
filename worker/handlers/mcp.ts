@@ -1,11 +1,11 @@
-import type { Context } from 'hono';
 import { validateMcpSpec, type McpSpec } from '@shared/protocol/mcp-proxy';
 import { McpRequestBodySchema } from '@shared/protocol/mcp-schema';
 import { SseParser } from '@shared/protocol/sse-parser';
+import type { Context } from 'hono';
 import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
-import { parseJsonBody } from '../shared/validate-body';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { parseJsonBody } from '../shared/validate-body';
 
 /**
  * MCP proxy: forwards a single JSON-RPC call from the renderer to a target MCP server.

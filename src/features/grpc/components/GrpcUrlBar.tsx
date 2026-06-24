@@ -1,4 +1,5 @@
 import { AlertCircle, Send } from 'lucide-react';
+import GrpcStreamingControls from './GrpcStreamingControls';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -8,10 +9,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import GrpcStreamingControls from './GrpcStreamingControls';
-import type { GrpcMethodType } from '@/types';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
+import type { GrpcMethodType } from '@/types';
 
 const METHOD_TYPE_COLOR: Record<GrpcMethodType, string> = {
   unary: 'bg-emerald-500/[0.12] border-emerald-500/25 text-emerald-400',

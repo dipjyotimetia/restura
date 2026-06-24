@@ -20,16 +20,18 @@
  * (narrowing the rebind window) but isn't fully pinned. See ADR-0006.
  */
 
+// eslint-disable-next-line import/no-duplicates -- namespace + named type imports from 'node:dns' can't be merged into a single statement
 import type * as dns from 'node:dns';
+// eslint-disable-next-line import/no-duplicates -- see above
+import type { LookupAddress } from 'node:dns';
 import * as net from 'node:net';
-import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
-import { assertHostnameSafe, type DnsGuardOptions } from './dns-guard';
 import {
   assertResolvedAddressAllowed,
   isCloudMetadataHost,
   isPrivateAddress,
 } from '@shared/protocol/url-validation';
-import type { LookupAddress } from 'node:dns';
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
+import { assertHostnameSafe, type DnsGuardOptions } from './dns-guard';
 
 export interface SafeAddress {
   /** The original hostname — keep using this for SNI + Host header. */

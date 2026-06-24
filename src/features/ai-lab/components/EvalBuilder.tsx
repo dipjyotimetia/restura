@@ -1,24 +1,9 @@
+import { Play, Plus, Square, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Play, Plus, Square, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Progress } from '@/components/ui/progress';
-import { Floater, Stat } from '@/components/ui/spatial';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { v4 as uuidv4 } from 'uuid';
-import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRun } from '../hooks/useEvalRun';
-import { ModelChecklist } from './ModelChecklist';
-import { StatusChip } from './StatusChip';
+import { useAiLabStore } from '../store/useAiLabStore';
 import type {
   AiLabProviderConfig,
   EvalConfig,
@@ -27,6 +12,21 @@ import type {
   ScorerConfig,
   ScorerKind,
 } from '../types';
+import { ModelChecklist } from './ModelChecklist';
+import { StatusChip } from './StatusChip';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Floater, Stat } from '@/components/ui/spatial';
+import { Textarea } from '@/components/ui/textarea';
 
 /** UI selection for what a cell scores. */
 type TargetMode = 'text' | 'http' | 'graphql';
@@ -459,8 +459,12 @@ function ScorerRow({
               ))}
             </SelectContent>
           </Select>
-          <label className="flex items-center gap-2 text-sp-12 text-sp-text">
+          <label
+            htmlFor="eval-scorer-swap-positions"
+            className="flex items-center gap-2 text-sp-12 text-sp-text"
+          >
             <Checkbox
+              id="eval-scorer-swap-positions"
               checked={scorer.swapPositions ?? false}
               onCheckedChange={(v) => onChange({ swapPositions: v === true })}
             />
@@ -553,10 +557,12 @@ function JudgeScorerEditor({
                 onChange={(e) => setCriterion(i, { weight: Number(e.target.value) || 1 })}
               />
               <label
+                htmlFor={`eval-criterion-gate-${i}`}
                 className="flex shrink-0 items-center gap-1.5 text-sp-12 text-sp-muted"
                 title="A failing gate criterion fails the cell regardless of the weighted score"
               >
                 <Checkbox
+                  id={`eval-criterion-gate-${i}`}
                   checked={!!c.gate}
                   onCheckedChange={(v) => setCriterion(i, { gate: v === true })}
                 />
@@ -589,11 +595,13 @@ function JudgeScorerEditor({
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <label
+          htmlFor="eval-judge-pass-threshold"
           className="flex items-center gap-2 text-sp-12 text-sp-muted"
           title="Per-criterion score bar (0–1)"
         >
           pass ≥
           <Input
+            id="eval-judge-pass-threshold"
             className="w-16"
             type="number"
             step={0.05}
@@ -604,11 +612,13 @@ function JudgeScorerEditor({
           />
         </label>
         <label
+          htmlFor="eval-judge-samples"
           className="flex items-center gap-2 text-sp-12 text-sp-muted"
           title="Self-consistency: run the judge N times, take the median, report variance"
         >
           samples
           <Input
+            id="eval-judge-samples"
             className="w-16"
             type="number"
             min={1}

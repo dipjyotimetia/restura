@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { HttpRequest } from '@/types';
 import type { LoadStats } from '@/lib/shared/loadStats';
+import type { HttpRequest } from '@/types';
 
 /**
  * Recent load-test runs, so results are observable in the Runs panel after the

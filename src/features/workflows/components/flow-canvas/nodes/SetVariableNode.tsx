@@ -1,8 +1,8 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { SetVariableFlowNode } from '@/types';
-import { NodeChrome } from './NodeChrome';
 import { Variable } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import type { SetVariableFlowNode } from '@/types';
 
 type Data = SetVariableFlowNode['data'];
 

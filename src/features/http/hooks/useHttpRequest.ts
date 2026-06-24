@@ -1,18 +1,18 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useRequestStore } from '@/store/useRequestStore';
-import { useActiveRequest, useActiveResponse } from '@/store/selectors';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import { executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
-import { isElectron } from '@/lib/shared/platform';
 import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
-import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
+import { useRequestRunner } from '@/features/registry/useRequestRunner';
+import { isElectron } from '@/lib/shared/platform';
+import { useActiveRequest, useActiveResponse } from '@/store/selectors';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import type { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from '@/types';
 
 interface UseHttpRequestReturn {
   request: HttpRequest | null;

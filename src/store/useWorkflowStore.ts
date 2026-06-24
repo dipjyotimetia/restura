@@ -1,6 +1,10 @@
+import { v4 as uuidv4 } from 'uuid';
+import { temporal } from 'zundo';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { temporal } from 'zundo';
+import { selectAtPath, setAtPath } from '@/features/workflows/lib/flowTypes';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import type {
   Workflow,
   WorkflowRequest,
@@ -14,10 +18,6 @@ import type {
   McpCallFlowNode,
   SubgraphPath,
 } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
-import { selectAtPath, setAtPath } from '@/features/workflows/lib/flowTypes';
 
 interface WorkflowState {
   workflows: Workflow[];

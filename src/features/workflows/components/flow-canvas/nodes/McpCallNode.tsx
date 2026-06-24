@@ -1,9 +1,9 @@
-import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { McpCallFlowNode } from '@/types';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
-import { NodeChrome } from './NodeChrome';
 import { Sparkles } from 'lucide-react';
+import { memo } from 'react';
+import { NodeChrome } from './NodeChrome';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
+import type { McpCallFlowNode } from '@/types';
 
 type Data = McpCallFlowNode['data'] & { workflowId?: string };
 

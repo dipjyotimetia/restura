@@ -5,22 +5,19 @@
  * Handles loading, saving, watching, and conflict detection.
  */
 
-import type { BrowserWindow } from 'electron';
-import { ipcMain, dialog, shell } from 'electron';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
-import * as yaml from 'js-yaml';
 import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
+import { ipcMain, dialog, shell } from 'electron';
+import type { BrowserWindow } from 'electron';
+import * as yaml from 'js-yaml';
 import { z } from 'zod';
-import { createValidatedHandler, FilePathSchema, NoInputSchema } from '../ipc/ipc-validators';
-import { IPC, EVENT } from '../../shared/channels';
-import { isPathSafe } from './file-operations';
 import {
-  redactAuthForExport,
-  authHasPlaintextSecret,
-  redactSecretVariablesForExport,
-} from '../security/collection-export-redactor';
+  fileKeyValueSchema,
+  fileCollectionMetaSchema,
+  fileFolderMetaSchema,
+} from '../../../src/lib/shared/file-collection-schema';
 import { redactSecretKeyValues } from '../../../src/lib/shared/keyvalue-secret-redaction';
 import { createLogger } from '../../../src/lib/shared/logger';
 
@@ -55,12 +52,15 @@ function warnIfPlaintextSecretsWillBeDropped(collection: FileCollection): void {
     });
   }
 }
+import { IPC, EVENT } from '../../shared/channels';
+import { createValidatedHandler, FilePathSchema, NoInputSchema } from '../ipc/ipc-validators';
 import {
-  fileKeyValueSchema,
-  fileCollectionMetaSchema,
-  fileFolderMetaSchema,
-} from '../../../src/lib/shared/file-collection-schema';
+  redactAuthForExport,
+  authHasPlaintextSecret,
+  redactSecretVariablesForExport,
+} from '../security/collection-export-redactor';
 import { debounce } from '../util/debounce';
+import { isPathSafe } from './file-operations';
 
 // File extension constants (must match renderer types)
 const FILE_EXTENSIONS = {

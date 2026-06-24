@@ -1,12 +1,3 @@
-import { useEffect, useCallback, useMemo, useRef } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import type { ConsoleLog, ConsoleTest, ConsoleTabId } from '@/store/useConsoleStore';
-import { useConsoleStore } from '@/store/useConsoleStore';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Cable,
   Download,
@@ -19,10 +10,14 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
-import { isElectron } from '@/lib/shared/platform';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
+import { useShallow } from 'zustand/react/shallow';
+import FramesTab from './FramesTab';
+import NetworkTab from './NetworkTab';
+import ScriptsTab from './ScriptsTab';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,11 +26,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { buildExportFile, downloadExportFile } from '@/lib/shared/console-export';
 import { filterEntries } from '@/lib/shared/console-filter';
-import NetworkTab from './NetworkTab';
-import ScriptsTab from './ScriptsTab';
-import FramesTab from './FramesTab';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
+import { useConsoleStore } from '@/store/useConsoleStore';
+import type { ConsoleLog, ConsoleTest, ConsoleTabId } from '@/store/useConsoleStore';
 
 const CLEAR_LABELS: Record<ConsoleTabId, string> = {
   network: 'network logs',
@@ -243,6 +243,7 @@ export default function NetworkConsole({
         {/* Resize handle — wider hit zone, visible grip. The padding is what
             makes the handle easy to grab; the visible thumb is purely cosmetic. */}
         {isExpanded && (
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- focusable window-splitter pattern: separator with aria-valuenow is operable via mouse drag and arrow keys
           <div
             className="absolute -top-2 left-0 right-0 h-4 cursor-row-resize z-20 flex items-center justify-center group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             onMouseDown={handleResizeStart}
@@ -262,6 +263,7 @@ export default function NetworkConsole({
             aria-valuenow={Math.round(panelHeight)}
             aria-valuemin={CONSOLE_MIN_PX}
             aria-valuemax={Math.round(maxConsoleHeight())}
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- splitter must be keyboard-focusable to support arrow-key resize
             tabIndex={0}
           >
             <div className="h-1 w-10 rounded-full bg-border group-hover:bg-primary/60 group-focus-visible:bg-primary/60 transition-colors" />
@@ -369,8 +371,12 @@ export default function NetworkConsole({
             {isExpanded && activeTab === 'network' && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none">
+                  <label
+                    htmlFor="network-console-preserve-log"
+                    className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none"
+                  >
                     <Switch
+                      id="network-console-preserve-log"
                       checked={preserveOnSend}
                       onCheckedChange={setPreserveOnSend}
                       className="h-3.5 w-7 data-[state=checked]:bg-primary/80"

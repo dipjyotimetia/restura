@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import type { Collection, Environment } from '@/types';
+import type { ImportResult, ImportWarning } from './types';
 import {
   openCollectionSchema,
   assertBoundedDocument,
@@ -10,7 +10,7 @@ import {
   type OpenCollection,
 } from '@/lib/opencollection';
 import { formatZodIssues } from '@/lib/shared/validations';
-import type { ImportResult, ImportWarning } from './types';
+import type { Collection, Environment } from '@/types';
 
 /**
  * @deprecated Maintained for callers using the legacy single-field result.

@@ -1,16 +1,16 @@
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { RefreshCw, X } from 'lucide-react';
-import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
+import { useState } from 'react';
 import type {
   KafkaPartitionWatermark,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 import { KAFKA_PINK, partitionColor } from './shared';
 import { useInspectorFetch } from './useInspectorFetch';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 
 /**
  * Topic inspector — per-partition watermarks (earliest/latest → message count)

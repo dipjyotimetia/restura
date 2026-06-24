@@ -1,13 +1,3 @@
-import { useEffect, useMemo, useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import {
   Rocket,
   Send,
@@ -21,10 +11,20 @@ import {
   Network,
   Sparkles,
 } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
+import { useEffect, useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { ToggleField } from '@/components/ui/spatial/ToggleField';
 import { isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
-import { ToggleField } from '@/components/ui/spatial/ToggleField';
+import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface OnboardingStep {

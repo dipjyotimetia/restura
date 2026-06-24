@@ -1,3 +1,37 @@
+import type { ProxyBodyType } from '@shared/protocol/body-builder';
+import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import { Cookie } from 'tough-cookie';
+import { v4 as uuidv4 } from 'uuid';
+import {
+  applyAuthHeaders,
+  applyApiKeyQueryParam,
+  assertHandleSupported,
+} from '@/features/auth/lib/applyAuthHeaders';
+import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
+import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
+import {
+  readStreamingResponse,
+  type HttpStreamEvent,
+} from '@/features/http/lib/streamingResponseReader';
+import { validateURL } from '@/features/http/lib/urlValidator';
+import { useCookieStore } from '@/features/http/store/useCookieStore';
+import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
+import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
+import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
+import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { selectCertForUrl } from '@/lib/shared/certMatcher';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { makeRendererJudge } from '@/lib/shared/judgeBridge';
+import {
+  executeProxiedRequest,
+  executeProxiedStreamingRequest,
+  ProxyTransportError,
+  type ProxyJsonResponse,
+  type DesktopTransportConfig,
+} from '@/lib/shared/transport';
+import { makeVaultAdapter } from '@/lib/shared/vaultClient';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type {
   HttpRequest,
   Response as ApiResponse,
@@ -6,40 +40,6 @@ import type {
   BodyType as RendererBodyType,
   FormDataItem,
 } from '@/types';
-import type { ProxyBodyType } from '@shared/protocol/body-builder';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
-import { v4 as uuidv4 } from 'uuid';
-import { Cookie } from 'tough-cookie';
-import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
-import { validateURL } from '@/features/http/lib/urlValidator';
-import { useCookieStore } from '@/features/http/store/useCookieStore';
-import { useGlobalsStore } from '@/store/useGlobalsStore';
-import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
-import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
-import { makeVaultAdapter } from '@/lib/shared/vaultClient';
-import { makeRendererJudge } from '@/lib/shared/judgeBridge';
-import { useSettingsStore } from '@/store/useSettingsStore';
-import {
-  applyAuthHeaders,
-  applyApiKeyQueryParam,
-  assertHandleSupported,
-} from '@/features/auth/lib/applyAuthHeaders';
-import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
-import {
-  readStreamingResponse,
-  type HttpStreamEvent,
-} from '@/features/http/lib/streamingResponseReader';
-import {
-  executeProxiedRequest,
-  executeProxiedStreamingRequest,
-  ProxyTransportError,
-  type ProxyJsonResponse,
-  type DesktopTransportConfig,
-} from '@/lib/shared/transport';
-import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
-import { selectCertForUrl } from '@/lib/shared/certMatcher';
-import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 
 export interface RequestExecutionResult {
   response: ApiResponse;

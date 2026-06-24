@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { HistoryItem, Request, Response } from '@/types';
+import { useSettingsStore } from './useSettingsStore';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
-import { useSettingsStore } from './useSettingsStore';
+import type { HistoryItem, Request, Response } from '@/types';
 
 interface HistoryState {
   history: HistoryItem[];

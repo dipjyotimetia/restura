@@ -1,10 +1,10 @@
+import { parseJsonRpcError, jsonRpcErrorToMessage } from '@shared/protocol/mcp-proxy';
 import {
   isElectron,
   getElectronAPI,
   workerAuthHeaders,
   workerBaseUrl,
 } from '@/lib/shared/platform';
-import { parseJsonRpcError, jsonRpcErrorToMessage } from '@shared/protocol/mcp-proxy';
 import type {
   McpJsonSchema,
   McpPromptDescriptor,

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import type { GrpcRequest } from '@/types';
-import { startGrpcStream, type GrpcStreamingHandle } from '../lib/grpcStreamingClient';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { Button } from '@/components/ui/button';
 import { Square, Play, Send, StopCircle, ArrowDown, ArrowUp } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { startGrpcStream, type GrpcStreamingHandle } from '../lib/grpcStreamingClient';
+import { Button } from '@/components/ui/button';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import type { GrpcRequest } from '@/types';
 
 export interface GrpcStreamingPanelProps {
   request: GrpcRequest;

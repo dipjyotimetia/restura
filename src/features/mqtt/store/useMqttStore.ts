@@ -1,10 +1,10 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { v4 as uuidv4 } from 'uuid';
+import { mqttManager } from '@/features/mqtt/lib/mqttManager';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { useConsoleStore } from '@/store/useConsoleStore';
-import { mqttManager } from '@/features/mqtt/lib/mqttManager';
 
 /** 4 = MQTT 3.1.1, 5 = MQTT 5.0. */
 export type MqttProtocolVersion = 4 | 5;

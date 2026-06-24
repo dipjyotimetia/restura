@@ -18,12 +18,12 @@
 import { useCallback, useRef } from 'react';
 import { protocolRegistry } from './registry';
 import type { ProtocolScriptResult } from './types';
-import type { Request, Response } from '@/types';
-import { useHistoryStore } from '@/store/useHistoryStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useRequestStore } from '@/store/useRequestStore';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import type { Request, Response } from '@/types';
 
 export interface RegistryRunResult {
   response: Response;

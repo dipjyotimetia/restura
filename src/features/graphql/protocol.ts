@@ -15,12 +15,12 @@
  * runner doesn't model long-lived streams yet (see Task 4.5 follow-up note).
  */
 import { v4 as uuidv4 } from 'uuid';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
-import type { ProtocolModule } from '@/features/registry/types';
-import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
-import { useSettingsStore } from '@/store/useSettingsStore';
+import type { ProtocolModule } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
 
 function createDefaultGraphQLRequest(): HttpRequest {
   return {

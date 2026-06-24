@@ -5,9 +5,9 @@ import './styles/globals.css';
 // Side-effect import: registers built-in protocol modules with the
 // singleton ProtocolRegistry before any React component mounts.
 import '@/features/registry/bootstrap';
-import { installGlobalErrorHandlers } from '@/lib/shared/telemetry';
 import { initElectronSentry } from '@/lib/electron-sentry';
 import { fetchFlags } from '@/lib/shared/feature-flags';
+import { installGlobalErrorHandlers } from '@/lib/shared/telemetry';
 
 // Wire window.onerror + unhandledrejection so uncaught failures land in the
 // telemetry sink (opt-out; gated on settings.telemetry.errorsEnabled).

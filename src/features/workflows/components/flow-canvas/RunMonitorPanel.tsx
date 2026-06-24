@@ -5,14 +5,14 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useFlowRunStore } from '../../store/useFlowRunStore';
-import { cn } from '@/lib/shared/utils';
 import { X, ChevronDown, ChevronUp } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useFlowRunStore } from '../../store/useFlowRunStore';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/shared/utils';
 
 const STATUS_BADGE = {
   idle: 'mono',

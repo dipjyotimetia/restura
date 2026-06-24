@@ -27,9 +27,9 @@
  */
 import net from 'node:net';
 import tls from 'node:tls';
-import type { UpstreamProxy } from './tcp-proxy';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from './dns-guard-node';
+import type { UpstreamProxy } from './tcp-proxy';
 
 const ENCODER = new TextEncoder();
 

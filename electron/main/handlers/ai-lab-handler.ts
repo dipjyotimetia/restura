@@ -16,12 +16,17 @@
  * and mirrors ai-handler's runChat, but on ai-lab channels with the carve-out.
  */
 
-import { ipcMain } from 'electron';
+import { runToCompletion } from '@shared/protocol/ai/ai-complete';
+import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
+import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
+import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
+import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
+import { ipcMain } from 'electron';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
-import { StreamRegistry } from '../ipc/stream-registry';
-import { resolveSecretHandle } from '../security/secret-handle-store';
 import {
   AiLabCompleteSchema,
   AiLabStreamSchema,
@@ -29,14 +34,9 @@ import {
   AiLabDiscoverSchema,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
-import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
-import { runToCompletion } from '@shared/protocol/ai/ai-complete';
-import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
-import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
-import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
+import { StreamRegistry } from '../ipc/stream-registry';
+import { resolveSecretHandle } from '../security/secret-handle-store';
 import { makePinnedFetcher } from './fetch-fetcher';
-import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('ai-lab');
 

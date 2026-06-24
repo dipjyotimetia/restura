@@ -1,5 +1,9 @@
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
+import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
+import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
+import { assertBoundedDocument } from '@/lib/opencollection';
+import { formatZodIssues } from '@/lib/shared/validations';
 import type {
   AuthConfig,
   Collection,
@@ -9,10 +13,6 @@ import type {
   KeyValue,
   RequestBody,
 } from '@/types';
-import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
-import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
-import { formatZodIssues } from '@/lib/shared/validations';
-import { assertBoundedDocument } from '@/lib/opencollection';
 
 /**
  * Hoppscotch collection importer.

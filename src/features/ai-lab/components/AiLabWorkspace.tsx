@@ -1,15 +1,15 @@
+import { ArrowLeft, FlaskConical } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, FlaskConical } from 'lucide-react';
-import { SubTabBar } from '@/components/ui/spatial';
-import { Button } from '@/components/ui/button';
-import { isElectron, getPlatform } from '@/lib/shared/platform';
-import { ProviderManager } from './ProviderManager';
-import { Playground } from './Playground';
+import { Arena } from './Arena';
 import { DatasetEditor } from './DatasetEditor';
 import { EvalBuilder } from './EvalBuilder';
-import { Arena } from './Arena';
+import { Playground } from './Playground';
+import { ProviderManager } from './ProviderManager';
 import { ReportView } from './ReportView';
+import { Button } from '@/components/ui/button';
+import { SubTabBar } from '@/components/ui/spatial';
+import { isElectron, getPlatform } from '@/lib/shared/platform';
 
 // CSS-in-JS region tag — Electron-only `WebkitAppRegion`. Mirrors TopBar so the
 // AI Lab titlebar drags like the main window and interactive bits stay clickable.

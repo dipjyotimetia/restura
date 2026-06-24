@@ -1,7 +1,7 @@
-import type { HttpRequest, Response } from './http';
 import type { GrpcRequest } from './grpc';
-import type { SseRequest, McpRequest, StreamEventLike } from './streaming';
+import type { HttpRequest, Response } from './http';
 import type { ScriptResult } from './scripts';
+import type { SseRequest, McpRequest, StreamEventLike } from './streaming';
 
 // Request Types
 export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';

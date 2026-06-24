@@ -2,8 +2,8 @@
  * Phase 2's only edge component: smooth bezier with the glass theme's
  * border colour. Phase 4 will add an animated variant for active edges.
  */
-import { memo } from 'react';
 import { BaseEdge, getSmoothStepPath, type EdgeProps } from '@xyflow/react';
+import { memo } from 'react';
 
 function DefaultEdgeImpl({
   id,

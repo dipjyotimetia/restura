@@ -1,15 +1,15 @@
 import { useState, useCallback, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
-import { executeWorkflow } from '../lib/workflowExecutor';
+import { findRequestInItems } from '../lib/collectionHelpers';
 import { executeDag } from '../lib/dagExecutor';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
+import { executeWorkflow } from '../lib/workflowExecutor';
+import { useFlowRunStore } from '../store/useFlowRunStore';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { useFlowRunStore } from '../store/useFlowRunStore';
-import { findRequestInItems } from '../lib/collectionHelpers';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
+import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
 
 interface UseWorkflowExecutionOptions {
   onComplete?: (execution: WorkflowExecution) => void;

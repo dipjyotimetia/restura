@@ -1,6 +1,33 @@
 'use client';
 
+import { Plus, Play, GitBranch, AlertTriangle } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import { VariableExtractorConfig } from './VariableExtractorConfig';
+import { WorkflowStep } from './WorkflowStep';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type {
   Workflow,
   WorkflowRequest,
@@ -9,33 +36,6 @@ import type {
   CollectionItem,
   VariableExtraction,
 } from '@/types';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { WorkflowStep } from './WorkflowStep';
-import { VariableExtractorConfig } from './VariableExtractorConfig';
-import { Plus, Play, GitBranch, AlertTriangle } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
 
 // Lazy-load the entire flow-canvas tree — including @xyflow/react and
 // @dagrejs/dagre — so users who never open the Graph tab don't pay the

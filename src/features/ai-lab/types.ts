@@ -1,8 +1,8 @@
 // AI Lab domain types (Electron-only). The wire/provider types live in
 // shared/protocol/ai; these are the renderer-side workbench models persisted in
 // the aiLab / evalRuns Dexie tables.
-import type { AiToolDef, ChatToolCall, Provider } from '@shared/protocol/ai/types';
 import type { CriterionVerdict, JudgeAnchor, JudgeCriterion } from '@shared/protocol/ai/judge';
+import type { AiToolDef, ChatToolCall, Provider } from '@shared/protocol/ai/types';
 
 export type { CriterionVerdict, JudgeAnchor, JudgeCriterion };
 export type { AiToolDef, ChatToolCall };

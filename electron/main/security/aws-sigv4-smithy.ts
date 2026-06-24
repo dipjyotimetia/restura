@@ -1,7 +1,7 @@
-import { SignatureV4 } from '@smithy/signature-v4';
-import { HttpRequest } from '@smithy/protocol-http';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import type { SigV4Signer } from '@shared/protocol/auth-signer';
+import { HttpRequest } from '@smithy/protocol-http';
+import { SignatureV4 } from '@smithy/signature-v4';
 
 /**
  * Desktop AWS SigV4 signer backed by the official `@smithy/signature-v4` — the

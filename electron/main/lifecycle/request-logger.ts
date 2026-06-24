@@ -1,14 +1,14 @@
-import { app, ipcMain } from 'electron';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
+import { app, ipcMain } from 'electron';
 import { z } from 'zod';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC } from '../../shared/channels';
 import {
   LogHistoryLimitSchema,
   validateIpcInput,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
-import { IPC } from '../../shared/channels';
-import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('request-logger');
 

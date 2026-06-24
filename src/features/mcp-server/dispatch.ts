@@ -23,7 +23,6 @@
  */
 
 import { z } from 'zod';
-import type { Collection, CollectionItem, Environment, HistoryItem, HttpRequest } from '@/types';
 import {
   canExecute,
   canRead,
@@ -32,6 +31,7 @@ import {
   type McpServerConsent,
 } from './consent';
 import { redactEnvironmentVariables, redactSecretsDeep } from './redaction';
+import type { Collection, CollectionItem, Environment, HistoryItem, HttpRequest } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Context — read-only data injected by the host

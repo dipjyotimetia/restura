@@ -1,44 +1,44 @@
 import { app, BrowserWindow, session } from 'electron';
-import { setupAutoUpdater, registerAutoUpdaterIPC } from './lifecycle/auto-updater';
-import { createMainWindow, getActiveWindow, registerNewWindowIPC } from './window-manager';
-import { registerFileOperationsIPC } from './storage/file-operations';
-import { registerHttpHandlerIPC } from './handlers/http-handler';
-import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handler';
-import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
-import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './handlers/socketio-handler';
-import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
-import { registerMcpHandlerIPC, stopMcpCleanup } from './handlers/mcp-handler';
-import { registerKafkaHandlerIPC, stopKafkaCleanup } from './handlers/kafka-handler';
-import { registerMqttHandlerIPC, stopMqttCleanup } from './handlers/mqtt-handler';
-import { registerGrpcReflectionIPC } from './handlers/grpc-reflection-handler';
-import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
-import { registerWindowControlsIPC } from './lifecycle/window-controls';
-import { createSystemTray, destroyTray } from './lifecycle/system-tray';
-import { registerNotificationIPC } from './notifications';
-import {
-  registerCollectionManagerIPC,
-  cleanupCollectionWatchers,
-  isRegisteredCollectionDirectory,
-} from './storage/collection-manager';
-import { registerStoreHandlerIPC } from './storage/store-handler';
-import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
-import { registerVaultHandlers, unregisterVaultHandlers } from './storage/vault-handler';
-import { registerKeychainStatusIPC } from './security/keychain-status-handler';
-import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './handlers/git-handler';
+import { createLogger } from '../../src/lib/shared/logger';
 import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
 import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
+import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './handlers/git-handler';
+import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handler';
+import { registerGrpcReflectionIPC } from './handlers/grpc-reflection-handler';
+import { registerHttpHandlerIPC } from './handlers/http-handler';
+import { registerKafkaHandlerIPC, stopKafkaCleanup } from './handlers/kafka-handler';
+import { loadMcpDispatchContext } from './handlers/mcp-context-loader';
+import { registerMcpHandlerIPC, stopMcpCleanup } from './handlers/mcp-handler';
+import { startStdioMcpServer } from './handlers/mcp-server-handler';
 import {
   registerMockServerIPC,
   unregisterMockServerIPC,
   stopMockServer,
 } from './handlers/mock-server-handler';
+import { registerMqttHandlerIPC, stopMqttCleanup } from './handlers/mqtt-handler';
+import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './handlers/socketio-handler';
+import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
+import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
+import { setupAutoUpdater, registerAutoUpdaterIPC } from './lifecycle/auto-updater';
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
-import { startStdioMcpServer } from './handlers/mcp-server-handler';
-import { loadMcpDispatchContext } from './handlers/mcp-context-loader';
-import { createLogger } from '../../src/lib/shared/logger';
 import { initLogging } from './lifecycle/logging';
+import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
 import { initSentry } from './lifecycle/sentry';
+import { createSystemTray, destroyTray } from './lifecycle/system-tray';
 import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/telemetry-consent';
+import { registerWindowControlsIPC } from './lifecycle/window-controls';
+import { registerNotificationIPC } from './notifications';
+import { registerKeychainStatusIPC } from './security/keychain-status-handler';
+import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
+import {
+  registerCollectionManagerIPC,
+  cleanupCollectionWatchers,
+  isRegisteredCollectionDirectory,
+} from './storage/collection-manager';
+import { registerFileOperationsIPC } from './storage/file-operations';
+import { registerStoreHandlerIPC } from './storage/store-handler';
+import { registerVaultHandlers, unregisterVaultHandlers } from './storage/vault-handler';
+import { createMainWindow, getActiveWindow, registerNewWindowIPC } from './window-manager';
 
 const isDev = process.env.NODE_ENV === 'development';
 

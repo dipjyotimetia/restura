@@ -8,9 +8,9 @@
  * UI. Bump `version` when the flag shape changes to invalidate stale caches.
  */
 
+import type { FeatureFlags } from '@shared/feature-flags-types';
 import type { Context } from 'hono';
 import type { Env } from '../env';
-import type { FeatureFlags } from '@shared/feature-flags-types';
 
 export type { FeatureFlags };
 

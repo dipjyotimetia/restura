@@ -29,8 +29,11 @@ export function GrpcSettingsPanel({
         <p className="sp-label">Retry Policy</p>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <label className="text-sp-11 text-sp-muted font-mono">Max Attempts</label>
+            <label htmlFor="grpc-retry-max-attempts" className="text-sp-11 text-sp-muted font-mono">
+              Max Attempts
+            </label>
             <TextField
+              id="grpc-retry-max-attempts"
               mono
               size="sm"
               type="number"
@@ -46,8 +49,11 @@ export function GrpcSettingsPanel({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sp-11 text-sp-muted font-mono">Retry Delay (ms)</label>
+            <label htmlFor="grpc-retry-delay-ms" className="text-sp-11 text-sp-muted font-mono">
+              Retry Delay (ms)
+            </label>
             <TextField
+              id="grpc-retry-delay-ms"
               mono
               size="sm"
               type="number"

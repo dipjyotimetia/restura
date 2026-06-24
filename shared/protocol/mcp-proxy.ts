@@ -1,5 +1,5 @@
-import { validateURL } from './url-validation';
 import { sanitizeRequestHeaders } from './header-policy';
+import { validateURL } from './url-validation';
 
 /**
  * Shared MCP proxy validation/preparation. Both the Cloudflare Worker

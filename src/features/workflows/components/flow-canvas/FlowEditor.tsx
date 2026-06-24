@@ -7,21 +7,21 @@
  */
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import type { Workflow, WorkflowGraph, SubgraphPath } from '@/types';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
 import { selectAtPath, emptyStubGraph } from '../../lib/flowTypes';
 
 const SUBGRAPH_TOUR_KEY = 'restura.tour.subgraphDrillDown.v1';
-import { deriveGraphFromLinear, layoutGraph } from './layout/autoLayout';
-import { FlowToolbar } from './FlowToolbar';
-import { FlowSidebar } from './FlowSidebar';
-import { FlowInspector } from './FlowInspector';
 import { FlowBreadcrumb } from './FlowBreadcrumb';
-import { RunMonitorPanel } from './RunMonitorPanel';
 import FlowCanvas from './FlowCanvas';
+import { FlowInspector } from './FlowInspector';
+import { FlowSidebar } from './FlowSidebar';
+import { FlowToolbar } from './FlowToolbar';
+import { deriveGraphFromLinear, layoutGraph } from './layout/autoLayout';
+import { RunMonitorPanel } from './RunMonitorPanel';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
+import type { Workflow, WorkflowGraph, SubgraphPath } from '@/types';
 
 interface FlowEditorProps {
   workflow: Workflow;

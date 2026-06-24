@@ -1,5 +1,5 @@
-import type * as Monaco from 'monaco-editor';
 import type { GraphQLSchema } from 'graphql';
+import type * as Monaco from 'monaco-editor';
 import type { GraphQLValidationError } from './validation';
 import { validateQuery } from './validation';
 

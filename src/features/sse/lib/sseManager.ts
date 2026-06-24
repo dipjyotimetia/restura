@@ -1,7 +1,7 @@
+import { SseParser, type ParsedSseEvent } from './sseParser';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
-import { SseParser, type ParsedSseEvent } from './sseParser';
 
 // Singleton SSE manager. Desktop → `sse:connect` IPC. Web → proxied
 // stream via `/api/proxy`. Native EventSource and direct fetch are

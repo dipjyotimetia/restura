@@ -84,6 +84,7 @@ export function SseAssembledOutput({
               border: '1px solid var(--sp-line)',
             }}
             role="progressbar"
+            aria-label="Stream progress"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={pct ?? undefined}

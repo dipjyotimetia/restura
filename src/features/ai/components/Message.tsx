@@ -1,6 +1,6 @@
 import { memo } from 'react';
-import { cn } from '@/lib/shared';
 import type { ChatMessage } from '@/features/ai/store';
+import { cn } from '@/lib/shared';
 
 interface Props {
   message: ChatMessage;

@@ -1,27 +1,3 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
-import {
-  CodeEditorFrame,
-  Floater,
-  ProtoChip,
-  Segmented,
-  SubTabBar,
-  TextField,
-  VariableText,
-} from '@/components/ui/spatial';
-import { useMcpStore, type McpInvocationLog } from '@/features/mcp/store/useMcpStore';
-import { McpClient, generateMcpTemplate, type McpCall } from '@/features/mcp/lib/mcpClient';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import type {
-  McpJsonSchema,
-  McpPromptDescriptor,
-  McpResourceDescriptor,
-  McpToolDescriptor,
-  McpTransportType,
-} from '@/types';
 import {
   ChevronDown,
   ChevronRight,
@@ -33,9 +9,33 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  CodeEditorFrame,
+  Floater,
+  ProtoChip,
+  Segmented,
+  SubTabBar,
+  TextField,
+  VariableText,
+} from '@/components/ui/spatial';
+import { McpClient, generateMcpTemplate, type McpCall } from '@/features/mcp/lib/mcpClient';
+import { useMcpStore, type McpInvocationLog } from '@/features/mcp/store/useMcpStore';
+import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import type {
+  McpJsonSchema,
+  McpPromptDescriptor,
+  McpResourceDescriptor,
+  McpToolDescriptor,
+  McpTransportType,
+} from '@/types';
 
 type ListTab = 'tools' | 'resources' | 'prompts' | 'log';
 
@@ -935,6 +935,7 @@ function ArgFieldRow({
       {field.isComplex ? (
         <CodeEditorFrame gutter={false} className="min-h-[100px]">
           <textarea
+            aria-label={field.name}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             spellCheck={false}

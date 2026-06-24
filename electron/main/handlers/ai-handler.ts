@@ -13,23 +13,23 @@
  *  4. Call ai.cancel({streamId}) any time before end.
  */
 
-import { ipcMain } from 'electron';
+import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
+import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
+import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
+import { ipcMain } from 'electron';
+import { createLogger } from '../../../src/lib/shared/logger';
+import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
-import { StreamRegistry } from '../ipc/stream-registry';
-import { resolveSecretHandle } from '../security/secret-handle-store';
 import {
   AiChatRequestSchema,
   AiChatCancelSchema,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
-import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
-import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
-import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
+import { StreamRegistry } from '../ipc/stream-registry';
+import { resolveSecretHandle } from '../security/secret-handle-store';
 import { makePinnedFetcher } from './fetch-fetcher';
-import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('ai');
 

@@ -2,9 +2,9 @@
 
 import { FileText } from 'lucide-react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
-import type { FormDataItem, RequestBody } from '@/types';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
+import type { FormDataItem, RequestBody } from '@/types';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),

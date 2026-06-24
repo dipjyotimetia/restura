@@ -34,9 +34,9 @@ export function ImagePreview({ base64, contentType, size }: ImagePreviewProps) {
         {errored ? (
           <p className="text-sp-12 text-sp-dim font-mono">Could not decode image</p>
         ) : (
-          <img
+          <img // eslint-disable-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are passive media lifecycle handlers, not user interactions
             src={src}
-            alt="Response image preview"
+            alt="Response preview"
             onLoad={(e) =>
               setDims({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
             }

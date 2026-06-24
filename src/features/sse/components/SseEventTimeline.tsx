@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
 import { Search, Trash2 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { Floater } from '@/components/ui/spatial';
 import type { SseLogEntry } from '@/features/sse/store/useSseStore';
 import { cn } from '@/lib/shared/utils';

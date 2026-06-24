@@ -1,23 +1,3 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useShallow } from 'zustand/react/shallow';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { useHistoryStore } from '@/store/useHistoryStore';
-import { useRequestStore } from '@/store/useRequestStore';
-import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
 import {
   FolderPlus,
   History,
@@ -40,44 +20,9 @@ import {
   Workflow as WorkflowIcon,
   Activity,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import type { ActivePanel, Collection, CollectionItem, Workflow } from '@/types';
-import {
-  exportToPostman,
-  exportToInsomnia,
-  exportToOpenCollection,
-  downloadJSON,
-  downloadText,
-} from '@/features/collections/lib/exporters';
-import {
-  redactCollectionSecrets,
-  countCollectionInlineSecrets,
-} from '@/lib/shared/collection-secret-redaction';
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { cn } from '@/lib/shared/utils';
-import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
-import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
-import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
-import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
-import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import { FileStatusBadge } from './FileStatusBadge';
-import { ConflictDialog } from './ConflictDialog';
-import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
-import DocsViewer from './DocsViewer';
-import GitDialog from '@/components/shared/GitDialog';
-import RunsPanel from '@/components/shared/RunsPanel';
-import { CollectionRunnerDialog, type RunnerScope } from './CollectionRunnerDialog';
-import { CollectionSettingsDialog, type SettingsTarget } from './CollectionSettingsDialog';
-import { ExportSecretsDialog } from './ExportSecretsDialog';
-import {
-  CollectionTreeItems,
-  handleTreeKeyDown,
-  selectionKey,
-  type TreeActions,
-  type TreeState,
-} from './CollectionTree';
+import { useShallow } from 'zustand/react/shallow';
 import {
   makeFolderItem,
   makeRequestItem,
@@ -85,14 +30,69 @@ import {
   duplicateCollection,
 } from '../lib/itemFactory';
 import { buildMockRoutes } from '../lib/mockRoutes';
-import { useMockStore } from '@/store/useMockStore';
+import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
+import { CollectionRunnerDialog, type RunnerScope } from './CollectionRunnerDialog';
+import { CollectionSettingsDialog, type SettingsTarget } from './CollectionSettingsDialog';
+import {
+  CollectionTreeItems,
+  handleTreeKeyDown,
+  selectionKey,
+  type TreeActions,
+  type TreeState,
+} from './CollectionTree';
+import { ConflictDialog } from './ConflictDialog';
+import DocsViewer from './DocsViewer';
+import { ExportSecretsDialog } from './ExportSecretsDialog';
+import { FileStatusBadge } from './FileStatusBadge';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import GitDialog from '@/components/shared/GitDialog';
+import RunsPanel from '@/components/shared/RunsPanel';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  exportToPostman,
+  exportToInsomnia,
+  exportToOpenCollection,
+  downloadJSON,
+  downloadText,
+} from '@/features/collections/lib/exporters';
+import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
+import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
+import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
+import {
+  redactCollectionSecrets,
+  countCollectionInlineSecrets,
+} from '@/lib/shared/collection-secret-redaction';
+import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { getElectronAPI } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
+import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import {
   useFileCollectionStore,
   isElectronEnvironment,
   openCollectionInExplorer,
   syncFileCollection,
 } from '@/store/useFileCollectionStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
+import { useMockStore } from '@/store/useMockStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import type { ActivePanel, Collection, CollectionItem, Workflow } from '@/types';
 
 interface SidebarProps {
   onClose: () => void;
@@ -988,7 +988,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
+                      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- drag-and-drop drop target; keyboard tree navigation handled via onKeyDown */}
                       <div
+                        role="group"
+                        aria-label={`${collection.name} items`}
                         className={cn(
                           'border-t border-border/60 px-2 py-1.5',
                           dropTargetId === `root:${collection.id}` &&

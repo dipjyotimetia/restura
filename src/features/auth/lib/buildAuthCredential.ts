@@ -1,5 +1,5 @@
-import type { AuthConfig } from '@/types';
 import { isSecretHandle, unwrapSecret } from '@/lib/shared/secretRef';
+import type { AuthConfig } from '@/types';
 
 export interface AuthCredential {
   /**
