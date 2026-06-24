@@ -19,6 +19,7 @@ import {
   type SubTab,
 } from '@/components/ui/spatial';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { AiActionsMenu } from '@/features/ai/components/AiActionsMenu';
 import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
 import { detectLanguage } from '@/lib/shared/console-format';
 import { isCsvResponse } from '@/lib/shared/csvParser';
@@ -453,6 +454,7 @@ function ResponseViewer() {
                   <WaterfallBar segments={waterfallSegments} width={220} height={8} />
                 </div>
 
+                <AiActionsMenu />
                 <LayoutToggleButton />
               </div>
 

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/spatial';
+import { AiActionButton } from '@/features/ai/components/AiActionButton';
 import { registerScriptIntellisense } from '@/features/scripts/lib/scriptApiTypes';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
@@ -138,6 +139,7 @@ export default function ScriptsEditor({
         />
 
         <div className="flex items-center gap-1.5">
+          {activeTab === 'test' && <AiActionButton action="generate-tests" showLabel />}
           <Button
             variant="outline"
             size="sm"

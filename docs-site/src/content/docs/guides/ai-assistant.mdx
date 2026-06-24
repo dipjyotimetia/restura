@@ -40,6 +40,26 @@ The snapshot is what goes to the provider. Secrets and absolute URLs are strippe
 - **Debug** — paste in the response and ask why it's 4xx.
 - **Compose** workflow extractions: "extract the user ID from the response and use it in the next request."
 
+## Inline actions <Badge text="desktop" variant="success" />
+
+You don't have to open the chat to use the assistant on the request you're editing. The URL bar's **AI menu** (the sparkle icon) and the **test script** tab expose one-click actions:
+
+- **Fix request** — diagnoses the current request and its response, then proposes a corrected request.
+- **Generate tests** — writes assertions for the response (status, fields, edge cases) into the test script.
+- **Enrich docs** — writes markdown documentation for the request (it shows under the URL bar and in generated collection docs).
+
+Each action opens the assistant and proposes a change as a card. **Nothing is applied until you click Apply** — the same propose-&-apply consent model as the chat. The buttons only appear once a provider is configured.
+
+## Agent Mode <Badge text="desktop" variant="success" />
+
+For multi-step work, click the **robot icon** in the assistant header and give it a **goal** — e.g. *"make this request succeed and add tests for it."* The agent works one step at a time:
+
+1. It proposes a single action (a tool call).
+2. You review and **Apply** it (or **Dismiss** to stop).
+3. The updated request context is sent back and the agent proposes the next step.
+
+It stops when the goal is met, when you hit **Stop**, or at a hard step limit. Every mutation is still explicitly approved — Agent Mode never changes your request without a click. A status banner shows the goal and step count while it runs.
+
 ## Tips
 
 - Keep prompts short and reference the current request explicitly — the snapshot is dense; you don't need to repeat what's already there.

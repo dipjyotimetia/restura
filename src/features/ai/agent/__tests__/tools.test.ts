@@ -58,6 +58,67 @@ describe('set_test_script', () => {
   });
 });
 
+describe('update_http_request', () => {
+  it('updates url, method, and headers of the active request', () => {
+    runAgentTool('create_http_request', JSON.stringify({ url: 'https://old.example' }));
+    const res = runAgentTool(
+      'update_http_request',
+      JSON.stringify({
+        url: 'https://new.example',
+        method: 'post',
+        headers: [{ key: 'X-Test', value: '1' }],
+      })
+    );
+    expect(res.ok).toBe(true);
+    const st = useRequestStore.getState();
+    const tab = st.tabs.find((t) => t.id === st.activeTabId);
+    if (tab?.request.type === 'http') {
+      expect(tab.request.url).toBe('https://new.example');
+      expect(tab.request.method).toBe('POST');
+      expect(tab.request.headers.map((h) => h.key)).toContain('X-Test');
+    }
+  });
+
+  it('leaves omitted fields untouched', () => {
+    runAgentTool(
+      'create_http_request',
+      JSON.stringify({ url: 'https://keep.example', method: 'PUT' })
+    );
+    runAgentTool('update_http_request', JSON.stringify({ url: 'https://changed.example' }));
+    const st = useRequestStore.getState();
+    const tab = st.tabs.find((t) => t.id === st.activeTabId);
+    if (tab?.request.type === 'http') {
+      expect(tab.request.url).toBe('https://changed.example');
+      expect(tab.request.method).toBe('PUT'); // unchanged
+    }
+  });
+
+  it('rejects an empty update and when there is no active HTTP request', () => {
+    expect(runAgentTool('update_http_request', JSON.stringify({})).ok).toBe(false);
+    expect(runAgentTool('update_http_request', JSON.stringify({ url: 'x' })).ok).toBe(false);
+  });
+});
+
+describe('enrich_docs', () => {
+  it('sets the description of the active request', () => {
+    runAgentTool('create_http_request', JSON.stringify({ url: 'https://api.example/docs' }));
+    const res = runAgentTool(
+      'enrich_docs',
+      JSON.stringify({ documentation: '## Users\nReturns all users.' })
+    );
+    expect(res.ok).toBe(true);
+    const st = useRequestStore.getState();
+    const tab = st.tabs.find((t) => t.id === st.activeTabId);
+    if (tab?.request.type === 'http') {
+      expect(tab.request.description).toContain('Returns all users');
+    }
+  });
+
+  it('errors when there is no active HTTP request', () => {
+    expect(runAgentTool('enrich_docs', JSON.stringify({ documentation: 'x' })).ok).toBe(false);
+  });
+});
+
 describe('runAgentTool', () => {
   it('rejects unknown tools', () => {
     expect(runAgentTool('nope', '{}')).toEqual({ ok: false, error: 'Unknown tool: nope' });

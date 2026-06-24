@@ -51,6 +51,12 @@ export interface HttpRequest {
   testScript?: string;
   settings?: RequestSettings;
   /**
+   * Human-readable, markdown documentation for this request. Surfaced in
+   * generated collection docs (see docGenerator) and editable in the request
+   * builder. The AI "Enrich docs" action writes here via the `enrich_docs` tool.
+   */
+  description?: string;
+  /**
    * Optional link from this request to an OpenAPI operation. Lets the
    * contracts feature validate response shape at execution time. The
    * `operationId` matches an `operationId` in the spec attached at
