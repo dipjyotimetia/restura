@@ -140,6 +140,7 @@ export class ResturaDB extends Dexie {
   globals!: Table<NamedEncryptedRecord, string>;
   aiLab!: Table<NamedEncryptedRecord, string>;
   evalRuns!: Table<NamedEncryptedRecord, string>;
+  arenaRuns!: Table<NamedEncryptedRecord, string>;
   collectionRuns!: Table<NamedEncryptedRecord, string>;
   metadata!: Table<MetadataRecord, string>;
 
@@ -241,6 +242,12 @@ export class ResturaDB extends Dexie {
       // not response bodies, so the table stays small. Additive only.
       collectionRuns: 'id, name, updatedAt',
     });
+
+    this.version(13).stores({
+      // AI Lab Arena (Electron-only): pairwise model-vs-model leaderboard runs.
+      // Same encrypted NamedEncryptedRecord shape as evalRuns. Additive only.
+      arenaRuns: 'id, name, updatedAt',
+    });
   }
 
   /**
@@ -271,6 +278,7 @@ export class ResturaDB extends Dexie {
         this.aiChat,
         this.aiLab,
         this.evalRuns,
+        this.arenaRuns,
         this.collectionRuns,
         this.metadata,
       ],
@@ -297,6 +305,7 @@ export class ResturaDB extends Dexie {
           this.aiChat.clear(),
           this.aiLab.clear(),
           this.evalRuns.clear(),
+          this.arenaRuns.clear(),
           this.collectionRuns.clear(),
           this.metadata.clear(),
         ])

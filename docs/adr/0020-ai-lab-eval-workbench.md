@@ -42,8 +42,20 @@ Add **AI Lab** as a **separate, Electron-only feature** (`src/features/ai-lab`) 
 - A new feature surface (5 tabs, two stores, an engine) to maintain alongside the assistant; they share the provider core but diverge above it.
 - `script` scorers run user code; safety rests entirely on the QuickJS sandbox boundary (ADR 0015), now exercised by a second caller.
 
+## Addendum (2026-06-24): expanded scorers, datasets, Arena, http-exec
+
+The workbench grew along five axes, all following the patterns above (engine in the renderer, judge algorithm in `shared/protocol/ai/judge.ts`, encrypted `NamedEncryptedRecord` Dexie persistence):
+
+- **Scorers.** Added `tool-call` (function-call correctness — the called tool name + args validate against a JSON schema / expected JSON) and `pairwise` (preference judging). Pairwise reuses a new `runPairwiseJudge` in the shared judge engine — head-to-head A/B with optional **position-bias swap** (run both orderings; a flip-flop collapses to a tie), the LMArena/MT-Bench standard.
+- **Datasets.** Beyond hand-written + OpenAPI generation: import from request **history/collections** (`lib/datasetFromHistory.ts`; request URL/headers/body **and** captured response body redacted via `shared/protocol/ai/redaction.ts` before anything reaches a model), **CSV/JSONL** import/export, **adversarial/red-team** generation, and **multi-turn** conversation cases.
+- **Arena.** A round-robin pairwise model-vs-model tab → **Elo** leaderboard + win-rate matrix (`Arena.tsx`, `lib/elo.ts` — deterministic, fixed K-factor — `lib/arenaRunner.ts`, `store/useArenaStore.ts`). Persisted to a new `arenaRuns` Dexie table (`database.ts` version 13), reusing the existing encrypted-record persistence decision ([ADR 0014](./0014-zustand-persistence.md)).
+- **Reports.** CSV/JSON/Markdown export, per-case drill-down, and cross-model output diff.
+- **http-exec target.** The most consequential addition — recorded separately in [ADR 0023](./0023-ai-lab-http-exec.md): an eval cell can parse an HTTP/GraphQL request out of the model output and **execute it through the real request executor**, scoring the upstream response. The decision to reuse `executeRequest` (inheriting the SSRF guard, redirects, cookie jar) rather than build a parallel client is a security-boundary choice — see 0023.
+
+Capabilities grew to six `aiLab.*` rows (added `httpExec`, `arena`); the feature is now six tabs and three stores. Persistence is now `aiLab` / `evalRuns` / `arenaRuns`.
+
 ## References
 
 - Code: `src/features/ai-lab/`, `electron/main/ai-lab-handler.ts`, `shared/protocol/ai/{ai-complete,model-discovery,provider-routes,types,judge}.ts`, `src/lib/shared/{judgeBridge,completeRetry}.ts`
 - Security tests: `tests/security/ai-lab-localhost-policy.test.ts`
-- Related: [ADR 0010 (AI assistant)](./0010-ai-assistant-architecture.md), [ADR 0004 (security hardening)](./0004-security-hardening.md), [ADR 0007 (SecretRef)](./0007-secret-ref-pattern.md), [ADR 0015 (QuickJS sandbox)](./0015-quickjs-script-sandbox.md), [ADR 0012 (capability matrix)](./0012-capability-matrix-source-of-truth.md)
+- Related: [ADR 0010 (AI assistant)](./0010-ai-assistant-architecture.md), [ADR 0004 (security hardening)](./0004-security-hardening.md), [ADR 0007 (SecretRef)](./0007-secret-ref-pattern.md), [ADR 0015 (QuickJS sandbox)](./0015-quickjs-script-sandbox.md), [ADR 0012 (capability matrix)](./0012-capability-matrix-source-of-truth.md), [ADR 0023 (AI Lab http-exec)](./0023-ai-lab-http-exec.md)

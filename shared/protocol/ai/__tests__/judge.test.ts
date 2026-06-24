@@ -6,7 +6,9 @@ import {
   aggregateVerdicts,
   normalizeCriteria,
   runJudge,
+  runPairwiseJudge,
   JUDGE_TOOL,
+  PAIRWISE_TOOL,
   MAX_JUDGE_SAMPLES,
   type JudgeCriterion,
   type JudgeVerdict,
@@ -317,5 +319,47 @@ describe('runJudge', () => {
     await expect(
       runJudge({ output: 'o', rubric: 'r', passThreshold: 0.5 }, complete)
     ).rejects.toThrow('rate limited');
+  });
+});
+
+describe('runPairwiseJudge', () => {
+  const comparison = (winner: 'A' | 'B' | 'tie') =>
+    completion({
+      toolCalls: [
+        { id: '1', name: PAIRWISE_TOOL.name, input: JSON.stringify({ winner, reasoning: 'r' }) },
+      ],
+    });
+
+  it('reports A as winner with score 1', async () => {
+    const complete = async () => comparison('A');
+    const v = await runPairwiseJudge({ outputA: 'a', outputB: 'b' }, complete);
+    expect(v.winner).toBe('A');
+    expect(v.score).toBe(1);
+  });
+
+  it('reports B as winner with score 0', async () => {
+    const complete = async () => comparison('B');
+    const v = await runPairwiseJudge({ outputA: 'a', outputB: 'b' }, complete);
+    expect(v.winner).toBe('B');
+    expect(v.score).toBe(0);
+  });
+
+  it('keeps a consistent winner across swapped orderings', async () => {
+    // First call (A,B) → A wins. Swapped call (B,A) → "B wins" (i.e. original A).
+    const responses = [comparison('A'), comparison('B')];
+    let i = 0;
+    const complete = async () => responses[i++]!;
+    const v = await runPairwiseJudge({ outputA: 'a', outputB: 'b', swapPositions: true }, complete);
+    expect(v.winner).toBe('A');
+    expect(v.swapped).toBeUndefined();
+  });
+
+  it('collapses to a tie when orderings disagree (position bias)', async () => {
+    // Both calls say "A wins" → in original frame that's A then B → disagreement.
+    const complete = async () => comparison('A');
+    const v = await runPairwiseJudge({ outputA: 'a', outputB: 'b', swapPositions: true }, complete);
+    expect(v.winner).toBe('tie');
+    expect(v.swapped).toBe(true);
+    expect(v.score).toBe(0.5);
   });
 });

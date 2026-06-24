@@ -38,6 +38,8 @@ export type CapabilityName =
   | 'aiLab.localProviders'
   | 'aiLab.evals'
   | 'aiLab.judge'
+  | 'aiLab.httpExec'
+  | 'aiLab.arena'
   | 'collections.file'
   | 'collections.git'
   | 'mock.localServer'
@@ -180,16 +182,31 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     notes: 'Needs the localhost SSRF carve-out; no browser access to 127.0.0.1',
   },
   'aiLab.evals': {
-    label: 'AI Lab dataset evals (deterministic + script scorers)',
+    label: 'AI Lab dataset evals (deterministic + script + tool-call + pairwise scorers)',
     web: false,
     desktop: true,
-    notes: 'QuickJS scorers + bounded-concurrency runner over case × model cells',
+    notes:
+      'QuickJS scorers + bounded-concurrency runner over case × model cells; datasets from history/collections/CSV/JSONL/red-team, multi-turn cases',
   },
   'aiLab.judge': {
-    label: 'AI Lab LLM-as-judge',
+    label: 'AI Lab LLM-as-judge (incl. pairwise/preference)',
     web: false,
     desktop: true,
-    notes: 'Structured-output judge call via the AI Lab complete path',
+    notes:
+      'Structured-output judge call via the AI Lab complete path; pairwise with position-bias swap',
+  },
+  'aiLab.httpExec': {
+    label: 'AI Lab http-exec target (execute AI-generated request, score upstream response)',
+    web: false,
+    desktop: true,
+    notes:
+      'Model emits an HTTP/GraphQL request; executed via the real request executor (same SSRF guard), upstream response scored. See ADR 0023',
+  },
+  'aiLab.arena': {
+    label: 'AI Lab Arena (pairwise model-vs-model Elo leaderboard)',
+    web: false,
+    desktop: true,
+    notes: 'Round-robin pairwise judging → Elo + win-rate matrix; persisted to the arenaRuns table',
   },
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git': { label: 'Git operations on collections', web: false, desktop: true },

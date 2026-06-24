@@ -36,8 +36,10 @@ rather than discover it experimentally.
 | AI assistant tool calls | ❌ | ✅ | Provider tool-call decoding (OpenAI / Anthropic / OpenRouter) in the chat path |
 | AI Lab (prompt/model workbench) | ❌ | ✅ | Electron-only; model calls + SSRF localhost carve-out run in main |
 | AI Lab local runtimes (Ollama / OpenAI-compatible) | ❌ | ✅ | Needs the localhost SSRF carve-out; no browser access to 127.0.0.1 |
-| AI Lab dataset evals (deterministic + script scorers) | ❌ | ✅ | QuickJS scorers + bounded-concurrency runner over case × model cells |
-| AI Lab LLM-as-judge | ❌ | ✅ | Structured-output judge call via the AI Lab complete path |
+| AI Lab dataset evals (deterministic + script + tool-call + pairwise scorers) | ❌ | ✅ | QuickJS scorers + bounded-concurrency runner over case × model cells; datasets from history/collections/CSV/JSONL/red-team, multi-turn cases |
+| AI Lab LLM-as-judge (incl. pairwise/preference) | ❌ | ✅ | Structured-output judge call via the AI Lab complete path; pairwise with position-bias swap |
+| AI Lab http-exec target (execute AI-generated request, score upstream response) | ❌ | ✅ | Model emits an HTTP/GraphQL request; executed via the real request executor (same SSRF guard), upstream response scored. See ADR 0023 |
+| AI Lab Arena (pairwise model-vs-model Elo leaderboard) | ❌ | ✅ | Round-robin pairwise judging → Elo + win-rate matrix; persisted to the arenaRuns table |
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ |  |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |

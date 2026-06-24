@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, BarChart3, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, BarChart3, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
 import { percentile } from '@/lib/shared/loadStats';
+import { downloadBlob } from '@/lib/shared/file-utils';
 import { useEvalRunStore } from '../store/useEvalRunStore';
+import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
 import { EmptyState } from './EmptyState';
 import { StatusChip } from './StatusChip';
 import type { EvalCellResult, EvalRun } from '../types';
@@ -104,6 +106,34 @@ export function ReportView() {
   const current = active ? statsByModel(active) : [];
   const prevStats = previous ? statsByModel(previous) : [];
   const judge = useMemo(() => (active ? judgeStats(active) : null), [active]);
+  const [drillCaseId, setDrillCaseId] = useState<string | null>(null);
+
+  // Distinct case ids in the active run, in first-seen order.
+  const caseIds = useMemo(() => {
+    if (!active) return [];
+    const seen: string[] = [];
+    const set = new Set<string>();
+    for (const c of active.cells) {
+      if (!set.has(c.caseId)) {
+        set.add(c.caseId);
+        seen.push(c.caseId);
+      }
+    }
+    return seen;
+  }, [active]);
+
+  const drillCells = useMemo(
+    () => (active && drillCaseId ? active.cells.filter((c) => c.caseId === drillCaseId) : []),
+    [active, drillCaseId]
+  );
+
+  const exportRun = (format: 'csv' | 'json' | 'md') => {
+    if (!active) return;
+    const safe = active.configName.replace(/[^a-z0-9-_]+/gi, '_') || 'run';
+    if (format === 'csv') downloadBlob(runToCsv(active), `${safe}.csv`, 'text/csv');
+    else if (format === 'json') downloadBlob(runToJson(active), `${safe}.json`, 'application/json');
+    else downloadBlob(runToMarkdown(active), `${safe}.md`, 'text/markdown');
+  };
 
   if (sorted.length === 0) {
     return (
@@ -149,18 +179,44 @@ export function ReportView() {
               <h2 className="truncate text-sp-13 font-semibold text-sp-text">
                 {active.configName}
               </h2>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Delete run"
-                title="Delete run"
-                onClick={() => {
-                  deleteRun(active.id);
-                  setActiveId(null);
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-              </Button>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportRun('csv')}
+                  title="Export CSV"
+                >
+                  <Download className="mr-1 h-3.5 w-3.5" /> CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportRun('json')}
+                  title="Export JSON"
+                >
+                  JSON
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportRun('md')}
+                  title="Export Markdown"
+                >
+                  MD
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Delete run"
+                  title="Delete run"
+                  onClick={() => {
+                    deleteRun(active.id);
+                    setActiveId(null);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </Button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sp-12">
@@ -254,6 +310,91 @@ export function ReportView() {
                     />
                   )}
                 </div>
+              </div>
+            )}
+            {caseIds.length > 0 && (
+              <div className="space-y-2 border-t border-sp-line pt-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="sp-label">Per-case drill-down</h3>
+                  <select
+                    value={drillCaseId ?? ''}
+                    onChange={(e) => setDrillCaseId(e.target.value || null)}
+                    className="rounded-sp-btn border border-sp-line bg-sp-surface px-2 py-1 text-sp-12 text-sp-text"
+                  >
+                    <option value="">Select a case…</option>
+                    {caseIds.map((id, i) => (
+                      <option key={id} value={id}>
+                        Case {i + 1} ({id.slice(0, 8)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {drillCells.length > 0 && (
+                  <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+                    {drillCells.map((cell) => (
+                      <Floater
+                        key={`${cell.caseId}:${cell.modelRef.providerConfigId}:${cell.modelRef.model}`}
+                        radius="panel"
+                        elevation="inset"
+                        className="flex flex-col gap-2 p-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sp-12 font-medium text-sp-text">
+                            {cell.modelRef.model}
+                          </span>
+                          <span
+                            className={cn(
+                              'shrink-0 rounded px-1.5 py-0.5 text-sp-11',
+                              cell.notEvaluated
+                                ? 'bg-sp-hover text-sp-muted'
+                                : cell.passed
+                                  ? 'bg-emerald-500/15 text-emerald-500'
+                                  : 'bg-destructive/15 text-destructive'
+                            )}
+                          >
+                            {cell.notEvaluated ? 'n/a' : cell.passed ? 'pass' : 'fail'}
+                          </span>
+                        </div>
+                        {cell.executed && (
+                          <div className="text-sp-11 text-sp-muted">
+                            HTTP {cell.executed.status} · {Math.round(cell.executed.latencyMs)}ms
+                          </div>
+                        )}
+                        <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
+                          {cell.error ? (
+                            <span className="text-destructive">{cell.error}</span>
+                          ) : (
+                            cell.output || <span className="text-sp-muted">(empty)</span>
+                          )}
+                        </div>
+                        {cell.scores.length > 0 && (
+                          <div className="space-y-1 border-t border-sp-line pt-1.5">
+                            {cell.scores.map((s, i) => (
+                              <div
+                                key={i}
+                                className="flex items-start justify-between gap-2 text-sp-11"
+                              >
+                                <span className="text-sp-muted">{s.kind}</span>
+                                <span
+                                  className={cn(
+                                    'text-right',
+                                    s.passed ? 'text-emerald-500' : 'text-destructive'
+                                  )}
+                                >
+                                  {s.passed ? 'pass' : 'fail'}
+                                  {s.score !== undefined ? ` (${s.score.toFixed(2)})` : ''}
+                                  {s.detail ? (
+                                    <span className="block text-sp-text-dim">{s.detail}</span>
+                                  ) : null}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Floater>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {previous && (

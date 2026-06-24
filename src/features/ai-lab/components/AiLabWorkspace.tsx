@@ -8,6 +8,7 @@ import { ProviderManager } from './ProviderManager';
 import { Playground } from './Playground';
 import { DatasetEditor } from './DatasetEditor';
 import { EvalBuilder } from './EvalBuilder';
+import { Arena } from './Arena';
 import { ReportView } from './ReportView';
 
 // CSS-in-JS region tag — Electron-only `WebkitAppRegion`. Mirrors TopBar so the
@@ -15,12 +16,13 @@ import { ReportView } from './ReportView';
 const region = (value: 'drag' | 'no-drag'): React.CSSProperties =>
   ({ WebkitAppRegion: value }) as React.CSSProperties;
 
-type AiLabTab = 'playground' | 'datasets' | 'evals' | 'reports' | 'providers';
+type AiLabTab = 'playground' | 'datasets' | 'evals' | 'arena' | 'reports' | 'providers';
 
 const TABS: ReadonlyArray<{ value: AiLabTab; label: string }> = [
   { value: 'playground', label: 'Playground' },
   { value: 'datasets', label: 'Datasets' },
   { value: 'evals', label: 'Evals' },
+  { value: 'arena', label: 'Arena' },
   { value: 'reports', label: 'Reports' },
   { value: 'providers', label: 'Providers' },
 ];
@@ -76,6 +78,7 @@ export default function AiLabWorkspace() {
             {tab === 'playground' && <Playground />}
             {tab === 'datasets' && <DatasetEditor />}
             {tab === 'evals' && <EvalBuilder />}
+            {tab === 'arena' && <Arena />}
             {tab === 'reports' && <ReportView />}
             {tab === 'providers' && <ProviderManager />}
           </div>

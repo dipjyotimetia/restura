@@ -145,4 +145,110 @@ describe('runEval', () => {
     expect(cells).toHaveLength(0);
     expect(mockComplete).not.toHaveBeenCalled();
   });
+
+  it('marks a zero-scorer cell as notEvaluated (not a pass)', async () => {
+    mockComplete.mockResolvedValue(result('anything'));
+    const cells = await runEval(
+      {
+        prompt: PROMPT,
+        dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [],
+        providers: { p1: PROVIDER },
+        concurrency: 1,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    expect(cells[0]?.passed).toBe(false);
+    expect(cells[0]?.notEvaluated).toBe(true);
+  });
+
+  it('builds messages from multi-turn case turns', async () => {
+    mockComplete.mockResolvedValue(result('ok'));
+    const turnsCase: Dataset = {
+      ...DATASET,
+      cases: [
+        {
+          id: 'c1',
+          vars: { name: 'Ada' },
+          turns: [
+            { role: 'user', content: 'Hi I am {{name}}' },
+            { role: 'assistant', content: 'Hello!' },
+            { role: 'user', content: 'What is my name?' },
+          ],
+        },
+      ],
+    };
+    await runEval(
+      {
+        prompt: PROMPT,
+        dataset: turnsCase,
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [],
+        providers: { p1: PROVIDER },
+        concurrency: 1,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    const spec = mockComplete.mock.calls[0]![0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    // system + 3 turns; vars resolved inside turn content.
+    expect(spec.messages).toHaveLength(4);
+    expect(spec.messages[1]).toEqual({ role: 'user', content: 'Hi I am Ada' });
+    expect(spec.messages[3]).toEqual({ role: 'user', content: 'What is my name?' });
+  });
+
+  it('http-exec target executes the parsed request and scores the response', async () => {
+    mockComplete.mockResolvedValue(result('```json\n{"method":"GET","url":"https://x.test"}\n```'));
+    const runRequest = vi.fn(async () => ({
+      status: 200,
+      statusText: 'OK',
+      body: '{"ok":true}',
+      latencyMs: 12,
+      ok: true,
+    }));
+    const cells = await runEval(
+      {
+        prompt: PROMPT,
+        dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [{ id: 's', kind: 'contains', needle: '"ok":true' }],
+        providers: { p1: PROVIDER },
+        concurrency: 1,
+        target: { kind: 'http-exec', parseFrom: 'fenced', protocol: 'http' },
+        runRequest,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    expect(runRequest).toHaveBeenCalledOnce();
+    expect(cells[0]?.executed?.status).toBe(200);
+    expect(cells[0]?.output).toBe('{"ok":true}');
+    expect(cells[0]?.passed).toBe(true);
+  });
+
+  it('http-exec fails the cell when no request can be parsed', async () => {
+    mockComplete.mockResolvedValue(result('I cannot help with that.'));
+    const runRequest = vi.fn();
+    const cells = await runEval(
+      {
+        prompt: PROMPT,
+        dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [{ id: 's', kind: 'contains', needle: 'x' }],
+        providers: { p1: PROVIDER },
+        concurrency: 1,
+        target: { kind: 'http-exec', parseFrom: 'json', protocol: 'http' },
+        runRequest,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    expect(runRequest).not.toHaveBeenCalled();
+    expect(cells[0]?.passed).toBe(false);
+    expect(cells[0]?.error).toMatch(/could not extract request/);
+  });
 });
