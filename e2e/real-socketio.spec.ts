@@ -183,7 +183,7 @@ test.describe('Real Socket.IO server', () => {
     await expect(page.getByTestId('socketio-status')).toHaveText(/connected/i, { timeout: 15_000 });
 
     await page.getByRole('textbox', { name: 'Event name' }).fill('greet');
-    await page.getByRole('textbox', { name: /JSON value or array/i }).fill('"hi-from-ui"');
+    await page.getByRole('textbox', { name: /Emit arguments \(JSON\)/i }).fill('"hi-from-ui"');
     await page.getByRole('button', { name: /^Emit$/ }).click();
 
     await expect
