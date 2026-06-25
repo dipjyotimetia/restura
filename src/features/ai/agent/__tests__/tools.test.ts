@@ -97,6 +97,34 @@ describe('update_http_request', () => {
     expect(runAgentTool('update_http_request', JSON.stringify({})).ok).toBe(false);
     expect(runAgentTool('update_http_request', JSON.stringify({ url: 'x' })).ok).toBe(false);
   });
+
+  it('reports failure (does not falsely succeed) when the store rejects an invalid method', () => {
+    runAgentTool(
+      'create_http_request',
+      JSON.stringify({ url: 'https://m.example', method: 'GET' })
+    );
+    const res = runAgentTool('update_http_request', JSON.stringify({ method: 'CONNECT' }));
+    expect(res.ok).toBe(false);
+    const st = useRequestStore.getState();
+    const tab = st.tabs.find((t) => t.id === st.activeTabId);
+    if (tab?.request.type === 'http') {
+      expect(tab.request.method).toBe('GET'); // unchanged — the update did not land
+    }
+  });
+
+  it('preserves a non-JSON body type when only the raw body changes', () => {
+    runAgentTool('create_http_request', JSON.stringify({ url: 'https://b.example' }));
+    const st0 = useRequestStore.getState();
+    st0.updateRequest({ body: { type: 'xml', raw: '<a/>' } } as never);
+    const res = runAgentTool('update_http_request', JSON.stringify({ body: '<b/>' }));
+    expect(res.ok).toBe(true);
+    const st = useRequestStore.getState();
+    const tab = st.tabs.find((t) => t.id === st.activeTabId);
+    if (tab?.request.type === 'http') {
+      expect(tab.request.body.type).toBe('xml'); // not clobbered to json
+      expect(tab.request.body.raw).toBe('<b/>');
+    }
+  });
 });
 
 describe('enrich_docs', () => {

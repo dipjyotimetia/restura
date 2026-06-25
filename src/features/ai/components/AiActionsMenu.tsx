@@ -3,15 +3,10 @@ import { Sparkles } from 'lucide-react';
 import {
   dispatchInlineAiAction,
   useAiActionsAvailable,
-  type InlineAiAction,
+  INLINE_ACTIONS,
+  INLINE_ACTION_LABELS,
 } from '@/features/ai/lib/inlineActions';
 import { cn } from '@/lib/shared/utils';
-
-const AI_ACTIONS: ReadonlyArray<{ action: InlineAiAction; label: string }> = [
-  { action: 'fix', label: 'Fix request' },
-  { action: 'generate-tests', label: 'Generate tests' },
-  { action: 'enrich-docs', label: 'Enrich docs' },
-];
 
 interface Props {
   className?: string;
@@ -52,16 +47,16 @@ export function AiActionsMenu({ className }: Props) {
             'data-[state=open]:animate-sp-fade-in'
           )}
         >
-          {AI_ACTIONS.map((a) => (
+          {INLINE_ACTIONS.map((action) => (
             <DropdownMenu.Item
-              key={a.action}
-              onSelect={() => dispatchInlineAiAction(a.action)}
+              key={action}
+              onSelect={() => dispatchInlineAiAction(action)}
               className={cn(
                 'w-full px-2.5 py-1.5 rounded-sp-btn outline-none cursor-default text-sp-12',
                 'data-[highlighted]:bg-sp-hover transition-colors'
               )}
             >
-              {a.label}
+              {INLINE_ACTION_LABELS[action]}
             </DropdownMenu.Item>
           ))}
         </DropdownMenu.Content>

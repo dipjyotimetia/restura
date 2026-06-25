@@ -327,7 +327,9 @@ function requestFromInternal(name: string, r: Request): unknown {
       }
       const auth = authFromInternal(hr.auth);
       if (auth) http.auth = auth;
-      const out: Record<string, unknown> = { info: { type: 'http', name }, http };
+      const info: Record<string, unknown> = { type: 'http', name };
+      if (hr.description) info.description = hr.description;
+      const out: Record<string, unknown> = { info, http };
       const runtime = runtimeFromInternal(hr.preRequestScript, hr.testScript);
       if (runtime) out.runtime = runtime;
       return out;

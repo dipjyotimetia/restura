@@ -134,7 +134,9 @@ const setTestScript: AgentTool = {
     if (!tab || tab.request.type !== 'http') {
       return { ok: false, error: 'No active HTTP request to attach a test script to' };
     }
-    st.updateRequest({ testScript: parsed.value.script } as Partial<Request>);
+    if (!st.updateRequest({ testScript: parsed.value.script } as Partial<Request>)) {
+      return { ok: false, error: 'The test script update was rejected' };
+    }
     return { ok: true, summary: 'Updated the active request’s test script' };
   },
 };
@@ -161,7 +163,8 @@ const updateHttpRequest: AgentTool = {
       'Update fields of the ACTIVE HTTP request in place — used to fix a broken request. ' +
       'Only include the fields you want to change; omitted fields are left untouched. ' +
       'Supplying `headers` or `params` REPLACES that list entirely, so include every ' +
-      'entry that should remain. Supplying `body` sets a raw JSON body.',
+      'entry that should remain. Supplying `body` replaces the raw body text (the body ' +
+      'type is preserved for json/text/xml/graphql; other types become json).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -204,9 +207,25 @@ const updateHttpRequest: AgentTool = {
     if (input.name !== undefined) update.name = input.name;
     if (input.headers !== undefined) update.headers = toKeyValues(input.headers);
     if (input.params !== undefined) update.params = toKeyValues(input.params);
-    if (input.body !== undefined) update.body = { type: 'json', raw: input.body };
+    if (input.body !== undefined) {
+      // Preserve the current body type for raw-text bodies instead of forcing
+      // json — clobbering an xml/graphql/text body's type silently changed how
+      // it serialised. Non-raw bodies (form-data/binary/multipart/none) have no
+      // raw representation, so a raw-text update becomes json.
+      const cur = active.request.body;
+      const RAW_TYPES: ReadonlyArray<string> = ['json', 'text', 'xml', 'graphql'];
+      update.body = RAW_TYPES.includes(cur.type)
+        ? { ...cur, raw: input.body }
+        : { type: 'json', raw: input.body };
+    }
 
-    useRequestStore.getState().updateRequest(update as Partial<Request>);
+    // updateRequest validates the merged request and returns false if it was
+    // rejected (e.g. an unsupported method) — don't report success in that case,
+    // or Agent Mode would advance on a change that never landed.
+    const applied = useRequestStore.getState().updateRequest(update as Partial<Request>);
+    if (!applied) {
+      return { ok: false, error: 'The update was rejected as invalid (check the method/fields)' };
+    }
     const changed = Object.keys(update).join(', ');
     return { ok: true, summary: `Updated the active request (${changed})` };
   },
@@ -236,9 +255,10 @@ const enrichDocs: AgentTool = {
     if (!parsed.ok) return parsed;
     const active = activeHttpTab();
     if (!active) return { ok: false, error: 'No active HTTP request to document' };
-    useRequestStore
+    const applied = useRequestStore
       .getState()
       .updateRequest({ description: parsed.value.documentation } as Partial<Request>);
+    if (!applied) return { ok: false, error: 'The documentation update was rejected' };
     return { ok: true, summary: 'Updated the active request’s documentation' };
   },
 };

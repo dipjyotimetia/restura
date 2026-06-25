@@ -1,21 +1,16 @@
-import { Sparkles, FlaskConical, FileText, Wrench } from 'lucide-react';
+import { FlaskConical, FileText, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   dispatchInlineAiAction,
   useAiActionsAvailable,
+  INLINE_ACTION_LABELS,
   type InlineAiAction,
 } from '@/features/ai/lib/inlineActions';
 
-const ICONS: Record<InlineAiAction, typeof Sparkles> = {
+const ICONS: Record<InlineAiAction, typeof Wrench> = {
   fix: Wrench,
   'generate-tests': FlaskConical,
   'enrich-docs': FileText,
-};
-
-const LABELS: Record<InlineAiAction, string> = {
-  fix: 'Fix with AI',
-  'generate-tests': 'Generate tests',
-  'enrich-docs': 'Enrich docs',
 };
 
 interface Props {
@@ -34,7 +29,7 @@ export function AiActionButton({ action, showLabel = false, className }: Props) 
   const available = useAiActionsAvailable();
   if (!available) return null;
   const Icon = ICONS[action];
-  const label = LABELS[action];
+  const label = INLINE_ACTION_LABELS[action];
   return (
     <Button
       size="sm"
@@ -44,8 +39,7 @@ export function AiActionButton({ action, showLabel = false, className }: Props) 
       aria-label={label}
       className={className}
     >
-      <Sparkles className="h-3.5 w-3.5 text-sp-accent" />
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className="h-3.5 w-3.5 text-sp-accent" />
       {showLabel && <span className="ml-1 text-xs">{label}</span>}
     </Button>
   );

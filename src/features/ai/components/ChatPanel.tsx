@@ -20,12 +20,22 @@ import { buildMessages, SYSTEM_AGENT_PROMPT } from '@/features/ai/lib/promptBuil
 import { consumeStream } from '@/features/ai/lib/streamConsumer';
 import { useAiChatStore, type ChatMessage } from '@/features/ai/store';
 import { getElectronAPI } from '@/lib/shared/platform';
+import { useRequestStore } from '@/store/useRequestStore';
 
 interface PendingToolCall {
   id: string;
   name: string;
   input: string;
+  /**
+   * The active tab id when this proposal was made (from the context snapshot).
+   * For tools that mutate the ACTIVE request, applying after the user switched
+   * tabs would hit the wrong request — so apply re-checks this.
+   */
+  contextTabId?: string;
 }
+
+/** Tools that mutate whatever request is ACTIVE (not ones that open a new tab). */
+const ACTIVE_TAB_TOOLS = new Set(['update_http_request', 'set_test_script', 'enrich_docs']);
 
 // Stable empty reference so the messages selector doesn't return a fresh array
 // (which would re-render every store change under Object.is equality).
@@ -78,6 +88,9 @@ export function ChatPanel({ onClose }: Props) {
   const cancelRef = useRef<(() => void) | null>(null);
   const flushBufferRef = useRef<{ msgId: string; buffer: string } | null>(null);
   const rafRef = useRef<number | null>(null);
+  // Synchronous lock so a double-click on Apply can't run the same tool twice
+  // (setToolCalls is async, so the card is still on screen for the 2nd click).
+  const appliedIdsRef = useRef<Set<string>>(new Set());
   // Synchronous re-entry guard. `streamingId` is React state, so it isn't set
   // until a re-render — a second ⌘+Enter fired during the ai.chat() round-trip
   // would otherwise start a competing stream that clobbers the shared refs.
@@ -123,6 +136,7 @@ export function ChatPanel({ onClose }: Props) {
     if (!providerConfig || sendingRef.current) return { ok: false, sawToolCall: false };
     sendingRef.current = true;
     setToolCalls([]);
+    appliedIdsRef.current.clear();
     let sawToolCall = false;
     const snapshot = captureActive();
 
@@ -213,8 +227,13 @@ export function ChatPanel({ onClose }: Props) {
           scheduleFlush();
         } else if (ev.type === 'tool_call') {
           // Surface as a pending proposal; don't mutate state until approved.
+          // Tag it with the tab the context came from so apply can detect a tab
+          // switch before mutating the wrong request.
           sawToolCall = true;
-          setToolCalls((prev) => [...prev, { id: ev.id, name: ev.name, input: ev.input }]);
+          setToolCalls((prev) => [
+            ...prev,
+            { id: ev.id, name: ev.name, input: ev.input, contextTabId: snapshot.contextRef.tabId },
+          ]);
         } else if (ev.type === 'usage') {
           lastUsage = ev.usage;
         } else if (ev.type === 'error') {
@@ -278,20 +297,47 @@ export function ChatPanel({ onClose }: Props) {
   };
 
   const applyToolCall = (tc: PendingToolCall) => {
+    // Re-entrancy lock: a double-click would otherwise run the tool twice before
+    // the card unmounts (setToolCalls is async).
+    if (appliedIdsRef.current.has(tc.id)) return;
+    appliedIdsRef.current.add(tc.id);
+
+    const inAgentStep = useAiChatStore.getState().agentSession?.status === 'awaiting-apply';
+
+    // Guard against applying an active-request mutation after the user switched
+    // tabs — the proposal was built against a different request's context.
+    if (
+      ACTIVE_TAB_TOOLS.has(tc.name) &&
+      tc.contextTabId &&
+      tc.contextTabId !== useRequestStore.getState().activeTabId
+    ) {
+      toast.error('The active request changed — re-run the action on the intended request.');
+      setToolCalls((prev) => prev.filter((t) => t.id !== tc.id));
+      const cur = useAiChatStore.getState().agentSession;
+      if (cur && cur.status === 'awaiting-apply') setAgentSession(onAgentError(cur));
+      return;
+    }
+
     const res = runAgentTool(tc.name, tc.input);
     if (res.ok) toast.success(res.summary);
     else toast.error(res.error);
     setToolCalls((prev) => prev.filter((t) => t.id !== tc.id));
 
-    // Agent Mode: applying the proposed step advances the loop. Drop any other
-    // pending proposals (the agent prompt asks for one step at a time) and, if
-    // still under the cap, fire the next turn.
+    // Agent Mode bookkeeping: advance the loop only on success; on failure end
+    // the run with an error so it can't dangle in 'awaiting-apply' forever.
     const current = useAiChatStore.getState().agentSession;
-    if (res.ok && current && current.status === 'awaiting-apply') {
+    if (inAgentStep && current && current.status === 'awaiting-apply') {
+      if (!res.ok) {
+        setAgentSession(onAgentError(current));
+        return;
+      }
       const next = onAgentApplied(current);
       setAgentSession(next);
+      // The agent works one step at a time — drop any other pending proposals
+      // (e.g. a turn that emitted multiple tool calls) so none can be applied
+      // after the loop has advanced or hit the cap.
+      setToolCalls([]);
       if (next.status === 'running') {
-        setToolCalls([]);
         void runAgentTurn('The previous step was applied. Continue toward the goal.');
       }
     }
@@ -471,7 +517,10 @@ export function ChatPanel({ onClose }: Props) {
         </form>
       )}
       <Composer
-        disabled={!apiKeyConfigured}
+        // Disabled during an agent run: the agent owns the conversation, and a
+        // manual send would both race its next turn and pollute the context the
+        // loop replays.
+        disabled={!apiKeyConfigured || agentBusy}
         streaming={!!streamingId}
         onSend={(t, r) => void handleSend(t, r)}
         onStop={() => cancelRef.current?.()}

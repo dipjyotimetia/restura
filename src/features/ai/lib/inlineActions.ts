@@ -13,6 +13,23 @@ import { isElectron } from '@/lib/shared/platform';
 
 export type InlineAiAction = 'fix' | 'generate-tests' | 'enrich-docs';
 
+/** Display order for menus / button rows. */
+export const INLINE_ACTIONS: ReadonlyArray<InlineAiAction> = [
+  'fix',
+  'generate-tests',
+  'enrich-docs',
+];
+
+/**
+ * Single source of truth for action labels — consumed by AiActionsMenu and
+ * AiActionButton so the menu and the toolbar button can't drift apart.
+ */
+export const INLINE_ACTION_LABELS: Record<InlineAiAction, string> = {
+  fix: 'Fix request',
+  'generate-tests': 'Generate tests',
+  'enrich-docs': 'Enrich docs',
+};
+
 /**
  * Seeded prompts. Each names the exact tool to call so the model proposes the
  * intended action; the user still approves before anything mutates.
