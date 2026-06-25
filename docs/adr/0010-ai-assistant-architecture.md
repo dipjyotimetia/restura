@@ -15,6 +15,34 @@ Make the AI path **Electron-first and provider-agnostic**, with the orchestrator
 - Redaction: the renderer captures context via `lib/contextSnapshot.ts` (method, path, protocol, redacted headers/body, response, active env name) and `redaction.ts` scrubs secrets and URLs before anything leaves the machine.
 - **No `/api/ai` Worker route exists yet.** The web build is not wired through the proxy. Platform parity must be confirmed, not assumed — this is the main reason the feature is marked "active development."
 
+## Increment: inline actions + Agent Mode (2026-06)
+
+Two capabilities were layered on top of the propose-&-apply tool harness without
+touching the IPC, provider, or security layers — a deliberate choice to avoid
+quality/security drift (no new outbound transport, no new IPC channel, no new
+provider, no `url-validation`/`secret-handle` change).
+
+- **Inline AI actions** — "Fix request", "Generate tests", "Enrich docs" buttons
+  mounted on the request UI (`UrlBar` AI menu, `ScriptsEditor` test tab). Each
+  dispatches a seeded chat message via the store (`queuedAction` →
+  `enqueueAction`), which the `ChatPanel` consumes through the **same**
+  `handleSend` path (no forked streaming). The resulting tool proposal flows
+  through the existing Apply card. New tools: `update_http_request`,
+  `enrich_docs` (the latter writes a new optional `HttpRequest.description`,
+  surfaced by `docGenerator`). "Generate tests" reuses `set_test_script`.
+- **Agent Mode** — a bounded, multi-step loop for a user **goal**. Continuation
+  is achieved by **re-sending over the existing `ai:chat` channel** with the
+  agent system prompt and a freshly re-captured (re-redacted) context snapshot
+  after each step — there is **no native tool-result wire protocol** (the
+  `ChatMessageWire` shape stays `{role, content}`). Consent stays **strict**:
+  the model proposes one tool call per turn, every mutation waits for an explicit
+  Apply, and a pure state machine (`agent/agentSession.ts`) enforces a hard step
+  cap, Stop, and Dismiss-ends-run. The loop lives in the renderer; the session is
+  ephemeral (never persisted, no Dexie migration).
+
+Both remain **Electron-only** (`ai.inlineActions`, `ai.agentMode` in the
+capability matrix, `web: false`), consistent with the no-`/api/ai` decision above.
+
 ## Consequences
 
 **Positive**

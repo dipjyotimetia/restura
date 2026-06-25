@@ -82,6 +82,15 @@ function RequestBuilder() {
         onOpenCodeGen={() => setCodeGenOpen(true)}
       />
 
+      {httpRequest.description && (
+        <p
+          className="px-3 -mt-1 text-sp-11 text-sp-dim whitespace-pre-wrap line-clamp-3"
+          title={httpRequest.description}
+        >
+          {httpRequest.description}
+        </p>
+      )}
+
       <CodeGeneratorDialog open={codeGenOpen} onOpenChange={setCodeGenOpen} request={httpRequest} />
 
       <LoadTestDialog

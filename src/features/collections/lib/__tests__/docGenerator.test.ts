@@ -57,6 +57,37 @@ const collection: Collection = {
   ],
 };
 
+describe('request description', () => {
+  it('carries HttpRequest.description into the doc model and rendered markdown', () => {
+    const withDesc: Collection = {
+      id: 'c2',
+      name: 'Docs API',
+      items: [
+        {
+          id: 'r1',
+          name: 'Ping',
+          type: 'request',
+          request: {
+            id: 'r1',
+            name: 'Ping',
+            type: 'http',
+            method: 'GET',
+            url: 'https://api.example/ping',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' } as never,
+            description: 'Returns pong. AI-enriched docs.',
+          },
+        },
+      ],
+    };
+    const model = buildDocModel(withDesc);
+    expect(model.operations[0]?.description).toBe('Returns pong. AI-enriched docs.');
+    expect(docModelToMarkdown(model)).toContain('Returns pong. AI-enriched docs.');
+  });
+});
+
 describe('buildDocModel', () => {
   it('flattens folders into operations with paths', () => {
     const model = buildDocModel(collection);

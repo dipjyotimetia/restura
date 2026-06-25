@@ -2,6 +2,7 @@ import type { ChatProvider, Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { AgentSession } from '@/features/ai/agent/agentSession';
 import { debouncedStorage } from '@/lib/shared/debouncedStorage';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { AiChatStateSchema, type PersistedAiChatState } from '@/lib/shared/store-validators';
@@ -43,7 +44,32 @@ export interface Conversation {
   updatedAt: number;
 }
 
-export interface AiChatState extends PersistedAiChatState {
+/**
+ * A one-shot chat action queued from an inline UI button (e.g. "Fix request").
+ * Ephemeral — never persisted. `forceTools` advertises the agent tools for this
+ * send regardless of the user's `agentToolsEnabled` preference, so an inline
+ * action can always propose a mutation without permanently flipping the toggle.
+ */
+export interface QueuedAction {
+  userText: string;
+  forceTools: boolean;
+}
+
+// `conversations` is re-typed with the hand-written `Conversation`/`ChatMessage`
+// interfaces rather than the Zod-inferred persisted type. Zod's `.optional()`
+// widens optionals to `T | undefined`, which clashes with the hand-written
+// optionals under `exactOptionalPropertyTypes` (on in the http feature's
+// tsconfig, which reaches this store via the inline AI actions). Same runtime
+// shape; this just keeps the store EOPT-clean wherever it's imported.
+export interface AiChatState extends Omit<PersistedAiChatState, 'conversations'> {
+  conversations: Record<string, Conversation>;
+  /** Set by enqueueAction; consumed (and cleared) by the ChatPanel effect. */
+  queuedAction: QueuedAction | null;
+  enqueueAction: (action: { userText: string }) => void;
+  clearQueuedAction: () => void;
+  /** Active Agent Mode run (ephemeral, never persisted). */
+  agentSession: AgentSession | null;
+  setAgentSession: (s: AgentSession | null) => void;
   newConversation: () => string;
   setActive: (id: string) => void;
   deleteConversation: (id: string) => void;
@@ -96,6 +122,19 @@ export const useAiChatStore = create<AiChatState>()(
   persist(
     (set) => ({
       ...DEFAULT_STATE,
+      // Re-typed to the hand-written Conversation (DEFAULT_STATE carries the
+      // Zod-inferred type, which EOPT rejects here). Same empty value.
+      conversations: {} as Record<string, Conversation>,
+      queuedAction: null,
+
+      enqueueAction: (action) =>
+        // Open the panel so the ChatPanel mounts and its effect can consume the
+        // queued action; force tools on for this send.
+        set({ queuedAction: { userText: action.userText, forceTools: true }, panelOpen: true }),
+      clearQueuedAction: () => set({ queuedAction: null }),
+
+      agentSession: null,
+      setAgentSession: (s) => set({ agentSession: s }),
 
       newConversation: () => {
         const id = uuidv4();
@@ -255,7 +294,10 @@ export const useAiChatStore = create<AiChatState>()(
           // Merge (NOT replace) — DEFAULT_STATE carries every persisted data
           // field, so this overwrites all of them with defaults while keeping
           // the store's action methods intact. replace:true would wipe them.
-          useAiChatStore.setState({ ...DEFAULT_STATE });
+          useAiChatStore.setState({
+            ...DEFAULT_STATE,
+            conversations: {} as Record<string, Conversation>,
+          });
           return;
         }
         // Recover from a reload mid-stream: any streaming message becomes errored.
@@ -271,7 +313,9 @@ export const useAiChatStore = create<AiChatState>()(
           });
           if (touched) conversations[cid] = { ...conv, messages: fixed };
         }
-        useAiChatStore.setState({ conversations });
+        // Cast across the persistence boundary: the Zod-parsed `state` widens
+        // optionals to `| undefined`; the runtime shape matches Conversation.
+        useAiChatStore.setState({ conversations: conversations as Record<string, Conversation> });
       },
     }
   )

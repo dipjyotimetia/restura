@@ -19,11 +19,29 @@ The user is looking at a request and (usually) its response in the app. Your job
 
 When the user refers to "this request" or "this response", they mean the one in <CONTEXT> below.`.trim();
 
+export const SYSTEM_AGENT_PROMPT =
+  `You are an autonomous API agent inside Restura, a multi-protocol API client.
+
+You are given a GOAL and the current request/response context. Work toward the goal
+step by step using the available tools:
+- Propose exactly ONE tool call per turn — the smallest concrete next step.
+- After each step the user reviews and applies it; the updated context is then sent
+  back to you so you can decide the next step.
+- When the goal is fully achieved, reply with a short final summary and DO NOT call
+  any tool. The absence of a tool call is how you signal completion.
+- Never invent endpoints, headers, or fields you didn't see in the supplied context.
+- If the goal cannot be progressed, say so plainly with no tool call.
+
+The user must approve every action, so be deliberate: each proposed step should be a
+clear, correct improvement toward the goal.`.trim();
+
 interface BuildArgs {
   snapshot: RawSnapshot;
   priorTurns: ChatMessageWire[];
   userText: string;
   rawMode: boolean;
+  /** System prompt override (e.g. the agent prompt). Defaults to the explainer. */
+  system?: string;
 }
 
 /**
@@ -99,7 +117,7 @@ export function buildMessages(args: BuildArgs): ChatMessageWire[] {
   const mode: RedactionMode = args.rawMode ? 'raw' : 'default';
   const ctx = renderContext(args.snapshot, mode);
   return [
-    { role: 'system', content: SYSTEM_EXPLAIN_PROMPT },
+    { role: 'system', content: args.system ?? SYSTEM_EXPLAIN_PROMPT },
     ...args.priorTurns,
     { role: 'user', content: `${args.userText}\n\n${ctx}` },
   ];

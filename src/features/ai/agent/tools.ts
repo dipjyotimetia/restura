@@ -5,9 +5,13 @@
  *
  * The consent model is "propose & apply": the model emits a tool call, the
  * ChatPanel renders it as a card, and nothing mutates until the user clicks
- * Apply — which invokes `runAgentTool`. There is no automatic execution and no
- * multi-turn provider continuation in this version (documented as the next
- * increment).
+ * Apply — which invokes `runAgentTool`. There is no automatic execution.
+ *
+ * These tools are also driven by the inline AI actions (Fix request / Generate
+ * tests / Enrich docs — see lib/inlineActions.ts) and by Agent Mode, a bounded
+ * multi-step loop (agent/agentSession.ts) that continues by re-sending over the
+ * existing ai:chat channel after each user-approved step. Strict propose-&-apply
+ * holds throughout: every mutation still waits for an explicit Apply.
  */
 import type { AiToolDef } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -39,6 +43,18 @@ function parseInput<T>(
 
 function toKeyValues(pairs?: Array<{ key: string; value: string }>): KeyValue[] {
   return (pairs ?? []).map((p) => ({ id: uuidv4(), key: p.key, value: p.value, enabled: true }));
+}
+
+/**
+ * The active tab, narrowed to an HTTP request, or null. Shared by the tools
+ * that mutate the request currently in focus so the `type === 'http'` guard
+ * (and its error message) lives in one place.
+ */
+function activeHttpTab(): { request: HttpRequest } | null {
+  const st = useRequestStore.getState();
+  const tab = st.tabs.find((t) => t.id === st.activeTabId);
+  if (!tab || tab.request.type !== 'http') return null;
+  return { request: tab.request };
 }
 
 // --- create_http_request -----------------------------------------------------
@@ -118,12 +134,141 @@ const setTestScript: AgentTool = {
     if (!tab || tab.request.type !== 'http') {
       return { ok: false, error: 'No active HTTP request to attach a test script to' };
     }
-    st.updateRequest({ testScript: parsed.value.script } as Partial<Request>);
+    if (!st.updateRequest({ testScript: parsed.value.script } as Partial<Request>)) {
+      return { ok: false, error: 'The test script update was rejected' };
+    }
     return { ok: true, summary: 'Updated the active request’s test script' };
   },
 };
 
-export const AGENT_TOOLS: AgentTool[] = [createHttpRequest, setTestScript];
+// --- update_http_request ------------------------------------------------------
+
+const updateReqSchema = z
+  .object({
+    method: z.string().optional(),
+    url: z.string().min(1).optional(),
+    name: z.string().optional(),
+    headers: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
+    params: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
+    body: z.string().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: 'Specify at least one field to update',
+  });
+
+const updateHttpRequest: AgentTool = {
+  def: {
+    name: 'update_http_request',
+    description:
+      'Update fields of the ACTIVE HTTP request in place — used to fix a broken request. ' +
+      'Only include the fields you want to change; omitted fields are left untouched. ' +
+      'Supplying `headers` or `params` REPLACES that list entirely, so include every ' +
+      'entry that should remain. Supplying `body` replaces the raw body text (the body ' +
+      'type is preserved for json/text/xml/graphql; other types become json).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        method: { type: 'string', description: 'New HTTP method, e.g. GET or POST' },
+        url: { type: 'string', description: 'New full request URL' },
+        name: { type: 'string', description: 'New request/tab name' },
+        headers: {
+          type: 'array',
+          description: 'Full replacement header list',
+          items: {
+            type: 'object',
+            properties: { key: { type: 'string' }, value: { type: 'string' } },
+            required: ['key', 'value'],
+          },
+        },
+        params: {
+          type: 'array',
+          description: 'Full replacement query-parameter list',
+          items: {
+            type: 'object',
+            properties: { key: { type: 'string' }, value: { type: 'string' } },
+            required: ['key', 'value'],
+          },
+        },
+        body: { type: 'string', description: 'New raw request body (JSON text)' },
+      },
+    },
+  },
+  run(raw) {
+    const parsed = parseInput(updateReqSchema, raw);
+    if (!parsed.ok) return parsed;
+    const active = activeHttpTab();
+    if (!active) return { ok: false, error: 'No active HTTP request to update' };
+
+    const input = parsed.value;
+    const update: Partial<HttpRequest> = {};
+    if (input.method !== undefined)
+      update.method = input.method.toUpperCase() as HttpRequest['method'];
+    if (input.url !== undefined) update.url = input.url;
+    if (input.name !== undefined) update.name = input.name;
+    if (input.headers !== undefined) update.headers = toKeyValues(input.headers);
+    if (input.params !== undefined) update.params = toKeyValues(input.params);
+    if (input.body !== undefined) {
+      // Preserve the current body type for raw-text bodies instead of forcing
+      // json — clobbering an xml/graphql/text body's type silently changed how
+      // it serialised. Non-raw bodies (form-data/binary/multipart/none) have no
+      // raw representation, so a raw-text update becomes json.
+      const cur = active.request.body;
+      const RAW_TYPES: ReadonlyArray<string> = ['json', 'text', 'xml', 'graphql'];
+      update.body = RAW_TYPES.includes(cur.type)
+        ? { ...cur, raw: input.body }
+        : { type: 'json', raw: input.body };
+    }
+
+    // updateRequest validates the merged request and returns false if it was
+    // rejected (e.g. an unsupported method) — don't report success in that case,
+    // or Agent Mode would advance on a change that never landed.
+    const applied = useRequestStore.getState().updateRequest(update as Partial<Request>);
+    if (!applied) {
+      return { ok: false, error: 'The update was rejected as invalid (check the method/fields)' };
+    }
+    const changed = Object.keys(update).join(', ');
+    return { ok: true, summary: `Updated the active request (${changed})` };
+  },
+};
+
+// --- enrich_docs --------------------------------------------------------------
+
+const enrichDocsSchema = z.object({ documentation: z.string().min(1) });
+
+const enrichDocs: AgentTool = {
+  def: {
+    name: 'enrich_docs',
+    description:
+      'Set the markdown documentation/description of the ACTIVE HTTP request. Summarise ' +
+      'what the request does, its parameters, and an example of the response. This appears ' +
+      'in generated collection docs.',
+    inputSchema: {
+      type: 'object',
+      required: ['documentation'],
+      properties: {
+        documentation: { type: 'string', description: 'Markdown documentation for the request' },
+      },
+    },
+  },
+  run(raw) {
+    const parsed = parseInput(enrichDocsSchema, raw);
+    if (!parsed.ok) return parsed;
+    const active = activeHttpTab();
+    if (!active) return { ok: false, error: 'No active HTTP request to document' };
+    const applied = useRequestStore
+      .getState()
+      .updateRequest({ description: parsed.value.documentation } as Partial<Request>);
+    if (!applied) return { ok: false, error: 'The documentation update was rejected' };
+    return { ok: true, summary: 'Updated the active request’s documentation' };
+  },
+};
+
+export const AGENT_TOOLS: AgentTool[] = [
+  createHttpRequest,
+  setTestScript,
+  updateHttpRequest,
+  enrichDocs,
+];
 
 /** Tool definitions to advertise to the provider in the chat request. */
 export function agentToolDefs(): AiToolDef[] {

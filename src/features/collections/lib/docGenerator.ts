@@ -49,6 +49,7 @@ function enabledKeyValues(list: KeyValue[] | undefined): DocParam[] {
 }
 
 function operationFromRequest(req: Request, path: string): DocOperation {
+  const description = (req as { description?: string }).description;
   const base = {
     id: req.id,
     path,
@@ -56,6 +57,7 @@ function operationFromRequest(req: Request, path: string): DocOperation {
     protocol: req.type,
     url: 'url' in req ? req.url : '',
     authType: 'auth' in req && req.auth ? req.auth.type : 'none',
+    ...(description ? { description } : {}),
   };
 
   if (req.type === 'http') {

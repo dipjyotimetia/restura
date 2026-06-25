@@ -445,18 +445,109 @@ const routes: Route[] = [
   {
     method: 'POST',
     test: '/v1/chat/completions',
-    handle: ({ res }) => {
+    handle: ({ res, body }) => {
       // OpenAI streaming SSE — the orchestrator reads choices[].delta.content
-      // until finish_reason/[DONE]. Rendered content = "echo: hello".
+      // until finish_reason/[DONE], and decodes delta.tool_calls[] into agent
+      // tool proposals. The reply is routed off the request body so the AI
+      // inline-action + Agent-Mode e2e can deterministically drive a tool call,
+      // an Apply, and a multi-step loop. Plain chats (no matching phrase) still
+      // stream "echo: hello", so the existing chat spec is unaffected.
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-      const chunks = [
-        `data: {"id":"e1","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n`,
-        `data: {"id":"e1","choices":[{"index":0,"delta":{"content":"echo: hello"},"finish_reason":null}]}\n\n`,
-        `data: {"id":"e1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}\n\n`,
-        `data: [DONE]\n\n`,
-      ];
-      for (const chunk of chunks) res.write(chunk);
-      res.end();
+      const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
+      const role = sse({
+        id: 'e1',
+        choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }],
+      });
+      const usage = { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 };
+
+      const streamText = (content: string) => {
+        for (const c of [
+          role,
+          sse({ id: 'e1', choices: [{ index: 0, delta: { content }, finish_reason: null }] }),
+          sse({ id: 'e1', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage }),
+          'data: [DONE]\n\n',
+        ])
+          res.write(c);
+        res.end();
+      };
+
+      const streamToolCall = (name: string, args: unknown) => {
+        for (const c of [
+          role,
+          sse({
+            id: 'e1',
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call_1',
+                      type: 'function',
+                      function: { name, arguments: JSON.stringify(args) },
+                    },
+                  ],
+                },
+                finish_reason: null,
+              },
+            ],
+          }),
+          sse({
+            id: 'e1',
+            choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+            usage,
+          }),
+          'data: [DONE]\n\n',
+        ])
+          res.write(c);
+        res.end();
+      };
+
+      // Route off the CURRENT turn only: the last user message (the seeded
+      // action / goal / continuation) and the system prompt (agent vs explain).
+      // Matching the whole history would false-trigger on replayed prior turns
+      // in a shared chat window, and matching the whole body would false-trigger
+      // on the advertised tool definitions. Both isolate this mock from bleed.
+      let systemContent = '';
+      let lastUser = '';
+      try {
+        const payload = JSON.parse(body || '{}') as {
+          messages?: Array<{ role?: string; content?: unknown }>;
+        };
+        const msgs = payload.messages ?? [];
+        const sys = msgs[0];
+        if (sys && typeof sys.content === 'string') systemContent = sys.content;
+        for (let i = msgs.length - 1; i >= 0; i -= 1) {
+          const m = msgs[i];
+          if (m && m.role === 'user' && typeof m.content === 'string') {
+            lastUser = m.content;
+            break;
+          }
+        }
+      } catch {
+        /* fall through to the default echo */
+      }
+
+      const testScript = {
+        script: "rs.test('status is 200', () => rs.expect(rs.response.status).to.equal(200));",
+      };
+      // Order matters: on an Agent-Mode continuation turn the system prompt is
+      // still the agent prompt, so check the continuation sentinel (last user
+      // message) FIRST so the loop terminates instead of proposing again.
+      if (lastUser.includes('previous step was applied')) {
+        streamText('Goal complete — the request now has a test.');
+      } else if (systemContent.includes('autonomous API agent')) {
+        streamToolCall('set_test_script', testScript); // Agent Mode first turn
+      } else if (lastUser.includes('update_http_request')) {
+        streamToolCall('update_http_request', { url: 'https://fixed.example/ok' });
+      } else if (lastUser.includes('set_test_script')) {
+        streamToolCall('set_test_script', testScript);
+      } else if (lastUser.includes('enrich_docs')) {
+        streamToolCall('enrich_docs', { documentation: '## Endpoint\nReturns a JSON greeting.' });
+      } else {
+        streamText('echo: hello');
+      }
     },
   },
 ];

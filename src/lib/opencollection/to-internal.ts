@@ -167,11 +167,24 @@ function isFolder(item: Record<string, unknown>): boolean {
   return !info?.type && Array.isArray(item.items);
 }
 
+/**
+ * OpenCollection `info.description` is `string | { content; type } | null`.
+ * Coerce to the plain string Restura stores on a request.
+ */
+function descriptionToString(d: unknown): string | undefined {
+  if (typeof d === 'string') return d || undefined;
+  if (d && typeof d === 'object' && typeof (d as { content?: unknown }).content === 'string') {
+    return (d as { content: string }).content || undefined;
+  }
+  return undefined;
+}
+
 function httpToInternal(item: Record<string, unknown>): HttpRequest {
-  const info = (item.info ?? {}) as { name?: string };
+  const info = (item.info ?? {}) as { name?: string; description?: unknown };
   const http = (item.http ?? {}) as Record<string, unknown>;
   const name = info.name ?? 'HTTP';
   const scripts = extractScripts(item, name);
+  const description = descriptionToString(info.description);
   return {
     id: uuid(),
     name,
@@ -184,17 +197,19 @@ function httpToInternal(item: Record<string, unknown>): HttpRequest {
     auth: authToInternal(http.auth),
     ...(scripts.preRequest ? { preRequestScript: scripts.preRequest } : {}),
     ...(scripts.test ? { testScript: scripts.test } : {}),
+    ...(description ? { description } : {}),
   };
 }
 
 function graphqlToHttpRequest(item: Record<string, unknown>): HttpRequest {
-  const info = (item.info ?? {}) as { name?: string };
+  const info = (item.info ?? {}) as { name?: string; description?: unknown };
   const gql = (item.graphql ?? {}) as Record<string, unknown>;
   const name = info.name ?? 'GraphQL';
   const query = (gql.query as string) ?? '';
   const variables = (gql.variables as string) ?? '';
   const raw = JSON.stringify({ query, variables });
   const scripts = extractScripts(item, name);
+  const description = descriptionToString(info.description);
   return {
     id: uuid(),
     name,
@@ -207,6 +222,7 @@ function graphqlToHttpRequest(item: Record<string, unknown>): HttpRequest {
     auth: authToInternal(gql.auth),
     ...(scripts.preRequest ? { preRequestScript: scripts.preRequest } : {}),
     ...(scripts.test ? { testScript: scripts.test } : {}),
+    ...(description ? { description } : {}),
   };
 }
 

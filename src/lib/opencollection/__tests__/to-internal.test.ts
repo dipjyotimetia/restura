@@ -1,6 +1,40 @@
 import { describe, it, expect } from 'vitest';
 import { loadCollectionFromFile } from '../fs-reader';
+import { internalToOC } from '../from-internal';
 import { ocToInternal } from '../to-internal';
+
+describe('request description round-trip', () => {
+  it('preserves an HTTP request description through export → import', () => {
+    const internal = {
+      id: 'c',
+      name: 'C',
+      items: [
+        {
+          id: 'r',
+          name: 'R',
+          type: 'request',
+          request: {
+            id: 'r',
+            name: 'R',
+            type: 'http',
+            method: 'GET',
+            url: 'https://api.example/y',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
+            description: 'AI-enriched docs survive the round-trip.',
+          },
+        },
+      ],
+    } as never;
+    const back = ocToInternal(internalToOC(internal));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- discriminated union test access
+    expect((back.items[0]?.request as any).description).toBe(
+      'AI-enriched docs survive the round-trip.'
+    );
+  });
+});
 
 describe('ocToInternal', () => {
   it('maps a single HTTP request', async () => {

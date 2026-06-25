@@ -197,6 +197,7 @@ export const httpRequestSchema = z.object({
   auth: authConfigSchema,
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
+  description: z.string().optional(),
   settings: requestSettingsSchema.optional(),
 });
 

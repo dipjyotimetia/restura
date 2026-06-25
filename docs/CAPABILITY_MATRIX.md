@@ -34,6 +34,8 @@ rather than discover it experimentally.
 | Socket.IO client | ✅ | ✅ |  |
 | AI assistant (streaming chat) | ❌ | ✅ | Electron-only; tokens stream over IPC (ai:chat:chunk/end). No Worker /api/ai route |
 | AI assistant tool calls | ❌ | ✅ | Provider tool-call decoding (OpenAI / Anthropic / OpenRouter) in the chat path |
+| Inline AI actions (Fix request / Generate tests / Enrich docs) | ❌ | ✅ | One-click request/response actions that seed a chat send through the propose-&-apply harness; reuse the ai.basic IPC path |
+| AI Agent Mode (multi-step, strict propose-&-apply) | ❌ | ✅ | Goal-driven loop over the existing ai:chat channel; one tool proposal per turn, every mutation user-approved, hard step cap. No new IPC/provider surface |
 | AI Lab (prompt/model workbench) | ❌ | ✅ | Electron-only; model calls + SSRF localhost carve-out run in main |
 | AI Lab local runtimes (Ollama / OpenAI-compatible) | ❌ | ✅ | Needs the localhost SSRF carve-out; no browser access to 127.0.0.1 |
 | AI Lab dataset evals (deterministic + script + tool-call + pairwise scorers) | ❌ | ✅ | QuickJS scorers + bounded-concurrency runner over case × model cells; datasets from history/collections/CSV/JSONL/red-team, multi-turn cases |

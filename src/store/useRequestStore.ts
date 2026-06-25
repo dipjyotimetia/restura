@@ -45,7 +45,9 @@ interface RequestState {
   closeAllTabs: () => void;
 
   // Per-active-tab actions (names preserved for consumer compatibility)
-  updateRequest: (updates: Partial<Request>) => void;
+  // Returns true when the update was validated and applied, false when it was
+  // rejected (no active tab, or the merged request failed validation).
+  updateRequest: (updates: Partial<Request>) => boolean;
   setCurrentResponse: (response: Response | null) => void;
   setScriptResult: (result: ScriptResults | null) => void;
   setLoading: (loading: boolean) => void;
@@ -253,9 +255,9 @@ export const useRequestStore = create<RequestState>()(
 
         updateRequest: (updates) => {
           const state = get();
-          if (!state.activeTabId) return;
+          if (!state.activeTabId) return false;
           const active = state.tabs.find((t) => t.id === state.activeTabId);
-          if (!active) return;
+          if (!active) return false;
           let next: Request;
           try {
             next = validateRequestUpdate(active.request, updates);
@@ -263,11 +265,12 @@ export const useRequestStore = create<RequestState>()(
             const msg = error instanceof Error ? error.message : 'Invalid request update';
             console.warn('Request update rejected:', msg, updates);
             toast.error('Invalid input', { description: msg });
-            return; // do NOT apply
+            return false; // do NOT apply
           }
           set((s) => ({
             tabs: patchActiveTab(s, (t) => ({ ...t, request: next, isDirty: true })),
           }));
+          return true;
         },
 
         setCurrentResponse: (response) => {
