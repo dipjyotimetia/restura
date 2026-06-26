@@ -547,6 +547,22 @@
     background: rgba(19, 23, 31, 0.62);
   }
 
+  /* Interactive floating menus — dropdowns, selects, context menus, the command
+     palette and selection popovers. These are surfaces you READ and PICK FROM
+     over arbitrary (often busy) page content, so legibility wins over the frost:
+     the surface is near-opaque (the old glass-2 at 66% let the page bleed
+     through and made highlighted items unreadable). A light blur is kept so the
+     family identity still reads at the edges, and the reduced-transparency block
+     below drops it to a fully solid surface. */
+  .sp-menu {
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+  }
+  .dark .sp-menu {
+    background: rgba(23, 27, 37, 0.97);
+  }
+
   /* Chrome material — top bar, sidebar, tab strip, status bar. Subtly frosted
      over the backdrop so the glass identity reads at the window edges, while
      the data panels stay solid for legibility. */
@@ -694,6 +710,7 @@ textarea {
   .glass-1,
   .glass-2,
   .glass-3,
+  .sp-menu,
   .sp-chrome,
   .sp-floater-lg {
     backdrop-filter: none;
