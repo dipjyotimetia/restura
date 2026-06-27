@@ -270,7 +270,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const startCollectionRename = useCallback((id: string, currentName: string) => {
     setRenamingCollectionId(id);
     setCollectionRenameValue(currentName);
-    setTimeout(() => collectionRenameRef.current?.select(), 0);
+    // Double-setTimeout to outlast Radix DropdownMenu's FocusScope cleanup,
+    // which uses setTimeout(fn, 0) to return focus to the trigger.
+    setTimeout(() => setTimeout(() => collectionRenameRef.current?.select(), 0), 0);
   }, []);
 
   const handleNewCollection = useCallback(() => {

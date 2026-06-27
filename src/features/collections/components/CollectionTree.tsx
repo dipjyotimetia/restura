@@ -18,6 +18,7 @@ import {
   type MouseEvent,
   type RefObject,
 } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -348,13 +349,9 @@ function flatFolderItems(items: CollectionItem[], depth = 0): FolderEntry[] {
   );
 }
 
-/**
- * Sub-menu content for "Move to folder". Reads from getState() (no subscription)
- * to avoid the useSyncExternalStore infinite-loop that occurs when the selector
- * produces a new array reference on every call. This component mounts only when
- * the sub-menu opens, so getState() is always current at that point.
- */
-function MoveToFolderSubContent({
+// Combines the sub-menu trigger + content so it can return null when the
+// collection has no folders, avoiding a dead-end "Move to folder" option.
+function MoveToFolderMenu({
   collectionId,
   itemId,
   actions,
@@ -363,19 +360,24 @@ function MoveToFolderSubContent({
   itemId: string;
   actions: TreeActions;
 }) {
-  const folders = useMemo(() => {
-    const col = useCollectionStore.getState().collections.find((c) => c.id === collectionId);
-    return col ? flatFolderItems(col.items) : [];
-  }, [collectionId]);
+  // useShallow returns the same array reference when contents are shallowly
+  // equal, preventing the useSyncExternalStore "snapshot not cached" error
+  // that arises when the selector returns a new array on every call.
+  const collectionItems = useCollectionStore(
+    useShallow((s) => s.collections.find((c) => c.id === collectionId)?.items ?? [])
+  );
+  const folders = useMemo(() => flatFolderItems(collectionItems), [collectionItems]);
+
+  if (folders.length === 0) return null;
 
   return (
-    <ContextMenuSubContent>
-      {folders.length === 0 ? (
-        <ContextMenuItem disabled className="text-xs text-muted-foreground">
-          No folders in this collection
-        </ContextMenuItem>
-      ) : (
-        folders.map(({ id, name, depth }) => (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger className="text-xs">
+        <Folder className="mr-2 h-3.5 w-3.5" />
+        Move to folder
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent>
+        {folders.map(({ id, name, depth }) => (
           <ContextMenuItem
             key={id}
             className="text-xs"
@@ -385,9 +387,9 @@ function MoveToFolderSubContent({
             <Folder className="mr-2 h-3.5 w-3.5 shrink-0" />
             {name}
           </ContextMenuItem>
-        ))
-      )}
-    </ContextMenuSubContent>
+        ))}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
   );
 }
 
@@ -499,13 +501,7 @@ const RequestRow = memo(function RequestRow({
           <Copy className="mr-2 h-3.5 w-3.5" />
           Duplicate
         </ContextMenuItem>
-        <ContextMenuSub>
-          <ContextMenuSubTrigger className="text-xs">
-            <Folder className="mr-2 h-3.5 w-3.5" />
-            Move to folder
-          </ContextMenuSubTrigger>
-          <MoveToFolderSubContent collectionId={collectionId} itemId={item.id} actions={actions} />
-        </ContextMenuSub>
+        <MoveToFolderMenu collectionId={collectionId} itemId={item.id} actions={actions} />
         <ContextMenuSeparator />
         {isSelected && selectedCount > 1 ? (
           <ContextMenuItem

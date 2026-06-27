@@ -210,7 +210,7 @@ export default function Home() {
     },
     {
       combo: 'mod+n',
-      allowInInput: false,
+      allowInInput: true,
       handler: () => {
         createNewRequest('http');
       },
