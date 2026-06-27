@@ -8,8 +8,8 @@ import type { AiLabProviderConfig, ModelRef } from '../types';
 import { EmptyState } from './EmptyState';
 import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
+import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Stepper } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
 
 interface ModelOption {
@@ -91,9 +92,9 @@ export function Arena() {
   const canRun = !!datasetId && selected.size >= 2 && !!judgeKey;
 
   return (
-    <div className="flex h-full">
+    <ResizableLayout defaultSplit={34} minSplit={24} maxSplit={55}>
       {/* Config pane. */}
-      <div className="flex w-[400px] shrink-0 flex-col gap-4 overflow-auto border-r border-sp-line p-4">
+      <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
         <div className="space-y-1.5">
           <span className="sp-label">Dataset</span>
           <Select value={datasetId} onValueChange={setDatasetId}>
@@ -142,13 +143,12 @@ export function Arena() {
         </div>
         <div className="flex items-center gap-3">
           <span className="sp-label">Concurrency</span>
-          <Input
-            type="number"
+          <Stepper
+            value={concurrency}
+            onChange={setConcurrency}
             min={1}
             max={16}
-            value={concurrency}
-            onChange={(e) => setConcurrency(Number(e.target.value) || 1)}
-            className="w-20"
+            ariaLabel="Concurrency"
           />
         </div>
         {running ? (
@@ -172,7 +172,7 @@ export function Arena() {
       </div>
 
       {/* Leaderboard + matrix. */}
-      <div className="min-w-0 flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-4">
         {activeRun && leaderboard.length > 0 ? (
           <div className="space-y-5">
             <div>
@@ -181,28 +181,31 @@ export function Arena() {
               </h3>
               <table className="w-full text-sp-12">
                 <thead>
-                  <tr className="text-left text-sp-muted">
-                    <th className="py-1.5">#</th>
-                    <th>Model</th>
-                    <th className="text-right">Elo</th>
-                    <th className="text-right">W</th>
-                    <th className="text-right">L</th>
-                    <th className="text-right">T</th>
+                  <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wide text-sp-muted">
+                    <th className="py-2 pr-3 font-medium">#</th>
+                    <th className="py-2 pr-3 font-medium">Model</th>
+                    <th className="py-2 pr-3 text-right font-medium">Elo</th>
+                    <th className="py-2 pr-3 text-right font-medium">W</th>
+                    <th className="py-2 pr-3 text-right font-medium">L</th>
+                    <th className="py-2 pr-3 text-right font-medium">T</th>
                   </tr>
                 </thead>
                 <tbody>
                   {leaderboard.map((e, i) => (
-                    <tr key={e.key} className="border-t border-sp-line">
-                      <td className="py-1.5 tabular-nums text-sp-muted">{i + 1}</td>
-                      <td className="truncate text-sp-text">
+                    <tr
+                      key={e.key}
+                      className="border-b border-sp-line transition-colors hover:bg-sp-hover"
+                    >
+                      <td className="py-2 pr-3 tabular-nums text-sp-muted">{i + 1}</td>
+                      <td className="py-2 pr-3 truncate text-sp-text">
                         {activeRun.modelLabels[e.key] ?? e.key}
                       </td>
-                      <td className="text-right font-medium tabular-nums text-sp-text">
+                      <td className="py-2 pr-3 text-right font-medium tabular-nums text-sp-text">
                         {e.rating}
                       </td>
-                      <td className="text-right tabular-nums">{e.wins}</td>
-                      <td className="text-right tabular-nums">{e.losses}</td>
-                      <td className="text-right tabular-nums">{e.ties}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{e.wins}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{e.losses}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{e.ties}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -261,6 +264,6 @@ export function Arena() {
           />
         )}
       </div>
-    </div>
+    </ResizableLayout>
   );
 }

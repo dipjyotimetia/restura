@@ -1,6 +1,8 @@
-import { ArrowLeft, FlaskConical } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowLeft, FlaskConical, Plug } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAiLabStore } from '../store/useAiLabStore';
+import { useEvalRunStore } from '../store/useEvalRunStore';
 import { Arena } from './Arena';
 import { DatasetEditor } from './DatasetEditor';
 import { EvalBuilder } from './EvalBuilder';
@@ -8,7 +10,7 @@ import { Playground } from './Playground';
 import { ProviderManager } from './ProviderManager';
 import { ReportView } from './ReportView';
 import { Button } from '@/components/ui/button';
-import { SubTabBar } from '@/components/ui/spatial';
+import { Floater, SubTabBar } from '@/components/ui/spatial';
 import { isElectron, getPlatform } from '@/lib/shared/platform';
 
 // CSS-in-JS region tag — Electron-only `WebkitAppRegion`. Mirrors TopBar so the
@@ -18,14 +20,33 @@ const region = (value: 'drag' | 'no-drag'): React.CSSProperties =>
 
 type AiLabTab = 'playground' | 'datasets' | 'evals' | 'arena' | 'reports' | 'providers';
 
-const TABS: ReadonlyArray<{ value: AiLabTab; label: string }> = [
-  { value: 'playground', label: 'Playground' },
-  { value: 'datasets', label: 'Datasets' },
-  { value: 'evals', label: 'Evals' },
-  { value: 'arena', label: 'Arena' },
-  { value: 'reports', label: 'Reports' },
-  { value: 'providers', label: 'Providers' },
+const TAB_ORDER: readonly AiLabTab[] = [
+  'playground',
+  'datasets',
+  'evals',
+  'arena',
+  'reports',
+  'providers',
 ];
+
+// Alt+1..6 jump straight to a tab (mirrors the HTTP RequestBuilder shortcut).
+const TAB_KEYS: Record<string, AiLabTab> = {
+  '1': 'playground',
+  '2': 'datasets',
+  '3': 'evals',
+  '4': 'arena',
+  '5': 'reports',
+  '6': 'providers',
+};
+
+const TAB_LABELS: Record<AiLabTab, string> = {
+  playground: 'Playground',
+  datasets: 'Datasets',
+  evals: 'Evals',
+  arena: 'Arena',
+  reports: 'Reports',
+  providers: 'Providers',
+};
 
 /**
  * AI Lab — Electron-only workbench for testing prompts/models, running
@@ -37,9 +58,48 @@ export default function AiLabWorkspace() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<AiLabTab>('playground');
 
+  // Cheap length selectors drive the tab count badges + the first-run nudge.
+  const datasetCount = useAiLabStore((s) => Object.keys(s.datasets).length);
+  const providerCount = useAiLabStore((s) => Object.keys(s.providers).length);
+  const runCount = useEvalRunStore((s) => Object.keys(s.runs).length);
+
+  const tabs = useMemo(() => {
+    const counts: Partial<Record<AiLabTab, number>> = {
+      datasets: datasetCount,
+      reports: runCount,
+      providers: providerCount,
+    };
+    return TAB_ORDER.map((value) => {
+      const count = counts[value];
+      return count
+        ? { value, label: TAB_LABELS[value], count }
+        : { value, label: TAB_LABELS[value] };
+    });
+  }, [datasetCount, runCount, providerCount]);
+
+  // Alt+1..6 sub-tab jump (ignored while typing in an input/textarea).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.altKey && !e.metaKey && !e.ctrlKey) {
+        const next = TAB_KEYS[e.key];
+        if (next) {
+          e.preventDefault();
+          setTab(next);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // macOS Electron paints real traffic lights over the top-left at
   // trafficLightPosition (x:15). Reserve space so the back button clears them.
   const showTrafficLights = isElectron() && getPlatform() === 'darwin';
+
+  // Brand-new users land on Playground with nothing configured; nudge them to
+  // add a provider first (every tab except Providers itself).
+  const showOnboarding = providerCount === 0 && tab !== 'providers';
 
   return (
     <div className="flex h-screen flex-col text-sp-text">
@@ -70,7 +130,28 @@ export default function AiLabWorkspace() {
         <DesktopOnly />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <SubTabBar<AiLabTab> tabs={TABS} value={tab} onChange={setTab} />
+          <SubTabBar<AiLabTab> tabs={tabs} value={tab} onChange={setTab} />
+          {showOnboarding && (
+            <Floater
+              radius="panel"
+              elevation="none"
+              className="flex shrink-0 items-center gap-3 border-b border-sp-line bg-[var(--sp-accent-glow-15)] px-4 py-2.5"
+            >
+              <Plug className="h-4 w-4 shrink-0 text-sp-accent" />
+              <p className="min-w-0 flex-1 text-sp-12 text-sp-text">
+                No model providers yet. Add Ollama or an OpenAI-compatible endpoint to start running
+                prompts and evals.
+              </p>
+              <Button
+                variant="cta"
+                size="sm"
+                onClick={() => setTab('providers')}
+                className="shrink-0"
+              >
+                Add a provider
+              </Button>
+            </Floater>
+          )}
           {/* Each tab owns its own full-height layout + scroll: master-detail
               panes fill the window; form/config tabs scroll within a readable
               measure. No outer max-width centering (which left dead margins). */}

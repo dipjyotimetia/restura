@@ -1,11 +1,20 @@
-import { ArrowDown, ArrowUp, BarChart3, Download, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, BarChart3, Download, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import type { EvalCellResult, EvalRun } from '../types';
 import { EmptyState } from './EmptyState';
 import { StatusChip } from './StatusChip';
+import { VerdictChip } from './VerdictChip';
+import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { downloadBlob } from '@/lib/shared/file-utils';
 import { percentile } from '@/lib/shared/loadStats';
@@ -149,9 +158,9 @@ export function ReportView() {
   }
 
   return (
-    <div className="flex h-full">
+    <ResizableLayout defaultSplit={24} minSplit={18} maxSplit={45}>
       {/* Run list — master pane. */}
-      <div className="flex w-[280px] shrink-0 flex-col gap-2 overflow-auto border-r border-sp-line p-3">
+      <div className="flex flex-1 flex-col gap-2 overflow-auto p-3">
         {sorted.map((r) => (
           <button
             key={r.id}
@@ -175,7 +184,7 @@ export function ReportView() {
       </div>
 
       {/* Report — detail pane, fills the window. */}
-      <div className="min-w-0 flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-4">
         {active ? (
           <Floater radius="panel" elevation="float" className="space-y-4 bg-sp-surface p-4">
             <div className="flex items-center justify-between gap-2">
@@ -319,18 +328,34 @@ export function ReportView() {
               <div className="space-y-2 border-t border-sp-line pt-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="sp-label">Per-case drill-down</h3>
-                  <select
-                    value={drillCaseId ?? ''}
-                    onChange={(e) => setDrillCaseId(e.target.value || null)}
-                    className="rounded-sp-btn border border-sp-line bg-sp-surface px-2 py-1 text-sp-12 text-sp-text"
-                  >
-                    <option value="">Select a case…</option>
-                    {caseIds.map((id, i) => (
-                      <option key={id} value={id}>
-                        Case {i + 1} ({id.slice(0, 8)})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <Select
+                      value={drillCaseId ?? ''}
+                      onValueChange={(v) => setDrillCaseId(v || null)}
+                    >
+                      <SelectTrigger className="w-56">
+                        <SelectValue placeholder="Select a case…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {caseIds.map((id, i) => (
+                          <SelectItem key={id} value={id}>
+                            Case {i + 1} ({id.slice(0, 8)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {drillCaseId && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Clear case selection"
+                        title="Clear selection"
+                        onClick={() => setDrillCaseId(null)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 {drillCells.length > 0 && (
                   <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
@@ -345,18 +370,7 @@ export function ReportView() {
                           <span className="truncate text-sp-12 font-medium text-sp-text">
                             {cell.modelRef.model}
                           </span>
-                          <span
-                            className={cn(
-                              'shrink-0 rounded px-1.5 py-0.5 text-sp-11',
-                              cell.notEvaluated
-                                ? 'bg-sp-hover text-sp-muted'
-                                : cell.passed
-                                  ? 'bg-emerald-500/15 text-emerald-500'
-                                  : 'bg-destructive/15 text-destructive'
-                            )}
-                          >
-                            {cell.notEvaluated ? 'n/a' : cell.passed ? 'pass' : 'fail'}
-                          </span>
+                          <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
                         </div>
                         {cell.executed && (
                           <div className="text-sp-11 text-sp-muted">
@@ -410,6 +424,6 @@ export function ReportView() {
           <EmptyState fill message="Select a run to view its report." />
         )}
       </div>
-    </div>
+    </ResizableLayout>
   );
 }

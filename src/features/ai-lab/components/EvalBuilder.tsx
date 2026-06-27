@@ -14,6 +14,8 @@ import type {
 } from '../types';
 import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
+import { VerdictChip } from './VerdictChip';
+import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -25,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Floater, Stat } from '@/components/ui/spatial';
+import { Floater, Stat, Stepper } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
 
 /** UI selection for what a cell scores. */
@@ -186,10 +188,23 @@ export function EvalBuilder() {
 
   const passCount = progress?.cells.filter((c) => c.passed).length ?? 0;
 
+  const canRun = !!datasetId && selected.size > 0;
+  const runDisabledReason = !datasetId
+    ? 'Pick a dataset to run.'
+    : selected.size === 0
+      ? 'Select at least one model.'
+      : null;
+
+  // Ordered model label lookup for the live results grid.
+  const labelByModel = useMemo(
+    () => Object.fromEntries(modelOptions.map((m) => [`${m.cfg.id}:${m.model}`, m.label])),
+    [modelOptions]
+  );
+
   return (
-    <div className="flex h-full">
-      {/* Config pane — fixed, readable measure; scrolls independently. */}
-      <div className="w-[400px] shrink-0 overflow-auto border-r border-sp-line p-4">
+    <ResizableLayout defaultSplit={34} minSplit={24} maxSplit={55}>
+      {/* Config pane — readable measure; scrolls independently. */}
+      <div className="flex-1 overflow-auto p-4">
         <div className="space-y-4">
           <div className="space-y-1.5">
             <span className="sp-label">Eval name</span>
@@ -229,13 +244,12 @@ export function EvalBuilder() {
           </div>
           <div className="flex items-center gap-3">
             <span className="sp-label">Concurrency</span>
-            <Input
-              type="number"
+            <Stepper
+              value={concurrency}
+              onChange={setConcurrency}
               min={1}
               max={16}
-              value={concurrency}
-              onChange={(e) => setConcurrency(Number(e.target.value) || 1)}
-              className="w-20"
+              ariaLabel="Concurrency"
             />
           </div>
           <div className="space-y-1.5">
@@ -258,11 +272,40 @@ export function EvalBuilder() {
               </p>
             )}
           </div>
+
+          <div className="space-y-2 border-t border-sp-line pt-4">
+            {running ? (
+              <Button variant="destructive" size="cta" onClick={stop} className="w-full">
+                <Square className="h-3.5 w-3.5" /> Stop
+              </Button>
+            ) : (
+              <Button variant="cta" size="cta" onClick={run} disabled={!canRun} className="w-full">
+                <Play className="h-3.5 w-3.5" /> Run eval
+              </Button>
+            )}
+            {!running && runDisabledReason && (
+              <p className="text-sp-11 text-sp-muted">{runDisabledReason}</p>
+            )}
+            {error && <p className="text-sp-12 text-destructive">{error}</p>}
+            {progress && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <StatusChip state={progress.done ? 'done' : 'running'} />
+                  <div className="flex gap-6">
+                    <Stat label="Cells" value={`${progress.completed}/${progress.total}`} />
+                    <Stat label="Passed" value={passCount} />
+                  </div>
+                </div>
+                <Progress value={(progress.completed / Math.max(1, progress.total)) * 100} />
+                {progress.done && <p className="text-sp-11 text-sp-muted">Done — see Reports.</p>}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Scorers + run — fills the window. */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-auto p-4">
+      {/* Scorers + live results — fills the window. */}
+      <div className="flex flex-1 flex-col overflow-auto p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
           <span className="sp-label">Scorers</span>
           <Select
@@ -304,33 +347,51 @@ export function EvalBuilder() {
           )}
         </div>
 
-        <div className="mt-4 space-y-3 border-t border-sp-line pt-4">
-          {running ? (
-            <Button variant="destructive" size="cta" onClick={stop}>
-              <Square className="h-3.5 w-3.5" /> Stop
-            </Button>
-          ) : (
-            <Button variant="cta" size="cta" onClick={run}>
-              <Play className="h-3.5 w-3.5" /> Run eval
-            </Button>
-          )}
-          {error && <p className="text-sp-12 text-destructive">{error}</p>}
-          {progress && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <StatusChip state={progress.done ? 'done' : 'running'} />
-                <div className="flex gap-6">
-                  <Stat label="Cells" value={`${progress.completed}/${progress.total}`} />
-                  <Stat label="Passed" value={passCount} />
-                </div>
-              </div>
-              <Progress value={(progress.completed / Math.max(1, progress.total)) * 100} />
-              {progress.done && <p className="text-sp-11 text-sp-muted">Done — see Reports.</p>}
+        {progress && progress.cells.length > 0 && (
+          <div className="mt-4 space-y-2 border-t border-sp-line pt-4">
+            <span className="sp-label">Live results</span>
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+              {progress.cells.map((cell) => {
+                const modelKeyStr = `${cell.modelRef.providerConfigId}:${cell.modelRef.model}`;
+                const label = labelByModel[modelKeyStr] ?? cell.modelRef.model;
+                return (
+                  <Floater
+                    key={`${cell.caseId}:${modelKeyStr}`}
+                    radius="panel"
+                    elevation="inset"
+                    className="flex flex-col gap-2 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sp-12 font-medium text-sp-text">{label}</span>
+                      <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
+                    </div>
+                    <div className="text-sp-11 text-sp-muted tabular-nums">
+                      {Math.round(cell.latencyMs)}ms
+                    </div>
+                    <div className="max-h-28 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
+                      {cell.error ? (
+                        <span className="text-destructive">{cell.error}</span>
+                      ) : (
+                        cell.output || <span className="text-sp-muted">(empty)</span>
+                      )}
+                    </div>
+                  </Floater>
+                );
+              })}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+        {!progress && (
+          <Floater
+            radius="panel"
+            elevation="inset"
+            className="mt-4 px-3 py-6 text-center text-sp-12 text-sp-muted"
+          >
+            Configure the eval on the left and run it to watch results stream in here.
+          </Floater>
+        )}
       </div>
-    </div>
+    </ResizableLayout>
   );
 }
 

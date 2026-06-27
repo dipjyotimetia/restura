@@ -8,6 +8,7 @@ import type { AiLabProviderConfig } from '../types';
 import { EmptyState } from './EmptyState';
 import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
+import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
@@ -187,9 +188,9 @@ export function Playground() {
   const hasResults = Object.keys(cells).length > 0;
 
   return (
-    <div className="flex h-full">
-      {/* Config pane — fixed, readable measure; scrolls independently. */}
-      <div className="flex w-[400px] shrink-0 flex-col overflow-auto border-r border-sp-line p-4">
+    <ResizableLayout defaultSplit={32} minSplit={22} maxSplit={55}>
+      {/* Config pane — readable measure; scrolls independently. */}
+      <div className="flex-1 overflow-auto p-4">
         <div className="space-y-4">
           <div className="space-y-1.5">
             <span className="sp-label">System</span>
@@ -243,7 +244,7 @@ export function Playground() {
       </div>
 
       {/* Results pane — fills the window. */}
-      <div className="min-w-0 flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-4">
         {hasResults ? (
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]">
             {modelOptions
@@ -300,6 +301,6 @@ export function Playground() {
           />
         )}
       </div>
-    </div>
+    </ResizableLayout>
   );
 }
