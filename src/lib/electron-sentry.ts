@@ -61,7 +61,11 @@ export async function initElectronSentry(): Promise<void> {
     const Sentry = await import('@sentry/electron/renderer');
     // No DSN: the renderer SDK auto-connects to the main-process SDK over IPC.
     // No tracing integration — errors/crashes only, no spans.
-    Sentry.init({});
+    Sentry.init({
+      // Filter noise from browser-extension scripts injected into the renderer —
+      // this must be in the renderer SDK where extension URLs actually originate.
+      denyUrls: [/extensions\//i, /^chrome-extension:\/\//, /^moz-extension:\/\//],
+    });
   } catch {
     // Best-effort: never block startup on telemetry.
   }

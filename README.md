@@ -10,6 +10,7 @@
 [![License](https://img.shields.io/badge/license-MIT-6366F1?style=flat-square&labelColor=14121F)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A524-6366F1?style=flat-square&labelColor=14121F)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-6366F1?style=flat-square&labelColor=14121F)](https://www.typescriptlang.org)
+[![Sentry](https://img.shields.io/badge/crash_reports-Sentry-362D59?style=flat-square&logo=sentry&logoColor=white&labelColor=14121F)](https://sentry.io)
 
 <br/>
 
@@ -84,7 +85,10 @@ Restura signs auth **at the wire** and guards every outbound request — on both
 - **Web** — Encryption keys default to ephemeral in-memory (regenerated per session) — strictly better than storing the key beside the ciphertext, though it means encrypted data doesn't survive a reload. mTLS, custom CA, SOCKS, and "Verify SSL = off" aren't exposed by the browser sandbox.
 - **Network** — SSRF guards (RFC 1918, RFC 6598 CGNAT, link-local `169.254/16`, cloud-metadata endpoints, IPv6 unique-local, IPv4-mapped IPv6) on every path. Desktop adds a DNS-rebind guard at lookup time. AWS SigV4 is signed in the Worker / Electron handler — never the renderer — so the signature matches the exact bytes upstream receives.
 - **Sandbox** — User scripts run in a [QuickJS](https://bellard.org/quickjs/) WASM VM with memory and time limits. No host bridge, no filesystem, no network.
-- **Privacy** — No accounts, no cloud sync. Optional crash & error reporting (desktop, Sentry) captures stack traces and URL-free performance signals — request context, headers, bodies, secrets, and file paths are aggressively scrubbed before anything is sent (`sendDefaultPii: false`), and it can be turned off in Settings. Your requests and responses never leave your machine.
+- **Privacy** — No accounts, no cloud sync. Optional crash & error reporting (opt-out, on by default) can be turned off in **Settings › Privacy**.
+  - **Desktop (Electron):** Errors route to [Sentry](https://sentry.io) via a renderer→main IPC bridge — the renderer never makes a direct network call to Sentry. Captured: error message, stack trace, app version, OS. Never captured: request URLs, headers, response bodies, API keys, file paths, or user identity (`sendDefaultPii: false`; secrets scrubbed via the shared AI redaction core).
+  - **Web:** Errors route to a self-hosted Cloudflare Worker endpoint (`/api/telemetry/error`) — no third-party telemetry service involved. Same scrubbing rules apply.
+  - Both paths gate on `settings.telemetry.errorsEnabled` and send nothing until that flag is checked.
 
 See [`docs/adr/0004-security-hardening.md`](docs/adr/0004-security-hardening.md) for the design rationale.
 

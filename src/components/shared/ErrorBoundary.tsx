@@ -4,6 +4,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Component } from 'react';
 import { Button } from '@/components/ui/button';
+import { isElectron } from '@/lib/shared/platform';
 import { reportError } from '@/lib/shared/telemetry';
 
 interface Props {
@@ -42,6 +43,17 @@ export class ErrorBoundary extends Component<Props, State> {
       source: 'error-boundary',
       ...(errorInfo.componentStack ? { componentStack: errorInfo.componentStack } : {}),
     });
+
+    // On Electron, reportError() exits early (file:// protocol, no Worker).
+    // componentDidCatch *swallows* the error, so it never reaches Sentry's
+    // default uncaught-exception handler — forward it explicitly.
+    if (isElectron()) {
+      void import('@sentry/electron/renderer').then((Sentry) =>
+        Sentry.captureException(error, {
+          contexts: { react: { componentStack: errorInfo.componentStack ?? '' } },
+        })
+      );
+    }
   }
 
   handleReset = (): void => {

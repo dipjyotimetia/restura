@@ -1,8 +1,9 @@
-import { Globe, Settings, Sparkles, FlaskConical } from 'lucide-react';
+import { Bug, Globe, Settings, Sparkles, FlaskConical } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { Floater, Kbd } from '@/components/ui/spatial';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint } from '@/features/environments/lib/envHint';
+import { openBugReport } from '@/lib/shared/bug-report';
 import { isElectron, getPlatform } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -174,6 +175,11 @@ export function WindowChrome({
             window.location.hash = '#/ai-lab';
           }}
           icon={<FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />}
+        />
+        <ChromeIconButton
+          label="Report a bug"
+          onClick={() => void openBugReport()}
+          icon={<Bug className="h-3.5 w-3.5" aria-hidden="true" />}
         />
         <ChromeIconButton
           label="Open settings"
