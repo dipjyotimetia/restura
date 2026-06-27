@@ -156,7 +156,52 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
         {
           label: 'Report Issue',
           click: async () => {
-            await shell.openExternal('https://github.com/dipjyotimetia/restura/issues');
+            const os =
+              process.platform === 'darwin'
+                ? 'macOS'
+                : process.platform === 'win32'
+                  ? 'Windows'
+                  : 'Linux';
+            const body = [
+              '## Bug Description',
+              '',
+              '<!-- A clear and concise description of what the bug is -->',
+              '',
+              '## Steps to Reproduce',
+              '',
+              "1. Go to '...'",
+              "2. Click on '...'",
+              '4. See error',
+              '',
+              '## Expected Behavior',
+              '',
+              '<!-- What you expected to happen -->',
+              '',
+              '## Actual Behavior',
+              '',
+              '<!-- What actually happened -->',
+              '',
+              '## Environment',
+              '',
+              `- OS: ${os}`,
+              '- Node Version: [e.g. 20.10.0]',
+              `- Restura Version: v${app.getVersion()}`,
+              '',
+              '**Application Type:**',
+              '',
+              '- [x] Electron Desktop App',
+              '- [ ] Web Client',
+              '',
+              '## Console Errors',
+              '',
+              '```',
+              'Paste error logs here',
+              '```',
+            ].join('\n');
+            await shell.openExternal(
+              'https://github.com/dipjyotimetia/restura/issues/new?' +
+                new URLSearchParams({ labels: 'bug', title: '[BUG] ', body }).toString()
+            );
           },
         },
         {
