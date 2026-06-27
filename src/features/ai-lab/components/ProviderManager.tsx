@@ -6,6 +6,7 @@ import { listModels, testConnection } from '../lib/llmClient';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabProviderConfig } from '../types';
 import { EmptyState } from './EmptyState';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -179,7 +180,7 @@ export function ProviderManager() {
               />
             </div>
           </div>
-          <Button onClick={() => void add()} variant="secondary" size="sm">
+          <Button onClick={() => void add()} variant="cta" size="cta">
             Add provider
           </Button>
         </Floater>
@@ -199,11 +200,13 @@ export function ProviderManager() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sp-13 font-medium text-sp-text">{cfg.label}</span>
-                  <span className="shrink-0 rounded-sp-chip bg-sp-surface-hi px-1.5 py-0.5 text-sp-11 font-medium uppercase tracking-wide text-sp-muted">
+                  <Badge variant="mono" className="shrink-0">
                     {cfg.provider}
-                  </span>
+                  </Badge>
                   {cfg.isLocal && (
-                    <span className="shrink-0 text-sp-11 font-medium text-emerald-500">local</span>
+                    <Badge variant="success" className="shrink-0">
+                      local
+                    </Badge>
                   )}
                 </div>
                 <div className="mt-0.5 truncate text-sp-12 text-sp-muted">

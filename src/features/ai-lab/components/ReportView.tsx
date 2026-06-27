@@ -5,7 +5,15 @@ import { useEvalRunStore } from '../store/useEvalRunStore';
 import type { EvalCellResult, EvalRun } from '../types';
 import { EmptyState } from './EmptyState';
 import { StatusChip } from './StatusChip';
+import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { downloadBlob } from '@/lib/shared/file-utils';
 import { percentile } from '@/lib/shared/loadStats';
@@ -149,9 +157,9 @@ export function ReportView() {
   }
 
   return (
-    <div className="flex h-full">
+    <ResizableLayout defaultSplit={24} minSplit={18} maxSplit={45}>
       {/* Run list — master pane. */}
-      <div className="flex w-[280px] shrink-0 flex-col gap-2 overflow-auto border-r border-sp-line p-3">
+      <div className="flex flex-1 flex-col gap-2 overflow-auto p-3">
         {sorted.map((r) => (
           <button
             key={r.id}
@@ -175,7 +183,7 @@ export function ReportView() {
       </div>
 
       {/* Report — detail pane, fills the window. */}
-      <div className="min-w-0 flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-4">
         {active ? (
           <Floater radius="panel" elevation="float" className="space-y-4 bg-sp-surface p-4">
             <div className="flex items-center justify-between gap-2">
@@ -319,18 +327,21 @@ export function ReportView() {
               <div className="space-y-2 border-t border-sp-line pt-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="sp-label">Per-case drill-down</h3>
-                  <select
-                    value={drillCaseId ?? ''}
-                    onChange={(e) => setDrillCaseId(e.target.value || null)}
-                    className="rounded-sp-btn border border-sp-line bg-sp-surface px-2 py-1 text-sp-12 text-sp-text"
+                  <Select
+                    value={drillCaseId ?? undefined}
+                    onValueChange={(v) => setDrillCaseId(v || null)}
                   >
-                    <option value="">Select a case…</option>
-                    {caseIds.map((id, i) => (
-                      <option key={id} value={id}>
-                        Case {i + 1} ({id.slice(0, 8)})
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="w-56">
+                      <SelectValue placeholder="Select a case…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {caseIds.map((id, i) => (
+                        <SelectItem key={id} value={id}>
+                          Case {i + 1} ({id.slice(0, 8)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 {drillCells.length > 0 && (
                   <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
@@ -410,6 +421,6 @@ export function ReportView() {
           <EmptyState fill message="Select a run to view its report." />
         )}
       </div>
-    </div>
+    </ResizableLayout>
   );
 }
