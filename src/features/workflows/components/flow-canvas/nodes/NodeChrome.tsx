@@ -81,7 +81,7 @@ export function NodeChrome({
         {kindLabel}
       </span>
       {duration !== undefined && status !== 'running' && (
-        <span className="font-mono text-[10px] text-muted-foreground/70 ml-auto">{duration}ms</span>
+        <span className="font-mono text-[10px] text-sp-muted ml-auto">{duration}ms</span>
       )}
     </span>
   );

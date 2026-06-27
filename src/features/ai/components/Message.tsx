@@ -26,7 +26,7 @@ function MessageImpl({ message }: Props) {
         )}
       </div>
       {!isUser && message.status === 'done' && (
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground/70">
+        <div className="flex items-center gap-2 text-[10px] text-sp-muted">
           {message.usage && (
             <span>
               {message.usage.promptTokens}+{message.usage.completionTokens} tok · $

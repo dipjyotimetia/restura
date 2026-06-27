@@ -147,7 +147,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                 type="button"
                 disabled={busy}
                 onClick={handleInit}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sp-btn bg-sp-accent/15 text-sp-accent text-sp-12 font-medium hover:bg-sp-accent/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sp-btn bg-sp-accent/15 text-sp-accent text-sp-12 font-medium hover:bg-sp-accent/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <GitBranchIcon className="h-3.5 w-3.5" />
                 Initialize Git repository
@@ -197,7 +197,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                       type="button"
                       disabled={busy || !message.trim() || selected.size === 0}
                       onClick={handleCommit}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sp-btn bg-sp-accent/15 text-sp-accent text-sp-12 font-medium hover:bg-sp-accent/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sp-btn bg-sp-accent/15 text-sp-accent text-sp-12 font-medium hover:bg-sp-accent/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <GitCommitIcon className="h-3.5 w-3.5" />
                       Commit {selected.size} file{selected.size === 1 ? '' : 's'}
@@ -246,7 +246,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                     type="button"
                     disabled={busy || !newBranch.trim()}
                     onClick={handleCreateBranch}
-                    className="px-2.5 py-1.5 rounded-sp-btn text-sp-12 text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-40"
+                    className="px-2.5 py-1.5 rounded-sp-btn text-sp-12 text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50"
                   >
                     Create
                   </button>

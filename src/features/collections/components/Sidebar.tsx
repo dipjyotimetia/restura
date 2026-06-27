@@ -690,7 +690,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
         {/* Search Input */}
         <Input
-          className="h-7 bg-transparent border-0 border-b border-border rounded-none px-3 text-xs placeholder:text-muted-foreground/60 focus-visible:shadow-none focus-visible:border-primary font-mono"
+          className="h-7 bg-transparent border-0 border-b border-border rounded-none px-3 text-xs placeholder:text-sp-dim focus-visible:shadow-none focus-visible:border-primary font-mono"
           placeholder="Search..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
@@ -1086,7 +1086,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
             {filteredHistory.length === 0 ? (
               <div className="text-center text-xs py-10 px-3">
                 <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                  <History className="h-6 w-6 text-muted-foreground/60" />
+                  <History className="h-6 w-6 text-sp-dim" />
                 </div>
                 <p className="font-medium text-foreground">
                   {searchQuery || methodFilter ? 'No matching requests' : 'No history yet'}
@@ -1123,7 +1123,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                             'h-3.5 w-3.5 transition-all',
                             favorites.includes(item.id)
                               ? 'text-amber-500 fill-amber-500 scale-110'
-                              : 'text-muted-foreground/50 group-hover:text-amber-500'
+                              : 'text-sp-dim group-hover:text-amber-500'
                           )}
                         />
                       </Button>

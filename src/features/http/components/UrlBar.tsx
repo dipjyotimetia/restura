@@ -182,7 +182,7 @@ export function UrlBar({
               className={cn(
                 'inline-flex items-center justify-center h-7 w-7 rounded-sp-btn text-sp-dim',
                 'hover:text-sp-text hover:bg-sp-hover transition-colors',
-                'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+                'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
               )}
             >
               <Code2 className="h-3.5 w-3.5" />
@@ -198,7 +198,7 @@ export function UrlBar({
               className={cn(
                 'inline-flex items-center justify-center h-7 w-7 rounded-sp-btn text-sp-dim',
                 'hover:text-sp-text hover:bg-sp-hover transition-colors',
-                'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+                'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
               )}
             >
               <Link2 className="h-3.5 w-3.5" />

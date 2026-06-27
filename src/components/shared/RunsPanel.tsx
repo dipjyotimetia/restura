@@ -106,7 +106,7 @@ export function RunsPanel() {
           }
         />
         {!isElectron() ? (
-          <p className="text-[11px] text-muted-foreground/70 font-mono">Desktop-only feature.</p>
+          <p className="text-[11px] text-sp-muted font-mono">Desktop-only feature.</p>
         ) : mockStatus.running ? (
           <div className="space-y-2">
             <button
@@ -138,7 +138,7 @@ export function RunsPanel() {
             </div>
           </div>
         ) : (
-          <p className="text-[11px] text-muted-foreground/70 font-mono leading-relaxed">
+          <p className="text-[11px] text-sp-muted font-mono leading-relaxed">
             Not running. Start one from a collection&rsquo;s ⋯ menu &rarr; &ldquo;Start mock
             server&rdquo;.
           </p>
@@ -163,7 +163,7 @@ export function RunsPanel() {
           }
         />
         {collectionRuns.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground/70 font-mono leading-relaxed">
+          <p className="text-[11px] text-sp-muted font-mono leading-relaxed">
             No runs yet. Run a collection or folder from its context menu.
           </p>
         ) : (
@@ -206,7 +206,7 @@ export function RunsPanel() {
                         {run.summary.skipped} skip
                       </span>
                     )}
-                    <span className="text-muted-foreground/70 ml-auto">{run.durationMs}ms</span>
+                    <span className="text-sp-muted ml-auto">{run.durationMs}ms</span>
                   </div>
                 </button>
               );
@@ -235,7 +235,7 @@ export function RunsPanel() {
           }
         />
         {runs.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground/70 font-mono leading-relaxed">
+          <p className="text-[11px] text-sp-muted font-mono leading-relaxed">
             No runs yet. Run one from an HTTP request (⌘K &rarr; &ldquo;Run load test&rdquo;).
           </p>
         ) : (
@@ -268,7 +268,7 @@ export function RunsPanel() {
                   <span title="p95 latency">p95 {run.stats.p95.toFixed(0)}</span>
                   <span title="p99 latency">p99 {run.stats.p99.toFixed(0)}</span>
                 </div>
-                <div className="flex items-center justify-between font-mono text-[10px] text-muted-foreground/70">
+                <div className="flex items-center justify-between font-mono text-[10px] text-sp-muted">
                   <span>
                     {run.stats.count} reqs
                     {run.stats.errors > 0 && (

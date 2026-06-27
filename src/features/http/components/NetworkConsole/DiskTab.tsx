@@ -204,7 +204,7 @@ export default function DiskTab() {
                     {formatLongTimestamp(entry.ts)}
                   </span>
                 </div>
-                <div className="text-xs text-foreground/80 truncate font-mono">{entry.url}</div>
+                <div className="text-xs text-sp-muted truncate font-mono">{entry.url}</div>
                 <div className="text-[10px] text-muted-foreground">{entry.durationMs}ms</div>
               </div>
             );

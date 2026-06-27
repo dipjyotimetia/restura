@@ -499,7 +499,7 @@ function SocketIOClient() {
               disabled={connection.events.length === 0}
               aria-label="Download events"
               title="Export events as JSON"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-40"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" />
             </button>
@@ -509,7 +509,7 @@ function SocketIOClient() {
               disabled={connection.events.length === 0}
               aria-label="Clear events"
               title="Clear events"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-40"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>

@@ -67,7 +67,7 @@ export function FlowBreadcrumb({ workflow, path, onNavigate }: FlowBreadcrumbPro
       </Button>
       {segments.map((seg, i) => (
         <span key={i} className="flex items-center gap-1 flex-shrink-0">
-          <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+          <ChevronRight className="h-3 w-3 text-sp-dim" />
           <Button
             variant="ghost"
             size="sm"
@@ -78,8 +78,8 @@ export function FlowBreadcrumb({ workflow, path, onNavigate }: FlowBreadcrumbPro
             disabled={i === segments.length - 1}
             title={`${seg.parentLabel} / ${pathSegmentLabel(seg.key)}`}
           >
-            <span className="text-muted-foreground/80">{seg.parentLabel}</span>
-            <span className="text-muted-foreground/40 mx-1">/</span>
+            <span className="text-sp-muted">{seg.parentLabel}</span>
+            <span className="text-sp-dim mx-1">/</span>
             <span>{pathSegmentLabel(seg.key)}</span>
           </Button>
         </span>

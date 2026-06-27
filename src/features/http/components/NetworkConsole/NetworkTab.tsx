@@ -427,7 +427,7 @@ export default function NetworkTab() {
                 </Button>
               ) : (
                 <HelpCircle
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50 pointer-events-none"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-sp-dim pointer-events-none"
                   aria-hidden="true"
                 />
               )}
@@ -782,7 +782,7 @@ export default function NetworkTab() {
                             <span className="text-primary/80 font-medium min-w-[120px]">
                               {key}:
                             </span>
-                            <span className="text-foreground/80 break-all ml-2">{value}</span>
+                            <span className="text-sp-muted break-all ml-2">{value}</span>
                           </div>
                         ))
                       ) : (
@@ -807,7 +807,7 @@ export default function NetworkTab() {
                             <span className="text-primary/80 font-medium min-w-[120px]">
                               {c.name}
                             </span>
-                            <span className="text-foreground/80 break-all ml-2">{c.value}</span>
+                            <span className="text-sp-muted break-all ml-2">{c.value}</span>
                           </div>
                         ))}
                       </div>
@@ -915,7 +915,7 @@ export default function NetworkTab() {
                             <span className="text-primary/80 font-medium min-w-[120px]">
                               {key}:
                             </span>
-                            <span className="text-foreground/80 break-all ml-2">
+                            <span className="text-sp-muted break-all ml-2">
                               {Array.isArray(value) ? value.join(', ') : value}
                             </span>
                           </div>
@@ -943,34 +943,34 @@ export default function NetworkTab() {
                               <span className="text-primary/80 font-medium min-w-[120px]">
                                 {c.name}
                               </span>
-                              <span className="text-foreground/80 break-all ml-2">{c.value}</span>
+                              <span className="text-sp-muted break-all ml-2">{c.value}</span>
                             </div>
                             {/* Attributes — only render when something was actually parsed,
                                 so the panel stays compact for typical cookies. */}
                             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-[120px] ml-2">
                               {c.domain && (
                                 <span>
-                                  Domain: <span className="text-foreground/70">{c.domain}</span>
+                                  Domain: <span className="text-sp-muted">{c.domain}</span>
                                 </span>
                               )}
                               {c.path && (
                                 <span>
-                                  Path: <span className="text-foreground/70">{c.path}</span>
+                                  Path: <span className="text-sp-muted">{c.path}</span>
                                 </span>
                               )}
                               {c.expires && (
                                 <span>
-                                  Expires: <span className="text-foreground/70">{c.expires}</span>
+                                  Expires: <span className="text-sp-muted">{c.expires}</span>
                                 </span>
                               )}
                               {c.maxAge !== undefined && (
                                 <span>
-                                  Max-Age: <span className="text-foreground/70">{c.maxAge}</span>
+                                  Max-Age: <span className="text-sp-muted">{c.maxAge}</span>
                                 </span>
                               )}
                               {c.sameSite && (
                                 <span>
-                                  SameSite: <span className="text-foreground/70">{c.sameSite}</span>
+                                  SameSite: <span className="text-sp-muted">{c.sameSite}</span>
                                 </span>
                               )}
                               {c.httpOnly && (

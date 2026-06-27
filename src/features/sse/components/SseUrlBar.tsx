@@ -48,7 +48,7 @@ export function SseUrlBar({
           placeholder={ECHO_URLS.sse}
           disabled={showStop}
           aria-label="SSE endpoint URL"
-          className="w-full h-8 bg-transparent border-0 outline-none font-mono text-sp-12 text-sp-text placeholder:text-sp-dim px-2 disabled:cursor-not-allowed disabled:opacity-70"
+          className="w-full h-8 bg-transparent border-0 outline-none font-mono text-sp-12 text-sp-text placeholder:text-sp-dim px-2 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ caretColor: 'var(--sp-accent)' }}
         />
         {/* Decorative {{vars}} highlight overlay layered on top of the input.

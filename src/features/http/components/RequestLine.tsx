@@ -107,7 +107,7 @@ export default function RequestLine({
           </SelectContent>
         </Select>
 
-        <span className="text-muted-foreground/40 font-mono text-sm select-none shrink-0">›</span>
+        <span className="text-sp-dim font-mono text-sm select-none shrink-0">›</span>
 
         <Input
           value={url}
@@ -116,7 +116,7 @@ export default function RequestLine({
           className={cn(
             'flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2',
             'focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none',
-            'placeholder:text-muted-foreground/40',
+            'placeholder:text-sp-dim',
             urlError && 'text-red-400'
           )}
           aria-invalid={!!urlError}

@@ -488,7 +488,7 @@ function RunList({
               <div className="flex items-center opacity-0 group-hover:opacity-100">
                 <button
                   type="button"
-                  className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
                   onClick={() => onMove(r.itemId, -1)}
                   disabled={idx === 0}
                   aria-label="Move up"
@@ -497,7 +497,7 @@ function RunList({
                 </button>
                 <button
                   type="button"
-                  className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
                   onClick={() => onMove(r.itemId, 1)}
                   disabled={idx === runnables.length - 1}
                   aria-label="Move down"

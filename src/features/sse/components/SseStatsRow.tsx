@@ -87,7 +87,7 @@ export function SseStatsRow({
             'h-8 px-3 rounded-sp-btn text-sp-12 font-semibold inline-flex items-center gap-1.5',
             'border border-[rgba(239,68,68,0.40)] text-[#ef4444] bg-transparent',
             'enabled:hover:bg-[rgba(239,68,68,0.10)] transition-colors',
-            'disabled:opacity-40 disabled:cursor-not-allowed'
+            'disabled:opacity-50 disabled:cursor-not-allowed'
           )}
         >
           <Square className="h-3.5 w-3.5" />
