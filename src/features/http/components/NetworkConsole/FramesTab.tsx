@@ -290,9 +290,14 @@ export default function FramesTab() {
               <span className="text-muted-foreground ml-2">
                 {formatClockTime(selectedFrame.timestamp)}
               </span>
-              <span className="text-muted-foreground">
-                {formatBytes(frameBytes(selectedFrame))}
-              </span>
+              {/* System frames are lifecycle markers (connect / disconnect /
+                  stream open-close), not wire payloads — a byte size for them
+                  is meaningless, so only show it for in/out data frames. */}
+              {selectedFrame.direction !== 'system' && (
+                <span className="text-muted-foreground">
+                  {formatBytes(frameBytes(selectedFrame))}
+                </span>
+              )}
               <Button
                 variant="ghost"
                 size="sm"

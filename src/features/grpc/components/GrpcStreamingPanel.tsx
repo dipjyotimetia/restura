@@ -71,7 +71,9 @@ export function GrpcStreamingPanel({
       connectionId: streamConnIdRef.current,
       label: `${request.service}/${request.method}`,
       payload,
-      bytes: new TextEncoder().encode(payload).length,
+      // System frames are lifecycle markers, not wire payloads — leave `bytes`
+      // unset so the UI doesn't show a meaningless size for them.
+      ...(direction === 'system' ? {} : { bytes: new TextEncoder().encode(payload).length }),
     });
 
   const start = async () => {

@@ -371,7 +371,9 @@ function GrpcRequestBuilder() {
             connectionId: streamConnId,
             label: streamLabel,
             payload,
-            bytes: new TextEncoder().encode(payload).length,
+            // System frames are lifecycle markers, not wire payloads — leave
+            // `bytes` unset so the UI doesn't show a meaningless size for them.
+            ...(direction === 'system' ? {} : { bytes: new TextEncoder().encode(payload).length }),
           });
         streamFrame('system', `stream opened — ${grpcRequest.methodType}`);
         // Adapt the async-iterator handle to the streamControl shape the
