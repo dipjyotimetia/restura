@@ -2,6 +2,7 @@
 
 import { FileText } from 'lucide-react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
+import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
 import type { FormDataItem, RequestBody } from '@/types';
@@ -35,6 +36,7 @@ export default function RequestBodyEditor({
   onGraphQLVariablesChange,
 }: RequestBodyEditorProps) {
   const activeTabId = useActiveTab()?.id;
+  const getVariableStatus = useVariableStatus();
 
   if (body.type === 'none') {
     return (
@@ -74,6 +76,7 @@ export default function RequestBodyEditor({
       onChange={onBodyContentChange}
       language={body.type === 'json' ? 'json' : body.type === 'xml' ? 'xml' : 'plaintext'}
       height="320px"
+      getVariableStatus={getVariableStatus}
       {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
     />
   );

@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
 import { ToggleField } from './ToggleField';
-import { VariableText } from './VariableText';
+import { VariableText, hasVariableToken, type VariableStatus } from './VariableText';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { cn } from '@/lib/shared/utils';
 
@@ -18,6 +18,12 @@ export interface ParamRowProps {
   onChange: (next: ParamRowData) => void;
   onRemove?: (id: string) => void;
   showVariableHighlight?: boolean;
+  /**
+   * Classifies `{{var}}` references in the value column so unresolved ones get
+   * the warning style. Forwarded to the {{var}} overlay; only consulted when
+   * `showVariableHighlight` is set. Omit to render every token amber.
+   */
+  getStatus?: (varName: string) => VariableStatus;
   className?: string;
   inputRef?: React.Ref<HTMLInputElement>;
   /**
@@ -43,6 +49,7 @@ export function ParamRow({
   onChange,
   onRemove,
   showVariableHighlight,
+  getStatus,
   className,
   inputRef,
   keySuggestions,
@@ -54,6 +61,12 @@ export function ParamRow({
   const valueOptions = valueSuggestionsFor?.(row.key);
   const valueSuggestions: ReadonlyArray<ComboboxSuggestion> | undefined =
     valueOptions && valueOptions.length > 0 ? valueOptions.map((v) => ({ value: v })) : undefined;
+
+  // When the value holds a complete `{{var}}`, hide the raw input glyphs so only
+  // the highlight overlay shows (avoids double-rendering the text). Gated on a
+  // real token — a half-typed `{{` keeps the raw input visible.
+  const showValueOverlay = !!showVariableHighlight && hasVariableToken(row.value);
+  const valueInputClass = cn(baseInput, showValueOverlay && 'text-transparent caret-sp-accent');
 
   const renderKey = () => {
     if (!keySuggestions || keySuggestions.length === 0) {
@@ -99,7 +112,7 @@ export function ParamRow({
           value={row.value}
           onValueChange={(val) => onChange({ ...row, value: val })}
           placeholder="value"
-          className={baseInput}
+          className={valueInputClass}
         />
       );
     }
@@ -109,7 +122,7 @@ export function ParamRow({
         onChange={(next) => onChange({ ...row, value: next })}
         suggestions={valueSuggestions}
         placeholder="value"
-        inputClassName={baseInput}
+        inputClassName={valueInputClass}
       />
     );
   };
@@ -135,12 +148,16 @@ export function ParamRow({
       <div className="border-l border-sp-line/40 flex items-center min-w-0">{renderKey()}</div>
       <div className="relative border-l border-sp-line/40 flex items-center min-w-0">
         {renderValue()}
-        {showVariableHighlight && row.value.includes('{{') && (
+        {showValueOverlay && (
           <div
             aria-hidden="true"
-            className="absolute inset-0 pointer-events-none flex items-center px-2"
+            className="absolute inset-0 pointer-events-none flex items-center px-2 overflow-hidden"
           >
-            <VariableText text={row.value} className="font-mono text-sp-12 text-transparent" />
+            <VariableText
+              text={row.value}
+              {...(getStatus && { getStatus })}
+              className="font-mono text-sp-12 text-sp-text whitespace-pre"
+            />
           </div>
         )}
       </div>

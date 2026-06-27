@@ -16,8 +16,8 @@ export type { StatProps } from './Stat';
 export { Kbd } from './Kbd';
 export type { KbdProps } from './Kbd';
 
-export { VariableText } from './VariableText';
-export type { VariableTextProps } from './VariableText';
+export { VariableText, hasVariableToken } from './VariableText';
+export type { VariableTextProps, VariableStatus } from './VariableText';
 
 export { ToggleField } from './ToggleField';
 export type { ToggleFieldProps } from './ToggleField';
