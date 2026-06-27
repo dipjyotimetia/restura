@@ -1,5 +1,5 @@
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
-import { bindLocalhost, closeServer } from '../utils/serverHelpers';
+import { bindLocalhost, closeServer, loopbackHost } from '../utils/serverHelpers';
 
 /**
  * Minimal SOCKS5 proxy (no-auth) for exercising the desktop SOCKS transport
@@ -63,7 +63,7 @@ export async function startMockSocksProxyServer(
         connectCount += 1;
         connectHosts.push(`${host}:${port}`);
 
-        const upstream = createConnection({ host, port });
+        const upstream = createConnection({ host: loopbackHost(host), port });
         live.add(upstream);
         upstream.on('close', () => live.delete(upstream));
         upstream.on('error', () => {

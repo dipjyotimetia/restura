@@ -1,7 +1,7 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createConnection } from 'node:net';
 import { URL } from 'node:url';
-import { bindLocalhost, closeServer } from '../utils/serverHelpers';
+import { bindLocalhost, closeServer, loopbackHost } from '../utils/serverHelpers';
 
 export interface MockProxyServerHandle {
   port: number;
@@ -81,7 +81,7 @@ export async function startMockProxyServer(
     }
 
     const upstream = createConnection({
-      host: target.hostname,
+      host: loopbackHost(target.hostname),
       port: target.port ? Number(target.port) : 80,
     });
     trackSocket(upstream);
@@ -131,7 +131,7 @@ export async function startMockProxyServer(
     }
     const port = Number(portStr);
 
-    const upstream = createConnection({ host, port });
+    const upstream = createConnection({ host: loopbackHost(host), port });
     trackSocket(upstream);
     trackSocket(clientSocket);
     upstream.on('error', (err) => {
