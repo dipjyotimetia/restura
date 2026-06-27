@@ -452,6 +452,45 @@ describe('useConsoleStore', () => {
       expect(useConsoleStore.getState().frames[0]!.payload).toBe('data: {"ok":true}');
     });
   });
+
+  describe('gRPC streaming frames', () => {
+    it('captures gRPC stream messages with inbound/outbound/system directions', () => {
+      const connectionId = 'grpc-abc12345';
+      const label = 'echo.EchoService/StreamEcho';
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'grpc',
+        direction: 'system',
+        connectionId,
+        label,
+        payload: 'stream opened — bidi-stream',
+      });
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'grpc',
+        direction: 'out',
+        connectionId,
+        label,
+        payload: '{"msg":"ping"}',
+      });
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol: 'grpc',
+        direction: 'in',
+        connectionId,
+        label,
+        payload: '{"msg":"pong"}',
+      });
+
+      const frames = useConsoleStore.getState().frames;
+      expect(frames).toHaveLength(3);
+      expect(frames.every((f) => f.protocol === 'grpc')).toBe(true);
+      expect(frames.map((f) => f.direction)).toEqual(['system', 'out', 'in']);
+      // All frames from one stream share a connection id so the Frames tab can
+      // group them together.
+      expect(frames.every((f) => f.connectionId === connectionId)).toBe(true);
+    });
+  });
 });
 
 describe('createProtocolConsoleEntry', () => {

@@ -55,7 +55,7 @@ export interface ConsoleEntry {
   iteration?: number;
 }
 
-export type FrameProtocol = 'websocket' | 'socketio' | 'kafka' | 'mqtt' | 'sse';
+export type FrameProtocol = 'websocket' | 'socketio' | 'kafka' | 'mqtt' | 'sse' | 'grpc';
 export type FrameDirection = 'in' | 'out' | 'system';
 
 export interface ConsoleFrame {

@@ -1,9 +1,12 @@
 import { Square, Play, Send, StopCircle, ArrowDown, ArrowUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { startGrpcStream, type GrpcStreamingHandle } from '../lib/grpcStreamingClient';
 import { Button } from '@/components/ui/button';
+import { useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import type { GrpcRequest } from '@/types';
+import { GrpcStatusCodeName } from '@/types';
+import type { GrpcRequest, GrpcStatusCode } from '@/types';
 
 export interface GrpcStreamingPanelProps {
   request: GrpcRequest;
@@ -41,6 +44,10 @@ export function GrpcStreamingPanel({
   const [draftError, setDraftError] = useState<string | null>(null);
   const [sendEnded, setSendEnded] = useState(false);
   const handleRef = useRef<GrpcStreamingHandle | null>(null);
+  // Stream connection id for the unified console — one per Start so a single
+  // invocation's frames group together in the Frames tab. Lives in a ref
+  // because send()/the inbound loop run after start() returns.
+  const streamConnIdRef = useRef<string>('');
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
   const clientStream = isClientStream(request.methodType);
@@ -53,12 +60,29 @@ export function GrpcStreamingPanel({
     });
   };
 
+  // Mirror streaming traffic into the unified console Frames tab so web gRPC
+  // streams show up alongside the desktop path (GrpcRequestBuilder) and the
+  // other streaming protocols. Same connection id + method label conventions.
+  const streamFrame = (direction: 'in' | 'out' | 'system', payload: string) =>
+    useConsoleStore.getState().addFrame({
+      timestamp: Date.now(),
+      protocol: 'grpc',
+      direction,
+      connectionId: streamConnIdRef.current,
+      label: `${request.service}/${request.method}`,
+      payload,
+      // System frames are lifecycle markers, not wire payloads — leave `bytes`
+      // unset so the UI doesn't show a meaningless size for them.
+      ...(direction === 'system' ? {} : { bytes: new TextEncoder().encode(payload).length }),
+    });
+
   const start = async () => {
     setFrames([]);
     setError(null);
     setDraftError(null);
     setSendEnded(false);
     setStatus('streaming');
+    streamConnIdRef.current = `grpc-${uuidv4().slice(0, 8)}`;
     try {
       const handle = await startGrpcStream({
         request,
@@ -68,21 +92,34 @@ export function GrpcStreamingPanel({
         ...(descriptors?.length ? { descriptors } : {}),
       });
       handleRef.current = handle;
+      streamFrame('system', `stream opened — ${request.methodType}`);
 
       void (async () => {
         try {
           for await (const msg of handle.messages) {
             pushFrame('in', msg);
+            streamFrame('in', JSON.stringify(msg, null, 2));
             if (clientStream) {
               // Client-streaming returns a single response after closeSend(); once we
               // get it the call is effectively done.
               setStatus('closed');
             }
           }
-          await handle.done;
+          const final = await handle.done;
+          if (final.status === 0) {
+            streamFrame('system', 'stream completed — OK');
+          } else {
+            const description =
+              final.statusMessage ||
+              GrpcStatusCodeName[final.status as GrpcStatusCode] ||
+              'Stream error';
+            streamFrame('system', `stream closed — ${final.status} ${description}`);
+          }
           setStatus((cur) => (cur === 'error' ? cur : 'closed'));
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Stream failed');
+          const message = err instanceof Error ? err.message : 'Stream failed';
+          streamFrame('system', `stream error — ${message}`);
+          setError(message);
           setStatus('error');
         }
       })();
@@ -103,6 +140,7 @@ export function GrpcStreamingPanel({
     }
     handleRef.current?.send(parsed);
     pushFrame('out', parsed);
+    streamFrame('out', JSON.stringify(parsed, null, 2));
   };
 
   const end = () => {

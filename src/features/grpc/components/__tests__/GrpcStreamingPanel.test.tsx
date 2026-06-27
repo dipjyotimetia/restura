@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { GrpcStreamingPanel } from '../GrpcStreamingPanel';
 import * as streamingModule from '../../lib/grpcStreamingClient';
+import { useConsoleStore } from '@/store/useConsoleStore';
 import type { GrpcRequest } from '@/types';
 
 vi.mock('../../lib/grpcStreamingClient');
@@ -96,6 +97,7 @@ function makeControlledHandle() {
 describe('GrpcStreamingPanel', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    useConsoleStore.setState({ frames: [] });
   });
 
   it('starts streaming and renders messages as they arrive', async () => {
@@ -187,6 +189,42 @@ describe('GrpcStreamingPanel', () => {
       const inFrames = screen.getAllByTestId('grpc-frame-in');
       expect(inFrames).toHaveLength(1);
       expect(inFrames[0]?.textContent).toContain('"echo": "hi"');
+    });
+  });
+
+  it('mirrors stream lifecycle, outbound, and inbound frames into the unified console', async () => {
+    const { handle, pushMsg } = makeControlledHandle();
+    vi.mocked(streamingModule.startGrpcStream).mockResolvedValue(handle as never);
+
+    render(<GrpcStreamingPanel request={bidiRequest} />);
+    fireEvent.click(screen.getByRole('button', { name: /start stream/i }));
+
+    // 'stream opened' system frame lands as soon as the handle is created.
+    await waitFor(() => {
+      const frames = useConsoleStore.getState().frames;
+      expect(
+        frames.some((f) => f.direction === 'system' && f.payload.includes('stream opened'))
+      ).toBe(true);
+    });
+
+    const sendBtn = await screen.findByRole('button', { name: /send message/i });
+    const textarea = screen.getByLabelText(/streaming message json/i);
+    fireEvent.change(textarea, { target: { value: '{"hi":"world"}' } });
+    fireEvent.click(sendBtn);
+    pushMsg({ echo: 'hi' });
+
+    await waitFor(() => {
+      const frames = useConsoleStore.getState().frames.filter((f) => f.protocol === 'grpc');
+      expect(frames.some((f) => f.direction === 'out' && f.payload.includes('"hi": "world"'))).toBe(
+        true
+      );
+      expect(frames.some((f) => f.direction === 'in' && f.payload.includes('"echo": "hi"'))).toBe(
+        true
+      );
+      // All frames from one invocation share a connection id and the method label.
+      const connIds = new Set(frames.map((f) => f.connectionId));
+      expect(connIds.size).toBe(1);
+      expect(frames.every((f) => f.label === 'svc.v1.Foo/Chat')).toBe(true);
     });
   });
 
