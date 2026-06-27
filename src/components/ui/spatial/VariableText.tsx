@@ -5,6 +5,18 @@ import { cn } from '@/lib/shared/utils';
 // references, with optional surrounding whitespace and dot/dash/underscore in
 // names — matching what the variable resolvers accept.
 const VAR_RE = /\{\{\s*\$?[\w.-]+\s*\}\}/g;
+// Non-global twin for predicate use: `.test()` on a /g regex mutates lastIndex.
+const VAR_TOKEN_RE = /\{\{\s*\$?[\w.-]+\s*\}\}/;
+
+/**
+ * True when `text` contains at least one complete `{{var}}` token. Used to gate
+ * the variable-highlight overlays so partial input like `{{` or empty `{{ }}`
+ * doesn't blank the underlying field. Shares the grammar with the renderer so
+ * "gate" and "highlight" never disagree.
+ */
+export function hasVariableToken(text: string): boolean {
+  return VAR_TOKEN_RE.test(text);
+}
 
 export type VariableStatus = 'resolved' | 'unresolved';
 

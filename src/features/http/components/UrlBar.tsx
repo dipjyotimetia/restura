@@ -5,7 +5,14 @@ import { Send, Code2, Loader2, Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { Button } from '@/components/ui/button';
-import { Floater, Kbd, MethodChip, VariableText, methodLabel } from '@/components/ui/spatial';
+import {
+  Floater,
+  Kbd,
+  MethodChip,
+  VariableText,
+  hasVariableToken,
+  methodLabel,
+} from '@/components/ui/spatial';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
@@ -41,15 +48,6 @@ interface UrlBarProps {
   onOpenCodeGen: () => void;
 }
 
-// Matches a balanced `{{ name }}` template variable: an env-style name (alnum/
-// underscore start, word/dot/dash chars) or a dynamic `{{ $helper }}` token.
-// Used to gate the variable-highlight overlay so partial input like `{{` or
-// `}}` alone (or empty `{{ }}`) doesn't swap the input invisible.
-const VARIABLE_PATTERN = /\{\{\s*\$?\w[\w.-]*\s*\}\}/;
-function hasVariable(s: string): boolean {
-  return VARIABLE_PATTERN.test(s);
-}
-
 /**
  * Spatial Depth URL bar. Method chip + monospace URL field (with {{var}}
  * highlight overlay) inside a pill-radius Floater, with a glowing accent
@@ -72,7 +70,7 @@ export function UrlBar({
       setUrlError(null);
       return;
     }
-    if (hasVariable(newUrl)) {
+    if (hasVariableToken(newUrl)) {
       setUrlError(null);
       return;
     }
@@ -159,10 +157,10 @@ export function UrlBar({
                 urlError ? 'text-rose-400' : 'text-sp-text',
                 // Make the visible glyphs transparent only when we have a
                 // {{var}} to overlay-render; otherwise show the raw input.
-                hasVariable(url) && !urlError && 'text-transparent caret-sp-accent'
+                hasVariableToken(url) && !urlError && 'text-transparent caret-sp-accent'
               )}
             />
-            {hasVariable(url) && !urlError && (
+            {hasVariableToken(url) && !urlError && (
               <div
                 aria-hidden="true"
                 className="absolute inset-0 pointer-events-none flex items-center overflow-hidden"

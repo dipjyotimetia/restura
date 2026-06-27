@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
 import { ToggleField } from './ToggleField';
-import { VariableText, type VariableStatus } from './VariableText';
+import { VariableText, hasVariableToken, type VariableStatus } from './VariableText';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { cn } from '@/lib/shared/utils';
 
@@ -62,6 +62,12 @@ export function ParamRow({
   const valueSuggestions: ReadonlyArray<ComboboxSuggestion> | undefined =
     valueOptions && valueOptions.length > 0 ? valueOptions.map((v) => ({ value: v })) : undefined;
 
+  // When the value holds a complete `{{var}}`, hide the raw input glyphs so only
+  // the highlight overlay shows (avoids double-rendering the text). Gated on a
+  // real token — a half-typed `{{` keeps the raw input visible.
+  const showValueOverlay = !!showVariableHighlight && hasVariableToken(row.value);
+  const valueInputClass = cn(baseInput, showValueOverlay && 'text-transparent caret-sp-accent');
+
   const renderKey = () => {
     if (!keySuggestions || keySuggestions.length === 0) {
       return (
@@ -106,7 +112,7 @@ export function ParamRow({
           value={row.value}
           onValueChange={(val) => onChange({ ...row, value: val })}
           placeholder="value"
-          className={baseInput}
+          className={valueInputClass}
         />
       );
     }
@@ -116,7 +122,7 @@ export function ParamRow({
         onChange={(next) => onChange({ ...row, value: next })}
         suggestions={valueSuggestions}
         placeholder="value"
-        inputClassName={baseInput}
+        inputClassName={valueInputClass}
       />
     );
   };
@@ -142,15 +148,15 @@ export function ParamRow({
       <div className="border-l border-sp-line/40 flex items-center min-w-0">{renderKey()}</div>
       <div className="relative border-l border-sp-line/40 flex items-center min-w-0">
         {renderValue()}
-        {showVariableHighlight && row.value.includes('{{') && (
+        {showValueOverlay && (
           <div
             aria-hidden="true"
-            className="absolute inset-0 pointer-events-none flex items-center px-2"
+            className="absolute inset-0 pointer-events-none flex items-center px-2 overflow-hidden"
           >
             <VariableText
               text={row.value}
               getStatus={getStatus}
-              className="font-mono text-sp-12 text-transparent"
+              className="font-mono text-sp-12 text-sp-text whitespace-pre"
             />
           </div>
         )}
