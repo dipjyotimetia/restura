@@ -307,9 +307,12 @@ export const useCollectionStore = create<CollectionState>()(
             // otherwise remove the node and fail to reinsert it (data loss).
             if (target.parentId) {
               const parent = findItem(col.items, target.parentId);
-              // Drop is a no-op if the target isn't a real folder, or it's the
-              // moved node itself / one of its descendants (cycle).
+              // No-op if the target isn't a real folder, it's the moved node
+              // itself / one of its descendants (cycle), or it's already the
+              // item's current direct parent (would silently reorder to bottom).
               if (parent?.type !== 'folder' || subtreeIds.has(target.parentId)) return col;
+              const currentParentId = (ancestorPath(col.items, itemId) ?? []).at(-1);
+              if (target.parentId === currentParentId && !target.beforeId) return col;
             }
             if (target.beforeId) {
               // No-op if dropping before itself, before one of its own

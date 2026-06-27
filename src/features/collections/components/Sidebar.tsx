@@ -267,6 +267,14 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     setVisibleHistoryCount((prev) => prev + HISTORY_PAGE_SIZE);
   }, []);
 
+  const startCollectionRename = useCallback((id: string, currentName: string) => {
+    setRenamingCollectionId(id);
+    setCollectionRenameValue(currentName);
+    // Double-setTimeout to outlast Radix DropdownMenu's FocusScope cleanup,
+    // which uses setTimeout(fn, 0) to return focus to the trigger.
+    setTimeout(() => setTimeout(() => collectionRenameRef.current?.select(), 0), 0);
+  }, []);
+
   const handleNewCollection = useCallback(() => {
     // Generate unique name with auto-increment
     const existingNames = collections.map((c) => c.name);
@@ -278,7 +286,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     }
     const newCollection = createNewCollection(name);
     addCollection(newCollection);
-  }, [collections, createNewCollection, addCollection]);
+    startCollectionRename(newCollection.id, newCollection.name);
+  }, [collections, createNewCollection, addCollection, startCollectionRename]);
 
   const performExport = useCallback(async (collection: Collection, format: ExportFormat) => {
     if (format === 'postman') {
@@ -420,12 +429,6 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     await syncFileCollection(collectionId);
   }, []);
 
-  const startCollectionRename = useCallback((id: string, currentName: string) => {
-    setRenamingCollectionId(id);
-    setCollectionRenameValue(currentName);
-    setTimeout(() => collectionRenameRef.current?.select(), 0);
-  }, []);
-
   const commitCollectionRename = useCallback(() => {
     if (renamingCollectionId && collectionRenameValueRef.current.trim()) {
       updateCollection(renamingCollectionId, { name: collectionRenameValueRef.current.trim() });
@@ -436,7 +439,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const startItemRename = useCallback((itemId: string, currentName: string) => {
     setRenamingItemId(itemId);
     setItemRenameValue(currentName);
-    setTimeout(() => itemRenameRef.current?.select(), 0);
+    // Double-setTimeout so our focus grab fires after Radix DropdownMenu's
+    // FocusScope cleanup, which also uses setTimeout(fn, 0) to return focus
+    // to the trigger and would otherwise steal focus from the rename input.
+    setTimeout(() => setTimeout(() => itemRenameRef.current?.select(), 0), 0);
   }, []);
 
   const commitItemRename = useCallback(
@@ -603,6 +609,13 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     [moveCollectionItem]
   );
 
+  const handleMoveToFolder = useCallback(
+    (collectionId: string, itemId: string, folderId: string) => {
+      moveCollectionItem(collectionId, itemId, { parentId: folderId });
+    },
+    [moveCollectionItem]
+  );
+
   // Stable callback bundle for the memoized tree rows. Everything in here is
   // a stable useCallback (selection reads go through refs), so the bundle's
   // identity never changes and row memoization holds.
@@ -632,6 +645,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       setDropTarget: setDropTargetId,
       dropIntoFolder: handleDropIntoFolder,
       dropBeforeItem: handleDropBeforeItem,
+      moveToFolder: handleMoveToFolder,
     }),
     [
       handleOpenCollectionItem,
@@ -648,6 +662,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       handleItemDragEnd,
       handleDropIntoFolder,
       handleDropBeforeItem,
+      handleMoveToFolder,
     ]
   );
 

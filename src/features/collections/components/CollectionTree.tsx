@@ -10,16 +10,28 @@ import {
   Copy,
   Trash2,
 } from 'lucide-react';
-import { memo, type DragEvent, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
+import {
+  memo,
+  useMemo,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type RefObject,
+} from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { cn } from '@/lib/shared/utils';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { CollectionItem } from '@/types';
 
 /**
@@ -30,6 +42,12 @@ import type { CollectionItem } from '@/types';
  * collection. The `actions` object is identity-stable (one `useMemo` in the
  * Sidebar), so it never breaks memoization.
  */
+
+export interface FolderEntry {
+  id: string;
+  name: string;
+  depth: number;
+}
 
 /** Stable callback bundle owned by the Sidebar. */
 export interface TreeActions {
@@ -56,6 +74,7 @@ export interface TreeActions {
   setDropTarget: (id: string | null) => void;
   dropIntoFolder: (e: DragEvent, collectionId: string, folderId: string) => void;
   dropBeforeItem: (e: DragEvent, collectionId: string, beforeId: string) => void;
+  moveToFolder: (collectionId: string, itemId: string, folderId: string) => void;
 }
 
 /** Volatile tree state, owned by the Sidebar, fanned out per row. */
@@ -322,6 +341,58 @@ const FolderRow = memo(function FolderRow({
   );
 });
 
+function flatFolderItems(items: CollectionItem[], depth = 0): FolderEntry[] {
+  return items.flatMap((i) =>
+    i.type === 'folder'
+      ? [{ id: i.id, name: i.name, depth }, ...flatFolderItems(i.items ?? [], depth + 1)]
+      : []
+  );
+}
+
+// Combines the sub-menu trigger + content so it can return null when the
+// collection has no folders, avoiding a dead-end "Move to folder" option.
+function MoveToFolderMenu({
+  collectionId,
+  itemId,
+  actions,
+}: {
+  collectionId: string;
+  itemId: string;
+  actions: TreeActions;
+}) {
+  // useShallow returns the same array reference when contents are shallowly
+  // equal, preventing the useSyncExternalStore "snapshot not cached" error
+  // that arises when the selector returns a new array on every call.
+  const collectionItems = useCollectionStore(
+    useShallow((s) => s.collections.find((c) => c.id === collectionId)?.items ?? [])
+  );
+  const folders = useMemo(() => flatFolderItems(collectionItems), [collectionItems]);
+
+  if (folders.length === 0) return null;
+
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger className="text-xs">
+        <Folder className="mr-2 h-3.5 w-3.5" />
+        Move to folder
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent>
+        {folders.map(({ id, name, depth }) => (
+          <ContextMenuItem
+            key={id}
+            className="text-xs"
+            style={{ paddingLeft: 8 + depth * 12 }}
+            onClick={() => actions.moveToFolder(collectionId, itemId, id)}
+          >
+            <Folder className="mr-2 h-3.5 w-3.5 shrink-0" />
+            {name}
+          </ContextMenuItem>
+        ))}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
 interface RequestRowProps {
   collectionId: string;
   item: CollectionItem;
@@ -430,6 +501,7 @@ const RequestRow = memo(function RequestRow({
           <Copy className="mr-2 h-3.5 w-3.5" />
           Duplicate
         </ContextMenuItem>
+        <MoveToFolderMenu collectionId={collectionId} itemId={item.id} actions={actions} />
         <ContextMenuSeparator />
         {isSelected && selectedCount > 1 ? (
           <ContextMenuItem

@@ -20,6 +20,21 @@ import {
 } from '@/components/ui/select';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import type { CollectionItem } from '@/types';
+
+interface FolderEntry {
+  id: string;
+  name: string;
+  depth: number;
+}
+
+function flatFolders(items: CollectionItem[], depth = 0): FolderEntry[] {
+  return items.flatMap((i) =>
+    i.type === 'folder'
+      ? [{ id: i.id, name: i.name, depth }, ...flatFolders(i.items ?? [], depth + 1)]
+      : []
+  );
+}
 
 interface SaveToCollectionDialogProps {
   tabId: string;
@@ -34,6 +49,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
     useCollectionStore();
 
   const [selectedCollectionId, setSelectedCollectionId] = useState('');
+  const [selectedFolderId, setSelectedFolderId] = useState('');
   const [newCollectionName, setNewCollectionName] = useState('');
   const [requestName, setRequestName] = useState(tab?.request.name ?? 'New Request');
   const [mode, setMode] = useState<'existing' | 'new'>(collections.length > 0 ? 'existing' : 'new');
@@ -44,18 +60,31 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
       setRequestName(tab?.request.name ?? 'New Request');
       setMode(collections.length > 0 ? 'existing' : 'new');
       setSelectedCollectionId('');
+      setSelectedFolderId('');
       setNewCollectionName('');
     }
     // collections.length intentionally omitted — only re-run when open changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // Reset folder selection when collection changes
+  useEffect(() => {
+    setSelectedFolderId('');
+  }, [selectedCollectionId]);
+
   if (!tab) return null;
+
+  // Derive effective mode: if all collections were deleted while dialog is open,
+  // fall back to 'new' so the user isn't stuck with no way to save.
+  const effectiveMode = mode === 'existing' && collections.length === 0 ? 'new' : mode;
+
+  const selectedCollection = collections.find((c) => c.id === selectedCollectionId);
+  const folders = selectedCollection ? flatFolders(selectedCollection.items) : [];
 
   const handleSave = () => {
     let collectionId: string;
 
-    if (mode === 'new') {
+    if (effectiveMode === 'new') {
       if (!newCollectionName.trim()) return;
       const col = createNewCollection(newCollectionName.trim());
       addCollection(col);
@@ -67,18 +96,29 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
 
     const itemId = uuidv4();
     const name = requestName.trim() || tab.request.name;
-    addItemToCollection(collectionId, {
-      id: itemId,
-      name,
-      type: 'request',
-      request: { ...tab.request, name },
-    });
+    // Validate that the selected folder still exists — it may have been deleted
+    // while the dialog was open, or selectedFolderId may be stale from a prior
+    // 'existing' mode selection before the user switched to 'new'.
+    const safeFolderId =
+      selectedFolderId && folders.some((f) => f.id === selectedFolderId)
+        ? selectedFolderId
+        : undefined;
+    addItemToCollection(
+      collectionId,
+      {
+        id: itemId,
+        name,
+        type: 'request',
+        request: { ...tab.request, name },
+      },
+      safeFolderId
+    );
     linkTabToSavedRequest(tabId, itemId);
     onOpenChange(false);
   };
 
   const canSave =
-    mode === 'new' ? newCollectionName.trim().length > 0 : selectedCollectionId.length > 0;
+    effectiveMode === 'new' ? newCollectionName.trim().length > 0 : selectedCollectionId.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -106,7 +146,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
               <div className="flex gap-2 mb-2">
                 <Button
                   size="sm"
-                  variant={mode === 'existing' ? 'default' : 'outline'}
+                  variant={effectiveMode === 'existing' ? 'default' : 'outline'}
                   className="h-7 text-xs flex-1"
                   onClick={() => setMode('existing')}
                 >
@@ -114,16 +154,19 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
                 </Button>
                 <Button
                   size="sm"
-                  variant={mode === 'new' ? 'default' : 'outline'}
+                  variant={effectiveMode === 'new' ? 'default' : 'outline'}
                   className="h-7 text-xs flex-1"
-                  onClick={() => setMode('new')}
+                  onClick={() => {
+                    setMode('new');
+                    setSelectedFolderId('');
+                  }}
                 >
                   New
                 </Button>
               </div>
             )}
 
-            {mode === 'existing' ? (
+            {effectiveMode === 'existing' ? (
               <Select value={selectedCollectionId} onValueChange={setSelectedCollectionId}>
                 <SelectTrigger className="h-8 text-sm">
                   <SelectValue placeholder="Choose a collection…" />
@@ -148,6 +191,27 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
               />
             )}
           </div>
+
+          {effectiveMode === 'existing' && folders.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Folder (optional)</Label>
+              <Select value={selectedFolderId} onValueChange={setSelectedFolderId}>
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="Collection root" />
+                </SelectTrigger>
+                <SelectContent>
+                  {folders.map(({ id, name, depth }) => (
+                    <SelectItem key={id} value={id} className="text-sm">
+                      <span style={{ paddingLeft: depth * 12 }}>
+                        {'/ '}
+                        {name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
