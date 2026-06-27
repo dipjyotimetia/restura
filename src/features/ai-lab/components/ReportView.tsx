@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, BarChart3, Download, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, BarChart3, Download, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
 import { useEvalRunStore } from '../store/useEvalRunStore';
@@ -328,21 +328,34 @@ export function ReportView() {
               <div className="space-y-2 border-t border-sp-line pt-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="sp-label">Per-case drill-down</h3>
-                  <Select
-                    value={drillCaseId ?? ''}
-                    onValueChange={(v) => setDrillCaseId(v || null)}
-                  >
-                    <SelectTrigger className="w-56">
-                      <SelectValue placeholder="Select a case…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {caseIds.map((id, i) => (
-                        <SelectItem key={id} value={id}>
-                          Case {i + 1} ({id.slice(0, 8)})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-1">
+                    <Select
+                      value={drillCaseId ?? ''}
+                      onValueChange={(v) => setDrillCaseId(v || null)}
+                    >
+                      <SelectTrigger className="w-56">
+                        <SelectValue placeholder="Select a case…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {caseIds.map((id, i) => (
+                          <SelectItem key={id} value={id}>
+                            Case {i + 1} ({id.slice(0, 8)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {drillCaseId && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Clear case selection"
+                        title="Clear selection"
+                        onClick={() => setDrillCaseId(null)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 {drillCells.length > 0 && (
                   <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
