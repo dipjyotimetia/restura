@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
 import { ToggleField } from './ToggleField';
-import { VariableText } from './VariableText';
+import { VariableText, type VariableStatus } from './VariableText';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { cn } from '@/lib/shared/utils';
 
@@ -18,6 +18,12 @@ export interface ParamRowProps {
   onChange: (next: ParamRowData) => void;
   onRemove?: (id: string) => void;
   showVariableHighlight?: boolean;
+  /**
+   * Classifies `{{var}}` references in the value column so unresolved ones get
+   * the warning style. Forwarded to the {{var}} overlay; only consulted when
+   * `showVariableHighlight` is set. Omit to render every token amber.
+   */
+  getStatus?: (varName: string) => VariableStatus;
   className?: string;
   inputRef?: React.Ref<HTMLInputElement>;
   /**
@@ -43,6 +49,7 @@ export function ParamRow({
   onChange,
   onRemove,
   showVariableHighlight,
+  getStatus,
   className,
   inputRef,
   keySuggestions,
@@ -140,7 +147,11 @@ export function ParamRow({
             aria-hidden="true"
             className="absolute inset-0 pointer-events-none flex items-center px-2"
           >
-            <VariableText text={row.value} className="font-mono text-sp-12 text-transparent" />
+            <VariableText
+              text={row.value}
+              getStatus={getStatus}
+              className="font-mono text-sp-12 text-transparent"
+            />
           </div>
         )}
       </div>
