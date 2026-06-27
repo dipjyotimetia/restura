@@ -54,6 +54,7 @@ export default function CodeEditor({
   const monacoRef = useRef<typeof Monaco | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
+  const contentListenerRef = useRef<Monaco.IDisposable | null>(null);
   // Keep the latest classifier reachable from the (once-bound) content-change
   // listener without re-subscribing on every render.
   const getVariableStatusRef = useRef(getVariableStatus);
@@ -139,8 +140,18 @@ export default function CodeEditor({
     // Variable highlighting: paint once, then on every model edit (covers both
     // typing and external value-prop updates, which Monaco applies as edits).
     applyVariableDecorations();
-    editor.onDidChangeModelContent(() => applyVariableDecorations());
+    contentListenerRef.current = editor.onDidChangeModelContent(() => applyVariableDecorations());
   };
+
+  // Dispose the content-change listener and decorations on unmount. (Monaco
+  // also tears these down with the editor, but releasing explicitly keeps the
+  // lifecycle self-contained.)
+  useEffect(() => {
+    return () => {
+      contentListenerRef.current?.dispose();
+      decorationsRef.current?.clear();
+    };
+  }, []);
 
   // Re-decorate when the classifier identity changes (e.g. the active
   // environment switched, so resolved/unresolved verdicts change).

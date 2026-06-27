@@ -8,6 +8,10 @@
  * "decorate" can never disagree on what counts as a variable.
  */
 const TOKEN_SOURCE = '\\{\\{\\s*\\$?[\\w.-]+\\s*\\}\\}';
+// Module-level singletons: the global one is reset before each scan; the
+// non-global one is only used via `.test()`, which never advances lastIndex.
+const TOKEN_RE_GLOBAL = new RegExp(TOKEN_SOURCE, 'g');
+const TOKEN_RE = new RegExp(TOKEN_SOURCE);
 
 export interface VariableToken {
   /** Offset of the opening `{{` in the source text. */
@@ -20,10 +24,10 @@ export interface VariableToken {
 
 /** Returns every complete `{{var}}` token in `text`, in order of appearance. */
 export function findVariableTokens(text: string): VariableToken[] {
-  const re = new RegExp(TOKEN_SOURCE, 'g');
+  TOKEN_RE_GLOBAL.lastIndex = 0; // defensive: the loop runs to completion, but reset anyway
   const out: VariableToken[] = [];
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
+  while ((m = TOKEN_RE_GLOBAL.exec(text)) !== null) {
     const raw = m[0];
     out.push({ start: m.index, end: m.index + raw.length, name: raw.slice(2, -2).trim() });
   }
@@ -32,6 +36,5 @@ export function findVariableTokens(text: string): VariableToken[] {
 
 /** True when `text` contains at least one complete `{{var}}` token. */
 export function hasVariableToken(text: string): boolean {
-  // Fresh non-global regex per call — a shared /g instance would carry lastIndex.
-  return new RegExp(TOKEN_SOURCE).test(text);
+  return TOKEN_RE.test(text);
 }

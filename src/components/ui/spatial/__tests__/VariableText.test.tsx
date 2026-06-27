@@ -31,10 +31,10 @@ describe('VariableText', () => {
   });
 
   it('classifies each token independently (regression: stateful /g regex)', () => {
-    // `{{a}}` resolved, `{{b}}` unresolved. The old split()+test() code reused a
+    // `{{a}}` resolved, `{{b}}` unresolved. An earlier implementation reused a
     // global regex whose lastIndex advanced between calls, which could
-    // misclassify adjacent tokens. matchAll() segmentation must keep them
-    // independent.
+    // misclassify adjacent tokens. The shared `findVariableTokens` scanner must
+    // keep each token independent.
     const getStatus = (name: string): VariableStatus => (name === 'a' ? 'resolved' : 'unresolved');
     const { container } = render(<VariableText text="{{a}}-{{b}}-{{a}}" getStatus={getStatus} />);
     const resolved = container.querySelectorAll('.sp-variable');

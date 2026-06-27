@@ -155,7 +155,7 @@ export function ParamRow({
           >
             <VariableText
               text={row.value}
-              getStatus={getStatus}
+              {...(getStatus && { getStatus })}
               className="font-mono text-sp-12 text-sp-text whitespace-pre"
             />
           </div>
