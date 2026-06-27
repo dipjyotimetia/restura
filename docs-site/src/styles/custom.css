@@ -1,121 +1,110 @@
 /* =========================================================================
-   Restura Docs — Strata Glass Design System
-   Matches the main app's frosted glass aesthetic with deep-space backdrop +
-   violet/indigo gradient orbs. Three glass tiers, dark-mode aware.
+   Restura Docs — Spatial Depth Design System
+   Mirrors the main app's Spatial Depth language: solid layered panels over a
+   cobalt-glow void, frosted chrome at the window edges, hairline separators,
+   and a cobalt accent. Content surfaces are SOLID (not frosted) for legibility
+   — only the header/sidebar chrome keeps a backdrop blur, exactly as the app.
    ========================================================================= */
 
 :root {
-  /* Brand palette — space-separated RGB triplets (modern syntax) */
-  --restura-violet: 123 110 246; /* #7B6EF6 */
+  /* Brand palette — space-separated RGB triplets (modern syntax).
+     --restura-accent is cobalt to match the app's default Spatial Depth accent;
+     the violet/indigo/cyan are retained as the protocol-accent and orb palette. */
+  --restura-accent: 37 99 235; /* cobalt — app's --sp-accent default */
+  --restura-violet: 123 110 246; /* #7B6EF6 — secondary orb / violet protocol */
   --restura-indigo: 79 70 229; /* #4F46E5 */
-  --restura-accent: 99 102 241; /* #6366F1 */
   --restura-cyan: 34 211 238; /* #22D3EE */
 
+  /* ── Spatial Depth tokens (light defaults), ported from the app's globals.css.
+     One declaration per token; dark overrides live in the [data-theme='dark']
+     block below (Starlight toggles theme via attribute, not color-scheme). ── */
+  --sp-bg: oklch(94.2% 0.012 260);
+  --sp-surface: oklch(100% 0 0);
+  --sp-surface-hi: oklch(97.3% 0.006 264);
+  --sp-surface-lo: oklch(95.7% 0.007 261);
+  --sp-text: oklch(18.9% 0.028 268);
+  --sp-text-muted: oklch(18.9% 0.028 268 / 0.62);
+  --sp-text-dim: oklch(18.9% 0.028 268 / 0.6);
+  --sp-line: oklch(18.9% 0.028 268 / 0.1);
+  --sp-line-strong: oklch(18.9% 0.028 268 / 0.16);
+  --sp-accent: rgb(var(--restura-accent));
+  --sp-hover: oklch(18.9% 0.028 268 / 0.04);
+
+  /* Frosted chrome material (header/sidebar) + solid-panel elevation shadow. */
+  --sp-chrome-bg: rgb(255 255 255 / 0.7);
+  --sp-shadow: 0 10px 15px -3px rgb(20 30 60 / 0.1), 0 4px 6px -4px rgb(20 30 60 / 0.08);
+
   /* Starlight accent overrides */
-  --sl-color-accent-low: rgb(30 27 75);
-  --sl-color-accent: rgb(var(--restura-violet));
-  --sl-color-accent-high: rgb(199 210 254);
+  --sl-color-accent-low: rgb(var(--restura-accent) / 0.12);
+  --sl-color-accent: var(--sp-accent);
+  --sl-color-accent-high: oklch(45% 0.17 255);
 
   /* Typography */
   --sl-font: 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --sl-font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', Menlo, monospace;
 
-  /* Glass tier variables (light defaults) */
-  --glass-1-bg: rgb(255 255 255 / 0.65);
-  --glass-2-bg: rgb(255 255 255 / 0.55);
-  --glass-3-bg: rgb(255 255 255 / 0.45);
-  --glass-border: rgb(255 255 255 / 0.7);
-  --glass-border-subtle: rgb(15 23 42 / 0.08);
-  --glass-shadow:
-    0 1px 0 0 rgb(255 255 255 / 0.6) inset, 0 8px 24px -12px rgb(31 41 55 / 0.18),
-    0 2px 6px -2px rgb(31 41 55 / 0.08);
-
-  /* Backdrop (light) */
-  --backdrop-base: hsl(250 25% 97%);
-  --backdrop-orb-1: rgb(var(--restura-violet) / 0.18);
-  --backdrop-orb-2: rgb(var(--restura-indigo) / 0.12);
+  /* Backdrop glow — cobalt corner + violet corner over --sp-bg, like the app. */
+  --sp-bg-glow:
+    radial-gradient(at 0% 0%, rgb(var(--restura-accent) / 0.06), transparent 45%),
+    radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.05), transparent 45%), var(--sp-bg);
 }
 
 :root[data-theme='light'] {
-  --sl-color-bg: var(--backdrop-base);
-  --sl-color-bg-nav: rgb(255 255 255 / 0.5);
-  --sl-color-bg-sidebar: rgb(255 255 255 / 0.5);
-  --sl-color-hairline: rgb(15 23 42 / 0.08);
-  --sl-color-hairline-light: rgb(15 23 42 / 0.05);
+  --sl-color-bg: var(--sp-bg);
+  --sl-color-bg-nav: var(--sp-chrome-bg);
+  --sl-color-bg-sidebar: var(--sp-chrome-bg);
+  --sl-color-hairline: var(--sp-line);
+  --sl-color-hairline-light: var(--sp-line);
 }
 
 :root[data-theme='dark'] {
-  --glass-1-bg: rgb(255 255 255 / 0.06);
-  --glass-2-bg: rgb(255 255 255 / 0.04);
-  --glass-3-bg: rgb(255 255 255 / 0.025);
-  --glass-border: rgb(255 255 255 / 0.12);
-  --glass-border-subtle: rgb(255 255 255 / 0.07);
-  --glass-shadow:
-    0 1px 0 0 rgb(255 255 255 / 0.06) inset, 0 8px 24px -8px rgb(0 0 0 / 0.45),
-    0 2px 6px -2px rgb(0 0 0 / 0.35);
+  --sp-bg: oklch(15.5% 0.011 268);
+  --sp-surface: oklch(20.5% 0.015 267);
+  --sp-surface-hi: oklch(24.4% 0.018 266);
+  --sp-surface-lo: oklch(17.8% 0.013 270);
+  --sp-text: oklch(95.8% 0.011 270);
+  --sp-text-muted: oklch(95.8% 0.011 270 / 0.62);
+  --sp-text-dim: oklch(95.8% 0.011 270 / 0.55);
+  --sp-line: oklch(100% 0 0 / 0.08);
+  --sp-line-strong: oklch(100% 0 0 / 0.14);
+  --sp-hover: oklch(100% 0 0 / 0.04);
 
-  --backdrop-base: hsl(240 20% 5%);
-  --backdrop-orb-1: rgb(var(--restura-violet) / 0.22);
-  --backdrop-orb-2: rgb(var(--restura-indigo) / 0.18);
+  /* lighter cobalt in dark, matching the app's --sp-accent dark value */
+  --restura-accent: 59 130 246;
 
-  --sl-color-bg: var(--backdrop-base);
-  --sl-color-bg-nav: rgb(15 23 42 / 0.55);
-  --sl-color-bg-sidebar: rgb(15 23 42 / 0.4);
+  --sp-chrome-bg: rgb(18 21 28 / 0.72);
+  --sp-shadow: 0 16px 48px -12px rgb(0 0 0 / 0.5), 0 4px 12px -6px rgb(0 0 0 / 0.4);
+
+  --sl-color-bg: var(--sp-bg);
+  --sl-color-bg-nav: var(--sp-chrome-bg);
+  --sl-color-bg-sidebar: rgb(18 21 28 / 0.6);
   --sl-color-accent-low: rgb(var(--restura-accent) / 0.22);
-  --sl-color-accent: rgb(149 137 255);
-  --sl-color-accent-high: rgb(224 231 255);
-  --sl-color-hairline: rgb(255 255 255 / 0.08);
-  --sl-color-hairline-light: rgb(255 255 255 / 0.05);
+  --sl-color-accent: var(--sp-accent);
+  --sl-color-accent-high: oklch(85% 0.09 255);
+  --sl-color-hairline: var(--sp-line);
+  --sl-color-hairline-light: var(--sp-line);
+
+  --sp-bg-glow:
+    radial-gradient(at 0% 0%, rgb(var(--restura-accent) / 0.1), transparent 50%),
+    radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.08), transparent 50%), var(--sp-bg);
 }
 
 /* =========================================================================
-   Backdrop — deep space with gradient orbs
+   Backdrop — cobalt-glow void with a faint grid
    ========================================================================= */
 
 body {
-  background: var(--backdrop-base);
+  background: var(--sp-bg-glow);
   position: relative;
   isolation: isolate;
 }
 
-body::before,
-body::after {
+body::before {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: -1;
-}
-
-body::before {
-  background:
-    radial-gradient(60rem 60rem at 85% -10%, var(--backdrop-orb-1), transparent 55%),
-    radial-gradient(50rem 50rem at -10% 110%, var(--backdrop-orb-2), transparent 55%);
-  will-change: transform, opacity;
-}
-
-/* Backdrop drift — slow, breathing motion */
-@media (prefers-reduced-motion: no-preference) {
-  body::before {
-    animation: orb-drift 28s ease-in-out infinite alternate;
-  }
-}
-@keyframes orb-drift {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: translate3d(-2%, 1.5%, 0) scale(1.06);
-    opacity: 0.9;
-  }
-  100% {
-    transform: translate3d(1.5%, -1%, 0) scale(1.02);
-    opacity: 1;
-  }
-}
-
-body::after {
   background-image:
     linear-gradient(rgb(120 120 160 / 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgb(120 120 160 / 0.04) 1px, transparent 1px);
@@ -124,28 +113,28 @@ body::after {
   opacity: 0.6;
 }
 
-:root[data-theme='dark'] body::after {
+:root[data-theme='dark'] body::before {
   background-image:
     linear-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgb(255 255 255 / 0.025) 1px, transparent 1px);
 }
 
 /* =========================================================================
-   Starlight chrome — glass header & sidebar
+   Starlight chrome — frosted header & sidebar (the only frosted surfaces)
    ========================================================================= */
 
 header.header {
   background: var(--sl-color-bg-nav) !important;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
-  border-bottom: 1px solid var(--glass-border-subtle);
+  backdrop-filter: saturate(150%) blur(20px);
+  -webkit-backdrop-filter: saturate(150%) blur(20px);
+  border-bottom: 1px solid var(--sp-line);
 }
 
 .sidebar-pane {
   background: var(--sl-color-bg-sidebar) !important;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
-  border-inline-end: 1px solid var(--glass-border-subtle);
+  backdrop-filter: saturate(150%) blur(20px);
+  -webkit-backdrop-filter: saturate(150%) blur(20px);
+  border-inline-end: 1px solid var(--sp-line);
 }
 
 .sidebar-content a {
@@ -155,17 +144,16 @@ header.header {
     color 0.15s ease;
 }
 .sidebar-content a:hover {
-  background: var(--glass-1-bg);
+  background: var(--sp-hover);
 }
 .sidebar-content a[aria-current='page'] {
-  background: rgb(var(--restura-violet) / 0.12);
-  color: rgb(var(--restura-violet));
+  background: rgb(var(--restura-accent) / 0.1);
+  color: var(--sp-accent);
   font-weight: 600;
   position: relative;
 }
 :root[data-theme='dark'] .sidebar-content a[aria-current='page'] {
-  background: rgb(var(--restura-violet) / 0.2);
-  color: rgb(199 210 254);
+  background: rgb(var(--restura-accent) / 0.15);
 }
 .sidebar-content a[aria-current='page']::before {
   content: '';
@@ -175,7 +163,7 @@ header.header {
   bottom: 0.4rem;
   width: 2px;
   border-radius: 1px;
-  background: rgb(var(--restura-violet));
+  background: var(--sp-accent);
 }
 
 /* =========================================================================
@@ -188,11 +176,11 @@ header.header {
   border-radius: 1.5rem;
   background: linear-gradient(
     135deg,
-    rgb(var(--restura-violet) / 0.08),
-    rgb(var(--restura-indigo) / 0.04) 60%,
+    rgb(var(--restura-accent) / 0.08),
+    oklch(55% 0.19 286 / 0.05) 60%,
     transparent
   );
-  border: 1px solid var(--glass-border-subtle);
+  border: 1px solid var(--sp-line);
   overflow: hidden;
 }
 .hero::before {
@@ -202,7 +190,7 @@ header.header {
   right: -10%;
   width: 32rem;
   height: 32rem;
-  background: radial-gradient(circle, rgb(var(--restura-violet) / 0.35), transparent 60%);
+  background: radial-gradient(circle, rgb(var(--restura-accent) / 0.3), transparent 60%);
   filter: blur(40px);
   pointer-events: none;
 }
@@ -213,7 +201,7 @@ header.header {
   left: -10%;
   width: 28rem;
   height: 28rem;
-  background: radial-gradient(circle, rgb(var(--restura-cyan) / 0.18), transparent 60%);
+  background: radial-gradient(circle, oklch(55% 0.19 286 / 0.18), transparent 60%);
   filter: blur(48px);
   pointer-events: none;
 }
@@ -228,11 +216,11 @@ header.header {
   letter-spacing: -0.03em !important;
   background: linear-gradient(
     135deg,
-    rgb(var(--restura-violet)) 0%,
-    rgb(var(--restura-indigo)) 30%,
+    rgb(var(--restura-accent)) 0%,
+    rgb(var(--restura-violet)) 35%,
     rgb(var(--restura-cyan)) 60%,
-    rgb(var(--restura-indigo)) 85%,
-    rgb(var(--restura-violet)) 100%
+    rgb(var(--restura-violet)) 85%,
+    rgb(var(--restura-accent)) 100%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;
@@ -272,11 +260,9 @@ header.header {
 .hero img {
   border-radius: 1.25rem;
   padding: 1.5rem;
-  background: var(--glass-2-bg);
-  backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
+  background: var(--sp-surface-hi);
+  border: 1px solid var(--sp-line-strong);
+  box-shadow: var(--sp-shadow);
   max-width: 14rem !important;
 }
 
@@ -287,39 +273,34 @@ header.header {
   transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }
 .hero a.action.primary {
-  background: linear-gradient(
-    135deg,
-    rgb(var(--restura-violet)),
-    rgb(var(--restura-indigo))
-  ) !important;
+  background: var(--sp-accent) !important;
   color: white !important;
-  border: 1px solid rgb(var(--restura-violet) / 0.5) !important;
+  border: 1px solid rgb(var(--restura-accent) / 0.5) !important;
   box-shadow:
-    0 8px 20px -6px rgb(var(--restura-violet) / 0.5),
+    0 8px 20px -6px rgb(var(--restura-accent) / 0.5),
     inset 0 1px 0 rgb(255 255 255 / 0.2);
 }
 .hero a.action.primary:hover {
   transform: translateY(-1px);
+  filter: brightness(1.08);
   box-shadow:
-    0 12px 28px -6px rgb(var(--restura-violet) / 0.6),
+    0 12px 28px -6px rgb(var(--restura-accent) / 0.6),
     inset 0 1px 0 rgb(255 255 255 / 0.25);
 }
 .hero a.action.secondary,
 .hero a.action.minimal {
-  background: var(--glass-2-bg) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--glass-border) !important;
+  background: var(--sp-surface) !important;
+  border: 1px solid var(--sp-line-strong) !important;
   color: inherit !important;
 }
 .hero a.action.secondary:hover,
 .hero a.action.minimal:hover {
-  background: var(--glass-1-bg) !important;
+  background: var(--sp-surface-hi) !important;
   transform: translateY(-1px);
 }
 
 /* =========================================================================
-   Protocol grid — glass cards with per-protocol accent
+   Protocol grid — solid cards with per-protocol accent
    ========================================================================= */
 
 .protocol-grid {
@@ -330,7 +311,7 @@ header.header {
 }
 
 .protocol-grid a {
-  --pc: var(--restura-violet);
+  --pc: var(--restura-accent);
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -338,11 +319,9 @@ header.header {
   border-radius: 1rem;
   text-decoration: none !important;
   color: inherit;
-  background: var(--glass-2-bg);
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
-  border: 1px solid var(--glass-border-subtle);
-  box-shadow: var(--glass-shadow);
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-line);
+  box-shadow: var(--sp-shadow);
   position: relative;
   overflow: hidden;
   transition:
@@ -350,25 +329,12 @@ header.header {
     border-color 0.18s ease,
     background-color 0.18s ease;
 }
-/* Shine highlight */
-.protocol-grid a::after {
-  content: '';
-  position: absolute;
-  inset-inline: 1rem;
-  top: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.5) 50%, transparent);
-  pointer-events: none;
-}
-:root[data-theme='dark'] .protocol-grid a::after {
-  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.18) 50%, transparent);
-}
 /* Hover glow */
 .protocol-grid a::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgb(var(--pc) / 0.16), transparent 60%);
+  background: linear-gradient(135deg, rgb(var(--pc) / 0.12), transparent 60%);
   opacity: 0;
   transition: opacity 0.2s ease;
   pointer-events: none;
@@ -445,16 +411,14 @@ header.header {
 }
 
 /* =========================================================================
-   Starlight Card / LinkCard / CardGrid — glass tile
+   Starlight Card / LinkCard / CardGrid — solid tile
    ========================================================================= */
 
 .card,
 [class*='card_'] {
-  background: var(--glass-2-bg) !important;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
-  border: 1px solid var(--glass-border-subtle) !important;
-  box-shadow: var(--glass-shadow);
+  background: var(--sp-surface) !important;
+  border: 1px solid var(--sp-line) !important;
+  box-shadow: var(--sp-shadow);
   border-radius: 1rem !important;
   transition:
     transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -463,19 +427,17 @@ header.header {
 .card:hover,
 [class*='card_']:hover {
   transform: translateY(-2px);
-  border-color: rgb(var(--restura-violet) / 0.35) !important;
+  border-color: rgb(var(--restura-accent) / 0.35) !important;
 }
 .card .icon,
 [class*='card_'] svg {
-  color: rgb(var(--restura-violet)) !important;
+  color: var(--sp-accent) !important;
 }
 
 .sl-link-card {
-  background: var(--glass-2-bg) !important;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
-  border: 1px solid var(--glass-border-subtle) !important;
-  box-shadow: var(--glass-shadow);
+  background: var(--sp-surface) !important;
+  border: 1px solid var(--sp-line) !important;
+  box-shadow: var(--sp-shadow);
   border-radius: 1rem !important;
   transition:
     transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -483,28 +445,24 @@ header.header {
 }
 .sl-link-card:hover {
   transform: translateY(-2px);
-  border-color: rgb(var(--restura-violet) / 0.4) !important;
+  border-color: rgb(var(--restura-accent) / 0.4) !important;
 }
 
 /* =========================================================================
-   Tabs, Aside (callouts), FileTree
+   Tabs, Aside (callouts), FileTree — inset solid surfaces
    ========================================================================= */
 
 starlight-tabs {
-  background: var(--glass-3-bg);
-  backdrop-filter: saturate(180%) blur(10px);
-  -webkit-backdrop-filter: saturate(180%) blur(10px);
-  border: 1px solid var(--glass-border-subtle);
+  background: var(--sp-surface-lo);
+  border: 1px solid var(--sp-line);
   border-radius: 0.9rem;
   padding: 0.25rem 0.5rem 0.5rem;
 }
 
 .starlight-aside {
-  background: var(--glass-3-bg) !important;
-  backdrop-filter: saturate(180%) blur(10px);
-  -webkit-backdrop-filter: saturate(180%) blur(10px);
-  border: 1px solid var(--glass-border-subtle) !important;
-  border-inline-start: 3px solid rgb(var(--restura-violet)) !important;
+  background: var(--sp-surface-lo) !important;
+  border: 1px solid var(--sp-line) !important;
+  border-inline-start: 3px solid var(--sp-accent) !important;
   border-radius: 0.75rem !important;
 }
 .starlight-aside--tip {
@@ -518,10 +476,8 @@ starlight-tabs {
 }
 
 starlight-file-tree {
-  background: var(--glass-3-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid var(--glass-border-subtle);
+  background: var(--sp-surface-lo);
+  border: 1px solid var(--sp-line);
   border-radius: 0.75rem;
   padding: 1rem;
 }
@@ -532,31 +488,30 @@ starlight-file-tree {
 
 .expressive-code .frame {
   border-radius: 0.9rem !important;
-  border: 1px solid var(--glass-border-subtle) !important;
-  box-shadow: var(--glass-shadow);
+  border: 1px solid var(--sp-line) !important;
+  box-shadow: var(--sp-shadow);
   overflow: hidden;
 }
 .expressive-code .frame pre {
-  background: rgb(15 17 32 / 0.85) !important;
-  backdrop-filter: blur(10px);
+  background: oklch(16.4% 0.011 268) !important;
 }
 :root[data-theme='light'] .expressive-code .frame pre {
-  background: rgb(245 245 250 / 0.85) !important;
+  background: oklch(97.9% 0.006 264) !important;
 }
 
 /* Inline code */
 :not(pre) > code {
-  background: rgb(var(--restura-violet) / 0.12) !important;
-  border: 1px solid rgb(var(--restura-violet) / 0.22);
-  color: rgb(var(--restura-violet)) !important;
+  background: rgb(var(--restura-accent) / 0.1) !important;
+  border: 1px solid rgb(var(--restura-accent) / 0.22);
+  color: var(--sp-accent) !important;
   padding: 0.15rem 0.45rem !important;
   border-radius: 0.35rem !important;
   font-size: 0.875em !important;
 }
 :root[data-theme='dark'] :not(pre) > code {
-  color: rgb(199 210 254) !important;
-  background: rgb(var(--restura-violet) / 0.22) !important;
-  border-color: rgb(var(--restura-violet) / 0.3);
+  color: oklch(85% 0.09 255) !important;
+  background: rgb(var(--restura-accent) / 0.18) !important;
+  border-color: rgb(var(--restura-accent) / 0.3);
 }
 
 /* =========================================================================
@@ -566,21 +521,19 @@ starlight-file-tree {
 table {
   border-collapse: separate !important;
   border-spacing: 0;
-  background: var(--glass-3-bg);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid var(--glass-border-subtle);
+  background: var(--sp-surface-lo);
+  border: 1px solid var(--sp-line);
   border-radius: 0.75rem;
   overflow: hidden;
 }
 table th {
-  background: rgb(var(--restura-violet) / 0.08);
+  background: rgb(var(--restura-accent) / 0.08);
   font-weight: 600;
   letter-spacing: -0.005em;
 }
 table tr:not(:last-child) td,
 table th {
-  border-bottom: 1px solid var(--glass-border-subtle) !important;
+  border-bottom: 1px solid var(--sp-line) !important;
 }
 
 /* =========================================================================
@@ -588,10 +541,10 @@ table th {
    ========================================================================= */
 
 site-search button[data-open-modal] {
-  background: var(--glass-2-bg) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--glass-border-subtle) !important;
+  background: var(--sp-chrome-bg) !important;
+  backdrop-filter: saturate(150%) blur(16px);
+  -webkit-backdrop-filter: saturate(150%) blur(16px);
+  border: 1px solid var(--sp-line) !important;
   border-radius: 0.6rem !important;
 }
 
@@ -610,7 +563,7 @@ site-search button[data-open-modal] {
   color: rgb(34 197 94);
 }
 .sl-badge.note {
-  color: rgb(var(--restura-violet));
+  color: var(--sp-accent);
 }
 
 /* =========================================================================
@@ -756,11 +709,24 @@ site-search button[data-open-modal] {
 }
 
 /* =========================================================================
+   Reduced transparency — drop the frosted chrome to solid surfaces
+   ========================================================================= */
+@media (prefers-reduced-transparency: reduce) {
+  header.header,
+  .sidebar-pane,
+  site-search button[data-open-modal] {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--sp-surface) !important;
+  }
+}
+
+/* =========================================================================
    Mobile / small-screen responsiveness
    Starlight handles the chrome (header, sidebar, content padding); these
-   rules tame the custom Strata-Glass additions — oversized gradient orbs,
-   wide tables, the splash hero, the protocol grid — so phones never scroll
-   horizontally. Desktop appearance above these breakpoints is unchanged.
+   rules tame the custom Spatial Depth additions — gradient orbs, wide tables,
+   the splash hero, the protocol grid — so phones never scroll horizontally.
+   Desktop appearance above these breakpoints is unchanged.
    ========================================================================= */
 
 /* Diagrams never overflow their column (any width). */
@@ -772,7 +738,7 @@ site-search button[data-open-modal] {
 
 /* Wide tables (comparison, capability matrix, protocol pages) scroll inside
    their own box instead of forcing the whole page to scroll. Overrides the
-   base `table { overflow: hidden }` only at tablet/phone widths so the glass
+   base `table { overflow: hidden }` only at tablet/phone widths so the
    rounded corners are preserved on desktop. */
 @media (max-width: 48rem) {
   .sl-markdown-content table {
@@ -784,14 +750,6 @@ site-search button[data-open-modal] {
 }
 
 @media (max-width: 30rem) {
-  /* Shrink the fixed-size backdrop orbs so phones don't paint giant
-     off-screen gradients (these are 60rem/50rem at desktop). */
-  body::before {
-    background:
-      radial-gradient(28rem 28rem at 90% -10%, var(--backdrop-orb-1), transparent 55%),
-      radial-gradient(24rem 24rem at -10% 110%, var(--backdrop-orb-2), transparent 55%);
-  }
-
   /* Splash hero: tighten padding and tame the blur orbs + screenshot so
      nothing crowds a 320px viewport. */
   .hero {

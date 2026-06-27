@@ -162,7 +162,9 @@
   --text-sp-22: 22px;
   --text-sp-22--line-height: 1.2;
 
-  /* Elevation shadows (legacy; elevation-3/4 live in dialog/sheet/select) */
+  /* Elevation shadows — the canonical overlay depth ladder. elevation-2:
+     tooltips; elevation-3: floating menus (dropdown/select/context/popover);
+     elevation-4: sheets. Dialogs set a bespoke deep shadow inline. */
   --shadow-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
   --shadow-elevation-2: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
   --shadow-elevation-3: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
