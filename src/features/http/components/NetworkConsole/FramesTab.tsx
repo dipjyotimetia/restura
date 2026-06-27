@@ -128,7 +128,7 @@ export default function FramesTab() {
             {PROTOCOL_BADGES[frame.protocol] ?? frame.protocol.toUpperCase()}
           </Badge>
           {frame.label && (
-            <span className="text-[11px] font-mono text-foreground/80 truncate max-w-[120px]">
+            <span className="text-[11px] font-mono text-sp-muted truncate max-w-[120px]">
               {frame.label}
             </span>
           )}
@@ -241,7 +241,7 @@ export default function FramesTab() {
           </div>
           {/* Frames live only in memory — make the expectation explicit so a
               user closing the app and coming back isn't surprised. */}
-          <p className="text-[10px] text-muted-foreground/80 leading-snug">
+          <p className="text-[10px] text-sp-muted leading-snug">
             Frames are session-only — they aren't persisted across reload.
           </p>
         </div>

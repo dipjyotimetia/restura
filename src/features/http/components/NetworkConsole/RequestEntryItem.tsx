@@ -215,7 +215,7 @@ export default function RequestEntryItem({
               </span>
             </div>
           </div>
-          <div className="text-xs text-foreground/80 truncate font-mono">{displayUrl}</div>
+          <div className="text-xs text-sp-muted truncate font-mono">{displayUrl}</div>
           {/* Waterfall bar — duration relative to the slowest entry in view. */}
           {barPct > 0 && (
             <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">

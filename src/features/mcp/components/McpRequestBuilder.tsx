@@ -678,7 +678,7 @@ function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => voi
           type="button"
           onClick={onClear}
           disabled={log.length === 0}
-          className="inline-flex items-center gap-1 text-sp-11 text-sp-muted hover:text-sp-text disabled:opacity-40"
+          className="inline-flex items-center gap-1 text-sp-11 text-sp-muted hover:text-sp-text disabled:opacity-50"
         >
           <Trash2 className="h-3 w-3" /> Clear
         </button>

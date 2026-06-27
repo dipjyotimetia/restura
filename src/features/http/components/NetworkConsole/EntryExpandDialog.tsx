@@ -137,32 +137,32 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
                           <span className="text-primary/80 font-medium min-w-[140px]">
                             {c.name}
                           </span>
-                          <span className="text-foreground/80 break-all ml-2">{c.value}</span>
+                          <span className="text-sp-muted break-all ml-2">{c.value}</span>
                         </div>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-[140px] ml-2">
                           {c.domain && (
                             <span>
-                              Domain: <span className="text-foreground/70">{c.domain}</span>
+                              Domain: <span className="text-sp-muted">{c.domain}</span>
                             </span>
                           )}
                           {c.path && (
                             <span>
-                              Path: <span className="text-foreground/70">{c.path}</span>
+                              Path: <span className="text-sp-muted">{c.path}</span>
                             </span>
                           )}
                           {c.expires && (
                             <span>
-                              Expires: <span className="text-foreground/70">{c.expires}</span>
+                              Expires: <span className="text-sp-muted">{c.expires}</span>
                             </span>
                           )}
                           {c.maxAge !== undefined && (
                             <span>
-                              Max-Age: <span className="text-foreground/70">{c.maxAge}</span>
+                              Max-Age: <span className="text-sp-muted">{c.maxAge}</span>
                             </span>
                           )}
                           {c.sameSite && (
                             <span>
-                              SameSite: <span className="text-foreground/70">{c.sameSite}</span>
+                              SameSite: <span className="text-sp-muted">{c.sameSite}</span>
                             </span>
                           )}
                           {c.httpOnly && (
@@ -216,7 +216,7 @@ function HeaderBlock({
           entries.map(([key, value]) => (
             <div key={key} className="flex">
               <span className="text-primary/80 font-medium min-w-[140px]">{key}:</span>
-              <span className="text-foreground/80 break-all ml-2">
+              <span className="text-sp-muted break-all ml-2">
                 {Array.isArray(value) ? value.join(', ') : value}
               </span>
             </div>
@@ -247,7 +247,7 @@ function CookieList({
         {rows.map((c) => (
           <div key={c.name} className="flex">
             <span className="text-primary/80 font-medium min-w-[140px]">{c.name}</span>
-            <span className="text-foreground/80 break-all ml-2">{c.value}</span>
+            <span className="text-sp-muted break-all ml-2">{c.value}</span>
           </div>
         ))}
       </div>

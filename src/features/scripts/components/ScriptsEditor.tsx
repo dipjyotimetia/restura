@@ -154,7 +154,7 @@ export default function ScriptsEditor({
             size="sm"
             onClick={handleClearScript}
             disabled={!script}
-            className="h-7 text-xs text-muted-foreground hover:text-destructive disabled:opacity-40"
+            className="h-7 text-xs text-muted-foreground hover:text-destructive disabled:opacity-50"
           >
             <RotateCcw className="mr-1.5 h-3 w-3" />
             Clear

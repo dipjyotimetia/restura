@@ -455,7 +455,7 @@ function GraphQLRequestBuilder() {
                     type="button"
                     onClick={handlePrettify}
                     disabled={!query.trim()}
-                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Wand2 className="h-3 w-3" />
                     Prettify
@@ -464,7 +464,7 @@ function GraphQLRequestBuilder() {
                     type="button"
                     onClick={handleDownloadSDL}
                     disabled={!executableSchema}
-                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Download className="h-3 w-3" />
                     SDL

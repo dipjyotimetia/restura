@@ -135,7 +135,7 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
                 type="button"
                 onClick={handleRun}
                 disabled={!request}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn bg-sp-accent/15 text-sp-accent text-sp-12 font-medium hover:bg-sp-accent/25 transition-colors disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn bg-sp-accent/15 text-sp-accent text-sp-12 font-medium hover:bg-sp-accent/25 transition-colors disabled:opacity-50"
               >
                 <Play className="h-3.5 w-3.5" /> Run
               </button>

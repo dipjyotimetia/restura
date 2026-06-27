@@ -287,10 +287,10 @@ function DiffSection({ title, entries }: { title: string; entries: LineDiffEntry
                 'px-3 py-px whitespace-pre-wrap break-words',
                 e.op === 'added' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
                 e.op === 'removed' && 'bg-red-500/10 text-red-700 dark:text-red-300',
-                e.op === 'equal' && 'text-foreground/70'
+                e.op === 'equal' && 'text-sp-muted'
               )}
             >
-              <span className="select-none inline-block w-3 mr-2 text-muted-foreground/70">
+              <span className="select-none inline-block w-3 mr-2 text-sp-muted">
                 {e.op === 'added' ? '+' : e.op === 'removed' ? '−' : ' '}
               </span>
               {e.text || ' '}

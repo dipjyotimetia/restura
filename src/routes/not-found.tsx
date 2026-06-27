@@ -21,7 +21,7 @@ export default function NotFound() {
 
         <div className="space-y-2">
           <p className="text-lg font-mono text-foreground">This endpoint doesn&apos;t exist.</p>
-          <p className="text-xs font-mono text-muted-foreground/50">
+          <p className="text-xs font-mono text-sp-dim">
             The route you&apos;re looking for returned no content.
           </p>
         </div>

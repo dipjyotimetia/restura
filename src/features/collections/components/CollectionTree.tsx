@@ -237,9 +237,9 @@ const FolderRow = memo(function FolderRow({
           style={{ marginLeft: indent }}
         >
           {isCollapsed ? (
-            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+            <ChevronRight className="h-3 w-3 shrink-0 text-sp-muted" />
           ) : (
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+            <ChevronDown className="h-3 w-3 shrink-0 text-sp-muted" />
           )}
           <Folder className="h-3 w-3 shrink-0 text-primary/60" />
           {isRenaming ? (
@@ -254,7 +254,7 @@ const FolderRow = memo(function FolderRow({
             <>
               <span className="truncate">{item.name}</span>
               {isCollapsed && childCount > 0 && (
-                <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground/60">
+                <span className="ml-auto shrink-0 text-[9px] tabular-nums text-sp-dim">
                   {childCount}
                 </span>
               )}

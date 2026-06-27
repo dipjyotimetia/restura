@@ -146,9 +146,7 @@ function StepsTab() {
               {nodeId.length > 16 ? `${nodeId.slice(0, 14)}…` : nodeId}
             </span>
             {state.duration !== undefined && (
-              <span className="font-mono text-[10px] text-muted-foreground/70">
-                {state.duration}ms
-              </span>
+              <span className="font-mono text-[10px] text-sp-muted">{state.duration}ms</span>
             )}
             {state.error && (
               <span className="text-red-400 truncate flex-1 text-[11px]" title={state.error}>
@@ -159,7 +157,7 @@ function StepsTab() {
               Object.entries(state.extractedVariables).map(([k, v]) => (
                 <span
                   key={k}
-                  className="font-mono text-[10px] text-muted-foreground/80 truncate max-w-[45%]"
+                  className="font-mono text-[10px] text-sp-muted truncate max-w-[45%]"
                   title={`${k}: ${v}`}
                 >
                   {k}={prettyValue(v)}
@@ -217,7 +215,7 @@ function LogsTab() {
               l.level === 'warn' && 'text-amber-400'
             )}
           >
-            <span className="text-muted-foreground/60 flex-shrink-0">
+            <span className="text-sp-dim flex-shrink-0">
               {new Date(l.timestamp).toLocaleTimeString(undefined, {
                 hour12: false,
               })}

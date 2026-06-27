@@ -273,7 +273,7 @@ export default function NetworkConsole({
         {/* Header */}
         <div className="flex items-center justify-between px-3 h-7 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground/60 select-none">
+            <span className="text-[11px] font-mono uppercase tracking-widest text-sp-dim select-none">
               Console
             </span>
             {isExpanded && (

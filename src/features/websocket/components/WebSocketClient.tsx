@@ -467,7 +467,7 @@ function WebSocketClient() {
               disabled={connection.messages.length === 0}
               aria-label="Download messages"
               title="Export messages as JSON"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-40"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" />
             </button>
@@ -477,7 +477,7 @@ function WebSocketClient() {
               disabled={connection.messages.length === 0}
               aria-label="Clear messages"
               title="Clear messages"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-40"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>

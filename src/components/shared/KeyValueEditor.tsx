@@ -58,7 +58,7 @@ export default function KeyValueEditor({
     <TooltipProvider delayDuration={300}>
       <div className="space-y-3">
         {items.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground/50 glass-3 rounded-xl border glass-border-subtle mx-1">
+          <div className="flex flex-col items-center justify-center py-8 gap-2 text-sp-dim glass-3 rounded-xl border glass-border-subtle mx-1">
             <ListPlus className="h-5 w-5 text-primary/40" />
             <p className="text-xs font-mono">No {itemType}s added</p>
           </div>
@@ -131,7 +131,7 @@ export default function KeyValueEditor({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={`h-6 w-6 transition-colors ${item.secret ? 'text-amber-500' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
+                          className={`h-6 w-6 transition-colors ${item.secret ? 'text-amber-500' : 'text-sp-dim hover:text-muted-foreground'}`}
                           onClick={() => {
                             onUpdate(item.id, { secret: !item.secret });
                             if (item.secret)
