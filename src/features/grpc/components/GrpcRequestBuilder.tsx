@@ -1,6 +1,7 @@
 import { AlertCircle, Loader2, Radio } from 'lucide-react';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
+import { v4 as uuidv4 } from 'uuid';
 import { GrpcInvocationBar } from './GrpcInvocationBar';
 import { GrpcMessageEditor } from './GrpcMessageEditor';
 import { GrpcMethodContext } from './GrpcMethodContext';
@@ -355,10 +356,29 @@ function GrpcRequestBuilder() {
           timeoutMs,
           useCompression,
         });
+        // Mirror streaming traffic into the unified console Frames tab — the
+        // bespoke streaming handle never routed through the runner, so before
+        // this gRPC streams were invisible in the console (only the in-panel
+        // message list showed them). One connection id per invocation groups
+        // a single stream's frames together; the label is the called method.
+        const streamLabel = `${grpcRequest.service}/${grpcRequest.method}`;
+        const streamConnId = `grpc-${uuidv4().slice(0, 8)}`;
+        const streamFrame = (direction: 'in' | 'out' | 'system', payload: string) =>
+          useConsoleStore.getState().addFrame({
+            timestamp: Date.now(),
+            protocol: 'grpc',
+            direction,
+            connectionId: streamConnId,
+            label: streamLabel,
+            payload,
+            bytes: new TextEncoder().encode(payload).length,
+          });
+        streamFrame('system', `stream opened — ${grpcRequest.methodType}`);
         // Adapt the async-iterator handle to the streamControl shape the
         // invocation bar / streaming controls already consume.
         setStreamControl({
           sendMessage: (msg: unknown) => {
+            streamFrame('out', typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2));
             void handle.send(msg);
           },
           endStream: () => handle.closeSend(),
@@ -371,23 +391,26 @@ function GrpcRequestBuilder() {
         void (async () => {
           try {
             for await (const msg of handle.messages) {
-              setStreamingMessages((prev) => [...prev, JSON.stringify(msg, null, 2)]);
+              const text = JSON.stringify(msg, null, 2);
+              setStreamingMessages((prev) => [...prev, text]);
+              streamFrame('in', text);
             }
             const final = await handle.done;
             if (final.status === 0) {
+              streamFrame('system', 'stream completed — OK');
               toast.success('Stream completed');
             } else {
-              toast.error(`gRPC Error: ${final.status}`, {
-                description:
-                  final.statusMessage ||
-                  GrpcStatusCodeName[final.status as GrpcStatusCode] ||
-                  'Stream error',
-              });
+              const description =
+                final.statusMessage ||
+                GrpcStatusCodeName[final.status as GrpcStatusCode] ||
+                'Stream error';
+              streamFrame('system', `stream closed — ${final.status} ${description}`);
+              toast.error(`gRPC Error: ${final.status}`, { description });
             }
           } catch (err) {
-            toast.error('gRPC stream error', {
-              description: err instanceof Error ? err.message : String(err),
-            });
+            const message = err instanceof Error ? err.message : String(err);
+            streamFrame('system', `stream error — ${message}`);
+            toast.error('gRPC stream error', { description: message });
           } finally {
             setLoading(false);
             setStreamControl(null);
