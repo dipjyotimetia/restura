@@ -2,12 +2,21 @@
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Send, Code2, Loader2, Link2 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { Button } from '@/components/ui/button';
-import { Floater, Kbd, MethodChip, VariableText, methodLabel } from '@/components/ui/spatial';
+import {
+  Floater,
+  Kbd,
+  MethodChip,
+  VariableText,
+  methodLabel,
+  type VariableStatus,
+} from '@/components/ui/spatial';
+import { HELPERS } from '@/lib/shared/dynamicVariables';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { HttpMethod } from '@/types';
 
 const HTTP_METHODS: ReadonlyArray<HttpMethod> = [
@@ -40,10 +49,11 @@ interface UrlBarProps {
   onOpenCodeGen: () => void;
 }
 
-// Matches a balanced `{{ name }}` template variable: alnum/underscore start,
-// followed by word/dot/dash chars. Used to gate the variable-highlight overlay
-// so partial input like `{{` or `}}` alone doesn't swap the input invisible.
-const VARIABLE_PATTERN = /\{\{\s*\w[\w.-]*\s*\}\}/;
+// Matches a balanced `{{ name }}` template variable: an env-style name (alnum/
+// underscore start, word/dot/dash chars) or a dynamic `{{ $helper }}` token.
+// Used to gate the variable-highlight overlay so partial input like `{{` or
+// `}}` alone (or empty `{{ }}`) doesn't swap the input invisible.
+const VARIABLE_PATTERN = /\{\{\s*\$?\w[\w.-]*\s*\}\}/;
 function hasVariable(s: string): boolean {
   return VARIABLE_PATTERN.test(s);
 }
@@ -63,6 +73,22 @@ export function UrlBar({
   onOpenCodeGen,
 }: UrlBarProps) {
   const [urlError, setUrlError] = useState<string | null>(null);
+  const activeEnv = useEnvironmentStore((s) => s.getActiveEnvironment());
+
+  // Classify a {{var}} reference for the highlight overlay: a name is resolved
+  // if it's a `$dynamic` helper that exists, or an enabled variable in the
+  // active environment. Anything else is flagged unresolved so it reads as a
+  // warning before the request fires.
+  const getVarStatus = useCallback(
+    (name: string): VariableStatus => {
+      if (name.startsWith('$')) {
+        return name.slice(1) in HELPERS ? 'resolved' : 'unresolved';
+      }
+      const known = activeEnv?.variables.some((v) => v.enabled && v.key === name) ?? false;
+      return known ? 'resolved' : 'unresolved';
+    },
+    [activeEnv]
+  );
 
   const validateUrl = (newUrl: string) => {
     if (!newUrl) {
@@ -166,6 +192,7 @@ export function UrlBar({
               >
                 <VariableText
                   text={url}
+                  getStatus={getVarStatus}
                   className="font-mono text-sp-13 text-sp-text tabular-nums whitespace-pre"
                 />
               </div>

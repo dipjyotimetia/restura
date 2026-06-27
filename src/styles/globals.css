@@ -497,6 +497,18 @@
     border-radius: 4px;
   }
 
+  /* Unresolved variable — a reference with no matching env var or dynamic
+     helper. Rendered in a warning red with a wavy underline so it reads as a
+     problem before the request fires, distinct from the amber resolved token. */
+  .sp-variable-unresolved {
+    background: rgba(239, 68, 68, 0.18);
+    color: #ef4444;
+    padding: 0 4px;
+    border-radius: 4px;
+    text-decoration: underline wavy rgba(239, 68, 68, 0.7);
+    text-underline-offset: 2px;
+  }
+
   /* Section labels (e.g. HEADERS, TIMING, STREAMING) */
   .sp-label {
     font-size: 11px;
