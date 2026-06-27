@@ -5,6 +5,7 @@ import { useEvalRunStore } from '../store/useEvalRunStore';
 import type { EvalCellResult, EvalRun } from '../types';
 import { EmptyState } from './EmptyState';
 import { StatusChip } from './StatusChip';
+import { VerdictChip } from './VerdictChip';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
 import {
@@ -328,7 +329,7 @@ export function ReportView() {
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="sp-label">Per-case drill-down</h3>
                   <Select
-                    value={drillCaseId ?? undefined}
+                    value={drillCaseId ?? ''}
                     onValueChange={(v) => setDrillCaseId(v || null)}
                   >
                     <SelectTrigger className="w-56">
@@ -356,18 +357,7 @@ export function ReportView() {
                           <span className="truncate text-sp-12 font-medium text-sp-text">
                             {cell.modelRef.model}
                           </span>
-                          <span
-                            className={cn(
-                              'shrink-0 rounded px-1.5 py-0.5 text-sp-11',
-                              cell.notEvaluated
-                                ? 'bg-sp-hover text-sp-muted'
-                                : cell.passed
-                                  ? 'bg-emerald-500/15 text-emerald-500'
-                                  : 'bg-destructive/15 text-destructive'
-                            )}
-                          >
-                            {cell.notEvaluated ? 'n/a' : cell.passed ? 'pass' : 'fail'}
-                          </span>
+                          <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
                         </div>
                         {cell.executed && (
                           <div className="text-sp-11 text-sp-muted">

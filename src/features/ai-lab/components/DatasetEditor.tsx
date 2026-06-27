@@ -1,5 +1,5 @@
 import { Code2, Database, Download, Plus, Rows3, Trash2, Upload, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../lib/datasetIo';
 import { useAiLabStore } from '../store/useAiLabStore';
@@ -24,14 +24,44 @@ interface EditableCase {
   vars: Record<string, string>;
   expected?: string;
   reference?: string;
-  turns?: unknown;
+  turns?: DatasetCase['turns'];
 }
+
+type ParseResult = { ok: true; cases: EditableCase[] } | { ok: false; error: string };
+
+function normalizeCase(c: unknown): EditableCase {
+  const obj = (c ?? {}) as Record<string, unknown>;
+  const vars =
+    obj.vars && typeof obj.vars === 'object' && !Array.isArray(obj.vars)
+      ? (obj.vars as Record<string, string>)
+      : {};
+  return {
+    vars,
+    ...(typeof obj.expected === 'string' ? { expected: obj.expected } : {}),
+    ...(typeof obj.reference === 'string' ? { reference: obj.reference } : {}),
+    ...(obj.turns !== undefined ? { turns: obj.turns as DatasetCase['turns'] } : {}),
+  };
+}
+
+function parseCases(text: string): ParseResult {
+  try {
+    const arr = JSON.parse(text) as unknown;
+    if (!Array.isArray(arr)) return { ok: false, error: 'not an array' };
+    return { ok: true, cases: arr.map(normalizeCase) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+const serializeCases = (cs: EditableCase[]) => JSON.stringify(cs, null, 2);
 
 /**
  * Cases are edited either as structured rows (vars/expected/reference) or as a
  * raw JSON array of { vars, expected?, reference?, turns? } — the JSON view is
- * the escape hatch for multi-turn / advanced shapes. Ids are minted/preserved
- * on save.
+ * the escape hatch for multi-turn / advanced shapes. The `cases` array is the
+ * single source of truth (so structured edits don't re-serialise the whole
+ * dataset on every keystroke); the JSON tab edits `jsonText` and syncs back
+ * into `cases` whenever it parses. Ids are minted/preserved on save.
  */
 export function DatasetEditor() {
   const datasets = useAiLabStore((s) => s.datasets);
@@ -40,63 +70,64 @@ export function DatasetEditor() {
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [casesText, setCasesText] = useState('[]');
-  const [mode, setMode] = useState<EditMode>('structured');
+  const [cases, setCases] = useState<EditableCase[]>([]);
+  const [jsonText, setJsonText] = useState('[]');
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [mode, setModeState] = useState<EditMode>('structured');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const active = activeId ? datasets[activeId] : undefined;
 
-  // `casesText` stays the single source of truth (Save reads it directly). The
-  // structured editor parses it on the fly and re-serialises on every edit, so
-  // unknown fields like `turns` survive a structured round-trip untouched.
-  const parsedCases = useMemo<EditableCase[] | null>(() => {
-    try {
-      const arr = JSON.parse(casesText) as unknown;
-      if (!Array.isArray(arr)) return null;
-      return arr.map((c) => {
-        const obj = (c ?? {}) as Record<string, unknown>;
-        const vars =
-          obj.vars && typeof obj.vars === 'object' && !Array.isArray(obj.vars)
-            ? (obj.vars as Record<string, string>)
-            : {};
-        return {
-          vars,
-          ...(typeof obj.expected === 'string' ? { expected: obj.expected } : {}),
-          ...(typeof obj.reference === 'string' ? { reference: obj.reference } : {}),
-          ...(obj.turns !== undefined ? { turns: obj.turns } : {}),
-        };
-      });
-    } catch {
-      return null;
-    }
-  }, [casesText]);
-
-  const writeCases = (next: EditableCase[]) => setCasesText(JSON.stringify(next, null, 2));
-
-  const updateCase = (ci: number, patch: Partial<EditableCase>) => {
-    if (!parsedCases) return;
-    writeCases(parsedCases.map((c, i) => (i === ci ? { ...c, ...patch } : c)));
+  // Load the active dataset's cases into the editor. The array is canonical;
+  // jsonText is seeded so the JSON tab opens in sync.
+  const loadCases = (next: EditableCase[]) => {
+    setCases(next);
+    setJsonText(serializeCases(next));
+    setJsonError(null);
   };
-  const setCaseVars = (ci: number, entries: Array<[string, string]>) =>
-    updateCase(ci, { vars: Object.fromEntries(entries) });
-  const removeCase = (ci: number) => {
-    if (!parsedCases) return;
-    writeCases(parsedCases.filter((_, i) => i !== ci));
-  };
-  const addCase = () => writeCases([...(parsedCases ?? []), { vars: {} }]);
 
   useEffect(() => {
-    if (active) {
-      setName(active.name);
-      setCasesText(
-        JSON.stringify(
-          active.cases.map(({ id: _id, ...rest }) => rest),
-          null,
-          2
-        )
-      );
-    }
+    if (!active) return;
+    setName(active.name);
+    loadCases(active.cases.map(({ id: _id, ...rest }) => rest));
   }, [active]);
+
+  // Structured edits mutate the canonical array directly — O(1) state updates,
+  // no per-keystroke (re)serialisation of the whole dataset.
+  const updateCase = (ci: number, patch: Partial<EditableCase>) =>
+    setCases((prev) => prev.map((c, i) => (i === ci ? { ...c, ...patch } : c)));
+  const setCaseVars = (ci: number, entries: Array<[string, string]>) =>
+    updateCase(ci, { vars: Object.fromEntries(entries) });
+  const removeCase = (ci: number) => setCases((prev) => prev.filter((_, i) => i !== ci));
+  const addCase = () => setCases((prev) => [...prev, { vars: {} }]);
+
+  // JSON tab edits: validate on the fly and mirror into the canonical array so
+  // a Save (or a switch back to structured) always uses the latest valid text.
+  const onJsonChange = (text: string) => {
+    setJsonText(text);
+    const res = parseCases(text);
+    if (res.ok) {
+      setCases(res.cases);
+      setJsonError(null);
+    } else {
+      setJsonError(res.error);
+    }
+  };
+
+  const setMode = (next: EditMode) => {
+    if (next === mode) return;
+    if (next === 'json') {
+      // Re-seed the textarea from the canonical array (this is the only place
+      // structured edits get serialised).
+      setJsonText(serializeCases(cases));
+      setJsonError(null);
+    } else if (jsonError) {
+      // Don't silently drop invalid JSON when leaving the JSON tab.
+      toast.error(`Invalid cases JSON: ${jsonError}`);
+      return;
+    }
+    setModeState(next);
+  };
 
   const createNew = () => {
     const id = upsertDataset({ name: 'New dataset', cases: [] });
@@ -105,22 +136,18 @@ export function DatasetEditor() {
 
   const save = () => {
     if (!activeId) return;
-    let parsed: Array<Omit<DatasetCase, 'id'>>;
-    try {
-      parsed = JSON.parse(casesText) as Array<Omit<DatasetCase, 'id'>>;
-      if (!Array.isArray(parsed)) throw new Error('not an array');
-    } catch (e) {
-      toast.error(`Invalid cases JSON: ${e instanceof Error ? e.message : String(e)}`);
+    if (mode === 'json' && jsonError) {
+      toast.error(`Invalid cases JSON: ${jsonError}`);
       return;
     }
-    const cases: DatasetCase[] = parsed.map((c, i) => ({
+    const out: DatasetCase[] = cases.map((c, i) => ({
       id: active?.cases[i]?.id ?? crypto.randomUUID(),
       vars: c.vars ?? {},
       ...(c.expected !== undefined ? { expected: c.expected } : {}),
       ...(c.reference !== undefined ? { reference: c.reference } : {}),
       ...(c.turns !== undefined ? { turns: c.turns } : {}),
     }));
-    upsertDataset({ id: activeId, name: name.trim() || 'Untitled', cases });
+    upsertDataset({ id: activeId, name: name.trim() || 'Untitled', cases: out });
     toast.success('Dataset saved');
   };
 
@@ -150,7 +177,7 @@ export function DatasetEditor() {
       }
       const cases: DatasetCase[] = incoming.map((c) => ({ id: crypto.randomUUID(), ...c }));
       upsertDataset({ id: activeId, name: name.trim() || active?.name || 'Untitled', cases });
-      setCasesText(JSON.stringify(incoming, null, 2));
+      loadCases(incoming.map(normalizeCase));
       toast.success(`Imported ${cases.length} cases`);
     } catch (e) {
       toast.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -212,7 +239,7 @@ export function DatasetEditor() {
             </div>
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="sp-label">Cases ({parsedCases?.length ?? '—'})</span>
+                <span className="sp-label">Cases ({cases.length})</span>
                 <Segmented<EditMode>
                   size="sm"
                   ariaLabel="Case editor mode"
@@ -229,136 +256,140 @@ export function DatasetEditor() {
                 />
               </div>
               {mode === 'structured' ? (
-                parsedCases === null ? (
-                  <Floater
-                    radius="panel"
-                    elevation="inset"
-                    className="px-3 py-4 text-center text-sp-12 text-amber-500"
-                  >
-                    Cases aren&apos;t valid JSON — switch to JSON mode to fix them.
-                  </Floater>
-                ) : (
-                  <div className="space-y-3">
-                    {parsedCases.map((c, ci) => {
-                      const entries = Object.entries(c.vars);
-                      return (
-                        <Floater
-                          key={ci}
-                          radius="panel"
-                          elevation="inset"
-                          className="space-y-2.5 p-3"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sp-12 font-semibold text-sp-text">
-                              Case {ci + 1}
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`Remove case ${ci + 1}`}
-                              title="Remove case"
-                              onClick={() => removeCase(ci)}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                          <div className="space-y-1.5">
-                            <span className="sp-label">Variables</span>
-                            {entries.length === 0 && (
-                              <p className="text-sp-11 text-sp-muted">No variables yet.</p>
-                            )}
-                            {entries.map(([k, v], vi) => (
-                              <div key={vi} className="flex items-center gap-2">
-                                <Input
-                                  aria-label="Variable name"
-                                  placeholder="key"
-                                  value={k}
-                                  onChange={(e) =>
-                                    setCaseVars(
-                                      ci,
-                                      entries.map((pair, i) =>
-                                        i === vi ? [e.target.value, pair[1]] : pair
-                                      )
-                                    )
-                                  }
-                                  className="w-1/3 font-mono text-sp-12"
-                                />
-                                <Input
-                                  aria-label="Variable value"
-                                  placeholder="value"
-                                  value={v}
-                                  onChange={(e) =>
-                                    setCaseVars(
-                                      ci,
-                                      entries.map((pair, i) =>
-                                        i === vi ? [pair[0], e.target.value] : pair
-                                      )
-                                    )
-                                  }
-                                  className="flex-1 font-mono text-sp-12"
-                                />
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label="Remove variable"
-                                  title="Remove variable"
-                                  onClick={() =>
-                                    setCaseVars(
-                                      ci,
-                                      entries.filter((_, i) => i !== vi)
-                                    )
-                                  }
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            ))}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setCaseVars(ci, [...entries, ['', '']])}
-                            >
-                              <Plus className="mr-1.5 h-3.5 w-3.5" /> Add variable
-                            </Button>
-                          </div>
-                          <div className="space-y-1.5">
-                            <span className="sp-label">Expected (optional)</span>
-                            <Input
-                              value={c.expected ?? ''}
-                              onChange={(e) =>
-                                updateCase(ci, { expected: e.target.value || undefined })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <span className="sp-label">Reference (optional)</span>
-                            <Textarea
-                              rows={2}
-                              value={c.reference ?? ''}
-                              onChange={(e) =>
-                                updateCase(ci, { reference: e.target.value || undefined })
-                              }
-                            />
-                          </div>
-                          {c.turns !== undefined && (
-                            <p className="text-sp-11 text-sp-muted">
-                              Multi-turn conversation preserved — edit turns in JSON mode.
-                            </p>
+                <div className="space-y-3">
+                  {cases.length === 0 && (
+                    <Floater
+                      radius="panel"
+                      elevation="inset"
+                      className="px-3 py-4 text-center text-sp-12 text-sp-muted"
+                    >
+                      No cases yet — add one below, or switch to JSON mode to paste an array.
+                    </Floater>
+                  )}
+                  {cases.map((c, ci) => {
+                    const entries = Object.entries(c.vars);
+                    return (
+                      <Floater
+                        key={ci}
+                        radius="panel"
+                        elevation="inset"
+                        className="space-y-2.5 p-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sp-12 font-semibold text-sp-text">
+                            Case {ci + 1}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Remove case ${ci + 1}`}
+                            title="Remove case"
+                            onClick={() => removeCase(ci)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        <div className="space-y-1.5">
+                          <span className="sp-label">Variables</span>
+                          {entries.length === 0 && (
+                            <p className="text-sp-11 text-sp-muted">No variables yet.</p>
                           )}
-                        </Floater>
-                      );
-                    })}
-                    <Button variant="secondary" size="sm" onClick={addCase}>
-                      <Plus className="mr-1.5 h-3.5 w-3.5" /> Add case
-                    </Button>
-                  </div>
-                )
+                          {entries.map(([k, v], vi) => (
+                            <div key={vi} className="flex items-center gap-2">
+                              <Input
+                                aria-label="Variable name"
+                                placeholder="key"
+                                value={k}
+                                onChange={(e) =>
+                                  setCaseVars(
+                                    ci,
+                                    entries.map((pair, i) =>
+                                      i === vi ? [e.target.value, pair[1]] : pair
+                                    )
+                                  )
+                                }
+                                className="w-1/3 font-mono text-sp-12"
+                              />
+                              <Input
+                                aria-label="Variable value"
+                                placeholder="value"
+                                value={v}
+                                onChange={(e) =>
+                                  setCaseVars(
+                                    ci,
+                                    entries.map((pair, i) =>
+                                      i === vi ? [pair[0], e.target.value] : pair
+                                    )
+                                  )
+                                }
+                                className="flex-1 font-mono text-sp-12"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Remove variable"
+                                title="Remove variable"
+                                onClick={() =>
+                                  setCaseVars(
+                                    ci,
+                                    entries.filter((_, i) => i !== vi)
+                                  )
+                                }
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setCaseVars(ci, [...entries, ['', '']])}
+                          >
+                            <Plus className="mr-1.5 h-3.5 w-3.5" /> Add variable
+                          </Button>
+                        </div>
+                        <div className="space-y-1.5">
+                          <span className="sp-label">Expected (optional)</span>
+                          <Input
+                            value={c.expected ?? ''}
+                            onChange={(e) =>
+                              updateCase(ci, { expected: e.target.value || undefined })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <span className="sp-label">Reference (optional)</span>
+                          <Textarea
+                            rows={2}
+                            value={c.reference ?? ''}
+                            onChange={(e) =>
+                              updateCase(ci, { reference: e.target.value || undefined })
+                            }
+                          />
+                        </div>
+                        {c.turns !== undefined && (
+                          <p className="text-sp-11 text-sp-muted">
+                            Multi-turn conversation preserved — edit turns in JSON mode.
+                          </p>
+                        )}
+                      </Floater>
+                    );
+                  })}
+                  <Button variant="secondary" size="sm" onClick={addCase}>
+                    <Plus className="mr-1.5 h-3.5 w-3.5" /> Add case
+                  </Button>
+                </div>
               ) : (
-                <Textarea
-                  value={casesText}
-                  onChange={(e) => setCasesText(e.target.value)}
-                  className="min-h-[24rem] resize-none font-mono text-sp-13"
-                />
+                <>
+                  <Textarea
+                    value={jsonText}
+                    onChange={(e) => onJsonChange(e.target.value)}
+                    className="min-h-[24rem] resize-none font-mono text-sp-13"
+                  />
+                  {jsonError && (
+                    <p className="text-sp-11 text-destructive">Invalid JSON: {jsonError}</p>
+                  )}
+                </>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">

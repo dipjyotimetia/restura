@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
+import { VerdictChip } from './VerdictChip';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -28,7 +29,6 @@ import {
 } from '@/components/ui/select';
 import { Floater, Stat, Stepper } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/shared/utils';
 
 /** UI selection for what a cell scores. */
 type TargetMode = 'text' | 'http' | 'graphql';
@@ -363,18 +363,7 @@ export function EvalBuilder() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate text-sp-12 font-medium text-sp-text">{label}</span>
-                      <span
-                        className={cn(
-                          'shrink-0 rounded px-1.5 py-0.5 text-sp-11',
-                          cell.notEvaluated
-                            ? 'bg-sp-hover text-sp-muted'
-                            : cell.passed
-                              ? 'bg-emerald-500/15 text-emerald-500'
-                              : 'bg-destructive/15 text-destructive'
-                        )}
-                      >
-                        {cell.notEvaluated ? 'n/a' : cell.passed ? 'pass' : 'fail'}
-                      </span>
+                      <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
                     </div>
                     <div className="text-sp-11 text-sp-muted tabular-nums">
                       {Math.round(cell.latencyMs)}ms
