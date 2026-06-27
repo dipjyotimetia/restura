@@ -10,16 +10,27 @@ import {
   Copy,
   Trash2,
 } from 'lucide-react';
-import { memo, type DragEvent, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
+import {
+  memo,
+  useMemo,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type RefObject,
+} from 'react';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { cn } from '@/lib/shared/utils';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { CollectionItem } from '@/types';
 
 /**
@@ -30,6 +41,12 @@ import type { CollectionItem } from '@/types';
  * collection. The `actions` object is identity-stable (one `useMemo` in the
  * Sidebar), so it never breaks memoization.
  */
+
+export interface FolderEntry {
+  id: string;
+  name: string;
+  depth: number;
+}
 
 /** Stable callback bundle owned by the Sidebar. */
 export interface TreeActions {
@@ -56,6 +73,7 @@ export interface TreeActions {
   setDropTarget: (id: string | null) => void;
   dropIntoFolder: (e: DragEvent, collectionId: string, folderId: string) => void;
   dropBeforeItem: (e: DragEvent, collectionId: string, beforeId: string) => void;
+  moveToFolder: (collectionId: string, itemId: string, folderId: string) => void;
 }
 
 /** Volatile tree state, owned by the Sidebar, fanned out per row. */
@@ -322,6 +340,57 @@ const FolderRow = memo(function FolderRow({
   );
 });
 
+function flatFolderItems(items: CollectionItem[], depth = 0): FolderEntry[] {
+  return items.flatMap((i) =>
+    i.type === 'folder'
+      ? [{ id: i.id, name: i.name, depth }, ...flatFolderItems(i.items ?? [], depth + 1)]
+      : []
+  );
+}
+
+/**
+ * Sub-menu content for "Move to folder". Reads from getState() (no subscription)
+ * to avoid the useSyncExternalStore infinite-loop that occurs when the selector
+ * produces a new array reference on every call. This component mounts only when
+ * the sub-menu opens, so getState() is always current at that point.
+ */
+function MoveToFolderSubContent({
+  collectionId,
+  itemId,
+  actions,
+}: {
+  collectionId: string;
+  itemId: string;
+  actions: TreeActions;
+}) {
+  const folders = useMemo(() => {
+    const col = useCollectionStore.getState().collections.find((c) => c.id === collectionId);
+    return col ? flatFolderItems(col.items) : [];
+  }, [collectionId]);
+
+  return (
+    <ContextMenuSubContent>
+      {folders.length === 0 ? (
+        <ContextMenuItem disabled className="text-xs text-muted-foreground">
+          No folders in this collection
+        </ContextMenuItem>
+      ) : (
+        folders.map(({ id, name, depth }) => (
+          <ContextMenuItem
+            key={id}
+            className="text-xs"
+            style={{ paddingLeft: 8 + depth * 12 }}
+            onClick={() => actions.moveToFolder(collectionId, itemId, id)}
+          >
+            <Folder className="mr-2 h-3.5 w-3.5 shrink-0" />
+            {name}
+          </ContextMenuItem>
+        ))
+      )}
+    </ContextMenuSubContent>
+  );
+}
+
 interface RequestRowProps {
   collectionId: string;
   item: CollectionItem;
@@ -430,6 +499,13 @@ const RequestRow = memo(function RequestRow({
           <Copy className="mr-2 h-3.5 w-3.5" />
           Duplicate
         </ContextMenuItem>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className="text-xs">
+            <Folder className="mr-2 h-3.5 w-3.5" />
+            Move to folder
+          </ContextMenuSubTrigger>
+          <MoveToFolderSubContent collectionId={collectionId} itemId={item.id} actions={actions} />
+        </ContextMenuSub>
         <ContextMenuSeparator />
         {isSelected && selectedCount > 1 ? (
           <ContextMenuItem

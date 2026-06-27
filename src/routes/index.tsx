@@ -208,6 +208,13 @@ export default function Home() {
         }
       },
     },
+    {
+      combo: 'mod+n',
+      allowInInput: false,
+      handler: () => {
+        createNewRequest('http');
+      },
+    },
   ]);
 
   // Native "Settings/Preferences" menu item (Electron) → open the drawer. The

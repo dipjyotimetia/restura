@@ -20,6 +20,21 @@ import {
 } from '@/components/ui/select';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import type { CollectionItem } from '@/types';
+
+interface FolderEntry {
+  id: string;
+  name: string;
+  depth: number;
+}
+
+function flatFolders(items: CollectionItem[], depth = 0): FolderEntry[] {
+  return items.flatMap((i) =>
+    i.type === 'folder'
+      ? [{ id: i.id, name: i.name, depth }, ...flatFolders(i.items ?? [], depth + 1)]
+      : []
+  );
+}
 
 interface SaveToCollectionDialogProps {
   tabId: string;
@@ -34,6 +49,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
     useCollectionStore();
 
   const [selectedCollectionId, setSelectedCollectionId] = useState('');
+  const [selectedFolderId, setSelectedFolderId] = useState('');
   const [newCollectionName, setNewCollectionName] = useState('');
   const [requestName, setRequestName] = useState(tab?.request.name ?? 'New Request');
   const [mode, setMode] = useState<'existing' | 'new'>(collections.length > 0 ? 'existing' : 'new');
@@ -44,13 +60,22 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
       setRequestName(tab?.request.name ?? 'New Request');
       setMode(collections.length > 0 ? 'existing' : 'new');
       setSelectedCollectionId('');
+      setSelectedFolderId('');
       setNewCollectionName('');
     }
     // collections.length intentionally omitted — only re-run when open changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // Reset folder selection when collection changes
+  useEffect(() => {
+    setSelectedFolderId('');
+  }, [selectedCollectionId]);
+
   if (!tab) return null;
+
+  const selectedCollection = collections.find((c) => c.id === selectedCollectionId);
+  const folders = selectedCollection ? flatFolders(selectedCollection.items) : [];
 
   const handleSave = () => {
     let collectionId: string;
@@ -67,12 +92,16 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
 
     const itemId = uuidv4();
     const name = requestName.trim() || tab.request.name;
-    addItemToCollection(collectionId, {
-      id: itemId,
-      name,
-      type: 'request',
-      request: { ...tab.request, name },
-    });
+    addItemToCollection(
+      collectionId,
+      {
+        id: itemId,
+        name,
+        type: 'request',
+        request: { ...tab.request, name },
+      },
+      selectedFolderId || undefined
+    );
     linkTabToSavedRequest(tabId, itemId);
     onOpenChange(false);
   };
@@ -148,6 +177,27 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
               />
             )}
           </div>
+
+          {mode === 'existing' && folders.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Folder (optional)</Label>
+              <Select value={selectedFolderId} onValueChange={setSelectedFolderId}>
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="Collection root" />
+                </SelectTrigger>
+                <SelectContent>
+                  {folders.map(({ id, name, depth }) => (
+                    <SelectItem key={id} value={id} className="text-sm">
+                      <span style={{ paddingLeft: depth * 12 }}>
+                        {'/ '}
+                        {name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
