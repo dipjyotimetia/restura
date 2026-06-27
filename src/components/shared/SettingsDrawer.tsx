@@ -441,7 +441,7 @@ function GeneralSection() {
       <FieldGroup label="Privacy">
         <FieldRow
           label="Send crash & error reports"
-          hint="Helps fix bugs. Only the error message, stack, and app version are sent — never request payloads, headers, or response bodies."
+          hint="Helps fix bugs. Only the error message, stack, app version, and browser/OS info are sent — never request payloads, URLs, headers, or response bodies."
           control={
             <ToggleField
               checked={settings.telemetry?.errorsEnabled ?? true}

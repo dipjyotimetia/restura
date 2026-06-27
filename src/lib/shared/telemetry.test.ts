@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Worker base must be non-empty so reportError proceeds to send.
 vi.mock('@/lib/shared/platform', () => ({
+  isElectron: vi.fn(() => false),
   workerBaseUrl: () => 'https://api.test',
   workerAuthHeaders: () => ({}),
 }));
@@ -13,10 +14,12 @@ vi.mock('@/store/useSettingsStore', () => ({
   },
 }));
 
+import { isElectron } from '@/lib/shared/platform';
 import { reportError } from './telemetry';
 
 describe('reportError redaction', () => {
   beforeEach(() => {
+    vi.mocked(isElectron).mockReturnValue(false);
     // stubGlobal is undone by unstubAllGlobals, not restoreAllMocks.
     vi.unstubAllGlobals();
   });
@@ -39,6 +42,16 @@ describe('reportError redaction', () => {
     expect(body.message).toContain('[REDACTED]');
     expect(body.stack).not.toContain('abcdef0123456789');
     expect(body.stack).toContain('[REDACTED]');
+  });
+
+  it('does not send anything on Electron (Sentry handles it there)', () => {
+    vi.mocked(isElectron).mockReturnValue(true);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    reportError({ message: 'boom', source: 'error-boundary' });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('sends clean text unaltered (no false redaction)', () => {

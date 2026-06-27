@@ -89,19 +89,24 @@ describe('opt-in gate', () => {
   // Runs last: doInit() is one-shot (module-level `initialized`), so this test
   // is the one allowed to actually init. The DSN is read lazily inside doInit,
   // so stubbing the env here is enough — no module re-import needed.
-  it('inits when enabled and the error gate honours the runtime flag', () => {
+  it('inits when enabled and both gates honour the runtime flag', () => {
     vi.stubEnv('SENTRY_DSN', 'https://examplePublicKey@o0.ingest.sentry.io/0');
     initSentry({ enabled: true });
     expect(initMock).toHaveBeenCalledTimes(1);
 
     const opts = initMock.mock.calls[0]![0] as {
       beforeSend: (e: unknown) => unknown;
+      beforeBreadcrumb: (crumb: unknown) => unknown;
     };
+    const crumb = { type: 'navigation', message: 'click' };
 
-    // Error gate: passes when enabled, dropped when disabled.
+    // Both gates pass when enabled.
     expect(opts.beforeSend({ message: 'hi' })).toBeTruthy();
+    expect(opts.beforeBreadcrumb(crumb)).toBe(crumb);
 
+    // Both gates drop when disabled.
     setSentryEnabled(false);
     expect(opts.beforeSend({ message: 'hi' })).toBeNull();
+    expect(opts.beforeBreadcrumb(crumb)).toBeNull();
   });
 });

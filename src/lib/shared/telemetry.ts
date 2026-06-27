@@ -12,7 +12,7 @@
  */
 
 import { redactBody } from '@shared/protocol/ai/redaction';
-import { workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
+import { isElectron, workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface ErrorPayload {
@@ -36,7 +36,10 @@ export function reportError(payload: ErrorPayload): void {
   // No worker configured (Electron without VITE_WORKER_URL or dev without a
   // running Miniflare). Drop silently — telemetry is a quality-of-life feature,
   // not a correctness one.
-  if (!base && typeof window !== 'undefined' && window.location.protocol === 'file:') return;
+  // Electron uses the Sentry SDK (see electron/main/lifecycle/sentry.ts + ErrorBoundary.tsx).
+  // The Worker endpoint isn't applicable there — file:// has no Worker and
+  // a VITE_WORKER_URL in an Electron build would double-report every error.
+  if (isElectron()) return;
   const url = `${base}/api/telemetry/error`;
   const body = {
     message: redactBody(payload.message, 'default').slice(0, 2000),

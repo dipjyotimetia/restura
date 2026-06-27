@@ -91,7 +91,7 @@ const onboardingSteps: OnboardingStep[] = [
     icon: <ShieldCheck className="h-7 w-7 text-emerald-400" />,
     title: 'Help Improve Restura',
     description:
-      'Anonymous crash & error reports help us fix bugs. Only the error message, stack, and app version are sent — never your requests, URLs, headers, or response bodies.',
+      'Anonymous crash & error reports help us fix bugs. Only the error message, stack, app version, and browser/OS info are sent — never your requests, URLs, headers, or response bodies.',
     tip: 'Change this anytime in Settings → Privacy.',
   },
 ];
