@@ -1,22 +1,10 @@
 import * as React from 'react';
 import { cn } from '@/lib/shared/utils';
+import { findVariableTokens } from '@/lib/shared/variableTokens';
 
-// Token grammar covers both env-style `{{ name }}` and dynamic `{{ $helper }}`
-// references, with optional surrounding whitespace and dot/dash/underscore in
-// names — matching what the variable resolvers accept.
-const VAR_RE = /\{\{\s*\$?[\w.-]+\s*\}\}/g;
-// Non-global twin for predicate use: `.test()` on a /g regex mutates lastIndex.
-const VAR_TOKEN_RE = /\{\{\s*\$?[\w.-]+\s*\}\}/;
-
-/**
- * True when `text` contains at least one complete `{{var}}` token. Used to gate
- * the variable-highlight overlays so partial input like `{{` or empty `{{ }}`
- * doesn't blank the underlying field. Shares the grammar with the renderer so
- * "gate" and "highlight" never disagree.
- */
-export function hasVariableToken(text: string): boolean {
-  return VAR_TOKEN_RE.test(text);
-}
+// Re-exported so existing consumers can keep importing the predicate from the
+// spatial barrel; the grammar itself lives in lib/shared/variableTokens.
+export { hasVariableToken } from '@/lib/shared/variableTokens';
 
 export type VariableStatus = 'resolved' | 'unresolved';
 
@@ -31,11 +19,6 @@ export interface VariableTextProps extends React.HTMLAttributes<HTMLSpanElement>
    */
   getStatus?: (varName: string) => VariableStatus;
   ref?: React.Ref<HTMLSpanElement>;
-}
-
-/** Strip the `{{` / `}}` braces and surrounding whitespace from a token. */
-function innerName(token: string): string {
-  return token.slice(2, -2).trim();
 }
 
 /**
@@ -59,30 +42,28 @@ export function VariableText({
       </span>
     );
   }
-  // Build segments via matchAll rather than `split` + stateful `VAR_RE.test()`:
-  // calling `.test()` on a /g regex advances its `lastIndex`, so the old code
-  // could misclassify tokens depending on prior iterations.
-  const segments: Array<{ text: string; isVar: boolean }> = [];
+  // Split into literal/token segments using the shared scanner so the rendered
+  // tokens match exactly what the gate (`hasVariableToken`) and the Monaco
+  // decorator recognise.
+  const segments: Array<{ text: string; name?: string }> = [];
   let cursor = 0;
-  for (const match of text.matchAll(VAR_RE)) {
-    const start = match.index ?? 0;
-    if (start > cursor) segments.push({ text: text.slice(cursor, start), isVar: false });
-    segments.push({ text: match[0], isVar: true });
-    cursor = start + match[0].length;
+  for (const token of findVariableTokens(text)) {
+    if (token.start > cursor) segments.push({ text: text.slice(cursor, token.start) });
+    segments.push({ text: text.slice(token.start, token.end), name: token.name });
+    cursor = token.end;
   }
-  if (cursor < text.length) segments.push({ text: text.slice(cursor), isVar: false });
+  if (cursor < text.length) segments.push({ text: text.slice(cursor) });
 
   return (
     <span ref={ref} className={cn('whitespace-pre-wrap break-all', className)} {...props}>
       {segments.map((seg, i) => {
-        if (!seg.isVar) return <React.Fragment key={i}>{seg.text}</React.Fragment>;
-        const name = innerName(seg.text);
-        const unresolved = getStatus?.(name) === 'unresolved';
+        if (seg.name === undefined) return <React.Fragment key={i}>{seg.text}</React.Fragment>;
+        const unresolved = getStatus?.(seg.name) === 'unresolved';
         return (
           <span
             key={i}
             className={cn('font-mono', unresolved ? 'sp-variable-unresolved' : 'sp-variable')}
-            title={unresolved ? `Unresolved variable: ${name}` : undefined}
+            title={unresolved ? `Unresolved variable: ${seg.name}` : undefined}
           >
             {seg.text}
           </span>

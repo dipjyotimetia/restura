@@ -509,6 +509,20 @@
     text-underline-offset: 2px;
   }
 
+  /* Monaco inline decorations for {{var}} tokens inside the body/code editor.
+     `!important` overrides the syntax-token color Monaco sets on the same span.
+     Mirrors the .sp-variable / .sp-variable-unresolved palette above. */
+  .monaco-var-resolved {
+    color: #f59e0b !important;
+    font-weight: 600;
+  }
+  .monaco-var-unresolved {
+    color: #ef4444 !important;
+    font-weight: 600;
+    text-decoration: underline wavy rgba(239, 68, 68, 0.7);
+    text-underline-offset: 2px;
+  }
+
   /* Section labels (e.g. HEADERS, TIMING, STREAMING) */
   .sp-label {
     font-size: 11px;

@@ -6,10 +6,11 @@ import Editor from '@monaco-editor/react';
 import { Copy, Check } from 'lucide-react';
 import type * as Monaco from 'monaco-editor';
 import { useTheme } from 'next-themes';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { registerGraphQLLanguage } from '@/features/graphql/lib/monacoGraphql';
+import { findVariableTokens } from '@/lib/shared/variableTokens';
 
 interface CodeEditorProps {
   value: string;
@@ -27,6 +28,13 @@ interface CodeEditorProps {
    * editor role (e.g. `tab-<id>-body`).
    */
   path?: string;
+  /**
+   * When provided, `{{var}}` tokens in the content are decorated inline:
+   * resolved → accent token style, unresolved → warning style with a hover.
+   * Receives the inner variable name (braces stripped, trimmed). Omit to leave
+   * the content undecorated.
+   */
+  getVariableStatus?: (name: string) => 'resolved' | 'unresolved';
 }
 
 export default function CodeEditor({
@@ -39,14 +47,63 @@ export default function CodeEditor({
   showCopyButton = true,
   onEditorMount,
   path,
+  getVariableStatus,
 }: CodeEditorProps) {
   const { theme } = useTheme();
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof Monaco | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
+  // Keep the latest classifier reachable from the (once-bound) content-change
+  // listener without re-subscribing on every render.
+  const getVariableStatusRef = useRef(getVariableStatus);
   const [copied, setCopied] = useState(false);
+
+  // Recompute the {{var}} decorations from the current model contents. Resolved
+  // tokens get the accent style; unresolved ones get a warning style + hover.
+  const applyVariableDecorations = useCallback(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+    const model = editor.getModel();
+    if (!model) return;
+    const classify = getVariableStatusRef.current;
+    if (!classify) {
+      decorationsRef.current?.clear();
+      return;
+    }
+    const text = model.getValue();
+    const decorations: Monaco.editor.IModelDeltaDecoration[] = findVariableTokens(text).map(
+      (token) => {
+        const startPos = model.getPositionAt(token.start);
+        const endPos = model.getPositionAt(token.end);
+        const unresolved = classify(token.name) === 'unresolved';
+        return {
+          range: new monaco.Range(
+            startPos.lineNumber,
+            startPos.column,
+            endPos.lineNumber,
+            endPos.column
+          ),
+          options: {
+            inlineClassName: unresolved ? 'monaco-var-unresolved' : 'monaco-var-resolved',
+            ...(unresolved
+              ? { hoverMessage: { value: `Unresolved variable: \`${token.name}\`` } }
+              : {}),
+          },
+        };
+      }
+    );
+    if (decorationsRef.current) {
+      decorationsRef.current.set(decorations);
+    } else {
+      decorationsRef.current = editor.createDecorationsCollection(decorations);
+    }
+  }, []);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    monacoRef.current = monaco;
     onEditorMount?.(editor, monaco);
 
     // Register GraphQL language if needed
@@ -78,7 +135,19 @@ export default function CodeEditor({
 
     // Initial layout
     editor.layout();
+
+    // Variable highlighting: paint once, then on every model edit (covers both
+    // typing and external value-prop updates, which Monaco applies as edits).
+    applyVariableDecorations();
+    editor.onDidChangeModelContent(() => applyVariableDecorations());
   };
+
+  // Re-decorate when the classifier identity changes (e.g. the active
+  // environment switched, so resolved/unresolved verdicts change).
+  useEffect(() => {
+    getVariableStatusRef.current = getVariableStatus;
+    applyVariableDecorations();
+  }, [getVariableStatus, applyVariableDecorations]);
 
   // Handle resizing
   useEffect(() => {
