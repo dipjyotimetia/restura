@@ -542,37 +542,6 @@
     contain: strict;
   }
 
-  /* Legacy Strata Glass aliases — aliased to Spatial Depth surfaces.
-   * Kept for one phase so legacy components still render. Removed in Phase 11.
-   */
-  /* Frosted glass material — overlays (dialogs, menus, popovers, tooltips,
-     command palette) and chrome. Translucent + blurred so the backdrop shows
-     through. NOT used by the solid inline data panels (those use .sp-floater). */
-  .glass-1 {
-    background: rgba(255, 255, 255, 0.74);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-  }
-  .glass-2 {
-    background: rgba(255, 255, 255, 0.66);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-  }
-  .glass-3 {
-    background: rgba(255, 255, 255, 0.56);
-    backdrop-filter: blur(18px) saturate(150%);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
-  }
-  .dark .glass-1 {
-    background: rgba(26, 31, 42, 0.78);
-  }
-  .dark .glass-2 {
-    background: rgba(23, 27, 37, 0.72);
-  }
-  .dark .glass-3 {
-    background: rgba(19, 23, 31, 0.62);
-  }
-
   /* Interactive floating menus — dropdowns, selects, context menus, the command
      palette and selection popovers. These are surfaces you READ and PICK FROM
      over arbitrary (often busy) page content, so legibility wins over the frost:
@@ -599,18 +568,6 @@
   }
   .dark .sp-chrome {
     background: rgba(18, 21, 28, 0.72);
-  }
-  .glass-border-subtle {
-    border-color: var(--sp-line);
-  }
-  .glass-border-default {
-    border-color: var(--sp-line);
-  }
-  .dark .glass-border-subtle {
-    border-color: var(--sp-line);
-  }
-  .dark .glass-border-default {
-    border-color: var(--sp-line-strong);
   }
 }
 
@@ -733,9 +690,6 @@ textarea {
    overlays + chrome to solid, legible surfaces. Mirrors prefers-reduced-motion.
    Also removes the always-on backdrop-filter GPU cost for these users. */
 @media (prefers-reduced-transparency: reduce) {
-  .glass-1,
-  .glass-2,
-  .glass-3,
   .sp-menu,
   .sp-chrome,
   .sp-floater-lg {
@@ -743,22 +697,9 @@ textarea {
     -webkit-backdrop-filter: none;
     background: var(--sp-surface);
   }
-  .glass-2 {
-    background: var(--sp-surface-hi);
-  }
-  .glass-3 {
-    background: var(--sp-surface-lo);
-  }
-  .dark .glass-1,
   .dark .sp-chrome,
   .dark .sp-floater-lg {
     background: var(--sp-surface);
-  }
-  .dark .glass-2 {
-    background: var(--sp-surface-hi);
-  }
-  .dark .glass-3 {
-    background: var(--sp-surface-lo);
   }
 }
 

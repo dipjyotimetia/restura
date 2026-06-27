@@ -61,7 +61,7 @@ export function GrpcUrlBar({
 }: GrpcUrlBarProps) {
   return (
     <>
-      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3 shrink-0">
+      <div className="flex items-center gap-1 px-3 h-12 border-y border-sp-line bg-sp-surface shrink-0">
         <Select
           value={methodType}
           onValueChange={(value) => onMethodTypeChange(value as GrpcMethodType)}
@@ -112,7 +112,7 @@ export function GrpcUrlBar({
       </div>
 
       {streamControl && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b glass-border-subtle glass-2">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-sp-line bg-sp-surface-hi">
           <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest shrink-0">
             Stream
           </span>

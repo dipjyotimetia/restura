@@ -160,7 +160,7 @@ export function ProviderSettings() {
         const cfg = providerConfigs[provider];
         const providerModule = getProviderModule(provider);
         return (
-          <div key={provider} className="glass-1 rounded-lg border border-border/40 p-3 space-y-3">
+          <div key={provider} className="sp-floater rounded-lg p-3 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">{PROVIDER_LABELS[provider]}</h3>
               {cfg && (
@@ -225,7 +225,7 @@ export function ProviderSettings() {
       })}
 
       {/* Local OpenAI-compatible provider — base URL + model, no API key. */}
-      <div className="glass-1 rounded-lg border border-border/40 p-3 space-y-3">
+      <div className="sp-floater rounded-lg p-3 space-y-3">
         <h3 className="text-sm font-medium">{PROVIDER_LABELS['openai-compatible']}</h3>
         <div className="space-y-1">
           <Label className="text-xs">Base URL</Label>

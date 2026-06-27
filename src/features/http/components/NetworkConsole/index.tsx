@@ -237,7 +237,7 @@ export default function NetworkConsole({
     <TooltipProvider delayDuration={300}>
       <div
         ref={containerRef}
-        className="flex flex-col border-t glass-border-subtle glass-2 relative z-10"
+        className="flex flex-col border-t border-sp-line sp-chrome relative z-10"
         style={{ height: isExpanded ? panelHeight : 28 }}
       >
         {/* Resize handle — wider hit zone, visible grip. The padding is what

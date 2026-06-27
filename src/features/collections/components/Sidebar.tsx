@@ -679,10 +679,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     <TooltipProvider delayDuration={300}>
       <aside
         aria-label="Collections, history, and workflows"
-        className="glass-2 glass-border-default flex flex-col h-full"
+        className="sp-chrome flex flex-col h-full"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b glass-border-subtle shrink-0">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-sp-line shrink-0">
           <span className="text-[10px] font-mono font-semibold tracking-widest text-muted-foreground uppercase">
             {activeTab === 'collections'
               ? 'Collections'
