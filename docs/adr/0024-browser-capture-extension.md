@@ -44,6 +44,14 @@ cannot see response bodies, so rich capture needs `chrome.debugger` (CDP).
   shared core and pushes an OpenCollection doc to the renderer
   (`EVENT.captureReceived`). Gated by capability `capture.desktopBridge`.
 
+- **Renderer wiring.** The preload exposes a `capture` surface (start/stop/status
+  bridge + `onReceived`), type-checked against `ElectronAPI`.
+  `CaptureImportListener` (mounted app-level) shows a **confirmation dialog**
+  before importing a pushed session as a collection — never a silent import,
+  since any local process holding the bridge token could push a document.
+  `CaptureBridgeCard` (Settings → Data) starts/stops the bridge and shows the
+  one-time `<port>:<token>` pairing code the user pastes into the extension.
+
 Targets for Phase 1 are **Desktop + Standalone** only; web-app messaging and a
 CORS bridge for the web SPA are deferred.
 
