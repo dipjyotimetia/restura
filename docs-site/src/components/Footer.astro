@@ -101,7 +101,12 @@ import Default from '@astrojs/starlight/components/Footer.astro';
     font-weight: 700;
     font-size: 0.95rem;
     letter-spacing: -0.01em;
-    background: linear-gradient(135deg, rgb(123 110 246), rgb(79 70 229) 55%, rgb(34 211 238));
+    background: linear-gradient(
+      135deg,
+      rgb(var(--restura-cobalt)),
+      rgb(var(--restura-violet)) 55%,
+      rgb(var(--restura-cyan))
+    );
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -125,7 +130,7 @@ import Default from '@astrojs/starlight/components/Footer.astro';
     transition: color 0.15s ease;
   }
   .restura-footer-meta a:hover {
-    color: rgb(var(--restura-violet, 123 110 246));
+    color: rgb(var(--restura-cobalt, 46 145 255));
   }
   .restura-gh {
     display: inline-flex;

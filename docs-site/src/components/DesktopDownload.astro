@@ -74,18 +74,20 @@ const INSTALL = '/overview/install/';
     margin: 2.5rem 0;
     padding: 1.5rem 1.75rem;
     border-radius: 1.25rem;
-    background: var(--sp-surface);
-    border: 1px solid var(--sp-line);
-    box-shadow: var(--sp-shadow);
+    background: var(--glass-2-bg);
+    backdrop-filter: saturate(180%) blur(14px);
+    -webkit-backdrop-filter: saturate(180%) blur(14px);
+    border: 1px solid var(--glass-border-subtle);
+    box-shadow: var(--glass-shadow);
     position: relative;
     overflow: hidden;
   }
-  /* Accent wash, matching the hero's cobalt language. */
+  /* Accent wash, matching the hero's cobalt→violet language. */
   .desktop-download::before {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgb(var(--restura-accent) / 0.1), transparent 55%);
+    background: linear-gradient(135deg, rgb(var(--restura-cobalt) / 0.1), transparent 55%);
     pointer-events: none;
   }
   .dd-copy,
@@ -127,16 +129,16 @@ const INSTALL = '/overview/install/';
   }
   .dd-primary {
     color: #fff;
-    background: linear-gradient(135deg, rgb(var(--restura-violet)), rgb(var(--restura-indigo)));
-    border: 1px solid rgb(var(--restura-violet) / 0.5);
+    background: linear-gradient(135deg, rgb(var(--restura-cobalt)), rgb(var(--restura-violet)));
+    border: 1px solid rgb(var(--restura-cobalt) / 0.5);
     box-shadow:
-      0 8px 20px -6px rgb(var(--restura-violet) / 0.5),
+      0 8px 20px -6px rgb(var(--restura-cobalt) / 0.5),
       inset 0 1px 0 rgb(255 255 255 / 0.2);
   }
   .dd-primary:hover {
     transform: translateY(-1px);
     box-shadow:
-      0 12px 28px -6px rgb(var(--restura-violet) / 0.6),
+      0 12px 28px -6px rgb(var(--restura-cobalt) / 0.6),
       inset 0 1px 0 rgb(255 255 255 / 0.25);
   }
   .dd-icon {
@@ -157,10 +159,10 @@ const INSTALL = '/overview/install/';
     transition: color 0.15s ease;
   }
   .dd-os a:hover {
-    color: rgb(var(--restura-violet));
+    color: rgb(var(--restura-cobalt));
   }
   :root[data-theme='dark'] .dd-os a:hover {
-    color: rgb(149 137 255);
+    color: rgb(120 180 255);
   }
 
   @media (max-width: 30rem) {
