@@ -85,3 +85,6 @@ cache/**/*
 .playwright-mcp/
 # Phase B — sandbox library bundle (regenerated each build by scripts/build-sandbox-libs.mjs)
 src/features/scripts/lib/sandboxLibraries/bundle.generated.ts
+
+# Extension build output
+extension/dist

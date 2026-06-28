@@ -1,5 +1,7 @@
+// NB: schema-conformance against the renderer's `openCollectionSchema` is
+// verified in `src/lib/opencollection/__tests__/capture-export.test.ts` — this
+// module stays self-contained so `shared/` never imports from `src/`.
 import { describe, expect, it } from 'vitest';
-import { openCollectionSchema } from '@/lib/opencollection';
 import { redactExchange } from '../secret-extractor';
 import { sessionToOpenCollection } from '../to-opencollection';
 import type { CaptureSession } from '../types';
@@ -44,11 +46,10 @@ function redactSession(): CaptureSession {
 }
 
 describe('sessionToOpenCollection', () => {
-  it('emits a schema-valid OpenCollection document', () => {
+  it('emits a v1.0.0 document with one item per exchange', () => {
     const doc = sessionToOpenCollection(redactSession(), { name: 'Captured' });
-    const parsed = openCollectionSchema.safeParse(doc);
-    expect(parsed.success).toBe(true);
     expect(doc.opencollection).toBe('1.0.0');
+    expect(doc.info.name).toBe('Captured');
     expect(doc.items).toHaveLength(2);
   });
 

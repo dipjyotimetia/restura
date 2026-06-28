@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Restura Capture",
+  "version": "0.1.0",
+  "description": "Capture multi-protocol browser traffic (HTTP, GraphQL, WebSocket, SSE, gRPC-web) into Restura collections.",
+  "minimum_chrome_version": "116",
+  "permissions": ["debugger", "sidePanel", "storage", "cookies", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Restura Capture"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_page": "options.html"
+}
