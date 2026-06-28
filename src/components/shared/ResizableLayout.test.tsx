@@ -90,5 +90,22 @@ describe('ResizableLayout', () => {
       // 69 + 5 = 74 → clamped to 70
       expect(onSplitChange).toHaveBeenCalledWith(70);
     });
+
+    it('persists a drag once on release, not on every mousemove', () => {
+      // Regression: routing each mousemove to the persisted store wrote to
+      // IndexedDB 60–120× per drag. The gesture must commit a single time.
+      const onSplitChange = vi.fn();
+      renderLayout({ split: 50, onSplitChange });
+      const handle = screen.getByRole('separator');
+      fireEvent.mouseDown(handle);
+      fireEvent.mouseMove(window, { clientX: 100, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: 120, clientY: 120 });
+      fireEvent.mouseMove(window, { clientX: 140, clientY: 140 });
+      // Nothing persisted while dragging — the live preview stays local.
+      expect(onSplitChange).not.toHaveBeenCalled();
+      fireEvent.mouseUp(window);
+      // Exactly one commit, on release.
+      expect(onSplitChange).toHaveBeenCalledTimes(1);
+    });
   });
 });

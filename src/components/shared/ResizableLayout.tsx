@@ -31,6 +31,11 @@ export default function ResizableLayout({
 }: ResizableLayoutProps) {
   const [internalSplit, setInternalSplit] = useState(defaultSplit);
   const [isDraggingState, setIsDraggingState] = useState(false);
+  // Live preview value held locally during a mouse drag. Keeping the per-frame
+  // updates here (instead of routing each one to the parent) avoids a persisted
+  // store write per `mousemove`; the parent is notified once on drag end.
+  const [dragSplit, setDragSplit] = useState<number | null>(null);
+  const dragValueRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isHorizontal = orientation === 'horizontal';
 
@@ -39,8 +44,13 @@ export default function ResizableLayout({
 
   const isControlled = controlledSplit !== undefined;
   // Re-clamp on read so a stale persisted value (saved under different bounds)
-  // can never wedge the layout out of range.
-  const splitPosition = clamp(isControlled ? controlledSplit : internalSplit, minSplit, maxSplit);
+  // can never wedge the layout out of range. While dragging, the local preview
+  // value takes over so the panel tracks the cursor without per-frame commits.
+  const splitPosition = clamp(
+    dragSplit ?? (isControlled ? controlledSplit : internalSplit),
+    minSplit,
+    maxSplit
+  );
 
   const commitSplit = useCallback(
     (next: number) => {
@@ -62,7 +72,10 @@ export default function ResizableLayout({
       const newPosition = isHorizontal
         ? ((e.clientX - rect.left) / rect.width) * 100
         : ((e.clientY - rect.top) / rect.height) * 100;
-      commitSplit(newPosition);
+      // Local preview only — no parent/store write until the gesture ends.
+      const clamped = clamp(newPosition, minSplit, maxSplit);
+      dragValueRef.current = clamped;
+      setDragSplit(clamped);
     };
 
     const handleEnd = () => {
@@ -71,11 +84,18 @@ export default function ResizableLayout({
       document.body.style.userSelect = '';
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleEnd);
+      // Commit the final position exactly once, so a drag persists a single
+      // write instead of one per `mousemove`.
+      if (dragValueRef.current !== null) {
+        commitSplit(dragValueRef.current);
+        dragValueRef.current = null;
+      }
+      setDragSplit(null);
     };
 
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleEnd);
-  }, [isHorizontal, commitSplit]);
+  }, [isHorizontal, commitSplit, minSplit, maxSplit]);
 
   return (
     <div
