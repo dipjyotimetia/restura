@@ -62,14 +62,14 @@
   /* Method colors */
   --color-method-get: #22c55e;
   --color-method-post: #f59e0b;
-  --color-method-put: #14b8a6; /* teal — off the brand-blue / HTTP / accent collision */
-  --color-method-patch: #d946ef; /* fuchsia — separated from the WS violet */
+  --color-method-put: #3b82f6;
+  --color-method-patch: #a855f7;
   --color-method-delete: #ef4444;
   --color-method-head: #06b6d4;
   --color-method-options: #94a3b8;
   --color-method-ws: #a78bfa;
   --color-method-sse: #06b6d4;
-  --color-method-mcp: #eab308; /* gold — off the POST amber it used to duplicate */
+  --color-method-mcp: #f59e0b;
   --color-method-gql: #e879a4;
 
   /* Protocol chip colors */
@@ -77,9 +77,9 @@
   --color-proto-grpc: #22c55e;
   --color-proto-ws: #a78bfa;
   --color-proto-gql: #e879a4;
-  --color-proto-mcp: #eab308; /* gold — matches method-mcp, off the POST amber */
+  --color-proto-mcp: #f59e0b;
   --color-proto-sse: #06b6d4;
-  --color-proto-kafka: #fb923c; /* orange — separated from the GraphQL rose */
+  --color-proto-kafka: #f472b6;
   --color-proto-socketio: #a78bfa;
   --color-proto-mqtt: #10b981;
 
@@ -395,7 +395,7 @@
         color-mix(in oklch, var(--sp-accent) 6%, transparent),
         transparent 45%
       ),
-      radial-gradient(at 100% 100%, oklch(55% 0.19 272 / 0.05), transparent 45%), var(--sp-bg);
+      radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.05), transparent 45%), var(--sp-bg);
   }
 
   .dark {
@@ -405,7 +405,7 @@
         color-mix(in oklch, var(--sp-accent) 10%, transparent),
         transparent 50%
       ),
-      radial-gradient(at 100% 100%, oklch(55% 0.19 272 / 0.08), transparent 50%), var(--sp-bg);
+      radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.08), transparent 50%), var(--sp-bg);
   }
 }
 

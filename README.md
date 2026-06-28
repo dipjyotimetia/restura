@@ -9,12 +9,12 @@
 [![Release](https://img.shields.io/github/v/release/dipjyotimetia/restura?style=flat-square&label=release&labelColor=14121F&color=6366F1)](https://github.com/dipjyotimetia/restura/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-6366F1?style=flat-square&labelColor=14121F)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A524-6366F1?style=flat-square&labelColor=14121F)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-2E91FF?style=flat-square&labelColor=14121F)](https://www.typescriptlang.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-6366F1?style=flat-square&labelColor=14121F)](https://www.typescriptlang.org)
 [![Sentry](https://img.shields.io/badge/crash_reports-Sentry-362D59?style=flat-square&logo=sentry&logoColor=white&labelColor=14121F)](https://sentry.io)
 
 <br/>
 
-[![Live App](https://img.shields.io/badge/Live_App-2E91FF?style=for-the-badge&logo=cloudflare&logoColor=white)](https://restura.dev/)
+[![Live App](https://img.shields.io/badge/Live_App-6366F1?style=for-the-badge&logo=cloudflare&logoColor=white)](https://restura.dev/)
 &nbsp;
 [![Download](https://img.shields.io/badge/Download_Desktop-14121F?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/dipjyotimetia/restura/releases/latest)
 &nbsp;
