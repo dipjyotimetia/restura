@@ -67,6 +67,7 @@ const defaultSettings: AppSettings = {
   theme: 'dark',
   // Layout settings
   layoutOrientation: 'horizontal',
+  requestResponseSplit: 50,
   // Security settings - allow localhost by default for development convenience
   allowLocalhost: true,
   allowPrivateIPs: false,

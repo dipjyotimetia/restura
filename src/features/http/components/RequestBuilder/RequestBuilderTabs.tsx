@@ -6,7 +6,7 @@ import { ComboboxInput, ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/com
 import type { ComboboxSuggestion, ParamRowData, VariableStatus } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
-import RequestBodyEditor from '@/features/http/components/RequestBodyEditor';
+import RequestBodyEditor, { bodyEditorFills } from '@/features/http/components/RequestBodyEditor';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
 import type { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
@@ -188,6 +188,8 @@ export function RequestBuilderTabs({
     return Array.from(matches);
   }, [request.url, request.body.raw, request.params, request.headers]);
 
+  const bodyFills = bodyEditorFills(request.body.type);
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <SubTabBar<SubTabKey> tabs={tabs} value={activeTab} onChange={onTabChange} />
@@ -230,7 +232,15 @@ export function RequestBuilderTabs({
         )}
 
         {activeTab === 'body' && (
-          <div className="p-4 space-y-3">
+          <div
+            className={cn(
+              'p-4 flex flex-col gap-3',
+              // Only the code editor fills the panel height; content-sized body
+              // types keep auto height so the parent scroll container handles
+              // overflow (e.g. many form-data rows) instead of clipping.
+              bodyFills && 'h-full min-h-0'
+            )}
+          >
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <Segmented<BodyType>
                 options={BODY_OPTIONS}
@@ -247,7 +257,14 @@ export function RequestBuilderTabs({
               )}
             </div>
 
-            <div className="rounded-sp-panel border border-sp-line bg-sp-code overflow-hidden">
+            <div
+              className={cn(
+                'rounded-sp-panel border border-sp-line bg-sp-code overflow-hidden',
+                // Let the code editor fill the panel; content-sized body types
+                // (empty state, form-data list, binary picker) stay natural height.
+                bodyFills && 'flex-1 min-h-0'
+              )}
+            >
               <RequestBodyEditor
                 body={request.body}
                 onBodyTypeChange={handlers.changeBodyType}

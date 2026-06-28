@@ -26,6 +26,10 @@ export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   // Layout settings
   layoutOrientation: 'vertical' | 'horizontal';
+  // Request/response split ratio as a percentage of the first (request) panel.
+  // Persisted so the divider position survives reload. Optional: pre-existing
+  // persisted settings predate it and fall back to a 50/50 default in the UI.
+  requestResponseSplit?: number;
   // Security settings
   allowLocalhost?: boolean;
   allowPrivateIPs?: boolean;

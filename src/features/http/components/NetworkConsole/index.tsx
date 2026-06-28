@@ -237,7 +237,7 @@ export default function NetworkConsole({
     <TooltipProvider delayDuration={300}>
       <div
         ref={containerRef}
-        className="flex flex-col border-t border-sp-line sp-chrome relative z-10"
+        className="flex flex-col bg-sp-surface relative z-10"
         style={{ height: isExpanded ? panelHeight : 28 }}
       >
         {/* Resize handle — wider hit zone, visible grip. The padding is what
@@ -266,7 +266,7 @@ export default function NetworkConsole({
             // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- splitter must be keyboard-focusable to support arrow-key resize
             tabIndex={0}
           >
-            <div className="h-1 w-10 rounded-full bg-border group-hover:bg-primary/60 group-focus-visible:bg-primary/60 transition-colors" />
+            <div className="h-1 w-10 rounded-full bg-sp-line group-hover:bg-sp-accent/60 group-focus-visible:bg-sp-accent/60 transition-colors" />
           </div>
         )}
 
