@@ -34,16 +34,14 @@ const RX = VB * brand.tileRadiusRatio;
 
 // --- SVG builders (geometry comes from brand, so it can't drift) -------------
 
-/** The routing-monogram strokes + endpoint node, in a single flat `color`. */
+/** The constructed-R strokes (stem, squared bowl, leg) in a single flat `color`. */
 function markInner(color) {
-  const strokes = brand.paths
+  return brand.paths
     .map(
       (d) =>
         `<path d="${d}" stroke="${color}" stroke-width="${brand.strokeWidth}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`
     )
     .join('');
-  const n = brand.node;
-  return `${strokes}<circle cx="${n.cx}" cy="${n.cy}" r="${n.r}" fill="${color}"/>`;
 }
 
 const gradientDef = `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${brand.gradient.from}"/><stop offset="100%" stop-color="${brand.gradient.to}"/></linearGradient></defs>`;

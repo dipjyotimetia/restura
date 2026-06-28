@@ -1,14 +1,15 @@
 import markData from './brandMark.json';
 
 /**
- * Canonical Restura brand mark — a routing-monogram "R".
+ * Canonical Restura brand mark — a constructed "R" with a squared,
+ * rounded-corner bowl.
  *
- * The mark is a constructed letterform where the geometry doubles as the
- * product idea: the bowl reads as an out-and-back route, and the leg is an
- * outbound request that lands on a single endpoint {@link node} ("request
- * lands here"). It is drawn as `currentColor` strokes so the *same* geometry
- * serves the favicon, the in-app sidebar mark, the macOS menu-bar template,
- * and the rasterised app icon — defined by silhouette, not by colour.
+ * The mark is a constructed letterform (not a typeface glyph): a vertical stem,
+ * an engineered squared bowl, and a leg that springs cleanly from the stem/bowl
+ * junction. It is drawn as flat-colour strokes so the *same* geometry serves the
+ * favicon, the in-app sidebar mark, the macOS menu-bar template, and the
+ * rasterised app icon — defined by silhouette, not by colour, and legible down
+ * to 16px (no leg-tip ornament to collapse into a blob at favicon size).
  *
  * This module (backed by `brandMark.json`) is the SINGLE SOURCE OF TRUTH for
  * the geometry. `Logo.tsx` renders these values as JSX; `scripts/generate-icons.js`
@@ -20,8 +21,7 @@ import markData from './brandMark.json';
  * this gradient and does NOT follow the user's `--sp-accent` preset, so it
  * matches the favicon / app icon / OG card everywhere.
  *
- * Fields: `viewBox` (authoring square), `strokeWidth`, `paths` ([stem, bowl
- * (route), leg (request)]), `node` (leg endpoint), `gradient` ({from, to}),
- * `tileRadiusRatio` (iOS-style corner fraction).
+ * Fields: `viewBox` (authoring square), `strokeWidth`, `paths` ([stem, bowl,
+ * leg]), `gradient` ({from, to}), `tileRadiusRatio` (iOS-style corner fraction).
  */
 export const BRAND_MARK = markData;
