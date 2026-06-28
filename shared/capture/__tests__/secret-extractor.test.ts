@@ -55,4 +55,26 @@ describe('redactExchange', () => {
     const auth = input.request.headers.find((h) => h.name === 'Authorization');
     expect(auth?.value).toBe('Bearer abcdef123456token');
   });
+
+  it('redacts credential query-string parameters in the URL', () => {
+    const ex = baseExchange();
+    ex.url = 'https://api.example.com/me?access_token=topsecretquerytoken&page=1';
+    const { exchange, secrets } = redactExchange(ex);
+    expect(exchange.url).not.toContain('topsecretquerytoken');
+    expect(exchange.url).toContain('page=1');
+    expect(secrets.some((s) => s.name === 'accessToken')).toBe(true);
+  });
+
+  it('masks token patterns inside base64-encoded bodies', () => {
+    const ex = baseExchange();
+    const jwt = 'eyJhbGciOiAns.eyJzdWIiOiAns.signaturepartxyz';
+    ex.response = {
+      status: 200,
+      headers: [],
+      body: { base64: btoa(`{"jwt":"${jwt}"}`) },
+    };
+    const { exchange } = redactExchange(ex);
+    const decoded = atob(exchange.response?.body?.base64 ?? '');
+    expect(decoded).not.toContain('eyJhbGciOiAns');
+  });
 });

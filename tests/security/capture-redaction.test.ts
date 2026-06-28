@@ -14,6 +14,8 @@ const SECRETS = {
   cookie: 'session=hunter2hunter2hunter2',
   jwt: 'eyJhbGciOiAns123.eyJzdWIiOiAns456.signatureZZZxyz',
   openai: 'sk-proj-ABCDEFGHIJKLMNOPQRSTUV',
+  queryToken: 'queryAccessTokenSECRET123',
+  frameJwt: 'eyJ0eXAiOiAns999.eyJzdWIiOiAns888.frameSigSECRET',
 };
 
 function session(): CaptureSession {
@@ -25,7 +27,7 @@ function session(): CaptureSession {
         id: '1',
         protocol: 'rest',
         method: 'GET',
-        url: 'https://api.example.com/me',
+        url: `https://api.example.com/me?access_token=${SECRETS.queryToken}&page=1`,
         startedAt: 0,
         request: {
           headers: [
@@ -39,6 +41,21 @@ function session(): CaptureSession {
           headers: [{ name: 'Set-Cookie', value: SECRETS.cookie }],
           body: { text: `{"jwt":"${SECRETS.jwt}","key":"${SECRETS.openai}"}` },
         },
+      },
+      {
+        id: '2',
+        protocol: 'websocket',
+        method: 'GET',
+        url: 'wss://api.example.com/socket',
+        startedAt: 0,
+        request: { headers: [] },
+        frames: [
+          {
+            direction: 'received',
+            payload: { base64: btoa(`{"auth":"${SECRETS.frameJwt}"}`) },
+            at: 0,
+          },
+        ],
       },
     ],
   };

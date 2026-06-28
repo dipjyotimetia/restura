@@ -17,10 +17,11 @@ import { join } from 'node:path';
 import { sessionToOpenCollection } from '@shared/capture/to-opencollection';
 import { app, type BrowserWindow, ipcMain } from 'electron';
 import { IPC, EVENT } from '../../shared/channels';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';
 import { bridgePayloadSchema, isAuthorized, isLoopbackRequest } from './capture-bridge-protocol';
 
-/** 1 MB cap on the request body before we even parse it. */
+/** Hard cap on the request body before we even parse it (matches the Zod bounds). */
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 export interface BridgeStatus {
@@ -113,6 +114,11 @@ export async function startCaptureBridge(
     })();
   });
 
+  // Slow-loris guards for the inbound listener (loopback-bound, low impact, but
+  // a token-holder shouldn't be able to hold the socket open indefinitely).
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 10_000;
+
   return new Promise<BridgeStatus>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
@@ -142,29 +148,42 @@ export function getCaptureBridgeStatus(): BridgeStatus {
   return active ? { running: true, port: active.port } : { running: false };
 }
 
+// Lifecycle IPC is low-frequency (start/stop/status from the trusted renderer);
+// a modest per-webContents quota guards against a runaway caller.
+const bridgeRateLimiter = createKeyedRateLimiter(30, 60_000);
+
 export function registerCaptureBridgeIPC(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle(IPC.captureBridge.start, async (event) => {
-    assertTrustedSender(IPC.captureBridge.start, event);
-    try {
-      const status = await startCaptureBridge(getMainWindow);
-      // The token is returned only to the trusted renderer so it can show the
-      // pairing code; it is never exposed over the HTTP surface.
-      return { ok: true, status, token: active?.token };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'failed to start bridge' };
-    }
-  });
+  ipcMain.handle(
+    IPC.captureBridge.start,
+    rateLimited(bridgeRateLimiter, async (event) => {
+      assertTrustedSender(IPC.captureBridge.start, event);
+      try {
+        const status = await startCaptureBridge(getMainWindow);
+        // The token is returned only to the trusted renderer so it can show the
+        // pairing code; it is never exposed over the HTTP surface.
+        return { ok: true, status, token: active?.token };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : 'failed to start bridge' };
+      }
+    })
+  );
 
-  ipcMain.handle(IPC.captureBridge.stop, async (event) => {
-    assertTrustedSender(IPC.captureBridge.stop, event);
-    const status = await stopCaptureBridge();
-    return { ok: true, status };
-  });
+  ipcMain.handle(
+    IPC.captureBridge.stop,
+    rateLimited(bridgeRateLimiter, async (event) => {
+      assertTrustedSender(IPC.captureBridge.stop, event);
+      const status = await stopCaptureBridge();
+      return { ok: true, status };
+    })
+  );
 
-  ipcMain.handle(IPC.captureBridge.status, (event) => {
-    assertTrustedSender(IPC.captureBridge.status, event);
-    return { ok: true, status: getCaptureBridgeStatus() };
-  });
+  ipcMain.handle(
+    IPC.captureBridge.status,
+    rateLimited(bridgeRateLimiter, (event) => {
+      assertTrustedSender(IPC.captureBridge.status, event);
+      return { ok: true, status: getCaptureBridgeStatus() };
+    })
+  );
 }
 
 export function unregisterCaptureBridgeIPC(): void {

@@ -3,6 +3,7 @@
  * HAR slot, so they are attached under the non-standard `_webSocketMessages`
  * field (the same convention Chrome DevTools uses).
  */
+import { redactExchange } from './secret-extractor';
 import type { CaptureSession, CapturedExchange, CapturedHeader } from './types';
 
 interface HarNameValue {
@@ -108,12 +109,17 @@ function toEntry(ex: CapturedExchange): HarEntry {
   return entry;
 }
 
+/**
+ * Convert a session to HAR. Each exchange is re-redacted (defence-in-depth,
+ * mirroring `sessionToOpenCollection`) so a caller that passes raw exchanges
+ * still cannot leak secrets through the HAR.
+ */
 export function sessionToHar(session: CaptureSession): HarLog {
   return {
     log: {
       version: '1.2',
       creator: { name: 'Restura Capture', version: '1.0.0' },
-      entries: session.exchanges.map(toEntry),
+      entries: session.exchanges.map((ex) => toEntry(redactExchange(ex).exchange)),
     },
   };
 }
