@@ -81,9 +81,15 @@ export default function RequestSettingsEditor({
   const updateProxyAuth = (patch: { username?: string; password?: string }) => {
     if (!settings?.proxy) return;
     const username = patch.username ?? proxyAuthUsername;
-    const password = patch.password ?? proxyAuthPassword;
-    if (!username && !password) {
-      // Both cleared → drop the auth key entirely (EOPT) so no empty creds ship.
+    // Preserve the existing password value verbatim when the patch doesn't
+    // touch it — it may be a SecretRef handle the field can't display, and
+    // reading it back as '' would clobber the handle on an unrelated username
+    // edit. Only an explicit password patch replaces it.
+    const password = patch.password !== undefined ? patch.password : (proxyAuth?.password ?? '');
+    // Drop the auth key only when there's truly nothing to keep — an empty
+    // username AND an empty/absent password (a handle is never "empty").
+    const passwordEmpty = typeof password === 'string' ? password === '' : false;
+    if (!username && passwordEmpty) {
       const { auth: _omit, ...restProxy } = settings.proxy;
       void _omit;
       onSettingsChange({ proxy: restProxy });

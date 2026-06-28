@@ -247,7 +247,9 @@ export function useHttpRequestPage() {
         }
         // followRedirects:false → maxRedirects:0 so the Electron handler returns
         // the 3xx unfollowed (mirrors the web axios `maxRedirects: 0` branch).
-        if (!effectiveSettings.followRedirects) {
+        // `=== false`, not `!followRedirects`: undefined (partial/imported
+        // settings) must fall through to default-follow, not be read as "off".
+        if (effectiveSettings.followRedirects === false) {
           redirectPolicy.maxRedirects = 0;
         } else if (effectiveSettings.maxRedirects !== undefined) {
           redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;

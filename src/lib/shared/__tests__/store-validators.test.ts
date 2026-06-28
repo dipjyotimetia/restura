@@ -413,6 +413,18 @@ describe('store-validators', () => {
       expect(result.followRedirects).toBe(false);
     });
 
+    it("backfills a corrupt required field from the CALLER's defaults, not a schema constant", () => {
+      // theme 'system' here (not 'dark'): a present-but-invalid required field
+      // must defer to the supplied defaults, proving the schema doesn't carry a
+      // second hard-coded default that wins.
+      const result = validatePersistedSettings(
+        { theme: 'neon', defaultTimeout: 'oops' },
+        { ...DEFAULTS, theme: 'system', defaultTimeout: 45000 }
+      );
+      expect(result.theme).toBe('system');
+      expect(result.defaultTimeout).toBe(45000);
+    });
+
     it('keeps unknown/future keys (passthrough)', () => {
       const result = validatePersistedSettings(
         { futureFlag: 'keep-me' } as Record<string, unknown>,

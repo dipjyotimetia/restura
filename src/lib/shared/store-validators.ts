@@ -7,7 +7,8 @@ import {
   environmentSchema,
   collectionSchema,
 } from './validations';
-import type { Request, Environment, Collection } from '@/types';
+import { SPATIAL_ACCENT_PRESETS } from '@/types';
+import type { Request, Environment, Collection, SpatialAccent } from '@/types';
 
 /**
  * Schema for a single persisted console entry. Validated on rehydrate so a
@@ -480,15 +481,19 @@ const CaCertCatchSchema = z.object({ pem: z.string() }).passthrough();
 
 export const appSettingsSchema = z
   .object({
+    // Required fields use `.optional().catch(undefined)` too: an invalid or
+    // absent value is stripped and backfilled from the caller's `defaults`, so
+    // `defaultSettings` stays the single source of truth for defaults (the
+    // schema doesn't carry a second, hard-coded copy that could drift).
     proxy: SettingsProxySchema.optional().catch(undefined),
-    defaultTimeout: z.number().int().min(1).max(600_000).catch(30_000),
-    followRedirects: z.boolean().catch(true),
-    maxRedirects: z.number().int().min(0).max(50).catch(10),
-    verifySsl: z.boolean().catch(true),
-    autoSaveHistory: z.boolean().catch(true),
-    maxHistoryItems: z.number().int().min(1).max(100_000).catch(100),
-    theme: z.enum(['light', 'dark', 'system']).catch('dark'),
-    layoutOrientation: z.enum(['vertical', 'horizontal']).catch('horizontal'),
+    defaultTimeout: z.number().int().min(1).max(600_000).optional().catch(undefined),
+    followRedirects: z.boolean().optional().catch(undefined),
+    maxRedirects: z.number().int().min(0).max(50).optional().catch(undefined),
+    verifySsl: z.boolean().optional().catch(undefined),
+    autoSaveHistory: z.boolean().optional().catch(undefined),
+    maxHistoryItems: z.number().int().min(1).max(100_000).optional().catch(undefined),
+    theme: z.enum(['light', 'dark', 'system']).optional().catch(undefined),
+    layoutOrientation: z.enum(['vertical', 'horizontal']).optional().catch(undefined),
     requestResponseSplit: z.number().min(0).max(100).optional().catch(undefined),
     allowLocalhost: z.boolean().optional().catch(undefined),
     allowPrivateIPs: z.boolean().optional().catch(undefined),
@@ -536,9 +541,8 @@ export const appSettingsSchema = z
       .object({ errorsEnabled: z.boolean().catch(true) })
       .optional()
       .catch(undefined),
-    // Keep in sync with SPATIAL_ACCENT_PRESETS (src/types/settings.ts).
     accent: z
-      .enum(['#2e91ff', '#7c5cff', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4'])
+      .enum(SPATIAL_ACCENT_PRESETS as unknown as [SpatialAccent, ...SpatialAccent[]])
       .optional()
       .catch(undefined),
     autoUpdate: z

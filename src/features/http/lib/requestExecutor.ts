@@ -264,9 +264,12 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     redirectPolicy.stripReferer = effectiveSettings.stripReferer;
   }
   // followRedirects:false → maxRedirects:0 so the shared follower (and the
-  // Electron manual handler) return the 3xx unfollowed. Previously nothing was
-  // emitted in that case, so the follower's default (5) silently still ran.
-  if (!effectiveSettings.followRedirects) {
+  // Electron manual handler) return the 3xx unfollowed. Use `=== false`, not
+  // `!followRedirects`: a partial settings object (e.g. an imported collection
+  // whose `settings` omits the field) leaves it `undefined`, which must fall
+  // through to the default-follow path — not be treated as "off". Matches the
+  // CLI executor's `=== false` check.
+  if (effectiveSettings.followRedirects === false) {
     redirectPolicy.maxRedirects = 0;
   } else if (effectiveSettings.maxRedirects !== undefined) {
     redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;
