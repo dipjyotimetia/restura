@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import type { SecretValue } from '@/lib/shared/secretRef';
+import { validatePersistedSettings } from '@/lib/shared/store-validators';
 import type {
   AppSettings,
   ProxyConfig,
@@ -270,6 +271,15 @@ export const useSettingsStore = create<SettingsState>()(
           resolved = {
             ...resolved,
             settings: { ...resolved.settings, layoutOrientation: 'horizontal' },
+          };
+        }
+        // Validate the persisted settings blob, coercing corrupt/invalid scalars
+        // back to sane values and backfilling missing fields from the defaults.
+        // Never throws — a non-object blob yields the defaults untouched.
+        if (resolved && typeof resolved === 'object') {
+          resolved = {
+            ...resolved,
+            settings: validatePersistedSettings(resolved.settings, defaultSettings),
           };
         }
         return resolved;

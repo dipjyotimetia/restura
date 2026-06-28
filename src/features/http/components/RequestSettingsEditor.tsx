@@ -70,6 +70,37 @@ export default function RequestSettingsEditor({
     );
   };
 
+  // Per-request proxy credentials. Stored inline (a plain string SecretValue);
+  // the desktop proxy connector resolves them at the wire. Reading a handle-
+  // shaped SecretValue back into the field isn't supported here — per-request
+  // proxy auth is always typed inline.
+  const proxyAuth = settings?.proxy?.auth;
+  const proxyAuthUsername = typeof proxyAuth?.username === 'string' ? proxyAuth.username : '';
+  const proxyAuthPassword = typeof proxyAuth?.password === 'string' ? proxyAuth.password : '';
+
+  const updateProxyAuth = (patch: { username?: string; password?: string }) => {
+    if (!settings?.proxy) return;
+    const username = patch.username ?? proxyAuthUsername;
+    const password = patch.password ?? proxyAuthPassword;
+    if (!username && !password) {
+      // Both cleared → drop the auth key entirely (EOPT) so no empty creds ship.
+      const { auth: _omit, ...restProxy } = settings.proxy;
+      void _omit;
+      onSettingsChange({ proxy: restProxy });
+    } else {
+      onSettingsChange({ proxy: { ...settings.proxy, auth: { username, password } } });
+    }
+  };
+
+  const handleCaOverrideToggle = (enabled: boolean) => {
+    onSettingsChange(
+      enabled
+        ? { caCert: { pem: settings?.caCert?.pem ?? '' } }
+        : // EOPT: explicit undefined signals "clear this key" (see cert toggle).
+          ({ caCert: undefined } as unknown as Partial<RequestSettings>)
+    );
+  };
+
   const handleCertOverrideToggle = (enabled: boolean) => {
     if (!enabled) {
       // EOPT(maintainability): callers interpret an explicit `undefined` as a
@@ -419,6 +450,32 @@ export default function RequestSettingsEditor({
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="proxyUser">Username</Label>
+                          <Input
+                            id="proxyUser"
+                            value={proxyAuthUsername}
+                            onChange={(e) => updateProxyAuth({ username: e.target.value })}
+                            placeholder="optional"
+                            autoComplete="off"
+                            className="bg-background border-border"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="proxyPass">Password</Label>
+                          <Input
+                            id="proxyPass"
+                            type="password"
+                            value={proxyAuthPassword}
+                            onChange={(e) => updateProxyAuth({ password: e.target.value })}
+                            placeholder="optional"
+                            autoComplete="off"
+                            className="bg-background border-border"
+                          />
+                        </div>
+                      </div>
+
                       <div className="rounded-lg bg-muted p-3 border border-border">
                         <p className="text-xs text-muted-foreground">
                           <strong>Proxy URL:</strong>{' '}
@@ -463,6 +520,41 @@ export default function RequestSettingsEditor({
                     // assert through unknown to preserve the existing contract.
                     onSettingsChange({ clientCert: cert } as Partial<RequestSettings>)
                   }
+                />
+              )}
+            </div>
+
+            {/* CA Certificate Override */}
+            <div className="space-y-4 rounded-lg border border-border p-4 bg-background">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <div className="flex items-center">
+                    <Label className="text-base font-medium">CA Certificate for this Request</Label>
+                    <DesktopOnlyBadge title="Custom CA trust requires Node's TLS stack. Only enforced in the Electron desktop app." />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Trust a custom CA bundle for this request only
+                  </p>
+                </div>
+                <Switch
+                  checked={!!settings?.caCert}
+                  onCheckedChange={handleCaOverrideToggle}
+                  aria-label="Toggle custom CA certificate"
+                />
+              </div>
+
+              {settings?.caCert && (
+                <textarea
+                  value={settings.caCert.pem}
+                  onChange={(e) => onSettingsChange({ caCert: { pem: e.target.value } })}
+                  aria-label="CA certificate PEM"
+                  placeholder="-----BEGIN CERTIFICATE-----&#10;..."
+                  spellCheck={false}
+                  className={cn(
+                    'w-full min-h-[100px] rounded-md bg-background border border-border',
+                    'p-2 font-mono text-xs text-foreground placeholder:text-muted-foreground/50',
+                    'focus:outline-none focus:ring-2 focus:ring-sp-accent/40 resize-y'
+                  )}
                 />
               )}
             </div>

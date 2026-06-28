@@ -48,6 +48,7 @@ import {
   DEFAULT_JUDGE_SETTINGS,
   SPATIAL_ACCENT_PRESETS,
   type ClientCert,
+  type MinTlsVersion,
   type ProxyType,
   type SpatialAccent,
 } from '@/types';
@@ -585,19 +586,56 @@ function RequestsSection() {
             />
           }
         />
-        <FieldRow
-          label="Max redirects"
-          hint="Hard cap on redirect chain length."
-          control={
-            <Stepper
-              value={settings.maxRedirects ?? 10}
-              onChange={(v) => updateSettings({ maxRedirects: v })}
-              min={0}
-              max={50}
-              ariaLabel="Max redirects"
+        {(settings.followRedirects ?? true) && (
+          <>
+            <FieldRow
+              label="Max redirects"
+              hint="Hard cap on redirect chain length."
+              control={
+                <Stepper
+                  value={settings.maxRedirects ?? 10}
+                  onChange={(v) => updateSettings({ maxRedirects: v })}
+                  min={0}
+                  max={50}
+                  ariaLabel="Max redirects"
+                />
+              }
             />
-          }
-        />
+            <FieldRow
+              label="Follow original HTTP method"
+              hint="RFC-compliant: don't downgrade 301 / 302 to GET."
+              control={
+                <ToggleField
+                  checked={settings.followOriginalMethod === true}
+                  onChange={(v) => updateSettings({ followOriginalMethod: v })}
+                  ariaLabel="Follow original method on redirect"
+                />
+              }
+            />
+            <FieldRow
+              label="Follow Authorization header"
+              hint="Keep Authorization on cross-origin redirects. Default off."
+              control={
+                <ToggleField
+                  checked={settings.followAuthHeader === true}
+                  onChange={(v) => updateSettings({ followAuthHeader: v })}
+                  ariaLabel="Follow Authorization across hostnames"
+                />
+              }
+            />
+            <FieldRow
+              label="Remove Referer on redirect"
+              hint="Strip the Referer header on every hop."
+              control={
+                <ToggleField
+                  checked={settings.stripReferer === true}
+                  onChange={(v) => updateSettings({ stripReferer: v })}
+                  ariaLabel="Strip Referer on redirect"
+                />
+              }
+            />
+          </>
+        )}
         <FieldRow
           label="Verify SSL certificates"
           hint="Disable only for trusted development hosts."
@@ -610,6 +648,91 @@ function RequestsSection() {
           }
         />
       </FieldGroup>
+
+      <FieldGroup label="URL &amp; cookies">
+        <FieldRow
+          label="Encode URL automatically"
+          hint="Percent-encode path & query. Disable when the upstream rejects encoded special chars."
+          control={
+            <ToggleField
+              checked={settings.encodeUrlAutomatically !== false}
+              onChange={(v) => updateSettings({ encodeUrlAutomatically: v })}
+              ariaLabel="Encode URL automatically"
+            />
+          }
+        />
+        <FieldRow
+          label="Disable cookie jar"
+          hint="Skip the shared cookie store — no Cookie header is sent and Set-Cookie responses are not stored."
+          control={
+            <ToggleField
+              checked={settings.disableCookieJar === true}
+              onChange={(v) => updateSettings({ disableCookieJar: v })}
+              ariaLabel="Disable cookie jar"
+            />
+          }
+        />
+      </FieldGroup>
+
+      <section className="mt-5">
+        <SectionLabel>
+          <span className="inline-flex items-center">
+            TLS (advanced)
+            <DesktopOnlyBadge title="TLS handshake parameters can't be controlled from a browser/Worker. Desktop only." />
+          </span>
+        </SectionLabel>
+        <Floater radius="panel" elevation="inset" className="px-4 divide-y divide-sp-line">
+          <FieldRow
+            label="Use server cipher suite order"
+            hint="Honour the server's cipher preference order during handshake."
+            control={
+              <ToggleField
+                checked={settings.serverCipherOrder === true}
+                onChange={(v) => updateSettings({ serverCipherOrder: v })}
+                ariaLabel="Use server cipher order"
+              />
+            }
+          />
+          <FieldRow
+            label="Minimum TLS version"
+            hint="Reject handshakes below this protocol version."
+            control={
+              <Segmented<'default' | MinTlsVersion>
+                value={settings.minTlsVersion ?? 'default'}
+                onChange={(v) =>
+                  updateSettings(
+                    v === 'default'
+                      ? ({ minTlsVersion: undefined } as Partial<typeof settings>)
+                      : { minTlsVersion: v }
+                  )
+                }
+                size="sm"
+                options={[
+                  { value: 'default', label: 'Default' },
+                  { value: 'TLSv1', label: '1.0' },
+                  { value: 'TLSv1.1', label: '1.1' },
+                  { value: 'TLSv1.2', label: '1.2' },
+                  { value: 'TLSv1.3', label: '1.3' },
+                ]}
+                ariaLabel="Minimum TLS version"
+              />
+            }
+          />
+          <FieldRow
+            label="Cipher suites"
+            hint="OpenSSL-format colon-separated list. Leave blank for default."
+            control={
+              <TextField
+                mono
+                placeholder="ECDHE-RSA-AES128-GCM-SHA256"
+                value={settings.cipherSuites ?? ''}
+                onChange={(e) => updateSettings({ cipherSuites: e.target.value })}
+                className="w-[260px]"
+              />
+            }
+          />
+        </Floater>
+      </section>
 
       <FieldGroup label="History">
         <FieldRow
@@ -1380,20 +1503,30 @@ function DataSection() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const run = useCallback(
-    async (action: () => Promise<void>, success: string, failPrefix: string) => {
+    async (action: () => Promise<void>, success: string, failPrefix: string): Promise<boolean> => {
       setBusy(true);
       try {
         await action();
         await checkStorage();
         toast.success(success);
+        return true;
       } catch (e) {
         toast.error(`${failPrefix}: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        return false;
       } finally {
         setBusy(false);
       }
     },
     [checkStorage]
   );
+
+  // Import / clear / secure-delete rewrite Dexie out from under the in-memory
+  // Zustand stores, which would otherwise re-persist their stale state over the
+  // new rows. Reload once the success toast has had a moment to show so the
+  // freshly persisted data is what boots.
+  const reloadAfter = (ok: boolean) => {
+    if (ok) setTimeout(() => window.location.reload(), 900);
+  };
 
   const handleExport = () =>
     run(
@@ -1412,22 +1545,24 @@ function DataSection() {
     if (!file) return;
     void run(
       async () => importDexieData(await file.text()),
-      'Data imported — reload to see changes',
+      'Data imported — reloading…',
       'Import failed'
-    );
+    ).then(reloadAfter);
   };
 
   const confirmDestructive = () => {
     const which = confirm;
     setConfirm(null);
     if (which === 'clear') {
-      void run(clearDexieStorage, 'All data cleared — reload to reset', 'Clear failed');
+      void run(clearDexieStorage, 'All data cleared — reloading…', 'Clear failed').then(
+        reloadAfter
+      );
     } else if (which === 'secure') {
       void run(
         secureDeleteAllDexieData,
-        'All data securely deleted — reload to reset',
+        'All data securely deleted — reloading…',
         'Secure delete failed'
-      );
+      ).then(reloadAfter);
     }
   };
 

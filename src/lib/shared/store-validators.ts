@@ -454,6 +454,134 @@ export const ArenaStateSchema = z.object({
 
 export type PersistedArenaRunState = z.infer<typeof ArenaStateSchema>;
 
+// ---------------------------------------------------------------------------
+// App settings (useSettingsStore) — validated on rehydrate so a corrupt or
+// partial persisted blob can't crash the app or feed invalid scalars (theme,
+// accent, numeric ranges, judge config) into the UI. Every field `.catch`es a
+// sane fallback so parsing never throws; unknown/future keys pass through and
+// the store merges the result over its runtime defaults.
+// ---------------------------------------------------------------------------
+
+const SettingsProxySchema = z
+  .object({
+    enabled: z.boolean().catch(false),
+    type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']).catch('http'),
+    host: z.string().catch(''),
+    port: z.number().int().min(1).max(65535).catch(8080),
+    // SecretValue (inline string or SecretRef handle); shape is enforced where
+    // it's resolved, so keep it loose here.
+    auth: z.object({ username: z.string(), password: z.unknown() }).optional().catch(undefined),
+    bypassList: z.array(z.string()).optional().catch(undefined),
+  })
+  .catch({ enabled: false, type: 'http', host: '', port: 8080 });
+
+const ClientCertCatchSchema = z.object({ format: z.enum(['pfx', 'pem']) }).passthrough();
+const CaCertCatchSchema = z.object({ pem: z.string() }).passthrough();
+
+export const appSettingsSchema = z
+  .object({
+    proxy: SettingsProxySchema.optional().catch(undefined),
+    defaultTimeout: z.number().int().min(1).max(600_000).catch(30_000),
+    followRedirects: z.boolean().catch(true),
+    maxRedirects: z.number().int().min(0).max(50).catch(10),
+    verifySsl: z.boolean().catch(true),
+    autoSaveHistory: z.boolean().catch(true),
+    maxHistoryItems: z.number().int().min(1).max(100_000).catch(100),
+    theme: z.enum(['light', 'dark', 'system']).catch('dark'),
+    layoutOrientation: z.enum(['vertical', 'horizontal']).catch('horizontal'),
+    requestResponseSplit: z.number().min(0).max(100).optional().catch(undefined),
+    allowLocalhost: z.boolean().optional().catch(undefined),
+    allowPrivateIPs: z.boolean().optional().catch(undefined),
+    corsProxy: z
+      .object({ enabled: z.boolean().catch(true), autoDetect: z.boolean().catch(true) })
+      .optional()
+      .catch(undefined),
+    clientCert: ClientCertCatchSchema.optional().catch(undefined),
+    caCert: CaCertCatchSchema.optional().catch(undefined),
+    clientCertificates: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            host: z.string(),
+            port: z.number().optional(),
+            cert: ClientCertCatchSchema,
+          })
+          .passthrough()
+      )
+      .optional()
+      .catch(undefined),
+    caCertificates: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            host: z.string(),
+            port: z.number().optional(),
+            pem: z.string(),
+          })
+          .passthrough()
+      )
+      .optional()
+      .catch(undefined),
+    followOriginalMethod: z.boolean().optional().catch(undefined),
+    followAuthHeader: z.boolean().optional().catch(undefined),
+    stripReferer: z.boolean().optional().catch(undefined),
+    encodeUrlAutomatically: z.boolean().optional().catch(undefined),
+    disableCookieJar: z.boolean().optional().catch(undefined),
+    serverCipherOrder: z.boolean().optional().catch(undefined),
+    minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional().catch(undefined),
+    cipherSuites: z.string().optional().catch(undefined),
+    telemetry: z
+      .object({ errorsEnabled: z.boolean().catch(true) })
+      .optional()
+      .catch(undefined),
+    // Keep in sync with SPATIAL_ACCENT_PRESETS (src/types/settings.ts).
+    accent: z
+      .enum(['#2e91ff', '#7c5cff', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4'])
+      .optional()
+      .catch(undefined),
+    autoUpdate: z
+      .object({
+        autoDownload: z.boolean().catch(true),
+        channel: z.enum(['stable', 'beta']).catch('stable'),
+      })
+      .optional()
+      .catch(undefined),
+    judge: z
+      .object({
+        enabled: z.boolean().catch(false),
+        provider: z
+          .enum(['openai', 'anthropic', 'openrouter', 'ollama', 'openai-compatible'])
+          .catch('openai'),
+        model: z.string().catch(''),
+        apiKeyHandleId: z.string().optional().catch(undefined),
+        baseUrl: z.string().optional().catch(undefined),
+        redactBeforeJudge: z.boolean().catch(true),
+      })
+      .optional()
+      .catch(undefined),
+  })
+  .passthrough();
+
+/**
+ * Validate a persisted `AppSettings` blob on rehydrate, merging the cleaned
+ * result over the supplied runtime defaults. A field that fails validation
+ * falls back individually (via `.catch`); a wholesale failure (non-object)
+ * returns the defaults untouched. Never throws.
+ */
+export function validatePersistedSettings<T extends object>(raw: unknown, defaults: T): T {
+  const result = appSettingsSchema.safeParse(raw);
+  if (!result.success) return defaults;
+  // Strip `undefined` values (a dropped/invalid optional field `.catch`es to
+  // undefined) so the spread can't blow away a default with an explicit
+  // undefined — the default must win for those keys.
+  const cleaned = Object.fromEntries(
+    Object.entries(result.data).filter(([, v]) => v !== undefined)
+  );
+  return { ...defaults, ...(cleaned as Partial<T>) };
+}
+
 /**
  * Validates URL format
  */
