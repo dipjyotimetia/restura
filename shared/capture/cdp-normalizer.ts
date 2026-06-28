@@ -22,7 +22,7 @@ function toHeaders(raw: unknown): CapturedHeader[] {
 }
 
 export class CdpNormalizer {
-  private readonly order: string[] = [];
+  // A Map preserves insertion order, so it doubles as the exchange ordering.
   private readonly byId = new Map<string, CapturedExchange>();
 
   ingest(method: string, rawParams: unknown): void {
@@ -59,7 +59,7 @@ export class CdpNormalizer {
   }
 
   getExchanges(): CapturedExchange[] {
-    return this.order.map((id) => this.byId.get(id)).filter((e): e is CapturedExchange => !!e);
+    return [...this.byId.values()];
   }
 
   private ensure(id: string, seed: () => CapturedExchange): CapturedExchange {
@@ -67,7 +67,6 @@ export class CdpNormalizer {
     if (!ex) {
       ex = seed();
       this.byId.set(id, ex);
-      this.order.push(id);
     }
     return ex;
   }

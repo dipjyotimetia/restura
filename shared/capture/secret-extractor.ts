@@ -58,7 +58,7 @@ function headerIsDenied(name: string): boolean {
 // presigned ?X-Amz-Signature=).
 const QUERY_PARAM_DENYLIST: RegExp[] = [
   /^(access|refresh|id)?[-_]?token$/i,
-  /^api[-_]?key$/i,
+  // (api[-_]?key is already covered by headerIsDenied, checked first.)
   /^(client[-_]?)?secret$/i,
   /^(password|passwd|pwd)$/i,
   /^(sig|signature)$/i,
@@ -112,19 +112,6 @@ export function redactExchange(input: CapturedExchange): RedactionResult {
   const secrets: RedactedSecret[] = [];
   const seen = new Set<string>();
 
-  const redactHeaders = (headers: CapturedHeader[]): void => {
-    for (const header of headers) {
-      if (!headerIsDenied(header.name)) continue;
-      const name = toVarName(header.name);
-      const placeholder = `{{${name}}}`;
-      header.value = placeholder;
-      if (!seen.has(name)) {
-        seen.add(name);
-        secrets.push({ name, placeholder });
-      }
-    }
-  };
-
   const recordSecret = (name: string): string => {
     const placeholder = `{{${name}}}`;
     if (!seen.has(name)) {
@@ -132,6 +119,12 @@ export function redactExchange(input: CapturedExchange): RedactionResult {
       secrets.push({ name, placeholder });
     }
     return placeholder;
+  };
+
+  const redactHeaders = (headers: CapturedHeader[]): void => {
+    for (const header of headers) {
+      if (headerIsDenied(header.name)) header.value = recordSecret(toVarName(header.name));
+    }
   };
 
   redactHeaders(exchange.request.headers);

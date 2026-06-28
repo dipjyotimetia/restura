@@ -11,11 +11,9 @@
  * whose Origin is not the extension or loopback (DNS-rebind / CSRF defence).
  */
 import { randomBytes } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
 import http from 'node:http';
-import { join } from 'node:path';
 import { sessionToOpenCollection } from '@shared/capture/to-opencollection';
-import { app, type BrowserWindow, ipcMain } from 'electron';
+import { type BrowserWindow, ipcMain } from 'electron';
 import { IPC, EVENT } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';
@@ -53,10 +51,6 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
-}
-
-function handshakeFilePath(): string {
-  return join(app.getPath('userData'), 'capture-bridge.json');
 }
 
 export async function startCaptureBridge(
@@ -125,12 +119,9 @@ export async function startCaptureBridge(
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
       active = { server, port, token };
-      // Handshake file the extension's pairing flow reads (user copies the code).
-      try {
-        writeFileSync(handshakeFilePath(), JSON.stringify({ port, token }), { mode: 0o600 });
-      } catch {
-        /* non-fatal: the renderer can still surface the code directly */
-      }
+      // Pairing is via the renderer: `start` returns { port, token } over IPC and
+      // the settings UI shows a `<port>:<token>` code the user pastes into the
+      // extension. (No handshake file — a sandboxed extension can't read it.)
       resolve({ running: true, port });
     });
   });

@@ -16,31 +16,48 @@ import { loadSession, saveSession } from './session-store';
 
 const CDP_VERSION = '1.3';
 
+/** Coalesce a burst of CDP events into one redact-and-persist pass. */
+const SYNC_DEBOUNCE_MS = 150;
+
 interface ActiveCapture {
   tabId: number;
+  sessionId: string;
+  createdAt: number;
   normalizer: CdpNormalizer;
   /** CDP requestIds whose response body we've already requested. */
   fetchedBodies: Set<string>;
+  /** Pending coalesced flush, if any. */
+  flushTimer: ReturnType<typeof setTimeout> | null;
 }
 
 let activeCapture: ActiveCapture | null = null;
 
-function sessionId(): string {
-  // crypto.randomUUID is available in the worker; avoids Date.now() determinism
-  // concerns and gives a stable id.
+function newSessionId(): string {
+  // crypto.randomUUID avoids Date.now() determinism concerns and gives a stable id.
   return `cap_${crypto.randomUUID()}`;
 }
 
-async function syncSession(): Promise<CaptureSession | null> {
-  if (!activeCapture) return null;
-  const existing = await loadSession();
-  const session: CaptureSession = {
-    id: existing?.id ?? sessionId(),
-    createdAt: existing?.createdAt ?? 0,
-    exchanges: activeCapture.normalizer.getExchanges().map((ex) => redactExchange(ex).exchange),
+function buildSession(capture: ActiveCapture): CaptureSession {
+  return {
+    id: capture.sessionId,
+    createdAt: capture.createdAt,
+    exchanges: capture.normalizer.getExchanges().map((ex) => redactExchange(ex).exchange),
   };
-  await saveSession(session);
-  return session;
+}
+
+/**
+ * Persist the session, coalescing rapid CDP events so a busy page produces one
+ * redact-and-write per window instead of one per event. No `loadSession` read —
+ * the session id/createdAt are cached on the capture, and the normalizer is the
+ * source of truth for exchanges.
+ */
+function scheduleSync(): void {
+  const capture = activeCapture;
+  if (!capture || capture.flushTimer) return;
+  capture.flushTimer = setTimeout(() => {
+    capture.flushTimer = null;
+    if (activeCapture === capture) void saveSession(buildSession(capture));
+  }, SYNC_DEBOUNCE_MS);
 }
 
 function onDebuggerEvent(source: chrome.debugger.Debuggee, method: string, params?: object): void {
@@ -63,28 +80,38 @@ function onDebuggerEvent(source: chrome.debugger.Debuggee, method: string, param
             requestId,
             body.base64Encoded ? { base64: body.body } : { text: body.body }
           );
-          void syncSession();
+          scheduleSync();
         }
       );
     }
   }
-  void syncSession();
+  scheduleSync();
 }
 
 async function startCapture(tabId: number): Promise<void> {
   await stopCapture();
   await chrome.debugger.attach({ tabId }, CDP_VERSION);
   await chrome.debugger.sendCommand({ tabId }, 'Network.enable');
-  activeCapture = { tabId, normalizer: new CdpNormalizer(), fetchedBodies: new Set() };
-  await saveSession({ id: sessionId(), createdAt: 0, exchanges: [] });
+  activeCapture = {
+    tabId,
+    sessionId: newSessionId(),
+    createdAt: 0,
+    normalizer: new CdpNormalizer(),
+    fetchedBodies: new Set(),
+    flushTimer: null,
+  };
+  await saveSession(buildSession(activeCapture));
 }
 
 async function stopCapture(): Promise<void> {
   if (!activeCapture) return;
-  const { tabId } = activeCapture;
+  const capture = activeCapture;
   activeCapture = null;
+  if (capture.flushTimer) clearTimeout(capture.flushTimer);
+  // Final flush so the last events aren't lost to the debounce window.
+  await saveSession(buildSession(capture));
   try {
-    await chrome.debugger.detach({ tabId });
+    await chrome.debugger.detach({ tabId: capture.tabId });
   } catch {
     /* already detached (tab closed) */
   }

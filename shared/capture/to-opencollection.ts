@@ -89,7 +89,9 @@ function toItem(ex: CapturedExchange): OcItem {
   if (ex.protocol === 'websocket') {
     return { info: { type: 'websocket', name: itemName(ex) }, websocket: { url: ex.url, headers } };
   }
-  // rest, sse, grpc-web all export as an http item.
+  // rest, sse, grpc-web all export as an http item. grpc-web is HTTP at the wire
+  // and a passive capture has no .proto descriptor to decode the binary frame
+  // into an OC `grpc` item's `message`, so http is the faithful (replayable) target.
   return {
     info: { type: 'http', name: itemName(ex) },
     http: {
