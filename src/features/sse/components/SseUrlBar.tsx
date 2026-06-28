@@ -80,8 +80,8 @@ export function SseUrlBar({
           className={cn(
             'h-8 min-w-[88px] px-3 rounded-sp-btn text-sp-12 font-semibold',
             'inline-flex items-center justify-center gap-1.5 shrink-0',
-            'border border-[rgba(239,68,68,0.35)] text-[#ef4444] bg-[rgba(239,68,68,0.10)]',
-            'hover:bg-[rgba(239,68,68,0.18)] transition-colors'
+            'border border-danger/35 text-danger bg-danger/10',
+            'hover:bg-danger/18 transition-colors'
           )}
         >
           <Square className="h-3.5 w-3.5" />

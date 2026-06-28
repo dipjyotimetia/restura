@@ -81,8 +81,8 @@ function PartitionPill({ partition, count }: { partition: number; count?: number
       className="inline-flex items-center gap-1.5 h-6 px-2 font-mono font-bold text-sp-11 tabular-nums rounded-sp-chip"
       style={{
         color,
-        background: `${color}26`,
-        border: `1px solid ${color}40`,
+        background: `color-mix(in srgb, ${color} 15%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
       }}
     >
       <span>P{partition}</span>
@@ -100,8 +100,8 @@ function PartitionMiniPill({ partition }: { partition: number }) {
       className="inline-flex items-center justify-center h-5 w-8 font-mono font-bold text-sp-9 rounded-sp-chip"
       style={{
         color,
-        background: `${color}26`,
-        border: `1px solid ${color}40`,
+        background: `color-mix(in srgb, ${color} 15%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
       }}
     >
       P{partition}
@@ -117,10 +117,26 @@ function StatusBadge({
   tone: 'green' | 'amber' | 'muted' | 'red';
 }) {
   const palette = {
-    green: { color: '#22c55e', bg: 'rgba(34,197,94,0.16)', glow: '0 0 8px rgba(34,197,94,0.35)' },
-    amber: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', glow: '0 0 8px rgba(245,158,11,0.35)' },
-    red: { color: '#ef4444', bg: 'rgba(239,68,68,0.16)', glow: '0 0 8px rgba(239,68,68,0.35)' },
-    muted: { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)', glow: 'none' as const },
+    green: {
+      color: 'var(--color-success)',
+      bg: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
+      glow: '0 0 8px color-mix(in srgb, var(--color-success) 35%, transparent)',
+    },
+    amber: {
+      color: 'var(--color-warning)',
+      bg: 'color-mix(in srgb, var(--color-warning) 16%, transparent)',
+      glow: '0 0 8px color-mix(in srgb, var(--color-warning) 35%, transparent)',
+    },
+    red: {
+      color: 'var(--color-danger)',
+      bg: 'color-mix(in srgb, var(--color-danger) 16%, transparent)',
+      glow: '0 0 8px color-mix(in srgb, var(--color-danger) 35%, transparent)',
+    },
+    muted: {
+      color: 'var(--color-neutral)',
+      bg: 'color-mix(in srgb, var(--color-neutral) 16%, transparent)',
+      glow: 'none' as const,
+    },
   }[tone];
   return (
     <span
@@ -715,7 +731,14 @@ function KafkaClient() {
               <Stat
                 label="Lag"
                 value={
-                  <span style={{ color: partitionCounts.length === 0 ? '#22c55e' : '#f59e0b' }}>
+                  <span
+                    style={{
+                      color:
+                        partitionCounts.length === 0
+                          ? 'var(--color-success)'
+                          : 'var(--color-warning)',
+                    }}
+                  >
                     {/* No real lag wire — use 0 when not subscribed, else "n/a" */}
                     {connection.consumer.status === 'subscribed' ? '—' : '0'}
                   </span>

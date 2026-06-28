@@ -3,15 +3,31 @@ import { cn } from '@/lib/shared/utils';
 
 function pickColor(status: number): { color: string; bg: string; glow: string } {
   if (status >= 200 && status <= 299) {
-    return { color: '#22c55e', bg: 'rgba(34,197,94,0.16)', glow: '0 0 8px rgba(34,197,94,0.45)' };
+    return {
+      color: 'var(--color-success)',
+      bg: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
+      glow: '0 0 8px color-mix(in srgb, var(--color-success) 45%, transparent)',
+    };
   }
   if (status >= 300 && status <= 399) {
-    return { color: '#06b6d4', bg: 'rgba(6,182,212,0.16)', glow: '0 0 8px rgba(6,182,212,0.45)' };
+    return {
+      color: 'var(--color-info)',
+      bg: 'color-mix(in srgb, var(--color-info) 16%, transparent)',
+      glow: '0 0 8px color-mix(in srgb, var(--color-info) 45%, transparent)',
+    };
   }
   if (status >= 400) {
-    return { color: '#ef4444', bg: 'rgba(239,68,68,0.18)', glow: '0 0 8px rgba(239,68,68,0.45)' };
+    return {
+      color: 'var(--color-danger)',
+      bg: 'color-mix(in srgb, var(--color-danger) 18%, transparent)',
+      glow: '0 0 8px color-mix(in srgb, var(--color-danger) 45%, transparent)',
+    };
   }
-  return { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)', glow: 'none' };
+  return {
+    color: 'var(--color-neutral)',
+    bg: 'color-mix(in srgb, var(--color-neutral) 16%, transparent)',
+    glow: 'none',
+  };
 }
 
 export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {

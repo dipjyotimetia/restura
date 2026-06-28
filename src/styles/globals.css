@@ -83,6 +83,16 @@
   --color-proto-socketio: #a78bfa;
   --color-proto-mqtt: #10b981;
 
+  /* Semantic status colors — connection/health states across the protocol
+     clients (connected/connecting/error/idle) and the HTTP status pill.
+     Single hex (theme-independent), like the method/protocol palettes above.
+     Generates text-success/bg-warning/border-danger/… utilities. */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #06b6d4;
+  --color-neutral: #94a3b8;
+
   /* slate-blue (custom) — override v4 defaults for violet/indigo with the
      existing hex so this pass is zero-color-change (re-skin is a later phase). */
   --color-slate-blue-50: #f6f8fa;

@@ -270,9 +270,9 @@ export default function McpRequestBuilder() {
           <div
             className="mt-2 px-3 py-2 text-sp-12 rounded-sp-btn border"
             style={{
-              color: '#ef4444',
-              background: 'rgba(239,68,68,0.08)',
-              borderColor: 'rgba(239,68,68,0.25)',
+              color: 'var(--color-danger)',
+              background: 'color-mix(in srgb, var(--color-danger) 8%, transparent)',
+              borderColor: 'color-mix(in srgb, var(--color-danger) 25%, transparent)',
             }}
             role="alert"
           >
@@ -458,17 +458,29 @@ function ConnectionPill({
     switch (status) {
       case 'connected':
         return {
-          color: '#22c55e',
-          bg: 'rgba(34,197,94,0.16)',
-          glow: '0 0 8px rgba(34,197,94,0.45)',
+          color: 'var(--color-success)',
+          bg: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
+          glow: '0 0 8px color-mix(in srgb, var(--color-success) 45%, transparent)',
           label: 'CONNECTED',
         };
       case 'connecting':
-        return { color: '#f59e0b', bg: 'rgba(245,158,11,0.18)', label: 'CONNECTING' };
+        return {
+          color: 'var(--color-warning)',
+          bg: 'color-mix(in srgb, var(--color-warning) 18%, transparent)',
+          label: 'CONNECTING',
+        };
       case 'error':
-        return { color: '#ef4444', bg: 'rgba(239,68,68,0.18)', label: 'ERROR' };
+        return {
+          color: 'var(--color-danger)',
+          bg: 'color-mix(in srgb, var(--color-danger) 18%, transparent)',
+          label: 'ERROR',
+        };
       default:
-        return { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)', label: 'OFFLINE' };
+        return {
+          color: 'var(--color-neutral)',
+          bg: 'color-mix(in srgb, var(--color-neutral) 16%, transparent)',
+          label: 'OFFLINE',
+        };
     }
   })();
   return (
@@ -528,7 +540,10 @@ function ToolList({
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: '#f59e0b' }} />
+                  <Sparkles
+                    className="h-3.5 w-3.5 shrink-0"
+                    style={{ color: 'var(--color-warning)' }}
+                  />
                   <span className="font-mono font-bold text-sp-12 text-sp-text truncate">
                     {t.name}
                   </span>
@@ -643,7 +658,10 @@ function PromptList({
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: '#f59e0b' }} />
+                  <Sparkles
+                    className="h-3.5 w-3.5 shrink-0"
+                    style={{ color: 'var(--color-warning)' }}
+                  />
                   <span className="font-mono font-bold text-sp-12 text-sp-text truncate">
                     {p.name}
                   </span>
@@ -701,7 +719,7 @@ function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => voi
                     </code>
                     <span
                       className="font-mono text-sp-10 font-bold tracking-wider shrink-0"
-                      style={{ color: ok ? '#22c55e' : '#ef4444' }}
+                      style={{ color: ok ? 'var(--color-success)' : 'var(--color-danger)' }}
                     >
                       {ok ? 'OK' : 'ERR'}
                     </span>
@@ -867,7 +885,7 @@ function InvokeToolForm({
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-sp-line shrink-0">
         <div className="min-w-0 flex items-center gap-2">
-          <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: '#f59e0b' }} />
+          <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--color-warning)' }} />
           <span
             className="font-mono font-bold text-sp-13 truncate"
             style={{ color: 'var(--sp-accent)' }}
@@ -925,7 +943,10 @@ function ArgFieldRow({
         {field.required && (
           <span
             className="inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
-            style={{ color: '#ef4444', background: 'rgba(239,68,68,0.14)' }}
+            style={{
+              color: 'var(--color-danger)',
+              background: 'color-mix(in srgb, var(--color-danger) 14%, transparent)',
+            }}
           >
             REQUIRED
           </span>
@@ -992,7 +1013,7 @@ function InvokePromptForm({
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-sp-line shrink-0">
         <div className="min-w-0 flex items-center gap-2">
-          <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: '#f59e0b' }} />
+          <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--color-warning)' }} />
           <span
             className="font-mono font-bold text-sp-13 truncate"
             style={{ color: 'var(--sp-accent)' }}
@@ -1026,7 +1047,10 @@ function InvokePromptForm({
                   {a.required && (
                     <span
                       className="inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
-                      style={{ color: '#ef4444', background: 'rgba(239,68,68,0.14)' }}
+                      style={{
+                        color: 'var(--color-danger)',
+                        background: 'color-mix(in srgb, var(--color-danger) 14%, transparent)',
+                      }}
                     >
                       REQUIRED
                     </span>

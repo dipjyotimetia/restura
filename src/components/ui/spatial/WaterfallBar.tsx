@@ -15,12 +15,12 @@ export interface WaterfallBarProps {
 }
 
 const defaultPalette: Record<string, string> = {
-  DNS: '#06b6d4',
-  TCP: '#3b82f6',
-  TLS: '#a78bfa',
-  Request: '#22c55e',
-  Wait: '#2e91ff',
-  Download: '#f59e0b',
+  DNS: 'var(--color-info)',
+  TCP: 'var(--color-method-put)',
+  TLS: 'var(--color-proto-ws)',
+  Request: 'var(--color-success)',
+  Wait: 'var(--color-proto-http)',
+  Download: 'var(--color-warning)',
 };
 
 export function makeSegments(input: Record<string, number>): WaterfallSegment[] {
@@ -29,7 +29,7 @@ export function makeSegments(input: Record<string, number>): WaterfallSegment[] 
     .map(([label, ms]) => ({
       label,
       ms,
-      color: defaultPalette[label] ?? '#94a3b8',
+      color: defaultPalette[label] ?? 'var(--color-neutral)',
       emphasised: label === 'Wait',
     }));
 }

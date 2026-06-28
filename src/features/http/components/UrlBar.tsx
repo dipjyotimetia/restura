@@ -29,13 +29,13 @@ const HTTP_METHODS: ReadonlyArray<HttpMethod> = [
 ];
 
 const METHOD_TEXT: Record<HttpMethod, string> = {
-  GET: '#22c55e',
-  POST: '#f59e0b',
-  PUT: '#3b82f6',
-  PATCH: '#a855f7',
-  DELETE: '#ef4444',
-  HEAD: '#06b6d4',
-  OPTIONS: '#94a3b8',
+  GET: 'var(--color-success)',
+  POST: 'var(--color-warning)',
+  PUT: 'var(--color-method-put)',
+  PATCH: 'var(--color-method-patch)',
+  DELETE: 'var(--color-danger)',
+  HEAD: 'var(--color-info)',
+  OPTIONS: 'var(--color-neutral)',
 };
 
 interface UrlBarProps {

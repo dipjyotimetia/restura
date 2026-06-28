@@ -26,14 +26,26 @@ import { secureStorage } from '@/lib/shared/secure-storage';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 
-const MQTT_GREEN = '#10b981';
+const MQTT_GREEN = 'var(--color-proto-mqtt)';
 const QOS_VALUES: MqttQoS[] = [0, 1, 2];
 
 function StatusBadge({ label, tone }: { label: string; tone: 'green' | 'amber' | 'muted' }) {
   const palette = {
-    green: { color: '#22c55e', bg: 'rgba(34,197,94,0.16)', glow: '0 0 8px rgba(34,197,94,0.35)' },
-    amber: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', glow: '0 0 8px rgba(245,158,11,0.35)' },
-    muted: { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)', glow: 'none' as const },
+    green: {
+      color: 'var(--color-success)',
+      bg: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
+      glow: '0 0 8px color-mix(in srgb, var(--color-success) 35%, transparent)',
+    },
+    amber: {
+      color: 'var(--color-warning)',
+      bg: 'color-mix(in srgb, var(--color-warning) 16%, transparent)',
+      glow: '0 0 8px color-mix(in srgb, var(--color-warning) 35%, transparent)',
+    },
+    muted: {
+      color: 'var(--color-neutral)',
+      bg: 'color-mix(in srgb, var(--color-neutral) 16%, transparent)',
+      glow: 'none' as const,
+    },
   }[tone];
   return (
     <span
@@ -47,12 +59,20 @@ function StatusBadge({ label, tone }: { label: string; tone: 'green' | 'amber' |
 }
 
 function QosPill({ qos }: { qos: MqttQoS }) {
-  const colors = ['#94a3b8', '#3b82f6', '#a855f7'] as const;
+  const colors = [
+    'var(--color-neutral)',
+    'var(--color-method-put)',
+    'var(--color-method-patch)',
+  ] as const;
   const color = colors[qos];
   return (
     <span
       className="inline-flex items-center justify-center h-5 px-1.5 font-mono font-bold text-sp-9 rounded-sp-chip"
-      style={{ color, background: `${color}26`, border: `1px solid ${color}40` }}
+      style={{
+        color,
+        background: `color-mix(in srgb, ${color} 15%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
+      }}
     >
       Q{qos}
     </span>

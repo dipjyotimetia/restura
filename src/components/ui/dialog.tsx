@@ -70,7 +70,8 @@ const DIALOG_HEADER_TONES = {
     icon: 'text-sp-accent',
   },
   warning: {
-    badge: 'linear-gradient(135deg, rgba(245,158,11,0.22), transparent 70%), var(--sp-surface-lo)',
+    badge:
+      'linear-gradient(135deg, color-mix(in srgb, var(--color-warning) 22%, transparent), transparent 70%), var(--sp-surface-lo)',
     icon: 'text-amber-500 dark:text-amber-400',
   },
   danger: {
