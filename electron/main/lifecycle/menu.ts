@@ -4,6 +4,15 @@ import { app, dialog, Menu, shell } from 'electron';
 export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
   const isMac = process.platform === 'darwin';
 
+  // Brand the native "About Restura" panel (macOS `role: 'about'`) instead of
+  // showing a bare default. macOS sources the icon from the app bundle.
+  app.setAboutPanelOptions({
+    applicationName: 'Restura',
+    applicationVersion: app.getVersion(),
+    copyright: `© ${new Date().getFullYear()} Restura · The API client that speaks every protocol.`,
+    credits: 'One client. Every protocol. — Web · Desktop · Self-hosted.',
+  });
+
   // Reuses the same `app:check-updates` event the system tray emits; the
   // renderer (UpdateNotification.tsx) gives it transient toast feedback.
   const checkForUpdatesItem: MenuItemConstructorOptions = {

@@ -1586,7 +1586,8 @@ function AuthorAvatar({ username, initials, alt }: AuthorAvatarProps) {
     <div
       className="relative flex items-center justify-center size-10 rounded-full overflow-hidden shrink-0 text-sp-13 font-bold text-white"
       style={{
-        background: 'linear-gradient(135deg, var(--sp-accent), #a78bfa)',
+        background:
+          'linear-gradient(135deg in oklch, var(--sp-accent), color-mix(in oklch, var(--sp-accent) 65%, white))',
         boxShadow: '0 4px 12px var(--sp-accent-glow-55)',
       }}
     >
