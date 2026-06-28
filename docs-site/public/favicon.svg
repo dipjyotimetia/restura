@@ -1,4 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#6366f1"/>
-  <text x="16" y="23" font-family="system-ui, sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="white">R</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="Restura">
+  <defs>
+    <linearGradient id="r-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2e91ff"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#r-grad)"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
+  <path d="M10 8 L10 24 M10 8 L18 8 Q22 8 22 12 Q22 16 18 16 L10 16 M16 16 L22 24"
+        stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>

@@ -58,7 +58,10 @@ async function generateIcons() {
   // Generate ICO for Windows
   console.log('Generating Windows ICO...');
   try {
-    const pngToIco = require('png-to-ico');
+    // png-to-ico v3 ships as an ES module interop object ({ default }); older
+    // builds export the function directly. Handle both so the ICO isn't silently skipped.
+    const pngToIcoMod = require('png-to-ico');
+    const pngToIco = pngToIcoMod.default || pngToIcoMod;
     const pngSizes = [16, 32, 48, 256].map((size) => path.join(iconsDir, `${size}x${size}.png`));
     const icoBuffer = await pngToIco(pngSizes);
     fs.writeFileSync(path.join(resourcesDir, 'icon.ico'), icoBuffer);

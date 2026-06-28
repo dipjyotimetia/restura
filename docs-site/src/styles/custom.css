@@ -1,23 +1,30 @@
+/* Geist Variable — the app's typeface (src/styles/globals.css). Ships with the
+   site via Starlight's customCss bundle. Must precede all rules below. */
+@import '@fontsource-variable/geist';
+
 /* =========================================================================
-   Restura Docs — Strata Glass Design System
-   Matches the main app's frosted glass aesthetic with deep-space backdrop +
-   violet/indigo gradient orbs. Three glass tiers, dark-mode aware.
+   Restura Docs — Spatial Depth Design System
+   Mirrors the main app's brand: cobalt accent (#2e91ff) → violet (#a78bfa),
+   Geist + JetBrains Mono, app-matched backdrop/glass. Frosted-glass aesthetic
+   kept for the docs surface; values tuned to the app. Dark-mode aware.
    ========================================================================= */
 
 :root {
-  /* Brand palette — space-separated RGB triplets (modern syntax) */
-  --restura-violet: 123 110 246; /* #7B6EF6 */
-  --restura-indigo: 79 70 229; /* #4F46E5 */
-  --restura-accent: 99 102 241; /* #6366F1 */
-  --restura-cyan: 34 211 238; /* #22D3EE */
+  /* Brand palette — space-separated RGB triplets (modern syntax).
+     Cobalt is the primary accent (app --sp-accent #2e91ff); violet #a78bfa
+     is the gradient partner. */
+  --restura-cobalt: 46 145 255; /* #2e91ff — primary */
+  --restura-violet: 167 139 250; /* #a78bfa — gradient partner */
+  --restura-cyan: 6 182 212; /* #06b6d4 */
 
   /* Starlight accent overrides */
-  --sl-color-accent-low: rgb(30 27 75);
-  --sl-color-accent: rgb(var(--restura-violet));
-  --sl-color-accent-high: rgb(199 210 254);
+  --sl-color-accent-low: rgb(20 40 75);
+  --sl-color-accent: rgb(var(--restura-cobalt));
+  --sl-color-accent-high: rgb(199 222 255);
 
-  /* Typography */
-  --sl-font: 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Typography — match the app (Geist + JetBrains Mono) */
+  --sl-font:
+    'Geist Variable', Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --sl-font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', Menlo, monospace;
 
   /* Glass tier variables (light defaults) */
@@ -30,10 +37,11 @@
     0 1px 0 0 rgb(255 255 255 / 0.6) inset, 0 8px 24px -12px rgb(31 41 55 / 0.18),
     0 2px 6px -2px rgb(31 41 55 / 0.08);
 
-  /* Backdrop (light) */
-  --backdrop-base: hsl(250 25% 97%);
-  --backdrop-orb-1: rgb(var(--restura-violet) / 0.18);
-  --backdrop-orb-2: rgb(var(--restura-indigo) / 0.12);
+  /* Backdrop (light) — app --sp-bg oklch(94.2% 0.012 260); orbs = cobalt +
+     violet hue 286, mirroring the app --sp-bg-glow. */
+  --backdrop-base: oklch(94.2% 0.012 260);
+  --backdrop-orb-1: rgb(var(--restura-cobalt) / 0.14);
+  --backdrop-orb-2: oklch(55% 0.19 286 / 0.1);
 }
 
 :root[data-theme='light'] {
@@ -45,27 +53,30 @@
 }
 
 :root[data-theme='dark'] {
-  --glass-1-bg: rgb(255 255 255 / 0.06);
-  --glass-2-bg: rgb(255 255 255 / 0.04);
-  --glass-3-bg: rgb(255 255 255 / 0.025);
-  --glass-border: rgb(255 255 255 / 0.12);
-  --glass-border-subtle: rgb(255 255 255 / 0.07);
+  /* Dark glass = app-style translucent dark surfaces (globals.css .glass-1/2/3),
+     not white overlays — reads as elevated panels on the lifted backdrop. */
+  --glass-1-bg: rgb(26 31 42 / 0.78);
+  --glass-2-bg: rgb(23 27 37 / 0.72);
+  --glass-3-bg: rgb(19 23 31 / 0.62);
+  --glass-border: rgb(255 255 255 / 0.14);
+  --glass-border-subtle: rgb(255 255 255 / 0.1);
   --glass-shadow:
-    0 1px 0 0 rgb(255 255 255 / 0.06) inset, 0 8px 24px -8px rgb(0 0 0 / 0.45),
-    0 2px 6px -2px rgb(0 0 0 / 0.35);
+    0 1px 0 0 rgb(255 255 255 / 0.06) inset, 0 16px 48px -12px rgb(0 0 0 / 0.6),
+    0 4px 12px -4px rgb(0 0 0 / 0.45);
 
-  --backdrop-base: hsl(240 20% 5%);
-  --backdrop-orb-1: rgb(var(--restura-violet) / 0.22);
-  --backdrop-orb-2: rgb(var(--restura-indigo) / 0.18);
+  /* app --sp-bg dark oklch(15.5% 0.011 268) — lifted off pure-black for depth */
+  --backdrop-base: oklch(15.5% 0.011 268);
+  --backdrop-orb-1: rgb(var(--restura-cobalt) / 0.2);
+  --backdrop-orb-2: oklch(55% 0.19 286 / 0.16);
 
   --sl-color-bg: var(--backdrop-base);
-  --sl-color-bg-nav: rgb(15 23 42 / 0.55);
-  --sl-color-bg-sidebar: rgb(15 23 42 / 0.4);
-  --sl-color-accent-low: rgb(var(--restura-accent) / 0.22);
-  --sl-color-accent: rgb(149 137 255);
-  --sl-color-accent-high: rgb(224 231 255);
-  --sl-color-hairline: rgb(255 255 255 / 0.08);
-  --sl-color-hairline-light: rgb(255 255 255 / 0.05);
+  --sl-color-bg-nav: oklch(18% 0.013 268 / 0.8);
+  --sl-color-bg-sidebar: oklch(18% 0.013 268 / 0.6);
+  --sl-color-accent-low: rgb(var(--restura-cobalt) / 0.22);
+  --sl-color-accent: rgb(120 180 255);
+  --sl-color-accent-high: rgb(214 230 255);
+  --sl-color-hairline: rgb(255 255 255 / 0.1);
+  --sl-color-hairline-light: rgb(255 255 255 / 0.06);
 }
 
 /* =========================================================================
@@ -136,15 +147,15 @@ body::after {
 
 header.header {
   background: var(--sl-color-bg-nav) !important;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(150%) blur(20px);
+  -webkit-backdrop-filter: saturate(150%) blur(20px);
   border-bottom: 1px solid var(--glass-border-subtle);
 }
 
 .sidebar-pane {
   background: var(--sl-color-bg-sidebar) !important;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(150%) blur(20px);
+  -webkit-backdrop-filter: saturate(150%) blur(20px);
   border-inline-end: 1px solid var(--glass-border-subtle);
 }
 
@@ -158,14 +169,14 @@ header.header {
   background: var(--glass-1-bg);
 }
 .sidebar-content a[aria-current='page'] {
-  background: rgb(var(--restura-violet) / 0.12);
-  color: rgb(var(--restura-violet));
+  background: rgb(var(--restura-cobalt) / 0.12);
+  color: rgb(var(--restura-cobalt));
   font-weight: 600;
   position: relative;
 }
 :root[data-theme='dark'] .sidebar-content a[aria-current='page'] {
-  background: rgb(var(--restura-violet) / 0.2);
-  color: rgb(199 210 254);
+  background: rgb(var(--restura-cobalt) / 0.2);
+  color: rgb(199 222 255);
 }
 .sidebar-content a[aria-current='page']::before {
   content: '';
@@ -175,7 +186,7 @@ header.header {
   bottom: 0.4rem;
   width: 2px;
   border-radius: 1px;
-  background: rgb(var(--restura-violet));
+  background: rgb(var(--restura-cobalt));
 }
 
 /* =========================================================================
@@ -188,8 +199,8 @@ header.header {
   border-radius: 1.5rem;
   background: linear-gradient(
     135deg,
-    rgb(var(--restura-violet) / 0.08),
-    rgb(var(--restura-indigo) / 0.04) 60%,
+    rgb(var(--restura-cobalt) / 0.08),
+    rgb(var(--restura-violet) / 0.04) 60%,
     transparent
   );
   border: 1px solid var(--glass-border-subtle);
@@ -202,7 +213,7 @@ header.header {
   right: -10%;
   width: 32rem;
   height: 32rem;
-  background: radial-gradient(circle, rgb(var(--restura-violet) / 0.35), transparent 60%);
+  background: radial-gradient(circle, rgb(var(--restura-cobalt) / 0.35), transparent 60%);
   filter: blur(40px);
   pointer-events: none;
 }
@@ -213,7 +224,7 @@ header.header {
   left: -10%;
   width: 28rem;
   height: 28rem;
-  background: radial-gradient(circle, rgb(var(--restura-cyan) / 0.18), transparent 60%);
+  background: radial-gradient(circle, rgb(var(--restura-violet) / 0.22), transparent 60%);
   filter: blur(48px);
   pointer-events: none;
 }
@@ -228,11 +239,11 @@ header.header {
   letter-spacing: -0.03em !important;
   background: linear-gradient(
     135deg,
-    rgb(var(--restura-violet)) 0%,
-    rgb(var(--restura-indigo)) 30%,
+    rgb(var(--restura-cobalt)) 0%,
+    rgb(var(--restura-violet)) 35%,
     rgb(var(--restura-cyan)) 60%,
-    rgb(var(--restura-indigo)) 85%,
-    rgb(var(--restura-violet)) 100%
+    rgb(var(--restura-violet)) 80%,
+    rgb(var(--restura-cobalt)) 100%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;
@@ -273,47 +284,45 @@ header.header {
   border-radius: 1.25rem;
   padding: 1.5rem;
   background: var(--glass-2-bg);
-  backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
   max-width: 14rem !important;
 }
 
-.hero a.action {
+.hero .sl-link-button {
   border-radius: 0.65rem !important;
   font-weight: 600 !important;
   padding: 0.65rem 1.15rem !important;
   transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }
-.hero a.action.primary {
+.hero .sl-link-button.primary {
   background: linear-gradient(
     135deg,
-    rgb(var(--restura-violet)),
-    rgb(var(--restura-indigo))
+    rgb(var(--restura-cobalt)),
+    rgb(var(--restura-violet))
   ) !important;
   color: white !important;
-  border: 1px solid rgb(var(--restura-violet) / 0.5) !important;
+  border: 1px solid rgb(var(--restura-cobalt) / 0.5) !important;
   box-shadow:
-    0 8px 20px -6px rgb(var(--restura-violet) / 0.5),
+    0 8px 20px -6px rgb(var(--restura-cobalt) / 0.5),
     inset 0 1px 0 rgb(255 255 255 / 0.2);
 }
-.hero a.action.primary:hover {
+.hero .sl-link-button.primary:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 12px 28px -6px rgb(var(--restura-violet) / 0.6),
+    0 12px 28px -6px rgb(var(--restura-cobalt) / 0.65),
     inset 0 1px 0 rgb(255 255 255 / 0.25);
 }
-.hero a.action.secondary,
-.hero a.action.minimal {
+.hero .sl-link-button:not(.primary) {
   background: var(--glass-2-bg) !important;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--glass-border) !important;
   color: inherit !important;
 }
-.hero a.action.secondary:hover,
-.hero a.action.minimal:hover {
+.hero .sl-link-button:not(.primary):hover {
   background: var(--glass-1-bg) !important;
   transform: translateY(-1px);
 }
@@ -330,7 +339,7 @@ header.header {
 }
 
 .protocol-grid a {
-  --pc: var(--restura-violet);
+  --pc: var(--restura-cobalt);
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -339,8 +348,8 @@ header.header {
   text-decoration: none !important;
   color: inherit;
   background: var(--glass-2-bg);
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(150%) blur(16px);
+  -webkit-backdrop-filter: saturate(150%) blur(16px);
   border: 1px solid var(--glass-border-subtle);
   box-shadow: var(--glass-shadow);
   position: relative;
@@ -381,33 +390,31 @@ header.header {
   opacity: 1;
 }
 
-/* Per-protocol accent — set --pc to a matching app palette color */
-.protocol-grid a[data-color='emerald'] {
-  --pc: 16 185 129;
+/* Per-protocol accent — values match the app's protocol chip colors
+   (src/styles/globals.css --color-proto-*). */
+.protocol-grid a[data-color='blue'] {
+  --pc: var(--restura-cobalt); /* HTTP #2e91ff */
 }
-.protocol-grid a[data-color='pink'] {
-  --pc: 236 72 153;
-}
-.protocol-grid a[data-color='cyan'] {
-  --pc: 34 211 238;
-}
-.protocol-grid a[data-color='teal'] {
-  --pc: 20 184 166;
+.protocol-grid a[data-color='green'] {
+  --pc: 34 197 94; /* gRPC #22c55e */
 }
 .protocol-grid a[data-color='violet'] {
-  --pc: 123 110 246;
+  --pc: var(--restura-violet); /* WS / Socket.IO #a78bfa */
+}
+.protocol-grid a[data-color='pink'] {
+  --pc: 232 121 164; /* GraphQL #e879a4 */
+}
+.protocol-grid a[data-color='magenta'] {
+  --pc: 244 114 182; /* Kafka #f472b6 */
+}
+.protocol-grid a[data-color='cyan'] {
+  --pc: var(--restura-cyan); /* SSE #06b6d4 */
 }
 .protocol-grid a[data-color='amber'] {
-  --pc: 245 158 11;
+  --pc: 245 158 11; /* MCP #f59e0b */
 }
-.protocol-grid a[data-color='rose'] {
-  --pc: 244 63 94;
-}
-.protocol-grid a[data-color='orange'] {
-  --pc: 249 115 22;
-}
-.protocol-grid a[data-color='blue'] {
-  --pc: 59 130 246;
+.protocol-grid a[data-color='teal'] {
+  --pc: 45 212 191; /* MQTT #2dd4bf (no app token) */
 }
 
 .protocol-grid .label {
@@ -448,11 +455,10 @@ header.header {
    Starlight Card / LinkCard / CardGrid — glass tile
    ========================================================================= */
 
-.card,
-[class*='card_'] {
+.card {
   background: var(--glass-2-bg) !important;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(150%) blur(16px);
+  -webkit-backdrop-filter: saturate(150%) blur(16px);
   border: 1px solid var(--glass-border-subtle) !important;
   box-shadow: var(--glass-shadow);
   border-radius: 1rem !important;
@@ -460,20 +466,18 @@ header.header {
     transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
     border-color 0.18s ease;
 }
-.card:hover,
-[class*='card_']:hover {
+.card:hover {
   transform: translateY(-2px);
-  border-color: rgb(var(--restura-violet) / 0.35) !important;
+  border-color: rgb(var(--restura-cobalt) / 0.35) !important;
 }
-.card .icon,
-[class*='card_'] svg {
-  color: rgb(var(--restura-violet)) !important;
+.card .icon {
+  color: rgb(var(--restura-cobalt)) !important;
 }
 
 .sl-link-card {
   background: var(--glass-2-bg) !important;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(150%) blur(16px);
+  -webkit-backdrop-filter: saturate(150%) blur(16px);
   border: 1px solid var(--glass-border-subtle) !important;
   box-shadow: var(--glass-shadow);
   border-radius: 1rem !important;
@@ -483,7 +487,7 @@ header.header {
 }
 .sl-link-card:hover {
   transform: translateY(-2px);
-  border-color: rgb(var(--restura-violet) / 0.4) !important;
+  border-color: rgb(var(--restura-cobalt) / 0.4) !important;
 }
 
 /* =========================================================================
@@ -492,8 +496,8 @@ header.header {
 
 starlight-tabs {
   background: var(--glass-3-bg);
-  backdrop-filter: saturate(180%) blur(10px);
-  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  backdrop-filter: saturate(150%) blur(12px);
+  -webkit-backdrop-filter: saturate(150%) blur(12px);
   border: 1px solid var(--glass-border-subtle);
   border-radius: 0.9rem;
   padding: 0.25rem 0.5rem 0.5rem;
@@ -501,10 +505,10 @@ starlight-tabs {
 
 .starlight-aside {
   background: var(--glass-3-bg) !important;
-  backdrop-filter: saturate(180%) blur(10px);
-  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  backdrop-filter: saturate(150%) blur(12px);
+  -webkit-backdrop-filter: saturate(150%) blur(12px);
   border: 1px solid var(--glass-border-subtle) !important;
-  border-inline-start: 3px solid rgb(var(--restura-violet)) !important;
+  border-inline-start: 3px solid rgb(var(--restura-cobalt)) !important;
   border-radius: 0.75rem !important;
 }
 .starlight-aside--tip {
@@ -546,17 +550,17 @@ starlight-file-tree {
 
 /* Inline code */
 :not(pre) > code {
-  background: rgb(var(--restura-violet) / 0.12) !important;
-  border: 1px solid rgb(var(--restura-violet) / 0.22);
-  color: rgb(var(--restura-violet)) !important;
+  background: rgb(var(--restura-cobalt) / 0.12) !important;
+  border: 1px solid rgb(var(--restura-cobalt) / 0.22);
+  color: rgb(var(--restura-cobalt)) !important;
   padding: 0.15rem 0.45rem !important;
   border-radius: 0.35rem !important;
   font-size: 0.875em !important;
 }
 :root[data-theme='dark'] :not(pre) > code {
-  color: rgb(199 210 254) !important;
-  background: rgb(var(--restura-violet) / 0.22) !important;
-  border-color: rgb(var(--restura-violet) / 0.3);
+  color: rgb(199 222 255) !important;
+  background: rgb(var(--restura-cobalt) / 0.22) !important;
+  border-color: rgb(var(--restura-cobalt) / 0.3);
 }
 
 /* =========================================================================
@@ -574,7 +578,7 @@ table {
   overflow: hidden;
 }
 table th {
-  background: rgb(var(--restura-violet) / 0.08);
+  background: rgb(var(--restura-cobalt) / 0.08);
   font-weight: 600;
   letter-spacing: -0.005em;
 }
@@ -610,7 +614,7 @@ site-search button[data-open-modal] {
   color: rgb(34 197 94);
 }
 .sl-badge.note {
-  color: rgb(var(--restura-violet));
+  color: rgb(var(--restura-cobalt));
 }
 
 /* =========================================================================
@@ -648,7 +652,7 @@ site-search button[data-open-modal] {
     flex-direction: column;
     align-items: stretch !important;
   }
-  .hero a.action {
+  .hero .sl-link-button {
     width: 100% !important;
     justify-content: center !important;
   }
@@ -663,7 +667,6 @@ site-search button[data-open-modal] {
   /* Scroll-reveal: cards fade-up the first time they enter the viewport */
   .protocol-grid a,
   .card,
-  [class*='card_'],
   .sl-link-card {
     opacity: 0;
     transform: translateY(12px);
@@ -675,7 +678,6 @@ site-search button[data-open-modal] {
   }
   .protocol-grid a.is-revealed,
   .card.is-revealed,
-  [class*='card_'].is-revealed,
   .sl-link-card.is-revealed {
     opacity: 1;
     transform: translateY(0);
