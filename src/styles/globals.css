@@ -81,6 +81,7 @@
   --color-proto-sse: #06b6d4;
   --color-proto-kafka: #f472b6;
   --color-proto-socketio: #a78bfa;
+  --color-proto-mqtt: #10b981;
 
   /* slate-blue (custom) — override v4 defaults for violet/indigo with the
      existing hex so this pass is zero-color-change (re-skin is a later phase). */
@@ -644,37 +645,6 @@ input,
 select,
 textarea {
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@keyframes status-appear {
-  from {
-    opacity: 0;
-    transform: scale(0.8) translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-.animate-shimmer {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--muted)) 0%,
-    hsl(var(--muted-foreground) / 0.1) 50%,
-    hsl(var(--muted)) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

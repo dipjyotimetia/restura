@@ -41,7 +41,7 @@
 
   /* Typography */
   --sl-font: 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --sl-font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', Menlo, monospace;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
 
   /* Backdrop glow — cobalt corner + violet corner over --sp-bg, like the app. */
   --sp-bg-glow:
