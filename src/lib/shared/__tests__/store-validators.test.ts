@@ -5,8 +5,19 @@ import {
   validateEnvironment,
   validateCollection,
   isValidUrl,
+  validatePersistedSettings,
 } from '../store-validators';
 import type { HttpRequest, GrpcRequest, Environment, Collection } from '@/types';
+
+const DEFAULTS = {
+  defaultTimeout: 30000,
+  followRedirects: true,
+  maxRedirects: 10,
+  verifySsl: true,
+  theme: 'dark' as const,
+  layoutOrientation: 'horizontal' as const,
+  accent: '#2e91ff' as const,
+};
 
 describe('store-validators', () => {
   describe('validateRequest', () => {
@@ -359,6 +370,77 @@ describe('store-validators', () => {
     it('should allow URLs with environment variables', () => {
       expect(isValidUrl('{{baseUrl}}/users')).toBe(true);
       expect(isValidUrl('https://{{domain}}/api')).toBe(true);
+    });
+  });
+
+  describe('validatePersistedSettings', () => {
+    it('returns defaults untouched for a non-object blob', () => {
+      expect(validatePersistedSettings(null, DEFAULTS)).toEqual(DEFAULTS);
+      expect(validatePersistedSettings('corrupt', DEFAULTS)).toEqual(DEFAULTS);
+      expect(validatePersistedSettings(42, DEFAULTS)).toEqual(DEFAULTS);
+    });
+
+    it('passes a valid settings blob through and merges over defaults', () => {
+      const result = validatePersistedSettings(
+        { theme: 'light', maxRedirects: 3, accent: '#22c55e' },
+        DEFAULTS
+      );
+      expect(result.theme).toBe('light');
+      expect(result.maxRedirects).toBe(3);
+      expect(result.accent).toBe('#22c55e');
+      // Unspecified fields are backfilled from defaults.
+      expect(result.followRedirects).toBe(true);
+    });
+
+    it('coerces a corrupt scalar back to a sane value (per-field .catch)', () => {
+      const result = validatePersistedSettings(
+        { theme: 'neon', maxRedirects: 9999, defaultTimeout: -5 },
+        DEFAULTS
+      );
+      expect(result.theme).toBe('dark'); // invalid enum → fallback
+      expect(result.maxRedirects).toBe(10); // out of [0,50] → fallback
+      expect(result.defaultTimeout).toBe(30000); // below min → fallback
+    });
+
+    it('drops an invalid optional field without discarding the rest', () => {
+      const result = validatePersistedSettings(
+        { accent: 'not-a-hex', followRedirects: false },
+        DEFAULTS
+      );
+      // Invalid accent is dropped → default backfills it.
+      expect(result.accent).toBe('#2e91ff');
+      // A sibling valid field still applies.
+      expect(result.followRedirects).toBe(false);
+    });
+
+    it("backfills a corrupt required field from the CALLER's defaults, not a schema constant", () => {
+      // theme 'system' here (not 'dark'): a present-but-invalid required field
+      // must defer to the supplied defaults, proving the schema doesn't carry a
+      // second hard-coded default that wins.
+      const result = validatePersistedSettings(
+        { theme: 'neon', defaultTimeout: 'oops' },
+        { ...DEFAULTS, theme: 'system', defaultTimeout: 45000 }
+      );
+      expect(result.theme).toBe('system');
+      expect(result.defaultTimeout).toBe(45000);
+    });
+
+    it('keeps unknown/future keys (passthrough)', () => {
+      const result = validatePersistedSettings(
+        { futureFlag: 'keep-me' } as Record<string, unknown>,
+        DEFAULTS
+      ) as Record<string, unknown>;
+      expect(result.futureFlag).toBe('keep-me');
+    });
+
+    it('preserves a valid redirect-policy default (the half-wired field group)', () => {
+      const result = validatePersistedSettings(
+        { followOriginalMethod: true, disableCookieJar: true, minTlsVersion: 'TLSv1.2' },
+        DEFAULTS
+      ) as Record<string, unknown>;
+      expect(result.followOriginalMethod).toBe(true);
+      expect(result.disableCookieJar).toBe(true);
+      expect(result.minTlsVersion).toBe('TLSv1.2');
     });
   });
 });

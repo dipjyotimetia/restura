@@ -8,6 +8,7 @@ import {
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import {
   readStreamingResponse,
@@ -74,25 +75,11 @@ interface BuiltSpec {
   desktop?: DesktopTransportConfig;
 }
 
-/**
- * Per-request settings with a global-settings fallback. Used by every transport
- * entry point (HTTP executor, the request page, GraphQL introspection) so the
- * fallback shape stays in one place.
- */
-export function resolveEffectiveSettings(
-  requestSettings: RequestSettings | undefined,
-  globalSettings: AppSettings
-): RequestSettings {
-  return (
-    requestSettings ?? {
-      timeout: globalSettings.defaultTimeout,
-      followRedirects: globalSettings.followRedirects,
-      maxRedirects: globalSettings.maxRedirects,
-      verifySsl: globalSettings.verifySsl,
-      proxy: globalSettings.proxy,
-    }
-  );
-}
+// Re-exported (imported above for internal use) so existing import sites
+// (`@/features/http/lib/requestExecutor`) keep working. The fold itself lives in
+// effectiveSettings.ts so the per-request editor can share it without pulling
+// this module's heavy deps. See globalSettingsToRequestSettings.
+export { resolveEffectiveSettings };
 
 /**
  * Assemble the desktop-only transport config from per-request settings,
@@ -235,7 +222,15 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   if (effectiveSettings.stripReferer !== undefined) {
     redirectPolicy.stripReferer = effectiveSettings.stripReferer;
   }
-  if (effectiveSettings.followRedirects && effectiveSettings.maxRedirects !== undefined) {
+  // followRedirects:false → maxRedirects:0 so the shared follower (and the
+  // Electron manual handler) return the 3xx unfollowed. Use `=== false`, not
+  // `!followRedirects`: a partial settings object (e.g. an imported collection
+  // whose `settings` omits the field) leaves it `undefined`, which must fall
+  // through to the default-follow path — not be treated as "off". Matches the
+  // CLI executor's `=== false` check.
+  if (effectiveSettings.followRedirects === false) {
+    redirectPolicy.maxRedirects = 0;
+  } else if (effectiveSettings.maxRedirects !== undefined) {
     redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;
   }
 

@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { cn } from '@/lib/shared/utils';
 import type { MinTlsVersion, RequestSettings, GlobalSettings } from '@/types';
 
@@ -34,39 +35,46 @@ export default function RequestSettingsEditor({
 }: RequestSettingsEditorProps) {
   const [tlsAdvancedOpen, setTlsAdvancedOpen] = useState(false);
 
-  const getEffectiveSettings = (): RequestSettings => {
-    return (
-      settings || {
-        timeout: globalSettings.defaultTimeout,
-        followRedirects: globalSettings.followRedirects,
-        maxRedirects: globalSettings.maxRedirects,
-        verifySsl: globalSettings.verifySsl,
-        proxy: globalSettings.proxy,
-        ...(globalSettings.followOriginalMethod !== undefined && {
-          followOriginalMethod: globalSettings.followOriginalMethod,
-        }),
-        ...(globalSettings.followAuthHeader !== undefined && {
-          followAuthHeader: globalSettings.followAuthHeader,
-        }),
-        ...(globalSettings.stripReferer !== undefined && {
-          stripReferer: globalSettings.stripReferer,
-        }),
-        ...(globalSettings.encodeUrlAutomatically !== undefined && {
-          encodeUrlAutomatically: globalSettings.encodeUrlAutomatically,
-        }),
-        ...(globalSettings.disableCookieJar !== undefined && {
-          disableCookieJar: globalSettings.disableCookieJar,
-        }),
-        ...(globalSettings.serverCipherOrder !== undefined && {
-          serverCipherOrder: globalSettings.serverCipherOrder,
-        }),
-        ...(globalSettings.minTlsVersion !== undefined && {
-          minTlsVersion: globalSettings.minTlsVersion,
-        }),
-        ...(globalSettings.cipherSuites !== undefined && {
-          cipherSuites: globalSettings.cipherSuites,
-        }),
-      }
+  // Shares the executor's fold so the controls below display exactly the
+  // effective settings that will reach the wire (no per-request override → the
+  // global defaults), and enabling override seeds the identical object.
+  const getEffectiveSettings = (): RequestSettings =>
+    resolveEffectiveSettings(settings, globalSettings);
+
+  // Per-request proxy credentials. Stored inline (a plain string SecretValue);
+  // the desktop proxy connector resolves them at the wire. Reading a handle-
+  // shaped SecretValue back into the field isn't supported here — per-request
+  // proxy auth is always typed inline.
+  const proxyAuth = settings?.proxy?.auth;
+  const proxyAuthUsername = typeof proxyAuth?.username === 'string' ? proxyAuth.username : '';
+  const proxyAuthPassword = typeof proxyAuth?.password === 'string' ? proxyAuth.password : '';
+
+  const updateProxyAuth = (patch: { username?: string; password?: string }) => {
+    if (!settings?.proxy) return;
+    const username = patch.username ?? proxyAuthUsername;
+    // Preserve the existing password value verbatim when the patch doesn't
+    // touch it — it may be a SecretRef handle the field can't display, and
+    // reading it back as '' would clobber the handle on an unrelated username
+    // edit. Only an explicit password patch replaces it.
+    const password = patch.password !== undefined ? patch.password : (proxyAuth?.password ?? '');
+    // Drop the auth key only when there's truly nothing to keep — an empty
+    // username AND an empty/absent password (a handle is never "empty").
+    const passwordEmpty = typeof password === 'string' ? password === '' : false;
+    if (!username && passwordEmpty) {
+      const { auth: _omit, ...restProxy } = settings.proxy;
+      void _omit;
+      onSettingsChange({ proxy: restProxy });
+    } else {
+      onSettingsChange({ proxy: { ...settings.proxy, auth: { username, password } } });
+    }
+  };
+
+  const handleCaOverrideToggle = (enabled: boolean) => {
+    onSettingsChange(
+      enabled
+        ? { caCert: { pem: settings?.caCert?.pem ?? '' } }
+        : // EOPT: explicit undefined signals "clear this key" (see cert toggle).
+          ({ caCert: undefined } as unknown as Partial<RequestSettings>)
     );
   };
 
@@ -419,6 +427,32 @@ export default function RequestSettingsEditor({
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="proxyUser">Username</Label>
+                          <Input
+                            id="proxyUser"
+                            value={proxyAuthUsername}
+                            onChange={(e) => updateProxyAuth({ username: e.target.value })}
+                            placeholder="optional"
+                            autoComplete="off"
+                            className="bg-background border-border"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="proxyPass">Password</Label>
+                          <Input
+                            id="proxyPass"
+                            type="password"
+                            value={proxyAuthPassword}
+                            onChange={(e) => updateProxyAuth({ password: e.target.value })}
+                            placeholder="optional"
+                            autoComplete="off"
+                            className="bg-background border-border"
+                          />
+                        </div>
+                      </div>
+
                       <div className="rounded-lg bg-muted p-3 border border-border">
                         <p className="text-xs text-muted-foreground">
                           <strong>Proxy URL:</strong>{' '}
@@ -463,6 +497,41 @@ export default function RequestSettingsEditor({
                     // assert through unknown to preserve the existing contract.
                     onSettingsChange({ clientCert: cert } as Partial<RequestSettings>)
                   }
+                />
+              )}
+            </div>
+
+            {/* CA Certificate Override */}
+            <div className="space-y-4 rounded-lg border border-border p-4 bg-background">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <div className="flex items-center">
+                    <Label className="text-base font-medium">CA Certificate for this Request</Label>
+                    <DesktopOnlyBadge title="Custom CA trust requires Node's TLS stack. Only enforced in the Electron desktop app." />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Trust a custom CA bundle for this request only
+                  </p>
+                </div>
+                <Switch
+                  checked={!!settings?.caCert}
+                  onCheckedChange={handleCaOverrideToggle}
+                  aria-label="Toggle custom CA certificate"
+                />
+              </div>
+
+              {settings?.caCert && (
+                <textarea
+                  value={settings.caCert.pem}
+                  onChange={(e) => onSettingsChange({ caCert: { pem: e.target.value } })}
+                  aria-label="CA certificate PEM"
+                  placeholder="-----BEGIN CERTIFICATE-----&#10;..."
+                  spellCheck={false}
+                  className={cn(
+                    'w-full min-h-[100px] rounded-md bg-background border border-border',
+                    'p-2 font-mono text-xs text-foreground placeholder:text-muted-foreground/50',
+                    'focus:outline-none focus:ring-2 focus:ring-sp-accent/40 resize-y'
+                  )}
                 />
               )}
             </div>

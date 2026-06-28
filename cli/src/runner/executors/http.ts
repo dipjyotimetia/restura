@@ -55,7 +55,8 @@ export async function executeHttp(
     // Per-request settings (legacy collections carry these) override the global
     // flags. Mirrors the desktop renderer's settings→spec mapping in
     // `src/features/http/lib/requestExecutor.ts`: redirect knobs are emitted
-    // only when set, and `maxRedirects` only applies while following.
+    // only when set. `followRedirects:false` maps to `maxRedirects:0`, which the
+    // shared redirect-follower honours as "return the 3xx unfollowed".
     const settings = req.settings;
     const redirectPolicy: RedirectPolicy = {};
     if (settings?.followOriginalMethod !== undefined)
@@ -63,8 +64,11 @@ export async function executeHttp(
     if (settings?.followAuthHeader !== undefined)
       redirectPolicy.followAuthHeader = settings.followAuthHeader;
     if (settings?.stripReferer !== undefined) redirectPolicy.stripReferer = settings.stripReferer;
-    if (settings?.followRedirects && settings.maxRedirects !== undefined)
+    if (settings?.followRedirects === false) {
+      redirectPolicy.maxRedirects = 0;
+    } else if (settings?.maxRedirects !== undefined) {
       redirectPolicy.maxRedirects = settings.maxRedirects;
+    }
 
     const fetcher = opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher;
     const result = await executeHttpProxy(

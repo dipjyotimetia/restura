@@ -177,6 +177,24 @@ async function executeViaElectronIpc(
     ...(spec.formData !== undefined ? { formData: spec.formData } : {}),
     ...(spec.timeout !== undefined ? { timeout: spec.timeout } : {}),
     ...(spec.auth ? { auth: spec.auth } : {}),
+    // Redirect policy + URL encoding. The Electron IPC config is FLAT (the
+    // handler reads `config.maxRedirects` / `config.followOriginalMethod` …),
+    // so the nested `spec.redirectPolicy` must be unpacked here. Omitting this
+    // mapping silently dropped every per-request redirect knob and the
+    // automatic-URL-encoding toggle on the desktop send path.
+    ...(spec.redirectPolicy?.maxRedirects !== undefined
+      ? { maxRedirects: spec.redirectPolicy.maxRedirects }
+      : {}),
+    ...(spec.redirectPolicy?.followOriginalMethod !== undefined
+      ? { followOriginalMethod: spec.redirectPolicy.followOriginalMethod }
+      : {}),
+    ...(spec.redirectPolicy?.followAuthHeader !== undefined
+      ? { followAuthHeader: spec.redirectPolicy.followAuthHeader }
+      : {}),
+    ...(spec.redirectPolicy?.stripReferer !== undefined
+      ? { stripReferer: spec.redirectPolicy.stripReferer }
+      : {}),
+    ...(spec.encodeUrl !== undefined ? { encodeUrlAutomatically: spec.encodeUrl } : {}),
     // Desktop-only transport config (proxy / mTLS / CA / verifySsl / TLS knobs).
     // The IPC schema (HttpRequestConfigSchema) and buildConnectOptions already
     // accept these; they were previously dropped here, so global proxy + certs
