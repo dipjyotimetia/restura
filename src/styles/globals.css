@@ -658,6 +658,9 @@ textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* .animate-shimmer is the Tailwind-generated utility from the @theme
+     --animate-shimmer token (Skeleton uses before:animate-shimmer) — not dead
+     code; keep this override so reduced-motion users don't get the shimmer. */
   .animate-shimmer {
     animation: none !important;
   }

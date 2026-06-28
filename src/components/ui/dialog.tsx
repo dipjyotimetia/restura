@@ -75,7 +75,10 @@ const DIALOG_HEADER_TONES = {
     icon: 'text-amber-500 dark:text-amber-400',
   },
   danger: {
-    badge: 'linear-gradient(135deg, rgba(244,63,94,0.20), transparent 70%), var(--sp-surface-lo)',
+    // Rose (matching the rose-500 icon below), distinct from the status
+    // --color-danger red — tinted from the same token the icon uses.
+    badge:
+      'linear-gradient(135deg, color-mix(in srgb, var(--color-rose-500) 20%, transparent), transparent 70%), var(--sp-surface-lo)',
     icon: 'text-rose-500 dark:text-rose-400',
   },
 } as const;

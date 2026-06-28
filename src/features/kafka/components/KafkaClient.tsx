@@ -36,6 +36,7 @@ import {
   Stat,
   VariableText,
   CodeEditorFrame,
+  ConnectionBadge,
 } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -105,46 +106,6 @@ function PartitionMiniPill({ partition }: { partition: number }) {
       }}
     >
       P{partition}
-    </span>
-  );
-}
-
-function StatusBadge({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: 'green' | 'amber' | 'muted' | 'red';
-}) {
-  const palette = {
-    green: {
-      color: 'var(--color-success)',
-      bg: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
-      glow: '0 0 8px color-mix(in srgb, var(--color-success) 35%, transparent)',
-    },
-    amber: {
-      color: 'var(--color-warning)',
-      bg: 'color-mix(in srgb, var(--color-warning) 16%, transparent)',
-      glow: '0 0 8px color-mix(in srgb, var(--color-warning) 35%, transparent)',
-    },
-    red: {
-      color: 'var(--color-danger)',
-      bg: 'color-mix(in srgb, var(--color-danger) 16%, transparent)',
-      glow: '0 0 8px color-mix(in srgb, var(--color-danger) 35%, transparent)',
-    },
-    muted: {
-      color: 'var(--color-neutral)',
-      bg: 'color-mix(in srgb, var(--color-neutral) 16%, transparent)',
-      glow: 'none' as const,
-    },
-  }[tone];
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 h-7 px-2.5 font-mono font-bold uppercase tracking-wide text-sp-11 rounded-sp-btn"
-      style={{ color: palette.color, background: palette.bg, boxShadow: palette.glow }}
-    >
-      <span aria-hidden="true">●</span>
-      {label}
     </span>
   );
 }
@@ -640,13 +601,13 @@ function KafkaClient() {
           />
 
           {connection?.consumer.status === 'subscribed' ? (
-            <StatusBadge label="Subscribed" tone="green" />
+            <ConnectionBadge label="Subscribed" tone="success" />
           ) : connection?.consumer.status === 'subscribing' ? (
-            <StatusBadge label="Subscribing" tone="amber" />
+            <ConnectionBadge label="Subscribing" tone="warning" />
           ) : connection?.consumer.status === 'error' ? (
-            <StatusBadge label="Error" tone="red" />
+            <ConnectionBadge label="Error" tone="danger" />
           ) : (
-            <StatusBadge label="Idle" tone="muted" />
+            <ConnectionBadge label="Idle" tone="neutral" />
           )}
 
           <Button
@@ -796,7 +757,7 @@ function KafkaClient() {
                       className="h-7 pl-7 text-xs bg-sp-surface-lo border-sp-line font-mono"
                     />
                   </div>
-                  {paused && <StatusBadge label="Paused" tone="amber" />}
+                  {paused && <ConnectionBadge label="Paused" tone="warning" />}
                   <Button
                     size="sm"
                     variant="ghost"

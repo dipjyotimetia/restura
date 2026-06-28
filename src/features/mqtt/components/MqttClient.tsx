@@ -14,7 +14,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Floater, ProtoChip, Stat, VariableText, CodeEditorFrame } from '@/components/ui/spatial';
+import {
+  Floater,
+  ProtoChip,
+  Stat,
+  VariableText,
+  CodeEditorFrame,
+  ConnectionBadge,
+  type ConnectionTone,
+} from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -28,35 +36,6 @@ import { useActiveTabId } from '@/store/selectors';
 
 const MQTT_GREEN = 'var(--color-proto-mqtt)';
 const QOS_VALUES: MqttQoS[] = [0, 1, 2];
-
-function StatusBadge({ label, tone }: { label: string; tone: 'green' | 'amber' | 'muted' }) {
-  const palette = {
-    green: {
-      color: 'var(--color-success)',
-      bg: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
-      glow: '0 0 8px color-mix(in srgb, var(--color-success) 35%, transparent)',
-    },
-    amber: {
-      color: 'var(--color-warning)',
-      bg: 'color-mix(in srgb, var(--color-warning) 16%, transparent)',
-      glow: '0 0 8px color-mix(in srgb, var(--color-warning) 35%, transparent)',
-    },
-    muted: {
-      color: 'var(--color-neutral)',
-      bg: 'color-mix(in srgb, var(--color-neutral) 16%, transparent)',
-      glow: 'none' as const,
-    },
-  }[tone];
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 h-7 px-2.5 font-mono font-bold uppercase tracking-wide text-sp-11 rounded-sp-btn"
-      style={{ color: palette.color, background: palette.bg, boxShadow: palette.glow }}
-    >
-      <span aria-hidden="true">●</span>
-      {label}
-    </span>
-  );
-}
 
 function QosPill({ qos }: { qos: MqttQoS }) {
   const colors = [
@@ -183,17 +162,17 @@ function DesktopOnlyPanel() {
 
 function statusTone(status: 'disconnected' | 'connecting' | 'connected' | 'reconnecting'): {
   label: string;
-  tone: 'green' | 'amber' | 'muted';
+  tone: ConnectionTone;
 } {
   switch (status) {
     case 'connected':
-      return { label: 'Connected', tone: 'green' };
+      return { label: 'Connected', tone: 'success' };
     case 'connecting':
-      return { label: 'Connecting', tone: 'amber' };
+      return { label: 'Connecting', tone: 'warning' };
     case 'reconnecting':
-      return { label: 'Reconnecting', tone: 'amber' };
+      return { label: 'Reconnecting', tone: 'warning' };
     default:
-      return { label: 'Disconnected', tone: 'muted' };
+      return { label: 'Disconnected', tone: 'neutral' };
   }
 }
 
@@ -388,7 +367,7 @@ function MqttClient() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {badge && <StatusBadge label={badge.label} tone={badge.tone} />}
+          {badge && <ConnectionBadge label={badge.label} tone={badge.tone} />}
 
           <Button
             size="sm"
@@ -506,7 +485,7 @@ function MqttClient() {
                       className="h-7 pl-7 text-xs bg-sp-surface-lo border-sp-line font-mono"
                     />
                   </div>
-                  {paused && <StatusBadge label="Paused" tone="amber" />}
+                  {paused && <ConnectionBadge label="Paused" tone="warning" />}
                   <Button
                     size="sm"
                     variant="ghost"

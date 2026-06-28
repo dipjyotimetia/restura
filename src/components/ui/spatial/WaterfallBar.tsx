@@ -14,6 +14,9 @@ export interface WaterfallBarProps {
   className?: string;
 }
 
+// Timing phases borrow method/protocol color tokens purely for their hue (the
+// categories have no semantic tie to those protocols) — kept intentional so the
+// waterfall reuses the existing palette rather than minting timing-only tokens.
 const defaultPalette: Record<string, string> = {
   DNS: 'var(--color-info)',
   TCP: 'var(--color-method-put)',

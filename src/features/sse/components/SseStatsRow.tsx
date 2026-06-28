@@ -85,8 +85,8 @@ export function SseStatsRow({
           aria-label="Stop SSE stream"
           className={cn(
             'h-8 px-3 rounded-sp-btn text-sp-12 font-semibold inline-flex items-center gap-1.5',
-            'border border-[color-mix(in_srgb,_var(--color-danger)_40%,_transparent)] text-[var(--color-danger)] bg-transparent',
-            'enabled:hover:bg-[color-mix(in_srgb,_var(--color-danger)_10%,_transparent)] transition-colors',
+            'border border-danger/40 text-danger bg-transparent',
+            'enabled:hover:bg-danger/10 transition-colors',
             'disabled:opacity-50 disabled:cursor-not-allowed'
           )}
         >

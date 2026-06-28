@@ -334,19 +334,7 @@ function WebSocketClient() {
           <button
             type="button"
             onClick={handleDisconnect}
-            className="inline-flex items-center h-7 px-3 rounded-sp-btn font-medium text-sp-12 border transition-colors"
-            style={{
-              color: 'var(--color-danger)',
-              borderColor: 'color-mix(in srgb, var(--color-danger) 35%, transparent)',
-              background: 'transparent',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background =
-                'color-mix(in srgb, var(--color-danger) 10%, transparent)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
+            className="inline-flex items-center h-7 px-3 rounded-sp-btn font-medium text-sp-12 border border-danger/35 text-danger bg-transparent transition-colors hover:bg-danger/10"
           >
             Disconnect
           </button>
