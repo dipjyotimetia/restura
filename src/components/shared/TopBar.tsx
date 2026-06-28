@@ -98,7 +98,7 @@ export function WindowChrome({
         ) : (
           <span className="block w-1" aria-hidden="true" />
         )}
-        <span className="font-semibold text-sp-12 text-sp-muted tracking-tight">Restura</span>
+        <span className="font-mono text-sp-12 text-sp-muted tracking-tight">Restura</span>
       </div>
 
       {/* Center: environment pill — absolutely positioned so it stays centered

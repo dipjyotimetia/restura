@@ -12,7 +12,6 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Logo } from './Logo';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -144,9 +143,6 @@ export default function WelcomeOnboarding() {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogContent className="max-w-md">
-        <div className="flex justify-center pt-1 pb-1">
-          <Logo size={48} />
-        </div>
         <DialogHeader icon={Rocket}>
           <DialogTitle>WELCOME TO RESTURA</DialogTitle>
           <DialogDescription className="font-mono text-xs">
