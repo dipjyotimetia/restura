@@ -89,7 +89,8 @@
     "version:patch": "npm version patch && git push && git push --tags",
     "version:minor": "npm version minor && git push && git push --tags",
     "version:major": "npm version major && git push && git push --tags",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "test:e2e:extension": "npm run build --workspace @restura/extension && playwright test --config=playwright.extension.config.ts"
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
