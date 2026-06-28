@@ -51,7 +51,7 @@ export default function FormDataEditor({ items, onChange }: FormDataEditorProps)
   return (
     <div className="space-y-2">
       {items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-8 gap-2 text-sp-dim glass-3 rounded-xl border glass-border-subtle mx-1">
+        <div className="flex flex-col items-center justify-center py-8 gap-2 text-sp-dim sp-inset rounded-xl mx-1">
           <ListPlus className="h-5 w-5 text-primary/40" />
           <p className="text-sp-11 font-mono">No fields added</p>
         </div>

@@ -30,7 +30,7 @@ export const ConsoleFrameSchema = z.object({
   id: z.string(),
   timestamp: z.number(),
   // Keep in sync with FrameProtocol in useConsoleStore.ts.
-  protocol: z.enum(['websocket', 'socketio', 'kafka', 'mqtt', 'sse']),
+  protocol: z.enum(['websocket', 'socketio', 'kafka', 'mqtt', 'sse', 'grpc']),
   direction: z.enum(['in', 'out', 'system']),
   connectionId: z.string().optional(),
   label: z.string().optional(),

@@ -23,9 +23,9 @@ type Kind = 'OBJECT' | 'ENUM' | 'SCALAR' | 'INPUT' | 'INTERFACE';
 const KIND_COLOR: Record<Kind, string> = {
   OBJECT: '#79b8ff',
   ENUM: '#ffab70',
-  SCALAR: '#22c55e',
-  INPUT: '#a78bfa',
-  INTERFACE: '#06b6d4',
+  SCALAR: 'var(--color-success)',
+  INPUT: 'var(--color-proto-ws)',
+  INTERFACE: 'var(--color-info)',
 };
 
 function kindFor(typeKind: GraphQLTypeKind): Kind {
@@ -52,7 +52,7 @@ function KindBadge({ kind }: { kind: Kind }) {
       className="inline-flex items-center justify-center px-1.5 h-[16px] rounded-[4px] font-mono font-bold tracking-wider"
       style={{
         color,
-        background: `${color}22`,
+        background: `color-mix(in srgb, ${color} 13%, transparent)`,
         fontSize: '9px',
         letterSpacing: '0.05em',
       }}
@@ -67,8 +67,8 @@ function LoadedPill() {
     <span
       className="sp-label inline-flex items-center px-[5px] py-[1px] rounded-[4px]"
       style={{
-        color: '#22c55e',
-        background: 'rgba(34,197,94,0.16)',
+        color: 'var(--color-success)',
+        background: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
         letterSpacing: '0.05em',
       }}
     >

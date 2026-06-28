@@ -120,8 +120,8 @@ export default function GraphQLBodyEditor({
         <div
           className="mx-3 mt-2 mb-1 px-2 py-1.5 rounded-sp-btn border text-sp-11 font-mono"
           style={{
-            background: 'rgba(239,68,68,0.08)',
-            borderColor: 'rgba(239,68,68,0.25)',
+            background: 'color-mix(in srgb, var(--color-danger) 8%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--color-danger) 25%, transparent)',
             color: '#fca5a5',
           }}
         >
@@ -175,7 +175,7 @@ export default function GraphQLBodyEditor({
           <span
             className="inline-flex items-center gap-1 sp-label"
             style={{
-              color: variablesValid ? '#22c55e' : '#ef4444',
+              color: variablesValid ? 'var(--color-success)' : 'var(--color-danger)',
             }}
           >
             {variablesValid ? (

@@ -119,7 +119,7 @@ export function GrpcMethodSelector({
         {!serviceValidation.valid && serviceValidation.error && (
           <div
             className="text-sp-11 mt-1 flex items-center gap-1 font-mono"
-            style={{ color: '#ef4444' }}
+            style={{ color: 'var(--color-danger)' }}
           >
             <AlertCircle className="h-3 w-3" />
             {serviceValidation.error}
@@ -183,7 +183,7 @@ export function GrpcMethodSelector({
         {!methodValidation.valid && methodValidation.error && (
           <div
             className="text-sp-11 mt-1 flex items-center gap-1 font-mono"
-            style={{ color: '#ef4444' }}
+            style={{ color: 'var(--color-danger)' }}
           >
             <AlertCircle className="h-3 w-3" />
             {methodValidation.error}

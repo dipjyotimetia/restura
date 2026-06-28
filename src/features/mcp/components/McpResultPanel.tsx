@@ -22,8 +22,10 @@ function McpResult({ entry }: { entry: McpInvocationLog }) {
           <span
             className="inline-flex items-center gap-1 px-1.5 h-5 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
             style={{
-              color: isError ? '#ef4444' : '#22c55e',
-              background: isError ? 'rgba(239,68,68,0.14)' : 'rgba(34,197,94,0.14)',
+              color: isError ? 'var(--color-danger)' : 'var(--color-success)',
+              background: isError
+                ? 'color-mix(in srgb, var(--color-danger) 14%, transparent)'
+                : 'color-mix(in srgb, var(--color-success) 14%, transparent)',
             }}
           >
             isError: {isError ? 'true' : 'false'}

@@ -96,7 +96,7 @@ export function SseAssembledOutput({
               )}
               style={{
                 width: pct == null ? (isStreaming ? '40%' : '0%') : `${pct}%`,
-                background: 'linear-gradient(90deg, var(--sp-accent), #a78bfa)',
+                background: 'linear-gradient(90deg, var(--sp-accent), var(--color-proto-ws))',
                 boxShadow: '0 0 8px var(--sp-accent-glow-33)',
               }}
             />
@@ -111,7 +111,7 @@ export function SseAssembledOutput({
               {phases.map((p) => {
                 const stateColor =
                   p.state === 'done'
-                    ? '#22c55e'
+                    ? 'var(--color-success)'
                     : p.state === 'active'
                       ? 'var(--sp-accent)'
                       : 'var(--sp-text-dim)';

@@ -3,24 +3,36 @@ import { test, expect } from './fixtures/app';
 test.describe('Collections', () => {
   test('creates a new collection from the sidebar', async ({ app: page }) => {
     // The Collections panel is open by default; click "New" to add one.
+    // Creating a collection auto-starts inline rename, so the name is the
+    // value of the rename textbox until committed (Enter).
     await page.getByRole('button', { name: 'New', exact: true }).click();
-    await expect(page.getByText(/New Collection/).first()).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Rename collection' })).toHaveValue(
+      'New Collection'
+    );
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('New Collection', { exact: true }).first()).toBeVisible();
 
     // Adding another should produce a uniquely-numbered name.
     await page.getByRole('button', { name: 'New', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Rename collection' })).toHaveValue(
+      'New Collection 2'
+    );
+    await page.keyboard.press('Enter');
     await expect(page.getByText('New Collection 2').first()).toBeVisible();
   });
 
   test('search filters collections', async ({ app: page }) => {
     await page.getByRole('button', { name: 'New', exact: true }).click();
-    await expect(page.getByText('New Collection').first()).toBeVisible();
+    // Commit the auto-started rename so the name renders as text.
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('New Collection', { exact: true }).first()).toBeVisible();
 
     const search = page.getByPlaceholder('Search...');
     await search.fill('zzz-no-match');
     await expect(page.getByText('No collections found')).toBeVisible();
 
     await search.fill('');
-    await expect(page.getByText('New Collection').first()).toBeVisible();
+    await expect(page.getByText('New Collection', { exact: true }).first()).toBeVisible();
   });
 
   test('switches between Collections, History, Workflows tabs', async ({ app: page }) => {

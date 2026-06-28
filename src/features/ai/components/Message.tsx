@@ -12,8 +12,8 @@ function MessageImpl({ message }: Props) {
     <div className={cn('flex flex-col gap-1 px-3 py-2', isUser ? 'items-end' : 'items-start')}>
       <div
         className={cn(
-          'glass-1 max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words',
-          isUser ? 'bg-accent/10 border-accent/20' : 'border-border/40',
+          'max-w-[85%] rounded-lg border px-3 py-2 text-sm whitespace-pre-wrap break-words',
+          isUser ? 'bg-accent/10 border-accent/20' : 'bg-sp-surface border-sp-line',
           message.status === 'error' && 'border-destructive/40'
         )}
       >

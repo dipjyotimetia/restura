@@ -237,7 +237,7 @@ export default function NetworkConsole({
     <TooltipProvider delayDuration={300}>
       <div
         ref={containerRef}
-        className="flex flex-col border-t glass-border-subtle glass-2 relative z-10"
+        className="flex flex-col border-t border-sp-line sp-chrome relative z-10"
         style={{ height: isExpanded ? panelHeight : 28 }}
       >
         {/* Resize handle — wider hit zone, visible grip. The padding is what
@@ -295,7 +295,9 @@ export default function NetworkConsole({
                     <Cable className="h-3 w-3 mr-1.5" />
                     Frames
                     {framesCount > 0 && (
-                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1"></Badge>
+                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1">
+                        {framesCount}
+                      </Badge>
                     )}
                   </TabsTrigger>
                   {showDiskTab && (

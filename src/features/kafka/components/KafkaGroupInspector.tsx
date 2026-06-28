@@ -29,9 +29,9 @@ function stateTone(state: string): 'green' | 'amber' | 'muted' {
 }
 
 const TONE_COLOR: Record<'green' | 'amber' | 'muted', string> = {
-  green: '#22c55e',
-  amber: '#f59e0b',
-  muted: '#94a3b8',
+  green: 'var(--color-success)',
+  amber: 'var(--color-warning)',
+  muted: 'var(--color-neutral)',
 };
 
 /**
@@ -127,7 +127,10 @@ export function KafkaGroupInspector({
           <Badge
             variant="outline"
             className="font-mono text-sp-11"
-            style={{ color: TONE_COLOR[tone], borderColor: `${TONE_COLOR[tone]}55` }}
+            style={{
+              color: TONE_COLOR[tone],
+              borderColor: `color-mix(in srgb, ${TONE_COLOR[tone]} 33%, transparent)`,
+            }}
           >
             {group.state}
           </Badge>
@@ -227,7 +230,9 @@ export function KafkaGroupInspector({
                       <td className="px-2 py-1 text-right text-sp-text">{o.logEnd}</td>
                       <td
                         className="px-2 py-1 text-right font-bold"
-                        style={{ color: lagN > 0 ? '#f59e0b' : '#22c55e' }}
+                        style={{
+                          color: lagN > 0 ? 'var(--color-warning)' : 'var(--color-success)',
+                        }}
                       >
                         {lagN.toLocaleString()}
                       </td>

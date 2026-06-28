@@ -126,7 +126,7 @@ export function GrpcInvocationBar({
         <div
           className="flex items-center gap-1.5 text-sp-11 font-mono"
           role="alert"
-          style={{ color: '#ef4444' }}
+          style={{ color: 'var(--color-danger)' }}
         >
           <AlertCircle className="h-3 w-3" />
           {urlError}

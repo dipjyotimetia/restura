@@ -5,7 +5,15 @@ import { Send, Code2, Loader2, Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { Button } from '@/components/ui/button';
-import { Floater, Kbd, MethodChip, VariableText, methodLabel } from '@/components/ui/spatial';
+import {
+  Floater,
+  Kbd,
+  MethodChip,
+  VariableText,
+  hasVariableToken,
+  methodLabel,
+} from '@/components/ui/spatial';
+import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
 import type { HttpMethod } from '@/types';
@@ -20,14 +28,17 @@ const HTTP_METHODS: ReadonlyArray<HttpMethod> = [
   'OPTIONS',
 ];
 
+// Mirrors MethodChip's method→token map so a method renders the same color in
+// the URL bar and its chip (single --color-method-* family, not the semantic
+// status tokens).
 const METHOD_TEXT: Record<HttpMethod, string> = {
-  GET: '#22c55e',
-  POST: '#f59e0b',
-  PUT: '#3b82f6',
-  PATCH: '#a855f7',
-  DELETE: '#ef4444',
-  HEAD: '#06b6d4',
-  OPTIONS: '#94a3b8',
+  GET: 'var(--color-method-get)',
+  POST: 'var(--color-method-post)',
+  PUT: 'var(--color-method-put)',
+  PATCH: 'var(--color-method-patch)',
+  DELETE: 'var(--color-method-delete)',
+  HEAD: 'var(--color-method-head)',
+  OPTIONS: 'var(--color-method-options)',
 };
 
 interface UrlBarProps {
@@ -38,14 +49,6 @@ interface UrlBarProps {
   onUrlChange: (url: string) => void;
   onSend: () => void;
   onOpenCodeGen: () => void;
-}
-
-// Matches a balanced `{{ name }}` template variable: alnum/underscore start,
-// followed by word/dot/dash chars. Used to gate the variable-highlight overlay
-// so partial input like `{{` or `}}` alone doesn't swap the input invisible.
-const VARIABLE_PATTERN = /\{\{\s*\w[\w.-]*\s*\}\}/;
-function hasVariable(s: string): boolean {
-  return VARIABLE_PATTERN.test(s);
 }
 
 /**
@@ -63,13 +66,14 @@ export function UrlBar({
   onOpenCodeGen,
 }: UrlBarProps) {
   const [urlError, setUrlError] = useState<string | null>(null);
+  const getVarStatus = useVariableStatus();
 
   const validateUrl = (newUrl: string) => {
     if (!newUrl) {
       setUrlError(null);
       return;
     }
-    if (hasVariable(newUrl)) {
+    if (hasVariableToken(newUrl)) {
       setUrlError(null);
       return;
     }
@@ -156,16 +160,17 @@ export function UrlBar({
                 urlError ? 'text-rose-400' : 'text-sp-text',
                 // Make the visible glyphs transparent only when we have a
                 // {{var}} to overlay-render; otherwise show the raw input.
-                hasVariable(url) && !urlError && 'text-transparent caret-sp-accent'
+                hasVariableToken(url) && !urlError && 'text-transparent caret-sp-accent'
               )}
             />
-            {hasVariable(url) && !urlError && (
+            {hasVariableToken(url) && !urlError && (
               <div
                 aria-hidden="true"
                 className="absolute inset-0 pointer-events-none flex items-center overflow-hidden"
               >
                 <VariableText
                   text={url}
+                  getStatus={getVarStatus}
                   className="font-mono text-sp-13 text-sp-text tabular-nums whitespace-pre"
                 />
               </div>

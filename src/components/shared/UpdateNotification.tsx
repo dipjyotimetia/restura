@@ -89,7 +89,7 @@ export function UpdateNotification(): ReactElement | null {
     <div
       role="status"
       aria-live="polite"
-      className="glass-1 glass-border-default sticky top-0 z-50 border-b border-sky-500/40 bg-sky-950/40 px-4 py-2 text-sm text-sky-100"
+      className="sticky top-0 z-50 border-b border-sky-500/40 bg-sky-500/10 px-4 py-2 text-sm text-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
     >
       <div className="mx-auto flex max-w-7xl items-center gap-3">
         {status.state === 'available' && (

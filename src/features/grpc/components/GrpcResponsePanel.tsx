@@ -115,7 +115,13 @@ export function GrpcResponsePanel() {
         >
           <span className="text-sp-muted">grpc-status</span>
           <span
-            style={{ color: isOk ? '#22c55e' : grpcStatus != null ? '#ef4444' : 'var(--sp-text)' }}
+            style={{
+              color: isOk
+                ? 'var(--color-success)'
+                : grpcStatus != null
+                  ? 'var(--color-danger)'
+                  : 'var(--sp-text)',
+            }}
           >
             {grpcStatusName}
           </span>

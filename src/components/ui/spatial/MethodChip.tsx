@@ -15,24 +15,21 @@ export type MethodBadge =
   | 'GQL'
   | 'GRPC';
 
-interface MethodStyle {
-  color: string;
-  bg: string;
-}
-
-const styles: Record<MethodBadge, MethodStyle> = {
-  GET: { color: '#22c55e', bg: 'rgba(34,197,94,0.14)' },
-  POST: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)' },
-  PUT: { color: '#3b82f6', bg: 'rgba(59,130,246,0.16)' },
-  PATCH: { color: '#a855f7', bg: 'rgba(168,85,247,0.16)' },
-  DELETE: { color: '#ef4444', bg: 'rgba(239,68,68,0.16)' },
-  HEAD: { color: '#06b6d4', bg: 'rgba(6,182,212,0.16)' },
-  OPTIONS: { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)' },
-  WS: { color: '#a78bfa', bg: 'rgba(167,139,250,0.16)' },
-  SSE: { color: '#06b6d4', bg: 'rgba(6,182,212,0.16)' },
-  MCP: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)' },
-  GQL: { color: '#e879a4', bg: 'rgba(232,121,164,0.16)' },
-  GRPC: { color: '#22c55e', bg: 'rgba(34,197,94,0.14)' },
+// Each method maps to a Spatial Depth color token (defined in globals.css
+// @theme). Single source of truth — the chip never hardcodes a color.
+const styles: Record<MethodBadge, string> = {
+  GET: '--color-method-get',
+  POST: '--color-method-post',
+  PUT: '--color-method-put',
+  PATCH: '--color-method-patch',
+  DELETE: '--color-method-delete',
+  HEAD: '--color-method-head',
+  OPTIONS: '--color-method-options',
+  WS: '--color-method-ws',
+  SSE: '--color-method-sse',
+  MCP: '--color-method-mcp',
+  GQL: '--color-method-gql',
+  GRPC: '--color-proto-grpc',
 };
 
 export function methodLabel(method: string): MethodBadge {
@@ -63,7 +60,7 @@ export function MethodChip({
   ...props
 }: MethodChipProps) {
   const key = methodLabel(method);
-  const { color, bg } = styles[key];
+  const token = styles[key];
   return (
     <span
       ref={ref}
@@ -74,7 +71,11 @@ export function MethodChip({
           : 'h-7 px-3 text-sp-12 rounded-sp-btn',
         className
       )}
-      style={{ color, background: bg, ...style }}
+      style={{
+        color: `var(${token})`,
+        background: `color-mix(in srgb, var(${token}) 15%, transparent)`,
+        ...style,
+      }}
       {...props}
     >
       {displayLabel(key)}
