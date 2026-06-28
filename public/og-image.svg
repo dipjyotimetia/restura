@@ -28,9 +28,9 @@
   <g transform="translate(960, 60)">
     <rect width="150" height="150" rx="33" fill="url(#mark)"/>
     <g transform="scale(4.6875)" stroke="#ffffff" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-      <path d="M11 6.5 V25.5"/>
-      <path d="M11 6.5 H18 Q22 6.5 22 10.4 L22 11.9 Q22 15.8 18 15.8 H11"/>
-      <path d="M11 15.8 L21 25.5"/>
+      <path d="M10.7 6.2 V25.8"/>
+      <path d="M10.7 6.2 H17.8 Q21.7 6.2 21.7 10.3 L21.7 12 Q21.7 16 17.8 16 H10.7"/>
+      <path d="M11.6 16 L21.7 25.8"/>
     </g>
   </g>
 
