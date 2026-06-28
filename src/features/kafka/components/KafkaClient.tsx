@@ -36,6 +36,7 @@ import {
   Stat,
   VariableText,
   CodeEditorFrame,
+  ConnectionBadge,
 } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -81,8 +82,8 @@ function PartitionPill({ partition, count }: { partition: number; count?: number
       className="inline-flex items-center gap-1.5 h-6 px-2 font-mono font-bold text-sp-11 tabular-nums rounded-sp-chip"
       style={{
         color,
-        background: `${color}26`,
-        border: `1px solid ${color}40`,
+        background: `color-mix(in srgb, ${color} 15%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
       }}
     >
       <span>P{partition}</span>
@@ -100,35 +101,11 @@ function PartitionMiniPill({ partition }: { partition: number }) {
       className="inline-flex items-center justify-center h-5 w-8 font-mono font-bold text-sp-9 rounded-sp-chip"
       style={{
         color,
-        background: `${color}26`,
-        border: `1px solid ${color}40`,
+        background: `color-mix(in srgb, ${color} 15%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
       }}
     >
       P{partition}
-    </span>
-  );
-}
-
-function StatusBadge({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: 'green' | 'amber' | 'muted' | 'red';
-}) {
-  const palette = {
-    green: { color: '#22c55e', bg: 'rgba(34,197,94,0.16)', glow: '0 0 8px rgba(34,197,94,0.35)' },
-    amber: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', glow: '0 0 8px rgba(245,158,11,0.35)' },
-    red: { color: '#ef4444', bg: 'rgba(239,68,68,0.16)', glow: '0 0 8px rgba(239,68,68,0.35)' },
-    muted: { color: '#94a3b8', bg: 'rgba(148,163,184,0.16)', glow: 'none' as const },
-  }[tone];
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 h-7 px-2.5 font-mono font-bold uppercase tracking-wide text-sp-11 rounded-sp-btn"
-      style={{ color: palette.color, background: palette.bg, boxShadow: palette.glow }}
-    >
-      <span aria-hidden="true">●</span>
-      {label}
     </span>
   );
 }
@@ -624,13 +601,13 @@ function KafkaClient() {
           />
 
           {connection?.consumer.status === 'subscribed' ? (
-            <StatusBadge label="Subscribed" tone="green" />
+            <ConnectionBadge label="Subscribed" tone="success" />
           ) : connection?.consumer.status === 'subscribing' ? (
-            <StatusBadge label="Subscribing" tone="amber" />
+            <ConnectionBadge label="Subscribing" tone="warning" />
           ) : connection?.consumer.status === 'error' ? (
-            <StatusBadge label="Error" tone="red" />
+            <ConnectionBadge label="Error" tone="danger" />
           ) : (
-            <StatusBadge label="Idle" tone="muted" />
+            <ConnectionBadge label="Idle" tone="neutral" />
           )}
 
           <Button
@@ -715,7 +692,14 @@ function KafkaClient() {
               <Stat
                 label="Lag"
                 value={
-                  <span style={{ color: partitionCounts.length === 0 ? '#22c55e' : '#f59e0b' }}>
+                  <span
+                    style={{
+                      color:
+                        partitionCounts.length === 0
+                          ? 'var(--color-success)'
+                          : 'var(--color-warning)',
+                    }}
+                  >
                     {/* No real lag wire — use 0 when not subscribed, else "n/a" */}
                     {connection.consumer.status === 'subscribed' ? '—' : '0'}
                   </span>
@@ -773,7 +757,7 @@ function KafkaClient() {
                       className="h-7 pl-7 text-xs bg-sp-surface-lo border-sp-line font-mono"
                     />
                   </div>
-                  {paused && <StatusBadge label="Paused" tone="amber" />}
+                  {paused && <ConnectionBadge label="Paused" tone="warning" />}
                   <Button
                     size="sm"
                     variant="ghost"

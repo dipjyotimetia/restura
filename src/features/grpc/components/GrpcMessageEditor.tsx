@@ -32,14 +32,15 @@ export function GrpcMessageEditor({
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sp-11 text-sp-muted font-mono">
-        Request message as JSON. Use <span style={{ color: '#f59e0b' }}>{'{{variable}}'}</span> for
-        environment variables.
+        Request message as JSON. Use{' '}
+        <span style={{ color: 'var(--color-warning)' }}>{'{{variable}}'}</span> for environment
+        variables.
       </p>
       {!isValid && error && (
         <div
           className="flex items-center gap-1.5 text-sp-11 font-mono"
           role="alert"
-          style={{ color: '#ef4444' }}
+          style={{ color: 'var(--color-danger)' }}
         >
           <AlertCircle className="h-3 w-3" />
           {error}

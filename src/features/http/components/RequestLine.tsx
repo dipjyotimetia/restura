@@ -86,7 +86,7 @@ export default function RequestLine({
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-1 px-3 h-12 border-y glass-border-subtle glass-3 shrink-0">
+      <div className="flex items-center gap-1 px-3 h-12 border-y border-sp-line bg-sp-surface shrink-0">
         <Select value={method} onValueChange={(value) => onMethodChange(value as HttpMethod)}>
           <SelectTrigger
             className={cn(

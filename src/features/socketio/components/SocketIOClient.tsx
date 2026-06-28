@@ -109,7 +109,10 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
-        style={{ color: '#a78bfa', background: 'rgba(167,139,250,0.16)' }}
+        style={{
+          color: 'var(--color-proto-ws)',
+          background: 'color-mix(in srgb, var(--color-proto-ws) 16%, transparent)',
+        }}
       >
         → tx
       </span>
@@ -119,7 +122,10 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
-        style={{ color: '#22c55e', background: 'rgba(34,197,94,0.16)' }}
+        style={{
+          color: 'var(--color-success)',
+          background: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
+        }}
       >
         ← rx
       </span>
@@ -129,7 +135,10 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
-        style={{ color: '#f59e0b', background: 'rgba(245,158,11,0.16)' }}
+        style={{
+          color: 'var(--color-warning)',
+          background: 'color-mix(in srgb, var(--color-warning) 16%, transparent)',
+        }}
       >
         ack
       </span>
@@ -138,7 +147,10 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
   return (
     <span
       className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
-      style={{ color: '#94a3b8', background: 'rgba(148,163,184,0.14)' }}
+      style={{
+        color: 'var(--color-neutral)',
+        background: 'color-mix(in srgb, var(--color-neutral) 14%, transparent)',
+      }}
     >
       sys
     </span>
@@ -343,14 +355,18 @@ function SocketIOClient() {
             isConnected && 'sp-accent-ring'
           )}
           style={{
-            color: isConnected ? '#22c55e' : isConnecting ? '#f59e0b' : '#94a3b8',
-            background: isConnected
-              ? 'rgba(34,197,94,0.16)'
+            color: isConnected
+              ? 'var(--color-success)'
               : isConnecting
-                ? 'rgba(245,158,11,0.16)'
-                : 'rgba(148,163,184,0.14)',
+                ? 'var(--color-warning)'
+                : 'var(--color-neutral)',
+            background: isConnected
+              ? 'color-mix(in srgb, var(--color-success) 16%, transparent)'
+              : isConnecting
+                ? 'color-mix(in srgb, var(--color-warning) 16%, transparent)'
+                : 'color-mix(in srgb, var(--color-neutral) 14%, transparent)',
             boxShadow: isConnected
-              ? '0 0 0 1px rgba(34,197,94,0.4), 0 0 12px rgba(34,197,94,0.35)'
+              ? '0 0 0 1px color-mix(in srgb, var(--color-success) 40%, transparent), 0 0 12px color-mix(in srgb, var(--color-success) 35%, transparent)'
               : undefined,
           }}
           aria-live="polite"
@@ -363,18 +379,7 @@ function SocketIOClient() {
           <button
             type="button"
             onClick={handleDisconnect}
-            className="inline-flex items-center h-7 px-3 rounded-sp-btn font-medium text-sp-12 border transition-colors"
-            style={{
-              color: '#ef4444',
-              borderColor: 'rgba(239,68,68,0.35)',
-              background: 'transparent',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
+            className="inline-flex items-center h-7 px-3 rounded-sp-btn font-medium text-sp-12 border border-danger/35 text-danger bg-transparent transition-colors hover:bg-danger/10"
           >
             Disconnect
           </button>
@@ -433,10 +438,13 @@ function SocketIOClient() {
           label="Uptime"
           value={connectionDuration > 0 ? formatDuration(connectionDuration) : '—'}
         />
-        <Stat label="↑ Events" value={<span style={{ color: '#a78bfa' }}>{counts.sent}</span>} />
+        <Stat
+          label="↑ Events"
+          value={<span style={{ color: 'var(--color-proto-ws)' }}>{counts.sent}</span>}
+        />
         <Stat
           label="↓ Events"
-          value={<span style={{ color: '#22c55e' }}>{counts.received}</span>}
+          value={<span style={{ color: 'var(--color-success)' }}>{counts.received}</span>}
         />
         <Stat label="Latency" value="—" />
         <Stat label="Transport" value={transportLabel} />
@@ -651,7 +659,7 @@ function SocketIOClient() {
                 />
               </CodeEditorFrame>
               {emitError && (
-                <p className="mt-1 font-mono text-sp-11" style={{ color: '#ef4444' }}>
+                <p className="mt-1 font-mono text-sp-11" style={{ color: 'var(--color-danger)' }}>
                   JSON error: {emitError}
                 </p>
               )}

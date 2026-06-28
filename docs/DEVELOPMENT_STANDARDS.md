@@ -416,20 +416,36 @@ function Badge({ variant = 'default', children }: BadgeProps) {
 
 ### CSS Variables for Theming
 
+The app uses the **Spatial Depth** token system (OKLCH), defined once in
+`src/styles/globals.css`. Canonical tokens are `--sp-*`; the shadcn-style
+utilities (`bg-primary`, `text-muted-foreground`, `border-border`, …) are kept
+as `--color-*` aliases of those tokens so existing class usages keep working.
+Light/dark is resolved via `light-dark()` against `color-scheme` plus the
+`.dark` class (set by next-themes). The legacy HSL token block has been removed
+— do **not** reintroduce `hsl(var(--token))` theming.
+
 ```css
-/* globals.css */
-:root {
-  --background: 0 0% 100%;
-  --foreground: 240 10% 3.9%;
-  --primary: 240 5.9% 10%;
-  --primary-foreground: 0 0% 98%;
+/* src/styles/globals.css */
+@theme {
+  /* shadcn-compatible utilities now ALIAS the canonical Spatial Depth tokens */
+  --color-background: var(--sp-bg);
+  --color-foreground: var(--sp-text);
+  --color-primary: var(--sp-accent);
+  --color-muted: var(--sp-surface-lo);
+  --color-muted-foreground: var(--sp-text-muted);
+  --color-border: var(--sp-line);
 }
 
-.dark {
-  --background: 240 10% 3.9%;
-  --foreground: 0 0% 98%;
-  --primary: 0 0% 98%;
-  --primary-foreground: 240 5.9% 10%;
+@layer base {
+  :root {
+    color-scheme: light dark;
+    /* canonical OKLCH tokens — single source of truth */
+    --sp-bg: light-dark(oklch(94.2% 0.012 260), oklch(15.5% 0.011 268));
+    --sp-surface: light-dark(oklch(100% 0 0), oklch(20.5% 0.015 267));
+    --sp-text: light-dark(oklch(18.9% 0.028 268), oklch(95.8% 0.011 270));
+    --sp-accent: light-dark(oklch(66% 0.19 255), oklch(70% 0.19 255));
+    /* …see globals.css for the full token registry… */
+  }
 }
 ```
 

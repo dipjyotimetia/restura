@@ -55,12 +55,12 @@ export function GrpcMethodContext({
       <div className="flex items-center gap-4 font-mono text-sp-11-5">
         <span>
           <span className="text-sp-dim">in </span>
-          <span style={{ color: '#a78bfa' }}>{inputType}</span>
+          <span style={{ color: 'var(--color-proto-ws)' }}>{inputType}</span>
         </span>
         <span className="text-sp-dim">→</span>
         <span>
           <span className="text-sp-dim">out </span>
-          <span style={{ color: '#a78bfa' }}>{outputType}</span>
+          <span style={{ color: 'var(--color-proto-ws)' }}>{outputType}</span>
         </span>
         <div className="flex-1" />
         {selectedMethod?.inputMessageSchema && (

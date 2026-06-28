@@ -36,10 +36,10 @@ export function SseStatsRow({
 
   const statusColor =
     status === 'connected'
-      ? '#22c55e'
+      ? 'var(--color-success)'
       : status === 'connecting' || status === 'reconnecting'
-        ? '#f59e0b'
-        : '#94a3b8';
+        ? 'var(--color-warning)'
+        : 'var(--color-neutral)';
 
   return (
     <div className="flex items-center gap-6 px-4 py-2.5 border-b border-sp-line bg-sp-surface-lo/40">
@@ -57,7 +57,7 @@ export function SseStatsRow({
             )}
             style={{
               background: statusColor,
-              boxShadow: `0 0 8px ${statusColor}88`,
+              boxShadow: `0 0 8px color-mix(in srgb, ${statusColor} 53%, transparent)`,
             }}
           />
           {streamingLabel}
@@ -85,8 +85,8 @@ export function SseStatsRow({
           aria-label="Stop SSE stream"
           className={cn(
             'h-8 px-3 rounded-sp-btn text-sp-12 font-semibold inline-flex items-center gap-1.5',
-            'border border-[rgba(239,68,68,0.40)] text-[#ef4444] bg-transparent',
-            'enabled:hover:bg-[rgba(239,68,68,0.10)] transition-colors',
+            'border border-danger/40 text-danger bg-transparent',
+            'enabled:hover:bg-danger/10 transition-colors',
             'disabled:opacity-50 disabled:cursor-not-allowed'
           )}
         >

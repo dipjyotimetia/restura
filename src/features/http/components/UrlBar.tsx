@@ -28,14 +28,17 @@ const HTTP_METHODS: ReadonlyArray<HttpMethod> = [
   'OPTIONS',
 ];
 
+// Mirrors MethodChip's method→token map so a method renders the same color in
+// the URL bar and its chip (single --color-method-* family, not the semantic
+// status tokens).
 const METHOD_TEXT: Record<HttpMethod, string> = {
-  GET: '#22c55e',
-  POST: '#f59e0b',
-  PUT: '#3b82f6',
-  PATCH: '#a855f7',
-  DELETE: '#ef4444',
-  HEAD: '#06b6d4',
-  OPTIONS: '#94a3b8',
+  GET: 'var(--color-method-get)',
+  POST: 'var(--color-method-post)',
+  PUT: 'var(--color-method-put)',
+  PATCH: 'var(--color-method-patch)',
+  DELETE: 'var(--color-method-delete)',
+  HEAD: 'var(--color-method-head)',
+  OPTIONS: 'var(--color-method-options)',
 };
 
 interface UrlBarProps {

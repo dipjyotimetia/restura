@@ -95,7 +95,7 @@ export default function App() {
           closeButton
           theme="dark"
           toastOptions={{
-            className: 'glass-1 border border-sp-line-strong',
+            className: 'bg-sp-surface-hi border border-sp-line-strong',
             style: {
               color: 'var(--sp-text)',
             },

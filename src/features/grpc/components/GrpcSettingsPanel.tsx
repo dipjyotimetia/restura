@@ -90,7 +90,7 @@ export function GrpcSettingsPanel({
           </div>
         </div>
         {useCompression && !isElectron() && (
-          <p className="text-sp-11 font-mono" style={{ color: '#f59e0b' }}>
+          <p className="text-sp-11 font-mono" style={{ color: 'var(--color-warning)' }}>
             Compression is only supported in the Electron desktop app.
           </p>
         )}

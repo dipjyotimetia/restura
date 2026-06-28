@@ -58,7 +58,7 @@ export function KeychainStatusBanner(): ReactElement | null {
     <div
       role="alert"
       aria-live="polite"
-      className="glass-1 glass-border-default sticky top-0 z-50 border-b border-amber-500/40 bg-amber-950/40 px-4 py-2 text-sm text-amber-100"
+      className="sticky top-0 z-50 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
     >
       <div className="mx-auto flex max-w-7xl items-start gap-3">
         <ShieldOff className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
