@@ -45,6 +45,7 @@ export type CapabilityName =
   | 'collections.file'
   | 'collections.git'
   | 'mock.localServer'
+  | 'capture.desktopBridge'
   | 'storage.osKeychain'
   | 'storage.encryptedLocal'
   | 'native.shell'
@@ -231,6 +232,12 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: 'Binds a localhost HTTP listener; no browser TCP',
+  },
+  'capture.desktopBridge': {
+    label: 'Browser capture desktop bridge',
+    web: false,
+    desktop: true,
+    notes: 'Loopback receiver for the Restura capture extension; no browser TCP listener',
   },
   'storage.osKeychain': {
     label: 'OS keychain (safeStorage) for secrets',

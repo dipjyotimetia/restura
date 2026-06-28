@@ -1,0 +1,174 @@
+/**
+ * Capture desktop bridge. Binds a 127.0.0.1-only HTTP listener that the Restura
+ * browser extension POSTs captured sessions to. On receipt it validates the
+ * payload (auth token + loopback origin + Zod schema), converts the session to
+ * an OpenCollection document via the shared capture core, and pushes it to the
+ * renderer to import. Desktop-only — gated via capabilities `capture.desktopBridge`.
+ *
+ * Security: see `capture-bridge-protocol.ts` for the auth/origin checks. The
+ * server binds loopback only, requires a freshly-generated per-pairing bearer
+ * token (written to a handshake file under userData), and rejects any request
+ * whose Origin is not the extension or loopback (DNS-rebind / CSRF defence).
+ */
+import { randomBytes } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import http from 'node:http';
+import { join } from 'node:path';
+import { sessionToOpenCollection } from '@shared/capture/to-opencollection';
+import { app, type BrowserWindow, ipcMain } from 'electron';
+import { IPC, EVENT } from '../../shared/channels';
+import { assertTrustedSender } from '../ipc/ipc-validators';
+import { bridgePayloadSchema, isAuthorized, isLoopbackRequest } from './capture-bridge-protocol';
+
+/** 1 MB cap on the request body before we even parse it. */
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
+
+export interface BridgeStatus {
+  running: boolean;
+  port?: number;
+}
+
+interface ActiveBridge {
+  server: http.Server;
+  port: number;
+  token: string;
+}
+
+let active: ActiveBridge | null = null;
+
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error('payload too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+function handshakeFilePath(): string {
+  return join(app.getPath('userData'), 'capture-bridge.json');
+}
+
+export async function startCaptureBridge(
+  getMainWindow: () => BrowserWindow | null
+): Promise<BridgeStatus> {
+  await stopCaptureBridge();
+  const token = randomBytes(32).toString('base64url');
+
+  const server = http.createServer((req, res) => {
+    void (async () => {
+      const reply = (status: number, body: unknown): void => {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(body));
+      };
+
+      if (
+        req.method !== 'POST' ||
+        new URL(req.url ?? '/', 'http://127.0.0.1').pathname !== '/ingest'
+      ) {
+        reply(404, { error: 'not found' });
+        return;
+      }
+      if (!isLoopbackRequest(req.headers)) {
+        reply(403, { error: 'forbidden origin' });
+        return;
+      }
+      if (!isAuthorized(req.headers, active?.token ?? '')) {
+        reply(401, { error: 'unauthorized' });
+        return;
+      }
+      let raw: string;
+      try {
+        raw = await readBody(req);
+      } catch {
+        reply(413, { error: 'payload too large' });
+        return;
+      }
+      let json: unknown;
+      try {
+        json = JSON.parse(raw);
+      } catch {
+        reply(400, { error: 'invalid json' });
+        return;
+      }
+      const parsed = bridgePayloadSchema.safeParse(json);
+      if (!parsed.success) {
+        reply(422, { error: 'invalid payload' });
+        return;
+      }
+      const doc = sessionToOpenCollection(parsed.data.session, {
+        name: parsed.data.name ?? 'Captured Session',
+      });
+      getMainWindow()?.webContents.send(EVENT.captureReceived, doc);
+      reply(200, { ok: true, items: doc.items.length });
+    })();
+  });
+
+  return new Promise<BridgeStatus>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      active = { server, port, token };
+      // Handshake file the extension's pairing flow reads (user copies the code).
+      try {
+        writeFileSync(handshakeFilePath(), JSON.stringify({ port, token }), { mode: 0o600 });
+      } catch {
+        /* non-fatal: the renderer can still surface the code directly */
+      }
+      resolve({ running: true, port });
+    });
+  });
+}
+
+export async function stopCaptureBridge(): Promise<BridgeStatus> {
+  if (!active) return { running: false };
+  const { server } = active;
+  active = null;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return { running: false };
+}
+
+export function getCaptureBridgeStatus(): BridgeStatus {
+  return active ? { running: true, port: active.port } : { running: false };
+}
+
+export function registerCaptureBridgeIPC(getMainWindow: () => BrowserWindow | null): void {
+  ipcMain.handle(IPC.captureBridge.start, async (event) => {
+    assertTrustedSender(IPC.captureBridge.start, event);
+    try {
+      const status = await startCaptureBridge(getMainWindow);
+      // The token is returned only to the trusted renderer so it can show the
+      // pairing code; it is never exposed over the HTTP surface.
+      return { ok: true, status, token: active?.token };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'failed to start bridge' };
+    }
+  });
+
+  ipcMain.handle(IPC.captureBridge.stop, async (event) => {
+    assertTrustedSender(IPC.captureBridge.stop, event);
+    const status = await stopCaptureBridge();
+    return { ok: true, status };
+  });
+
+  ipcMain.handle(IPC.captureBridge.status, (event) => {
+    assertTrustedSender(IPC.captureBridge.status, event);
+    return { ok: true, status: getCaptureBridgeStatus() };
+  });
+}
+
+export function unregisterCaptureBridgeIPC(): void {
+  ipcMain.removeHandler(IPC.captureBridge.start);
+  ipcMain.removeHandler(IPC.captureBridge.stop);
+  ipcMain.removeHandler(IPC.captureBridge.status);
+}

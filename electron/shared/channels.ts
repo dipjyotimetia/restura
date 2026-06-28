@@ -167,6 +167,11 @@ export const IPC = {
     stop: 'mock:stop',
     status: 'mock:status',
   },
+  captureBridge: {
+    start: 'capture-bridge:start',
+    stop: 'capture-bridge:stop',
+    status: 'capture-bridge:status',
+  },
   telemetry: {
     setConsent: 'telemetry:setConsent',
   },
@@ -176,6 +181,9 @@ export const IPC = {
 export const EVENT = {
   collectionFileChanged: 'collection:file-changed',
   updaterStatus: 'updater:status',
+  // A captured browser session arrived over the loopback bridge and was
+  // converted to an OpenCollection document for the renderer to import.
+  captureReceived: 'capture-bridge:received',
 } as const;
 
 /**

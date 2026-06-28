@@ -2,6 +2,11 @@ import { app, BrowserWindow, session } from 'electron';
 import { createLogger } from '../../src/lib/shared/logger';
 import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
 import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
+import {
+  registerCaptureBridgeIPC,
+  unregisterCaptureBridgeIPC,
+  stopCaptureBridge,
+} from './handlers/capture-bridge-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './handlers/git-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handler';
 import { registerGrpcReflectionIPC } from './handlers/grpc-reflection-handler';
@@ -172,6 +177,13 @@ const IPC_MODULES: IpcModule[] = [
     dispose: () => {
       void stopMockServer();
       unregisterMockServerIPC();
+    },
+  },
+  {
+    register: () => registerCaptureBridgeIPC(getMainWindow),
+    dispose: () => {
+      void stopCaptureBridge();
+      unregisterCaptureBridgeIPC();
     },
   },
 ];
