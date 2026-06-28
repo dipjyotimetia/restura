@@ -293,6 +293,13 @@ describe('gRPC status classification (issue #371)', () => {
     const httpFail = make({ response: { ...make().response, status: 0 } });
     expect(matchesQuery(httpFail, 'status:errored')).toBe(true);
   });
+
+  it('free-text search matches the displayed (HTTP-mapped) status, not the raw gRPC code', () => {
+    // The list now shows NOT_FOUND (code 5) as "404", so free text follows the
+    // display: "404" matches, the raw "5" no longer does.
+    expect(matchesQuery(grpcNotFound, '404')).toBe(true);
+    expect(matchesQuery(grpcNotFound, '5')).toBe(false);
+  });
 });
 
 describe('statusMatchesClass (re-exported)', () => {

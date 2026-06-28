@@ -22,10 +22,9 @@ export function getMethodColor(method: string): string {
 
 /** Map a (protocol, status) pair onto the HTTP code ranges the console classifiers
  *  and color helpers expect. gRPC stores its status code in `status` (OK === 0),
- *  which collides with the HTTP "0 = no response" error sentinel — remap it through
- *  the canonical grpc-gateway mapping (OK→200, NOT_FOUND→404, UNAUTHENTICATED→401,
- *  INTERNAL→500, …) so the class (2xx/4xx/5xx) reflects the real outcome. Every other
- *  protocol (HTTP, GraphQL, MCP — which already uses HTTP-like 200/0) passes through. */
+ *  which collides with the HTTP "0 = no response" error sentinel, so remap it via
+ *  `grpcStatusToHttpStatus`. Every other protocol (HTTP, GraphQL, MCP — already
+ *  HTTP-like 200/0) passes through. */
 export function httpLikeStatus(protocol: string | undefined, status: number): number {
   if (protocol === 'grpc') return grpcStatusToHttpStatus(status);
   return status;

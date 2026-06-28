@@ -111,138 +111,139 @@ export default function EntryCompareDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-px bg-border overflow-auto flex-1 content-start">
-          {[left, right].map((entry, idx) => {
-            const displayStatus = httpLikeStatus(entry.protocol, entry.response.status);
-            return (
-              <div key={idx} className="bg-background overflow-auto p-4 space-y-4 text-xs">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold">
-                      {entry.request.method}
-                    </Badge>
-                    <span
-                      className={cn('font-medium tabular-nums', getStatusTextColor(displayStatus))}
-                    >
-                      {displayStatus || 'ERR'} {entry.response.statusText}
-                    </span>
-                    <span className="text-muted-foreground ml-auto">
-                      {formatLongTimestamp(entry.timestamp)}
-                    </span>
-                  </div>
-                  <div className="font-mono break-all bg-muted/40 rounded p-2">
-                    {entry.request.url}
-                  </div>
-                  <div className="text-muted-foreground">
-                    {entry.response.time}ms · {entry.response.size} B
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                    Request headers
-                  </h4>
-                  <div className="bg-muted/30 rounded p-2 font-mono text-[11px] space-y-0.5">
-                    {requestHeaderDiff.length === 0 ? (
-                      <span className="text-muted-foreground">No headers</span>
-                    ) : (
-                      requestHeaderDiff.map((row) => {
-                        const value = idx === 0 ? row.leftValue : row.rightValue;
-                        return (
-                          <div
-                            key={row.key}
-                            className={cn(
-                              'flex gap-2',
-                              row.changed && 'bg-amber-500/10 -mx-2 px-2 rounded'
-                            )}
-                          >
-                            <span className="text-primary/80 min-w-[120px]">{row.key}:</span>
-                            <span
-                              className={cn(
-                                'break-all',
-                                value === undefined && 'text-muted-foreground italic'
-                              )}
-                            >
-                              {value ?? '(absent)'}
-                            </span>
-                          </div>
-                        );
-                      })
+          {[left, right].map((entry, idx) => (
+            <div key={idx} className="bg-background overflow-auto p-4 space-y-4 text-xs">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold">
+                    {entry.request.method}
+                  </Badge>
+                  <span
+                    className={cn(
+                      'font-medium tabular-nums',
+                      getStatusTextColor(httpLikeStatus(entry.protocol, entry.response.status))
                     )}
-                  </div>
+                  >
+                    {httpLikeStatus(entry.protocol, entry.response.status) || 'ERR'}{' '}
+                    {entry.response.statusText}
+                  </span>
+                  <span className="text-muted-foreground ml-auto">
+                    {formatLongTimestamp(entry.timestamp)}
+                  </span>
                 </div>
-
-                {entry.request.body && (
-                  <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                      Request body
-                    </h4>
-                    <div className="rounded-lg overflow-hidden border border-border">
-                      <CodeEditor
-                        value={entry.request.body}
-                        language={detectLanguage(entry.request.body)}
-                        readOnly
-                        height="160px"
-                        showCopyButton
-                        minimap={false}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                    Response headers
-                  </h4>
-                  <div className="bg-muted/30 rounded p-2 font-mono text-[11px] space-y-0.5">
-                    {responseHeaderDiff.length === 0 ? (
-                      <span className="text-muted-foreground">No headers</span>
-                    ) : (
-                      responseHeaderDiff.map((row) => {
-                        const value = idx === 0 ? row.leftValue : row.rightValue;
-                        return (
-                          <div
-                            key={row.key}
-                            className={cn(
-                              'flex gap-2',
-                              row.changed && 'bg-amber-500/10 -mx-2 px-2 rounded'
-                            )}
-                          >
-                            <span className="text-primary/80 min-w-[120px]">{row.key}:</span>
-                            <span
-                              className={cn(
-                                'break-all',
-                                value === undefined && 'text-muted-foreground italic'
-                              )}
-                            >
-                              {value ?? '(absent)'}
-                            </span>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
+                <div className="font-mono break-all bg-muted/40 rounded p-2">
+                  {entry.request.url}
                 </div>
-
-                {entry.response.body && (
-                  <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                      Response body
-                    </h4>
-                    <div className="rounded-lg overflow-hidden border border-border">
-                      <CodeEditor
-                        value={entry.response.body.substring(0, 10000)}
-                        language={detectLanguage(entry.response.body, entry.response.headers)}
-                        readOnly
-                        height="220px"
-                        showCopyButton
-                        minimap={false}
-                      />
-                    </div>
-                  </div>
-                )}
+                <div className="text-muted-foreground">
+                  {entry.response.time}ms · {entry.response.size} B
+                </div>
               </div>
-            );
-          })}
+
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                  Request headers
+                </h4>
+                <div className="bg-muted/30 rounded p-2 font-mono text-[11px] space-y-0.5">
+                  {requestHeaderDiff.length === 0 ? (
+                    <span className="text-muted-foreground">No headers</span>
+                  ) : (
+                    requestHeaderDiff.map((row) => {
+                      const value = idx === 0 ? row.leftValue : row.rightValue;
+                      return (
+                        <div
+                          key={row.key}
+                          className={cn(
+                            'flex gap-2',
+                            row.changed && 'bg-amber-500/10 -mx-2 px-2 rounded'
+                          )}
+                        >
+                          <span className="text-primary/80 min-w-[120px]">{row.key}:</span>
+                          <span
+                            className={cn(
+                              'break-all',
+                              value === undefined && 'text-muted-foreground italic'
+                            )}
+                          >
+                            {value ?? '(absent)'}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {entry.request.body && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                    Request body
+                  </h4>
+                  <div className="rounded-lg overflow-hidden border border-border">
+                    <CodeEditor
+                      value={entry.request.body}
+                      language={detectLanguage(entry.request.body)}
+                      readOnly
+                      height="160px"
+                      showCopyButton
+                      minimap={false}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                  Response headers
+                </h4>
+                <div className="bg-muted/30 rounded p-2 font-mono text-[11px] space-y-0.5">
+                  {responseHeaderDiff.length === 0 ? (
+                    <span className="text-muted-foreground">No headers</span>
+                  ) : (
+                    responseHeaderDiff.map((row) => {
+                      const value = idx === 0 ? row.leftValue : row.rightValue;
+                      return (
+                        <div
+                          key={row.key}
+                          className={cn(
+                            'flex gap-2',
+                            row.changed && 'bg-amber-500/10 -mx-2 px-2 rounded'
+                          )}
+                        >
+                          <span className="text-primary/80 min-w-[120px]">{row.key}:</span>
+                          <span
+                            className={cn(
+                              'break-all',
+                              value === undefined && 'text-muted-foreground italic'
+                            )}
+                          >
+                            {value ?? '(absent)'}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {entry.response.body && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                    Response body
+                  </h4>
+                  <div className="rounded-lg overflow-hidden border border-border">
+                    <CodeEditor
+                      value={entry.response.body.substring(0, 10000)}
+                      language={detectLanguage(entry.response.body, entry.response.headers)}
+                      readOnly
+                      height="220px"
+                      showCopyButton
+                      minimap={false}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
         {/* Inline body diffs (unified, full-width) — added on top of the

@@ -78,6 +78,7 @@ import {
   redactCollectionSecrets,
   countCollectionInlineSecrets,
 } from '@/lib/shared/collection-secret-redaction';
+import { httpLikeStatus } from '@/lib/shared/console-format';
 import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
@@ -1161,20 +1162,26 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                           ? item.request.method
                           : PROTOCOL_LABELS[item.request.type]}
                       </Badge>
-                      {item.response && (
-                        <span
-                          className={cn(
-                            'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded tabular-nums',
-                            item.response.status >= 200 && item.response.status < 300
-                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                              : item.response.status >= 400
-                                ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                          )}
-                        >
-                          {item.response.status}
-                        </span>
-                      )}
+                      {item.response &&
+                        (() => {
+                          // gRPC stores its code in status (OK === 0); map it onto the
+                          // HTTP range so a successful gRPC call isn't badged as an error.
+                          const status = httpLikeStatus(item.request.type, item.response.status);
+                          return (
+                            <span
+                              className={cn(
+                                'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded tabular-nums',
+                                status >= 200 && status < 300
+                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                  : status >= 400
+                                    ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              )}
+                            >
+                              {status}
+                            </span>
+                          );
+                        })()}
                     </div>
                     <p className="text-xs font-mono truncate pl-6 mb-1 text-foreground">
                       {item.request.type === 'grpc' ? item.request.service : item.request.url}
