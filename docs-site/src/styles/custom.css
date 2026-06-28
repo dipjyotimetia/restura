@@ -11,10 +11,11 @@
 
 :root {
   /* Brand palette — space-separated RGB triplets (modern syntax).
-     Cobalt is the primary accent (app --sp-accent #2e91ff); violet #a78bfa
-     is the gradient partner. */
+     Cobalt is the primary accent (app --sp-accent #2e91ff); the gradient
+     partner is a lighter tonal cobalt so the brand reads single-hue (matching
+     the app's single-accent mark/gradient — no cobalt→violet rainbow). */
   --restura-cobalt: 46 145 255; /* #2e91ff — primary */
-  --restura-violet: 167 139 250; /* #a78bfa — gradient partner */
+  --restura-violet: 83 166 255; /* #53a6ff — cobalt-tonal gradient partner */
   --restura-cyan: 6 182 212; /* #06b6d4 */
 
   /* Starlight accent overrides */
@@ -405,13 +406,13 @@ header.header {
   --pc: 232 121 164; /* GraphQL #e879a4 */
 }
 .protocol-grid a[data-color='magenta'] {
-  --pc: 244 114 182; /* Kafka #f472b6 */
+  --pc: 251 146 60; /* Kafka #fb923c — orange, separated from the GraphQL rose */
 }
 .protocol-grid a[data-color='cyan'] {
   --pc: var(--restura-cyan); /* SSE #06b6d4 */
 }
 .protocol-grid a[data-color='amber'] {
-  --pc: 245 158 11; /* MCP #f59e0b */
+  --pc: 234 179 8; /* MCP #eab308 — gold, off the POST amber */
 }
 .protocol-grid a[data-color='teal'] {
   --pc: 45 212 191; /* MQTT #2dd4bf (no app token) */
