@@ -2,19 +2,19 @@
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="360" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#0A0A12"/>
-      <stop offset="1" stop-color="#0E1320"/>
+      <stop offset="1" stop-color="#14121F"/>
     </linearGradient>
     <linearGradient id="word" x1="360" y1="120" x2="980" y2="200" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#BFD7FF"/>
+      <stop offset="1" stop-color="#C7C9FF"/>
     </linearGradient>
-    <linearGradient id="mark" x1="0" y1="0" x2="96" y2="96" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#127EEE"/>
-      <stop offset="1" stop-color="#53A6FF"/>
+    <linearGradient id="mark" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#818CF8"/>
+      <stop offset="1" stop-color="#6366F1"/>
     </linearGradient>
     <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#2E91FF" stop-opacity="0.40"/>
-      <stop offset="1" stop-color="#2E91FF" stop-opacity="0"/>
+      <stop offset="0" stop-color="#6366F1" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#6366F1" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
@@ -22,51 +22,45 @@
   <circle cx="1080" cy="80" r="340" fill="url(#glow)"/>
   <circle cx="180" cy="320" r="260" fill="url(#glow)" opacity="0.5"/>
 
-  <!-- logo mark — constructed R (squared bowl), scaled 3× into a 96px tile.
-       Geometry/gradient hand-copied from src/components/shared/lib/brandMark.json
-       (this file is NOT emitted by scripts/generate-icons.js) — keep in sync. -->
-  <g transform="translate(96, 86)">
-    <rect width="96" height="96" rx="21" fill="url(#mark)"/>
-    <g transform="scale(3)" stroke="#FFFFFF" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-      <path d="M10.7 6.2 V25.8"/>
-      <path d="M10.7 6.2 H17.8 Q21.7 6.2 21.7 10.3 L21.7 12 Q21.7 16 17.8 16 H10.7"/>
-      <path d="M11.6 16 L21.7 25.8"/>
-    </g>
+  <!-- logo mark -->
+  <g transform="translate(96, 86)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+    <rect width="96" height="96" rx="22" fill="url(#mark)"/>
+    <text x="48" y="68" text-anchor="middle" font-size="58" font-weight="800" fill="#FFFFFF">R</text>
   </g>
 
   <!-- wordmark + tagline -->
   <text x="224" y="148" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="76" font-weight="800" fill="url(#word)" letter-spacing="-2">Restura</text>
-  <text x="226" y="196" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="27" font-weight="500" fill="#9CB0D4">The API client that speaks every protocol.</text>
+  <text x="226" y="196" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="27" font-weight="500" fill="#9CA3C4">The API client that speaks every protocol.</text>
 
   <!-- protocol chips -->
   <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="19" font-weight="600">
     <g transform="translate(226, 246)">
-      <rect width="92"  height="40" rx="20" fill="#141A2A" stroke="#2C3650"/>
-      <text x="46"  y="26" text-anchor="middle" fill="#BFD7FF">HTTP</text>
+      <rect width="92"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
+      <text x="46"  y="26" text-anchor="middle" fill="#C7C9FF">HTTP</text>
     </g>
     <g transform="translate(330, 246)">
-      <rect width="128" height="40" rx="20" fill="#141A2A" stroke="#2C3650"/>
-      <text x="64"  y="26" text-anchor="middle" fill="#BFD7FF">GraphQL</text>
+      <rect width="128" height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
+      <text x="64"  y="26" text-anchor="middle" fill="#C7C9FF">GraphQL</text>
     </g>
     <g transform="translate(470, 246)">
-      <rect width="86"  height="40" rx="20" fill="#141A2A" stroke="#2C3650"/>
-      <text x="43"  y="26" text-anchor="middle" fill="#BFD7FF">gRPC</text>
+      <rect width="86"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
+      <text x="43"  y="26" text-anchor="middle" fill="#C7C9FF">gRPC</text>
     </g>
     <g transform="translate(568, 246)">
-      <rect width="148" height="40" rx="20" fill="#141A2A" stroke="#2C3650"/>
-      <text x="74"  y="26" text-anchor="middle" fill="#BFD7FF">WebSocket</text>
+      <rect width="148" height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
+      <text x="74"  y="26" text-anchor="middle" fill="#C7C9FF">WebSocket</text>
     </g>
     <g transform="translate(728, 246)">
-      <rect width="74"  height="40" rx="20" fill="#141A2A" stroke="#2C3650"/>
-      <text x="37"  y="26" text-anchor="middle" fill="#BFD7FF">SSE</text>
+      <rect width="74"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
+      <text x="37"  y="26" text-anchor="middle" fill="#C7C9FF">SSE</text>
     </g>
     <g transform="translate(814, 246)">
-      <rect width="92"  height="40" rx="20" fill="#141A2A" stroke="#2C3650"/>
-      <text x="46"  y="26" text-anchor="middle" fill="#BFD7FF">Kafka</text>
+      <rect width="92"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
+      <text x="46"  y="26" text-anchor="middle" fill="#C7C9FF">Kafka</text>
     </g>
     <g transform="translate(918, 246)">
-      <rect width="78"  height="40" rx="20" fill="#141A2A" stroke="#2C3650"/>
-      <text x="39"  y="26" text-anchor="middle" fill="#BFD7FF">MCP</text>
+      <rect width="78"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
+      <text x="39"  y="26" text-anchor="middle" fill="#C7C9FF">MCP</text>
     </g>
   </g>
 </svg>

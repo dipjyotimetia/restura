@@ -8,29 +8,21 @@ const log = createLogger('tray');
 
 let tray: Tray | null = null;
 
-/**
- * Resolve the tray icon. On macOS we prefer the monochrome
- * `trayIconTemplate.png` (black + alpha) which the OS recolours for light/dark
- * menu bars — but ONLY when it actually exists. `isTemplate` gates
- * `setTemplateImage`: applying it to the full-colour `icon.png` fallback would
- * paint the menu bar as a featureless solid blob (template mode uses alpha
- * only), so the flag must follow which file we actually loaded.
- */
-function getTrayIconPath(isDev: boolean): { path: string; isTemplate: boolean } {
+function getTrayIconPath(isDev: boolean): string {
   if (process.platform === 'darwin') {
     const templatePath = getResourcePath('trayIconTemplate.png', isDev);
-    if (fs.existsSync(templatePath)) return { path: templatePath, isTemplate: true };
+    if (fs.existsSync(templatePath)) return templatePath;
   }
   const iconPath = getResourcePath('icon.png', isDev);
-  if (fs.existsSync(iconPath)) return { path: iconPath, isTemplate: false };
-  return { path: '', isTemplate: false };
+  if (fs.existsSync(iconPath)) return iconPath;
+  return '';
 }
 
 export function createSystemTray(
   getMainWindow: () => BrowserWindow | null,
   isDev: boolean
 ): Tray | null {
-  const { path: iconPath, isTemplate } = getTrayIconPath(isDev);
+  const iconPath = getTrayIconPath(isDev);
 
   if (!iconPath) {
     log.warn('tray icon not found, skipping system tray creation');
@@ -38,7 +30,7 @@ export function createSystemTray(
   }
 
   const icon = nativeImage.createFromPath(iconPath);
-  if (isTemplate) icon.setTemplateImage(true);
+  if (process.platform === 'darwin') icon.setTemplateImage(true);
   const trayIcon = icon.resize({ width: 16, height: 16 });
 
   tray = new Tray(trayIcon);

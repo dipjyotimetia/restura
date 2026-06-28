@@ -1,17 +1,11 @@
 import { Home, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Logo } from '@/components/shared/Logo';
 import { Button } from '@/components/ui/button';
 
 export default function NotFound() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="text-center space-y-8 max-w-sm">
-        {/* Brand mark */}
-        <div className="flex justify-center">
-          <Logo size={44} />
-        </div>
-
         {/* Glow number */}
         <div>
           <span
