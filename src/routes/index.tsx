@@ -86,6 +86,7 @@ export default function Home() {
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
   const openTabWithMode = useRequestStore((s) => s.openTabWithMode);
   const settings = useSettingsStore((s) => s.settings);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   const aiPanelOpen = useAiChatStore((s) => s.panelOpen);
   const setAiPanelOpen = useAiChatStore((s) => s.setPanelOpen);
@@ -121,6 +122,17 @@ export default function Home() {
   );
 
   const effectiveLayout = windowWidth < 1280 ? 'vertical' : settings.layoutOrientation;
+
+  // Persisted request/response split (shared by every split protocol view).
+  const handleSplitChange = useCallback(
+    (split: number) => updateSettings({ requestResponseSplit: split }),
+    [updateSettings]
+  );
+  const splitProps = {
+    orientation: effectiveLayout,
+    split: settings.requestResponseSplit ?? 50,
+    onSplitChange: handleSplitChange,
+  };
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -241,21 +253,21 @@ export default function Home() {
     switch (requestMode) {
       case 'http':
         return (
-          <ResizableLayout orientation={effectiveLayout}>
+          <ResizableLayout {...splitProps}>
             <RequestBuilder />
             <ResponseViewer />
           </ResizableLayout>
         );
       case 'grpc':
         return (
-          <ResizableLayout orientation={effectiveLayout}>
+          <ResizableLayout {...splitProps}>
             <GrpcRequestBuilder />
             <GrpcResponsePanel />
           </ResizableLayout>
         );
       case 'graphql':
         return (
-          <ResizableLayout orientation={effectiveLayout}>
+          <ResizableLayout {...splitProps}>
             <GraphQLRequestBuilder />
             <ResponseViewer />
           </ResizableLayout>
@@ -268,7 +280,7 @@ export default function Home() {
         return <SseClient />;
       case 'mcp':
         return (
-          <ResizableLayout orientation={effectiveLayout}>
+          <ResizableLayout {...splitProps}>
             <McpRequestBuilder />
             <McpResultPanel />
           </ResizableLayout>

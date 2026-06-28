@@ -8,13 +8,23 @@ import type { FormDataItem, RequestBody } from '@/types';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
-  <CodeEditorSkeleton className="h-[300px]" />
+  <CodeEditorSkeleton className="h-full" />
 );
 const GraphQLBodyEditor = lazyComponent(
   () => import('@/features/graphql/components/GraphQLBodyEditor')
 );
 const FormDataEditor = lazyComponent(() => import('@/features/http/components/FormDataEditor'));
 const BinaryBodyPicker = lazyComponent(() => import('@/features/http/components/BinaryBodyPicker'));
+
+/**
+ * Whether the editor for this body type fills its container (the Monaco code
+ * editor) vs. renders at content height (empty state, GraphQL panel, form-data
+ * list, binary picker). Single source of truth for the parent's flex-fill
+ * decision — keep in sync with the render branch below.
+ */
+export function bodyEditorFills(type: RequestBody['type']): boolean {
+  return type !== 'none' && type !== 'graphql' && type !== 'form-data' && type !== 'binary';
+}
 
 interface RequestBodyEditorProps {
   body: RequestBody;
@@ -73,7 +83,7 @@ export default function RequestBodyEditor({
       value={body.raw || ''}
       onChange={onBodyContentChange}
       language={body.type === 'json' ? 'json' : body.type === 'xml' ? 'xml' : 'plaintext'}
-      height="320px"
+      height="100%"
       {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
     />
   );
