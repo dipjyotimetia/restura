@@ -1,3 +1,4 @@
+/// <reference types="chrome" />
 /**
  * End-to-end coverage for the Restura capture extension, exercising the REAL
  * built MV3 bundle in a real Chromium persistent context:
