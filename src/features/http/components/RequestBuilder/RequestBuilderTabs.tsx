@@ -3,13 +3,14 @@
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ComboboxInput, ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/components/ui/spatial';
-import type { ComboboxSuggestion, ParamRowData } from '@/components/ui/spatial';
+import type { ComboboxSuggestion, ParamRowData, VariableStatus } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import RequestBodyEditor, { bodyEditorFills } from '@/features/http/components/RequestBodyEditor';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
 import type { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { STANDARD_HTTP_HEADERS, getHeaderDef } from '@/lib/shared/http-headers';
 import { cn } from '@/lib/shared/utils';
 import type { AppSettings, AuthType, BodyType, HttpRequest, KeyValue } from '@/types';
@@ -142,6 +143,7 @@ export function RequestBuilderTabs({
 }: RequestBuilderTabsProps) {
   const paramsCount = counts.activeParams;
   const headersCount = counts.activeHeaders;
+  const getVarStatus = useVariableStatus();
 
   const tabs = useMemo(() => {
     const authBadge = AUTH_BADGE[request.auth.type];
@@ -206,6 +208,7 @@ export function RequestBuilderTabs({
             }
             onRowRemove={(id) => handlers.removeParam(id)}
             onAdd={(data) => handlers.addParam(data)}
+            getStatus={getVarStatus}
           />
         )}
 
@@ -224,6 +227,7 @@ export function RequestBuilderTabs({
             onAdd={(data) => handlers.addHeader(data)}
             keySuggestions={HEADER_KEY_SUGGESTIONS}
             valueSuggestionsFor={headerValueSuggestionsFor}
+            getStatus={getVarStatus}
           />
         )}
 
@@ -278,11 +282,21 @@ export function RequestBuilderTabs({
                 {variableList.length > 0 && (
                   <div className="flex items-center gap-1 flex-wrap">
                     <span className="sp-label">Vars</span>
-                    {variableList.map((v) => (
-                      <span key={v} className="sp-variable font-mono text-sp-11">
-                        {`{{${v}}}`}
-                      </span>
-                    ))}
+                    {variableList.map((v) => {
+                      const unresolved = getVarStatus(v) === 'unresolved';
+                      return (
+                        <span
+                          key={v}
+                          className={cn(
+                            'font-mono text-sp-11',
+                            unresolved ? 'sp-variable-unresolved' : 'sp-variable'
+                          )}
+                          title={unresolved ? `Unresolved variable: ${v}` : undefined}
+                        >
+                          {`{{${v}}}`}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -370,6 +384,7 @@ interface ParamHeaderTableProps {
   onAdd: (overrides?: Partial<Pick<ParamRowData, 'key' | 'value' | 'description'>>) => void;
   keySuggestions?: ReadonlyArray<ComboboxSuggestion>;
   valueSuggestionsFor?: (key: string) => ReadonlyArray<string> | undefined;
+  getStatus?: (varName: string) => VariableStatus;
 }
 
 const GHOST_FIELDS = [
@@ -387,6 +402,7 @@ function ParamHeaderTable({
   onAdd,
   keySuggestions,
   valueSuggestionsFor,
+  getStatus,
 }: ParamHeaderTableProps) {
   const [draft, setDraft] = useState({ key: '', value: '', desc: '' });
   const newRowRef = useRef<HTMLInputElement>(null);
@@ -467,6 +483,7 @@ function ParamHeaderTable({
               onChange={onRowChange}
               onRemove={onRowRemove}
               showVariableHighlight
+              {...(getStatus && { getStatus })}
               {...(i === rows.length - 1 && { inputRef: newRowRef })}
               {...(keySuggestions && { keySuggestions })}
               {...(valueSuggestionsFor && { valueSuggestionsFor })}

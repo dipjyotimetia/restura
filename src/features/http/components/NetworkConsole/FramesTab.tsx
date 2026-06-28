@@ -19,6 +19,7 @@ const PROTOCOL_FILTERS: Array<{ value: FrameProtocol | 'all'; label: string }> =
   { value: 'kafka', label: 'Kafka' },
   { value: 'mqtt', label: 'MQTT' },
   { value: 'sse', label: 'SSE' },
+  { value: 'grpc', label: 'gRPC' },
 ];
 
 /** Short badge label per frame protocol. */
@@ -28,6 +29,7 @@ const PROTOCOL_BADGES: Record<FrameProtocol, string> = {
   kafka: 'KAFKA',
   mqtt: 'MQTT',
   sse: 'SSE',
+  grpc: 'gRPC',
 };
 
 const frameBytes = (frame: ConsoleFrame): number =>
@@ -149,7 +151,8 @@ export default function FramesTab() {
         <Cable className="h-10 w-10 mb-3 opacity-30" />
         <p className="font-medium text-sm">No frames yet</p>
         <p className="text-xs mt-1">
-          WebSocket, Socket.IO, and Kafka messages appear here as they're sent or received.
+          Streaming messages — WebSocket, Socket.IO, Kafka, MQTT, SSE, and gRPC streams — appear
+          here as they're sent or received.
         </p>
       </div>
     );
@@ -287,9 +290,14 @@ export default function FramesTab() {
               <span className="text-muted-foreground ml-2">
                 {formatClockTime(selectedFrame.timestamp)}
               </span>
-              <span className="text-muted-foreground">
-                {formatBytes(frameBytes(selectedFrame))}
-              </span>
+              {/* System frames are lifecycle markers (connect / disconnect /
+                  stream open-close), not wire payloads — a byte size for them
+                  is meaningless, so only show it for in/out data frames. */}
+              {selectedFrame.direction !== 'system' && (
+                <span className="text-muted-foreground">
+                  {formatBytes(frameBytes(selectedFrame))}
+                </span>
+              )}
               <Button
                 variant="ghost"
                 size="sm"

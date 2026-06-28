@@ -386,7 +386,7 @@ export function ChatPanel({ onClose }: Props) {
 
   return (
     <aside
-      className="glass-2 border-border/40 flex h-full flex-col border-l"
+      className="sp-chrome border-sp-line flex h-full flex-col border-l"
       style={{ width: panelWidth }}
     >
       <header className="flex items-center justify-between border-b border-border/40 px-3 py-2">

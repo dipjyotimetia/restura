@@ -89,7 +89,7 @@ export function NodeChrome({
   return (
     <div
       className={cn(
-        'glass-2 rounded-lg px-3 py-2 min-w-[200px] max-w-[280px]',
+        'bg-sp-surface-hi rounded-lg px-3 py-2 min-w-[200px] max-w-[280px]',
         'transition-all duration-150',
         STATUS_RING[status],
         status === 'running' && 'animate-pulse',

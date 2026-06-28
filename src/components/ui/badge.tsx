@@ -29,7 +29,7 @@ const badgeVariants = cva(
         options:
           'border-transparent bg-muted text-muted-foreground font-mono text-[10px] font-bold tracking-wider uppercase',
         head: 'border-transparent bg-muted text-muted-foreground font-mono text-[10px] font-bold tracking-wider uppercase',
-        mono: 'border glass-border-subtle glass-2 text-foreground font-mono text-[10px] tracking-wider',
+        mono: 'border border-sp-line bg-sp-surface-hi text-foreground font-mono text-[10px] tracking-wider',
       },
     },
     defaultVariants: {

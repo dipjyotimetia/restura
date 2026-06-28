@@ -12,16 +12,18 @@ export type ProtocolName =
   | 'MQTT'
   | 'SOCKETIO';
 
-const protoStyles: Record<ProtocolName, { color: string; bg: string; label: string }> = {
-  HTTP: { color: '#2e91ff', bg: 'rgba(46,145,255,0.14)', label: 'HTTP' },
-  GRPC: { color: '#22c55e', bg: 'rgba(34,197,94,0.14)', label: 'gRPC' },
-  WS: { color: '#a78bfa', bg: 'rgba(167,139,250,0.16)', label: 'WS' },
-  GQL: { color: '#e879a4', bg: 'rgba(232,121,164,0.16)', label: 'GQL' },
-  MCP: { color: '#f59e0b', bg: 'rgba(245,158,11,0.16)', label: 'MCP' },
-  SSE: { color: '#06b6d4', bg: 'rgba(6,182,212,0.16)', label: 'SSE' },
-  KAFKA: { color: '#f472b6', bg: 'rgba(244,114,182,0.16)', label: 'Kafka' },
-  MQTT: { color: '#10b981', bg: 'rgba(16,185,129,0.16)', label: 'MQTT' },
-  SOCKETIO: { color: '#a78bfa', bg: 'rgba(167,139,250,0.16)', label: 'IO' },
+// Each protocol maps to a Spatial Depth color token (defined in globals.css
+// @theme). Single source of truth — the chip never hardcodes a color.
+const protoStyles: Record<ProtocolName, { token: string; label: string }> = {
+  HTTP: { token: '--color-proto-http', label: 'HTTP' },
+  GRPC: { token: '--color-proto-grpc', label: 'gRPC' },
+  WS: { token: '--color-proto-ws', label: 'WS' },
+  GQL: { token: '--color-proto-gql', label: 'GQL' },
+  MCP: { token: '--color-proto-mcp', label: 'MCP' },
+  SSE: { token: '--color-proto-sse', label: 'SSE' },
+  KAFKA: { token: '--color-proto-kafka', label: 'Kafka' },
+  MQTT: { token: '--color-proto-mqtt', label: 'MQTT' },
+  SOCKETIO: { token: '--color-proto-socketio', label: 'IO' },
 };
 
 export function normalizeProtocol(p: string): ProtocolName {
@@ -40,7 +42,7 @@ export interface ProtoChipProps extends Omit<React.HTMLAttributes<HTMLSpanElemen
 
 export function ProtoChip({ protocol, className, style, ref, ...props }: ProtoChipProps) {
   const key = normalizeProtocol(protocol);
-  const { color, bg, label } = protoStyles[key];
+  const { token, label } = protoStyles[key];
   return (
     <span
       ref={ref}
@@ -48,7 +50,11 @@ export function ProtoChip({ protocol, className, style, ref, ...props }: ProtoCh
         'inline-flex items-center h-5 px-1.5 font-mono font-bold uppercase tracking-wide text-sp-9 rounded-sp-chip',
         className
       )}
-      style={{ color, background: bg, ...style }}
+      style={{
+        color: `var(${token})`,
+        background: `color-mix(in srgb, var(${token}) 15%, transparent)`,
+        ...style,
+      }}
       {...props}
     >
       {label}

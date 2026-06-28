@@ -295,7 +295,9 @@ export default function NetworkConsole({
                     <Cable className="h-3 w-3 mr-1.5" />
                     Frames
                     {framesCount > 0 && (
-                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1"></Badge>
+                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1">
+                        {framesCount}
+                      </Badge>
                     )}
                   </TabsTrigger>
                   {showDiskTab && (

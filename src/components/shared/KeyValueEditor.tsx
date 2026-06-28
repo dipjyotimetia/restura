@@ -58,7 +58,7 @@ export default function KeyValueEditor({
     <TooltipProvider delayDuration={300}>
       <div className="space-y-3">
         {items.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 gap-2 text-sp-dim glass-3 rounded-xl border glass-border-subtle mx-1">
+          <div className="flex flex-col items-center justify-center py-8 gap-2 text-sp-dim sp-inset rounded-xl mx-1">
             <ListPlus className="h-5 w-5 text-primary/40" />
             <p className="text-xs font-mono">No {itemType}s added</p>
           </div>
@@ -67,7 +67,7 @@ export default function KeyValueEditor({
           {items.map((item) => (
             <StaggerItem
               key={item.id}
-              className="flex items-center gap-2 group py-1.5 px-2 rounded border border-transparent hover:bg-foreground/5 hover:glass-border-subtle transition-colors"
+              className="flex items-center gap-2 group py-1.5 px-2 rounded border border-transparent hover:bg-foreground/5 hover:border-sp-line transition-colors"
             >
               <Tooltip>
                 <TooltipTrigger asChild>

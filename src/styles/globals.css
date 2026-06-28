@@ -81,6 +81,17 @@
   --color-proto-sse: #06b6d4;
   --color-proto-kafka: #f472b6;
   --color-proto-socketio: #a78bfa;
+  --color-proto-mqtt: #10b981;
+
+  /* Semantic status colors — connection/health states across the protocol
+     clients (connected/connecting/error/idle) and the HTTP status pill.
+     Single hex (theme-independent), like the method/protocol palettes above.
+     Generates text-success/bg-warning/border-danger/… utilities. */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #06b6d4;
+  --color-neutral: #94a3b8;
 
   /* slate-blue (custom) — override v4 defaults for violet/indigo with the
      existing hex so this pass is zero-color-change (re-skin is a later phase). */
@@ -162,7 +173,9 @@
   --text-sp-22: 22px;
   --text-sp-22--line-height: 1.2;
 
-  /* Elevation shadows (legacy; elevation-3/4 live in dialog/sheet/select) */
+  /* Elevation shadows — the canonical overlay depth ladder. elevation-2:
+     tooltips; elevation-3: floating menus (dropdown/select/context/popover);
+     elevation-4: sheets. Dialogs set a bespoke deep shadow inline. */
   --shadow-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
   --shadow-elevation-2: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
   --shadow-elevation-3: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
@@ -497,6 +510,32 @@
     border-radius: 4px;
   }
 
+  /* Unresolved variable — a reference with no matching env var or dynamic
+     helper. Rendered in a warning red with a wavy underline so it reads as a
+     problem before the request fires, distinct from the amber resolved token. */
+  .sp-variable-unresolved {
+    background: rgba(239, 68, 68, 0.18);
+    color: #ef4444;
+    padding: 0 4px;
+    border-radius: 4px;
+    text-decoration: underline wavy rgba(239, 68, 68, 0.7);
+    text-underline-offset: 2px;
+  }
+
+  /* Monaco inline decorations for {{var}} tokens inside the body/code editor.
+     `!important` overrides the syntax-token color Monaco sets on the same span.
+     Mirrors the .sp-variable / .sp-variable-unresolved palette above. */
+  .monaco-var-resolved {
+    color: #f59e0b !important;
+    font-weight: 600;
+  }
+  .monaco-var-unresolved {
+    color: #ef4444 !important;
+    font-weight: 600;
+    text-decoration: underline wavy rgba(239, 68, 68, 0.7);
+    text-underline-offset: 2px;
+  }
+
   /* Section labels (e.g. HEADERS, TIMING, STREAMING) */
   .sp-label {
     font-size: 11px;
@@ -514,37 +553,6 @@
   }
   .contain-strict {
     contain: strict;
-  }
-
-  /* Legacy Strata Glass aliases — aliased to Spatial Depth surfaces.
-   * Kept for one phase so legacy components still render. Removed in Phase 11.
-   */
-  /* Frosted glass material — overlays (dialogs, menus, popovers, tooltips,
-     command palette) and chrome. Translucent + blurred so the backdrop shows
-     through. NOT used by the solid inline data panels (those use .sp-floater). */
-  .glass-1 {
-    background: rgba(255, 255, 255, 0.74);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-  }
-  .glass-2 {
-    background: rgba(255, 255, 255, 0.66);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-  }
-  .glass-3 {
-    background: rgba(255, 255, 255, 0.56);
-    backdrop-filter: blur(18px) saturate(150%);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
-  }
-  .dark .glass-1 {
-    background: rgba(26, 31, 42, 0.78);
-  }
-  .dark .glass-2 {
-    background: rgba(23, 27, 37, 0.72);
-  }
-  .dark .glass-3 {
-    background: rgba(19, 23, 31, 0.62);
   }
 
   /* Interactive floating menus — dropdowns, selects, context menus, the command
@@ -573,18 +581,6 @@
   }
   .dark .sp-chrome {
     background: rgba(18, 21, 28, 0.72);
-  }
-  .glass-border-subtle {
-    border-color: var(--sp-line);
-  }
-  .glass-border-default {
-    border-color: var(--sp-line);
-  }
-  .dark .glass-border-subtle {
-    border-color: var(--sp-line);
-  }
-  .dark .glass-border-default {
-    border-color: var(--sp-line-strong);
   }
 }
 
@@ -661,38 +657,10 @@ textarea {
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@keyframes status-appear {
-  from {
-    opacity: 0;
-    transform: scale(0.8) translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-.animate-shimmer {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--muted)) 0%,
-    hsl(var(--muted-foreground) / 0.1) 50%,
-    hsl(var(--muted)) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
+  /* .animate-shimmer is the Tailwind-generated utility from the @theme
+     --animate-shimmer token (Skeleton uses before:animate-shimmer) — not dead
+     code; keep this override so reduced-motion users don't get the shimmer. */
   .animate-shimmer {
     animation: none !important;
   }
@@ -707,9 +675,6 @@ textarea {
    overlays + chrome to solid, legible surfaces. Mirrors prefers-reduced-motion.
    Also removes the always-on backdrop-filter GPU cost for these users. */
 @media (prefers-reduced-transparency: reduce) {
-  .glass-1,
-  .glass-2,
-  .glass-3,
   .sp-menu,
   .sp-chrome,
   .sp-floater-lg {
@@ -717,22 +682,9 @@ textarea {
     -webkit-backdrop-filter: none;
     background: var(--sp-surface);
   }
-  .glass-2 {
-    background: var(--sp-surface-hi);
-  }
-  .glass-3 {
-    background: var(--sp-surface-lo);
-  }
-  .dark .glass-1,
   .dark .sp-chrome,
   .dark .sp-floater-lg {
     background: var(--sp-surface);
-  }
-  .dark .glass-2 {
-    background: var(--sp-surface-hi);
-  }
-  .dark .glass-3 {
-    background: var(--sp-surface-lo);
   }
 }
 

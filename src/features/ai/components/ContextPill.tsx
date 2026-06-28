@@ -42,7 +42,7 @@ export function ContextPill() {
   const label = useRequestStore((s) => computeLabel(s as unknown as RequestStoreShape));
 
   return (
-    <div className="glass-1 border-border/40 mx-3 mt-2 truncate rounded-md border px-2 py-1 text-[11px] text-muted-foreground">
+    <div className="bg-sp-surface border-sp-line mx-3 mt-2 truncate rounded-md border px-2 py-1 text-[11px] text-muted-foreground">
       <span aria-hidden>· </span>
       {label}
     </div>

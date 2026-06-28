@@ -22,16 +22,32 @@ interface EventStyle {
 
 /** Map of event-type → spatial color (per design handoff §9). */
 const EVENT_STYLES: Record<string, EventStyle> = {
-  message: { color: '#06b6d4', bg: 'rgba(6,182,212,0.16)', border: 'rgba(6,182,212,0.32)' },
-  progress: { color: '#22c55e', bg: 'rgba(34,197,94,0.16)', border: 'rgba(34,197,94,0.32)' },
-  token: { color: '#a78bfa', bg: 'rgba(167,139,250,0.16)', border: 'rgba(167,139,250,0.32)' },
-  done: { color: '#f59e0b', bg: 'rgba(245,158,11,0.18)', border: 'rgba(245,158,11,0.32)' },
+  message: {
+    color: 'var(--color-info)',
+    bg: 'color-mix(in srgb, var(--color-info) 16%, transparent)',
+    border: 'color-mix(in srgb, var(--color-info) 32%, transparent)',
+  },
+  progress: {
+    color: 'var(--color-success)',
+    bg: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
+    border: 'color-mix(in srgb, var(--color-success) 32%, transparent)',
+  },
+  token: {
+    color: 'var(--color-proto-ws)',
+    bg: 'color-mix(in srgb, var(--color-proto-ws) 16%, transparent)',
+    border: 'color-mix(in srgb, var(--color-proto-ws) 32%, transparent)',
+  },
+  done: {
+    color: 'var(--color-warning)',
+    bg: 'color-mix(in srgb, var(--color-warning) 18%, transparent)',
+    border: 'color-mix(in srgb, var(--color-warning) 32%, transparent)',
+  },
 };
 
 const DEFAULT_STYLE: EventStyle = {
-  color: '#94a3b8',
-  bg: 'rgba(148,163,184,0.16)',
-  border: 'rgba(148,163,184,0.32)',
+  color: 'var(--color-neutral)',
+  bg: 'color-mix(in srgb, var(--color-neutral) 16%, transparent)',
+  border: 'color-mix(in srgb, var(--color-neutral) 32%, transparent)',
 };
 
 function styleFor(eventName: string): EventStyle {
@@ -54,7 +70,10 @@ function LegendDot({ name }: { name: string }) {
       <span
         aria-hidden="true"
         className="inline-block h-2 w-2 rounded-full"
-        style={{ background: s.color, boxShadow: `0 0 6px ${s.color}aa` }}
+        style={{
+          background: s.color,
+          boxShadow: `0 0 6px color-mix(in srgb, ${s.color} 67%, transparent)`,
+        }}
       />
       <span className="font-mono">{name}</span>
     </span>
@@ -166,12 +185,13 @@ export function SseEventTimeline({
                         aria-hidden="true"
                         className="h-[9px] w-[9px] rounded-full"
                         style={{
-                          background: '#f59e0b',
-                          boxShadow: '0 0 0 2px var(--sp-surface), 0 0 8px rgba(245,158,11,0.55)',
+                          background: 'var(--color-warning)',
+                          boxShadow:
+                            '0 0 0 2px var(--sp-surface), 0 0 8px color-mix(in srgb, var(--color-warning) 55%, transparent)',
                         }}
                       />
                     </span>
-                    <span className="font-mono text-[#f59e0b] italic truncate">
+                    <span className="font-mono text-[var(--color-warning)] italic truncate">
                       {entry.message}
                     </span>
                   </li>
@@ -193,7 +213,7 @@ export function SseEventTimeline({
                       className="h-[9px] w-[9px] rounded-full"
                       style={{
                         background: s.color,
-                        boxShadow: `0 0 0 2px var(--sp-surface), 0 0 8px ${s.color}88`,
+                        boxShadow: `0 0 0 2px var(--sp-surface), 0 0 8px color-mix(in srgb, ${s.color} 53%, transparent)`,
                       }}
                     />
                   </span>

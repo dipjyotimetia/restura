@@ -1,6 +1,6 @@
 {
   "name": "restura",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Restura - A modern multi-protocol API client for HTTP and gRPC testing",
   "author": "dipjyotimetia",
@@ -100,7 +100,6 @@
     "@dagrejs/dagre": "^3.0.0",
     "@faker-js/faker": "^10.5.0",
     "@fontsource-variable/geist": "^5.2.9",
-    "@fontsource/fira-code": "^5.2.7",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@hono/node-server": "^2.0.6",
     "@hono/node-ws": "^1.3.1",

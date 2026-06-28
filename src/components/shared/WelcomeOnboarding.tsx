@@ -171,7 +171,7 @@ export default function WelcomeOnboarding() {
 
           {/* Step content */}
           <div className="text-center space-y-3">
-            <div className="flex justify-center p-3 rounded-lg glass-2 glass-border-subtle border w-16 h-16 items-center mx-auto">
+            <div className="flex justify-center p-3 rounded-lg bg-sp-surface-hi border border-sp-line w-16 h-16 items-center mx-auto">
               {currentStepData.icon}
             </div>
             <h3 className="text-sm font-mono font-medium">{currentStepData.title}</h3>

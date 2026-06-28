@@ -29,7 +29,7 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
   };
 
   return (
-    <div className="glass-1 border-sp-line m-2 rounded-lg border p-2 focus-within:border-sp-accent/50 focus-within:ring-1 focus-within:ring-sp-accent/30">
+    <div className="bg-sp-surface border-sp-line m-2 rounded-lg border p-2 focus-within:border-sp-accent/50 focus-within:ring-1 focus-within:ring-sp-accent/30">
       <textarea
         aria-label="Chat message"
         value={text}

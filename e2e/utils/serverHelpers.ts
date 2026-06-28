@@ -5,6 +5,8 @@ interface CloseableServer {
   address: () => { port: number } | string | null;
   close: (cb: (err?: Error) => void) => unknown;
   closeAllConnections?: () => void;
+  once?: (event: 'error', cb: (err: NodeJS.ErrnoException) => void) => unknown;
+  removeListener?: (event: 'error', cb: (err: NodeJS.ErrnoException) => void) => unknown;
 }
 
 export async function bindLocalhost(
@@ -12,12 +14,54 @@ export async function bindLocalhost(
   port = 0,
   host = '127.0.0.1'
 ): Promise<number> {
-  await new Promise<void>((resolve) => server.listen(port, host, resolve));
+  // listen() reports bind failures via the 'error' event, not the callback —
+  // wire it up so a failed bind rejects instead of hanging or throwing unhandled.
+  const attempt = (bindHost: string): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => reject(err);
+      server.once?.('error', onError);
+      server.listen(port, bindHost, () => {
+        server.removeListener?.('error', onError);
+        resolve();
+      });
+    });
+
+  try {
+    await attempt(host);
+  } catch (err) {
+    // Dual-stack intent ('::') degrades to the IPv4 wildcard on hosts without
+    // IPv6 (containers/CI frequently lack it), where binding '::' fails with
+    // EAFNOSUPPORT/EADDRNOTAVAIL. '0.0.0.0' stays reachable via 127.0.0.1 —
+    // exactly what a '*.localhost' hostname resolves to with no IPv6 configured.
+    const code = (err as NodeJS.ErrnoException).code;
+    const ipv6Wildcard = host === '::' || host === '::0';
+    if (ipv6Wildcard && (code === 'EAFNOSUPPORT' || code === 'EADDRNOTAVAIL')) {
+      await attempt('0.0.0.0');
+    } else {
+      throw err;
+    }
+  }
+
   const addr = server.address();
   if (!addr || typeof addr === 'string') {
     throw new Error(`Failed to bind on ${host}`);
   }
   return addr.port;
+}
+
+/**
+ * Map a `*.localhost` / `localhost` hostname to the IPv4 loopback address.
+ *
+ * `*.localhost` is loopback by spec (RFC 6761), but resolving it relies on a
+ * host NSS module (e.g. nss-myhostname) that minimal containers/CI images often
+ * lack — there `getaddrinfo('upstream.localhost')` returns ENOTFOUND. The mock
+ * proxies forward to such hostnames, so they resolve them here instead of
+ * trusting the host resolver, keeping the e2e self-contained. A non-localhost
+ * host is returned unchanged.
+ */
+export function loopbackHost(host: string): string {
+  const h = host.toLowerCase();
+  return h === 'localhost' || h.endsWith('.localhost') ? '127.0.0.1' : host;
 }
 
 export function closeServer(server: CloseableServer): Promise<void> {
