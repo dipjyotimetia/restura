@@ -4,6 +4,8 @@
  * Co-located here so the same status/method palette is used everywhere.
  */
 
+import { grpcStatusToHttpStatus } from '@shared/protocol/grpc-status';
+
 export const methodColors: Record<string, string> = {
   GET: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
   POST: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30',
@@ -16,6 +18,17 @@ export const methodColors: Record<string, string> = {
 
 export function getMethodColor(method: string): string {
   return methodColors[method] ?? methodColors.GET!;
+}
+
+/** Map a (protocol, status) pair onto the HTTP code ranges the console classifiers
+ *  and color helpers expect. gRPC stores its status code in `status` (OK === 0),
+ *  which collides with the HTTP "0 = no response" error sentinel — remap it through
+ *  the canonical grpc-gateway mapping (OK→200, NOT_FOUND→404, UNAUTHENTICATED→401,
+ *  INTERNAL→500, …) so the class (2xx/4xx/5xx) reflects the real outcome. Every other
+ *  protocol (HTTP, GraphQL, MCP — which already uses HTTP-like 200/0) passes through. */
+export function httpLikeStatus(protocol: string | undefined, status: number): number {
+  if (protocol === 'grpc') return grpcStatusToHttpStatus(status);
+  return status;
 }
 
 /** Background + border classes for a status-pill badge. */

@@ -18,6 +18,38 @@ export enum GrpcStatusCode {
   UNAUTHENTICATED = 16,
 }
 
+/**
+ * Canonical gRPC status code → HTTP status code mapping, matching grpc-gateway's
+ * `HTTPStatusFromCode` (https://github.com/grpc-ecosystem/grpc-gateway). Used to
+ * present gRPC results on the HTTP-centric surfaces of the UI (the Network console
+ * status pills/classification, the response status badge) where a code needs an
+ * HTTP-range equivalent. Unknown/out-of-range codes fall back to 500.
+ */
+const GRPC_TO_HTTP_STATUS: Record<GrpcStatusCode, number> = {
+  [GrpcStatusCode.OK]: 200,
+  [GrpcStatusCode.CANCELLED]: 499, // nginx "Client Closed Request"
+  [GrpcStatusCode.UNKNOWN]: 500,
+  [GrpcStatusCode.INVALID_ARGUMENT]: 400,
+  [GrpcStatusCode.DEADLINE_EXCEEDED]: 504,
+  [GrpcStatusCode.NOT_FOUND]: 404,
+  [GrpcStatusCode.ALREADY_EXISTS]: 409,
+  [GrpcStatusCode.PERMISSION_DENIED]: 403,
+  [GrpcStatusCode.RESOURCE_EXHAUSTED]: 429,
+  [GrpcStatusCode.FAILED_PRECONDITION]: 400,
+  [GrpcStatusCode.ABORTED]: 409,
+  [GrpcStatusCode.OUT_OF_RANGE]: 400,
+  [GrpcStatusCode.UNIMPLEMENTED]: 501,
+  [GrpcStatusCode.INTERNAL]: 500,
+  [GrpcStatusCode.UNAVAILABLE]: 503,
+  [GrpcStatusCode.DATA_LOSS]: 500,
+  [GrpcStatusCode.UNAUTHENTICATED]: 401,
+};
+
+/** Map a gRPC status code onto its HTTP-status equivalent (grpc-gateway mapping). */
+export function grpcStatusToHttpStatus(code: number): number {
+  return GRPC_TO_HTTP_STATUS[code as GrpcStatusCode] ?? 500;
+}
+
 export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
   [GrpcStatusCode.OK]: 'OK',
   [GrpcStatusCode.CANCELLED]: 'CANCELLED',

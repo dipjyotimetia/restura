@@ -61,6 +61,20 @@ describe('entriesToHar', () => {
     ]);
   });
 
+  it('maps a successful gRPC entry (status 0) to HTTP 200 — HAR treats 0 as no-response', () => {
+    const har = entriesToHar([
+      makeEntry({ protocol: 'grpc', response: { ...makeEntry().response, status: 0 } }),
+    ]);
+    expect(har.log.entries[0]!.response.status).toBe(200);
+  });
+
+  it('maps a gRPC error code to its HTTP equivalent in HAR', () => {
+    const har = entriesToHar([
+      makeEntry({ protocol: 'grpc', response: { ...makeEntry().response, status: 5 } }),
+    ]);
+    expect(har.log.entries[0]!.response.status).toBe(404); // NOT_FOUND
+  });
+
   it('parses URL query parameters into queryString', () => {
     const har = entriesToHar([makeEntry()]);
     expect(har.log.entries[0]!.request.queryString).toEqual([

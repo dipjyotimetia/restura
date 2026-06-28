@@ -46,6 +46,7 @@ import {
   formatBytes,
   formatClockTime,
   getStatusBadgeColor,
+  httpLikeStatus,
 } from '@/lib/shared/console-format';
 import { parseRequestCookies, parseResponseCookies } from '@/lib/shared/cookie-parser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -240,6 +241,9 @@ export default function NetworkTab() {
   );
 
   const selectedEntry = entries.find((e) => e.id === selectedEntryId);
+  const selectedStatus = selectedEntry
+    ? httpLikeStatus(selectedEntry.protocol, selectedEntry.response.status)
+    : 0;
 
   // Cookies parsed from the captured headers — same source the headers section
   // renders. Memoised because the detail pane re-renders on every selection.
@@ -700,12 +704,9 @@ export default function NetworkTab() {
             <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/60 text-[11px] font-mono">
               <Badge
                 variant="outline"
-                className={cn(
-                  'text-[10px] px-1.5 py-0',
-                  getStatusBadgeColor(selectedEntry.response.status)
-                )}
+                className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(selectedStatus))}
               >
-                {selectedEntry.response.status || 'ERR'} {selectedEntry.response.statusText}
+                {selectedStatus || 'ERR'} {selectedEntry.response.statusText}
               </Badge>
               <span className="flex items-center gap-1 text-muted-foreground tabular-nums">
                 <Clock className="h-3 w-3" />

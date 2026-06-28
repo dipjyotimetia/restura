@@ -23,6 +23,7 @@
  * input narrows the result set, never throws.
  */
 
+import { httpLikeStatus } from '@/lib/shared/console-format';
 import type { ConsoleEntry, ConsoleStatusFilter } from '@/store/useConsoleStore';
 
 type FieldKey = 'status' | 'method' | 'url' | 'protocol' | 'host' | 'has' | 'run';
@@ -170,7 +171,8 @@ function tokenMatches(entry: ConsoleEntry, t: FilterToken): boolean {
   const v = t.value.toLowerCase();
 
   // Field-scoped tokens.
-  if (t.field === 'status') return statusToken(entry.response.status, t.value);
+  if (t.field === 'status')
+    return statusToken(httpLikeStatus(entry.protocol, entry.response.status), t.value);
   if (t.field === 'method')
     return (
       entry.request.method.toLowerCase() === v || entry.request.method.toLowerCase().includes(v)
@@ -206,7 +208,7 @@ function tokenMatches(entry: ConsoleEntry, t: FilterToken): boolean {
   if (!v) return true; // empty token after parsing → no-op
   if (entry.request.url.toLowerCase().includes(v)) return true;
   if (entry.request.method.toLowerCase().includes(v)) return true;
-  if (entry.response.status.toString().includes(v)) return true;
+  if (httpLikeStatus(entry.protocol, entry.response.status).toString().includes(v)) return true;
   if (entry.response.statusText.toLowerCase().includes(v)) return true;
   if (entry.request.body?.toLowerCase().includes(v)) return true;
   if (entry.response.body.toLowerCase().includes(v)) return true;
@@ -246,7 +248,8 @@ export interface FilterCriteria {
 export function filterEntries(entries: ConsoleEntry[], c: FilterCriteria): ConsoleEntry[] {
   const tokens = parseQuery(c.query);
   return entries.filter((entry) => {
-    if (!statusMatchesClass(entry.response.status, c.statusFilter)) return false;
+    if (!statusMatchesClass(httpLikeStatus(entry.protocol, entry.response.status), c.statusFilter))
+      return false;
     if (c.protocolFilter !== 'all' && (entry.protocol ?? 'http') !== c.protocolFilter) return false;
     if (c.runFilter !== 'all' && entry.runId !== c.runFilter) return false;
     return matchesTokens(entry, tokens);
@@ -262,7 +265,11 @@ export function sortEntries(entries: ConsoleEntry[], sortBy: ConsoleSortBy): Con
   const compare = (a: ConsoleEntry, b: ConsoleEntry): number => {
     if (sortBy === 'time') return b.response.time - a.response.time;
     if (sortBy === 'size') return b.response.size - a.response.size;
-    if (sortBy === 'status') return b.response.status - a.response.status;
+    if (sortBy === 'status')
+      return (
+        httpLikeStatus(b.protocol, b.response.status) -
+        httpLikeStatus(a.protocol, a.response.status)
+      );
     return 0; // 'recent' — keep arrival order
   };
   const sorted = [...entries];
@@ -286,7 +293,7 @@ export function statusClassCounts(entries: ConsoleEntry[]): Record<ConsoleStatus
     errored: 0,
   };
   for (const e of entries) {
-    const s = e.response.status;
+    const s = httpLikeStatus(e.protocol, e.response.status);
     if (s >= 200 && s < 300) out['2xx'] += 1;
     else if (s >= 300 && s < 400) out['3xx'] += 1;
     else if (s >= 400 && s < 500) out['4xx'] += 1;

@@ -8,6 +8,7 @@ import {
   getMethodColor,
   getStatusBadgeColor,
   getStatusTextColor,
+  httpLikeStatus,
   methodColors,
 } from '../console-format';
 
@@ -40,6 +41,33 @@ describe('getStatusBadgeColor / getStatusTextColor', () => {
 
   it('falls back to muted for non-classed status', () => {
     expect(getStatusTextColor(100)).toContain('muted');
+  });
+});
+
+describe('httpLikeStatus', () => {
+  it('maps gRPC OK (0) to 200 so a successful call is not treated as a network error', () => {
+    expect(httpLikeStatus('grpc', 0)).toBe(200);
+  });
+
+  it('maps gRPC error codes through the canonical grpc-gateway mapping', () => {
+    expect(httpLikeStatus('grpc', 5)).toBe(404); // NOT_FOUND
+    expect(httpLikeStatus('grpc', 16)).toBe(401); // UNAUTHENTICATED
+    expect(httpLikeStatus('grpc', 13)).toBe(500); // INTERNAL
+    expect(httpLikeStatus('grpc', 14)).toBe(503); // UNAVAILABLE
+  });
+
+  it('passes HTTP statuses through unchanged (0 stays the network-error sentinel)', () => {
+    expect(httpLikeStatus('http', 0)).toBe(0);
+    expect(httpLikeStatus('http', 404)).toBe(404);
+  });
+
+  it('does not touch MCP, which already encodes errors as HTTP-like 0', () => {
+    expect(httpLikeStatus('mcp', 0)).toBe(0);
+    expect(httpLikeStatus('mcp', 200)).toBe(200);
+  });
+
+  it('passes through when protocol is undefined', () => {
+    expect(httpLikeStatus(undefined, 200)).toBe(200);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   formatLongTimestamp,
   getMethodColor,
   getStatusTextColor,
+  httpLikeStatus,
 } from '@/lib/shared/console-format';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
@@ -34,6 +35,7 @@ export default function DiskTab() {
   const [loading, setLoading] = useState(true);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [selected, setSelected] = useState<DiskLogEntry | null>(null);
+  const selectedStatus = selected ? httpLikeStatus(selected.protocol, selected.status) : 0;
   const openTab = useRequestStore((s) => s.openTab);
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const activeTab = useActiveTab();
@@ -163,6 +165,7 @@ export default function DiskTab() {
           {entries.map((entry, idx) => {
             const isSelected = selected?.ts === entry.ts && selected.url === entry.url;
             const mc = getMethodColor(entry.method);
+            const displayStatus = httpLikeStatus(entry.protocol, entry.status);
             return (
               <div
                 key={`${entry.ts}-${idx}`}
@@ -190,10 +193,10 @@ export default function DiskTab() {
                   <span
                     className={cn(
                       'text-xs font-medium tabular-nums',
-                      getStatusTextColor(entry.status)
+                      getStatusTextColor(displayStatus)
                     )}
                   >
-                    {entry.status || 'ERR'}
+                    {displayStatus || 'ERR'}
                   </span>
                   {entry.protocol !== 'http' && (
                     <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">
@@ -235,8 +238,8 @@ export default function DiskTab() {
               >
                 {selected.method}
               </Badge>
-              <span className={cn('font-medium tabular-nums', getStatusTextColor(selected.status))}>
-                {selected.status || 'ERR'}
+              <span className={cn('font-medium tabular-nums', getStatusTextColor(selectedStatus))}>
+                {selectedStatus || 'ERR'}
               </span>
               <span className="text-muted-foreground">{selected.durationMs}ms</span>
               <span className="text-muted-foreground ml-auto">
