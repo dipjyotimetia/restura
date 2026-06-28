@@ -22,16 +22,15 @@
   <circle cx="1080" cy="80" r="340" fill="url(#glow)"/>
   <circle cx="180" cy="320" r="260" fill="url(#glow)" opacity="0.5"/>
 
-  <!-- logo mark — routing-monogram R, scaled 3× into a 96px tile.
+  <!-- logo mark — constructed R (squared bowl), scaled 3× into a 96px tile.
        Geometry/gradient hand-copied from src/components/shared/lib/brandMark.json
        (this file is NOT emitted by scripts/generate-icons.js) — keep in sync. -->
   <g transform="translate(96, 86)">
     <rect width="96" height="96" rx="21" fill="url(#mark)"/>
-    <g transform="scale(3)" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
-      <path d="M10 7 V25"/>
-      <path d="M10 7 H17 A6.5 6.5 0 0 1 17 17 H10"/>
-      <path d="M10 16.5 L22 25"/>
-      <circle cx="22" cy="25" r="2.1" fill="#FFFFFF" stroke="none"/>
+    <g transform="scale(3)" stroke="#FFFFFF" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M11 6.5 V25.5"/>
+      <path d="M11 6.5 H18 Q22 6.5 22 10.4 L22 11.9 Q22 15.8 18 15.8 H11"/>
+      <path d="M11 15.8 L21 25.5"/>
     </g>
   </g>
 

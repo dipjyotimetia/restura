@@ -11,7 +11,8 @@ interface LogoProps {
 }
 
 /**
- * Restura brand mark — a routing-monogram "R" on a rounded tile.
+ * Restura brand mark — a constructed "R" (squared, rounded-corner bowl) on a
+ * rounded tile.
  *
  * Geometry comes from {@link BRAND_MARK} (the single source of truth shared with
  * the static favicon/app-icon SVGs), so the in-app mark can never drift from the
@@ -22,7 +23,7 @@ interface LogoProps {
 export function Logo({ size = 32, withWordmark = false, className }: LogoProps) {
   const reactId = React.useId();
   const gradId = `logo-grad-${reactId}`;
-  const { viewBox, paths, strokeWidth, node, gradient, tileRadiusRatio } = BRAND_MARK;
+  const { viewBox, paths, strokeWidth, gradient, tileRadiusRatio } = BRAND_MARK;
   const rx = viewBox * tileRadiusRatio;
 
   return (
@@ -45,9 +46,10 @@ export function Logo({ size = 32, withWordmark = false, className }: LogoProps) 
           </linearGradient>
         </defs>
         <rect width={viewBox} height={viewBox} rx={rx} fill={`url(#${gradId})`} />
-        {/* Routing-monogram R: stem, bowl (out-and-back route), leg (outbound
-            request). Constructed strokes rather than a typeface so it stays
-            legible at 16px and below, and survives in a single flat colour. */}
+        {/* Constructed R: stem, squared rounded-corner bowl, and a leg that
+            springs from the stem/bowl junction. Constructed strokes rather than
+            a typeface so it stays legible at 16px and below, and survives in a
+            single flat colour (favicon, macOS menu-bar template, app icon). */}
         {paths.map((d) => (
           <path
             key={d}
@@ -59,8 +61,6 @@ export function Logo({ size = 32, withWordmark = false, className }: LogoProps) 
             fill="none"
           />
         ))}
-        {/* Endpoint node — the request "lands here". */}
-        <circle cx={node.cx} cy={node.cy} r={node.r} fill="#ffffff" />
       </svg>
       {withWordmark && (
         <span className="text-sp-13 font-bold tracking-tight text-sp-text leading-none">
