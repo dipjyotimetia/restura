@@ -1,3 +1,4 @@
+import { grpcStatusToHttpStatus } from '@shared/protocol/grpc-status';
 import { Fragment, useMemo } from 'react';
 import { Floater, Stat, StatusPill } from '@/components/ui/spatial';
 import { useActiveResponse } from '@/store/selectors';
@@ -40,9 +41,10 @@ export function GrpcResponsePanel() {
   const grpcStatusName =
     grpcStatus != null ? `${grpcStatus} (${GrpcStatusCodeName[grpcStatus] ?? '?'})` : '—';
   const isOk = grpcStatus === 0;
-  // StatusPill maps numeric ranges; map gRPC OK → 200, error codes → 500
-  // range so the pill colors match the HTTP convention used elsewhere.
-  const pillStatus = grpcStatus == null ? 0 : grpcStatus === 0 ? 200 : 500;
+  // StatusPill maps numeric ranges; map the gRPC code onto its HTTP-status
+  // equivalent (OK→200, NOT_FOUND→404, …) so the pill colors match the HTTP
+  // convention used elsewhere.
+  const pillStatus = grpcStatus == null ? 0 : grpcStatusToHttpStatus(grpcStatus);
   const pillText =
     grpcStatus == null ? 'idle' : isOk ? 'OK' : (GrpcStatusCodeName[grpcStatus] ?? 'ERR');
 

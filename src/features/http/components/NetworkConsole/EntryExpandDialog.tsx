@@ -16,6 +16,7 @@ import {
   formatBytes,
   formatLongTimestamp,
   getStatusBadgeColor,
+  httpLikeStatus,
 } from '@/lib/shared/console-format';
 import { parseRequestCookies, parseResponseCookies } from '@/lib/shared/cookie-parser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -52,6 +53,8 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
 
   if (!entry) return null;
 
+  const displayStatus = httpLikeStatus(entry.protocol, entry.response.status);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[min(96vw,1400px)] !w-[min(96vw,1400px)] max-h-[92vh] flex flex-col p-0 gap-0">
@@ -63,9 +66,9 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
             </Badge>
             <Badge
               variant="outline"
-              className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(entry.response.status))}
+              className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(displayStatus))}
             >
-              {entry.response.status || 'ERR'} {entry.response.statusText}
+              {displayStatus || 'ERR'} {entry.response.statusText}
             </Badge>
             <span className="font-mono text-xs text-muted-foreground truncate flex-1">
               {entry.request.url}

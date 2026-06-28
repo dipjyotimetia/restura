@@ -2,7 +2,7 @@ import { ChevronUp } from 'lucide-react';
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import NetworkConsole from '@/features/http/components/NetworkConsole';
-import { getStatusTextColor } from '@/lib/shared/console-format';
+import { getStatusTextColor, httpLikeStatus } from '@/lib/shared/console-format';
 import { cn } from '@/lib/shared/utils';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
@@ -65,7 +65,7 @@ export default function ConsoleDrawer({
     let redirect = 0;
     let err = 0;
     for (const entry of entries) {
-      const s = entry.response.status;
+      const s = httpLikeStatus(entry.protocol, entry.response.status);
       if (s >= 200 && s < 300) ok += 1;
       else if (s >= 300 && s < 400) redirect += 1;
       else err += 1; // 4xx, 5xx, and network failures (status 0)
@@ -74,6 +74,7 @@ export default function ConsoleDrawer({
   }, [entries]);
 
   const lastEntry = entries[0]; // store keeps newest-first
+  const lastStatus = lastEntry ? httpLikeStatus(lastEntry.protocol, lastEntry.response.status) : 0;
   const total = entries.length;
 
   return (
@@ -138,11 +139,8 @@ export default function ConsoleDrawer({
           {/* Last activity — the newest entry's status + relative time. */}
           {lastEntry && (
             <span className="font-mono text-sp-10-5 text-sp-dim truncate">
-              last:{' '}
-              <span className={getStatusTextColor(lastEntry.response.status)}>
-                {lastEntry.response.status || 'ERR'}
-              </span>{' '}
-              · {relativeTime(lastEntry.timestamp)}
+              last: <span className={getStatusTextColor(lastStatus)}>{lastStatus || 'ERR'}</span> ·{' '}
+              {relativeTime(lastEntry.timestamp)}
             </span>
           )}
         </button>

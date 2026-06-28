@@ -26,6 +26,7 @@ import {
   formatRelativeTime,
   getMethodColor,
   getStatusTextColor,
+  httpLikeStatus,
 } from '@/lib/shared/console-format';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTab } from '@/store/selectors';
@@ -67,7 +68,8 @@ export default function RequestEntryItem({
 }: RequestEntryItemProps) {
   const { request, response, timestamp } = entry;
   const methodColor = getMethodColor(request.method);
-  const statusColor = getStatusTextColor(response.status);
+  const displayStatus = httpLikeStatus(entry.protocol, response.status);
+  const statusColor = getStatusTextColor(displayStatus);
   const removeEntry = useConsoleStore((s) => s.removeEntry);
   const togglePin = useConsoleStore((s) => s.togglePin);
   const openTab = useRequestStore((s) => s.openTab);
@@ -171,7 +173,7 @@ export default function RequestEntryItem({
               {request.method}
             </Badge>
             <span className={cn('text-xs font-medium tabular-nums', statusColor)}>
-              {response.status || 'ERR'}
+              {displayStatus || 'ERR'}
             </span>
             {entry.protocol && entry.protocol !== 'http' && (
               <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">

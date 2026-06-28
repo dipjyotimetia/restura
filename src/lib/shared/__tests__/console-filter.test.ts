@@ -249,6 +249,59 @@ describe('statusClassCounts', () => {
   });
 });
 
+describe('gRPC status classification (issue #371)', () => {
+  // gRPC stores its status code in response.status (OK === 0). Without protocol-aware
+  // mapping, a successful gRPC call (0) collided with the HTTP "0 = no response" error
+  // sentinel and was shown/counted as errored.
+  const grpcOk = make({ id: 'ok', protocol: 'grpc', response: { ...make().response, status: 0 } });
+  const grpcNotFound = make({
+    id: 'nf',
+    protocol: 'grpc',
+    response: { ...make().response, status: 5 }, // NOT_FOUND → 404
+  });
+  const grpcInternal = make({
+    id: 'int',
+    protocol: 'grpc',
+    response: { ...make().response, status: 13 }, // INTERNAL → 500
+  });
+
+  it('classifies a successful gRPC call (status 0) as 2xx, not errored', () => {
+    expect(matchesQuery(grpcOk, 'status:2xx')).toBe(true);
+    expect(matchesQuery(grpcOk, 'status:errored')).toBe(false);
+    expect(matchesQuery(grpcOk, 'status:200')).toBe(true);
+  });
+
+  it('maps gRPC error codes onto their HTTP class', () => {
+    expect(matchesQuery(grpcNotFound, 'status:4xx')).toBe(true);
+    expect(matchesQuery(grpcNotFound, 'status:errored')).toBe(false);
+    expect(matchesQuery(grpcInternal, 'status:5xx')).toBe(true);
+    expect(matchesQuery(grpcInternal, 'status:errored')).toBe(true);
+  });
+
+  it('counts a successful gRPC call under 2xx, not errored', () => {
+    expect(statusClassCounts([grpcOk, grpcNotFound, grpcInternal])).toEqual({
+      all: 3,
+      '2xx': 1,
+      '3xx': 0,
+      '4xx': 1,
+      '5xx': 1,
+      errored: 1,
+    });
+  });
+
+  it('does not affect HTTP entries — genuine status 0 stays errored', () => {
+    const httpFail = make({ response: { ...make().response, status: 0 } });
+    expect(matchesQuery(httpFail, 'status:errored')).toBe(true);
+  });
+
+  it('free-text search matches the displayed (HTTP-mapped) status, not the raw gRPC code', () => {
+    // The list now shows NOT_FOUND (code 5) as "404", so free text follows the
+    // display: "404" matches, the raw "5" no longer does.
+    expect(matchesQuery(grpcNotFound, '404')).toBe(true);
+    expect(matchesQuery(grpcNotFound, '5')).toBe(false);
+  });
+});
+
 describe('statusMatchesClass (re-exported)', () => {
   it('handles class strings the legacy callers rely on', () => {
     expect(statusMatchesClass(204, '2xx')).toBe(true);

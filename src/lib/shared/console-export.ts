@@ -1,3 +1,4 @@
+import { httpLikeStatus } from '@/lib/shared/console-format';
 import { entryToCurl, type ConsoleEntry } from '@/store/useConsoleStore';
 
 /**
@@ -115,7 +116,9 @@ export function entriesToHar(entries: ConsoleEntry[]): HarLog {
             }),
           },
           response: {
-            status: entry.response.status,
+            // HAR consumers treat status 0 as "no response"; gRPC stores its
+            // code in status (OK === 0), so map it onto the HTTP equivalent.
+            status: httpLikeStatus(entry.protocol, entry.response.status),
             statusText: entry.response.statusText,
             httpVersion: 'HTTP/1.1',
             cookies: [],

@@ -13,6 +13,7 @@ import {
   detectLanguage,
   formatLongTimestamp,
   getStatusTextColor,
+  httpLikeStatus,
 } from '@/lib/shared/console-format';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { diffLines, type LineDiffEntry } from '@/lib/shared/line-diff';
@@ -120,10 +121,11 @@ export default function EntryCompareDialog({
                   <span
                     className={cn(
                       'font-medium tabular-nums',
-                      getStatusTextColor(entry.response.status)
+                      getStatusTextColor(httpLikeStatus(entry.protocol, entry.response.status))
                     )}
                   >
-                    {entry.response.status || 'ERR'} {entry.response.statusText}
+                    {httpLikeStatus(entry.protocol, entry.response.status) || 'ERR'}{' '}
+                    {entry.response.statusText}
                   </span>
                   <span className="text-muted-foreground ml-auto">
                     {formatLongTimestamp(entry.timestamp)}
