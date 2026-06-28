@@ -7,7 +7,7 @@
     <meta name="color-scheme" content="dark light" />
     <link rel="canonical" href="https://restura.dev/" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="application-name" content="Restura" />
     <meta name="creator" content="Restura" />
@@ -70,7 +70,68 @@
     </script>
   </head>
   <body class="antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <!-- First-paint brand splash. React clears #root on mount, so this shows
+           only until the SPA hydrates. Inline + self-contained (no CSS deps) —
+           it cannot import brandMark.json before paint, so the mark geometry/
+           gradient below are hand-copied from it; keep in sync. -->
+      <div
+        id="app-splash"
+        style="
+          position: fixed;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #0e1117;
+        "
+      >
+        <svg
+          width="76"
+          height="76"
+          viewBox="0 0 32 32"
+          role="img"
+          aria-label="Restura"
+          style="border-radius: 17px; animation: app-splash-pulse 1.4s ease-in-out infinite"
+        >
+          <defs>
+            <linearGradient id="splash-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#127eee" />
+              <stop offset="100%" stop-color="#53a6ff" />
+            </linearGradient>
+          </defs>
+          <rect width="32" height="32" rx="7" fill="url(#splash-grad)" />
+          <g
+            stroke="#fff"
+            stroke-width="3.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"
+          >
+            <path d="M10 7 V25" />
+            <path d="M10 7 H17 A6.5 6.5 0 0 1 17 17 H10" />
+            <path d="M10 16.5 L22 25" />
+            <circle cx="22" cy="25" r="2.1" fill="#fff" stroke="none" />
+          </g>
+        </svg>
+      </div>
+      <style>
+        @keyframes app-splash-pulse {
+          0%,
+          100% {
+            opacity: 0.55;
+          }
+          50% {
+            opacity: 1;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          #app-splash svg {
+            animation: none !important;
+          }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

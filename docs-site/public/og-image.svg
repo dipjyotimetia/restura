@@ -5,13 +5,35 @@
       <stop offset="1" stop-color="#111a2e"/>
     </linearGradient>
     <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#2e91ff"/>
-      <stop offset="1" stop-color="#a78bfa"/>
+      <stop offset="0" stop-color="#127eee"/>
+      <stop offset="1" stop-color="#53a6ff"/>
     </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#127eee"/>
+      <stop offset="1" stop-color="#53a6ff"/>
+    </linearGradient>
+    <radialGradient id="markGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2e91ff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#2e91ff" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect width="1200" height="6" fill="url(#accent)"/>
+
+  <!-- brand mark — routing-monogram R, scaled 4.6875× into a 150px tile.
+       Geometry/gradient hand-copied from src/components/shared/lib/brandMark.json
+       (this file is NOT emitted by scripts/generate-icons.js) — keep in sync. -->
+  <circle cx="1035" cy="135" r="190" fill="url(#markGlow)"/>
+  <g transform="translate(960, 60)">
+    <rect width="150" height="150" rx="33" fill="url(#mark)"/>
+    <g transform="scale(4.6875)" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M10 7 V25"/>
+      <path d="M10 7 H17 A6.5 6.5 0 0 1 17 17 H10"/>
+      <path d="M10 16.5 L22 25"/>
+      <circle cx="22" cy="25" r="2.1" fill="#ffffff" stroke="none"/>
+    </g>
+  </g>
 
   <!-- wordmark -->
   <text x="80" y="190" font-size="96" font-weight="800" fill="#f8fafc" letter-spacing="-2">Restura</text>
