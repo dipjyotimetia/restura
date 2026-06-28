@@ -12,6 +12,12 @@ export type {
   CapturedHeader,
   CapturedProtocol,
 } from './types';
+export {
+  captureSessionSchema,
+  capturedExchangeSchema,
+  capturedBodySchema,
+  capturedHeaderSchema,
+} from './schema';
 export { classifyProtocol } from './protocol-classifier';
 export type { ClassifyInput, ClassifyResult } from './protocol-classifier';
 export { redactExchange } from './secret-extractor';

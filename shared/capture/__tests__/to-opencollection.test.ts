@@ -57,17 +57,19 @@ describe('sessionToOpenCollection', () => {
     const json = JSON.stringify(doc);
     expect(json).not.toContain('supersecrettoken123');
     const http = doc.items[0];
-    expect(http.info.type).toBe('http');
-    expect(http.http?.method).toBe('POST');
-    const auth = http.http?.headers?.find((h) => h.name === 'Authorization');
+    expect(http?.info.type).toBe('http');
+    if (!http || !('http' in http)) throw new Error('expected http item');
+    expect(http.http.method).toBe('POST');
+    const auth = http.http.headers?.find((h) => h.name === 'Authorization');
     expect(auth?.value).toBe('{{authorization}}');
   });
 
   it('maps a GraphQL exchange to a graphql item with the query', () => {
     const doc = sessionToOpenCollection(redactSession());
     const gql = doc.items[1];
-    expect(gql.info.type).toBe('graphql');
-    expect(gql.graphql?.query).toContain('GetUser');
+    expect(gql?.info.type).toBe('graphql');
+    if (!gql || !('graphql' in gql)) throw new Error('expected graphql item');
+    expect(gql.graphql.query).toContain('GetUser');
   });
 
   it('declares captured secrets as secret environment variables', () => {
