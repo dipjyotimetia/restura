@@ -6,6 +6,8 @@ import {
   mcpRequestSchema,
   environmentSchema,
   collectionSchema,
+  proxyTypeSchema,
+  minTlsVersionSchema,
 } from './validations';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
 import type { Request, Environment, Collection, SpatialAccent } from '@/types';
@@ -466,7 +468,7 @@ export type PersistedArenaRunState = z.infer<typeof ArenaStateSchema>;
 const SettingsProxySchema = z
   .object({
     enabled: z.boolean().catch(false),
-    type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']).catch('http'),
+    type: proxyTypeSchema.catch('http'),
     host: z.string().catch(''),
     port: z.number().int().min(1).max(65535).catch(8080),
     // SecretValue (inline string or SecretRef handle); shape is enforced where
@@ -535,7 +537,7 @@ export const appSettingsSchema = z
     encodeUrlAutomatically: z.boolean().optional().catch(undefined),
     disableCookieJar: z.boolean().optional().catch(undefined),
     serverCipherOrder: z.boolean().optional().catch(undefined),
-    minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional().catch(undefined),
+    minTlsVersion: minTlsVersionSchema.optional().catch(undefined),
     cipherSuites: z.string().optional().catch(undefined),
     telemetry: z
       .object({ errorsEnabled: z.boolean().catch(true) })

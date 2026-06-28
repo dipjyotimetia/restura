@@ -27,10 +27,14 @@ export const keyValueSchema = z.object({
   description: z.string().optional(),
 });
 
+// Proxy type literal — single source of truth for the ProxyType union (reused
+// by the persisted-settings validator so the enum isn't re-declared per layer).
+export const proxyTypeSchema = z.enum(['none', 'http', 'https', 'socks4', 'socks5']);
+
 // Proxy Config Schema
 export const proxyConfigSchema = z.object({
   enabled: z.boolean(),
-  type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']),
+  type: proxyTypeSchema,
   host: z.string(),
   port: z.number(),
   auth: z

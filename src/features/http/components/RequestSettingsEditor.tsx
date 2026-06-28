@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { cn } from '@/lib/shared/utils';
 import type { MinTlsVersion, RequestSettings, GlobalSettings } from '@/types';
 
@@ -34,41 +35,11 @@ export default function RequestSettingsEditor({
 }: RequestSettingsEditorProps) {
   const [tlsAdvancedOpen, setTlsAdvancedOpen] = useState(false);
 
-  const getEffectiveSettings = (): RequestSettings => {
-    return (
-      settings || {
-        timeout: globalSettings.defaultTimeout,
-        followRedirects: globalSettings.followRedirects,
-        maxRedirects: globalSettings.maxRedirects,
-        verifySsl: globalSettings.verifySsl,
-        proxy: globalSettings.proxy,
-        ...(globalSettings.followOriginalMethod !== undefined && {
-          followOriginalMethod: globalSettings.followOriginalMethod,
-        }),
-        ...(globalSettings.followAuthHeader !== undefined && {
-          followAuthHeader: globalSettings.followAuthHeader,
-        }),
-        ...(globalSettings.stripReferer !== undefined && {
-          stripReferer: globalSettings.stripReferer,
-        }),
-        ...(globalSettings.encodeUrlAutomatically !== undefined && {
-          encodeUrlAutomatically: globalSettings.encodeUrlAutomatically,
-        }),
-        ...(globalSettings.disableCookieJar !== undefined && {
-          disableCookieJar: globalSettings.disableCookieJar,
-        }),
-        ...(globalSettings.serverCipherOrder !== undefined && {
-          serverCipherOrder: globalSettings.serverCipherOrder,
-        }),
-        ...(globalSettings.minTlsVersion !== undefined && {
-          minTlsVersion: globalSettings.minTlsVersion,
-        }),
-        ...(globalSettings.cipherSuites !== undefined && {
-          cipherSuites: globalSettings.cipherSuites,
-        }),
-      }
-    );
-  };
+  // Shares the executor's fold so the controls below display exactly the
+  // effective settings that will reach the wire (no per-request override → the
+  // global defaults), and enabling override seeds the identical object.
+  const getEffectiveSettings = (): RequestSettings =>
+    resolveEffectiveSettings(settings, globalSettings);
 
   // Per-request proxy credentials. Stored inline (a plain string SecretValue);
   // the desktop proxy connector resolves them at the wire. Reading a handle-

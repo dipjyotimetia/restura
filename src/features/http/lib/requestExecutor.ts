@@ -8,6 +8,7 @@ import {
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import {
   readStreamingResponse,
@@ -74,53 +75,11 @@ interface BuiltSpec {
   desktop?: DesktopTransportConfig;
 }
 
-/**
- * Per-request settings with a global-settings fallback. Used by every transport
- * entry point (HTTP executor, the request page, GraphQL introspection) so the
- * fallback shape stays in one place.
- */
-export function resolveEffectiveSettings(
-  requestSettings: RequestSettings | undefined,
-  globalSettings: AppSettings
-): RequestSettings {
-  if (requestSettings) return requestSettings;
-  return {
-    timeout: globalSettings.defaultTimeout,
-    followRedirects: globalSettings.followRedirects,
-    maxRedirects: globalSettings.maxRedirects,
-    verifySsl: globalSettings.verifySsl,
-    proxy: globalSettings.proxy,
-    // Optional workspace-level defaults (redirect policy / URL encoding / cookie
-    // jar / TLS). These were previously dropped here, so a global default never
-    // reached the wire unless the request also carried its own override — and
-    // enabling per-request override (which seeds from this object) silently lost
-    // them. Mirror RequestSettingsEditor.getEffectiveSettings so the two agree.
-    ...(globalSettings.followOriginalMethod !== undefined && {
-      followOriginalMethod: globalSettings.followOriginalMethod,
-    }),
-    ...(globalSettings.followAuthHeader !== undefined && {
-      followAuthHeader: globalSettings.followAuthHeader,
-    }),
-    ...(globalSettings.stripReferer !== undefined && {
-      stripReferer: globalSettings.stripReferer,
-    }),
-    ...(globalSettings.encodeUrlAutomatically !== undefined && {
-      encodeUrlAutomatically: globalSettings.encodeUrlAutomatically,
-    }),
-    ...(globalSettings.disableCookieJar !== undefined && {
-      disableCookieJar: globalSettings.disableCookieJar,
-    }),
-    ...(globalSettings.serverCipherOrder !== undefined && {
-      serverCipherOrder: globalSettings.serverCipherOrder,
-    }),
-    ...(globalSettings.minTlsVersion !== undefined && {
-      minTlsVersion: globalSettings.minTlsVersion,
-    }),
-    ...(globalSettings.cipherSuites !== undefined && {
-      cipherSuites: globalSettings.cipherSuites,
-    }),
-  };
-}
+// Re-exported (imported above for internal use) so existing import sites
+// (`@/features/http/lib/requestExecutor`) keep working. The fold itself lives in
+// effectiveSettings.ts so the per-request editor can share it without pulling
+// this module's heavy deps. See globalSettingsToRequestSettings.
+export { resolveEffectiveSettings };
 
 /**
  * Assemble the desktop-only transport config from per-request settings,
