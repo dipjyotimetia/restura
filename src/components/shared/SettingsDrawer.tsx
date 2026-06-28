@@ -25,6 +25,7 @@ import { useTheme } from 'next-themes';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { CaptureBridgeCard } from '@/components/shared/CaptureBridgeCard';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Logo } from '@/components/shared/Logo';
@@ -283,6 +284,7 @@ export default function SettingsDrawer({
                 </div>
               )}
               {activeSection === 'data' && <DataSection />}
+              {activeSection === 'data' && <CaptureBridgeCard />}
               {activeSection === 'updates' && <UpdatesSection />}
               {activeSection === 'shortcuts' && <ShortcutsSection />}
               {activeSection === 'about' && <AboutSection />}

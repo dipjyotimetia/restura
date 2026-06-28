@@ -731,6 +731,27 @@ interface ElectronMockAPI {
   status: () => Promise<{ ok: true; status: ElectronMockStatus } | { ok: false; error: string }>;
 }
 
+export interface ElectronCaptureBridgeStatus {
+  running: boolean;
+  port?: number;
+}
+
+interface ElectronCaptureAPI {
+  startBridge: () => Promise<
+    { ok: true; status: ElectronCaptureBridgeStatus; token?: string } | { ok: false; error: string }
+  >;
+  stopBridge: () => Promise<
+    { ok: true; status: ElectronCaptureBridgeStatus } | { ok: false; error: string }
+  >;
+  bridgeStatus: () => Promise<
+    { ok: true; status: ElectronCaptureBridgeStatus } | { ok: false; error: string }
+  >;
+  // A captured session arrived over the loopback bridge, already converted to an
+  // OpenCollection document the renderer should confirm-and-import.
+  onReceived: (callback: (doc: unknown) => void) => void;
+  removeReceivedListener: () => void;
+}
+
 interface LogEntry {
   ts: number;
   method: string;
@@ -936,6 +957,7 @@ interface ElectronAPI {
   store: ElectronStoreAPI;
   git: ElectronGitAPI;
   mock: ElectronMockAPI;
+  capture: ElectronCaptureAPI;
   secrets: ElectronSecretsAPI;
   vault: ElectronVaultAPI;
   ai: ElectronAiAPI;
