@@ -269,6 +269,32 @@ describe('executeHttpProxy redirect handling', () => {
         expect(result.payload.error).toMatch(/too many redirects.*>2/i);
       }
     });
+
+    it('maxRedirects=0 returns the 3xx unfollowed (Follow redirects: off)', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        status: 302,
+        statusText: 'Found',
+        headers: new Headers({ Location: 'https://other.example/dest' }),
+        text: async () => '',
+        contentLengthHeader: '0',
+        body: null,
+      });
+
+      const result = await executeHttpProxy(
+        {
+          method: 'GET',
+          url: 'https://api.example/start',
+          redirectPolicy: { maxRedirects: 0 },
+        },
+        fetcher as Fetcher,
+        { allowLocalhost: false }
+      );
+
+      // The 3xx is returned as-is and the Location target is NOT fetched.
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.response.status).toBe(302);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

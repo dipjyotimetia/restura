@@ -518,7 +518,14 @@ function AppearanceSection() {
           control={
             <Segmented<'light' | 'dark' | 'system'>
               value={currentTheme}
-              onChange={(v) => withViewTransition(() => setTheme(v))}
+              onChange={(v) =>
+                withViewTransition(() => {
+                  // Persist to settings as well as next-themes so this control
+                  // and the General → Theme control share one source of truth.
+                  setTheme(v);
+                  updateSettings({ theme: v });
+                })
+              }
               options={[
                 { value: 'light', label: 'Light' },
                 { value: 'dark', label: 'Dark' },
@@ -1024,7 +1031,14 @@ function HostScopeFields({
         value={port ?? ''}
         onChange={(e) => {
           const v = e.target.value.trim();
-          onPortChange(v === '' ? undefined : Number(v));
+          if (v === '') {
+            onPortChange(undefined);
+            return;
+          }
+          // Guard against NaN / out-of-range: a non-numeric paste would
+          // otherwise persist `port: NaN` into the host entry.
+          const n = Number(v);
+          if (Number.isFinite(n) && n >= 1 && n <= 65535) onPortChange(n);
         }}
         inputMode="numeric"
         aria-label="Port"

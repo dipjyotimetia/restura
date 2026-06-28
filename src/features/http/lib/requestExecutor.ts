@@ -83,15 +83,43 @@ export function resolveEffectiveSettings(
   requestSettings: RequestSettings | undefined,
   globalSettings: AppSettings
 ): RequestSettings {
-  return (
-    requestSettings ?? {
-      timeout: globalSettings.defaultTimeout,
-      followRedirects: globalSettings.followRedirects,
-      maxRedirects: globalSettings.maxRedirects,
-      verifySsl: globalSettings.verifySsl,
-      proxy: globalSettings.proxy,
-    }
-  );
+  if (requestSettings) return requestSettings;
+  return {
+    timeout: globalSettings.defaultTimeout,
+    followRedirects: globalSettings.followRedirects,
+    maxRedirects: globalSettings.maxRedirects,
+    verifySsl: globalSettings.verifySsl,
+    proxy: globalSettings.proxy,
+    // Optional workspace-level defaults (redirect policy / URL encoding / cookie
+    // jar / TLS). These were previously dropped here, so a global default never
+    // reached the wire unless the request also carried its own override — and
+    // enabling per-request override (which seeds from this object) silently lost
+    // them. Mirror RequestSettingsEditor.getEffectiveSettings so the two agree.
+    ...(globalSettings.followOriginalMethod !== undefined && {
+      followOriginalMethod: globalSettings.followOriginalMethod,
+    }),
+    ...(globalSettings.followAuthHeader !== undefined && {
+      followAuthHeader: globalSettings.followAuthHeader,
+    }),
+    ...(globalSettings.stripReferer !== undefined && {
+      stripReferer: globalSettings.stripReferer,
+    }),
+    ...(globalSettings.encodeUrlAutomatically !== undefined && {
+      encodeUrlAutomatically: globalSettings.encodeUrlAutomatically,
+    }),
+    ...(globalSettings.disableCookieJar !== undefined && {
+      disableCookieJar: globalSettings.disableCookieJar,
+    }),
+    ...(globalSettings.serverCipherOrder !== undefined && {
+      serverCipherOrder: globalSettings.serverCipherOrder,
+    }),
+    ...(globalSettings.minTlsVersion !== undefined && {
+      minTlsVersion: globalSettings.minTlsVersion,
+    }),
+    ...(globalSettings.cipherSuites !== undefined && {
+      cipherSuites: globalSettings.cipherSuites,
+    }),
+  };
 }
 
 /**
@@ -235,7 +263,12 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   if (effectiveSettings.stripReferer !== undefined) {
     redirectPolicy.stripReferer = effectiveSettings.stripReferer;
   }
-  if (effectiveSettings.followRedirects && effectiveSettings.maxRedirects !== undefined) {
+  // followRedirects:false → maxRedirects:0 so the shared follower (and the
+  // Electron manual handler) return the 3xx unfollowed. Previously nothing was
+  // emitted in that case, so the follower's default (5) silently still ran.
+  if (!effectiveSettings.followRedirects) {
+    redirectPolicy.maxRedirects = 0;
+  } else if (effectiveSettings.maxRedirects !== undefined) {
     redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;
   }
 

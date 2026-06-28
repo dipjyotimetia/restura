@@ -96,7 +96,11 @@ export interface FollowRedirectsOptions {
    * of origin). Default: false.
    */
   stripReferer?: boolean;
-  /** Override the default redirect hop cap (5). Clamped to >= 1. */
+  /**
+   * Override the default redirect hop cap (5). A positive value is clamped to
+   * >= 1; `0` is special-cased to mean "do not follow redirects at all" (the
+   * 3xx response is returned as-is). Omit to use the default.
+   */
   maxRedirects?: number;
 }
 
@@ -108,6 +112,14 @@ export async function followRedirects(
   let req = initialReq;
   let response = await fetcher(req);
   let hops = 0;
+
+  // maxRedirects: 0 means "do not follow" — return the 3xx response unfollowed
+  // (parity with axios `maxRedirects: 0` and the browser interactive path, so a
+  // user who turns OFF "Follow redirects" actually sees the 3xx). There is no
+  // target to re-validate because we never leave the origin response.
+  if (options.maxRedirects === 0) {
+    return response;
+  }
 
   const maxHops = Math.max(1, options.maxRedirects ?? DEFAULT_MAX_REDIRECTS);
   // Compute the cross-origin strip list per call so feature flags can opt out

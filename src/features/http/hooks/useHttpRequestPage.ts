@@ -245,7 +245,11 @@ export function useHttpRequestPage() {
         if (effectiveSettings.stripReferer !== undefined) {
           redirectPolicy.stripReferer = effectiveSettings.stripReferer;
         }
-        if (effectiveSettings.followRedirects && effectiveSettings.maxRedirects !== undefined) {
+        // followRedirects:false → maxRedirects:0 so the Electron handler returns
+        // the 3xx unfollowed (mirrors the web axios `maxRedirects: 0` branch).
+        if (!effectiveSettings.followRedirects) {
+          redirectPolicy.maxRedirects = 0;
+        } else if (effectiveSettings.maxRedirects !== undefined) {
           redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;
         }
 
