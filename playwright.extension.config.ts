@@ -15,4 +15,6 @@ export default defineConfig({
   reporter: 'list',
   timeout: 120_000,
   expect: { timeout: 10_000 },
+  // Keep traces/screenshots on failure so the CI artifact upload is useful.
+  use: { trace: 'retain-on-failure', screenshot: 'only-on-failure' },
 });

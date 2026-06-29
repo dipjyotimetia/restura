@@ -308,6 +308,60 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  e2e-extension:
+    if: github.event_name == 'pull_request'
+    # Browser capture extension: builds the MV3 bundle (an explicit build gate —
+    # the only place `extension/`'s vite build is exercised) and runs its e2e in
+    # a real Chromium persistent context with the unpacked extension loaded. Uses
+    # the standalone playwright.extension.config.ts (no dev server) and so is kept
+    # off the web `e2e` shards, which boot `npm run dev`.
+    name: Extension build + E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright Chromium + system deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Chromium system deps (cache hit path)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # Explicit build gate: fail the job if the extension bundle doesn't build,
+      # independent of the e2e (which would otherwise self-build in beforeAll).
+      - name: Build extension
+        run: npm run build --workspace @restura/extension
+
+      - name: Run extension E2E
+        run: npx playwright test --config=playwright.extension.config.ts
+
+      - name: Upload extension test traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-extension-test-results
+          path: test-results/
+          retention-days: 7
+
   e2e-electron:
     # Skip for Dependabot (see electron-smoke): needs the native-rebuild
     # postinstall that --ignore-scripts skips on Dependabot runs.
