@@ -68,6 +68,27 @@
         ]
       }
     </script>
+    <script>
+      // No-flash theme: apply the persisted/system theme before React mounts.
+      // next-themes (CSR-only here) applies the class after hydration, so without
+      // this a reload flashes the opposite theme. localStorage key 'theme' is
+      // next-themes' synchronously-available source of truth (Dexie is async and
+      // kept in sync by the settings UI).
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme');
+          var isDark =
+            stored === 'dark' ||
+            ((!stored || stored === 'system') &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var el = document.documentElement;
+          el.classList.toggle('dark', isDark);
+          el.style.colorScheme = isDark ? 'dark' : 'light';
+        } catch (e) {
+          /* localStorage unavailable — fall back to CSS default */
+        }
+      })();
+    </script>
   </head>
   <body class="antialiased">
     <div id="root"></div>
