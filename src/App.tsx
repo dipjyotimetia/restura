@@ -1,3 +1,4 @@
+import { useTheme } from 'next-themes';
 import { useEffect } from 'react';
 import { createHashRouter, RouterProvider } from 'react-router-dom';
 import { toast, Toaster } from 'sonner';
@@ -39,6 +40,27 @@ const router = createHashRouter([
   },
 ]);
 
+// Rendered inside <ThemeProvider> so it can read the resolved theme via
+// useTheme(); App itself is the provider's parent and cannot. Keeps toasts in
+// the active palette instead of being hardcoded to dark.
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme();
+  return (
+    <Toaster
+      position="bottom-right"
+      richColors
+      closeButton
+      theme={(resolvedTheme ?? 'dark') as 'light' | 'dark'}
+      toastOptions={{
+        className: 'bg-sp-surface-hi border border-sp-line-strong',
+        style: {
+          color: 'var(--sp-text)',
+        },
+      }}
+    />
+  );
+}
+
 export default function App() {
   useEffect(() => {
     const handler = () => {
@@ -78,7 +100,13 @@ export default function App() {
 
   return (
     <>
-      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem
+        enableColorScheme
+        disableTransitionOnChange
+      >
         <ErrorBoundary>
           <AccentProvider>
             <AriaLiveAnnouncerProvider>
@@ -91,18 +119,7 @@ export default function App() {
             </AriaLiveAnnouncerProvider>
           </AccentProvider>
         </ErrorBoundary>
-        <Toaster
-          position="bottom-right"
-          richColors
-          closeButton
-          theme="dark"
-          toastOptions={{
-            className: 'bg-sp-surface-hi border border-sp-line-strong',
-            style: {
-              color: 'var(--sp-text)',
-            },
-          }}
-        />
+        <ThemedToaster />
       </ThemeProvider>
     </>
   );
