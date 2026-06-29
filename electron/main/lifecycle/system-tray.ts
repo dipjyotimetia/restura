@@ -38,8 +38,14 @@ export function createSystemTray(
   }
 
   const icon = nativeImage.createFromPath(iconPath);
-  if (isTemplate) icon.setTemplateImage(true);
-  const trayIcon = icon.resize({ width: 16, height: 16 });
+  // The monochrome template is generated at the exact menu-bar size (16px + a
+  // 32px @2x rep that createFromPath auto-loads), so resizing it would discard
+  // the retina representation and blur on HiDPI bars. The full-colour fallback
+  // (the 512px app icon) must be scaled down. Either way, apply the template
+  // flag to the image we actually hand to Tray: resize() returns a NEW
+  // NativeImage that does NOT carry isTemplateImage across.
+  const trayIcon = isTemplate ? icon : icon.resize({ width: 16, height: 16 });
+  if (isTemplate) trayIcon.setTemplateImage(true);
 
   tray = new Tray(trayIcon);
 
