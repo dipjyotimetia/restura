@@ -1,0 +1,33 @@
+[
+  {
+    "method": "Network.requestWillBeSent",
+    "params": {
+      "requestId": "100.1",
+      "wallTime": 1700000000.5,
+      "request": {
+        "url": "https://api.example.com/users?page=1",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json"
+        },
+        "postData": "{\"name\":\"ada\"}"
+      }
+    }
+  },
+  {
+    "method": "Network.responseReceived",
+    "params": {
+      "requestId": "100.1",
+      "response": {
+        "status": 201,
+        "statusText": "Created",
+        "headers": { "content-type": "application/json" }
+      }
+    }
+  },
+  {
+    "method": "Network.loadingFinished",
+    "params": { "requestId": "100.1" }
+  }
+]

@@ -21,6 +21,7 @@
  */
 
 import { CREDENTIAL_HEADER_NAMES } from '../credential-header-names';
+import { bodyTokenPatterns, headerDenylistRegex } from '../secret-patterns';
 
 export type RedactionMode = 'default' | 'raw';
 
@@ -32,26 +33,10 @@ export type RedactionMode = 'default' | 'raw';
 // diagnostic the AI needs to explain a 401.
 const HEADER_DENYLIST_EXACT = new Set(CREDENTIAL_HEADER_NAMES);
 
-const HEADER_DENYLIST_REGEX: RegExp[] = [
-  /^x-.*-token$/i, // covers x-amz-security-token, x-access-token, x-gitlab-token, …
-  /^x-.*-key$/i, // covers x-functions-key, x-goog-api-key, x-secret-key, …
-  /^x-.*-secret$/i,
-  /^api[-_]?key$/i,
-];
-
-const BODY_TOKEN_PATTERNS: RegExp[] = [
-  /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT
-  /Bearer\s+[A-Za-z0-9._\-+/=]{8,}/g,
-  /(api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?[A-Za-z0-9._\-+/=]{8,}/gi,
-  // Provider/secret tokens with a recognizable prefix — caught even when they
-  // appear without "Bearer " or a key name (e.g. echoed bare in a response body).
-  /\bsk-(?:ant-|or-v1-|proj-)?[A-Za-z0-9_-]{16,}/g, // OpenAI / Anthropic / OpenRouter keys
-  /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id
-  /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b/g, // GitHub tokens
-  /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g, // GitHub fine-grained PAT
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, // Slack tokens
-  /\bAIza[0-9A-Za-z_-]{35}\b/g, // Google API key
-];
+// Regex layers live in the shared leaf module so the AI redactor and the capture
+// redactor can never drift. Fresh instances (the body patterns are stateful /g).
+const HEADER_DENYLIST_REGEX = headerDenylistRegex();
+const BODY_TOKEN_PATTERNS = bodyTokenPatterns();
 
 function headerIsDenied(name: string): boolean {
   const lower = name.toLowerCase();

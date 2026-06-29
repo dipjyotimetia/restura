@@ -682,6 +682,32 @@ const electronAPI = {
     > => ipcRenderer.invoke(IPC.mock.status),
   },
 
+  // Browser capture desktop bridge. Starts a 127.0.0.1 receiver the Restura
+  // capture extension pairs with; pushed sessions arrive on `onReceived` as an
+  // OpenCollection doc the renderer confirms before importing.
+  capture: {
+    startBridge: (): Promise<
+      | { ok: true; status: { running: boolean; port?: number }; token?: string }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke(IPC.captureBridge.start),
+
+    stopBridge: (): Promise<
+      { ok: true; status: { running: boolean; port?: number } } | { ok: false; error: string }
+    > => ipcRenderer.invoke(IPC.captureBridge.stop),
+
+    bridgeStatus: (): Promise<
+      { ok: true; status: { running: boolean; port?: number } } | { ok: false; error: string }
+    > => ipcRenderer.invoke(IPC.captureBridge.status),
+
+    onReceived: (callback: (doc: unknown) => void) => {
+      ipcRenderer.on(EVENT.captureReceived, (_event, doc) => callback(doc));
+    },
+
+    removeReceivedListener: () => {
+      ipcRenderer.removeAllListeners(EVENT.captureReceived);
+    },
+  },
+
   // Secret handle store — keychain-backed secret references.
   //
   // SECURITY: there is intentionally NO `resolve` method here. Resolution is

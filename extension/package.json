@@ -1,0 +1,15 @@
+{
+  "name": "@restura/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Restura browser capture extension — capture multi-protocol traffic into Restura collections.",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "type-check": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.2.0"
+  }
+}

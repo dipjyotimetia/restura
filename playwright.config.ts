@@ -9,6 +9,11 @@ bootstrapPrereqs();
 
 export default defineConfig({
   testDir: './e2e',
+  // The capture-extension e2e manages its own Chromium persistent context and
+  // needs no dev server — it runs in the dedicated `e2e-extension` CI job via
+  // playwright.extension.config.ts. Excluded here so it doesn't double-run and
+  // pointlessly boot the dev server inside the app shards.
+  testIgnore: /extension-capture\.spec\.ts/,
   globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

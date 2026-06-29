@@ -6,6 +6,7 @@ import { AccentProvider } from '@/components/providers/AccentProvider';
 import { PlatformProvider } from '@/components/providers/PlatformProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import AriaLiveAnnouncerProvider from '@/components/shared/AriaLiveAnnouncer';
+import { CaptureImportListener } from '@/components/shared/CaptureImportListener';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeychainStatusBanner } from '@/components/shared/KeychainStatusBanner';
 import { UpdateNotification } from '@/components/shared/UpdateNotification';
@@ -112,6 +113,7 @@ export default function App() {
               <PlatformProvider>
                 <UpdateNotification />
                 <KeychainStatusBanner />
+                <CaptureImportListener />
                 <RouterProvider router={router} />
               </PlatformProvider>
             </AriaLiveAnnouncerProvider>

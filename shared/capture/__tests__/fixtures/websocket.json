@@ -1,0 +1,42 @@
+[
+  {
+    "method": "Network.webSocketCreated",
+    "params": {
+      "requestId": "200.1",
+      "url": "wss://api.example.com/socket"
+    }
+  },
+  {
+    "method": "Network.webSocketWillSendHandshakeRequest",
+    "params": {
+      "requestId": "200.1",
+      "wallTime": 1700000010.0,
+      "timestamp": 12344.0,
+      "request": { "headers": { "upgrade": "websocket" } }
+    }
+  },
+  {
+    "method": "Network.webSocketFrameSent",
+    "params": {
+      "requestId": "200.1",
+      "timestamp": 12345.0,
+      "response": {
+        "opcode": 1,
+        "mask": true,
+        "payloadData": "{\"type\":\"ping\"}"
+      }
+    }
+  },
+  {
+    "method": "Network.webSocketFrameReceived",
+    "params": {
+      "requestId": "200.1",
+      "timestamp": 12346.0,
+      "response": {
+        "opcode": 1,
+        "mask": false,
+        "payloadData": "{\"type\":\"pong\"}"
+      }
+    }
+  }
+]

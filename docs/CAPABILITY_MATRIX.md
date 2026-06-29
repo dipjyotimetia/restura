@@ -45,6 +45,7 @@ rather than discover it experimentally.
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ |  |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |
+| Browser capture desktop bridge | ❌ | ✅ | Loopback receiver for the Restura capture extension; no browser TCP listener |
 | OS keychain (safeStorage) for secrets | ❌ | ✅ | Web falls back to encrypted IndexedDB |
 | Encrypted local storage | ✅ | ✅ |  |
 | Native shell.openExternal | ❌ | ✅ |  |

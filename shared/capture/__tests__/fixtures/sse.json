@@ -1,0 +1,46 @@
+[
+  {
+    "method": "Network.requestWillBeSent",
+    "params": {
+      "requestId": "300.1",
+      "wallTime": 1700000020.0,
+      "timestamp": 12349.0,
+      "request": {
+        "url": "https://api.example.com/events",
+        "method": "GET",
+        "headers": { "accept": "text/event-stream" }
+      }
+    }
+  },
+  {
+    "method": "Network.responseReceived",
+    "params": {
+      "requestId": "300.1",
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "headers": { "content-type": "text/event-stream" }
+      }
+    }
+  },
+  {
+    "method": "Network.eventSourceMessageReceived",
+    "params": {
+      "requestId": "300.1",
+      "timestamp": 12350.0,
+      "eventName": "message",
+      "eventId": "1",
+      "data": "{\"tick\":1}"
+    }
+  },
+  {
+    "method": "Network.eventSourceMessageReceived",
+    "params": {
+      "requestId": "300.1",
+      "timestamp": 12351.0,
+      "eventName": "message",
+      "eventId": "2",
+      "data": "{\"tick\":2}"
+    }
+  }
+]
