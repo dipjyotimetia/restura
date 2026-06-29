@@ -1,7 +1,7 @@
 import * as yaml from 'js-yaml';
 import { executeHttpProxy } from '../../../shared/protocol/http-proxy';
 import type { NormalizedResponse } from '../../../shared/protocol/types';
-import { nodeFetcher } from '../util/nodeFetcher';
+import { createNodeFetcher } from '../util/nodeFetcher';
 import { findCollectionRoot, loadDefaultEnvVars } from '../workspace/collectionLocate';
 import { mapHttpElementToSpec } from './ocRequestMapper';
 
@@ -42,7 +42,11 @@ export async function sendRequest(
     return { ok: false, error: (err as Error).message, warnings: [] };
   }
 
-  const result = await executeHttpProxy(mapped.spec, nodeFetcher, {
+  const fetcher = createNodeFetcher({
+    allowLocalhost: opts.allowLocalhost,
+    allowPrivateIPs: opts.allowPrivateIPs,
+  });
+  const result = await executeHttpProxy(mapped.spec, fetcher, {
     allowLocalhost: opts.allowLocalhost,
     allowPrivateIPs: opts.allowPrivateIPs,
   });

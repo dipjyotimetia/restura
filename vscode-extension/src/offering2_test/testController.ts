@@ -6,7 +6,7 @@ import { infoName, ROOT_FILENAMES } from '../util/oc';
 import { getResturaSettings } from '../util/settings';
 import { resolveCliCommand } from '../workspace/cliResolver';
 import { scanCollection, type ScannedRequest } from '../workspace/collectionScanner';
-import { formatAssertion, resultKey, type CliRequestRunResult } from './cliResult';
+import { formatAssertion, resultKey, toRelativePath, type CliRequestRunResult } from './cliResult';
 import { classifyOutcome } from './outcome';
 import { runViaShell, ShellRunError } from './shellRunner';
 
@@ -185,7 +185,14 @@ async function runHandler(
 
       const runningSubset = groupLeaves.length < (totals.get(collectionDir) ?? 0);
       const include = runningSubset
-        ? [...new Set(groupLeaves.map((l) => meta.get(l.id)!.name))]
+        ? [
+            ...new Set(
+              groupLeaves.map((l) => {
+                const m = meta.get(l.id)!;
+                return toRelativePath(m.folderPath, m.name);
+              })
+            ),
+          ]
         : undefined;
 
       for (const leaf of groupLeaves) run.started(leaf);
@@ -204,6 +211,12 @@ async function runHandler(
           result.requests.map((r) => [resultKey(r.request.folderPath, r.request.request.name), r])
         );
       } catch (err) {
+        // A user cancellation aborts the CLI mid-flight; surface that as skipped
+        // (unresolved) rather than a red error.
+        if (token.isCancellationRequested) {
+          for (const leaf of groupLeaves) run.skipped(leaf);
+          continue;
+        }
         const message = err instanceof ShellRunError ? err.message : String(err);
         for (const leaf of groupLeaves) run.errored(leaf, new vscode.TestMessage(message));
         continue;

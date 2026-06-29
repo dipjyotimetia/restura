@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { formatAssertion, resultKey } from '../offering2_test/cliResult';
+import { formatAssertion, resultKey, toRelativePath } from '../offering2_test/cliResult';
 import { classifyOutcome } from '../offering2_test/outcome';
 import { runViaShell, ShellRunError } from '../offering2_test/shellRunner';
 import { getResturaSettings } from '../util/settings';
@@ -114,8 +114,7 @@ export function registerCodeLens(context: vscode.ExtensionContext): void {
               cliCommand,
               collectionDir: root,
               allowLocalhost,
-              include: [target.name],
-              ...(target.folderPath.length > 0 ? { folder: target.folderPath.join('/') } : {}),
+              include: [toRelativePath(target.folderPath, target.name)],
               ...(envFile ? { envFile } : {}),
             });
             const targetKey = resultKey(target.folderPath, target.name);

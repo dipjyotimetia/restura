@@ -9,6 +9,11 @@ describe('resolveVars', () => {
       'https://api.example.com/x/{{MISSING}}'
     );
   });
+
+  it('resolves variable names containing spaces and other chars', () => {
+    const vars = { 'base url': 'https://x', api$key: 'secret' };
+    expect(resolveVars('{{ base url }}/v?k={{api$key}}', vars)).toBe('https://x/v?k=secret');
+  });
 });
 
 describe('mapHttpElementToSpec', () => {
@@ -103,5 +108,15 @@ describe('mapHttpElementToSpec', () => {
 
   it('throws when method/url are missing', () => {
     expect(() => mapHttpElementToSpec({ info: { type: 'http' }, http: {} }, VARS)).toThrow();
+  });
+
+  it('coerces a non-string (YAML number) raw body value instead of throwing', () => {
+    const doc = {
+      info: { type: 'http', name: 'r' },
+      http: { method: 'POST', url: 'https://x', body: { raw: { format: 'text', value: 12345 } } },
+    };
+    const { spec } = mapHttpElementToSpec(doc, VARS);
+    expect(spec.bodyType).toBe('text');
+    expect(spec.data).toBe('12345');
   });
 });

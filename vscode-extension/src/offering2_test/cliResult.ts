@@ -51,6 +51,16 @@ export function resultKey(folderPath: string[], name: string): string {
   return [...folderPath, name].join(KEY_SEP);
 }
 
+/**
+ * The CLI's `relativePath` for a request (`folder/.../name`). Mirrors
+ * `cli/src/runner/collectionLoader.ts`. Used as a precise `--include` pattern:
+ * the CLI matches `--include` as a substring of name OR relativePath, so the
+ * full path avoids selecting same-named requests in other folders.
+ */
+export function toRelativePath(folderPath: string[], name: string): string {
+  return [...folderPath, name].join('/') || name;
+}
+
 /** One-line `✓/✗ name — error` summary of an assertion (no leading indent). */
 export function formatAssertion(a: CliAssertionResult): string {
   return `${a.passed ? '✓' : '✗'} ${a.name}${a.error ? ` — ${a.error}` : ''}`;

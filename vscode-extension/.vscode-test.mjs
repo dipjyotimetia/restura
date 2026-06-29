@@ -7,4 +7,7 @@ export default defineConfig({
   files: 'test/integration/**/*.test.mjs',
   workspaceFolder: 'test/fixtures/sample-collection',
   mocha: { timeout: 20000 },
+  // Keep the user-data dir short: VS Code's IPC socket path must stay under the
+  // ~103-char unix-socket limit, which a deep checkout path can blow past.
+  launchArgs: ['--user-data-dir', '/tmp/rvsc-ud'],
 });

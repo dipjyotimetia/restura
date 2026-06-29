@@ -14,10 +14,19 @@ interface NameValue {
   enabled?: boolean;
 }
 
-/** Substitute `{{ key }}` references using the provided variable map. Unknown
- *  references are left intact (the request will surface the failure). */
+/** Coerce a parsed-YAML scalar to a string. Guards against non-string body /
+ *  field values (e.g. an unquoted YAML number) reaching `String.prototype`. */
+function asString(v: unknown): string {
+  if (v == null) return '';
+  return typeof v === 'string' ? v : String(v);
+}
+
+/** Substitute `{{ key }}` references using the provided variable map. The key
+ *  grammar matches the app's interpolation (any chars except `}`), so names
+ *  with spaces/`$`/etc. resolve. Unknown references are left intact (the
+ *  request will surface the failure). */
 export function resolveVars(text: string, vars: Record<string, string>): string {
-  return text.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key: string) =>
+  return text.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, key: string) =>
     Object.prototype.hasOwnProperty.call(vars, key) ? vars[key]! : match
   );
 }
@@ -57,9 +66,9 @@ function buildBody(body: unknown, vars: Record<string, string>): BuiltBody {
   if (!isRecord(body)) return {};
 
   if (isRecord(body.raw)) {
-    const raw = body.raw as { format?: string; value?: string };
+    const raw = body.raw as { format?: string; value?: unknown };
     const bodyType = RAW_FORMAT_TO_BODY[raw.format ?? 'text'] ?? 'text';
-    return { bodyType, data: resolveVars(raw.value ?? '', vars) };
+    return { bodyType, data: resolveVars(asString(raw.value), vars) };
   }
   if (isRecord(body.graphql)) {
     return { bodyType: 'json', data: resolveVars(JSON.stringify(body.graphql), vars) };
@@ -68,7 +77,7 @@ function buildBody(body: unknown, vars: Record<string, string>): BuiltBody {
     const parts = (body.formUrlEncoded as { parts?: NameValue[] }).parts ?? [];
     const formData: FormField[] = parts
       .filter((p) => isRecord(p) && p.enabled !== false && typeof p.name === 'string')
-      .map((p) => ({ name: p.name as string, value: resolveVars(p.value ?? '', vars) }));
+      .map((p) => ({ name: p.name as string, value: resolveVars(asString(p.value), vars) }));
     return { bodyType: 'form-urlencoded', formData };
   }
   if (isRecord(body.multipartForm)) {

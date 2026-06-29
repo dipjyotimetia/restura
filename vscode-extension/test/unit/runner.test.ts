@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { scanCollection } from '../../src/workspace/collectionScanner';
-import { resultKey } from '../../src/offering2_test/cliResult';
+import { resultKey, toRelativePath } from '../../src/offering2_test/cliResult';
 import { classifyOutcome } from '../../src/offering2_test/outcome';
 import type { CliRequestRunResult } from '../../src/offering2_test/cliResult';
 
@@ -44,6 +44,17 @@ describe('resultKey', () => {
   it('is stable across discovery and result sides', () => {
     expect(resultKey(['users'], 'Get user')).toBe(resultKey(['users'], 'Get user'));
     expect(resultKey([], 'A')).not.toBe(resultKey(['A'], ''));
+  });
+});
+
+describe('toRelativePath', () => {
+  it('mirrors the CLI: folder path joined with name', () => {
+    expect(toRelativePath(['users'], 'Get user')).toBe('users/Get user');
+    expect(toRelativePath(['a', 'b'], 'c')).toBe('a/b/c');
+  });
+
+  it('falls back to the bare name at the root (matches CLI || name)', () => {
+    expect(toRelativePath([], 'List posts')).toBe('List posts');
   });
 });
 

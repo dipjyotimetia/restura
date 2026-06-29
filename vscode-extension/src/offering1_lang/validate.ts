@@ -5,6 +5,7 @@ import {
   graphqlRequestSchema,
   websocketRequestSchema,
 } from '../../../src/lib/opencollection/schemas';
+import { escapeRegExp } from '../../../src/lib/shared/escapeRegExp';
 import { classifyOcFile, type OcRequestType } from '../workspace/collectionDetector';
 
 /** A single schema violation, located against the source text (0-based line). */
@@ -78,8 +79,4 @@ function findLineForPath(lines: string[], pathSegments: ReadonlyArray<PropertyKe
     searchFrom = found + 1;
   }
   return best;
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
