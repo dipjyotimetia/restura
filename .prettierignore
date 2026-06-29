@@ -34,6 +34,13 @@ vendor/
 # Test fixtures — formatting is intentional (some are asserted on byte-for-byte)
 tests/fixtures/
 cli/fixtures/
+vscode-extension/test/fixtures/
+
+# Vendored OpenCollection JSON Schema copied into the VS Code extension — keep
+# byte-identical to vendor/opencollection (do not reformat).
+vscode-extension/schemas/
+# Downloaded VS Code + test profile (created by @vscode/test-cli).
+vscode-extension/.vscode-test/
 
 # MDX (docs-site content): Prettier's MDX printer prose-wraps Markdown lists and
 # code fences nested inside JSX components (<TabItem>, <FileTree>, <Aside>), which

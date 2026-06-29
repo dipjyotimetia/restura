@@ -186,6 +186,14 @@ jobs:
       - name: Run CLI tests
         run: npm run --workspace cli test
 
+      # The vscode-extension workspace has its own vitest suite that root
+      # `test:ci` does not cover (root vitest `include` omits the workspace).
+      # It bundles shared/protocol + opencollection, so running it on every PR
+      # (not only when vscode-extension/** changes) also catches breakage that a
+      # shared-code change would introduce. Fast + wasm-free, no prebuild needed.
+      - name: Run VS Code extension unit tests
+        run: npm run --workspace vscode-extension test:unit
+
   electron-smoke:
     name: Electron pack smoke (${{ matrix.os }})
     # Skip for Dependabot: this job needs the `electron-builder install-app-deps`
@@ -365,6 +373,50 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 14
+
+  vscode-extension-e2e:
+    # The extension's @vscode/test-cli suite launches a real VS Code (Electron)
+    # host to verify activation, command registration, and live diagnostics —
+    # coverage the renderer unit tests can't give. Kept off the validate job
+    # because it needs a VS Code download + a virtual display. Not a required
+    # check, so a flaky download never blocks merge.
+    name: VS Code extension integration
+    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build extension bundle
+        # @vscode/test-cli loads dist `out/extension.js` as the dev extension.
+        run: npm run --workspace vscode-extension build
+
+      # VS Code is Electron/Chromium, so it needs the same shared system libs
+      # (libnss3, libgbm, GTK, …) as the Electron e2e job. `playwright
+      # install-deps chromium` installs exactly that set without a browser binary.
+      - name: Install VS Code runtime system deps
+        run: npx playwright install-deps chromium
+
+      # Cache the downloaded VS Code test build (~260 MB) so reruns skip the
+      # fetch; keyed on the lockfile so a @vscode/test-electron bump invalidates it.
+      - name: Cache VS Code test build
+        uses: actions/cache@v5.0.5
+        with:
+          path: vscode-extension/.vscode-test
+          key: ${{ runner.os }}-vscode-test-${{ hashFiles('package-lock.json') }}
+
+      # Headless runner has no display; the VS Code Electron host needs one.
+      - name: Run extension integration tests (xvfb)
+        run: xvfb-run -a npm run --workspace vscode-extension test:integration
 
   # Production deploy lives in release.yml (the manually-dispatched Release
   # workflow) — it is NOT run on merge to main. PR preview deploys stay here.

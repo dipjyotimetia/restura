@@ -1,0 +1,9 @@
+# Intentionally invalid: http.method and http.url are required by the
+# OpenCollection http element schema. Used to demo Offering 1 diagnostics.
+info:
+  type: http
+  name: Broken request
+http:
+  headers:
+    - name: Accept
+      value: application/json
