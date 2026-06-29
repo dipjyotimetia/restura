@@ -33,6 +33,36 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
+      # Kick the test suite off in the background (it's the long pole — ~3× the
+      # next-slowest gate) so the type-check/lint/format/build gates below run
+      # concurrently underneath it on the same runner, with no extra `npm ci`.
+      # The `wait: tests` step further down blocks until it finishes; the
+      # test-result consumers (PR comment, coverage report) live after that wait
+      # because a background step's outcome/outputs aren't readable until then.
+      - name: Run tests with coverage
+        # `electron`'s package index.js calls `downloadElectron()` at
+        # module-load time when `path.txt` is missing. On GitHub-hosted runners
+        # the postinstall download intermittently exits 0 without writing
+        # `path.txt`, then EVERY test that `import 'electron'` (six suites)
+        # crashes on module load with ENOENT — even though those tests
+        # `vi.mock('electron')` and never touch the real binary. Setting
+        # ELECTRON_OVERRIDE_DIST_PATH short-circuits the download check in
+        # `node_modules/electron/index.js`: the module returns a stub path and
+        # the test's mock takes over from there. Local dev is unaffected.
+        #
+        # `test:ci` runs the full coverage report but disables the threshold
+        # gate. Coverage tracking is a visibility feature here, not a CI gate
+        # — devs who run `npm run test:coverage` locally still get strict
+        # threshold enforcement.
+        id: tests
+        background: true
+        env:
+          ELECTRON_OVERRIDE_DIST_PATH: /tmp
+        # Emit JUnit XML (unit + integration — vitest's `include` already covers
+        # tests/contract + tests/security) alongside the console reporter so the
+        # next step can summarize results on the PR.
+        run: npm run test:ci -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+
       - name: Type-check (all projects)
         # Single source of truth for the project set — same six tsc projects
         # `npm run validate` runs locally. Keep this in sync via type-check:all only.
@@ -55,28 +85,36 @@ jobs:
       # `validate` on every unrelated PR (blocking all merges until patched);
       # dependabot security PRs remain the remediation path.
 
-      - name: Run tests with coverage
-        # `electron`'s package index.js calls `downloadElectron()` at
-        # module-load time when `path.txt` is missing. On GitHub-hosted runners
-        # the postinstall download intermittently exits 0 without writing
-        # `path.txt`, then EVERY test that `import 'electron'` (six suites)
-        # crashes on module load with ENOENT — even though those tests
-        # `vi.mock('electron')` and never touch the real binary. Setting
-        # ELECTRON_OVERRIDE_DIST_PATH short-circuits the download check in
-        # `node_modules/electron/index.js`: the module returns a stub path and
-        # the test's mock takes over from there. Local dev is unaffected.
-        #
-        # `test:ci` runs the full coverage report but disables the threshold
-        # gate. Coverage tracking is a visibility feature here, not a CI gate
-        # — devs who run `npm run test:coverage` locally still get strict
-        # threshold enforcement.
-        id: tests
-        env:
-          ELECTRON_OVERRIDE_DIST_PATH: /tmp
-        # Emit JUnit XML (unit + integration — vitest's `include` already covers
-        # tests/contract + tests/security) alongside the console reporter so the
-        # next step can summarize results on the PR.
-        run: npm run test:ci -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+      - name: Build renderer
+        run: npm run build
+
+      - name: Build Electron main
+        run: npm run electron:compile
+
+      - name: Check bundle size
+        run: npm run size
+
+      # The cli workspace has its own vitest suite that root `test:ci` does not
+      # cover (root vitest `include` omits cli/**). Gate it here so a published
+      # `restura-cli` regression can't slip through. `pretest` regenerates the
+      # sandbox bundle on a clean checkout.
+      - name: Run CLI tests
+        run: npm run --workspace cli test
+
+      # The vscode-extension workspace has its own vitest suite that root
+      # `test:ci` does not cover (root vitest `include` omits the workspace).
+      # It bundles shared/protocol + opencollection, so running it on every PR
+      # (not only when vscode-extension/** changes) also catches breakage that a
+      # shared-code change would introduce. Fast + wasm-free, no prebuild needed.
+      - name: Run VS Code extension unit tests
+        run: npm run --workspace vscode-extension test:unit
+
+      # Block until the background test step (kicked off right after install)
+      # finishes. The job fails here if the suite failed; the test-result
+      # consumers below can only read `steps.tests.outcome` / the JUnit + coverage
+      # artifacts after this wait.
+      - name: Wait for tests
+        wait: tests
 
       - name: Comment test results on PR
         # Parses the JUnit report and upserts a single PR comment with separate
@@ -169,30 +207,6 @@ jobs:
           name: coverage
           path: coverage/
           retention-days: 14
-
-      - name: Build renderer
-        run: npm run build
-
-      - name: Build Electron main
-        run: npm run electron:compile
-
-      - name: Check bundle size
-        run: npm run size
-
-      # The cli workspace has its own vitest suite that root `test:ci` does not
-      # cover (root vitest `include` omits cli/**). Gate it here so a published
-      # `restura-cli` regression can't slip through. `pretest` regenerates the
-      # sandbox bundle on a clean checkout.
-      - name: Run CLI tests
-        run: npm run --workspace cli test
-
-      # The vscode-extension workspace has its own vitest suite that root
-      # `test:ci` does not cover (root vitest `include` omits the workspace).
-      # It bundles shared/protocol + opencollection, so running it on every PR
-      # (not only when vscode-extension/** changes) also catches breakage that a
-      # shared-code change would introduce. Fast + wasm-free, no prebuild needed.
-      - name: Run VS Code extension unit tests
-        run: npm run --workspace vscode-extension test:unit
 
   electron-smoke:
     name: Electron pack smoke (${{ matrix.os }})
