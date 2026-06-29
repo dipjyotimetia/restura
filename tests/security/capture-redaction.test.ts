@@ -16,6 +16,8 @@ const SECRETS = {
   openai: 'sk-proj-ABCDEFGHIJKLMNOPQRSTUV',
   queryToken: 'queryAccessTokenSECRET123',
   frameJwt: 'eyJ0eXAiOiAns999.eyJzdWIiOiAns888.frameSigSECRET',
+  locationCode: 'oauthLocationCODEsecret',
+  refererToken: 'refererAccessTokenSECRET',
 };
 
 function session(): CaptureSession {
@@ -34,11 +36,23 @@ function session(): CaptureSession {
             { name: 'Authorization', value: SECRETS.bearer },
             { name: 'Cookie', value: SECRETS.cookie },
             { name: 'X-Api-Key', value: 'topsecretapikeyvalue' },
+            // Token in a NON-denylisted header value (referrer-leak vector).
+            {
+              name: 'Referer',
+              value: `https://app.example.com/p?access_token=${SECRETS.refererToken}&t=1`,
+            },
           ],
         },
         response: {
-          status: 200,
-          headers: [{ name: 'Set-Cookie', value: SECRETS.cookie }],
+          status: 302,
+          headers: [
+            { name: 'Set-Cookie', value: SECRETS.cookie },
+            // OAuth code in a redirect Location header (non-denylisted name).
+            {
+              name: 'Location',
+              value: `https://app.example.com/cb?code=${SECRETS.locationCode}&state=x`,
+            },
+          ],
           body: { text: `{"jwt":"${SECRETS.jwt}","key":"${SECRETS.openai}"}` },
         },
       },

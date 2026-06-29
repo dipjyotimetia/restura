@@ -77,6 +77,36 @@ function maskText(input: string): string {
   return text;
 }
 
+/**
+ * Mask credential query-param VALUES inside a URL-shaped string in place (used
+ * for header values like `Location`/`Referer` that carry tokens the body-token
+ * scanner misses, e.g. OAuth `?code=` / presigned `?X-Amz-Signature=`). Operates
+ * on the `?…` segment so it works for absolute and relative URLs alike; leaves
+ * non-URL strings untouched.
+ */
+function maskUrlQuery(value: string): string {
+  const qIndex = value.indexOf('?');
+  if (qIndex === -1) return value;
+  const rest = value.slice(qIndex + 1);
+  const hashIndex = rest.indexOf('#');
+  const query = hashIndex === -1 ? rest : rest.slice(0, hashIndex);
+  const fragment = hashIndex === -1 ? '' : rest.slice(hashIndex);
+  let changed = false;
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(query);
+  } catch {
+    return value;
+  }
+  for (const key of [...params.keys()]) {
+    if (queryParamIsDenied(key)) {
+      params.set(key, MASK);
+      changed = true;
+    }
+  }
+  return changed ? `${value.slice(0, qIndex + 1)}${params.toString()}${fragment}` : value;
+}
+
 function maskBody(body: CapturedBody | undefined): void {
   if (!body) return;
   if (body.text) body.text = maskText(body.text);
@@ -109,7 +139,15 @@ export function redactExchange(input: CapturedExchange): RedactionResult {
 
   const redactHeaders = (headers: CapturedHeader[]): void => {
     for (const header of headers) {
-      if (headerIsDenied(header.name)) header.value = recordSecret(toVarName(header.name));
+      if (headerIsDenied(header.name)) {
+        // Denylisted header name → replace the whole value with a reference.
+        header.value = recordSecret(toVarName(header.name));
+      } else {
+        // Non-denylisted name can still carry a token in its value (e.g. a
+        // `Location`/`Referer` redirect URL with ?code=/access_token, or a bare
+        // Bearer/JWT). Mask in place — these aren't worth parameterizing.
+        header.value = maskText(maskUrlQuery(header.value));
+      }
     }
   };
 

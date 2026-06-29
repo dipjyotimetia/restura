@@ -77,4 +77,40 @@ describe('redactExchange', () => {
     const decoded = atob(exchange.response?.body?.base64 ?? '');
     expect(decoded).not.toContain('eyJhbGciOiAns');
   });
+
+  it('masks tokens carried in non-denylisted header values (Location/Referer)', () => {
+    const ex = baseExchange();
+    ex.url = 'https://api.example.com/authorize';
+    ex.request.headers.push({
+      name: 'Referer',
+      value: 'https://app.example.com/page?access_token=referertokenSECRET&theme=dark',
+    });
+    ex.response = {
+      status: 302,
+      headers: [
+        {
+          name: 'Location',
+          value: 'https://app.example.com/cb?code=oauthCODEsecret123&state=xyz',
+        },
+      ],
+    };
+    const { exchange } = redactExchange(ex);
+    const referer = exchange.request.headers.find((h) => h.name === 'Referer');
+    expect(referer?.value).not.toContain('referertokenSECRET');
+    expect(referer?.value).toContain('theme=dark');
+    const location = exchange.response?.headers.find((h) => h.name === 'Location');
+    expect(location?.value).not.toContain('oauthCODEsecret123');
+    expect(location?.value).toContain('state=xyz');
+  });
+
+  it('masks a bare Bearer/JWT embedded in an arbitrary header value', () => {
+    const ex = baseExchange();
+    ex.request.headers.push({
+      name: 'X-Forwarded-Auth',
+      value: 'Bearer eyJhbGciOiAns.eyJzdWIiOiAns.sigbearerheaderxyz',
+    });
+    const { exchange } = redactExchange(ex);
+    const h = exchange.request.headers.find((x) => x.name === 'X-Forwarded-Auth');
+    expect(h?.value).not.toContain('eyJhbGciOiAns');
+  });
 });
