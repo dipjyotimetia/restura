@@ -45,7 +45,11 @@ export const DialogContent = React.forwardRef<
         className
       )}
       style={{
-        boxShadow: '0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+        // Theme-aware via light-dark() (resolves off the class-driven
+        // color-scheme): a heavy black drop + white inset hairline reads wrong
+        // in light mode, so soften the shadow and darken the hairline there.
+        boxShadow:
+          '0 30px 80px light-dark(rgba(15,23,42,0.18), rgba(0,0,0,0.6)), 0 0 0 1px light-dark(rgba(15,23,42,0.06), rgba(255,255,255,0.04))',
         ...style,
       }}
       {...props}
