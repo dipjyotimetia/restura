@@ -1,0 +1,73 @@
+---
+title: Browser capture extension
+description: Capture multi-protocol browser traffic (HTTP, GraphQL, WebSocket, SSE, gRPC-web) with the Restura Chrome extension and turn it into a collection — or export standalone HAR/OpenCollection.
+---
+
+import { Badge, Aside, Steps } from '@astrojs/starlight/components';
+
+<Badge text="Phase 1" variant="tip" /> <Badge text="Chrome / Chromium" variant="note" />
+
+The Restura **capture extension** records real browser traffic — HTTP, GraphQL, WebSocket, SSE, and gRPC-web — and turns it into a [collection](/guides/collections/) or a plain HAR file. It's Restura's answer to Postman Interceptor, built to capture protocols beyond plain HTTP and to keep secrets on your machine. The design is in [ADR 0024](/architecture/adrs/0024-browser-capture-extension/).
+
+<Aside type="note">
+Phase 1 ships two sinks: **standalone export** (no Restura instance required) and **Send to Desktop** (push into the desktop app). Web-app messaging is deferred to a later phase.
+</Aside>
+
+## Why a debugger attachment
+
+MV3's `chrome.webRequest` can't see response bodies, so rich capture uses the **Chrome DevTools Protocol** (`chrome.debugger`). The extension attaches to a single, user-selected tab — you'll see Chrome's "is debugging this browser" banner while a capture is running. That banner is the visible cost of capturing response bodies.
+
+## Install
+
+The extension isn't on the Chrome Web Store yet; load it unpacked from a build.
+
+<Steps>
+
+1. Build the extension from the repo:
+
+   ```bash
+   npm run build --workspace @restura/extension
+   ```
+
+2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select `extension/chrome/dist`.
+
+3. Pin **Restura Capture** and open its side panel to start a capture.
+
+</Steps>
+
+## Capture and export standalone
+
+<Steps>
+
+1. Open the side panel and pick the tab to capture. The extension attaches the debugger and starts recording exchanges.
+
+2. Exercise the app in that tab. Requests appear in the list, classified by protocol, with secrets already redacted into `{{name}}` placeholders.
+
+3. Stop the capture and export to **OpenCollection** (`.opencollection.json`) or **HAR** (`.har`). Both run entirely in the extension — no Restura instance required.
+
+</Steps>
+
+## Send to Desktop
+
+To push a capture straight into the desktop app as a collection:
+
+<Steps>
+
+1. In the desktop app, go to **Settings → Data → Capture bridge** and start the bridge. It binds to `127.0.0.1` only and shows a one-time `<port>:<token>` pairing code.
+
+2. Paste that code into the extension's **options page**.
+
+3. After a capture, click **Send to Desktop**. The desktop app shows a **confirmation dialog** before importing — it never imports silently.
+
+</Steps>
+
+## Security & privacy
+
+- The debugger attaches only to the tab you select and detaches on stop, tab close, or extension teardown.
+- **Redaction happens before anything is persisted, exported, or transmitted.** Credential headers, `x-*-(token|key|secret)` headers, and JWT / Bearer / `key=val` / prefixed-provider-token body patterns are replaced with `{{name}}` placeholders. The same audited redaction path the desktop app uses ([ADR 0007](/architecture/adrs/0007-secret-ref-pattern/)).
+- The desktop bridge is loopback-only, requires the per-pairing bearer token, validates `Origin`/`Host` (DNS-rebind / CSRF defence), and caps body size. The token is shown only in the trusted desktop UI.
+
+## Related
+
+- [ADR 0024 — Browser capture extension](/architecture/adrs/0024-browser-capture-extension/)
+- [Collections](/guides/collections/) · [Import & export](/guides/import-export/)

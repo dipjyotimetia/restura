@@ -33,6 +33,8 @@ timeline
   2026-06-10 : 0021 — Maintenance harness
   2026-06-17 : 0022 — gRPC over ConnectRPC
   2026-06-24 : 0023 — AI Lab http-exec
+  2026-06-28 : 0024 — Browser capture extension
+  2026-06-29 : 0025 — VS Code extension
 ```
 
 <CardGrid>
@@ -150,5 +152,15 @@ timeline
     title="0023 — AI Lab http-exec"
     description="Scoring AI-generated requests by executing them through the real request executor — inheriting the SSRF guard, redirects, and cookie jar instead of building a parallel client."
     href="/architecture/adrs/0023-ai-lab-http-exec/"
+  />
+  <LinkCard
+    title="0024 — Browser capture extension"
+    description="One backend-agnostic capture core, thin adapters: a multi-protocol Chrome extension sharing the desktop app's audited redaction path, with a loopback-only Send-to-Desktop bridge."
+    href="/architecture/adrs/0024-browser-capture-extension/"
+  />
+  <LinkCard
+    title="0025 — VS Code extension"
+    description="A focused editor integration for OpenCollection files — schema diagnostics, a Test Explorer that shells out to the restura CLI, and inline Send through the shared protocol core. No re-implemented execution or assertions."
+    href="/architecture/adrs/0025-vscode-extension/"
   />
 </CardGrid>

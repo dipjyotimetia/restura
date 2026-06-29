@@ -13,8 +13,8 @@ warned at startup.
 
 ## Web (Cloudflare Pages)
 
-**Persisted state is NOT encrypted at rest by default.** localStorage and
-IndexedDB on the web platform are protected only by the browser's same-
+**Persisted state is NOT encrypted at rest by default.** IndexedDB (via
+Dexie) on the web platform is protected only by the browser's same-
 origin policy. Users who require encryption at rest should either use the
 desktop app or — _once the UI lands_ — opt in via:
 
@@ -60,19 +60,19 @@ the address we validated:
 
 - **HTTP** — undici `Agent.connect.lookup` (`createSecureLookup` in
   `http-handler.ts`) re-validates every resolved address at connect.
-- **gRPC** (`grpc-handler.ts`, request + stream) — `@grpc/grpc-js` has no
-  Node `lookup` hook, so `resolveGrpcDialAddress` resolves + validates once and
-  `computeGrpcDial` dials the validated **IP literal** while keeping the original
-  hostname as `grpc.default_authority` / `grpc.ssl_target_name_override`.
+- **gRPC** (`grpc-handler.ts`, request + stream) — `@connectrpc/connect-node`
+  exposes `nodeOptions.lookup`, so the gRPC path pins the connect the same way
+  the other handlers do (ADR 0022 replaced the old grpc-js IP-literal dial).
 - **WebSocket** (`websocket-handler.ts`) — `resolveSafeAddress` +
   `createPinnedLookup` (from `safe-connect.ts`) passed as the `ws` `lookup` option.
 - **SSE** (`sse-handler.ts`) — `createPinnedFetch`, an undici dispatcher whose
   `connect.lookup` returns the validated IP.
 
-**Pre-flight only (`electron/main/dns-guard.ts`):** Socket.IO
-(`socket.io-client`), MCP, gRPC reflection, and Kafka (`assertKafkaBrokersSafe`)
-still resolve + validate immediately before connect but cannot pin the address,
-so a TTL=0 rebind between the check and the connect is not mitigated for them.
+**Pre-flight only (`electron/main/security/dns-guard.ts`):** Socket.IO
+(`socket.io-client`), MCP, gRPC reflection, Kafka (`assertKafkaBrokersSafe`), and
+MQTT still resolve + validate immediately before connect but cannot pin the
+address, so a TTL=0 rebind between the check and the connect is not mitigated for
+them.
 
 `dns-guard.ts` API (used by the pre-flight tier and by `safe-connect.ts`):
 
@@ -113,9 +113,9 @@ to the renderer.
 
 ## Long-lived connection cleanup (Electron)
 
-`electron/main/connection-cleanup.ts` is the shared bookkeeping for
+`electron/main/ipc/connection-cleanup.ts` is the shared bookkeeping for
 streaming handlers that hold open connections per renderer (gRPC, MCP,
-SSE, WebSocket, Socket.IO). It exposes:
+SSE, WebSocket, Socket.IO, Kafka, MQTT). It exposes:
 
 - `bindRendererCleanup(handlerKey, webContents, teardown)` — idempotent
   per-`(handlerKey, webContents.id)` registration of a single `destroyed`

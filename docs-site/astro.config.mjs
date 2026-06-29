@@ -119,6 +119,8 @@ export default defineConfig({
             { label: 'AI assistant', slug: 'guides/ai-assistant' },
             { label: 'AI Lab', slug: 'guides/ai-lab' },
             { label: 'MCP server mode', slug: 'guides/mcp-server-mode' },
+            { label: 'Browser capture extension', slug: 'guides/browser-capture' },
+            { label: 'VS Code extension', slug: 'guides/vscode-extension' },
             { label: 'Desktop updates', slug: 'guides/electron-updates' },
             { label: 'Keyboard shortcuts', slug: 'guides/keyboard-shortcuts' },
             { label: 'Import & export', slug: 'guides/import-export' },
@@ -217,6 +219,14 @@ export default defineConfig({
                 {
                   label: '0023 — AI Lab http-exec',
                   slug: 'architecture/adrs/0023-ai-lab-http-exec',
+                },
+                {
+                  label: '0024 — Browser capture extension',
+                  slug: 'architecture/adrs/0024-browser-capture-extension',
+                },
+                {
+                  label: '0025 — VS Code extension',
+                  slug: 'architecture/adrs/0025-vscode-extension',
                 },
               ],
             },

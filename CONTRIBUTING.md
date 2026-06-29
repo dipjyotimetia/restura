@@ -88,13 +88,22 @@ restura/
 │   ├── features/        # Feature modules (co-located components, hooks, stores)
 │   │   ├── http/        # HTTP/REST
 │   │   ├── grpc/        # gRPC with reflection
-│   │   ├── websocket/   # WebSocket
 │   │   ├── graphql/     # GraphQL
+│   │   ├── websocket/   # WebSocket
+│   │   ├── socketio/    # Socket.IO
 │   │   ├── sse/         # Server-Sent Events
+│   │   ├── kafka/       # Kafka producer/consumer (desktop only)
+│   │   ├── mqtt/        # MQTT (desktop only)
 │   │   ├── mcp/         # Model Context Protocol
+│   │   ├── ai/          # AI assistant (chat + request context)
+│   │   ├── ai-lab/      # LLM / prompt eval workbench (desktop only)
+│   │   ├── mcp-server/  # Restura-as-MCP-server surface
+│   │   ├── load-testing/# Collection load/perf runner
 │   │   ├── workflows/   # Request chaining
 │   │   ├── collections/ # Collections + importers/exporters
 │   │   ├── environments/# Environment variables
+│   │   ├── registry/    # Service/schema registry
+│   │   ├── contracts/   # OpenAPI contract testing
 │   │   ├── auth/        # Authentication config
 │   │   └── scripts/     # Pre/post scripts (QuickJS sandbox)
 │   ├── components/
@@ -103,8 +112,11 @@ restura/
 │   │   └── providers/   # PlatformProvider, ThemeProvider
 │   ├── routes/          # React Router route components
 │   └── lib/shared/      # Utilities, storage, platform detection
-├── worker/              # Cloudflare Pages Function (web only, Hono)
+├── shared/              # Backend-agnostic protocol + capture cores
+├── worker/              # Shared Hono app — Cloudflare Worker + self-hosted Node
 ├── electron/            # Electron main process
+├── extension/           # Browser capture (chrome/) + VS Code (vscode/) extensions
+├── cli/                 # @restura/cli — run collections in CI
 ├── tests/               # Test setup and fixtures
 ├── scripts/             # Build utilities
 └── docs/                # Documentation
