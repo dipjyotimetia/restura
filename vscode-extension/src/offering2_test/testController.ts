@@ -8,7 +8,7 @@ import { resolveCliCommand } from '../workspace/cliResolver';
 import { scanCollection, type ScannedRequest } from '../workspace/collectionScanner';
 import { formatAssertion, resultKey, toRelativePath, type CliRequestRunResult } from './cliResult';
 import { classifyOutcome } from './outcome';
-import { runViaShell, ShellRunError } from './shellRunner';
+import { runViaShell, ShellRunCancelled, ShellRunError } from './shellRunner';
 
 interface RequestMeta {
   collectionDir: string;
@@ -213,7 +213,7 @@ async function runHandler(
       } catch (err) {
         // A user cancellation aborts the CLI mid-flight; surface that as skipped
         // (unresolved) rather than a red error.
-        if (token.isCancellationRequested) {
+        if (err instanceof ShellRunCancelled || token.isCancellationRequested) {
           for (const leaf of groupLeaves) run.skipped(leaf);
           continue;
         }

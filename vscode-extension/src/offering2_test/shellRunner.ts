@@ -19,6 +19,9 @@ export interface ShellRunOptions {
 
 export class ShellRunError extends Error {}
 
+/** Thrown when the run was aborted via its AbortSignal (user cancellation). */
+export class ShellRunCancelled extends Error {}
+
 const execFileAsync = (
   cmd: string,
   args: string[],
@@ -30,15 +33,26 @@ const execFileAsync = (
       args,
       { signal: opts.signal, maxBuffer: 16 * 1024 * 1024 },
       (err, _stdout, stderr) => {
-        if (err && typeof (err as NodeJS.ErrnoException).code === 'string') {
-          // Spawn-level failure (ENOENT etc.) — surface as a hard error.
-          reject(new ShellRunError(`Failed to run '${cmd}': ${err.message}`));
+        const stderrStr = stderr.toString();
+        if (err) {
+          const code = (err as { code?: unknown }).code;
+          // Cancellation: AbortController.abort() surfaces as ABORT_ERR. Mark it
+          // distinctly so callers treat it as cancelled, not a spawn failure.
+          if (code === 'ABORT_ERR' || opts.signal?.aborted) {
+            reject(new ShellRunCancelled());
+            return;
+          }
+          // Other string codes are spawn-level failures (ENOENT etc.).
+          if (typeof code === 'string') {
+            reject(new ShellRunError(`Failed to run '${cmd}': ${err.message}`));
+            return;
+          }
+          // Numeric code = process exit code. Non-zero is normal: 1 = some tests
+          // failed (JSON still written), 2 = internal CLI error (no/invalid JSON).
+          resolve({ code: typeof code === 'number' ? code : 1, stderr: stderrStr });
           return;
         }
-        // Non-zero exit is normal: 1 = some tests failed (JSON still written),
-        // 2 = internal CLI error (no/invalid JSON).
-        const code = err && typeof err.code === 'number' ? err.code : 0;
-        resolve({ code, stderr: stderr.toString() });
+        resolve({ code: 0, stderr: stderrStr });
       }
     );
   });

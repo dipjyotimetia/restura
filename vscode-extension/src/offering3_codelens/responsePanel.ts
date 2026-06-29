@@ -72,6 +72,9 @@ function ensurePanel(context: vscode.ExtensionContext): vscode.WebviewPanel {
     { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
     { enableScripts: false, retainContextWhenHidden: true }
   );
+  // Tracked for disposal on deactivate; the listener also clears the cached ref
+  // when the user closes the panel manually.
+  context.subscriptions.push(panel);
   panel.onDidDispose(() => (panel = undefined), null, context.subscriptions);
   return panel;
 }
