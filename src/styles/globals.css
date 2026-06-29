@@ -360,7 +360,10 @@
    * the glow ladder) at runtime from the user's chosen accent.
    * ───────────────────────────────────────────────────────────────────────── */
   :root {
-    color-scheme: light dark;
+    /* Class-driven, NOT `light dark`: light-dark() resolves against the USED
+       value of color-scheme, so tying it to the .dark class (below) makes the
+       in-app theme toggle authoritative over the OS prefers-color-scheme. */
+    color-scheme: light;
     --radius: 0.5rem;
 
     --sp-bg: light-dark(oklch(94.2% 0.012 260), oklch(15.5% 0.011 268));
@@ -399,6 +402,8 @@
   }
 
   .dark {
+    /* Drives light-dark() to its dark branch (paired with :root color-scheme). */
+    color-scheme: dark;
     --sp-bg-glow:
       radial-gradient(
         at 0% 0%,

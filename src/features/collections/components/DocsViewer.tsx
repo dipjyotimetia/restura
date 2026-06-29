@@ -91,7 +91,7 @@ export function DocsViewer({ collection, onClose }: DocsViewerProps) {
             </button>
           </div>
         </DialogHeader>
-        <div className="flex-1 min-h-0 bg-white">
+        <div className="flex-1 min-h-0 bg-sp-surface">
           {collection && (
             <iframe
               srcDoc={html}

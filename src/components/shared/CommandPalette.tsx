@@ -32,6 +32,7 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { useUiStore } from '@/store/useUiStore';
 import { isConnectionMode } from '@/types';
 import type { Collection, CollectionItem, RequestType } from '@/types';
@@ -132,7 +133,10 @@ export default function CommandPalette({
   const [highlighted, setHighlighted] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
 
-  const { theme, setTheme } = useTheme();
+  // resolvedTheme (concrete 'light'|'dark'), not theme — theme can be 'system',
+  // which would make the binary toggle mislabel and no-op on first click.
+  const { resolvedTheme, setTheme } = useTheme();
+  const updateThemeSetting = useSettingsStore((s) => s.updateSettings);
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
   const openTab = useRequestStore((s) => s.openTab);
   const collections = useCollectionStore((s) => s.collections);
@@ -367,9 +371,16 @@ export default function CommandPalette({
       id: 'toggle-theme',
       kind: 'setting',
       group: 'Settings',
-      name: theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
-      icon: theme === 'dark' ? Sun : Moon,
-      onSelect: () => withViewTransition(() => setTheme(theme === 'dark' ? 'light' : 'dark')),
+      name: resolvedTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
+      icon: resolvedTheme === 'dark' ? Sun : Moon,
+      onSelect: () =>
+        withViewTransition(() => {
+          const next = resolvedTheme === 'dark' ? 'light' : 'dark';
+          setTheme(next);
+          // Keep the Dexie-persisted settings copy in sync with next-themes so
+          // the two storage sources don't diverge (matches SettingsDrawer).
+          updateThemeSetting({ theme: next });
+        }),
     });
     if (onOpenSettings) {
       items.push({
@@ -411,8 +422,9 @@ export default function CommandPalette({
     clearHistory,
     createNewRequest,
     openTab,
-    theme,
+    resolvedTheme,
     setTheme,
+    updateThemeSetting,
   ]);
 
   // Filter

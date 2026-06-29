@@ -43,7 +43,10 @@ export function ToggleField({
     >
       <span
         aria-hidden="true"
-        className="absolute rounded-full bg-white shadow-sm transition-transform"
+        // Hairline keeps the white knob legible on the light-mode OFF track
+        // (sp-line-strong is near-white there); invisible on the accent/dark
+        // tracks where white already contrasts.
+        className="absolute rounded-full bg-white border border-black/10 shadow-sm transition-transform"
         style={{
           width: dims.knob,
           height: dims.knob,
