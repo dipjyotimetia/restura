@@ -87,4 +87,4 @@ cache/**/*
 src/features/scripts/lib/sandboxLibraries/bundle.generated.ts
 
 # Extension build output
-extension/dist
+extension/chrome/dist

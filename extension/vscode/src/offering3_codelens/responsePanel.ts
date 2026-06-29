@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { NormalizedResponse } from '../../../shared/protocol/types';
+import type { NormalizedResponse } from '../../../../shared/protocol/types';
 
 let panel: vscode.WebviewPanel | undefined;
 

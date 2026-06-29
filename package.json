@@ -16,8 +16,8 @@
   "main": "dist/electron/electron/main/main.js",
   "workspaces": [
     "cli",
-    "extension",
-    "vscode-extension"
+    "extension/chrome",
+    "extension/vscode"
   ],
   "scripts": {
     "dev": "vite",
@@ -27,12 +27,12 @@
     "build:docker": "npm run build:web:docker && npm run build:server",
     "start": "node dist/server/index.mjs",
     "preview": "vite preview",
-    "lint": "eslint src shared electron/main worker echo echo-local cli extension vscode-extension tests scripts",
-    "lint:fix": "eslint src shared electron/main worker echo echo-local cli extension vscode-extension tests scripts --fix",
+    "lint": "eslint src shared electron/main worker echo echo-local cli extension/chrome extension/vscode tests scripts",
+    "lint:fix": "eslint src shared electron/main worker echo echo-local cli extension/chrome extension/vscode tests scripts --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "type-check": "node scripts/ensure-sandbox-libs.mjs && tsc --noEmit",
-    "type-check:all": "npm run type-check && tsc --noEmit -p electron/tsconfig.json && tsc --noEmit -p src/features/http/tsconfig.json && tsc --noEmit -p worker/tsconfig.json && tsc --noEmit -p echo/tsconfig.json && tsc --noEmit -p echo-local/tsconfig.json && npm run --workspace cli type-check && npm run --workspace @restura/extension type-check && npm run --workspace vscode-extension type-check",
+    "type-check:all": "npm run type-check && tsc --noEmit -p electron/tsconfig.json && tsc --noEmit -p src/features/http/tsconfig.json && tsc --noEmit -p worker/tsconfig.json && tsc --noEmit -p echo/tsconfig.json && tsc --noEmit -p echo-local/tsconfig.json && npm run --workspace cli type-check && npm run --workspace @restura/extension type-check && npm run --workspace restura-vscode type-check",
     "test": "node scripts/ensure-sandbox-libs.mjs && vitest",
     "test:run": "node scripts/ensure-sandbox-libs.mjs && vitest run",
     "test:coverage": "vitest run --coverage",

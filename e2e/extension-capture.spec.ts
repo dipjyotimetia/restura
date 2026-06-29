@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type BrowserContext, chromium, expect, test } from '@playwright/test';
 
-const EXT_DIR = join(__dirname, '..', 'extension');
+const EXT_DIR = join(__dirname, '..', 'extension', 'chrome');
 const DIST_DIR = join(EXT_DIR, 'dist');
 
 const SYNTHETIC_SESSION = {
