@@ -35,6 +35,10 @@ vendor/
 tests/fixtures/
 cli/fixtures/
 
+# Vendored OpenCollection JSON Schema copied into the VS Code extension — keep
+# byte-identical to vendor/opencollection (do not reformat).
+vscode-extension/schemas/
+
 # MDX (docs-site content): Prettier's MDX printer prose-wraps Markdown lists and
 # code fences nested inside JSX components (<TabItem>, <FileTree>, <Aside>), which
 # corrupts them. `astro check` validates these files in the docs CI job instead.
