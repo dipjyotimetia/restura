@@ -1,0 +1,15 @@
+info:
+  type: http
+  name: Get anything
+  seq: 1
+http:
+  method: GET
+  url: "{{API_BASE}}/anything"
+  headers:
+    - name: Accept
+      value: application/json
+runtime:
+  scripts:
+    - type: tests
+      code: |
+        pm.test('status is 200', () => pm.response.to.have.status(200));

@@ -1,0 +1,122 @@
+{
+  "name": "restura-vscode",
+  "displayName": "Restura",
+  "description": "OpenCollection language support, a Test Explorer, and inline send/run for Restura API collections — right in your editor.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "dipjyotimetia",
+  "publisher": "dipjyotimetia",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dipjyotimetia/restura.git",
+    "directory": "vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=24"
+  },
+  "categories": [
+    "Testing",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "api",
+    "rest",
+    "graphql",
+    "grpc",
+    "opencollection",
+    "restura"
+  ],
+  "main": "./out/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Restura runs the workspace's `restura` CLI and sends HTTP requests defined by workspace files, so it only operates in trusted workspaces."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Restura reads collections from the local filesystem and spawns the CLI, which require a local workspace."
+    }
+  },
+  "activationEvents": [
+    "workspaceContains:**/opencollection.yml",
+    "workspaceContains:**/opencollection.yaml"
+  ],
+  "contributes": {
+    "yamlValidation": [
+      {
+        "fileMatch": [
+          "opencollection.yml",
+          "opencollection.yaml"
+        ],
+        "url": "./schemas/opencollection-v1.0.0.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "restura.refreshTests",
+        "title": "Restura: Refresh Collections",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "restura.sendRequest",
+        "title": "Restura: Send Request"
+      },
+      {
+        "command": "restura.runRequestAsTest",
+        "title": "Restura: Run Request as Test"
+      }
+    ],
+    "configuration": {
+      "title": "Restura",
+      "properties": {
+        "restura.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `restura` CLI binary used by the Test Explorer. Leave empty to auto-resolve from the workspace `node_modules/.bin`, then `PATH`."
+        },
+        "restura.allowLocalhost": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow Send / test runs to target localhost and loopback addresses. Editor users typically hit local dev servers, so this is on by default."
+        },
+        "restura.allowPrivateIPs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow Send / test runs to target RFC 1918 / link-local / CGNAT private addresses. Cloud-metadata endpoints stay blocked regardless."
+        },
+        "restura.env": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to an environment file (JSON or YAML) passed to the CLI test runner via --env."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.mjs --production",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "type-check": "tsc --noEmit",
+    "test:unit": "vitest run",
+    "test:integration": "vscode-test",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.0.1",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.25.12",
+    "mocha": "^11.7.6",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.9"
+  }
+}

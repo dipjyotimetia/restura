@@ -1,0 +1,10 @@
+opencollection: "1.0.0"
+info:
+  name: Sample Collection
+  version: "0.1.0"
+docs: Fixture collection for the Restura VS Code extension
+config:
+  environments:
+    - name: default
+      variables:
+        - { name: API_BASE, value: https://httpbin.org }
