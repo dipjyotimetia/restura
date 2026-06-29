@@ -1,16 +1,14 @@
 import * as vscode from 'vscode';
-import { resultKey } from '../offering2_test/cliResult';
+import { formatAssertion, resultKey } from '../offering2_test/cliResult';
 import { classifyOutcome } from '../offering2_test/outcome';
 import { runViaShell, ShellRunError } from '../offering2_test/shellRunner';
+import { getResturaSettings } from '../util/settings';
 import { resolveCliCommand } from '../workspace/cliResolver';
-import { classifyOcFile, type OcRequestType } from '../workspace/collectionDetector';
+import { classifyOcFile, REQUEST_CAPABILITIES } from '../workspace/collectionDetector';
 import { findCollectionRoot } from '../workspace/collectionLocate';
 import { scanCollection } from '../workspace/collectionScanner';
 import { showError, showResponse } from './responsePanel';
 import { sendRequest } from './sendInspect';
-
-const SENDABLE = new Set<OcRequestType>(['http', 'graphql']);
-const RUNNABLE = new Set<OcRequestType>(['http', 'grpc', 'graphql']);
 
 class RequestCodeLensProvider implements vscode.CodeLensProvider {
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
@@ -18,9 +16,10 @@ class RequestCodeLensProvider implements vscode.CodeLensProvider {
     const classified = classifyOcFile(document.uri.fsPath, document.getText());
     if (classified.kind !== 'request') return [];
 
+    const caps = REQUEST_CAPABILITIES[classified.type];
     const range = new vscode.Range(0, 0, 0, 0);
     const lenses: vscode.CodeLens[] = [];
-    if (SENDABLE.has(classified.type)) {
+    if (caps.sendable) {
       lenses.push(
         new vscode.CodeLens(range, {
           title: '$(play) Send',
@@ -29,7 +28,7 @@ class RequestCodeLensProvider implements vscode.CodeLensProvider {
         })
       );
     }
-    if (RUNNABLE.has(classified.type)) {
+    if (caps.runnableByCli) {
       lenses.push(
         new vscode.CodeLens(range, {
           title: '$(beaker) Run test',
@@ -48,11 +47,8 @@ async function resolveTargetUri(arg: unknown): Promise<vscode.TextDocument | und
 }
 
 function sendOptions(): { allowLocalhost: boolean; allowPrivateIPs: boolean } {
-  const config = vscode.workspace.getConfiguration('restura');
-  return {
-    allowLocalhost: config.get<boolean>('allowLocalhost', true),
-    allowPrivateIPs: config.get<boolean>('allowPrivateIPs', false),
-  };
+  const { allowLocalhost, allowPrivateIPs } = getResturaSettings();
+  return { allowLocalhost, allowPrivateIPs };
 }
 
 export function registerCodeLens(context: vscode.ExtensionContext): void {
@@ -107,9 +103,8 @@ export function registerCodeLens(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const config = vscode.workspace.getConfiguration('restura');
+      const { allowLocalhost, envFile } = getResturaSettings();
       const cliCommand = resolveCliCommand(vscode.workspace.workspaceFolders?.[0]);
-      const envFile = config.get<string>('env', '').trim();
 
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Window, title: `Restura: running ${target.name}…` },
@@ -118,15 +113,14 @@ export function registerCodeLens(context: vscode.ExtensionContext): void {
             const result = await runViaShell({
               cliCommand,
               collectionDir: root,
-              allowLocalhost: config.get<boolean>('allowLocalhost', true),
+              allowLocalhost,
               include: [target.name],
               ...(target.folderPath.length > 0 ? { folder: target.folderPath.join('/') } : {}),
               ...(envFile ? { envFile } : {}),
             });
+            const targetKey = resultKey(target.folderPath, target.name);
             const match = result.requests.find(
-              (r) =>
-                resultKey(r.request.folderPath, r.request.request.name) ===
-                resultKey(target.folderPath, target.name)
+              (r) => resultKey(r.request.folderPath, r.request.request.name) === targetKey
             );
             if (!match) {
               void vscode.window.showWarningMessage(`Restura: no result for ${target.name}.`);
@@ -135,9 +129,7 @@ export function registerCodeLens(context: vscode.ExtensionContext): void {
             const outcome = classifyOutcome(match);
             output.appendLine(`[${new Date().toISOString()}] ${target.name}: ${outcome.kind}`);
             for (const a of match.assertions ?? []) {
-              output.appendLine(
-                `  ${a.passed ? '✓' : '✗'} ${a.name}${a.error ? ` — ${a.error}` : ''}`
-              );
+              output.appendLine(`  ${formatAssertion(a)}`);
             }
             if (outcome.kind === 'passed') {
               void vscode.window.showInformationMessage(

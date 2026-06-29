@@ -1,8 +1,8 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import * as yaml from 'js-yaml';
-import { isRecord, ROOT_FILENAMES, isRootFilename } from '../util/oc';
-import { classifyOcFile, type OcRequestType } from './collectionDetector';
+import { infoName, ROOT_FILENAMES, isRootFilename } from '../util/oc';
+import { classifyOcFile, REQUEST_CAPABILITIES, type OcRequestType } from './collectionDetector';
 
 /**
  * A runnable request discovered on disk. `folderPath` uses folder *display
@@ -21,22 +21,14 @@ export interface ScannedRequest {
 
 const FOLDER_META = '_folder.yaml';
 
-// WebSocket requests are not runnable by the CLI runner (ocToInternal surfaces
-// them as folders), so they're excluded from the test tree. http/grpc/graphql
-// are runnable — GraphQL executes as an HTTP request.
-const RUNNABLE_TYPES = new Set<OcRequestType>(['http', 'grpc', 'graphql']);
-
 async function folderDisplayName(dir: string): Promise<string> {
   try {
     const raw = await readFile(join(dir, FOLDER_META), 'utf8');
-    const meta = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
-    if (isRecord(meta) && isRecord(meta.info) && typeof meta.info.name === 'string') {
-      return meta.info.name;
-    }
+    return infoName(yaml.load(raw, { schema: yaml.JSON_SCHEMA })) ?? basename(dir);
   } catch {
     // _folder.yaml optional → fall back to basename
+    return basename(dir);
   }
-  return basename(dir);
 }
 
 /**
@@ -87,7 +79,9 @@ async function walk(dir: string, folderPath: string[], out: ScannedRequest[]): P
       continue;
     }
     const classified = classifyOcFile(full, raw);
-    if (classified.kind !== 'request' || !RUNNABLE_TYPES.has(classified.type)) continue;
+    if (classified.kind !== 'request' || !REQUEST_CAPABILITIES[classified.type].runnableByCli) {
+      continue;
+    }
 
     collected.push({
       filePath: full,

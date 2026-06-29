@@ -12,3 +12,11 @@ export const ROOT_FILENAMES = ['opencollection.yml', 'opencollection.yaml'] as c
 export function isRootFilename(basename: string): boolean {
   return (ROOT_FILENAMES as readonly string[]).includes(basename.toLowerCase());
 }
+
+/** Extract `info.name` from a parsed OC document, if present. */
+export function infoName(doc: unknown): string | undefined {
+  if (isRecord(doc) && isRecord(doc.info) && typeof doc.info.name === 'string') {
+    return doc.info.name;
+  }
+  return undefined;
+}

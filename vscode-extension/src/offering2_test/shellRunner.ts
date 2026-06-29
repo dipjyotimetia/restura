@@ -11,13 +11,9 @@ export interface ShellRunOptions {
   folder?: string;
   /** CLI --include patterns (substring/glob on name + relativePath). */
   include?: string[];
-  /** CLI --exclude patterns. */
-  exclude?: string[];
   /** Path to an env file (CLI --env). */
   envFile?: string;
   allowLocalhost: boolean;
-  /** Per-request timeout in ms (CLI --timeout). */
-  timeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -67,9 +63,7 @@ export async function runViaShell(options: ShellRunOptions): Promise<CliRunResul
     if (options.allowLocalhost) args.push('--allow-localhost');
     if (options.folder) args.push('--folder', options.folder);
     for (const inc of options.include ?? []) args.push('--include', inc);
-    for (const exc of options.exclude ?? []) args.push('--exclude', exc);
     if (options.envFile) args.push('--env', options.envFile);
-    if (options.timeoutMs !== undefined) args.push('--timeout', String(options.timeoutMs));
 
     const { code, stderr } = await execFileAsync(options.cliCommand, args, {
       signal: options.signal,

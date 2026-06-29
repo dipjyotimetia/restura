@@ -2,10 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
-import { isRecord, ROOT_FILENAMES } from '../util/oc';
+import { infoName, ROOT_FILENAMES } from '../util/oc';
+import { getResturaSettings } from '../util/settings';
 import { resolveCliCommand } from '../workspace/cliResolver';
 import { scanCollection, type ScannedRequest } from '../workspace/collectionScanner';
-import { resultKey, type CliRequestRunResult } from './cliResult';
+import { formatAssertion, resultKey, type CliRequestRunResult } from './cliResult';
 import { classifyOutcome } from './outcome';
 import { runViaShell, ShellRunError } from './shellRunner';
 
@@ -24,10 +25,10 @@ function leafId(collectionDir: string, folderPath: string[], name: string): stri
 async function collectionLabel(rootDir: string): Promise<string> {
   for (const f of ROOT_FILENAMES) {
     try {
-      const doc = yaml.load(await readFile(join(rootDir, f), 'utf8'), { schema: yaml.JSON_SCHEMA });
-      if (isRecord(doc) && isRecord(doc.info) && typeof doc.info.name === 'string') {
-        return doc.info.name;
-      }
+      const name = infoName(
+        yaml.load(await readFile(join(rootDir, f), 'utf8'), { schema: yaml.JSON_SCHEMA })
+      );
+      if (name) return name;
     } catch {
       // try next / fall through
     }
@@ -169,11 +170,8 @@ async function runHandler(
   const abort = new AbortController();
   token.onCancellationRequested(() => abort.abort());
 
-  const config = vscode.workspace.getConfiguration('restura');
-  const allowLocalhost = config.get<boolean>('allowLocalhost', true);
-  const envFile = config.get<string>('env', '').trim();
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-  const cliCommand = resolveCliCommand(workspaceFolder);
+  const { allowLocalhost, envFile } = getResturaSettings();
+  const cliCommand = resolveCliCommand(vscode.workspace.workspaceFolders?.[0]);
 
   // Total leaves per collection, computed in one pass (vs re-scanning `meta`
   // for every collection in the loop below).
@@ -228,9 +226,7 @@ async function runHandler(
 
 function applyResult(run: vscode.TestRun, leaf: vscode.TestItem, r: CliRequestRunResult): void {
   if (r.assertions && r.assertions.length > 0) {
-    const lines = r.assertions.map(
-      (a) => `${a.passed ? '✓' : '✗'} ${a.name}${a.error ? ` — ${a.error}` : ''}`
-    );
+    const lines = r.assertions.map(formatAssertion);
     run.appendOutput(`${leaf.label}\r\n${lines.join('\r\n')}\r\n`);
   }
 

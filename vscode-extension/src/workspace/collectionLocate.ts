@@ -45,9 +45,9 @@ export function loadDefaultEnvVars(collectionDir: string): Record<string, string
         if (variable.secret === true) continue; // no value on disk
         if (variable.disabled === true) continue;
         if (typeof variable.name !== 'string') continue;
-        if (typeof variable.value === 'string') out[variable.name] = variable.value;
-        else if (typeof variable.value === 'number' || typeof variable.value === 'boolean') {
-          out[variable.name] = String(variable.value);
+        const val = variable.value;
+        if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+          out[variable.name] = String(val);
         }
       }
       return out;

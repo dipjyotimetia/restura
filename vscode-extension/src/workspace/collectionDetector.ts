@@ -19,6 +19,25 @@ export type OcFileKind = 'root' | 'request' | 'folder-meta' | 'unknown';
 export const OC_REQUEST_TYPES = ['http', 'grpc', 'graphql', 'websocket'] as const;
 export type OcRequestType = (typeof OC_REQUEST_TYPES)[number];
 
+/**
+ * Per-request-type capabilities — the single source of truth for what the
+ * extension can do with each protocol.
+ *
+ *  - `runnableByCli` — the CLI test runner can execute it. GraphQL runs as an
+ *    HTTP request; WebSocket is surfaced as a folder (not runnable).
+ *  - `sendable` — the inline Send path can map it to a `RequestSpec`. Only the
+ *    `http` element shape is mapped today.
+ */
+export const REQUEST_CAPABILITIES: Record<
+  OcRequestType,
+  { runnableByCli: boolean; sendable: boolean }
+> = {
+  http: { runnableByCli: true, sendable: true },
+  graphql: { runnableByCli: true, sendable: false },
+  grpc: { runnableByCli: true, sendable: false },
+  websocket: { runnableByCli: false, sendable: false },
+};
+
 const FOLDER_META = '_folder.yaml';
 
 export interface OcRequestInfo {

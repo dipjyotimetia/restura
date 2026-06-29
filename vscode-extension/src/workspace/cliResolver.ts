@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
+import { getResturaSettings } from '../util/settings';
 
 /**
  * Resolve the `restura` CLI binary used by the Test Explorer. Order:
@@ -12,8 +13,8 @@ import * as vscode from 'vscode';
  * the `.cmd` shim on Windows is selected here.
  */
 export function resolveCliCommand(workspaceFolder: vscode.WorkspaceFolder | undefined): string {
-  const configured = vscode.workspace.getConfiguration('restura').get<string>('cliPath');
-  if (configured && configured.trim()) return configured.trim();
+  const configured = getResturaSettings().cliPath;
+  if (configured) return configured;
 
   if (workspaceFolder) {
     const binName = process.platform === 'win32' ? 'restura.cmd' : 'restura';

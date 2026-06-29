@@ -50,3 +50,8 @@ const KEY_SEP = '\0';
 export function resultKey(folderPath: string[], name: string): string {
   return [...folderPath, name].join(KEY_SEP);
 }
+
+/** One-line `✓/✗ name — error` summary of an assertion (no leading indent). */
+export function formatAssertion(a: CliAssertionResult): string {
+  return `${a.passed ? '✓' : '✗'} ${a.name}${a.error ? ` — ${a.error}` : ''}`;
+}
