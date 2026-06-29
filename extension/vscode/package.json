@@ -9,7 +9,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dipjyotimetia/restura.git",
-    "directory": "vscode-extension"
+    "directory": "extension/vscode"
   },
   "engines": {
     "vscode": "^1.90.0",

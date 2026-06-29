@@ -1,6 +1,6 @@
 import * as yaml from 'js-yaml';
-import { executeHttpProxy } from '../../../shared/protocol/http-proxy';
-import type { NormalizedResponse } from '../../../shared/protocol/types';
+import { executeHttpProxy } from '../../../../shared/protocol/http-proxy';
+import type { NormalizedResponse } from '../../../../shared/protocol/types';
 import { createNodeFetcher } from '../util/nodeFetcher';
 import { findCollectionRoot, loadDefaultEnvVars } from '../workspace/collectionLocate';
 import { mapHttpElementToSpec } from './ocRequestMapper';

@@ -104,10 +104,10 @@ jobs:
       # The vscode-extension workspace has its own vitest suite that root
       # `test:ci` does not cover (root vitest `include` omits the workspace).
       # It bundles shared/protocol + opencollection, so running it on every PR
-      # (not only when vscode-extension/** changes) also catches breakage that a
+      # (not only when extension/vscode/** changes) also catches breakage that a
       # shared-code change would introduce. Fast + wasm-free, no prebuild needed.
       - name: Run VS Code extension unit tests
-        run: npm run --workspace vscode-extension test:unit
+        run: npm run --workspace restura-vscode test:unit
 
       # Block until the background test step (kicked off right after install)
       # finishes. The job fails here if the suite failed; the test-result
@@ -466,7 +466,7 @@ jobs:
 
       - name: Build extension bundle
         # @vscode/test-cli loads dist `out/extension.js` as the dev extension.
-        run: npm run --workspace vscode-extension build
+        run: npm run --workspace restura-vscode build
 
       # VS Code is Electron/Chromium, so it needs the same shared system libs
       # (libnss3, libgbm, GTK, …) as the Electron e2e job. `playwright
@@ -479,12 +479,12 @@ jobs:
       - name: Cache VS Code test build
         uses: actions/cache@v5.0.5
         with:
-          path: vscode-extension/.vscode-test
+          path: extension/vscode/.vscode-test
           key: ${{ runner.os }}-vscode-test-${{ hashFiles('package-lock.json') }}
 
       # Headless runner has no display; the VS Code Electron host needs one.
       - name: Run extension integration tests (xvfb)
-        run: xvfb-run -a npm run --workspace vscode-extension test:integration
+        run: xvfb-run -a npm run --workspace restura-vscode test:integration
 
   # Production deploy lives in release.yml (the manually-dispatched Release
   # workflow) — it is NOT run on merge to main. PR preview deploys stay here.

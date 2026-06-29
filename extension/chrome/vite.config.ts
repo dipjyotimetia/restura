@@ -12,7 +12,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@shared': resolve(__dirname, '../shared') },
+    alias: { '@shared': resolve(__dirname, '../../shared') },
   },
   build: {
     outDir: 'dist',

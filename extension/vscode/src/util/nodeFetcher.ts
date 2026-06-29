@@ -1,7 +1,7 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import type { Fetcher } from '../../../shared/protocol/types';
-import { assertResolvedAddressAllowed } from '../../../shared/protocol/url-validation';
+import type { Fetcher } from '../../../../shared/protocol/types';
+import { assertResolvedAddressAllowed } from '../../../../shared/protocol/url-validation';
 
 export interface NodeFetcherOptions {
   allowLocalhost: boolean;
