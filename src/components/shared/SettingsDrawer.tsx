@@ -283,8 +283,12 @@ export default function SettingsDrawer({
                   AI features are available in the desktop app only.
                 </div>
               )}
-              {activeSection === 'data' && <DataSection />}
-              {activeSection === 'data' && <CaptureBridgeCard />}
+              {activeSection === 'data' && (
+                <>
+                  <DataSection />
+                  <CaptureBridgeCard />
+                </>
+              )}
               {activeSection === 'updates' && <UpdatesSection />}
               {activeSection === 'shortcuts' && <ShortcutsSection />}
               {activeSection === 'about' && <AboutSection />}

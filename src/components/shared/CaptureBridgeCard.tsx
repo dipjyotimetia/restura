@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 
 export function CaptureBridgeCard() {
@@ -67,14 +68,14 @@ export function CaptureBridgeCard() {
       </p>
 
       <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          disabled={busy}
+        <Button
+          variant="outline"
+          size="sm"
+          loading={busy}
           onClick={() => void (running ? stop() : start())}
-          className="rounded-md border border-sp-line px-3 py-1.5 text-sm hover:bg-sp-surface-hi disabled:opacity-50"
         >
           {running ? 'Stop bridge' : 'Start bridge'}
-        </button>
+        </Button>
         <span className="text-xs text-sp-muted">
           {running ? `Listening on 127.0.0.1:${port ?? '…'}` : 'Stopped'}
         </span>
@@ -87,16 +88,16 @@ export function CaptureBridgeCard() {
             <code className="flex-1 truncate rounded-md bg-sp-surface-hi px-2 py-1 font-mono text-xs">
               {pairingCode}
             </code>
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => {
                 void navigator.clipboard.writeText(pairingCode);
                 toast.success('Pairing code copied');
               }}
-              className="rounded-md border border-sp-line px-2 py-1 text-xs hover:bg-sp-surface-hi"
             >
               Copy
-            </button>
+            </Button>
           </div>
         </div>
       )}
