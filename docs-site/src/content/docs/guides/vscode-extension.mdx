@@ -1,0 +1,54 @@
+---
+title: VS Code extension
+description: Bring Restura's git-native OpenCollection files into VS Code — schema diagnostics, a native Test Explorer backed by the restura CLI, and inline Send through the shared protocol core.
+---
+
+import { Badge, Aside, Steps } from '@astrojs/starlight/components';
+
+The **Restura for VS Code** extension makes [OpenCollection](/reference/opencollection/) files first-class citizens of your repo. It deliberately does only what an editor does better than a separate GUI: structured editing, a native Test Explorer, and inline send — all over the same files your team already commits. The design is in [ADR 0025](/architecture/adrs/0025-vscode-extension/).
+
+<Aside type="note">
+This is **not** the full Restura app in a panel. Test runs shell out to the `restura` CLI (so local results match CI), and inline sends go through the same shared protocol core the app uses — no re-implemented execution or assertions.
+</Aside>
+
+## Three offerings
+
+### 1. OpenCollection language support
+
+- **Schema validation** of request files (`http` / `grpc` / `graphql` / `websocket`) against the OpenCollection element schemas — squiggles on missing or invalid fields, located to the offending line.
+- **Autocomplete + hover** on root `opencollection.{yml,yaml}` files via the bundled JSON Schema (requires the [Red Hat YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml); request-file validation works without it).
+
+### 2. Test Explorer
+
+Your collections appear in VS Code's native **Testing** view, mirroring the folder structure. Run the whole collection, a folder, or a single request — pass/fail, durations, and assertion details show inline. Runs shell out to the `restura` CLI, so local results match CI exactly.
+
+### 3. Inline Send / Run test
+
+CodeLens actions above each request:
+
+- **▶ Send** (HTTP/GraphQL) — sends through Restura's shared protocol core (SSRF guard, header policy, redirect handling, wire-level auth) and shows the response in a side panel. Variables resolve from the collection's default environment.
+- **▶ Run test** — runs just that request through the CLI and reports assertions.
+
+## Requirements
+
+- The [`restura` CLI](/reference/cli/) on `PATH` or in your workspace `node_modules` (used by the Test Explorer and **Run test**). Override the path with `restura.cliPath`.
+- Node.js 24+.
+- Trusted, local workspaces only — the extension spawns a CLI and makes network requests, so it doesn't run in virtual or untrusted workspaces.
+
+## Settings
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `restura.cliPath` | `""` | Path to the `restura` binary (auto-resolved if empty). |
+| `restura.allowLocalhost` | `true` | Allow Send/test runs to target localhost. |
+| `restura.allowPrivateIPs` | `false` | Allow private/RFC-1918 targets. Cloud-metadata endpoints stay blocked. |
+| `restura.env` | `""` | Optional env file (JSON/YAML) passed to the CLI runner. |
+
+## Roadmap
+
+Two further offerings are scoped but not yet shipped: **OpenAPI contract drift** (generate requests from a spec and flag drift) and **one-click MCP registration** (register Restura's MCP server into the workspace MCP config).
+
+## Related
+
+- [ADR 0025 — VS Code extension](/architecture/adrs/0025-vscode-extension/)
+- [CLI reference](/reference/cli/) · [OpenCollection format](/reference/opencollection/)

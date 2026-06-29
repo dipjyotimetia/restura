@@ -2,7 +2,7 @@
 
 ## Overview
 
-Restura is a multi-protocol API testing client that ships as both a **web application** (Cloudflare Pages + Workers) and an **Electron desktop app**. The same Vite-built React SPA is the renderer for both delivery targets; only the transport layer differs.
+Restura is a multi-protocol API testing client that ships to three targets from one codebase: a **web application** (Cloudflare Pages + Workers), a **self-hostable Node/Docker server**, and an **Electron desktop app**. The same Vite-built React SPA is the renderer for all three; only the transport layer differs (chosen at runtime by `isElectron()`). The two HTTP backends — the Cloudflare Worker and the Node/Docker server — share a single Hono app via the `createApp(deps)` factory (see ADR 0009).
 
 ---
 
@@ -59,7 +59,7 @@ The Electron main process exposes native handlers via a secure context-isolated 
 
 ### Goal
 
-Each protocol (HTTP, gRPC, MCP) is implemented **once** in `shared/protocol/`, not twice. The Worker and Electron main process each supply only the transport: they call into the same orchestrator with the same validation rules, the same body builders, the same header sanitisers, and the same response shape. Before this refactor each protocol was duplicated across the two backends and the two copies had already drifted (notably the SSRF guard).
+Each protocol (HTTP, gRPC, MCP, WebSocket, SSE, AI) is implemented **once** in `shared/protocol/`, not per-backend. The Worker, the Node/Docker server, and the Electron main process each supply only the transport: they call into the same orchestrator with the same validation rules, the same body builders, the same header sanitisers, and the same response shape. Before this refactor each protocol was duplicated across the backends and the copies had already drifted (notably the SSRF guard). The browser-capture extension reuses the same pattern via `shared/capture/` (see ADR 0024).
 
 ### Layout
 
@@ -72,8 +72,20 @@ shared/protocol/
   ├── http-proxy.ts         ── executeHttpProxy(spec, fetcher, options)
   ├── grpc-proxy.ts         ── executeGrpcProxy(spec, fetcher, options)
   ├── grpc-status.ts        ── gRPC status code enum + reverse map
-  └── mcp-proxy.ts          ── validateMcpSpec(spec, allowLocalhost)
+  ├── grpc-registry.ts      ── runtime protobuf descriptor registry (ADR 0022)
+  ├── mcp-proxy.ts          ── validateMcpSpec(spec, allowLocalhost)
+  ├── websocket-proxy.ts    ── executeWebSocketProxy(spec, fetcher, options)
+  ├── sse-parser.ts         ── canonical W3C SSE event-frame parser
+  ├── ndjson-parser.ts      ── line-delimited JSON parser
+  ├── auth-signer.ts        ── wire-level auth signing (SigV4 etc.)
+  ├── oauth1-signer.ts      ── OAuth 1.0 signing
+  ├── wsse-header.ts        ── WSSE header construction
+  ├── secret-value-schema.ts── SecretRef handle schema (ADR 0007)
+  ├── crypto-utils.ts       ── shared crypto helpers
+  └── ai/                   ── provider-agnostic AI chat orchestrator (ADR 0010)
 ```
+
+The browser-capture extension's pipeline lives in a sibling module, `shared/capture/` (normalizer, classifier, secret-extractor, HAR / OpenCollection exporters — ADR 0024).
 
 | Module                              | Responsibility                                                                                                      |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -98,12 +110,13 @@ Each backend supplies a `Fetcher` — `(req: FetcherRequest) => Promise<FetcherR
                                │ Fetcher
               ┌────────────────┴─────────────────┐
               ▼                                  ▼
-   worker/handlers/*.ts                electron/main/http-handler.ts
-   (globalThis.fetch)                  (Node http/https)
+   worker/handlers/*.ts                electron/main/handlers/http-handler.ts
+   (globalThis.fetch)                  (Node http/https via undici)
 ```
 
-- **Cloudflare Worker** — `worker/handlers/{proxy,grpc,mcp}.ts` wrap `globalThis.fetch`. Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
-- **Electron main process** — `electron/main/http-handler.ts` wraps Node's `http`/`https` (via undici). Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, connect-time DNS-rebind pinning for HTTP/gRPC/WebSocket/SSE via `Agent.connect.lookup` + `electron/main/safe-connect.ts`, and a pre-flight DNS guard via `electron/main/dns-guard.ts` for the remaining transports) live inside the Electron fetcher closures — **not** in shared. The shared core stays backend-agnostic. Long-lived streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`) share renderer-cleanup bookkeeping via `electron/main/connection-cleanup.ts` (`bindRendererCleanup`, `disposeByOwner`) — see ADR-0006.
+- **Cloudflare Worker** — `worker/handlers/*.ts` wrap `globalThis.fetch`. The Hono app itself is built by `createApp(deps)` in `worker/app.ts`; `worker/index.ts` composes it with Cloudflare adapters. Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
+- **Self-hosted Node/Docker server** — `worker/node-entry.ts` runs the same `createApp` in a single Node process that serves both the SPA and `/api/*`. Node-native adapters live in `worker/shared/tcp-proxy-node.ts`, `worker/shared/dns-guard-node.ts`, and `worker/handlers/websocket-node.ts` (see ADR 0009 and `docs/SELF_HOSTING.md`).
+- **Electron main process** — `electron/main/handlers/http-handler.ts` wraps Node's `http`/`https` (via undici). Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, connect-time DNS-rebind pinning for HTTP/gRPC/WebSocket/SSE via `Agent.connect.lookup` + `electron/main/security/safe-connect.ts`, and a pre-flight DNS guard via `electron/main/security/dns-guard.ts` for the remaining transports) live inside the Electron fetcher closures — **not** in shared. The shared core stays backend-agnostic. Long-lived streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `kafka-handler.ts`, `mqtt-handler.ts`) share connection bookkeeping via `electron/main/ipc/stream-registry.ts` and `electron/main/ipc/connection-cleanup.ts` (`bindRendererCleanup`, `disposeByOwner`) — see ADR-0006.
 
 ### Adding a new protocol
 
@@ -117,24 +130,24 @@ SSRF rules, header sanitisers, body construction, error mapping, and timeouts co
 
 ## Technology Stack
 
-| Concern          | Technology                                       |
-| ---------------- | ------------------------------------------------ |
-| Build tool       | Vite 8 + `@cloudflare/vite-plugin`               |
-| UI framework     | React 19                                         |
-| Routing          | React Router v7 (`createHashRouter`)             |
-| Styling          | TailwindCSS v4 via `@tailwindcss/vite`           |
-| UI components    | shadcn/ui patterns on Radix UI primitives        |
-| State management | Zustand v5 with `persist` middleware             |
-| Validation       | Zod v4                                           |
-| Code editor      | Monaco Editor (`@monaco-editor/react`)           |
-| Script sandbox   | QuickJS WASM (`quickjs-emscripten`)              |
-| gRPC (web)       | `@connectrpc/connect-web` + `@bufbuild/protobuf` |
-| gRPC (desktop)   | `@grpc/grpc-js` + `@grpc/proto-loader`           |
-| Worker framework | Hono                                             |
-| Desktop shell    | Electron 42                                      |
-| Auto-updates     | `electron-updater`                               |
-| Testing          | Vitest + React Testing Library                   |
-| Deployment       | Cloudflare Pages + Functions                     |
+| Concern          | Technology                                                                    |
+| ---------------- | ----------------------------------------------------------------------------- |
+| Build tool       | Vite 8 + `@cloudflare/vite-plugin`                                            |
+| UI framework     | React 19                                                                      |
+| Routing          | React Router v7 (`createHashRouter`)                                          |
+| Styling          | TailwindCSS v4 via `@tailwindcss/vite`                                        |
+| UI components    | shadcn/ui patterns on Radix UI primitives                                     |
+| State management | Zustand v5 with `persist` middleware                                          |
+| Validation       | Zod v4                                                                        |
+| Code editor      | Monaco Editor (`@monaco-editor/react`)                                        |
+| Script sandbox   | QuickJS WASM (`quickjs-emscripten`)                                           |
+| gRPC (web)       | `@connectrpc/connect-web` + `@bufbuild/protobuf`                              |
+| gRPC (desktop)   | `@connectrpc/connect-node` + `@bufbuild/protobuf` (ADR 0022; grpc-js removed) |
+| Worker framework | Hono                                                                          |
+| Desktop shell    | Electron 42                                                                   |
+| Auto-updates     | `electron-updater`                                                            |
+| Testing          | Vitest + React Testing Library                                                |
+| Deployment       | Cloudflare Pages + Functions                                                  |
 
 ---
 
@@ -147,14 +160,23 @@ restura/
 │   ├── features/                 # Feature modules (co-located components, hooks, stores)
 │   │   ├── http/                 # HTTP/REST: RequestBuilder, requestExecutor, useHttpRequest, useCookieStore
 │   │   ├── grpc/                 # gRPC: GrpcRequestBuilder, grpcClient, grpcReflection
-│   │   ├── websocket/            # WebSocket: WebSocketClient
 │   │   ├── graphql/              # GraphQL: GraphQLRequestBuilder, GraphQLBodyEditor, SchemaExplorer
+│   │   ├── websocket/            # WebSocket: WebSocketClient
+│   │   ├── socketio/             # Socket.IO client
 │   │   ├── sse/                  # Server-Sent Events client
+│   │   ├── kafka/                # Kafka producer/consumer (desktop only)
+│   │   ├── mqtt/                 # MQTT client (desktop only)
 │   │   ├── mcp/                  # Model Context Protocol client
+│   │   ├── ai/                   # AI assistant (chat + request-context tooling)
+│   │   ├── ai-lab/               # Electron-only LLM/prompt eval workbench
+│   │   ├── mcp-server/           # Restura-as-MCP-server surface
+│   │   ├── load-testing/         # Collection load/perf runner
 │   │   ├── workflows/            # Request chaining, variable extraction, retry policies
 │   │   ├── collections/          # Sidebar, CollectionRunner, importers, exporters
 │   │   ├── environments/         # EnvironmentManager
-│   │   ├── auth/                 # AuthConfig (shared by HTTP & gRPC)
+│   │   ├── registry/             # Service/schema registry
+│   │   ├── contracts/            # OpenAPI contract testing
+│   │   ├── auth/                 # AuthConfig (shared across protocols)
 │   │   └── scripts/              # ScriptsEditor, scriptExecutor (QuickJS sandbox)
 │   │
 │   ├── components/
@@ -166,51 +188,43 @@ restura/
 │   ├── store/                    # Zustand store re-exports
 │   └── lib/shared/               # utils, encryption, storage, platform, validations, lazyComponent
 │
-├── shared/                       # Backend-agnostic protocol core (used by Worker + Electron)
-│   └── protocol/
-│       ├── url-validation.ts     # SSRF guards (single source of truth)
-│       ├── header-policy.ts      # Hop-by-hop deny lists + sanitisers
-│       ├── body-builder.ts       # JSON / text / form / binary body construction
-│       ├── types.ts              # RequestSpec, Fetcher, ExecuteResult union
-│       ├── http-proxy.ts         # executeHttpProxy(spec, fetcher, options)
-│       ├── grpc-proxy.ts         # executeGrpcProxy(spec, fetcher, options)
-│       ├── grpc-status.ts        # gRPC status code enum + reverse map
-│       └── mcp-proxy.ts          # validateMcpSpec(spec, allowLocalhost)
+├── shared/                       # Backend-agnostic cores (used by Worker + Node + Electron)
+│   ├── protocol/                 # Protocol orchestrators (see Layout above for the full module list)
+│   │   ├── url-validation.ts     # SSRF guards (single source of truth)
+│   │   ├── http-proxy.ts         # executeHttpProxy(spec, fetcher, options)
+│   │   ├── grpc-proxy.ts         # executeGrpcProxy + grpc-registry, grpc-status
+│   │   ├── websocket-proxy.ts    # executeWebSocketProxy
+│   │   ├── mcp-proxy.ts          # validateMcpSpec(spec, allowLocalhost)
+│   │   ├── sse-parser.ts         # SSE / ndjson stream parsers
+│   │   ├── auth-signer.ts        # wire-level auth (SigV4, OAuth1, WSSE)
+│   │   └── ai/                   # provider-agnostic AI chat orchestrator
+│   └── capture/                  # Browser-capture pipeline (ADR 0024): normalizer, classifier,
+│                                 #   secret-extractor, to-har, to-opencollection
 │
-├── worker/                       # Cloudflare Pages Function (web only) — thin Fetcher adapters
-│   ├── index.ts                  # Hono app — route mounting, CORS
-│   ├── handlers/
-│   │   ├── proxy.ts              # Worker Fetcher → executeHttpProxy
-│   │   ├── grpc.ts               # Worker Fetcher → executeGrpcProxy
-│   │   ├── grpc-reflection.ts    # gRPC reflection handler
-│   │   └── mcp.ts                # validateMcpSpec + global fetch
-│   ├── shared/
-│   │   └── tcp-proxy.ts          # Worker-only: upstream-proxy via Cloudflare Sockets API
+├── worker/                       # Shared Hono app — Cloudflare Worker + self-hosted Node
+│   ├── app.ts                    # createApp(deps) — the shared Hono app factory (ADR 0009)
+│   ├── index.ts                  # Cloudflare entry — composes createApp with CF adapters
+│   ├── node-entry.ts             # Self-hosted Node/Docker entry (SPA + /api/* on one port)
+│   ├── handlers/                 # Thin Fetcher adapters → shared/protocol orchestrators
+│   ├── middleware/               # rateLimiter, auth gate
+│   ├── shared/                   # tcp-proxy (CF Sockets) + tcp-proxy-node / dns-guard-node
 │   └── tsconfig.json
 │
 ├── electron/
-│   └── main/                     # Main process
-│       ├── main.ts               # App entry — orchestrates modules
-│       ├── window-manager.ts     # Window creation; loads SPA
+│   └── main/                     # Main process — organised into purpose-based subfolders
+│       ├── main.ts               # Entry / orchestrator (IPC_MODULES registry)
+│       ├── window-manager.ts     # Window creation; loads SPA (__dirname-sensitive — stays at root)
 │       ├── preload.ts            # Secure IPC bridge (context-isolated)
-│       ├── http-handler.ts       # Native HTTP (replaces Worker on desktop)
-│       ├── grpc-handler.ts       # Native gRPC
-│       ├── grpc-reflection-handler.ts
-│       ├── websocket-handler.ts  # Native WebSocket
-│       ├── sse-handler.ts        # Native SSE
-│       ├── mcp-handler.ts        # Native MCP
-│       ├── file-operations.ts    # Native file system access
-│       ├── collection-manager.ts # Collection storage via electron-store
-│       ├── store-handler.ts      # Persistent store bridge
-│       ├── auto-updater.ts       # electron-updater integration
-│       ├── menu.ts               # Application menu
-│       ├── system-tray.ts        # System tray icon
 │       ├── notifications.ts      # OS notifications
-│       ├── ipc-validators.ts     # IPC input validation
-│       ├── ipc-rate-limiter.ts   # IPC rate limiting
-│       ├── interceptor-registry.ts
-│       ├── request-logger.ts
-│       └── deep-link-handler.ts
+│       ├── handlers/             # One per protocol/concern: http, grpc, websocket, socketio,
+│       │                         #   sse, mcp, kafka, mqtt, ai, ai-lab, mcp-server,
+│       │                         #   mock-server, git, capture-bridge
+│       ├── ipc/                  # IPC boundary: ipc-validators, ipc-rate-limiter,
+│       │                         #   stream-registry, connection-cleanup
+│       ├── security/             # dns-guard, safe-connect, broker guards, secret-handle-store
+│       ├── storage/              # store-handler, collection-manager, vault, file-operations
+│       ├── lifecycle/            # request-logger, auto-updater, menu, system-tray, deep-link, sentry
+│       └── util/                 # small shared helpers
 │
 ├── tests/                        # Shared test fixtures and setup
 │   └── setup.ts
@@ -335,7 +349,7 @@ Some Restura features depend on capabilities the browser doesn't expose. They're
 - **mTLS** (client certificates): browsers don't allow JavaScript to present a client certificate. Electron uses Node TLS via undici.
 - **Custom CA certificates**: same restriction — the browser uses the system trust store and doesn't let pages override it. Electron honours a user-supplied PEM via undici's `Agent.connect.ca`.
 - **SOCKS proxies** (SOCKS4 / SOCKS5): browsers can't open raw TCP. Electron tunnels via Node `net` and a custom undici dispatcher.
-- **PAC files** (Proxy Auto-Config): Electron uses `session.resolveProxy()`; browsers don't expose this.
+- **PAC files** (Proxy Auto-Config): **not wired end-to-end** — the renderer `ProxyType` cannot emit a PAC proxy and the PAC script is never loaded via `session.setProxy()`. Marked `❌ / ❌` in the capability matrix; tracked as future work.
 - **System proxy detection**: Electron reads OS proxy settings; browsers only honour what the OS configures globally and don't let pages introspect.
 - **"Verify SSL = off"**: browsers always validate TLS regardless of any app toggle. Only Electron can opt out (`rejectUnauthorized: false`) for self-signed dev certificates.
 - **Hardware-backed encryption**: Electron uses `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret); web defaults to in-memory ephemeral encryption per session.
@@ -390,32 +404,46 @@ The Worker is a Hono application deployed as a Cloudflare Pages Function (`_work
 
 ### Main Process Modules
 
+Files that compute `__dirname`-relative paths at runtime (`main.ts`, `window-manager.ts`, `preload.ts`, `notifications.ts`) stay at the `electron/main/` root; everything else is grouped into purpose-based subfolders.
+
 ```
-main.ts (entry)
-  ├── window-manager.ts      # Creates BrowserWindow
+main.ts (entry — owns the IPC_MODULES register/dispose registry)
+  ├── window-manager.ts          # Creates BrowserWindow
   │     ├── dev:  http://localhost:5173
   │     └── prod: dist/web/index.html (file://)
-  ├── preload.ts             # contextBridge — exposes electronAPI to renderer
-  ├── http-handler.ts        # IPC: native HTTP via axios
-  ├── grpc-handler.ts        # IPC: native gRPC via @grpc/grpc-js
-  ├── websocket-handler.ts   # IPC: native WebSocket via ws
-  ├── sse-handler.ts         # IPC: native SSE via EventSource
-  ├── mcp-handler.ts         # IPC: native MCP
-  ├── file-operations.ts     # IPC: native file read/write/dialog
-  ├── collection-manager.ts  # IPC: electron-store backed collections
-  ├── auto-updater.ts        # electron-updater (GitHub releases)
-  ├── menu.ts                # Application menu (macOS menu bar, Windows/Linux)
-  ├── system-tray.ts         # Tray icon + context menu
-  ├── ipc-validators.ts      # Zod validation for all IPC payloads
-  └── ipc-rate-limiter.ts    # Rate limiting for IPC calls
+  ├── preload.ts                 # contextBridge — exposes window.electron to renderer
+  ├── handlers/                  # One handler per protocol/concern
+  │     ├── http-handler.ts      # IPC: native HTTP via undici
+  │     ├── grpc-handler.ts      # IPC: native gRPC via @connectrpc/connect-node
+  │     ├── grpc-reflection-handler.ts
+  │     ├── websocket-handler.ts # IPC: native WebSocket via ws
+  │     ├── socketio-handler.ts  # IPC: native Socket.IO
+  │     ├── sse-handler.ts       # IPC: native SSE
+  │     ├── mcp-handler.ts       # IPC: native MCP
+  │     ├── kafka-handler.ts     # IPC: Kafka producer/consumer
+  │     ├── mqtt-handler.ts      # IPC: MQTT pub/sub
+  │     ├── ai-handler.ts        # IPC: AI chat streaming
+  │     ├── ai-lab-handler.ts    # IPC: AI Lab eval/complete
+  │     ├── mcp-server-handler.ts# IPC: Restura-as-MCP-server
+  │     ├── mock-server-handler.ts
+  │     ├── git-handler.ts
+  │     └── capture-bridge-handler.ts  # 127.0.0.1 capture receiver (ADR 0024)
+  ├── ipc/                       # IPC boundary
+  │     ├── ipc-validators.ts    # Zod validation for all IPC payloads
+  │     ├── ipc-rate-limiter.ts  # Rate limiting for IPC calls
+  │     ├── stream-registry.ts   # Shared streaming-connection bookkeeping
+  │     └── connection-cleanup.ts# Idempotent renderer-destroyed cleanup
+  ├── security/                  # dns-guard, safe-connect, broker guards, secret-handle-store
+  ├── storage/                   # store-handler, collection-manager, vault, file-operations
+  └── lifecycle/                 # request-logger, auto-updater, menu, system-tray, deep-link, sentry
 ```
 
 ### IPC Security
 
 - Context isolation is enabled; the renderer cannot access Node.js APIs directly
-- All IPC inputs are validated with Zod schemas in `ipc-validators.ts` before processing
-- IPC calls are rate-limited in `ipc-rate-limiter.ts`
-- `preload.ts` exposes only the explicitly declared `electronAPI` surface via `contextBridge`
+- All IPC inputs are validated with Zod schemas in `ipc/ipc-validators.ts` before processing
+- IPC calls are rate-limited in `ipc/ipc-rate-limiter.ts`
+- `preload.ts` exposes only the explicitly declared `window.electron` surface via `contextBridge`
 
 ### Build Process
 
@@ -433,10 +461,15 @@ main.ts (entry)
 | gRPC unary          | `/api/grpc`            | `grpc-handler.ts`            |
 | gRPC streaming      | `/api/grpc`            | `grpc-handler.ts`            |
 | gRPC reflection     | `/api/grpc/reflection` | `grpc-reflection-handler.ts` |
-| WebSocket           | Browser native         | `websocket-handler.ts`       |
+| WebSocket           | `/api/ws` (+ ticket)   | `websocket-handler.ts`       |
+| Socket.IO           | Browser native         | `socketio-handler.ts`        |
 | Server-Sent Events  | Browser native         | `sse-handler.ts`             |
 | GraphQL (over HTTP) | `/api/proxy`           | `http-handler.ts`            |
+| Kafka               | ❌ (no browser TCP)    | `kafka-handler.ts`           |
+| MQTT                | ❌ (no browser TCP)    | `mqtt-handler.ts`            |
 | MCP                 | `/api/mcp`             | `mcp-handler.ts`             |
+| AI assistant        | ❌ (no Worker route)   | `ai-handler.ts`              |
+| AI Lab              | ❌ (desktop only)      | `ai-lab-handler.ts`          |
 
 ---
 
@@ -469,7 +502,7 @@ User test scripts run in a QuickJS WASM sandbox (`src/features/scripts/lib/scrip
 
 ### Network — SSRF prevention
 
-SSRF guards on both Worker (`shared/protocol/url-validation.ts`) and Electron paths block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. **HTTP, gRPC, WebSocket, and SSE additionally pin the connect to the validated address** (closing the DNS-rebind window): HTTP via undici's `Agent.connect.lookup` (`createSecureLookup`); WebSocket/SSE via `createPinnedLookup` / `createPinnedFetch` (`electron/main/safe-connect.ts`); gRPC by dialing the validated IP literal with the original hostname kept as `grpc.default_authority` (grpc-js has no `lookup` hook). The remaining transports (Socket.IO, MCP, gRPC reflection, Kafka) use the **pre-flight** guard in `electron/main/dns-guard.ts`: `assertUrlHostnameSafe(url, ...)` resolves the hostname and applies `assertResolvedAddressAllowed` to every record before connect, but cannot pin — a TTL=0 rebind between resolve and connect is not mitigated for them. Tracked as future work in ADR-0006.
+SSRF guards on the Worker, the Node/Docker server (`shared/protocol/url-validation.ts`), and the Electron path block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. **HTTP, gRPC, WebSocket, and SSE additionally pin the connect to the validated address** (closing the DNS-rebind window): HTTP via undici's `Agent.connect.lookup` (`createSecureLookup`); WebSocket/SSE via `createPinnedLookup` / `createPinnedFetch` (`electron/main/security/safe-connect.ts`); gRPC via `connect-node`'s `nodeOptions.lookup` (ADR 0022 replaced the old grpc-js IP-literal dial). The remaining transports (Socket.IO, MCP, gRPC reflection, Kafka, MQTT) use the **pre-flight** guard in `electron/main/security/dns-guard.ts`: `assertUrlHostnameSafe(url, ...)` resolves the hostname and applies `assertResolvedAddressAllowed` to every record before connect, but cannot pin — a TTL=0 rebind between resolve and connect is not mitigated for them. Kafka and MQTT broker addresses additionally go through `kafka-broker-guard.ts` / `mqtt-broker-guard.ts`. Tracked as future work in ADR-0006.
 
 The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for local development on the Worker; the Electron path receives the same `allowLocalhost` flag through the fetcher options.
 
@@ -488,8 +521,8 @@ All stores are validated with Zod schemas on hydration from persisted storage �
 - `webSecurity` is not disabled
 - Removed unnecessary `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` (the app is a client only)
 - Encryption key for persisted store fetched from OS keychain via `safeStorage`; if unavailable, a startup warning is surfaced and the user is told plaintext fallback is active
-- Renderer-cleanup deduplication via `electron/main/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers
-- Connect-time DNS-rebind pinning for HTTP, gRPC, WebSocket, and SSE (undici `Agent.connect.lookup`, gRPC IP-literal dial, and `electron/main/safe-connect.ts`'s `createPinnedLookup` / `createPinnedFetch`); pre-flight DNS guard via `electron/main/dns-guard.ts` covers the rest (Socket.IO, MCP, gRPC reflection, Kafka)
+- Renderer-cleanup deduplication via `electron/main/ipc/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers
+- Connect-time DNS-rebind pinning for HTTP, gRPC, WebSocket, and SSE (undici `Agent.connect.lookup`, `connect-node`'s `nodeOptions.lookup`, and `electron/main/security/safe-connect.ts`'s `createPinnedLookup` / `createPinnedFetch`); pre-flight DNS guard via `electron/main/security/dns-guard.ts` covers the rest (Socket.IO, MCP, gRPC reflection, Kafka, MQTT)
 
 See `docs/adr/0004-security-hardening.md` and `docs/adr/0006-electron-connection-and-dns-hardening.md` for design rationale.
 
@@ -509,7 +542,7 @@ Components:
 
 Built with `tsup` into a single 40 KB esm file at `cli/dist/index.js`. Exit codes: 0 if all passed, 1 if any failed, 2 on internal error.
 
-For v0.1, only HTTP requests run. gRPC / SSE / MCP request types yield "unsupported" results (deferred). Test scripts are not yet executed (pass/fail is HTTP 2xx).
+The CLI runs HTTP, GraphQL, gRPC (Connect), SSE, and MCP requests, and executes pre-request/test scripts in the same QuickJS sandbox the app uses (pass/fail comes from script assertions, not just HTTP 2xx). See `docs/cli/README.md` for the current capability list.
 
 See `docs/cli/README.md` for usage and `docs/adr/0005-cli-runner.md` for design rationale.
 
@@ -521,16 +554,19 @@ Tests are colocated with source files as `*.test.ts` / `*.test.tsx`. Vitest runs
 
 ### Type-Check Coverage
 
-CI type-checks six independent TypeScript projects — the root `tsconfig.json` excludes `worker`, `electron/main`, and `cli`, so each needs its own invocation:
+CI type-checks several independent TypeScript projects — the root `tsconfig.json` excludes `worker`, `electron/main`, and the subprojects, so each needs its own invocation:
 
 1. Renderer — `tsc --noEmit` (uses `tsconfig.json`)
 2. Electron main — `tsc --noEmit -p electron/tsconfig.json`
 3. HTTP feature — `tsc --noEmit -p src/features/http/tsconfig.json`
 4. Worker — `tsc --noEmit -p worker/tsconfig.json`
 5. Echo — `tsc --noEmit -p echo/tsconfig.json`
-6. CLI — `npm run --workspace cli type-check`
+6. Echo-local — `tsc --noEmit -p echo-local/tsconfig.json`
+7. CLI — `npm run --workspace cli type-check`
+8. Chrome extension — `npm run --workspace @restura/extension type-check`
+9. VS Code extension — `npm run --workspace restura-vscode type-check`
 
-Run all six at once with `npm run type-check:all` (which `npm run validate` calls). Plain `npm run type-check` covers only the renderer.
+Run them all at once with `npm run type-check:all` (which `npm run validate` calls). Plain `npm run type-check` covers only the renderer.
 
 ---
 

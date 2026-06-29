@@ -31,7 +31,7 @@ The snapshot is what goes to the provider. Secrets and absolute URLs are strippe
 ## Where it runs
 
 - **Desktop** — fully wired. The renderer streams chunks from the Electron main process over IPC; the main process talks to the provider directly. <Badge text="primary path" variant="success" />
-- **Web** — in progress; not all providers proxied through the Worker yet. Check the in-app indicator.
+- **Web** — not available. There is no `/api/ai` Worker route, so the AI assistant is **Electron-only**. (Web support is on the roadmap but requires care around browser-side API-key handling.)
 
 ## What it can do
 

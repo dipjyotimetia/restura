@@ -68,7 +68,7 @@ Send an email to the project maintainers with:
 - **Content Security Policy (CSP)**: Strict CSP headers configured
 - **XSS Protection**: React's built-in escaping + additional sanitization
 - **Input Validation**: Zod schemas for runtime type checking
-- **Secure Storage**: Sensitive data encrypted in localStorage
+- **Secure Storage**: Sensitive data stored in IndexedDB (web, via Dexie) or encrypted electron-store sealed by the OS keychain (desktop); the legacy localStorage adapter has been removed
 - **CORS**: Proper cross-origin resource sharing configuration
 
 ### Electron Security
@@ -119,7 +119,7 @@ Restura implements comprehensive URL validation to prevent Server-Side Request F
 
 ### Data Storage
 
-- **Collections**: Stored in browser localStorage
+- **Collections**: Stored in browser IndexedDB (via Dexie) on web, or encrypted electron-store on desktop
 - **Environment Variables**: Stored locally, can contain sensitive data
 - **Request History**: Stored locally
 - **Credentials**: Stored with optional encryption using AES-GCM (Web Crypto API)

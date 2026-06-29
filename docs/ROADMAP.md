@@ -1,6 +1,6 @@
 # Restura — Roadmap
 
-Current version: **v0.4.1**
+Current version: **v0.7.1**
 
 This is an honest picture of what's done, what's being worked on, and what's next. It's not a commitment or a sprint board — things move around based on what surfaces as the most painful problem.
 
@@ -66,6 +66,11 @@ Import OpenAPI specs and validate responses against them.
 
 Web app (Cloudflare Pages + Worker), desktop app (Electron — macOS, Windows, Linux), self-hosted Docker image. Same UI on all three — one React renderer.
 
+### Editor & browser integrations
+
+- **VS Code extension** (`extension/vscode`) — OpenCollection language support (schema diagnostics), a native Test Explorer backed by the `restura` CLI, and inline Send through the shared protocol core. See [ADR 0025](adr/0025-vscode-extension.md).
+- **Browser capture extension** (`extension/chrome`, Phase 1) — captures multi-protocol browser traffic (HTTP, GraphQL, WebSocket, SSE, gRPC-web) via the Chrome DevTools Protocol, redacts secrets, and exports to OpenCollection/HAR or pushes to the desktop app over a loopback bridge. See [ADR 0024](adr/0024-browser-capture-extension.md).
+
 ---
 
 ## Actively being worked on
@@ -100,8 +105,6 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 **Plugin marketplace** — a plugin system is interesting but a marketplace is a product in itself. Not something we're taking on.
 
-**Browser extension** — capturing traffic from DevTools and piping it into the client is genuinely useful, but the maintenance surface of a browser extension is high. It's not a priority right now.
-
 **SSO and enterprise auth** — Restura doesn't have accounts, so SSO doesn't have anywhere to attach to. If this is something you need, the self-hosted Docker path with your own reverse proxy and auth layer in front is the right model.
 
 ---
@@ -110,7 +113,7 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 These are things that would be good to have but aren't being actively planned.
 
-- VS Code and JetBrains extensions for in-editor request execution
+- JetBrains extension for in-editor request execution (the VS Code extension has shipped — see above)
 - Natural-language to request builder (describe what you want, get a request)
 - Scheduled test runs
 - Audit logging for the self-hosted deployment

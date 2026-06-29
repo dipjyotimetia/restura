@@ -59,7 +59,7 @@ So I built Restura. One client that speaks all the protocols I actually use, sto
 | `GQL`  | GraphQL                | Query builder, schema introspection, subscriptions          |
 | `RPC`  | gRPC                   | Unary, server streaming, server reflection                  |
 |  `WS`  | WebSocket              | Connect, send/receive, full message history                 |
-|  `IO`  | Socket.IO              | Connect, emit/listen events, acks · _desktop only_          |
+|  `IO`  | Socket.IO              | Connect, emit/listen events, acks                           |
 | `SSE`  | Server-Sent Events     | Live event stream viewer with reconnection                  |
 | `KFK`  | Kafka                  | Produce / consume, SASL + TLS · _desktop only_              |
 | `MQT`  | MQTT                   | Publish / subscribe, QoS, TLS · _desktop only_              |
@@ -173,13 +173,15 @@ src/
 ├── features/
 │   ├── http/          # REST request builder & executor
 │   ├── grpc/          # gRPC client + server reflection
-│   ├── websocket/     # WebSocket client
-│   ├── socketio/      # Socket.IO client (desktop only)
 │   ├── graphql/       # GraphQL builder + schema explorer
+│   ├── websocket/     # WebSocket client
+│   ├── socketio/      # Socket.IO client
 │   ├── sse/           # Server-Sent Events client
 │   ├── kafka/         # Kafka producer/consumer (desktop only)
 │   ├── mqtt/          # MQTT client (desktop only)
 │   ├── mcp/           # MCP client
+│   ├── ai/            # AI assistant (chat + request context)
+│   ├── ai-lab/        # LLM / prompt eval workbench (desktop only)
 │   ├── workflows/     # Request chaining + variable extraction
 │   ├── collections/   # Sidebar, runner, Postman/Insomnia import
 │   ├── environments/  # Environment variable manager
@@ -187,8 +189,12 @@ src/
 │   └── scripts/       # Script editor + QuickJS executor
 │
 shared/protocol/       # Backend-agnostic protocol orchestrators
-worker/                # Cloudflare Pages Function (Hono, web only)
+shared/capture/        # Browser-capture pipeline (used by the extension)
+worker/                # Shared Hono app — Cloudflare Worker + self-hosted Node
 electron/main/         # Electron main process + IPC handlers
+extension/chrome/      # Browser capture extension (MV3)
+extension/vscode/      # VS Code extension (OpenCollection support)
+cli/                   # @restura/cli — run collections in CI
 ```
 
 </details>

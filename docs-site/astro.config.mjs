@@ -119,6 +119,8 @@ export default defineConfig({
             { label: 'AI assistant', slug: 'guides/ai-assistant' },
             { label: 'AI Lab', slug: 'guides/ai-lab' },
             { label: 'MCP server mode', slug: 'guides/mcp-server-mode' },
+            { label: 'Browser capture extension', slug: 'guides/browser-capture' },
+            { label: 'VS Code extension', slug: 'guides/vscode-extension' },
             { label: 'Desktop updates', slug: 'guides/electron-updates' },
             { label: 'Keyboard shortcuts', slug: 'guides/keyboard-shortcuts' },
             { label: 'Import & export', slug: 'guides/import-export' },
