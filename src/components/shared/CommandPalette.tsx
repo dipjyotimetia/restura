@@ -133,7 +133,9 @@ export default function CommandPalette({
   const [highlighted, setHighlighted] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
 
-  const { theme, setTheme } = useTheme();
+  // resolvedTheme (concrete 'light'|'dark'), not theme — theme can be 'system',
+  // which would make the binary toggle mislabel and no-op on first click.
+  const { resolvedTheme, setTheme } = useTheme();
   const updateThemeSetting = useSettingsStore((s) => s.updateSettings);
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
   const openTab = useRequestStore((s) => s.openTab);
@@ -369,11 +371,11 @@ export default function CommandPalette({
       id: 'toggle-theme',
       kind: 'setting',
       group: 'Settings',
-      name: theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
-      icon: theme === 'dark' ? Sun : Moon,
+      name: resolvedTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
+      icon: resolvedTheme === 'dark' ? Sun : Moon,
       onSelect: () =>
         withViewTransition(() => {
-          const next = theme === 'dark' ? 'light' : 'dark';
+          const next = resolvedTheme === 'dark' ? 'light' : 'dark';
           setTheme(next);
           // Keep the Dexie-persisted settings copy in sync with next-themes so
           // the two storage sources don't diverge (matches SettingsDrawer).
@@ -420,7 +422,7 @@ export default function CommandPalette({
     clearHistory,
     createNewRequest,
     openTab,
-    theme,
+    resolvedTheme,
     setTheme,
     updateThemeSetting,
   ]);

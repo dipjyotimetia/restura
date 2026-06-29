@@ -77,10 +77,14 @@
       (function () {
         try {
           var stored = localStorage.getItem('theme');
+          // Mirror next-themes: with no stored preference it falls back to
+          // defaultTheme ('dark'), NOT the OS — only an explicit 'system' value
+          // consults prefers-color-scheme. Matching that avoids a first-load
+          // flash for fresh users whose OS is light.
           var isDark =
             stored === 'dark' ||
-            ((!stored || stored === 'system') &&
-              window.matchMedia('(prefers-color-scheme: dark)').matches);
+            !stored ||
+            (stored === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
           var el = document.documentElement;
           el.classList.toggle('dark', isDark);
           el.style.colorScheme = isDark ? 'dark' : 'light';
