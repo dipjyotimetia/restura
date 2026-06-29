@@ -27,7 +27,7 @@
     "start": "node dist/server/index.mjs",
     "preview": "vite preview",
     "lint": "eslint src shared electron/main worker echo echo-local cli extension tests scripts",
-    "lint:fix": "eslint src shared electron/main worker echo echo-local cli tests scripts --fix",
+    "lint:fix": "eslint src shared electron/main worker echo echo-local cli extension tests scripts --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "type-check": "node scripts/ensure-sandbox-libs.mjs && tsc --noEmit",

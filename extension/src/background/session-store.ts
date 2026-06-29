@@ -8,6 +8,17 @@
 import type { CaptureSession } from '@shared/capture/types';
 
 const KEY = 'restura:capture:session';
+const META_KEY = 'restura:capture:meta';
+
+/**
+ * The small descriptor needed to resume a capture after an MV3 worker restart:
+ * which tab was attached and the session identity. Present only while capturing.
+ */
+export interface CaptureMeta {
+  tabId: number;
+  sessionId: string;
+  createdAt: number;
+}
 
 export async function saveSession(session: CaptureSession | null): Promise<void> {
   await chrome.storage.session.set({ [KEY]: session });
@@ -16,4 +27,17 @@ export async function saveSession(session: CaptureSession | null): Promise<void>
 export async function loadSession(): Promise<CaptureSession | null> {
   const out = await chrome.storage.session.get(KEY);
   return (out[KEY] as CaptureSession | null) ?? null;
+}
+
+export async function saveMeta(meta: CaptureMeta): Promise<void> {
+  await chrome.storage.session.set({ [META_KEY]: meta });
+}
+
+export async function loadMeta(): Promise<CaptureMeta | null> {
+  const out = await chrome.storage.session.get(META_KEY);
+  return (out[META_KEY] as CaptureMeta | null) ?? null;
+}
+
+export async function clearMeta(): Promise<void> {
+  await chrome.storage.session.remove(META_KEY);
 }

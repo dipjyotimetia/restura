@@ -16,7 +16,7 @@ import { sessionToOpenCollection } from '@shared/capture/to-opencollection';
 import { type BrowserWindow, ipcMain } from 'electron';
 import { IPC, EVENT } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
-import { assertTrustedSender } from '../ipc/ipc-validators';
+import { NoInputSchema, createValidatedHandler } from '../ipc/ipc-validators';
 import { bridgePayloadSchema, isAuthorized, isLoopbackRequest } from './capture-bridge-protocol';
 
 /** Hard cap on the request body before we even parse it (matches the Zod bounds). */
@@ -144,36 +144,48 @@ export function getCaptureBridgeStatus(): BridgeStatus {
 const bridgeRateLimiter = createKeyedRateLimiter(30, 60_000);
 
 export function registerCaptureBridgeIPC(getMainWindow: () => BrowserWindow | null): void {
+  // createValidatedHandler runs assertTrustedSender + input validation (the
+  // canonical IPC seam); NoInputSchema rejects any unexpected payload.
   ipcMain.handle(
     IPC.captureBridge.start,
-    rateLimited(bridgeRateLimiter, async (event) => {
-      assertTrustedSender(IPC.captureBridge.start, event);
-      try {
-        const status = await startCaptureBridge(getMainWindow);
-        // The token is returned only to the trusted renderer so it can show the
-        // pairing code; it is never exposed over the HTTP surface.
-        return { ok: true, status, token: active?.token };
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : 'failed to start bridge' };
-      }
-    })
+    rateLimited(
+      bridgeRateLimiter,
+      createValidatedHandler(IPC.captureBridge.start, NoInputSchema, async () => {
+        try {
+          const status = await startCaptureBridge(getMainWindow);
+          // The token is returned only to the trusted renderer so it can show the
+          // pairing code; it is never exposed over the HTTP surface.
+          return { ok: true, status, token: active?.token };
+        } catch (err) {
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : 'failed to start bridge',
+          };
+        }
+      })
+    )
   );
 
   ipcMain.handle(
     IPC.captureBridge.stop,
-    rateLimited(bridgeRateLimiter, async (event) => {
-      assertTrustedSender(IPC.captureBridge.stop, event);
-      const status = await stopCaptureBridge();
-      return { ok: true, status };
-    })
+    rateLimited(
+      bridgeRateLimiter,
+      createValidatedHandler(IPC.captureBridge.stop, NoInputSchema, async () => {
+        const status = await stopCaptureBridge();
+        return { ok: true, status };
+      })
+    )
   );
 
   ipcMain.handle(
     IPC.captureBridge.status,
-    rateLimited(bridgeRateLimiter, (event) => {
-      assertTrustedSender(IPC.captureBridge.status, event);
-      return { ok: true, status: getCaptureBridgeStatus() };
-    })
+    rateLimited(
+      bridgeRateLimiter,
+      createValidatedHandler(IPC.captureBridge.status, NoInputSchema, () => ({
+        ok: true,
+        status: getCaptureBridgeStatus(),
+      }))
+    )
   );
 }
 

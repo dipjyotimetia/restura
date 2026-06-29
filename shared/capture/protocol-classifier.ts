@@ -1,8 +1,11 @@
 /**
- * Classify a captured exchange into one of the supported protocols.
+ * Classify a request-time exchange into one of the request-shaped protocols
+ * (REST / GraphQL / gRPC-web). Pure and dependency-free so the normalizer has
+ * one source of truth for request classification.
  *
- * Pure and dependency-free so both the extension and the desktop bridge share
- * one source of truth for "what kind of request is this".
+ * WebSocket and SSE are intentionally NOT decided here: CDP surfaces WebSockets
+ * via a distinct `webSocketCreated` event and SSE is only knowable at response
+ * time, so the `CdpNormalizer` owns those promotions directly.
  */
 import type { CapturedGraphql, CapturedHeader, CapturedProtocol } from './types';
 
@@ -10,8 +13,6 @@ export interface ClassifyInput {
   url: string;
   requestHeaders: CapturedHeader[];
   requestBodyText?: string;
-  isWebSocket?: boolean;
-  isEventStream?: boolean;
 }
 
 export interface ClassifyResult {
@@ -45,9 +46,6 @@ function parseGraphql(bodyText: string | undefined): CapturedGraphql | undefined
 }
 
 export function classifyProtocol(input: ClassifyInput): ClassifyResult {
-  if (input.isWebSocket) return { protocol: 'websocket' };
-  if (input.isEventStream) return { protocol: 'sse' };
-
   const contentType = headerValue(input.requestHeaders, 'content-type') ?? '';
   if (contentType.toLowerCase().startsWith('application/grpc-web')) {
     return { protocol: 'grpc-web' };

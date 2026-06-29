@@ -4,6 +4,7 @@
     "params": {
       "requestId": "300.1",
       "wallTime": 1700000020.0,
+      "timestamp": 12349.0,
       "request": {
         "url": "https://api.example.com/events",
         "method": "GET",

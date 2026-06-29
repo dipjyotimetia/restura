@@ -43,21 +43,6 @@ describe('classifyProtocol', () => {
     expect(r.protocol).toBe('grpc-web');
   });
 
-  it('classifies a websocket flag as websocket', () => {
-    const r = classifyProtocol({
-      url: 'wss://api.example.com/socket',
-      requestHeaders: [],
-      isWebSocket: true,
-    });
-    expect(r.protocol).toBe('websocket');
-  });
-
-  it('classifies an event-stream response as sse', () => {
-    const r = classifyProtocol({
-      url: 'https://api.example.com/events',
-      requestHeaders: [h('accept', 'text/event-stream')],
-      isEventStream: true,
-    });
-    expect(r.protocol).toBe('sse');
-  });
+  // WebSocket/SSE classification is the normalizer's job (see cdp-normalizer
+  // tests), not the request-time classifier's.
 });

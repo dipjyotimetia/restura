@@ -6,33 +6,19 @@
  * secrets are reported so a consumer can materialize them as SecretRef-backed
  * environment variables. Body token patterns are masked in place.
  *
- * Pattern coverage mirrors `shared/protocol/ai/redaction.ts` (header denylist +
- * JWT / Bearer / `key=val` / prefixed provider tokens). The header-name base set
- * is imported from the shared constant; the body regexes are duplicated because
- * `redaction.ts` does not export them.
+ * Pattern coverage is shared with `shared/protocol/ai/redaction.ts` via the
+ * `secret-patterns` leaf module (header denylist + JWT / Bearer / `key=val` /
+ * prefixed provider tokens), plus the capture-specific query-param denylist
+ * below. Sharing the patterns keeps the two redactors from drifting.
  */
 import { CREDENTIAL_HEADER_NAMES } from '../protocol/credential-header-names';
+import { bodyTokenPatterns, headerDenylistRegex } from '../protocol/secret-patterns';
 import type { CapturedBody, CapturedExchange, CapturedHeader } from './types';
 
 const HEADER_DENYLIST_EXACT = new Set(CREDENTIAL_HEADER_NAMES);
-const HEADER_DENYLIST_REGEX: RegExp[] = [
-  /^x-.*-token$/i,
-  /^x-.*-key$/i,
-  /^x-.*-secret$/i,
-  /^api[-_]?key$/i,
-];
-
-const BODY_TOKEN_PATTERNS: RegExp[] = [
-  /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT
-  /Bearer\s+[A-Za-z0-9._\-+/=]{8,}/g,
-  /(api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?[A-Za-z0-9._\-+/=]{8,}/gi,
-  /\bsk-(?:ant-|or-v1-|proj-)?[A-Za-z0-9_-]{16,}/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g,
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
-  /\bAIza[0-9A-Za-z_-]{35}\b/g,
-];
+// Fresh instances (the body patterns are stateful /g — never share the array).
+const HEADER_DENYLIST_REGEX = headerDenylistRegex();
+const BODY_TOKEN_PATTERNS = bodyTokenPatterns();
 
 const MASK = '«redacted»';
 

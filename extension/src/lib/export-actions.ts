@@ -13,7 +13,9 @@ function download(filename: string, text: string, mime: string): void {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  // Defer revoke: revoking in the same tick as the click can truncate the
+  // download before the browser has read the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export function exportOpenCollection(session: CaptureSession): void {

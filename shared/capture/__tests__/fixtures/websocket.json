@@ -11,6 +11,7 @@
     "params": {
       "requestId": "200.1",
       "wallTime": 1700000010.0,
+      "timestamp": 12344.0,
       "request": { "headers": { "upgrade": "websocket" } }
     }
   },

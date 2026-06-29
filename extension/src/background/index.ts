@@ -2,17 +2,19 @@
  * Capture service worker. Owns the `chrome.debugger` attachment for the
  * user-selected tab, feeds CDP Network events through the shared `CdpNormalizer`,
  * redacts secrets as exchanges complete, and keeps the session in
- * `chrome.storage.session` so a worker restart mid-capture doesn't lose data.
+ * `chrome.storage.session` so a worker restart mid-capture doesn't lose data:
+ * the redacted session plus a small `CaptureMeta` are persisted, and `rehydrate`
+ * re-seeds the normalizer and re-attaches the debugger on worker startup.
  *
  * Only ONE tab is captured at a time (the debugger banner makes multi-tab
  * capture hostile UX, and a single attachment keeps the privileged surface
- * minimal). Detaches on stop, on tab close, and on worker suspend.
+ * minimal). Detaches on stop, on tab close, and on external detach.
  */
 import { CdpNormalizer } from '@shared/capture/cdp-normalizer';
 import { redactExchange } from '@shared/capture/secret-extractor';
 import type { CaptureSession } from '@shared/capture/types';
 import { type CaptureState, requestSchema } from '../lib/messages';
-import { loadSession, saveSession } from './session-store';
+import { clearMeta, loadMeta, loadSession, saveMeta, saveSession } from './session-store';
 
 const CDP_VERSION = '1.3';
 
@@ -60,6 +62,17 @@ function scheduleSync(): void {
   }, SYNC_DEBOUNCE_MS);
 }
 
+/**
+ * End a capture: flush the trailing debounce window and drop the resume meta so
+ * a later worker restart doesn't try to re-attach. Shared by stop and external
+ * detach so neither path silently loses the last batch.
+ */
+async function finalizeCapture(capture: ActiveCapture): Promise<void> {
+  if (capture.flushTimer) clearTimeout(capture.flushTimer);
+  await saveSession(buildSession(capture));
+  await clearMeta();
+}
+
 function onDebuggerEvent(source: chrome.debugger.Debuggee, method: string, params?: object): void {
   if (!activeCapture || source.tabId !== activeCapture.tabId) return;
   activeCapture.normalizer.ingest(method, params);
@@ -92,14 +105,17 @@ async function startCapture(tabId: number): Promise<void> {
   await stopCapture();
   await chrome.debugger.attach({ tabId }, CDP_VERSION);
   await chrome.debugger.sendCommand({ tabId }, 'Network.enable');
+  const createdAt = Date.now();
+  const sessionId = newSessionId();
   activeCapture = {
     tabId,
-    sessionId: newSessionId(),
-    createdAt: 0,
+    sessionId,
+    createdAt,
     normalizer: new CdpNormalizer(),
     fetchedBodies: new Set(),
     flushTimer: null,
   };
+  await saveMeta({ tabId, sessionId, createdAt });
   await saveSession(buildSession(activeCapture));
 }
 
@@ -107,9 +123,7 @@ async function stopCapture(): Promise<void> {
   if (!activeCapture) return;
   const capture = activeCapture;
   activeCapture = null;
-  if (capture.flushTimer) clearTimeout(capture.flushTimer);
-  // Final flush so the last events aren't lost to the debounce window.
-  await saveSession(buildSession(capture));
+  await finalizeCapture(capture);
   try {
     await chrome.debugger.detach({ tabId: capture.tabId });
   } catch {
@@ -117,13 +131,55 @@ async function stopCapture(): Promise<void> {
   }
 }
 
+/**
+ * Resume a capture after an MV3 worker restart. The redacted session and a
+ * `CaptureMeta` survive in `chrome.storage.session`; re-seed the normalizer from
+ * the stored exchanges (redaction is idempotent) and re-attach the debugger. If
+ * the tab is gone, the stale state is cleared.
+ */
+async function rehydrate(): Promise<void> {
+  if (activeCapture) return;
+  const meta = await loadMeta();
+  if (!meta) return;
+  try {
+    await chrome.debugger.attach({ tabId: meta.tabId }, CDP_VERSION);
+    await chrome.debugger.sendCommand({ tabId: meta.tabId }, 'Network.enable');
+  } catch {
+    // Tab closed or already being debugged — drop the unrecoverable session.
+    await clearMeta();
+    return;
+  }
+  const normalizer = new CdpNormalizer();
+  const prior = await loadSession();
+  if (prior) normalizer.seed(prior.exchanges);
+  activeCapture = {
+    tabId: meta.tabId,
+    sessionId: meta.sessionId,
+    createdAt: meta.createdAt,
+    normalizer,
+    fetchedBodies: new Set(),
+    flushTimer: null,
+  };
+}
+
 chrome.debugger.onEvent.addListener(onDebuggerEvent);
+// External detach (DevTools opened on the tab, tab navigated/closed). The worker
+// is alive here, so finalize: flush the trailing window and clear resume meta so
+// a later restart doesn't fight the detach. (Pure SW termination fires no event,
+// leaving meta intact for `rehydrate`.)
 chrome.debugger.onDetach.addListener((source) => {
-  if (activeCapture && source.tabId === activeCapture.tabId) activeCapture = null;
+  const capture = activeCapture;
+  if (capture && source.tabId === capture.tabId) {
+    activeCapture = null;
+    void finalizeCapture(capture);
+  }
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (activeCapture?.tabId === tabId) void stopCapture();
 });
+
+// Re-attach an in-flight capture after the MV3 worker was recycled.
+void rehydrate();
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const parsed = requestSchema.safeParse(message);
@@ -141,6 +197,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         break;
       case 'capture:clear':
         await saveSession(null);
+        await clearMeta();
         break;
       case 'capture:get':
         break;

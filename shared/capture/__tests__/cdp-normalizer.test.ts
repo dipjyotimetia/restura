@@ -46,4 +46,30 @@ describe('CdpNormalizer', () => {
     n.attachResponseBody('100.1', { text: '{"id":1}', mimeType: 'application/json' });
     expect(n.getExchanges()[0]?.response?.body?.text).toBe('{"id":1}');
   });
+
+  it('converts monotonic frame timestamps to epoch ms (anchored to wallTime)', () => {
+    // WS frames carry only a monotonic timestamp; the handshake event anchors it.
+    const wsAt = run(wsEvents as CdpEvent[]).getExchanges()[0]?.frames?.[0]?.at ?? 0;
+    expect(wsAt).toBeGreaterThan(1_600_000_000_000); // epoch ms (≈ 2020+), not raw monotonic
+    const sseAt = run(sseEvents as CdpEvent[]).getExchanges()[0]?.frames?.[0]?.at ?? 0;
+    expect(sseAt).toBeGreaterThan(1_600_000_000_000);
+  });
+
+  it('seed() re-hydrates exchanges without overwriting existing ids', () => {
+    const n = new CdpNormalizer();
+    n.seed([
+      {
+        id: 'seed-1',
+        protocol: 'rest',
+        method: 'GET',
+        url: 'https://api.example.com/seeded',
+        startedAt: 0,
+        request: { headers: [] },
+      },
+    ]);
+    for (const e of restEvents as CdpEvent[]) n.ingest(e.method, e.params);
+    const ids = n.getExchanges().map((e) => e.id);
+    expect(ids).toContain('seed-1');
+    expect(ids).toContain('100.1');
+  });
 });
