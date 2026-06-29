@@ -1,21 +1,16 @@
+import { capturedProtocolSchema } from '@shared/capture/schema';
+import type { CapturedProtocol } from '@shared/capture/types';
 import { useEffect, useMemo, useState } from 'react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { CapturedProtocol } from '@shared/capture/types';
 import { exportHar, exportOpenCollection } from '../lib/export-actions';
 import { sendToDesktop } from '../lib/bridge-client';
 import { type CaptureState } from '../lib/messages';
 import { sendToWorker } from '../lib/runtime';
 import { RequestList } from './RequestList';
 
-const PROTOCOLS: (CapturedProtocol | 'all')[] = [
-  'all',
-  'rest',
-  'graphql',
-  'grpc-web',
-  'websocket',
-  'sse',
-];
+// Derived from the schema so a new protocol can't silently miss the filter.
+const PROTOCOLS: (CapturedProtocol | 'all')[] = ['all', ...capturedProtocolSchema.options];
 
 function App(): React.JSX.Element {
   const [state, setState] = useState<CaptureState | null>(null);
@@ -32,15 +27,14 @@ function App(): React.JSX.Element {
   }, []);
 
   const exchanges = state?.session?.exchanges ?? [];
-  const filtered = useMemo(
-    () =>
-      exchanges.filter(
-        (ex) =>
-          (protocol === 'all' || ex.protocol === protocol) &&
-          (filter === '' || ex.url.toLowerCase().includes(filter.toLowerCase()))
-      ),
-    [exchanges, filter, protocol]
-  );
+  const filtered = useMemo(() => {
+    const needle = filter.toLowerCase();
+    return exchanges.filter(
+      (ex) =>
+        (protocol === 'all' || ex.protocol === protocol) &&
+        (needle === '' || ex.url.toLowerCase().includes(needle))
+    );
+  }, [exchanges, filter, protocol]);
 
   const session = state?.session ?? null;
   const run = (label: string, fn: () => void | Promise<void>) => async () => {

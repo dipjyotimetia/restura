@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { getPairing, setPairing } from '../lib/bridge-client';
+import { getPairing, parsePairingCode, setPairing } from '../lib/bridge-client';
 
 /**
  * Pairing page. The desktop app surfaces a one-line code `<port>:<token>` when
@@ -19,13 +19,13 @@ function Options(): React.JSX.Element {
   }, []);
 
   const save = async (): Promise<void> => {
-    const match = /^(\d{2,5}):([A-Za-z0-9_-]{20,})$/.exec(code.trim());
-    if (!match) {
+    const pairing = parsePairingCode(code);
+    if (!pairing) {
       setStatus('Invalid code. Expected "<port>:<token>".');
       return;
     }
-    await setPairing({ port: Number(match[1]), token: match[2]! });
-    setStatus(`Paired with 127.0.0.1:${match[1]}`);
+    await setPairing(pairing);
+    setStatus(`Paired with 127.0.0.1:${pairing.port}`);
     setCode('');
   };
 
