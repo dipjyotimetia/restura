@@ -1,0 +1,150 @@
+name: Release — Chrome extension
+
+# Builds the `extension/chrome` MV3 bundle (Restura Capture), uploads it to the
+# Chrome Web Store, and attaches the packaged .zip to a GitHub release. The
+# extension versions INDEPENDENTLY of the desktop app (see the VS Code release
+# workflow header for why), and the Web Store's authoritative version is the one
+# in `public/manifest.json` — NOT package.json — so that is what the tag is
+# checked against.
+#
+# Release flow:
+#   1. Bump "version" in extension/chrome/public/manifest.json in a PR and merge.
+#   2. Tag it:  git tag chrome-v1.2.3 && git push origin chrome-v1.2.3
+#      (the tag's `1.2.3` MUST match manifest.json — the job fails otherwise).
+#   3. This workflow builds, uploads, publishes, and cuts a GitHub release.
+#
+# Dry runs:  Actions → "Release — Chrome extension" → Run workflow. With
+#   dry_run=true (default) it builds + zips + uploads the .zip as a build
+#   artifact, but never uploads to the store and never creates a release.
+#
+# Required repo secrets for publishing (publish steps self-skip when absent):
+#   CHROME_EXTENSION_ID   — the published item's ID.
+#   CHROME_CLIENT_ID      — OAuth client ID for the Chrome Web Store API.
+#   CHROME_CLIENT_SECRET  — OAuth client secret.
+#   CHROME_REFRESH_TOKEN  — OAuth refresh token authorising publish.
+# See https://github.com/fregante/chrome-webstore-upload-keys to mint these.
+
+on:
+  push:
+    tags:
+      - 'chrome-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build + zip only (no store upload, no release).'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-chrome-extension
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build + publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      IS_TAG: ${{ github.ref_type == 'tag' }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      # All four Web Store credentials must be present to attempt an upload.
+      HAS_STORE_CREDS: ${{ secrets.CHROME_EXTENSION_ID != '' && secrets.CHROME_CLIENT_ID != '' && secrets.CHROME_CLIENT_SECRET != '' && secrets.CHROME_REFRESH_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Type-check
+        run: npm run type-check --workspace @restura/extension
+
+      - name: Build MV3 bundle
+        run: npm run build --workspace @restura/extension
+
+      # The Web Store reads the version from the built manifest, so validate the
+      # tag against dist/manifest.json (the exact bytes that ship), not the
+      # source package.json.
+      - name: Resolve + validate version
+        id: version
+        run: |
+          set -euo pipefail
+          MANIFEST_VERSION="$(node -p "require('./extension/chrome/dist/manifest.json').version")"
+          echo "version=$MANIFEST_VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$IS_TAG" = "true" ]; then
+            TAG="${GITHUB_REF_NAME#chrome-v}"
+            if [ "$TAG" != "$MANIFEST_VERSION" ]; then
+              echo "::error::Tag chrome-v$TAG does not match manifest.json version $MANIFEST_VERSION."
+              echo "Bump extension/chrome/public/manifest.json to $TAG (or retag) and retry."
+              exit 1
+            fi
+            echo "Releasing Chrome extension v$MANIFEST_VERSION"
+          else
+            echo "Dry run — zipping v$MANIFEST_VERSION without publishing."
+          fi
+
+      - name: Zip bundle
+        id: zip
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ZIP="restura-capture-${VERSION}.zip"
+          ( cd extension/chrome/dist && zip -r -X "../../../${ZIP}" . )
+          echo "zip=${ZIP}" >> "$GITHUB_OUTPUT"
+          echo "Zipped ${ZIP}"
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: restura-capture-${{ steps.version.outputs.version }}-zip
+          path: ${{ steps.zip.outputs.zip }}
+          if-no-files-found: error
+
+      - name: Upload + publish to Chrome Web Store
+        if: env.IS_TAG == 'true' && env.DRY_RUN != 'true' && env.HAS_STORE_CREDS == 'true'
+        env:
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          ZIP: ${{ steps.zip.outputs.zip }}
+        # The CLI reads EXTENSION_ID / CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN
+        # from the environment. The command-less form uploads AND submits for
+        # review (the modern replacement for the deprecated `upload --auto-publish`).
+        run: npx --yes chrome-webstore-upload-cli@4 --source "$ZIP"
+
+      - name: Create GitHub release
+        if: env.IS_TAG == 'true' && env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ZIP: ${{ steps.zip.outputs.zip }}
+          STORE_PUBLISHED: ${{ env.HAS_STORE_CREDS }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Restura Capture (Chrome extension) **v${VERSION}**."
+            echo
+            if [ "$STORE_PUBLISHED" = "true" ]; then
+              echo "- Uploaded to the Chrome Web Store (submitted for review)."
+            else
+              echo "- Web Store upload skipped (store credentials not configured) — load the attached \`.zip\` unpacked."
+            fi
+            echo "- \`.zip\` attached below (chrome://extensions → Developer mode → Load unpacked, after extracting)."
+          } > notes.md
+          gh release create "$TAG" \
+            --title "Chrome extension v${VERSION}" \
+            --notes-file notes.md \
+            --latest=false \
+            "$ZIP"

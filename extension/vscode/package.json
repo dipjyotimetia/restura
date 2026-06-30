@@ -4,6 +4,7 @@
   "description": "OpenCollection language support, a Test Explorer, and inline send/run for Restura API collections — right in your editor.",
   "version": "0.1.0",
   "license": "MIT",
+  "icon": "icon.png",
   "author": "dipjyotimetia",
   "publisher": "dipjyotimetia",
   "repository": {

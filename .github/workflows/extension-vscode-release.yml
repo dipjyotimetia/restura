@@ -1,0 +1,155 @@
+name: Release — VS Code extension
+
+# Publishes the `extension/vscode` package (restura-vscode) to the VS Code
+# Marketplace and Open VSX, and attaches the packaged `.vsix` to a GitHub
+# release. The extension versions INDEPENDENTLY of the desktop app: the main
+# `release.yml` bumps every workspace's package.json but only commits the root +
+# CLI ones, so the extension stays pinned in git and ships on its own cadence.
+#
+# Release flow:
+#   1. Bump `extension/vscode/package.json` "version" in a normal PR and merge.
+#   2. Tag it:  git tag vscode-v1.2.3 && git push origin vscode-v1.2.3
+#      (the tag's `1.2.3` MUST match package.json — the job fails otherwise).
+#   3. This workflow builds, packages, publishes, and cuts a GitHub release.
+#
+# Dry runs:  Actions → "Release — VS Code extension" → Run workflow. With
+#   dry_run=true (default) it builds + packages + uploads the .vsix as a build
+#   artifact, but never publishes and never creates a release — safe to run
+#   before the secrets below are configured.
+#
+# Required repo secrets for publishing (publish steps self-skip when absent):
+#   VSCE_PAT  — Azure DevOps PAT with Marketplace "Manage" scope (vsce publish).
+#   OVSX_PAT  — Open VSX access token (optional; ovsx publish self-skips if unset).
+
+on:
+  push:
+    tags:
+      - 'vscode-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build + package only (no publish, no release).'
+        type: boolean
+        default: true
+
+# Least privilege by default; the single job elevates to contents: write only
+# because it creates the GitHub release. (OpenSSF Scorecard gates token scope.)
+permissions:
+  contents: read
+
+concurrency:
+  # One VS Code extension release at a time; never cancel a publish mid-flight.
+  group: release-vscode-extension
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: extension/vscode
+
+jobs:
+  release:
+    name: Package + publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      IS_TAG: ${{ github.ref_type == 'tag' }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      HAS_VSCE_PAT: ${{ secrets.VSCE_PAT != '' }}
+      HAS_OVSX_PAT: ${{ secrets.OVSX_PAT != '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      # Install from the repo root: the extension is an npm workspace and shares
+      # the root lockfile (esbuild, @vscode/vsce, etc. resolve from the hoisted
+      # root node_modules).
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Resolve + validate version
+        id: version
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$IS_TAG" = "true" ]; then
+            TAG="${GITHUB_REF_NAME#vscode-v}"
+            if [ "$TAG" != "$PKG_VERSION" ]; then
+              echo "::error::Tag vscode-v$TAG does not match package.json version $PKG_VERSION."
+              echo "Bump extension/vscode/package.json to $TAG (or retag) and retry."
+              exit 1
+            fi
+            echo "Releasing VS Code extension v$PKG_VERSION"
+          else
+            echo "Dry run — packaging v$PKG_VERSION without publishing."
+          fi
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # `package` runs vscode:prepublish (esbuild --production) then vsce. The
+      # produced .vsix is the exact artifact published and attached below.
+      - name: Package VSIX
+        id: package
+        run: |
+          set -euo pipefail
+          npm run package
+          VSIX="$(ls -1 ./*.vsix | head -n1)"
+          echo "vsix=extension/vscode/${VSIX}" >> "$GITHUB_OUTPUT"
+          echo "Packaged ${VSIX}"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: restura-vscode-${{ steps.version.outputs.version }}-vsix
+          path: ${{ steps.package.outputs.vsix }}
+          if-no-files-found: error
+
+      - name: Publish to VS Code Marketplace
+        if: env.IS_TAG == 'true' && env.DRY_RUN != 'true' && env.HAS_VSCE_PAT == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce publish --no-dependencies --packagePath ./*.vsix
+
+      - name: Publish to Open VSX
+        if: env.IS_TAG == 'true' && env.DRY_RUN != 'true' && env.HAS_OVSX_PAT == 'true'
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx@1 publish ./*.vsix --pat "$OVSX_PAT"
+
+      - name: Create GitHub release
+        if: env.IS_TAG == 'true' && env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          MARKETPLACE_PUBLISHED: ${{ env.HAS_VSCE_PAT }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Restura for VS Code **v${VERSION}**."
+            echo
+            if [ "$MARKETPLACE_PUBLISHED" = "true" ]; then
+              echo "- Published to the VS Code Marketplace."
+            else
+              echo "- Marketplace publish skipped (VSCE_PAT not configured) — install the attached \`.vsix\` manually."
+            fi
+            echo "- \`.vsix\` attached below (\`code --install-extension restura-vscode-${VERSION}.vsix\`)."
+          } > notes.md
+          # --latest=false: this is a separate product from the desktop app, so
+          # it must not hijack the repo's "Latest release" pointer.
+          gh release create "$TAG" \
+            --title "VS Code extension v${VERSION}" \
+            --notes-file notes.md \
+            --latest=false \
+            ./*.vsix

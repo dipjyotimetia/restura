@@ -12,18 +12,22 @@ secret scanning, required reviewers, secrets).
 
 ## Workflows at a glance
 
-| Workflow                  | File                                          | Trigger                                  | Purpose                                                                                                                                   |
-| ------------------------- | --------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **CI**                    | `.github/workflows/ci.yml`                    | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy. |
-| **CodeQL**                | _GitHub default setup_ (no workflow file)     | PR + push to `main`, weekly              | SAST over `javascript-typescript`. Managed in **Settings → Code security → Code scanning**, not a committed workflow.                     |
-| **Scorecard**             | `.github/workflows/scorecard.yml`             | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                               |
-| **Dependency Review**     | `.github/workflows/dependency-review.yml`     | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                  |
-| **Security Audit**        | `.github/workflows/security-audit.yml`        | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                             |
-| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml` | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                              |
-| **Release**               | `.github/workflows/release.yml`               | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                     |
+| Workflow                  | File                                             | Trigger                                  | Purpose                                                                                                                                   |
+| ------------------------- | ------------------------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **CI**                    | `.github/workflows/ci.yml`                       | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy. |
+| **CodeQL**                | _GitHub default setup_ (no workflow file)        | PR + push to `main`, weekly              | SAST over `javascript-typescript`. Managed in **Settings → Code security → Code scanning**, not a committed workflow.                     |
+| **Scorecard**             | `.github/workflows/scorecard.yml`                | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                               |
+| **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                  |
+| **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                             |
+| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                              |
+| **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                     |
+| **VS Code extension**     | `.github/workflows/extension-vscode-release.yml` | tag `vscode-v*.*.*` + manual dry-run     | Package + publish `restura-vscode` to the VS Code Marketplace + Open VSX; attach `.vsix` to a GitHub release.                             |
+| **Chrome extension**      | `.github/workflows/extension-chrome-release.yml` | tag `chrome-v*.*.*` + manual dry-run     | Build + zip the MV3 bundle, upload to the Chrome Web Store; attach `.zip` to a GitHub release.                                            |
 
 > Releases are **never** cut on merge to `main`. Production ships only from a
-> manually-dispatched **Release** run. See the runbook below.
+> manually-dispatched **Release** run (desktop/web/CLI) or a pushed `*-v*` tag
+> (extensions). See the [release runbook](#release-runbook) below and the
+> dedicated [extension release runbook](./EXTENSION_RELEASE.md).
 
 ---
 
@@ -193,6 +197,18 @@ these. Set them in **Settings → Secrets and variables → Actions**:
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`        | source-map upload (optional)       | symbolicated crash stacks.                             |
 
 > `GITHUB_TOKEN` is automatic. `GHCR` publish uses it (`packages: write`).
+
+The **extension** release workflows use a separate set of secrets. They are all
+optional — each publish step self-skips when its secrets are absent, so a tagged
+run still builds, packages, and attaches the artifact to a GitHub release:
+
+| Secret                                                                                    | Required for        | Notes                                           |
+| ----------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------- |
+| `VSCE_PAT`                                                                                | VS Code Marketplace | Azure DevOps PAT, Marketplace **Manage** scope. |
+| `OVSX_PAT`                                                                                | Open VSX (optional) | Open VSX access token.                          |
+| `CHROME_EXTENSION_ID`, `CHROME_CLIENT_ID`, `CHROME_CLIENT_SECRET`, `CHROME_REFRESH_TOKEN` | Chrome Web Store    | OAuth2 creds; see the extension runbook.        |
+
+> Full step-by-step in the [extension release runbook](./EXTENSION_RELEASE.md).
 
 ### 7. (Optional) Protected production environment
 
