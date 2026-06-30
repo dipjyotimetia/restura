@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/app';
+import { setUrl } from './utils/selectors';
 
 // Persistence regression: global state must come back from the encrypted Dexie
 // store after a full page reload (not just from in-memory zustand state). This
@@ -21,9 +22,16 @@ test.describe('Persistence across reload', () => {
     await expect(page.getByText('Persisted Collection', { exact: true }).first()).toBeVisible();
   });
 
-  test('an opened request tab survives a reload', async ({ app: page }) => {
+  test('an opened request tab and its edited URL survive a reload', async ({ app: page }) => {
+    // Open a second request tab and give it a uniquely identifiable URL so the
+    // assertion proves THIS persisted tab came back — not just that some default
+    // tab is present.
     await page.getByRole('button', { name: 'new request', exact: true }).click();
     await page.getByRole('menuitem', { name: /HTTP/ }).click();
+
+    const marker = 'https://example.com/persisted-tab-marker';
+    await setUrl(page, marker);
+    await expect(page.getByRole('textbox', { name: 'Request URL' })).toHaveValue(marker);
 
     const tabsBefore = await page
       .locator('[role="tab"]')
@@ -35,10 +43,13 @@ test.describe('Persistence across reload', () => {
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('main', { name: 'Request workspace' })).toBeVisible();
 
+    // Exact tab count is preserved (not merely >= 2)...
     const tabsAfter = await page
       .locator('[role="tab"]')
       .filter({ hasText: /New Request/i })
       .count();
-    expect(tabsAfter).toBeGreaterThanOrEqual(2);
+    expect(tabsAfter).toBe(tabsBefore);
+    // ...and the active tab's edited URL was rehydrated from Dexie.
+    await expect(page.getByRole('textbox', { name: 'Request URL' })).toHaveValue(marker);
   });
 });
