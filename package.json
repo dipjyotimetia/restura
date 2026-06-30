@@ -128,7 +128,7 @@
     "@sentry/electron": "^7.14.0",
     "@smithy/protocol-http": "^5.5.2",
     "@smithy/signature-v4": "^5.5.2",
-    "@usebruno/lang": "^0.36.0",
+    "@usebruno/lang": "^0.37.0",
     "@xyflow/react": "^12.11.1",
     "ajv": "^8.20.0",
     "axios": "^1.18.1",
