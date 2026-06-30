@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { IntrospectionOptions } from '@/features/graphql/lib/introspection';
 import { introspectSchema } from '@/features/graphql/lib/introspection';
 import type { IntrospectionResult } from '@/features/graphql/types';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 
 interface GraphQLSchemaState {
   // Cached schemas by endpoint URL
@@ -96,13 +97,17 @@ export const useGraphQLSchemaStore = create<GraphQLSchemaState>()(
         return get().loading[endpoint] || false;
       },
     }),
-    {
-      name: 'graphql-schema-storage',
+    createPersistedStore<GraphQLSchemaState>({
+      store: 'graphqlSchemas',
+      persistName: 'graphql-schema-storage',
+      version: 1,
+      steps: [],
+      // Encrypted Dexie pipeline (DB v7 added the `graphqlSchemas` table).
       partialize: (state) => ({
         // Only persist schemas, not loading state
         schemas: state.schemas,
         activeEndpoint: state.activeEndpoint,
       }),
-    }
+    })
   )
 );

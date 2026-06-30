@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import type { ProtoServiceDefinition } from '@/types';
 
 export interface ProtoFileEntry {
@@ -126,8 +127,13 @@ export const useProtoRegistryStore = create<ProtoRegistryState>()(
         );
       },
     }),
-    {
-      name: 'proto-registry-storage',
-    }
+    createPersistedStore<ProtoRegistryState>({
+      store: 'protoFiles',
+      persistName: 'proto-registry-storage',
+      version: 1,
+      steps: [],
+      // Encrypted Dexie pipeline (DB v7 added the `protoFiles` table).
+      partialize: (state) => ({ protos: state.protos }),
+    })
   )
 );

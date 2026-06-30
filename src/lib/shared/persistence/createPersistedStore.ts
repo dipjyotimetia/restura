@@ -1,13 +1,20 @@
 /**
  * Factory that turns a `MigrationDescriptor` into a fully-wired zustand
  * `PersistOptions` object (Gap #6). Centralises:
- *   - storage adapter selection (via `dexieStorageAdapters[descriptor.store]`)
+ *   - storage adapter selection (via `dexieStorageAdapters[descriptor.store]`),
+ *     optionally wrapped with the legacy-localStorage fallback
  *   - migrate (via `runMigrations` + optional quarantine)
  *   - onRehydrateStorage error logging
  *   - migration telemetry emit
  *
  * Stores consume it via:
  *   create(persist((set,get) => ({ ... }), createPersistedStore<State>(descriptor)))
+ *
+ * Adopted by the version-1 stores (connection protocols, graphql/proto, console,
+ * collectionRuns, globals). The multi-version stores (collections, history,
+ * settings, request, environment, workflow, cookies) still hand-roll `persist`;
+ * adopting them requires decomposing their monolithic `migrate` into
+ * version-keyed `steps`, which is data-sensitive and done deliberately per store.
  */
 
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
@@ -39,10 +46,11 @@ export function createPersistedStore<T>(descriptor: MigrationDescriptor<T>): Per
       }
       return outcome.state as T;
     },
-    onRehydrateStorage: () => (_state, error) => {
+    onRehydrateStorage: () => (state, error) => {
       if (error) {
         console.error(`[persist:${descriptor.store}] rehydrate failed:`, error);
       }
+      descriptor.onRehydrate?.(state, error);
     },
   };
   if (descriptor.partialize) {

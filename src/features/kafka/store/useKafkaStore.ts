@@ -2,8 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages } from '@/lib/shared/message-cap';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
@@ -354,9 +354,11 @@ export const useKafkaStore = create<KafkaState>()(
         return messages;
       },
     }),
-    {
-      name: 'kafka-storage',
-      storage: dexieStorageAdapters.kafkaConnections(),
+    createPersistedStore<KafkaState>({
+      store: 'kafkaConnections',
+      persistName: 'kafka-storage',
+      version: 1,
+      steps: [],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, conn]) => [
@@ -376,7 +378,7 @@ export const useKafkaStore = create<KafkaState>()(
         activeConnectionId: state.activeConnectionId,
         connectionByTabId: state.connectionByTabId,
       }),
-    }
+    })
   )
 );
 

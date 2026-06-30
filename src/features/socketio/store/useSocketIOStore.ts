@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore, type FrameDirection } from '@/store/useConsoleStore';
 import type { KeyValue } from '@/types';
 
@@ -406,9 +406,11 @@ export const useSocketIOStore = create<SocketIOState>()(
         return events;
       },
     }),
-    {
-      name: 'socketio-storage',
-      storage: dexieStorageAdapters.socketioConnections(),
+    createPersistedStore<SocketIOState>({
+      store: 'socketioConnections',
+      persistName: 'socketio-storage',
+      version: 1,
+      steps: [],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, c]) => [
@@ -424,6 +426,6 @@ export const useSocketIOStore = create<SocketIOState>()(
         activeConnectionId: state.activeConnectionId,
         connectionByTabId: state.connectionByTabId,
       }),
-    }
+    })
   )
 );

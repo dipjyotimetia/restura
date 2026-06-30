@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+# Workspace package deps (cli/, extension/chrome, extension/vscode) that npm
+# does not hoist to the root node_modules.
+node_modules/
 /.pnp
 .pnp.js
 .yarn/install-state.gz

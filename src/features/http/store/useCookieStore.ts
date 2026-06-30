@@ -2,7 +2,6 @@ import { domainMatch, pathMatch, getPublicSuffix } from 'tough-cookie';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 
 // PSL lookup tuned for an API client used heavily against local runtimes:
 // allowSpecialUseDomain keeps `localhost` a valid registrable name, and
@@ -121,17 +120,6 @@ export const useCookieStore = create<CookieStore>()(
       name: 'restura-cookies',
       version: 2,
       storage: dexieStorageAdapters.cookies(),
-      migrate: (persistedState, _version) => {
-        const looksEmpty =
-          !persistedState ||
-          (typeof persistedState === 'object' &&
-            Object.keys(persistedState as object).length === 0);
-        if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<CookieStore>>('restura-cookies');
-          if (legacy) return legacy as CookieStore;
-        }
-        return persistedState as CookieStore;
-      },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error('Cookie store rehydration failed:', error);

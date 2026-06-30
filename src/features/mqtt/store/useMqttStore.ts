@@ -2,8 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { mqttManager } from '@/features/mqtt/lib/mqttManager';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 
 /** 4 = MQTT 3.1.1, 5 = MQTT 5.0. */
@@ -408,9 +408,11 @@ export const useMqttStore = create<MqttState>()(
         return messages;
       },
     }),
-    {
-      name: 'mqtt-storage',
-      storage: dexieStorageAdapters.mqttConnections(),
+    createPersistedStore<MqttState>({
+      store: 'mqttConnections',
+      persistName: 'mqtt-storage',
+      version: 1,
+      steps: [],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, conn]) => [
@@ -438,6 +440,6 @@ export const useMqttStore = create<MqttState>()(
         activeConnectionId: state.activeConnectionId,
         connectionByTabId: state.connectionByTabId,
       }),
-    }
+    })
   )
 );

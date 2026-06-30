@@ -10,7 +10,6 @@ import { persist } from 'zustand/middleware';
 import type { ElectronAPI } from '../../electron/types/electron-api';
 import { useCollectionStore } from './useCollectionStore';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import { isElectron } from '@/lib/shared/platform';
 import type { Collection } from '@/types';
 
@@ -178,21 +177,6 @@ export const useFileCollectionStore = create<FileCollectionState>()(
         fileCollections: state.fileCollections,
         defaultDirectory: state.defaultDirectory,
       }),
-      migrate: (persistedState, _version) => {
-        // If Dexie returned no/empty data, attempt a one-shot backfill
-        // from the legacy zustand/persist localStorage key. The helper
-        // also removes the legacy key so we never migrate twice.
-        const looksEmpty =
-          !persistedState ||
-          (typeof persistedState === 'object' &&
-            Object.keys(persistedState as object).length === 0);
-        if (looksEmpty) {
-          const legacy =
-            migrateLegacyLocalStorage<Partial<FileCollectionState>>('file-collection-storage');
-          if (legacy) return legacy as FileCollectionState;
-        }
-        return persistedState as FileCollectionState;
-      },
       onRehydrateStorage: () => (_state, error) => {
         if (error) {
           console.error('File-collection store rehydration failed:', error);

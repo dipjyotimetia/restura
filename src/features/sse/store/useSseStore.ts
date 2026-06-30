@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { AuthConfig, KeyValue } from '@/types';
 
@@ -311,9 +311,11 @@ export const useSseStore = create<SseState>()(
         return log;
       },
     }),
-    {
-      name: 'sse-storage',
-      storage: dexieStorageAdapters.sseConnections(),
+    createPersistedStore<SseState>({
+      store: 'sseConnections',
+      persistName: 'sse-storage',
+      version: 1,
+      steps: [],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, conn]) => [
@@ -331,6 +333,6 @@ export const useSseStore = create<SseState>()(
         ),
         activeConnectionId: state.activeConnectionId,
       }),
-    }
+    })
   )
 );

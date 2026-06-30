@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import type { KeyValue, McpServerCapabilities, McpTransportType } from '@/types';
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -187,9 +187,11 @@ export const useMcpStore = create<McpState>()(
         return activeConnectionId ? (connections[activeConnectionId] ?? null) : null;
       },
     }),
-    {
-      name: 'mcp-storage',
-      storage: dexieStorageAdapters.mcpConnections(),
+    createPersistedStore<McpState>({
+      store: 'mcpConnections',
+      persistName: 'mcp-storage',
+      version: 1,
+      steps: [],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, c]) => [
@@ -199,6 +201,6 @@ export const useMcpStore = create<McpState>()(
         ),
         activeConnectionId: state.activeConnectionId,
       }),
-    }
+    })
   )
 );

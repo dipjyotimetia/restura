@@ -7,11 +7,15 @@ import './styles/globals.css';
 import '@/features/registry/bootstrap';
 import { initElectronSentry } from '@/lib/electron-sentry';
 import { fetchFlags } from '@/lib/shared/feature-flags';
+import { registerMigrationLogging } from '@/lib/shared/persistence/registerMigrationLogging';
 import { installGlobalErrorHandlers } from '@/lib/shared/telemetry';
 
 // Wire window.onerror + unhandledrejection so uncaught failures land in the
 // telemetry sink (opt-out; gated on settings.telemetry.errorsEnabled).
 installGlobalErrorHandlers();
+// Subscribe persisted-store migration outcomes to the logger before the stores
+// finish their async rehydrate, so quarantined/lossy migrations are observable.
+registerMigrationLogging();
 // Electron-only: forward renderer crashes/errors to the main-process Sentry SDK
 // over IPC (opt-out; no-op on web). Dynamically imported so the web bundle stays clean.
 void initElectronSentry();

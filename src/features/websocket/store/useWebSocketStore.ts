@@ -2,8 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { KeyValue } from '@/types';
 
@@ -424,9 +424,11 @@ export const useWebSocketStore = create<WebSocketState>()(
         return messages;
       },
     }),
-    {
-      name: 'websocket-storage',
-      storage: dexieStorageAdapters.websocketConnections(),
+    createPersistedStore<WebSocketState>({
+      store: 'websocketConnections',
+      persistName: 'websocket-storage',
+      version: 1,
+      steps: [],
       partialize: (state) => ({
         // Don't persist messages or connection status to avoid stale data
         connections: Object.fromEntries(
@@ -443,6 +445,6 @@ export const useWebSocketStore = create<WebSocketState>()(
         activeConnectionId: state.activeConnectionId,
         connectionByTabId: state.connectionByTabId,
       }),
-    }
+    })
   )
 );

@@ -4,7 +4,6 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { selectAtPath, setAtPath } from '@/features/workflows/lib/flowTypes';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import type {
   Workflow,
   WorkflowRequest,
@@ -500,22 +499,10 @@ export const useWorkflowStore = create<WorkflowState>()(
       }),
       {
         name: 'workflow-storage',
-        // v2 → Dexie migration + encryption
-        // v3 → optional Workflow.graph (WorkflowGraph). No-op migration —
-        //      existing rows just have `graph` absent, which is valid.
+        // v3 → optional Workflow.graph (WorkflowGraph); existing rows just have
+        // `graph` absent, which is valid — no migration needed.
         version: 3,
         storage: dexieStorageAdapters.workflows(),
-        migrate: (persistedState, _version) => {
-          const looksEmpty =
-            !persistedState ||
-            (typeof persistedState === 'object' &&
-              Object.keys(persistedState as object).length === 0);
-          if (looksEmpty) {
-            const legacy = migrateLegacyLocalStorage<Partial<WorkflowState>>('workflow-storage');
-            if (legacy) return legacy as WorkflowState;
-          }
-          return persistedState as WorkflowState;
-        },
         onRehydrateStorage: () => (state, error) => {
           if (error) {
             console.error('Workflow store rehydration failed:', error);

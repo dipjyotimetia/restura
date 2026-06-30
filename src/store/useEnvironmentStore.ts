@@ -4,7 +4,6 @@ import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import type { Environment, KeyValue } from '@/types';
 
 interface EnvironmentState {
@@ -117,20 +116,8 @@ export const useEnvironmentStore = create<EnvironmentState>()(
     }),
     {
       name: 'environment-storage',
-      version: 2, // Bumped for Dexie migration
+      version: 2,
       storage: dexieStorageAdapters.environments(),
-      migrate: (persistedState, _version) => {
-        const looksEmpty =
-          !persistedState ||
-          (typeof persistedState === 'object' &&
-            Object.keys(persistedState as object).length === 0);
-        if (looksEmpty) {
-          const legacy =
-            migrateLegacyLocalStorage<Partial<EnvironmentState>>('environment-storage');
-          if (legacy) return legacy as EnvironmentState;
-        }
-        return persistedState as EnvironmentState;
-      },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error('Environment store rehydration failed:', error);

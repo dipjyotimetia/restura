@@ -10,7 +10,7 @@
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 
 interface GlobalsState {
   vars: Record<string, string>;
@@ -60,15 +60,11 @@ export const useGlobalsStore = create<GlobalsState>()(
           return changed ? { vars: next } : state;
         }),
     }),
-    {
-      name: 'globals-storage',
+    createPersistedStore<GlobalsState>({
+      store: 'globals',
+      persistName: 'globals-storage',
       version: 1,
-      storage: dexieStorageAdapters.globals(),
-      onRehydrateStorage: () => (_state, error) => {
-        if (error) {
-          console.error('Globals store rehydration failed:', error);
-        }
-      },
-    }
+      steps: [],
+    })
   )
 );

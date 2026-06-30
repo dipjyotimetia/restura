@@ -37,6 +37,8 @@ vi.mock('@/lib/shared/dexie-storage', () => {
       aiChat: f,
       aiLab: f,
       evalRuns: f,
+      arenaRuns: f,
+      collectionRuns: f,
       globals: f,
     },
     checkDexieStorageHealth: async () => ({ available: false, healthy: false }),
