@@ -34,7 +34,15 @@ export function withLegacyLocalStorageFallback<T>(
     ...inner,
     getItem: async (name: string): Promise<StorageValue<T> | null> => {
       const current = await inner.getItem(name);
-      if (current !== null) return current;
+      if (current !== null) {
+        // The Dexie row already exists, so the import has happened. A prior
+        // session could have crashed after the inner write but before purging
+        // the plaintext copy (the window between the two awaits below); clean any
+        // lingering legacy key now so plaintext never outlives the migration.
+        // No-op once the key is gone (the steady state).
+        removeLegacyLocalStorageEntry(legacyKey);
+        return current;
+      }
 
       const candidate = readLegacyLocalStorageEntry(legacyKey);
       const parsed =

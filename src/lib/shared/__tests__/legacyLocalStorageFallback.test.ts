@@ -29,18 +29,30 @@ describe('withLegacyLocalStorageFallback', () => {
     localStorage.clear();
   });
 
-  it('returns the inner value when present and never touches localStorage', async () => {
+  it('serves the inner value, and purges a legacy key left over from a crashed migration', async () => {
     const inner = memoryStorage<DemoState>();
     const live: StorageValue<DemoState> = { state: { count: 5 }, version: 0 };
     inner.map.set(STORE_NAME, live);
+    // Simulates a prior session that wrote Dexie but crashed before purging the
+    // plaintext copy.
     localStorage.setItem(LEGACY_KEY, JSON.stringify({ state: { count: 99 }, version: 0 }));
 
     const wrapped = withLegacyLocalStorageFallback(inner, LEGACY_KEY);
     const got = await wrapped.getItem(STORE_NAME);
 
+    // The Dexie value wins (never the stale plaintext)...
     expect(got).toEqual(live);
-    // Legacy key untouched because the inner store already had the row.
-    expect(localStorage.getItem(LEGACY_KEY)).not.toBeNull();
+    // ...and the lingering plaintext copy is cleaned up so it can't outlive the migration.
+    expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
+  });
+
+  it('does not throw when the inner store has data and there is no legacy key', async () => {
+    const inner = memoryStorage<DemoState>();
+    const live: StorageValue<DemoState> = { state: { count: 5 }, version: 0 };
+    inner.map.set(STORE_NAME, live);
+
+    const wrapped = withLegacyLocalStorageFallback(inner, LEGACY_KEY);
+    expect(await wrapped.getItem(STORE_NAME)).toEqual(live);
   });
 
   it('imports the legacy value into the inner store and purges the plaintext copy', async () => {

@@ -91,7 +91,7 @@ describe('createPersistedStore', () => {
     expect(localStorage.getItem('legacy-demo')).toBeNull();
   });
 
-  it('onRehydrate runs after the rehydrate error log', () => {
+  it('onRehydrate runs on the happy path with the state', () => {
     const onRehydrate = vi.fn();
     const opts = createPersistedStore<DemoState>({
       store: 'globals',
@@ -106,5 +106,33 @@ describe('createPersistedStore', () => {
     const state = { value: 1 };
     post?.(state, undefined);
     expect(onRehydrate).toHaveBeenCalledWith(state, undefined);
+  });
+
+  it('on a rehydrate error, logs the error AND still runs onRehydrate (after the log)', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const onRehydrate = vi.fn();
+      const opts = createPersistedStore<DemoState>({
+        store: 'globals',
+        persistName: 'demo',
+        version: 1,
+        steps: [],
+        onRehydrate,
+      });
+      const post = (
+        opts.onRehydrateStorage as (() => (s: unknown, e: unknown) => void) | undefined
+      )?.();
+      const err = new Error('rehydrate boom');
+      post?.(undefined, err);
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(onRehydrate).toHaveBeenCalledWith(undefined, err);
+      // Ordering: the factory logs the error before invoking the descriptor hook.
+      expect(errorSpy.mock.invocationCallOrder[0]!).toBeLessThan(
+        onRehydrate.mock.invocationCallOrder[0]!
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
