@@ -23,16 +23,12 @@ import { runMigrations } from './runMigrations';
 import { migrationTelemetry } from './telemetry';
 import type { MigrationDescriptor } from './types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { withLegacyLocalStorageFallback } from '@/lib/shared/legacyLocalStorageFallback';
 
 export function createPersistedStore<T>(descriptor: MigrationDescriptor<T>): PersistOptions<T> {
   // The adapter is a generic encrypted-blob store typed `PersistStorage<unknown>`;
   // each descriptor declares the exact T it persists, so narrowing here is
   // sound — descriptor.store selects the table whose typed slot matches T.
-  let storage = dexieStorageAdapters[descriptor.store]() as unknown as PersistStorage<T>;
-  if (descriptor.legacyLocalStorageKey) {
-    storage = withLegacyLocalStorageFallback(storage, descriptor.legacyLocalStorageKey);
-  }
+  const storage = dexieStorageAdapters[descriptor.store]() as unknown as PersistStorage<T>;
   const opts: PersistOptions<T> = {
     name: descriptor.persistName,
     version: descriptor.version,

@@ -84,13 +84,6 @@ export interface MigrationDescriptor<T = unknown> {
    */
   partialize?: (state: T) => unknown;
   /**
-   * Optional legacy `window.localStorage` key. When set, the Dexie storage
-   * adapter is wrapped with `withLegacyLocalStorageFallback` so a store moved
-   * off plaintext localStorage one-shot-imports its old data on first load.
-   * (Usually equal to `persistName`.)
-   */
-  legacyLocalStorageKey?: string;
-  /**
    * Optional post-rehydrate hook, run after the factory's error logging. Use it
    * for per-record sanitisation that can't be expressed as a whole-state
    * `schema` (e.g. dropping individual corrupt entries while keeping the rest).

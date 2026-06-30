@@ -102,10 +102,7 @@ export const useGraphQLSchemaStore = create<GraphQLSchemaState>()(
       persistName: 'graphql-schema-storage',
       version: 1,
       steps: [],
-      // Encrypted Dexie pipeline (DB v7 added the `graphqlSchemas` table). The
-      // legacy-localStorage fallback one-shot-imports schemas persisted by
-      // earlier builds that wrote to plaintext localStorage.
-      legacyLocalStorageKey: 'graphql-schema-storage',
+      // Encrypted Dexie pipeline (DB v7 added the `graphqlSchemas` table).
       partialize: (state) => ({
         // Only persist schemas, not loading state
         schemas: state.schemas,

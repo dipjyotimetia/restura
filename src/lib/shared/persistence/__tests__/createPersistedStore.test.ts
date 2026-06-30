@@ -75,22 +75,6 @@ describe('createPersistedStore', () => {
     expect(quarantined.length).toBeGreaterThan(0);
   });
 
-  it('legacyLocalStorageKey wraps storage so an old localStorage blob is imported', async () => {
-    localStorage.setItem('legacy-demo', JSON.stringify({ state: { value: 42 }, version: 0 }));
-    const opts = createPersistedStore<DemoState>({
-      store: 'globals',
-      persistName: 'demo',
-      version: 1,
-      steps: [],
-      legacyLocalStorageKey: 'legacy-demo',
-    });
-    // The inner (mocked) Dexie adapter returns null, so getItem falls back to
-    // the legacy localStorage blob and then purges the plaintext copy.
-    const got = await opts.storage?.getItem('demo');
-    expect(got).toEqual({ state: { value: 42 }, version: 0 });
-    expect(localStorage.getItem('legacy-demo')).toBeNull();
-  });
-
   it('onRehydrate runs on the happy path with the state', () => {
     const onRehydrate = vi.fn();
     const opts = createPersistedStore<DemoState>({

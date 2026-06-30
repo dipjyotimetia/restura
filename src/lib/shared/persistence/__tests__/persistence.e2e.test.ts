@@ -53,32 +53,6 @@ describe('persistence e2e (real Dexie adapter + IndexedDB)', () => {
     expect(row!.encryptedData).toContain('hello'); // plaintext on web (no safeStorage key)
   });
 
-  it('one-shot-imports legacy localStorage into Dexie, then serves from Dexie', async () => {
-    localStorage.setItem(
-      'graphql-schema-storage',
-      JSON.stringify({ state: { value: 42, label: 'legacy' }, version: 1 })
-    );
-
-    const opts = createPersistedStore<DemoState>({
-      store: 'graphqlSchemas',
-      persistName: 'graphql-schema-storage',
-      version: 1,
-      steps: [],
-      legacyLocalStorageKey: 'graphql-schema-storage',
-    });
-
-    const first = await opts.storage!.getItem('graphql-schema-storage');
-    expect(first).toEqual({ state: { value: 42, label: 'legacy' }, version: 1 });
-    // Plaintext copy purged...
-    expect(localStorage.getItem('graphql-schema-storage')).toBeNull();
-    // ...and the data now lives in the real Dexie table.
-    expect(await db.graphqlSchemas.get('graphql-schema-storage')).toBeTruthy();
-
-    // A second read comes straight from Dexie (legacy already gone).
-    const second = await opts.storage!.getItem('graphql-schema-storage');
-    expect(second).toEqual({ state: { value: 42, label: 'legacy' }, version: 1 });
-  });
-
   it('runs a versioned migration step end-to-end on persisted data', async () => {
     // Seed v1 data, then read through a v2 descriptor with a v1→v2 step.
     const v1 = createPersistedStore<DemoState>({

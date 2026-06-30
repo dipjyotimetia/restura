@@ -1,13 +1,9 @@
 /**
  * Helpers for migrating off the legacy zustand/persist `window.localStorage`
- * layout (`{ state, version }`). Two consumers share the read/remove primitives:
- *   - `migrateLegacyLocalStorage` — called from a store's `migrate` hook; reads
- *     the legacy state slice and drops the key immediately.
- *   - `withLegacyLocalStorageFallback` (legacyLocalStorageFallback.ts) — a
- *     storage-layer wrapper that drops the key only after a successful Dexie
- *     write-back.
- * Keeping the read + parse + remove in one place stops the two paths drifting if
- * the legacy layout ever changes.
+ * layout (`{ state, version }`). `migrateLegacyLocalStorage` is called from a
+ * store's `migrate` hook (the hand-rolled core stores) to read the legacy state
+ * slice and drop the key. The read/parse and remove steps are split into small
+ * primitives so the parsing rules live in one place.
  */
 
 /**

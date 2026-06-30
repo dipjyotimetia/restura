@@ -132,10 +132,7 @@ export const useProtoRegistryStore = create<ProtoRegistryState>()(
       persistName: 'proto-registry-storage',
       version: 1,
       steps: [],
-      // Encrypted Dexie pipeline (DB v7 added the `protoFiles` table). The
-      // legacy-localStorage fallback one-shot-imports proto files persisted by
-      // earlier builds that wrote to plaintext localStorage.
-      legacyLocalStorageKey: 'proto-registry-storage',
+      // Encrypted Dexie pipeline (DB v7 added the `protoFiles` table).
       partialize: (state) => ({ protos: state.protos }),
     })
   )
