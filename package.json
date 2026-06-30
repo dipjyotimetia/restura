@@ -174,7 +174,7 @@
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.12.1",
     "@cloudflare/vite-plugin": "^1.42.2",
-    "@cloudflare/workers-types": "^4.20260623.1",
+    "@cloudflare/workers-types": "^4.20260624.1",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
     "@electron/notarize": "^3.1.1",
