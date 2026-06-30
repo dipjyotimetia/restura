@@ -251,64 +251,34 @@ export class ResturaDB extends Dexie {
   }
 
   /**
-   * Clear all data (for logout/reset)
+   * The internal key-value table. Excluded from user-facing data operations
+   * (export/import/stats) because it holds app state + migration quarantine
+   * rows, not user records.
+   */
+  private static readonly INTERNAL_TABLE = 'metadata';
+
+  /**
+   * Every persisted table EXCEPT the internal metadata KV table. Derived from
+   * Dexie's live `tables` array so that adding a `this.version(N).stores(...)`
+   * table is automatically covered by clear/export/import/stats — these methods
+   * previously hand-listed tables and silently drifted out of sync (export and
+   * stats were missing every table added after v5, so "Export all data" lost
+   * console/graphql/proto/aiChat/globals/aiLab/eval/arena/collectionRuns data).
+   */
+  private get dataTables(): Table<NamedEncryptedRecord, string>[] {
+    return this.tables.filter((t) => t.name !== ResturaDB.INTERNAL_TABLE) as Table<
+      NamedEncryptedRecord,
+      string
+    >[];
+  }
+
+  /**
+   * Clear all data (for logout/reset). Includes the metadata table so a reset
+   * also drops migration-quarantine and health-check rows.
    */
   async clearAllData(): Promise<void> {
-    await this.transaction(
-      'rw',
-      [
-        this.collections,
-        this.environments,
-        this.history,
-        this.settings,
-        this.cookies,
-        this.workflows,
-        this.workflowExecutions,
-        this.fileCollections,
-        this.requestTabs,
-        this.websocketConnections,
-        this.sseConnections,
-        this.mcpConnections,
-        this.kafkaConnections,
-        this.mqttConnections,
-        this.socketioConnections,
-        this.console,
-        this.graphqlSchemas,
-        this.protoFiles,
-        this.aiChat,
-        this.aiLab,
-        this.evalRuns,
-        this.arenaRuns,
-        this.collectionRuns,
-        this.metadata,
-      ],
-      () =>
-        Promise.all([
-          this.collections.clear(),
-          this.environments.clear(),
-          this.history.clear(),
-          this.settings.clear(),
-          this.cookies.clear(),
-          this.workflows.clear(),
-          this.workflowExecutions.clear(),
-          this.fileCollections.clear(),
-          this.requestTabs.clear(),
-          this.websocketConnections.clear(),
-          this.sseConnections.clear(),
-          this.mcpConnections.clear(),
-          this.kafkaConnections.clear(),
-          this.mqttConnections.clear(),
-          this.socketioConnections.clear(),
-          this.console.clear(),
-          this.graphqlSchemas.clear(),
-          this.protoFiles.clear(),
-          this.aiChat.clear(),
-          this.aiLab.clear(),
-          this.evalRuns.clear(),
-          this.arenaRuns.clear(),
-          this.collectionRuns.clear(),
-          this.metadata.clear(),
-        ])
+    await this.transaction('rw', this.tables, () =>
+      Promise.all(this.tables.map((table) => table.clear()))
     );
   }
 
@@ -320,27 +290,10 @@ export class ResturaDB extends Dexie {
     tables: Record<string, number>;
     estimatedSize: number;
   }> {
-    const tables: Record<string, number> = {
-      collections: await this.collections.count(),
-      environments: await this.environments.count(),
-      history: await this.history.count(),
-      settings: await this.settings.count(),
-      cookies: await this.cookies.count(),
-      workflows: await this.workflows.count(),
-      workflowExecutions: await this.workflowExecutions.count(),
-      fileCollections: await this.fileCollections.count(),
-      requestTabs: await this.requestTabs.count(),
-      websocketConnections: await this.websocketConnections.count(),
-      sseConnections: await this.sseConnections.count(),
-      mcpConnections: await this.mcpConnections.count(),
-      kafkaConnections: await this.kafkaConnections.count(),
-      mqttConnections: await this.mqttConnections.count(),
-      socketioConnections: await this.socketioConnections.count(),
-      console: await this.console.count(),
-      graphqlSchemas: await this.graphqlSchemas.count(),
-      protoFiles: await this.protoFiles.count(),
-      aiChat: await this.aiChat.count(),
-    };
+    const tables: Record<string, number> = {};
+    for (const table of this.dataTables) {
+      tables[table.name] = await table.count();
+    }
 
     const totalRecords = Object.values(tables).reduce((a, b) => a + b, 0);
 
@@ -355,120 +308,48 @@ export class ResturaDB extends Dexie {
   }
 
   /**
-   * Export all data for backup (returns encrypted data)
+   * Export all data for backup (returns the still-encrypted records). The
+   * payload is keyed by table name and covers every data table, so a backup is
+   * a complete snapshot. `importAllData` reads the same keying.
    */
   async exportAllData(): Promise<{
     version: number;
     exportedAt: number;
-    data: {
-      collections: CollectionRecord[];
-      environments: EnvironmentRecord[];
-      history: HistoryRecord[];
-      settings: SettingsRecord[];
-      cookies: CookieRecord[];
-      workflows: WorkflowRecord[];
-      workflowExecutions: WorkflowExecutionRecord[];
-      fileCollections: FileCollectionRecord[];
-      requestTabs?: RequestTabsRecord[];
-      websocketConnections?: WebSocketConnectionsRecord[];
-      sseConnections?: SseConnectionsRecord[];
-      mcpConnections?: McpConnectionsRecord[];
-      kafkaConnections?: KafkaConnectionsRecord[];
-      mqttConnections?: MqttConnectionsRecord[];
-      socketioConnections?: SocketIoConnectionsRecord[];
-    };
+    data: Record<string, NamedEncryptedRecord[]>;
   }> {
+    const data: Record<string, NamedEncryptedRecord[]> = {};
+    for (const table of this.dataTables) {
+      data[table.name] = await table.toArray();
+    }
     return {
-      version: 5,
+      // Bumped from 5 → 6: the export now covers every data table (previously
+      // it stopped at the v5 table set). Import remains backward-compatible with
+      // older, smaller backups because it merges per-table by key.
+      version: 6,
       exportedAt: Date.now(),
-      data: {
-        collections: await this.collections.toArray(),
-        environments: await this.environments.toArray(),
-        history: await this.history.toArray(),
-        settings: await this.settings.toArray(),
-        cookies: await this.cookies.toArray(),
-        workflows: await this.workflows.toArray(),
-        workflowExecutions: await this.workflowExecutions.toArray(),
-        fileCollections: await this.fileCollections.toArray(),
-        requestTabs: await this.requestTabs.toArray(),
-        websocketConnections: await this.websocketConnections.toArray(),
-        sseConnections: await this.sseConnections.toArray(),
-        mcpConnections: await this.mcpConnections.toArray(),
-        kafkaConnections: await this.kafkaConnections.toArray(),
-        mqttConnections: await this.mqttConnections.toArray(),
-        socketioConnections: await this.socketioConnections.toArray(),
-      },
+      data,
     };
   }
 
   /**
-   * Import data from backup
+   * Import data from backup. Records are merged per table by primary key
+   * (`bulkPut`), so importing restores everything the backup contains and
+   * leaves tables absent from the backup untouched. Backward-compatible with
+   * pre-v6 backups that only carried a subset of tables.
    */
   async importAllData(backup: {
     version: number;
-    data: {
-      collections?: CollectionRecord[];
-      environments?: EnvironmentRecord[];
-      history?: HistoryRecord[];
-      settings?: SettingsRecord[];
-      cookies?: CookieRecord[];
-      workflows?: WorkflowRecord[];
-      workflowExecutions?: WorkflowExecutionRecord[];
-      fileCollections?: FileCollectionRecord[];
-      requestTabs?: RequestTabsRecord[];
-      websocketConnections?: WebSocketConnectionsRecord[];
-      sseConnections?: SseConnectionsRecord[];
-      mcpConnections?: McpConnectionsRecord[];
-      kafkaConnections?: KafkaConnectionsRecord[];
-      mqttConnections?: MqttConnectionsRecord[];
-      socketioConnections?: SocketIoConnectionsRecord[];
-    };
+    data: Record<string, NamedEncryptedRecord[] | undefined>;
   }): Promise<void> {
-    await this.transaction(
-      'rw',
-      [
-        this.collections,
-        this.environments,
-        this.history,
-        this.settings,
-        this.cookies,
-        this.workflows,
-        this.workflowExecutions,
-        this.fileCollections,
-        this.requestTabs,
-        this.websocketConnections,
-        this.sseConnections,
-        this.mcpConnections,
-        this.kafkaConnections,
-        this.mqttConnections,
-        this.socketioConnections,
-      ],
-      async () => {
-        if (backup.data.collections) await this.collections.bulkPut(backup.data.collections);
-        if (backup.data.environments) await this.environments.bulkPut(backup.data.environments);
-        if (backup.data.history) await this.history.bulkPut(backup.data.history);
-        if (backup.data.settings) await this.settings.bulkPut(backup.data.settings);
-        if (backup.data.cookies) await this.cookies.bulkPut(backup.data.cookies);
-        if (backup.data.workflows) await this.workflows.bulkPut(backup.data.workflows);
-        if (backup.data.workflowExecutions)
-          await this.workflowExecutions.bulkPut(backup.data.workflowExecutions);
-        if (backup.data.fileCollections)
-          await this.fileCollections.bulkPut(backup.data.fileCollections);
-        if (backup.data.requestTabs) await this.requestTabs.bulkPut(backup.data.requestTabs);
-        if (backup.data.websocketConnections)
-          await this.websocketConnections.bulkPut(backup.data.websocketConnections);
-        if (backup.data.sseConnections)
-          await this.sseConnections.bulkPut(backup.data.sseConnections);
-        if (backup.data.mcpConnections)
-          await this.mcpConnections.bulkPut(backup.data.mcpConnections);
-        if (backup.data.kafkaConnections)
-          await this.kafkaConnections.bulkPut(backup.data.kafkaConnections);
-        if (backup.data.mqttConnections)
-          await this.mqttConnections.bulkPut(backup.data.mqttConnections);
-        if (backup.data.socketioConnections)
-          await this.socketioConnections.bulkPut(backup.data.socketioConnections);
+    const data = backup?.data ?? {};
+    await this.transaction('rw', this.tables, async () => {
+      for (const table of this.dataTables) {
+        const rows = data[table.name];
+        if (Array.isArray(rows) && rows.length > 0) {
+          await table.bulkPut(rows);
+        }
       }
-    );
+    });
   }
 }
 
