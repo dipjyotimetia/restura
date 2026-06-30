@@ -1,4 +1,15 @@
 /**
+ * STATUS: available, not yet adopted. This is the intended home for versioned
+ * store migrations, but the live stores still hand-roll their `persist` options
+ * (each declares its own `version`/`migrate`/`storage`). Adopt it for NEW stores,
+ * and migrate existing ones onto it deliberately — note two gaps to close first:
+ *   1. storage selection is fixed to `dexieStorageAdapters[descriptor.store]()`,
+ *      so it can't yet express the `withLegacyLocalStorageFallback` wrapper that
+ *      the graphql/proto stores need;
+ *   2. the real value (quarantine + schema validation) only kicks in with a
+ *      per-store Zod `schema` + `steps`, which must be written carefully to
+ *      avoid quarantining valid data.
+ *
  * Factory that turns a `MigrationDescriptor` into a fully-wired zustand
  * `PersistOptions` object (Gap #6). Centralises:
  *   - storage adapter selection (via `dexieStorageAdapters[descriptor.store]`)
