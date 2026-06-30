@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "description": "Capture multi-protocol browser traffic (HTTP, GraphQL, WebSocket, SSE, gRPC-web) into Restura collections.",
   "minimum_chrome_version": "116",
-  "permissions": ["debugger", "sidePanel", "storage", "cookies", "tabs"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": ["debugger", "sidePanel", "storage", "tabs"],
+  "host_permissions": ["http://127.0.0.1/*"],
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
