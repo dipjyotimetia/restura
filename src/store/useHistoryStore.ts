@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useSettingsStore } from './useSettingsStore';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import type { HistoryItem, Request, Response } from '@/types';
 
@@ -136,17 +135,7 @@ export const useHistoryStore = create<HistoryState>()(
       version: 3, // v3: SecretValue widening (ADR-0007)
       storage: dexieStorageAdapters.history(),
       migrate: (persistedState, version) => {
-        const looksEmpty =
-          !persistedState ||
-          (typeof persistedState === 'object' &&
-            Object.keys(persistedState as object).length === 0);
-        let state: HistoryState | null = null;
-        if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<HistoryState>>('history-storage');
-          if (legacy) state = legacy as HistoryState;
-        } else {
-          state = persistedState as HistoryState;
-        }
+        let state = persistedState as HistoryState | null;
         if (state && version < 3 && Array.isArray(state.history)) {
           state = {
             ...state,

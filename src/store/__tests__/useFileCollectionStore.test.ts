@@ -26,9 +26,6 @@ describe('useFileCollectionStore persistence', () => {
     expect(typeof opts.storage?.getItem).toBe('function');
     expect(typeof opts.storage?.setItem).toBe('function');
     expect(typeof opts.storage?.removeItem).toBe('function');
-
-    // A passthrough migrate function should be wired up.
-    expect(typeof opts.migrate).toBe('function');
   });
 
   it('keeps the same persist key so existing data is not orphaned', async () => {

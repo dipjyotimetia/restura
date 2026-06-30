@@ -2,7 +2,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { migrateLegacyLocalStorage } from '@/lib/shared/migrate-legacy-storage';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import type { Collection, CollectionItem } from '@/types';
 
@@ -369,17 +368,7 @@ export const useCollectionStore = create<CollectionState>()(
       version: 3, // v3: SecretValue widening (ADR-0007)
       storage: dexieStorageAdapters.collections(),
       migrate: (persistedState, version) => {
-        const looksEmpty =
-          !persistedState ||
-          (typeof persistedState === 'object' &&
-            Object.keys(persistedState as object).length === 0);
-        let state: CollectionState | null = null;
-        if (looksEmpty) {
-          const legacy = migrateLegacyLocalStorage<Partial<CollectionState>>('collection-storage');
-          if (legacy) state = legacy as CollectionState;
-        } else {
-          state = persistedState as CollectionState;
-        }
+        let state = persistedState as CollectionState | null;
         if (state && version < 3 && Array.isArray(state.collections)) {
           state = {
             ...state,
