@@ -116,7 +116,7 @@
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.25.12",
     "mocha": "^11.7.6",
-    "typescript": "^5.9.0",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }
 }
