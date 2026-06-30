@@ -43,14 +43,19 @@ The desktop app (Settings → Data → Capture bridge) starts a **127.0.0.1-only
 
 Declared in `public/manifest.json` (MV3, `minimum_chrome_version` 116):
 
-| Permission                     | Why                                                          |
-| ------------------------------ | ------------------------------------------------------------ |
-| `debugger`                     | CDP capture of request/response bodies (the core capability) |
-| `sidePanel`                    | The capture UI                                               |
-| `storage`                      | Persist the in-progress session + the desktop pairing        |
-| `cookies`                      | Capture cookie context for exchanges                         |
-| `tabs`                         | Resolve the active tab to attach to                          |
-| `host_permissions: <all_urls>` | Capture traffic on any site the user chooses                 |
+| Permission                             | Why                                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `debugger`                             | CDP capture of request/response bodies (the core capability). Needs no host permission to attach. |
+| `sidePanel`                            | The capture UI                                                                                    |
+| `storage`                              | Persist the in-progress session + the desktop pairing                                             |
+| `tabs`                                 | Resolve the active tab to attach to                                                               |
+| `host_permissions: http://127.0.0.1/*` | Loopback only — POST captured sessions to the Restura desktop bridge (Send to Desktop)            |
+
+> **Least privilege.** Capture itself runs through `chrome.debugger`, which needs
+> no host permission — so the extension does **not** request `<all_urls>`. The only
+> host permission is loopback (`127.0.0.1`) for the optional Send-to-Desktop bridge.
+> Cookie context is still captured via the CDP `Cookie`/`Set-Cookie` headers, so no
+> `cookies` permission is needed.
 
 ## Development
 
