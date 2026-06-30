@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { mqttManager } from '@/features/mqtt/lib/mqttManager';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
+import { passthroughMigrate } from '@/lib/shared/persistMigrate';
 import { useConsoleStore } from '@/store/useConsoleStore';
 
 /** 4 = MQTT 3.1.1, 5 = MQTT 5.0. */
@@ -410,6 +411,9 @@ export const useMqttStore = create<MqttState>()(
     }),
     {
       name: 'mqtt-storage',
+      // v1: explicit versioning seam; no shape change from the unversioned blob.
+      version: 1,
+      migrate: (persisted) => passthroughMigrate<MqttState>(persisted),
       storage: dexieStorageAdapters.mqttConnections(),
       partialize: (state) => ({
         connections: Object.fromEntries(

@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { passthroughMigrate } from '@/lib/shared/persistMigrate';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { KeyValue } from '@/types';
 
@@ -426,6 +427,9 @@ export const useWebSocketStore = create<WebSocketState>()(
     }),
     {
       name: 'websocket-storage',
+      // v1: explicit versioning seam; no shape change from the unversioned blob.
+      version: 1,
+      migrate: (persisted) => passthroughMigrate<WebSocketState>(persisted),
       storage: dexieStorageAdapters.websocketConnections(),
       partialize: (state) => ({
         // Don't persist messages or connection status to avoid stale data

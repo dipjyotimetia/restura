@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { passthroughMigrate } from '@/lib/shared/persistMigrate';
 import type { KeyValue, McpServerCapabilities, McpTransportType } from '@/types';
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -189,6 +190,9 @@ export const useMcpStore = create<McpState>()(
     }),
     {
       name: 'mcp-storage',
+      // v1: explicit versioning seam; no shape change from the unversioned blob.
+      version: 1,
+      migrate: (persisted) => passthroughMigrate<McpState>(persisted),
       storage: dexieStorageAdapters.mcpConnections(),
       partialize: (state) => ({
         connections: Object.fromEntries(

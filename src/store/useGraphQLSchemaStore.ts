@@ -5,6 +5,7 @@ import { introspectSchema } from '@/features/graphql/lib/introspection';
 import type { IntrospectionResult } from '@/features/graphql/types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { withLegacyLocalStorageFallback } from '@/lib/shared/legacyLocalStorageFallback';
+import { passthroughMigrate } from '@/lib/shared/persistMigrate';
 
 interface GraphQLSchemaState {
   // Cached schemas by endpoint URL
@@ -100,6 +101,9 @@ export const useGraphQLSchemaStore = create<GraphQLSchemaState>()(
     }),
     {
       name: 'graphql-schema-storage',
+      // v1: explicit versioning seam; no shape change from the unversioned blob.
+      version: 1,
+      migrate: (persisted) => passthroughMigrate<GraphQLSchemaState>(persisted),
       // Encrypted Dexie pipeline (DB v7 added the `graphqlSchemas` table). The
       // legacy-localStorage fallback one-shot-imports schemas persisted by
       // earlier builds that wrote to plaintext localStorage.

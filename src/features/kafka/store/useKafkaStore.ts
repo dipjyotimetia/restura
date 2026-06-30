@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages } from '@/lib/shared/message-cap';
+import { passthroughMigrate } from '@/lib/shared/persistMigrate';
 import { useConsoleStore } from '@/store/useConsoleStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
@@ -356,6 +357,9 @@ export const useKafkaStore = create<KafkaState>()(
     }),
     {
       name: 'kafka-storage',
+      // v1: explicit versioning seam; no shape change from the unversioned blob.
+      version: 1,
+      migrate: (persisted) => passthroughMigrate<KafkaState>(persisted),
       storage: dexieStorageAdapters.kafkaConnections(),
       partialize: (state) => ({
         connections: Object.fromEntries(

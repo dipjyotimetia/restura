@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { passthroughMigrate } from '@/lib/shared/persistMigrate';
 import { useConsoleStore, type FrameDirection } from '@/store/useConsoleStore';
 import type { KeyValue } from '@/types';
 
@@ -408,6 +409,9 @@ export const useSocketIOStore = create<SocketIOState>()(
     }),
     {
       name: 'socketio-storage',
+      // v1: explicit versioning seam; no shape change from the unversioned blob.
+      version: 1,
+      migrate: (persisted) => passthroughMigrate<SocketIOState>(persisted),
       storage: dexieStorageAdapters.socketioConnections(),
       partialize: (state) => ({
         connections: Object.fromEntries(
