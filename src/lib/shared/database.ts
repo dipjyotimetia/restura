@@ -290,12 +290,12 @@ export class ResturaDB extends Dexie {
     tables: Record<string, number>;
     estimatedSize: number;
   }> {
-    const tables: Record<string, number> = {};
-    for (const table of this.dataTables) {
-      tables[table.name] = await table.count();
-    }
-
-    const totalRecords = Object.values(tables).reduce((a, b) => a + b, 0);
+    // Count tables concurrently — the per-table counts are independent.
+    const counts = await Promise.all(
+      this.dataTables.map(async (table) => [table.name, await table.count()] as const)
+    );
+    const tables: Record<string, number> = Object.fromEntries(counts);
+    const totalRecords = counts.reduce((sum, [, n]) => sum + n, 0);
 
     // Estimate size using IndexedDB storage estimation
     let estimatedSize = 0;
@@ -317,10 +317,13 @@ export class ResturaDB extends Dexie {
     exportedAt: number;
     data: Record<string, NamedEncryptedRecord[]>;
   }> {
-    const data: Record<string, NamedEncryptedRecord[]> = {};
-    for (const table of this.dataTables) {
-      data[table.name] = await table.toArray();
-    }
+    // Read tables concurrently — the per-table reads are independent (this
+    // already wasn't a single consistent snapshot, since each toArray opens its
+    // own transaction).
+    const entries = await Promise.all(
+      this.dataTables.map(async (table) => [table.name, await table.toArray()] as const)
+    );
+    const data: Record<string, NamedEncryptedRecord[]> = Object.fromEntries(entries);
     return {
       // Bumped from 5 → 6: the export now covers every data table (previously
       // it stopped at the v5 table set). Import remains backward-compatible with

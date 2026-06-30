@@ -15,12 +15,16 @@
  * empty-Dexie first load that is exactly the localStorage→Dexie transition. So
  * the import happens at the storage layer instead.
  *
- * Kept dependency-light (zustand types only, no Dexie/database imports) so it is
- * directly unit-testable and free of the IndexedDB mock the storage adapters
- * carry.
+ * Kept dependency-light (zustand types + the legacy-localStorage primitives, no
+ * Dexie/database imports) so it is directly unit-testable and free of the
+ * IndexedDB mock the storage adapters carry.
  */
 
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
+import {
+  readLegacyLocalStorageEntry,
+  removeLegacyLocalStorageEntry,
+} from './migrate-legacy-storage';
 
 export function withLegacyLocalStorageFallback<T>(
   inner: PersistStorage<T>,
@@ -31,34 +35,17 @@ export function withLegacyLocalStorageFallback<T>(
     getItem: async (name: string): Promise<StorageValue<T> | null> => {
       const current = await inner.getItem(name);
       if (current !== null) return current;
-      if (typeof window === 'undefined') return null;
 
-      let raw: string | null;
-      try {
-        raw = window.localStorage.getItem(legacyKey);
-      } catch {
-        return null;
-      }
-      if (!raw) return null;
+      const candidate = readLegacyLocalStorageEntry(legacyKey);
+      const parsed =
+        candidate && typeof candidate === 'object' && 'state' in candidate
+          ? (candidate as StorageValue<T>)
+          : null;
 
-      let parsed: StorageValue<T> | null = null;
-      try {
-        const candidate = JSON.parse(raw) as unknown;
-        if (candidate && typeof candidate === 'object' && 'state' in candidate) {
-          parsed = candidate as StorageValue<T>;
-        }
-      } catch {
-        parsed = null;
-      }
-
-      // Always drop the legacy key after an attempt: a malformed blob must not
-      // wedge the import path on every reload.
+      // Always drop the legacy key after an attempt: a malformed (or absent)
+      // blob must not wedge the import path on every reload.
       if (parsed === null) {
-        try {
-          window.localStorage.removeItem(legacyKey);
-        } catch {
-          /* ignore */
-        }
+        removeLegacyLocalStorageEntry(legacyKey);
         return null;
       }
 
@@ -71,11 +58,7 @@ export function withLegacyLocalStorageFallback<T>(
       } catch {
         return parsed;
       }
-      try {
-        window.localStorage.removeItem(legacyKey);
-      } catch {
-        /* ignore */
-      }
+      removeLegacyLocalStorageEntry(legacyKey);
       return parsed;
     },
   };
