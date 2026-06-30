@@ -176,7 +176,7 @@
     "@cloudflare/vite-plugin": "^1.42.2",
     "@cloudflare/workers-types": "^4.20260623.1",
     "@commitlint/cli": "^21.0.2",
-    "@commitlint/config-conventional": "^21.0.2",
+    "@commitlint/config-conventional": "^21.1.0",
     "@electron/notarize": "^3.1.1",
     "@eslint/js": "^9.0.0",
     "@grpc/grpc-js": "^1.14.4",
