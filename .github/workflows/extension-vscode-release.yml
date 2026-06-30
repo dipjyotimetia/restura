@@ -109,7 +109,7 @@ jobs:
           echo "Packaged ${VSIX}"
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: restura-vscode-${{ steps.version.outputs.version }}-vsix
           path: ${{ steps.package.outputs.vsix }}
@@ -125,7 +125,7 @@ jobs:
         if: env.IS_TAG == 'true' && env.DRY_RUN != 'true' && env.HAS_OVSX_PAT == 'true'
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: npx --yes ovsx publish ./*.vsix --pat "$OVSX_PAT"
+        run: npx --yes ovsx@1 publish ./*.vsix --pat "$OVSX_PAT"
 
       - name: Create GitHub release
         if: env.IS_TAG == 'true' && env.DRY_RUN != 'true'

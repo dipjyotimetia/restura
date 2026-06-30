@@ -104,7 +104,7 @@ jobs:
           echo "Zipped ${ZIP}"
 
       - name: Upload zip artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: restura-capture-${{ steps.version.outputs.version }}-zip
           path: ${{ steps.zip.outputs.zip }}
@@ -121,7 +121,7 @@ jobs:
         # The CLI reads EXTENSION_ID / CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN
         # from the environment. The command-less form uploads AND submits for
         # review (the modern replacement for the deprecated `upload --auto-publish`).
-        run: npx --yes chrome-webstore-upload-cli@3 --source "$ZIP"
+        run: npx --yes chrome-webstore-upload-cli@4 --source "$ZIP"
 
       - name: Create GitHub release
         if: env.IS_TAG == 'true' && env.DRY_RUN != 'true'
