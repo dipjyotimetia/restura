@@ -146,7 +146,7 @@ export default tseslint.config(
   },
   // Build/codegen scripts — Node, mix of ESM (.mjs) and CJS (.js).
   {
-    files: ['scripts/**/*.{mjs,js,cjs}'],
+    files: ['scripts/**/*.{mjs,js,cjs}', 'extension/chrome/scripts/**/*.{mjs,js,cjs}'],
     languageOptions: {
       globals: { ...globals.node },
     },

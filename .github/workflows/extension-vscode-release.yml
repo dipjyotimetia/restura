@@ -104,7 +104,9 @@ jobs:
         run: |
           set -euo pipefail
           npm run package
-          VSIX="$(ls -1 ./*.vsix | head -n1)"
+          # No leading "./" — actions/upload-artifact rejects relative "." segments
+          # in the path (the produced .vsix sits in the working-directory root).
+          VSIX="$(ls -1 *.vsix | head -n1)"
           echo "vsix=extension/vscode/${VSIX}" >> "$GITHUB_OUTPUT"
           echo "Packaged ${VSIX}"
 
