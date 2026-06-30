@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **GraphQL schema cache & proto registry now persist to encrypted Dexie** (see [ADR-0014](./adr/0014-zustand-persistence.md)) — `useGraphQLSchemaStore` and `useProtoRegistryStore` shipped without a `storage` adapter, so zustand persisted them to plaintext `window.localStorage`, contrary to ADR-0014 ("the legacy localStorage adapter has been removed"). On desktop their endpoint URLs and proto file bodies sat unencrypted at rest. Both now use the encrypted Dexie pipeline (the `graphqlSchemas` / `protoFiles` tables added in DB v7 that were never wired up). A new storage-layer helper, `src/lib/shared/legacyLocalStorageFallback.ts`, one-shot-imports any data previously written to localStorage — writing it into Dexie before deleting the plaintext copy — so the migration loses nothing. The `StoreName` source-of-truth union in `src/lib/shared/persistence/types.ts` was realigned with the `dexieStorageAdapters` registry (it was missing `mqttConnections`, `aiChat`, `aiLab`, `evalRuns`, `arenaRuns`, `collectionRuns`, `globals`).
+
 ### Added
 
 - **Electron renderer-cleanup and pre-flight DNS guard** (see [ADR-0006](./adr/0006-electron-connection-and-dns-hardening.md))

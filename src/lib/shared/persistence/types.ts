@@ -10,7 +10,12 @@
 
 import type { ZodType } from 'zod';
 
-/** All persisted Zustand store names. */
+/**
+ * All persisted Zustand store names. Kept in lockstep with the
+ * `dexieStorageAdapters` registry in `src/lib/shared/dexie-storage.ts` — every
+ * adapter key must have a matching entry here so a descriptor can reference any
+ * persisted store.
+ */
 export type StoreName =
   | 'collections'
   | 'environments'
@@ -25,10 +30,17 @@ export type StoreName =
   | 'sseConnections'
   | 'mcpConnections'
   | 'kafkaConnections'
+  | 'mqttConnections'
   | 'socketioConnections'
   | 'console'
   | 'graphqlSchemas'
-  | 'protoFiles';
+  | 'protoFiles'
+  | 'aiChat'
+  | 'aiLab'
+  | 'evalRuns'
+  | 'arenaRuns'
+  | 'collectionRuns'
+  | 'globals';
 
 /** A single field that a migration dropped or coerced. */
 export interface LossyEvent {

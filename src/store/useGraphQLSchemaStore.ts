@@ -3,6 +3,8 @@ import { persist } from 'zustand/middleware';
 import type { IntrospectionOptions } from '@/features/graphql/lib/introspection';
 import { introspectSchema } from '@/features/graphql/lib/introspection';
 import type { IntrospectionResult } from '@/features/graphql/types';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { withLegacyLocalStorageFallback } from '@/lib/shared/legacyLocalStorageFallback';
 
 interface GraphQLSchemaState {
   // Cached schemas by endpoint URL
@@ -98,11 +100,23 @@ export const useGraphQLSchemaStore = create<GraphQLSchemaState>()(
     }),
     {
       name: 'graphql-schema-storage',
+      // Encrypted Dexie pipeline (DB v7 added the `graphqlSchemas` table). The
+      // legacy-localStorage fallback one-shot-imports schemas persisted by
+      // earlier builds that wrote to plaintext localStorage.
+      storage: withLegacyLocalStorageFallback(
+        dexieStorageAdapters.graphqlSchemas(),
+        'graphql-schema-storage'
+      ),
       partialize: (state) => ({
         // Only persist schemas, not loading state
         schemas: state.schemas,
         activeEndpoint: state.activeEndpoint,
       }),
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          console.error('GraphQL schema store rehydration failed:', error);
+        }
+      },
     }
   )
 );
