@@ -8,21 +8,29 @@ const log = createLogger('tray');
 
 let tray: Tray | null = null;
 
-function getTrayIconPath(isDev: boolean): string {
+/**
+ * Resolve the tray icon. On macOS we prefer the monochrome
+ * `trayIconTemplate.png` (black + alpha) which the OS recolours for light/dark
+ * menu bars — but ONLY when it actually exists. `isTemplate` gates
+ * `setTemplateImage`: applying it to the full-colour `icon.png` fallback would
+ * paint the menu bar as a featureless solid blob (template mode uses alpha
+ * only), so the flag must follow which file we actually loaded.
+ */
+function getTrayIconPath(isDev: boolean): { path: string; isTemplate: boolean } {
   if (process.platform === 'darwin') {
     const templatePath = getResourcePath('trayIconTemplate.png', isDev);
-    if (fs.existsSync(templatePath)) return templatePath;
+    if (fs.existsSync(templatePath)) return { path: templatePath, isTemplate: true };
   }
   const iconPath = getResourcePath('icon.png', isDev);
-  if (fs.existsSync(iconPath)) return iconPath;
-  return '';
+  if (fs.existsSync(iconPath)) return { path: iconPath, isTemplate: false };
+  return { path: '', isTemplate: false };
 }
 
 export function createSystemTray(
   getMainWindow: () => BrowserWindow | null,
   isDev: boolean
 ): Tray | null {
-  const iconPath = getTrayIconPath(isDev);
+  const { path: iconPath, isTemplate } = getTrayIconPath(isDev);
 
   if (!iconPath) {
     log.warn('tray icon not found, skipping system tray creation');
@@ -30,8 +38,14 @@ export function createSystemTray(
   }
 
   const icon = nativeImage.createFromPath(iconPath);
-  if (process.platform === 'darwin') icon.setTemplateImage(true);
-  const trayIcon = icon.resize({ width: 16, height: 16 });
+  // The monochrome template is generated at the exact menu-bar size (16px + a
+  // 32px @2x rep that createFromPath auto-loads), so resizing it would discard
+  // the retina representation and blur on HiDPI bars. The full-colour fallback
+  // (the 512px app icon) must be scaled down. Either way, apply the template
+  // flag to the image we actually hand to Tray: resize() returns a NEW
+  // NativeImage that does NOT carry isTemplateImage across.
+  const trayIcon = isTemplate ? icon : icon.resize({ width: 16, height: 16 });
+  if (isTemplate) trayIcon.setTemplateImage(true);
 
   tray = new Tray(trayIcon);
 
