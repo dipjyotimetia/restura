@@ -2,9 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { capMessages } from '@/lib/shared/message-cap';
-import { passthroughMigrate } from '@/lib/shared/persistMigrate';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
@@ -355,12 +354,11 @@ export const useKafkaStore = create<KafkaState>()(
         return messages;
       },
     }),
-    {
-      name: 'kafka-storage',
-      // v1: explicit versioning seam; no shape change from the unversioned blob.
+    createPersistedStore<KafkaState>({
+      store: 'kafkaConnections',
+      persistName: 'kafka-storage',
       version: 1,
-      migrate: (persisted) => passthroughMigrate<KafkaState>(persisted),
-      storage: dexieStorageAdapters.kafkaConnections(),
+      steps: [],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, conn]) => [
@@ -380,7 +378,7 @@ export const useKafkaStore = create<KafkaState>()(
         activeConnectionId: state.activeConnectionId,
         connectionByTabId: state.connectionByTabId,
       }),
-    }
+    })
   )
 );
 

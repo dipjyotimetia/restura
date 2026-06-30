@@ -75,8 +75,29 @@ export interface MigrationDescriptor<T = unknown> {
   steps: MigrationStep[];
   /** Optional Zod schema run after the final step; failure → quarantine. */
   schema?: ZodType<T>;
-  /** Optional partialize. Same semantics as zustand persist.partialize. */
-  partialize?: (state: T) => Partial<T>;
+  /**
+   * Optional partialize. Same semantics as zustand persist.partialize, but the
+   * return is `unknown`: a partialize may project to a *structurally different*
+   * shape than `T` (e.g. the kafka/mqtt stores redact secrets to sentinels, and
+   * the console store trims entries), which `Partial<T>` cannot express. zustand
+   * merges whatever is returned back over the initial state on rehydrate.
+   */
+  partialize?: (state: T) => unknown;
+  /**
+   * Optional legacy `window.localStorage` key. When set, the Dexie storage
+   * adapter is wrapped with `withLegacyLocalStorageFallback` so a store moved
+   * off plaintext localStorage one-shot-imports its old data on first load.
+   * (Usually equal to `persistName`.)
+   */
+  legacyLocalStorageKey?: string;
+  /**
+   * Optional post-rehydrate hook, run after the factory's error logging. Use it
+   * for per-record sanitisation that can't be expressed as a whole-state
+   * `schema` (e.g. dropping individual corrupt entries while keeping the rest).
+   * May mutate the passed state in place, as zustand's `onRehydrateStorage`
+   * callback allows.
+   */
+  onRehydrate?: (state: T | undefined, error: unknown) => void;
 }
 
 export type MigrationOutcome =

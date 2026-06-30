@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 
 /**
  * Collection / folder runs, surfaced in the Runs panel after the runner
@@ -25,10 +25,11 @@ export const useCollectionRunStore = create<CollectionRunState>()(
       addRun: (run) => set((s) => ({ runs: [run, ...s.runs].slice(0, MAX_RUNS) })),
       clearRuns: () => set({ runs: [] }),
     }),
-    {
-      name: 'collection-run-storage',
+    createPersistedStore<CollectionRunState>({
+      store: 'collectionRuns',
+      persistName: 'collection-run-storage',
       version: 1,
-      storage: dexieStorageAdapters.collectionRuns(),
-    }
+      steps: [],
+    })
   )
 );

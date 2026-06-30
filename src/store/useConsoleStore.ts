@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { ConsoleEntrySchema } from '@/lib/shared/store-validators';
 import type { Response as ApiResponse, HttpMethod, HttpRequest, RequestBody } from '@/types';
 
@@ -321,10 +321,11 @@ export const useConsoleStore = create<ConsoleState>()(
 
       setCaptureEnabled: (enabled) => set({ captureEnabled: enabled }),
     }),
-    {
-      name: 'console-storage',
+    createPersistedStore<ConsoleState>({
+      store: 'console',
+      persistName: 'console-storage',
       version: 1,
-      storage: dexieStorageAdapters.console(),
+      steps: [],
       partialize: (state) => ({
         isExpanded: state.isExpanded,
         panelHeight: state.panelHeight,
@@ -337,7 +338,7 @@ export const useConsoleStore = create<ConsoleState>()(
         captureEnabled: state.captureEnabled,
         entries: state.entries.slice(0, PERSIST_ENTRY_LIMIT).map(trimForPersist),
       }),
-      onRehydrateStorage: () => (state) => {
+      onRehydrate: (state) => {
         if (!state || !Array.isArray(state.entries)) return;
         // Drop entries that fail schema validation rather than throwing —
         // a single corrupt record shouldn't poison the whole console.
@@ -351,7 +352,7 @@ export const useConsoleStore = create<ConsoleState>()(
           state.selectedEntryId = null;
         }
       },
-    }
+    })
   )
 );
 

@@ -1,0 +1,110 @@
+// `fake-indexeddb/auto` backs the real `db` used by quarantineState. The
+// dexie-storage ADAPTER (the inner persist storage) is separately mocked to a
+// noop by tests/setup.ts, so the legacy-localStorage fallback is exercised via
+// real window.localStorage.
+import 'fake-indexeddb/auto';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { db } from '@/lib/shared/database';
+import { createPersistedStore } from '../createPersistedStore';
+import type { MigrationStep } from '../types';
+
+interface DemoState {
+  value: number;
+}
+
+describe('createPersistedStore', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    await db.metadata.clear();
+  });
+
+  afterAll(async () => {
+    await db.delete();
+  });
+
+  it('maps descriptor fields onto PersistOptions', () => {
+    const opts = createPersistedStore<DemoState>({
+      store: 'globals',
+      persistName: 'demo',
+      version: 3,
+      steps: [],
+    });
+    expect(opts.name).toBe('demo');
+    expect(opts.version).toBe(3);
+    expect(typeof opts.migrate).toBe('function');
+    expect(opts.storage).toBeDefined();
+  });
+
+  it('migrate returns persisted state unchanged when there are no steps', async () => {
+    const opts = createPersistedStore<DemoState>({
+      store: 'globals',
+      persistName: 'demo',
+      version: 1,
+      steps: [],
+    });
+    const persisted = { value: 7 };
+    await expect(opts.migrate?.(persisted, 0)).resolves.toEqual(persisted);
+  });
+
+  it('migrate applies a versioned step', async () => {
+    const bump: MigrationStep = {
+      name: 'v0->v1 double',
+      fromVersion: 0,
+      apply: (s) => ({ state: { value: (s as DemoState).value * 2 } }),
+    };
+    const opts = createPersistedStore<DemoState>({
+      store: 'globals',
+      persistName: 'demo',
+      version: 1,
+      steps: [bump],
+    });
+    await expect(opts.migrate?.({ value: 5 }, 0)).resolves.toEqual({ value: 10 });
+  });
+
+  it('migrate quarantines (returns undefined + writes to metadata) when the schema rejects', async () => {
+    const opts = createPersistedStore<DemoState>({
+      store: 'globals',
+      persistName: 'demo',
+      version: 1,
+      steps: [],
+      schema: z.object({ value: z.number() }),
+    });
+    await expect(opts.migrate?.({ value: 'not-a-number' }, 0)).resolves.toBeUndefined();
+    const quarantined = await db.metadata.filter((m) => m.key.startsWith('quarantine:')).toArray();
+    expect(quarantined.length).toBeGreaterThan(0);
+  });
+
+  it('legacyLocalStorageKey wraps storage so an old localStorage blob is imported', async () => {
+    localStorage.setItem('legacy-demo', JSON.stringify({ state: { value: 42 }, version: 0 }));
+    const opts = createPersistedStore<DemoState>({
+      store: 'globals',
+      persistName: 'demo',
+      version: 1,
+      steps: [],
+      legacyLocalStorageKey: 'legacy-demo',
+    });
+    // The inner (mocked) Dexie adapter returns null, so getItem falls back to
+    // the legacy localStorage blob and then purges the plaintext copy.
+    const got = await opts.storage?.getItem('demo');
+    expect(got).toEqual({ state: { value: 42 }, version: 0 });
+    expect(localStorage.getItem('legacy-demo')).toBeNull();
+  });
+
+  it('onRehydrate runs after the rehydrate error log', () => {
+    const onRehydrate = vi.fn();
+    const opts = createPersistedStore<DemoState>({
+      store: 'globals',
+      persistName: 'demo',
+      version: 1,
+      steps: [],
+      onRehydrate,
+    });
+    const post = (
+      opts.onRehydrateStorage as (() => (s: unknown, e: unknown) => void) | undefined
+    )?.();
+    const state = { value: 1 };
+    post?.(state, undefined);
+    expect(onRehydrate).toHaveBeenCalledWith(state, undefined);
+  });
+});

@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { withLegacyLocalStorageFallback } from '@/lib/shared/legacyLocalStorageFallback';
-import { passthroughMigrate } from '@/lib/shared/persistMigrate';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import type { ProtoServiceDefinition } from '@/types';
 
 export interface ProtoFileEntry {
@@ -129,24 +127,16 @@ export const useProtoRegistryStore = create<ProtoRegistryState>()(
         );
       },
     }),
-    {
-      name: 'proto-registry-storage',
-      // v1: explicit versioning seam; no shape change from the unversioned blob.
+    createPersistedStore<ProtoRegistryState>({
+      store: 'protoFiles',
+      persistName: 'proto-registry-storage',
       version: 1,
-      migrate: (persisted) => passthroughMigrate<ProtoRegistryState>(persisted),
+      steps: [],
       // Encrypted Dexie pipeline (DB v7 added the `protoFiles` table). The
       // legacy-localStorage fallback one-shot-imports proto files persisted by
       // earlier builds that wrote to plaintext localStorage.
-      storage: withLegacyLocalStorageFallback(
-        dexieStorageAdapters.protoFiles(),
-        'proto-registry-storage'
-      ),
+      legacyLocalStorageKey: 'proto-registry-storage',
       partialize: (state) => ({ protos: state.protos }),
-      onRehydrateStorage: () => (_state, error) => {
-        if (error) {
-          console.error('Proto registry store rehydration failed:', error);
-        }
-      },
-    }
+    })
   )
 );

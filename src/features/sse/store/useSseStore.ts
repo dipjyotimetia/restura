@@ -1,8 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { passthroughMigrate } from '@/lib/shared/persistMigrate';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { AuthConfig, KeyValue } from '@/types';
 
@@ -312,12 +311,11 @@ export const useSseStore = create<SseState>()(
         return log;
       },
     }),
-    {
-      name: 'sse-storage',
-      // v1: explicit versioning seam; no shape change from the unversioned blob.
+    createPersistedStore<SseState>({
+      store: 'sseConnections',
+      persistName: 'sse-storage',
       version: 1,
-      migrate: (persisted) => passthroughMigrate<SseState>(persisted),
-      storage: dexieStorageAdapters.sseConnections(),
+      steps: [],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, conn]) => [
@@ -335,6 +333,6 @@ export const useSseStore = create<SseState>()(
         ),
         activeConnectionId: state.activeConnectionId,
       }),
-    }
+    })
   )
 );
