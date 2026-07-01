@@ -150,6 +150,7 @@ export const IPC = {
     selectDirectory: 'collection:select-directory',
     openInExplorer: 'collection:open-in-explorer',
     getFileInfo: 'collection:get-file-info',
+    saveBrunoDirectory: 'collection:save-bruno-directory',
   },
   ai: {
     chat: 'ai:chat',

@@ -451,3 +451,46 @@ describe('Bruno exporter — lossy-export warnings', () => {
     );
   });
 });
+
+describe('Bruno exporter — zip packaging round trip', () => {
+  it('survives export → zip → unzip → re-import unchanged', async () => {
+    const source = makeCollection([
+      {
+        id: 'i-1',
+        name: 'folder',
+        type: 'folder',
+        items: [
+          {
+            id: 'i-2',
+            name: 'list-users',
+            type: 'request',
+            request: {
+              id: 'r-1',
+              name: 'list-users',
+              type: 'http',
+              method: 'GET',
+              url: 'https://api.example.com/users',
+              headers: [{ id: 'h-1', key: 'Accept', value: 'application/json', enabled: true }],
+              params: [{ id: 'p-1', key: 'page', value: '1', enabled: true }],
+              body: { type: 'none' },
+              auth: { type: 'none' },
+            },
+          },
+        ],
+      },
+    ]);
+
+    const exported = await exportBrunoCollection(source);
+    expect(exported.kind).toBe('directory');
+    if (exported.kind !== 'directory') return;
+
+    const { zipEntries, unzipToEntries } = await import('@/lib/shared/zip-utils');
+    const blob = await zipEntries(exported.entries);
+    const unzipped = await unzipToEntries(new Uint8Array(await blob.arrayBuffer()));
+
+    const reimported = await importBrunoCollection({ kind: 'directory', entries: unzipped });
+
+    expect(reimported.warnings).toEqual([]);
+    expect(stripIds(reimported.collection.items)).toEqual(stripIds(source.items));
+  });
+});

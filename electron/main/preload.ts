@@ -882,6 +882,14 @@ const electronAPI = {
       error?: string;
     }> => ipcRenderer.invoke(IPC.collection.saveDirectory, collection, directoryPath),
 
+    saveBrunoToDirectory: (
+      entries: Array<{ relativePath: string; content: string }>,
+      directoryPath: string
+    ): Promise<{
+      success: boolean;
+      error?: string;
+    }> => ipcRenderer.invoke(IPC.collection.saveBrunoDirectory, entries, directoryPath),
+
     watchDirectory: (
       directoryPath: string
     ): Promise<{

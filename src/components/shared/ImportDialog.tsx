@@ -15,6 +15,7 @@ import {
   importHoppscotchEnvironment,
   isHoppscotchEnvironment,
   importBrunoCollection,
+  importHttpFile,
   validateImportedCollection,
   type ImportResult,
   type ImportWarning,
@@ -25,7 +26,14 @@ import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
-type ImportType = 'postman' | 'insomnia' | 'openapi' | 'opencollection' | 'hoppscotch' | 'bruno';
+type ImportType =
+  | 'postman'
+  | 'insomnia'
+  | 'openapi'
+  | 'opencollection'
+  | 'hoppscotch'
+  | 'bruno'
+  | 'http';
 
 interface FormatMeta {
   id: ImportType;
@@ -85,7 +93,15 @@ const FORMATS: FormatMeta[] = [
     tagline: 'Legacy .bru text DSL',
     initials: 'BR',
     color: '#f06b00',
-    accept: '.bru',
+    accept: '.bru,.zip',
+  },
+  {
+    id: 'http',
+    name: '.http File',
+    tagline: 'VS Code REST Client · JetBrains HTTP Client',
+    initials: 'HT',
+    color: '#0ea5e9',
+    accept: '.http,.rest',
   },
 ];
 
@@ -135,9 +151,18 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
     'Bruno legacy .bru files (text DSL)',
     'For Bruno 3.1+, use OpenCollection',
     'Single .bru: drop or paste the file',
+    'Multi-file workspace: drop a .zip export',
     'Auth (Basic, Bearer, API Key, Digest, OAuth2, OAuth1, NTLM, WSSE, AWS SigV4)',
     'Pre-request, test scripts, assertions',
     'Pre-request and post-response variables',
+  ],
+  http: [
+    '### request separators, one request per block',
+    '@name and file-level @var declarations',
+    'Headers and raw body, {{var}} passthrough',
+    'Query params parsed from the request URL',
+    'JetBrains < {% %} / > {% %} scripts (stored, not executed)',
+    'VS Code {{$guid}} / {{$timestamp}} dynamic vars flagged as unsupported',
   ],
 };
 
@@ -161,6 +186,7 @@ const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = 
       kind: 'single',
       content: typeof data === 'string' ? data : JSON.stringify(data),
     }),
+  http: async (data) => importHttpFile(typeof data === 'string' ? data : String(data)),
 };
 
 function describeWarning(w: ImportWarning): string {
@@ -352,7 +378,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
       return yaml.load(text);
     }
-    if (fileName.endsWith('.bru')) {
+    if (fileName.endsWith('.bru') || fileName.endsWith('.http') || fileName.endsWith('.rest')) {
       return text;
     }
     return JSON.parse(text);
@@ -360,7 +386,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
 
   /** Pasted text has no filename to sniff — try JSON first, then YAML. */
   const parsePastedContent = (text: string, type: ImportType): unknown => {
-    if (type === 'bruno') return text;
+    if (type === 'bruno' || type === 'http') return text;
     try {
       return JSON.parse(text);
     } catch {
@@ -385,6 +411,15 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   };
 
   const processImportFile = async (file: File, type: ImportType): Promise<ProcessOutcome> => {
+    if (type === 'http') {
+      const text = await file.text();
+      return importHttpFile(text, { fileName: file.name });
+    }
+    if (type === 'bruno' && file.name.toLowerCase().endsWith('.zip')) {
+      const { unzipToEntries } = await import('@/lib/shared/zip-utils');
+      const entries = await unzipToEntries(new Uint8Array(await file.arrayBuffer()));
+      return importBrunoCollection({ kind: 'directory', entries });
+    }
     const text = await file.text();
     return processImportData(parseFileContent(text, file.name), type);
   };
@@ -593,7 +628,9 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
                       placeholder={
                         activeFormat === 'bruno'
                           ? 'Paste .bru file contents…'
-                          : `Paste ${format.name} JSON or YAML…`
+                          : activeFormat === 'http'
+                            ? 'Paste .http file contents…'
+                            : `Paste ${format.name} JSON or YAML…`
                       }
                       aria-label="Paste import content"
                       spellCheck={false}

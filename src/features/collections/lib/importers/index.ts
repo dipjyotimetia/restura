@@ -10,6 +10,7 @@ export {
   isHoppscotchCollection,
 } from './hoppscotch';
 export { importBrunoCollection, type BrunoSource } from './bruno';
+export { importHttpFile, type ImportHttpFileOptions } from './http-file';
 export type { ImportResult, ImportWarning } from './types';
 export { summarizeWarnings } from './types';
 export { validateImportedCollection, type ImportValidation } from './validateImported';
