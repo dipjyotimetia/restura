@@ -7,7 +7,9 @@ import { exportHar, exportOpenCollection } from '../lib/export-actions';
 import { sendToDesktop } from '../lib/bridge-client';
 import { type CaptureState } from '../lib/messages';
 import { sendToWorker } from '../lib/runtime';
+import { Logo } from '../lib/Logo';
 import { RequestList } from './RequestList';
+import '../styles.css';
 
 // Derived from the schema so a new protocol can't silently miss the filter.
 const PROTOCOLS: (CapturedProtocol | 'all')[] = ['all', ...capturedProtocolSchema.options];
@@ -17,6 +19,7 @@ function App(): React.JSX.Element {
   const [filter, setFilter] = useState('');
   const [protocol, setProtocol] = useState<CapturedProtocol | 'all'>('all');
   const [note, setNote] = useState('');
+  const [noteError, setNoteError] = useState(false);
 
   const refresh = async (): Promise<void> => setState(await sendToWorker({ type: 'capture:get' }));
 
@@ -41,24 +44,58 @@ function App(): React.JSX.Element {
     try {
       await fn();
       setNote(`${label} ✓`);
+      setNoteError(false);
     } catch (err) {
       setNote(err instanceof Error ? err.message : `${label} failed`);
+      setNoteError(true);
     }
   };
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 12 }}>
-      <h1 style={{ fontSize: 14, margin: '0 0 8px' }}>
-        Restura Capture {state?.capturing ? '🔴' : ''}
-      </h1>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-        <input
-          placeholder="Filter URL…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          style={{ flex: 1 }}
-        />
-        <select value={protocol} onChange={(e) => setProtocol(e.target.value as CapturedProtocol)}>
+    <div className="rc-panel-body">
+      <div className="rc-header">
+        <Logo />
+        <h1 className="rc-header__title">Restura Capture</h1>
+        <span className="rc-header__spacer" />
+        {state?.capturing && (
+          <span className="rc-rec">
+            <span className="rc-rec__dot" />
+            REC
+          </span>
+        )}
+      </div>
+      <div className="rc-divider" />
+
+      <div className="rc-controls">
+        <span className="rc-search">
+          <span className="rc-search__icon">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+          </span>
+          <input
+            className="rc-input"
+            placeholder="Filter URL…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </span>
+        <select
+          className="rc-select"
+          value={protocol}
+          onChange={(e) => setProtocol(e.target.value as CapturedProtocol)}
+        >
           {PROTOCOLS.map((p) => (
             <option key={p} value={p}>
               {p}
@@ -66,27 +103,11 @@ function App(): React.JSX.Element {
           ))}
         </select>
       </div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+
+      <div className="rc-toolbar">
         <button
           type="button"
-          disabled={!session}
-          onClick={run('OpenCollection exported', () => {
-            if (session) exportOpenCollection(session);
-          })}
-        >
-          Export OpenCollection
-        </button>
-        <button
-          type="button"
-          disabled={!session}
-          onClick={run('HAR exported', () => {
-            if (session) exportHar(session);
-          })}
-        >
-          Export HAR
-        </button>
-        <button
-          type="button"
+          className="rc-btn rc-btn--primary"
           disabled={!session}
           onClick={run('Sent to desktop', async () => {
             if (session) await sendToDesktop(session);
@@ -96,6 +117,27 @@ function App(): React.JSX.Element {
         </button>
         <button
           type="button"
+          className="rc-btn rc-btn--ghost"
+          disabled={!session}
+          onClick={run('OpenCollection exported', () => {
+            if (session) exportOpenCollection(session);
+          })}
+        >
+          Export OpenCollection
+        </button>
+        <button
+          type="button"
+          className="rc-btn rc-btn--ghost"
+          disabled={!session}
+          onClick={run('HAR exported', () => {
+            if (session) exportHar(session);
+          })}
+        >
+          Export HAR
+        </button>
+        <button
+          type="button"
+          className="rc-btn rc-btn--danger"
           disabled={!session}
           onClick={run('Cleared', async () => {
             await sendToWorker({ type: 'capture:clear' });
@@ -105,7 +147,8 @@ function App(): React.JSX.Element {
           Clear
         </button>
       </div>
-      {note && <p style={{ fontSize: 11, color: '#555' }}>{note}</p>}
+
+      {note && <p className={noteError ? 'rc-note rc-note--error' : 'rc-note'}>{note}</p>}
       <RequestList exchanges={filtered} />
     </div>
   );

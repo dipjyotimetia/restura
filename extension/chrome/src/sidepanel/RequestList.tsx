@@ -1,36 +1,47 @@
 import type { CapturedExchange, CapturedProtocol } from '@shared/capture/types';
 
-const PROTOCOL_COLOR: Record<CapturedProtocol, string> = {
-  rest: '#127eee',
-  graphql: '#e535ab',
-  'grpc-web': '#2bb673',
-  websocket: '#8b5cf6',
-  sse: '#f59e0b',
-};
+function statusClass(status: number | undefined): string {
+  if (status == null) return 'rc-row__status';
+  const bucket = Math.floor(status / 100);
+  if (bucket === 2) return 'rc-row__status rc-row__status--2xx';
+  if (bucket === 3) return 'rc-row__status rc-row__status--3xx';
+  if (bucket === 4) return 'rc-row__status rc-row__status--4xx';
+  if (bucket === 5) return 'rc-row__status rc-row__status--5xx';
+  return 'rc-row__status';
+}
 
+// Color comes from the `.rc-badge--<protocol>` rules in styles.css — CSS owns presentation.
 function Badge({ protocol }: { protocol: CapturedProtocol }): React.JSX.Element {
-  return (
-    <span
-      style={{
-        background: PROTOCOL_COLOR[protocol],
-        color: '#fff',
-        borderRadius: 4,
-        padding: '1px 6px',
-        fontSize: 10,
-        textTransform: 'uppercase',
-      }}
-    >
-      {protocol}
-    </span>
-  );
+  return <span className={`rc-badge rc-badge--${protocol}`}>{protocol}</span>;
 }
 
 export function RequestList({ exchanges }: { exchanges: CapturedExchange[] }): React.JSX.Element {
   if (exchanges.length === 0) {
-    return <p style={{ color: '#777', fontSize: 12 }}>No requests captured yet.</p>;
+    return (
+      <div className="rc-empty">
+        <svg
+          className="rc-empty__icon"
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+        <span className="rc-empty__title">No requests captured yet</span>
+        <span className="rc-empty__hint">
+          Start capture from the popup, then browse — matching traffic appears here.
+        </span>
+      </div>
+    );
   }
   return (
-    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+    <ul className="rc-list">
       {exchanges.map((ex) => {
         let path = ex.url;
         try {
@@ -39,21 +50,13 @@ export function RequestList({ exchanges }: { exchanges: CapturedExchange[] }): R
           /* keep raw */
         }
         return (
-          <li
-            key={ex.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '6px 4px',
-              borderBottom: '1px solid #eee',
-              fontSize: 12,
-            }}
-          >
+          <li key={ex.id} className="rc-row">
             <Badge protocol={ex.protocol} />
-            <strong style={{ minWidth: 38 }}>{ex.method}</strong>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{path}</span>
-            <span style={{ color: '#999' }}>{ex.response?.status ?? ''}</span>
+            <span className="rc-row__method">{ex.method}</span>
+            <span className="rc-row__path" title={ex.url}>
+              {path}
+            </span>
+            <span className={statusClass(ex.response?.status)}>{ex.response?.status ?? ''}</span>
           </li>
         );
       })}

@@ -1,6 +1,8 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { sendToWorker } from '../lib/runtime';
+import { Logo } from '../lib/Logo';
+import '../styles.css';
 
 function Popup(): React.JSX.Element {
   const [capturing, setCapturing] = useState(false);
@@ -38,21 +40,45 @@ function Popup(): React.JSX.Element {
   };
 
   return (
-    <div style={{ padding: 12, fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ fontSize: 14, margin: '0 0 8px' }}>Restura Capture</h1>
-      <p style={{ fontSize: 12, color: '#555', margin: '0 0 12px' }}>
-        {capturing ? `Capturing — ${count} request(s)` : 'Idle'}
-      </p>
-      <button type="button" onClick={() => void toggle()} disabled={busy} style={{ width: '100%' }}>
-        {capturing ? 'Stop capture' : 'Start capture on this tab'}
-      </button>
-      <button
-        type="button"
-        onClick={() => void openPanel()}
-        style={{ width: '100%', marginTop: 8 }}
-      >
-        Open capture panel
-      </button>
+    <div className="rc-popup">
+      <div className="rc-header">
+        <Logo />
+        <h1 className="rc-header__title">Restura Capture</h1>
+      </div>
+
+      <div className="rc-popup__status">
+        <span className={capturing ? 'rc-popup__dot rc-popup__dot--live' : 'rc-popup__dot'} />
+        {capturing ? (
+          <span>
+            Capturing — <span className="rc-popup__count">{count}</span> request
+            {count === 1 ? '' : 's'}
+          </span>
+        ) : (
+          <span>Idle</span>
+        )}
+      </div>
+
+      <div className="rc-popup__actions">
+        <button
+          type="button"
+          className={
+            capturing
+              ? 'rc-btn rc-btn--danger rc-btn--block'
+              : 'rc-btn rc-btn--primary rc-btn--block'
+          }
+          onClick={() => void toggle()}
+          disabled={busy}
+        >
+          {capturing ? 'Stop capture' : 'Start capture on this tab'}
+        </button>
+        <button
+          type="button"
+          className="rc-btn rc-btn--ghost rc-btn--block"
+          onClick={() => void openPanel()}
+        >
+          Open capture panel
+        </button>
+      </div>
     </div>
   );
 }
