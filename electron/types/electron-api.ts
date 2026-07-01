@@ -799,6 +799,10 @@ interface ElectronCollectionsAPI {
     collection: unknown,
     path: string
   ) => Promise<{ success: boolean; error?: string }>;
+  saveBrunoToDirectory: (
+    entries: Array<{ relativePath: string; content: string }>,
+    path: string
+  ) => Promise<{ success: boolean; error?: string }>;
   watchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   unwatchDirectory: (path: string) => Promise<{ success: boolean }>;
   selectDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;

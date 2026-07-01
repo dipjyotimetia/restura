@@ -81,6 +81,7 @@ import {
 } from '@/lib/shared/collection-secret-redaction';
 import { httpLikeStatus } from '@/lib/shared/console-format';
 import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
+import { downloadBlob } from '@/lib/shared/file-utils';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
@@ -303,13 +304,26 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       const { exportBrunoCollection } = await import('../lib/bruno-exporter');
       const exported = await exportBrunoCollection(collection);
       if (exported.kind !== 'directory') return;
-      // Package the directory as a single archive JSON so a web user can
-      // download it; an Electron-aware "save to folder" UX lands with the
-      // git-native collections milestone.
-      downloadJSON(
-        { format: 'bruno-archive/v1', files: exported.entries },
-        `${collection.name}.bruno-archive.json`
-      );
+
+      const api = getElectronAPI();
+      if (api?.collections) {
+        const dirResult = await api.collections.selectDirectory();
+        if (dirResult.canceled || !dirResult.filePaths?.[0]) return;
+        const saveResult = await api.collections.saveBrunoToDirectory(
+          exported.entries,
+          dirResult.filePaths[0]
+        );
+        if (!saveResult.success) {
+          toast.error(saveResult.error ?? 'Bruno export failed');
+          return;
+        }
+        toast.success(`Exported ${exported.entries.length} files to ${dirResult.filePaths[0]}`);
+      } else {
+        const { zipEntries } = await import('@/lib/shared/zip-utils');
+        const blob = await zipEntries(exported.entries);
+        downloadBlob(blob, `${collection.name}.bruno.zip`, 'application/zip');
+      }
+
       // Surface lossy-export warnings so users discover non-HTTP downgrades
       // at export time rather than later when Bruno fails to run the request.
       if (exported.warnings.length > 0) {

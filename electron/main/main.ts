@@ -35,6 +35,7 @@ import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
+import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
   registerCollectionManagerIPC,
   cleanupCollectionWatchers,
@@ -140,6 +141,7 @@ interface IpcModule {
 const IPC_MODULES: IpcModule[] = [
   { register: () => registerAutoUpdaterIPC(isDev) },
   { register: () => registerFileOperationsIPC(getMainWindow) },
+  { register: () => registerBrunoExportHandlerIPC() },
   { register: () => registerHttpHandlerIPC(logRequest) },
   { register: () => registerGrpcHandlerIPC(logRequest), dispose: () => stopStreamCleanup() },
   { register: () => registerGrpcReflectionIPC() },
