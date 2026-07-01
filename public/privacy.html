@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy · Restura</title>
+    <meta
+      name="description"
+      content="How Restura handles your data — request data stays on your device, no account required, opt-out error reporting, and no ads or data selling."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://restura.dev/privacy" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #f7f9fc;
+        --surface: #ffffff;
+        --text: #1a2230;
+        --muted: #5a6472;
+        --dim: #8a94a3;
+        --line: #e3e8ef;
+        --accent: #1162e0;
+        --accent-hi: #4aa0ff;
+        --radius: 14px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0c1017;
+          --surface: #141a24;
+          --text: #e6ebf2;
+          --muted: #a3adbb;
+          --dim: #6b7685;
+          --line: #232c3a;
+          --accent: #4aa0ff;
+          --accent-hi: #7cbcff;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+        line-height: 1.65;
+        font-size: 16px;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 40px 22px 80px;
+      }
+      header.masthead {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding-bottom: 22px;
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 34px;
+      }
+      .mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        background: linear-gradient(135deg, var(--accent-hi), var(--accent));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-weight: 800;
+        font-size: 19px;
+        flex: none;
+        box-shadow: 0 2px 10px rgba(17, 98, 224, 0.28);
+      }
+      .brand {
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: -0.01em;
+      }
+      .brand span {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      h1 {
+        font-size: 30px;
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+        margin: 0 0 6px;
+      }
+      .updated {
+        color: var(--dim);
+        font-size: 13.5px;
+        margin: 0 0 30px;
+      }
+      h2 {
+        font-size: 19px;
+        letter-spacing: -0.01em;
+        margin: 38px 0 10px;
+        padding-top: 6px;
+      }
+      p,
+      li {
+        color: var(--muted);
+      }
+      p {
+        margin: 0 0 14px;
+      }
+      strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      ul {
+        margin: 0 0 14px;
+        padding-left: 22px;
+      }
+      li {
+        margin: 0 0 7px;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .callout {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--accent);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        margin: 4px 0 30px;
+      }
+      .callout p {
+        margin: 0;
+        font-size: 15px;
+      }
+      .note {
+        font-style: italic;
+        color: var(--dim);
+        font-size: 14px;
+      }
+      footer.foot {
+        margin-top: 48px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 20px;
+        font-size: 14px;
+        color: var(--dim);
+      }
+      footer.foot a {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="masthead">
+        <div class="mark" aria-hidden="true">R</div>
+        <div class="brand">Restura <span>· Privacy</span></div>
+      </header>
+
+      <main>
+        <h1>Privacy Policy</h1>
+        <p class="updated">Last updated: July 1, 2026</p>
+
+        <div class="callout">
+          <p>
+            <strong>The short version.</strong> Restura is a developer API client. Your requests,
+            collections, and history stay on your own device. We don't require an account, we don't
+            run ads, and we never sell your data.
+          </p>
+        </div>
+
+        <p>
+          This policy explains what data Restura ("we", "the app") handles when you use the web app
+          at <a href="https://restura.dev">restura.dev</a> or the Restura desktop application, and
+          the choices you have.
+        </p>
+
+        <h2>1. Data stored on your device</h2>
+        <p>
+          Almost everything you create in Restura is stored <strong>locally</strong>, not on our
+          servers:
+        </p>
+        <ul>
+          <li>
+            <strong>Web app</strong> — requests, collections, environments, and history are kept in
+            your browser's local storage (IndexedDB). They never leave your browser except as part
+            of a request you explicitly send.
+          </li>
+          <li>
+            <strong>Desktop app</strong> — the same data is stored in encrypted local storage on
+            your machine.
+          </li>
+          <li>
+            <strong>Secrets</strong> (API keys, tokens, passwords) are held as encrypted handles and
+            resolved only at the moment a request is signed. They are never written to logs and are
+            excluded from collections you export.
+          </li>
+        </ul>
+
+        <h2>2. Requests you send</h2>
+        <p>
+          When you send a request, it goes to the upstream server <em>you</em> choose. On the web,
+          requests are relayed through the Restura proxy so your browser can reach servers it
+          otherwise couldn't; on desktop they go out directly. In either case Restura
+          <strong>does not log, store, or inspect</strong> your request or response bodies.
+        </p>
+
+        <h2>3. Error reporting (opt-out)</h2>
+        <p>
+          To help us fix crashes, Restura may send anonymous error reports. This is
+          <strong>on by default but can be turned off</strong> any time in
+          <strong>Settings &rarr; Privacy</strong>. A report contains only:
+        </p>
+        <ul>
+          <li>the error message and stack trace,</li>
+          <li>the app build/version and your browser or OS user-agent string.</li>
+        </ul>
+        <p>
+          Reports are used solely to diagnose problems. They are not used to identify you, are not
+          combined with any profile, and contain none of your request data or secrets.
+        </p>
+
+        <h2>4. AI assistant</h2>
+        <p>
+          Restura includes an optional AI assistant. If you enable it and provide your own API key
+          for a third-party provider (such as OpenAI, Anthropic, or OpenRouter), the relevant
+          request context — with URLs and secrets redacted — is sent to
+          <strong>that provider</strong> to generate a response. That data is governed by the
+          provider's own privacy policy. Restura does not store your prompts or AI responses on our
+          servers.
+        </p>
+
+        <h2>5. Hosting and third parties</h2>
+        <p>We rely on a small number of service providers:</p>
+        <ul>
+          <li><strong>Cloudflare</strong> — hosts the web app and the request proxy.</li>
+          <li>
+            <strong>Sentry</strong> — receives desktop crash reports, only if error reporting is
+            left enabled.
+          </li>
+          <li>
+            <strong>Your chosen LLM provider</strong> — only if you use the AI assistant, as
+            described above.
+          </li>
+        </ul>
+
+        <h2>6. Cookies and tracking</h2>
+        <p>
+          Restura uses <strong>no advertising or analytics cookies</strong> and does not track you
+          across sites. The only browser storage we use is the local storage that keeps your
+          workspace working.
+        </p>
+
+        <h2>7. Children</h2>
+        <p>
+          Restura is a developer tool and is not directed at children under 13 (or the equivalent
+          minimum age in your jurisdiction). We do not knowingly collect data from children.
+        </p>
+
+        <h2>8. Changes to this policy</h2>
+        <p>
+          We may update this policy as the app evolves. When we do, we'll revise the "Last updated"
+          date at the top of this page.
+        </p>
+
+        <h2>9. Contact</h2>
+        <p>
+          Questions about privacy? Open an issue or a private security advisory on our GitHub
+          repository:
+        </p>
+        <ul>
+          <li>
+            <a href="https://github.com/dipjyotimetia/restura/issues"
+              >github.com/dipjyotimetia/restura/issues</a
+            >
+          </li>
+          <li>
+            <a href="https://github.com/dipjyotimetia/restura/security/advisories/new"
+              >Report a security concern privately</a
+            >
+          </li>
+        </ul>
+
+        <p class="note">
+          This is a general, plain-language policy provided for transparency and does not constitute
+          legal advice. Depending on where you and your users are located, additional obligations
+          (for example under the GDPR or CCPA) may apply.
+        </p>
+      </main>
+
+      <footer class="foot">
+        <a href="https://restura.dev">&larr; restura.dev</a>
+        <a href="https://docs.restura.dev">Documentation</a>
+        <a href="https://github.com/dipjyotimetia/restura">GitHub</a>
+      </footer>
+    </div>
+  </body>
+</html>

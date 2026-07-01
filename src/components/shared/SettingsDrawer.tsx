@@ -1970,6 +1970,12 @@ function AboutSection() {
             hint="docs.restura.dev"
             href="https://docs.restura.dev"
           />
+          <LinkCard
+            icon={<ShieldCheck size={16} />}
+            label="Privacy Policy"
+            hint="restura.dev/privacy"
+            href="https://restura.dev/privacy"
+          />
         </div>
       </section>
     </>
