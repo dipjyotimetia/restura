@@ -14,6 +14,8 @@ test.describe('Persistence across reload', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByText('Persisted Collection', { exact: true }).first()).toBeVisible();
 
+    // Let the persisted (Dexie/IndexedDB) write flush before reloading.
+    await page.waitForTimeout(500);
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('main', { name: 'Request workspace' })).toBeVisible();
@@ -39,6 +41,8 @@ test.describe('Persistence across reload', () => {
       .count();
     expect(tabsBefore).toBeGreaterThanOrEqual(2);
 
+    // Let the persisted (Dexie/IndexedDB) write flush before reloading.
+    await page.waitForTimeout(500);
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('main', { name: 'Request workspace' })).toBeVisible();

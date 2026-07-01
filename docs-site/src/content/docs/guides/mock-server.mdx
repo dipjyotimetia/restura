@@ -15,6 +15,10 @@ From a collection's <kbd>⋯</kbd> menu, choose **“Start mock server”**. Res
 
 The listener binds to **`127.0.0.1`** only (never a public interface). If you don't pin a port, the OS assigns a free one and returns it.
 
+### Spec-driven routes
+
+If the collection has an OpenAPI spec attached (collection settings → contract spec), Restura also generates a route for every operation the spec defines — including ones you've never actually called. Recorded history always wins for an operation it covers; spec-derived routes only fill in the gaps, so attaching a spec never changes the behavior of an endpoint you've already recorded. The response body for a spec-derived route comes from the operation's own example (static example, named example, or a value generated from its JSON Schema), picking the lowest declared 2xx status.
+
 ## Observing and stopping
 
 The **Runs** panel shows the live server: running state, the **base URL** (one click to copy), and the served routes. Stop it from there or from the same collection menu.

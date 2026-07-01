@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildMockRoutes, extractPath } from '../mockRoutes';
-import type { Collection, HistoryItem } from '@/types';
+import {
+  buildMockRoutes,
+  buildMockRoutesFromSpec,
+  extractPath,
+  mergeMockRoutes,
+} from '../mockRoutes';
+import type { Collection, HistoryItem, OpenAPIDocument } from '@/types';
 
 describe('extractPath', () => {
   it('returns the pathname of an absolute URL', () => {
@@ -142,5 +147,115 @@ describe('buildMockRoutes', () => {
     const route = buildMockRoutes(collection, history).find((r) => r.path === '/users')!;
     expect(route.bodyEncoding).toBe('base64');
     expect(route.body).toBe('iVBORw0KGgo=');
+  });
+});
+
+const spec: OpenAPIDocument = {
+  openapi: '3.0.0',
+  info: { title: 'Test API', version: '1.0.0' },
+  paths: {
+    '/users/{id}': {
+      get: {
+        operationId: 'getUser',
+        responses: {
+          '200': {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/orders': {
+      post: {
+        operationId: 'createOrder',
+        responses: {
+          '201': { content: { 'application/json': { example: { id: 'order-1' } } } },
+          // Lower 2xx should win over 201 when both present.
+          '200': { content: { 'application/json': { example: { id: 'order-0' } } } },
+        },
+      },
+      // No responses declared — should be skipped entirely.
+      delete: { operationId: 'deleteOrder' },
+    },
+  },
+};
+
+describe('buildMockRoutesFromSpec', () => {
+  it('generates a route per operation using the response schema', () => {
+    const routes = buildMockRoutesFromSpec(spec);
+    const user = routes.find((r) => r.path === '/users/{id}')!;
+    expect(user.method).toBe('GET');
+    expect(user.status).toBe(200);
+    expect(user.headers['content-type']).toBe('application/json');
+    expect(JSON.parse(user.body)).toEqual({
+      id: '00000000-0000-0000-0000-000000000000',
+      name: 'string',
+    });
+  });
+
+  it('picks the lowest 2xx status and prefers a static example over schema generation', () => {
+    const routes = buildMockRoutesFromSpec(spec);
+    const order = routes.find((r) => r.path === '/orders')!;
+    expect(order.method).toBe('POST');
+    expect(order.status).toBe(200);
+    expect(JSON.parse(order.body)).toEqual({ id: 'order-0' });
+  });
+
+  it('skips operations with no usable response', () => {
+    const routes = buildMockRoutesFromSpec(spec);
+    expect(routes.find((r) => r.method === 'DELETE')).toBeUndefined();
+    expect(routes).toHaveLength(2);
+  });
+});
+
+describe('mergeMockRoutes', () => {
+  it('keeps history routes and adds only spec routes not already covered', () => {
+    const historyRoutes = buildMockRoutes(collection, []);
+    const specRoutes = buildMockRoutesFromSpec(spec);
+    const merged = mergeMockRoutes(historyRoutes, specRoutes);
+
+    expect(merged).toHaveLength(historyRoutes.length + specRoutes.length);
+    expect(merged.filter((r) => r.path === '/users')).toHaveLength(1);
+  });
+
+  it('does not duplicate a route the history already covers', () => {
+    const historyRoutes = buildMockRoutes(collection, []);
+    // Same method+path as an existing history route — should not be added twice.
+    const overlappingSpecRoutes = buildMockRoutesFromSpec({
+      ...spec,
+      paths: { '/users': { get: { responses: { '200': {} } } } },
+    });
+    const merged = mergeMockRoutes(historyRoutes, overlappingSpecRoutes);
+    expect(merged.filter((r) => r.method === 'GET' && r.path === '/users')).toHaveLength(1);
+    // The surviving route is the history one (real recorded/stub data), not the spec stub.
+    expect(merged.find((r) => r.path === '/users')?.body).toBe(
+      historyRoutes.find((r) => r.path === '/users')!.body
+    );
+  });
+
+  it('dedupes a parameterized path even though history uses `:id` and the spec uses `{id}`', () => {
+    const paramCollection: Collection = {
+      id: 'c2',
+      name: 'API',
+      items: [httpItem('r3', 'Get user', 'GET', 'https://api.example/users/{{id}}')],
+    };
+    const historyRoutes = buildMockRoutes(paramCollection, []);
+    expect(historyRoutes[0]!.path).toBe('/users/:id'); // extractPath's wildcard syntax
+
+    const paramSpec: OpenAPIDocument = {
+      ...spec,
+      paths: { '/users/{id}': { get: { responses: { '200': {} } } } }, // OpenAPI's wildcard syntax
+    };
+    const specRoutes = buildMockRoutesFromSpec(paramSpec);
+    const merged = mergeMockRoutes(historyRoutes, specRoutes);
+
+    expect(merged.filter((r) => r.method === 'GET')).toHaveLength(1);
+    expect(merged[0]).toBe(historyRoutes[0]); // history wins, spec duplicate dropped
   });
 });

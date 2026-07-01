@@ -339,7 +339,7 @@ function generateSimpleValue(schema: OpenAPISchema): string {
   }
 }
 
-function generateExampleFromSchema(
+export function generateExampleFromSchema(
   schema: OpenAPISchema | undefined,
   schemas?: Record<string, OpenAPISchema>,
   visited: WeakSet<object> = new WeakSet()
