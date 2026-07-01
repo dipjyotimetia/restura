@@ -14,7 +14,10 @@ test.describe('Persistence across reload', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByText('Persisted Collection', { exact: true }).first()).toBeVisible();
 
-    // Let the persisted (Dexie/IndexedDB) write flush before reloading.
+    // Let the persisted (Dexie/IndexedDB) write flush before reloading —
+    // the store's setItem() isn't awaited synchronously with the state
+    // change, so an immediate reload can race the write under load (see
+    // layout-split.spec.ts for the same pattern).
     await page.waitForTimeout(500);
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
@@ -41,7 +44,8 @@ test.describe('Persistence across reload', () => {
       .count();
     expect(tabsBefore).toBeGreaterThanOrEqual(2);
 
-    // Let the persisted (Dexie/IndexedDB) write flush before reloading.
+    // Let the persisted (Dexie/IndexedDB) write flush before reloading — see
+    // the note in the previous test.
     await page.waitForTimeout(500);
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
