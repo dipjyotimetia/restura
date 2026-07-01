@@ -1,0 +1,570 @@
+/**
+ * Shared styles for all three extension surfaces (popup, side panel, options).
+ * Design tokens as CSS custom properties with an automatic dark theme via
+ * `prefers-color-scheme` — Chrome popups and side panels follow the browser theme.
+ * Protocol colors mirror `RequestList` (kept in sync by hand; the extension can't
+ * reach the app's design system). All classes use the `rc-` prefix so nothing
+ * leaks if this markup is ever embedded elsewhere.
+ */
+
+:root {
+  /* Brand — cobalt gradient from src/components/shared/lib/brandMark.json */
+  --rc-accent: #1f7ceb;
+  --rc-accent-from: #4aa0ff;
+  --rc-accent-to: #1162e0;
+  --rc-accent-soft: rgba(31, 124, 235, 0.12);
+  --rc-accent-ring: rgba(74, 160, 255, 0.45);
+
+  --rc-danger: #e5484d;
+  --rc-danger-soft: rgba(229, 72, 77, 0.1);
+  --rc-ok: #2bb673;
+
+  /* Surfaces */
+  --rc-bg: #f7f8fa;
+  --rc-panel: #ffffff;
+  --rc-panel-alt: #f0f2f5;
+  --rc-border: #e3e6ea;
+  --rc-border-strong: #d2d6dc;
+
+  /* Text */
+  --rc-fg: #1a1d21;
+  --rc-fg-muted: #6b7280;
+  --rc-fg-faint: #9aa1ab;
+
+  /* Protocol accents */
+  --rc-proto-rest: #127eee;
+  --rc-proto-graphql: #e535ab;
+  --rc-proto-grpc-web: #2bb673;
+  --rc-proto-websocket: #8b5cf6;
+  --rc-proto-sse: #f59e0b;
+
+  /* Status */
+  --rc-status-2xx: #2bb673;
+  --rc-status-3xx: #6b7280;
+  --rc-status-4xx: #f59e0b;
+  --rc-status-5xx: #e5484d;
+
+  --rc-radius: 8px;
+  --rc-radius-sm: 6px;
+  --rc-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --rc-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --rc-accent: #4aa0ff;
+    --rc-accent-soft: rgba(74, 160, 255, 0.16);
+    --rc-accent-ring: rgba(74, 160, 255, 0.5);
+
+    --rc-danger: #ff6369;
+    --rc-danger-soft: rgba(255, 99, 105, 0.14);
+
+    --rc-bg: #14171c;
+    --rc-panel: #1c2027;
+    --rc-panel-alt: #232830;
+    --rc-border: #2c323b;
+    --rc-border-strong: #3a414c;
+
+    --rc-fg: #e7eaee;
+    --rc-fg-muted: #9aa1ab;
+    --rc-fg-faint: #6b727c;
+
+    --rc-status-3xx: #9aa1ab;
+    --rc-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--rc-bg);
+  color: var(--rc-fg);
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Header --------------------------------------------------------------- */
+
+.rc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rc-header__mark {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.rc-header__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.rc-header__spacer {
+  flex: 1;
+}
+
+.rc-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 7px;
+  border-radius: 999px;
+  background: var(--rc-danger-soft);
+  color: var(--rc-danger);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rc-rec__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rc-danger);
+  animation: rc-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rc-rec__dot {
+    animation: none;
+  }
+}
+
+/* ---- Form controls -------------------------------------------------------- */
+
+.rc-input,
+.rc-select {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--rc-border-strong);
+  border-radius: var(--rc-radius-sm);
+  background: var(--rc-panel);
+  color: var(--rc-fg);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.rc-input::placeholder {
+  color: var(--rc-fg-faint);
+}
+
+.rc-input:focus-visible,
+.rc-select:focus-visible {
+  border-color: var(--rc-accent);
+  box-shadow: 0 0 0 3px var(--rc-accent-ring);
+}
+
+.rc-select {
+  cursor: pointer;
+  appearance: none;
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  text-transform: capitalize;
+}
+
+.rc-search {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.rc-search__icon {
+  position: absolute;
+  left: 9px;
+  color: var(--rc-fg-faint);
+  pointer-events: none;
+  display: flex;
+}
+
+.rc-search .rc-input {
+  width: 100%;
+  padding-left: 30px;
+}
+
+/* ---- Buttons -------------------------------------------------------------- */
+
+.rc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--rc-radius-sm);
+  font-size: 12.5px;
+  font-weight: 550;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.rc-btn:focus-visible {
+  box-shadow: 0 0 0 3px var(--rc-accent-ring);
+}
+
+.rc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rc-btn--primary {
+  background: linear-gradient(180deg, var(--rc-accent-from), var(--rc-accent-to));
+  color: #fff;
+  box-shadow: var(--rc-shadow);
+}
+
+.rc-btn--primary:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+
+.rc-btn--primary:not(:disabled):active {
+  filter: brightness(0.95);
+}
+
+.rc-btn--ghost {
+  background: var(--rc-panel);
+  border-color: var(--rc-border-strong);
+  color: var(--rc-fg);
+}
+
+.rc-btn--ghost:not(:disabled):hover {
+  background: var(--rc-panel-alt);
+  border-color: var(--rc-fg-faint);
+}
+
+.rc-btn--danger {
+  background: transparent;
+  border-color: var(--rc-border-strong);
+  color: var(--rc-danger);
+}
+
+.rc-btn--danger:not(:disabled):hover {
+  background: var(--rc-danger-soft);
+  border-color: var(--rc-danger);
+}
+
+.rc-btn--block {
+  width: 100%;
+}
+
+/* ---- Toolbar / layout ----------------------------------------------------- */
+
+.rc-panel-body {
+  padding: 12px;
+}
+
+.rc-controls {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.rc-toolbar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.rc-divider {
+  height: 1px;
+  background: var(--rc-border);
+  margin: 12px 0 10px;
+}
+
+/* ---- Status note ---------------------------------------------------------- */
+
+.rc-note {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border-radius: var(--rc-radius-sm);
+  background: var(--rc-accent-soft);
+  color: var(--rc-fg-muted);
+  font-size: 11.5px;
+}
+
+.rc-note--error {
+  background: var(--rc-danger-soft);
+  color: var(--rc-danger);
+}
+
+/* ---- Request list --------------------------------------------------------- */
+
+.rc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rc-border);
+  border-radius: var(--rc-radius);
+  overflow: hidden;
+  background: var(--rc-panel);
+}
+
+.rc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rc-border);
+  font-size: 12px;
+  transition: background 0.1s ease;
+}
+
+.rc-row:last-child {
+  border-bottom: none;
+}
+
+.rc-row:hover {
+  background: var(--rc-panel-alt);
+}
+
+.rc-row__method {
+  min-width: 40px;
+  font-family: var(--rc-mono);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--rc-fg-muted);
+}
+
+.rc-row__path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--rc-mono);
+  font-size: 11.5px;
+  color: var(--rc-fg);
+}
+
+.rc-row__status {
+  font-family: var(--rc-mono);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--rc-fg-faint);
+}
+
+.rc-row__status--2xx {
+  color: var(--rc-status-2xx);
+}
+.rc-row__status--3xx {
+  color: var(--rc-status-3xx);
+}
+.rc-row__status--4xx {
+  color: var(--rc-status-4xx);
+}
+.rc-row__status--5xx {
+  color: var(--rc-status-5xx);
+}
+
+/* ---- Protocol badge ------------------------------------------------------- */
+
+.rc-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: var(--rc-fg-muted);
+}
+
+.rc-badge--rest {
+  background: var(--rc-proto-rest);
+}
+.rc-badge--graphql {
+  background: var(--rc-proto-graphql);
+}
+.rc-badge--grpc-web {
+  background: var(--rc-proto-grpc-web);
+}
+.rc-badge--websocket {
+  background: var(--rc-proto-websocket);
+}
+.rc-badge--sse {
+  background: var(--rc-proto-sse);
+}
+
+/* ---- Empty state ---------------------------------------------------------- */
+
+.rc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  border: 1px dashed var(--rc-border-strong);
+  border-radius: var(--rc-radius);
+  color: var(--rc-fg-faint);
+  text-align: center;
+}
+
+.rc-empty__icon {
+  color: var(--rc-fg-faint);
+  opacity: 0.7;
+}
+
+.rc-empty__title {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--rc-fg-muted);
+}
+
+.rc-empty__hint {
+  font-size: 11.5px;
+  max-width: 220px;
+}
+
+/* ---- Popup ---------------------------------------------------------------- */
+
+.rc-popup {
+  padding: 14px;
+}
+
+.rc-popup__status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 0;
+  padding: 8px 10px;
+  border-radius: var(--rc-radius-sm);
+  background: var(--rc-panel-alt);
+  font-size: 12px;
+  color: var(--rc-fg-muted);
+}
+
+.rc-popup__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rc-fg-faint);
+  flex-shrink: 0;
+}
+
+.rc-popup__dot--live {
+  background: var(--rc-danger);
+  animation: rc-pulse 1.4s ease-in-out infinite;
+}
+
+.rc-popup__count {
+  color: var(--rc-fg);
+  font-weight: 600;
+}
+
+.rc-popup__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- Options page --------------------------------------------------------- */
+
+.rc-page {
+  max-width: 460px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+.rc-card {
+  padding: 24px;
+  border: 1px solid var(--rc-border);
+  border-radius: var(--rc-radius);
+  background: var(--rc-panel);
+  box-shadow: var(--rc-shadow);
+}
+
+.rc-card__desc {
+  margin: 10px 0 18px;
+  font-size: 13px;
+  color: var(--rc-fg-muted);
+}
+
+.rc-field {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.rc-field .rc-input {
+  flex: 1;
+  font-family: var(--rc-mono);
+}
+
+.rc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 550;
+  background: var(--rc-panel-alt);
+  color: var(--rc-fg-muted);
+}
+
+.rc-chip--ok {
+  background: rgba(43, 182, 115, 0.12);
+  color: var(--rc-ok);
+}
+
+.rc-chip--error {
+  background: var(--rc-danger-soft);
+  color: var(--rc-danger);
+}
+
+.rc-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
