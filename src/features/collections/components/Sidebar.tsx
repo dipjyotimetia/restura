@@ -29,7 +29,7 @@ import {
   duplicateRequestItem,
   duplicateCollection,
 } from '../lib/itemFactory';
-import { buildMockRoutes } from '../lib/mockRoutes';
+import { buildMockRoutes, buildMockRoutesFromSpec, mergeMockRoutes } from '../lib/mockRoutes';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import { CollectionRunnerDialog, type RunnerScope } from './CollectionRunnerDialog';
 import { CollectionSettingsDialog, type SettingsTarget } from './CollectionSettingsDialog';
@@ -71,6 +71,7 @@ import {
   downloadJSON,
   downloadText,
 } from '@/features/collections/lib/exporters';
+import { loadContractSpec } from '@/features/contracts/lib/specLoader';
 import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
 import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
 import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
@@ -93,7 +94,7 @@ import {
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useMockStore } from '@/store/useMockStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import type { ActivePanel, Collection, CollectionItem, Workflow } from '@/types';
+import type { ActivePanel, Collection, CollectionItem, OpenAPIDocument, Workflow } from '@/types';
 
 interface SidebarProps {
   onClose: () => void;
@@ -373,9 +374,23 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       }
       const collection = collections.find((c) => c.id === collectionId);
       if (!collection) return;
-      const routes = buildMockRoutes(collection, useHistoryStore.getState().history);
+      const historyRoutes = buildMockRoutes(collection, useHistoryStore.getState().history);
+
+      let specRouteCount = 0;
+      let routes = historyRoutes;
+      if (collection.contractSpec) {
+        const loaded = await loadContractSpec(collection.contractSpec);
+        if (loaded.ok) {
+          const specRoutes = buildMockRoutesFromSpec(loaded.spec as unknown as OpenAPIDocument);
+          routes = mergeMockRoutes(historyRoutes, specRoutes);
+          specRouteCount = routes.length - historyRoutes.length;
+        } else {
+          toast.warning(`Attached OpenAPI spec failed to load: ${loaded.error}`);
+        }
+      }
+
       if (routes.length === 0) {
-        toast.warning('No HTTP requests in this collection to mock');
+        toast.warning('No HTTP requests or OpenAPI spec to mock in this collection');
         return;
       }
       const res = await api.mock.start({ collectionId, routes });
@@ -383,9 +398,11 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
         setMockStatus(res.status);
         // Surface the served routes in the Runs panel.
         setMockRoutes(routes.map((r) => ({ method: r.method, path: r.path })));
-        toast.success(`Mock server running at ${res.status.baseUrl}`, {
-          description: `${res.status.routeCount} route${res.status.routeCount === 1 ? '' : 's'} · replays recorded responses`,
-        });
+        const description =
+          specRouteCount > 0
+            ? `${historyRoutes.length} from history · ${specRouteCount} from spec`
+            : `${res.status.routeCount} route${res.status.routeCount === 1 ? '' : 's'} · replays recorded responses`;
+        toast.success(`Mock server running at ${res.status.baseUrl}`, { description });
       } else {
         toast.error(`Failed to start mock server: ${res.error}`);
       }
