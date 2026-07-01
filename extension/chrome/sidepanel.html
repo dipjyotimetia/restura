@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Restura Capture</title>
+    <!-- Inline theme bg (mirrors --rc-bg) prevents a light/dark flash before the
+         async styles.css chunk loads. Duplicated per entry — Vite has no shared HTML partial. -->
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      html {
+        background: #f7f8fa;
+      }
+      @media (prefers-color-scheme: dark) {
+        html {
+          background: #14171c;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
