@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useEnvironmentStore } from '../useEnvironmentStore';
+import { useGlobalsStore } from '../useGlobalsStore';
 
 describe('useEnvironmentStore', () => {
   beforeEach(() => {
@@ -7,6 +8,7 @@ describe('useEnvironmentStore', () => {
       environments: [],
       activeEnvironmentId: null,
     });
+    useGlobalsStore.setState({ vars: {} });
     localStorage.clear();
   });
 
@@ -273,6 +275,38 @@ describe('useEnvironmentStore', () => {
       setActiveEnvironment(env.id);
 
       expect(resolveVariables('{{token}}')).toBe('a$&b$1c');
+    });
+
+    it('resolves workspace globals when there is no active environment', () => {
+      useGlobalsStore.getState().set('gVar', 'gValue');
+      const { resolveVariables } = useEnvironmentStore.getState();
+      expect(resolveVariables('{{gVar}}/x')).toBe('gValue/x');
+    });
+
+    it('resolves globals alongside active-environment variables', () => {
+      const { createNewEnvironment, addEnvironment, addVariable, setActiveEnvironment } =
+        useEnvironmentStore.getState();
+      const env = createNewEnvironment('Test');
+      addEnvironment(env);
+      addVariable(env.id, { id: 'v1', key: 'baseUrl', value: 'https://e', enabled: true });
+      setActiveEnvironment(env.id);
+      useGlobalsStore.getState().set('gToken', 'gt');
+
+      const { resolveVariables } = useEnvironmentStore.getState();
+      expect(resolveVariables('{{baseUrl}}/{{gToken}}')).toBe('https://e/gt');
+    });
+
+    it('lets an environment variable win over a global of the same name', () => {
+      const { createNewEnvironment, addEnvironment, addVariable, setActiveEnvironment } =
+        useEnvironmentStore.getState();
+      const env = createNewEnvironment('Test');
+      addEnvironment(env);
+      addVariable(env.id, { id: 'v1', key: 'dup', value: 'fromEnv', enabled: true });
+      setActiveEnvironment(env.id);
+      useGlobalsStore.getState().set('dup', 'fromGlobal');
+
+      const { resolveVariables } = useEnvironmentStore.getState();
+      expect(resolveVariables('{{dup}}')).toBe('fromEnv');
     });
   });
 

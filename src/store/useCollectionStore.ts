@@ -170,6 +170,8 @@ interface CollectionState {
     target: { parentId?: string; beforeId?: string }
   ) => void;
   getCollectionById: (id: string) => Collection | undefined;
+  /** Find the collection that contains a given item (request) id, at any depth. */
+  getCollectionByItemId: (itemId: string) => Collection | undefined;
   createNewCollection: (name: string) => Collection;
 }
 
@@ -356,6 +358,9 @@ export const useCollectionStore = create<CollectionState>()(
       },
 
       getCollectionById: (id) => get().collections.find((col) => col.id === id),
+
+      getCollectionByItemId: (itemId) =>
+        get().collections.find((col) => findItem(col.items, itemId) !== undefined),
 
       createNewCollection: (name) => ({
         id: uuidv4(),

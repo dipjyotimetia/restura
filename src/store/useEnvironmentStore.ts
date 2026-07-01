@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Environment, KeyValue } from '@/types';
 
 interface EnvironmentState {
@@ -102,6 +103,16 @@ export const useEnvironmentStore = create<EnvironmentState>()(
               resolved = resolved.replace(regex, () => variable.value);
             }
           });
+        }
+
+        // Then workspace globals fill any still-unresolved tokens. Env is applied
+        // first, so an env var with the same name wins (its token is already gone).
+        // This gives every caller of resolveVariables — SSE / WebSocket / Socket.IO /
+        // MCP / gRPC / workflows / the HTTP second pass — globals parity for free.
+        const globals = useGlobalsStore.getState().vars;
+        for (const [key, value] of Object.entries(globals)) {
+          const regex = new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, 'g');
+          resolved = resolved.replace(regex, () => value);
         }
 
         // Resolve built-in dynamic variables (Postman-name compatible)

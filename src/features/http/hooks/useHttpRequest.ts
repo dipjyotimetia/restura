@@ -7,6 +7,7 @@ import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
+import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
 import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveResponse } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -41,7 +42,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
   const isLoading = useRequestStore((s) => s.isLoading);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
 
-  const { resolveVariables, getActiveEnvironment } = useEnvironmentStore();
+  const { resolveVariables } = useEnvironmentStore();
   const { settings: globalSettings } = useSettingsStore();
   const { run: runViaRegistry } = useRequestRunner();
 
@@ -161,15 +162,8 @@ export function useHttpRequest(): UseHttpRequestReturn {
         // surfaces only a flat variables map; the streaming executor still
         // wants the full {{var}} resolver to stay consistent with the rest
         // of the app.
-        const envVars: Record<string, string> = {};
-        const activeEnv = getActiveEnvironment();
-        if (activeEnv) {
-          activeEnv.variables
-            .filter((v) => v.enabled)
-            .forEach((v) => {
-              envVars[v.key] = v.value;
-            });
-        }
+        // Active env + workspace globals + collection vars (globals < env < collection).
+        const envVars: Record<string, string> = buildActiveRequestValueMap();
         // Folder/collection auth inheritance — the streaming executor builds
         // its own headers from request.auth, so resolve before dispatch (the
         // buffered path below gets this inside the registry runner).
@@ -212,7 +206,6 @@ export function useHttpRequest(): UseHttpRequestReturn {
   }, [
     httpRequest,
     setLoading,
-    getActiveEnvironment,
     setScriptResult,
     resolveVariables,
     setCurrentResponse,

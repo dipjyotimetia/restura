@@ -13,6 +13,7 @@ import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { STANDARD_HTTP_HEADERS, getHeaderDef } from '@/lib/shared/http-headers';
 import { cn } from '@/lib/shared/utils';
+import { findVariableTokens } from '@/lib/shared/variableTokens';
 import type { AppSettings, AuthType, BodyType, HttpRequest, KeyValue } from '@/types';
 
 const HEADER_KEY_SUGGESTIONS: ReadonlyArray<ComboboxSuggestion> = STANDARD_HTTP_HEADERS.map(
@@ -177,9 +178,7 @@ export function RequestBuilderTabs({
     const matches = new Set<string>();
     const collect = (s?: string) => {
       if (!s) return;
-      const re = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(s)) !== null) matches.add(m[1]!);
+      for (const token of findVariableTokens(s)) matches.add(token.name);
     };
     collect(request.url);
     collect(request.body.raw);
