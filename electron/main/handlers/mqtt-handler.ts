@@ -34,6 +34,16 @@ const log = createLogger('mqtt');
 let _mqtt: typeof MqttLib | undefined;
 const getMqtt = (): typeof MqttLib => (_mqtt ??= require('mqtt'));
 
+/**
+ * Test-only seam. The lazy bare `require('mqtt')` above is not interceptable
+ * by vitest's ESM-level `vi.mock` (same constraint documented in
+ * secret-handle-store's `__setSecretStoreForTests`), so tests inject a fake
+ * lib here. Pass `undefined` to restore the real lazy load.
+ */
+export function __setMqttForTests(lib: typeof MqttLib | undefined): void {
+  _mqtt = lib;
+}
+
 export const mqttRateLimiter = createKeyedRateLimiter(20, 60_000);
 
 const MAX_CONCURRENT_MQTT_CONNECTIONS = 20;
