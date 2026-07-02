@@ -111,6 +111,27 @@ to the renderer.
 > surfaces an explicit warning on this target. See
 > `docs/adr/0023-ai-lab-http-exec.md`.
 
+## Renderer lockdown (Electron)
+
+The desktop renderer is sandboxed (`sandbox: true`, `contextIsolation: true`,
+`nodeIntegration: false`) and further pinned down by two policies in
+`electron/main/main.ts`:
+
+- **Default-deny web permissions** — `session.defaultSession.setPermissionRequestHandler`
+  and `setPermissionCheckHandler` reject every web-platform permission except
+  `clipboard-sanitized-write` (copy buttons). Everything privileged goes through
+  the validated IPC surface instead. Growing the allowlist is an explicit,
+  test-guarded change (see ADR-0026).
+- **CSP** — production loads enforce `default-src 'self' file:` with
+  `object-src 'none'`, `worker-src 'self' file:` (Monaco workers are same-origin
+  Vite `?worker` chunks), `wasm-unsafe-eval` only (QuickJS), and no
+  `unsafe-eval`. The policy exists twice — a response header in
+  `electron/main/main.ts` and a `<meta>` fallback injected at build time in
+  `vite.config.mts` (the header is not guaranteed to apply to `file://`
+  main-frame documents) — and
+  `electron/main/__tests__/security-hardening.test.ts` fails the build if the
+  two ever diverge.
+
 ## Long-lived connection cleanup (Electron)
 
 `electron/main/ipc/connection-cleanup.ts` is the shared bookkeeping for

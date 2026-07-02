@@ -517,8 +517,10 @@ All stores are validated with Zod schemas on hydration from persisted storage â€
 - Hardened runtime enabled (macOS notarization)
 - Context isolation prevents renderer from accessing Node.js
 - IPC payloads validated with Zod before any processing (including the recursive `AuthConfigSchema` introduced in Plan 3 for sign-at-wire)
-- Rate limiting on all IPC handlers (legacy `ipc-rate-limiter` API surface deprecated; per-handler limits remain)
+- Rate limiting on all IPC handlers via per-handler keyed limiters (`createKeyedRateLimiter` in `electron/main/ipc/ipc-rate-limiter.ts`, buckets keyed on `webContents.id` and evicted eagerly on renderer destroy); the legacy single-bucket API has been removed
 - `webSecurity` is not disabled
+- Web permissions are default-deny: `session.defaultSession.setPermissionRequestHandler` / `setPermissionCheckHandler` reject every permission except `clipboard-sanitized-write` (used by copy buttons); any new permission requires an explicit allowlist change in `electron/main/main.ts` (see ADR-0026)
+- Production CSP pins `object-src 'none'` and `worker-src 'self' file:` in addition to the script/style/connect policy; the header CSP in `electron/main/main.ts` and the `<meta>` fallback in `vite.config.mts` are kept identical, enforced by `electron/main/__tests__/security-hardening.test.ts`
 - Removed unnecessary `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` (the app is a client only)
 - Encryption key for persisted store fetched from OS keychain via `safeStorage`; if unavailable, a startup warning is surfaced and the user is told plaintext fallback is active
 - Renderer-cleanup deduplication via `electron/main/ipc/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers

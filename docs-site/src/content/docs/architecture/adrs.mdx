@@ -35,6 +35,7 @@ timeline
   2026-06-24 : 0023 — AI Lab http-exec
   2026-06-28 : 0024 — Browser capture extension
   2026-06-29 : 0025 — VS Code extension
+  2026-07-02 : 0026 — Electron CSP + permission hardening
 ```
 
 <CardGrid>
@@ -162,5 +163,10 @@ timeline
     title="0025 — VS Code extension"
     description="A focused editor integration for OpenCollection files — schema diagnostics, a Test Explorer that shells out to the restura CLI, and inline Send through the shared protocol core. No re-implemented execution or assertions."
     href="/architecture/adrs/0025-vscode-extension/"
+  />
+  <LinkCard
+    title="0026 — Electron CSP + permission hardening"
+    description="Default-deny web permissions (single clipboard allowlist entry) and CSP object-src/worker-src pinning, with header/meta parity enforced by a structural test."
+    href="/architecture/adrs/0026-electron-csp-and-permission-hardening/"
   />
 </CardGrid>
