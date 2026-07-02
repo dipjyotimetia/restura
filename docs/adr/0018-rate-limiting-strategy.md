@@ -11,7 +11,7 @@ Restura exposes two abuse surfaces that need throttling, and they are very diffe
 Apply rate limiting **independently at each boundary**, matched to its threat model:
 
 - **Worker** — `worker/middleware/rateLimiter.ts` throttles inbound `/api/*` requests. This is the internet-facing control, and it complements the production auth gate (`WORKER_PROXY_TOKEN` / Cloudflare Access).
-- **Electron** — per-channel IPC rate limiting (`electron/main/ipc-rate-limiter.ts`, e.g. the keyed limiter used by the MQTT/Kafka handlers) bounds how fast the renderer can open connections or fire requests. The earlier monolithic IPC rate-limiter API is **deprecated** in favour of the per-handler keyed limiters introduced alongside the connection-hardening work ([ADR 0006](./0006-electron-connection-and-dns-hardening.md)).
+- **Electron** — per-channel IPC rate limiting (`electron/main/ipc/ipc-rate-limiter.ts`, e.g. the keyed limiter used by the MQTT/Kafka handlers) bounds how fast the renderer can open connections or fire requests. The earlier monolithic single-bucket IPC rate-limiter API has been **removed**; every handler uses the per-handler keyed limiters introduced alongside the connection-hardening work ([ADR 0006](./0006-electron-connection-and-dns-hardening.md)).
 
 There is intentionally no shared rate-limit abstraction across the two — the runtimes, the units (HTTP requests vs. IPC calls), and the keys (client IP vs. webContents/connection) don't align.
 
@@ -25,9 +25,12 @@ There is intentionally no shared rate-limit abstraction across the two — the r
 **Negative**
 
 - Two separate rate-limit implementations to maintain and reason about.
-- The deprecated legacy IPC limiter still exists during migration, so contributors must be steered to the keyed-limiter API.
+
+**Resolved since acceptance**
+
+- The migration off the legacy single-bucket IPC limiter is complete — the old API no longer exists in the codebase; `createKeyedRateLimiter` is the only IPC limiter.
 
 ## References
 
-- Code: `worker/middleware/rateLimiter.ts`, `electron/main/ipc-rate-limiter.ts`
+- Code: `worker/middleware/rateLimiter.ts`, `electron/main/ipc/ipc-rate-limiter.ts`
 - Related: [ADR 0006 (connection + DNS hardening)](./0006-electron-connection-and-dns-hardening.md), [ADR 0009 (shared Hono app factory)](./0009-shared-hono-app-factory.md)

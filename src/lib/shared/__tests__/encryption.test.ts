@@ -1,24 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  encryptValue,
-  decryptValue,
-  encryptAuthConfig,
-  decryptAuthConfig,
-  isEncrypted,
-  encryptSensitiveFields,
-  decryptSensitiveFields,
-  generateLocalEncryptionKey,
-  SENSITIVE_FIELDS,
-} from '../encryption';
-
-describe('encryptAuthConfig / decryptAuthConfig', () => {
-  it('round-trips auth config', async () => {
-    const auth = { type: 'bearer', bearer: { token: 'secret-jwt' } };
-    const encrypted = await encryptAuthConfig(auth, 'pw');
-    const decrypted = await decryptAuthConfig(encrypted, 'pw');
-    expect(decrypted).toEqual(auth);
-  });
-});
+import { encryptValue, decryptValue, isEncrypted, generateLocalEncryptionKey } from '../encryption';
 
 describe('Encryption Utilities', () => {
   const testPassword = 'test-password-123';
@@ -151,175 +132,19 @@ describe('Encryption Utilities', () => {
     });
   });
 
-  describe('SENSITIVE_FIELDS', () => {
-    it('should contain common sensitive field names', () => {
-      expect(SENSITIVE_FIELDS).toContain('password');
-      expect(SENSITIVE_FIELDS).toContain('token');
-      expect(SENSITIVE_FIELDS).toContain('secret');
-      expect(SENSITIVE_FIELDS).toContain('apiKey');
-      expect(SENSITIVE_FIELDS).toContain('accessKey');
-      expect(SENSITIVE_FIELDS).toContain('secretKey');
-    });
-  });
-
-  describe('encryptSensitiveFields', () => {
-    it('should encrypt sensitive string fields', async () => {
-      const obj = {
-        username: 'john',
-        password: 'secret123',
-        email: 'john@example.com',
-      };
-
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-
-      expect(encrypted.username).toBe('john');
-      expect(encrypted.email).toBe('john@example.com');
-      expect(typeof encrypted.password === 'string' && encrypted.password.startsWith('ENC:')).toBe(
-        true
-      );
-      expect(encrypted.password).not.toContain('secret123');
-    });
-
-    it('should handle nested objects', async () => {
-      const obj = {
-        user: {
-          name: 'john',
-          credentials: {
-            apiKey: 'key-123',
-            secretKey: 'secret-456',
-          },
-        },
-      };
-
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-
-      expect((encrypted.user as Record<string, unknown>).name).toBe('john');
-      const creds = (encrypted.user as Record<string, unknown>).credentials as Record<
-        string,
-        unknown
-      >;
-      expect(typeof creds.apiKey === 'string' && creds.apiKey.startsWith('ENC:')).toBe(true);
-      expect(typeof creds.secretKey === 'string' && creds.secretKey.startsWith('ENC:')).toBe(true);
-    });
-
-    it('should handle arrays', async () => {
-      const obj = {
-        tokens: [{ token: 'abc123' }, { token: 'def456' }],
-      };
-
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-      const tokens = encrypted.tokens as Array<Record<string, unknown>>;
-
-      expect(typeof tokens[0]?.token === 'string' && tokens[0].token.startsWith('ENC:')).toBe(true);
-      expect(typeof tokens[1]?.token === 'string' && tokens[1].token.startsWith('ENC:')).toBe(true);
-    });
-
-    it('should handle null and undefined values', async () => {
-      const obj = {
-        password: null,
-        token: undefined,
-        apiKey: '',
-      };
-
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-
-      expect(encrypted.password).toBeNull();
-      expect(encrypted.token).toBeUndefined();
-      expect(typeof encrypted.apiKey === 'string' && encrypted.apiKey.startsWith('ENC:')).toBe(
-        true
-      );
-    });
-  });
-
-  describe('decryptSensitiveFields', () => {
-    it('should decrypt encrypted fields', async () => {
-      const obj = {
-        username: 'john',
-        password: 'secret123',
-        token: 'token-abc',
-      };
-
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-      const decrypted = await decryptSensitiveFields(encrypted, testPassword);
-
-      expect(decrypted.username).toBe('john');
-      expect(decrypted.password).toBe('secret123');
-      expect(decrypted.token).toBe('token-abc');
-    });
-
-    it('should handle nested encrypted fields', async () => {
-      const obj = {
-        auth: {
-          basic: {
-            username: 'user',
-            password: 'pass123',
-          },
-          bearer: {
-            token: 'jwt-token',
-          },
-        },
-      };
-
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-      const decrypted = await decryptSensitiveFields(encrypted, testPassword);
-
-      const auth = decrypted.auth as Record<string, Record<string, unknown>>;
-      expect(auth.basic?.password).toBe('pass123');
-      expect(auth.bearer?.token).toBe('jwt-token');
-    });
-
-    it('should handle nested objects', async () => {
-      const obj = { level1: { level2: { password: 'secret' } } };
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-      expect(
-        (encrypted.level1 as Record<string, Record<string, string>>).level2?.password?.startsWith(
-          'ENC:'
-        )
-      ).toBe(true);
-    });
-
-    it('should handle arrays of objects', async () => {
-      const obj = { items: [{ password: 'p1' }, { password: 'p2' }] };
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-      const items = encrypted.items as Array<{ password: string }>;
-      expect(items[0]?.password?.startsWith('ENC:')).toBe(true);
-    });
-
-    it('should pass through null/undefined values', async () => {
-      const obj = {
-        token: null as unknown as string,
-        key: undefined as unknown as string,
-        name: 'test',
-      };
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-      expect(encrypted.token).toBeNull();
-      expect(encrypted.key).toBeUndefined();
-    });
-
-    it('handles arrays of primitives', async () => {
-      const obj = { tags: ['a', 'b', 'c'] };
-      const encrypted = await encryptSensitiveFields(obj, testPassword);
-      expect(encrypted.tags).toEqual(['a', 'b', 'c']);
-    });
-
-    it('handles decryption failure gracefully (keeps encrypted value)', async () => {
-      const obj = { token: 'ENC:invalid-encrypted-value' };
-      const result = await decryptSensitiveFields(obj, testPassword);
-      expect(result.token).toBe('ENC:invalid-encrypted-value');
-    });
-
-    it('should handle mixed encrypted and plain values', async () => {
-      const obj = {
-        name: 'plain',
-        password: await encryptValue('encrypted', testPassword),
-        count: 42,
-      };
-
-      const decrypted = await decryptSensitiveFields(obj, testPassword);
-
-      expect(decrypted.name).toBe('plain');
-      expect(decrypted.password).toBe('encrypted');
-      expect(decrypted.count).toBe(42);
+  describe('removed legacy surface stays removed', () => {
+    it('does not re-export the localStorage-based secureStorage or password-crypto helpers', async () => {
+      // The old `secureStorage` here duplicated src/lib/shared/secure-storage.ts
+      // (the sanctioned storage router) and leaked through the barrel export;
+      // the sensitive-field helpers encouraged renderer-side password crypto
+      // superseded by SecretRef handles (ADR-0007).
+      const mod = await import('../encryption');
+      expect(mod).not.toHaveProperty('secureStorage');
+      expect(mod).not.toHaveProperty('encryptSensitiveFields');
+      expect(mod).not.toHaveProperty('decryptSensitiveFields');
+      expect(mod).not.toHaveProperty('encryptAuthConfig');
+      expect(mod).not.toHaveProperty('decryptAuthConfig');
+      expect(mod).not.toHaveProperty('SENSITIVE_FIELDS');
     });
   });
 });
