@@ -63,7 +63,11 @@ const log = createLogger('http');
 //                                              indication in the response viewer.
 // =============================================================================
 
-export const httpRateLimiter = createKeyedRateLimiter(60, 60_000);
+// 6000/min (~100 rps) rather than a per-click budget: the collection runner and
+// the load tester drive this channel in bursts, and a lower cap turns their
+// results into self-inflicted "Rate limit exceeded" errors (the renderer is a
+// trusted surface — the limiter only backstops runaway loops).
+export const httpRateLimiter = createKeyedRateLimiter(6000, 60_000);
 
 /**
  * Bring the undici fetcher to parity with the `fetch`-based backends (Worker /

@@ -20,6 +20,8 @@ export type CapabilityName =
   | 'http.dnsPinning'
   | 'http.tls.cipherSuite'
   | 'http.tls.minVersion'
+  | 'http.streamingResponse'
+  | 'loadTesting.basic'
   | 'websocket.basic'
   | 'websocket.customHeaders'
   | 'websocket.viaWorkerProxy'
@@ -115,6 +117,20 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: "Web client uses the runtime's default TLS floor",
+  },
+  'http.streamingResponse': {
+    label: 'Incremental HTTP response streaming',
+    web: true,
+    desktop: false,
+    notes:
+      'Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path)',
+  },
+  'loadTesting.basic': {
+    label: 'Load / performance testing',
+    web: true,
+    desktop: true,
+    notes:
+      'Fidelity differs: web is capped by ~6 browser connections per origin and the Worker proxy rate limit (100 req/min); desktop by the IPC rate budget. Results above those budgets include self-inflicted throttling',
   },
   'websocket.basic': { label: 'WebSocket connect', web: true, desktop: true },
   'websocket.customHeaders': {
