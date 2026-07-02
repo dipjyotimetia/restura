@@ -15,6 +15,7 @@ import {
 } from '@/features/http/lib/requestExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { isElectron } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
@@ -78,7 +79,7 @@ export function useHttpRequestPage() {
   const isLoading = useRequestStore((s) => s.isLoading);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const { addHistoryItem } = useHistoryStore();
-  const { resolveVariables, getActiveEnvironment } = useEnvironmentStore();
+  const { resolveVariables } = useEnvironmentStore();
   const { settings: globalSettings } = useSettingsStore();
   const { addEntry } = useConsoleStore();
 
@@ -107,15 +108,9 @@ export function useHttpRequestPage() {
     toast.loading('Sending request...', { id: 'request' });
 
     try {
-      const envVars: Record<string, string> = {};
-      const activeEnv = getActiveEnvironment();
-      if (activeEnv) {
-        activeEnv.variables
-          .filter((v) => v.enabled)
-          .forEach((v) => {
-            envVars[v.key] = v.value;
-          });
-      }
+      // Active environment + workspace globals + collection vars (precedence
+      // globals < env < collection). Pre-request-script mutations layer on top below.
+      const envVars: Record<string, string> = buildActiveRequestValueMap();
 
       let preRequestResult;
       if (httpRequest.preRequestScript) {
@@ -402,7 +397,6 @@ export function useHttpRequestPage() {
     httpRequest,
     isLoading,
     setLoading,
-    getActiveEnvironment,
     resolveVariables,
     setScriptResult,
     setCurrentResponse,

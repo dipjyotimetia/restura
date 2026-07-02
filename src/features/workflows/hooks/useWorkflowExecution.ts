@@ -5,8 +5,10 @@ import { executeDag } from '../lib/dagExecutor';
 import { executeWorkflow } from '../lib/workflowExecutor';
 import { useFlowRunStore } from '../store/useFlowRunStore';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
@@ -152,13 +154,24 @@ export function useWorkflowExecution(
           }
         };
 
+        // Seed variables from every scope a workflow step can resolve:
+        // workspace globals < active environment < the linked collection's vars
+        // (workflow.collectionId). workflow.variables + extracted vars layer on
+        // top inside the executors.
+        const linkedCollection = collections.find((c) => c.id === workflow.collectionId);
+        const seedVars: Record<string, string> = {
+          ...useGlobalsStore.getState().vars,
+          ...getActiveEnvironmentVars,
+          ...buildValueMap({ collection: linkedCollection?.variables }),
+        };
+
         const result = workflow.graph
           ? await executeDag({
               workflow,
               getRequestById,
               getWorkflowById,
               getInheritedAuth,
-              envVars: { ...getActiveEnvironmentVars },
+              envVars: { ...seedVars },
               onStepStart,
               onStepComplete,
               onLog,
@@ -168,7 +181,7 @@ export function useWorkflowExecution(
               workflow,
               getRequestById,
               getInheritedAuth,
-              envVars: { ...getActiveEnvironmentVars },
+              envVars: { ...seedVars },
               globalSettings,
               resolveVariables,
               onStepStart,
@@ -206,6 +219,7 @@ export function useWorkflowExecution(
       getWorkflowById,
       getInheritedAuth,
       getActiveEnvironmentVars,
+      collections,
       globalSettings,
       resolveVariables,
       saveExecution,

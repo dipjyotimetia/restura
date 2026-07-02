@@ -20,7 +20,7 @@ import { protocolRegistry } from './registry';
 import type { ProtocolScriptResult } from './types';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { Request, Response } from '@/types';
@@ -78,17 +78,12 @@ export function useRequestRunner() {
       const ctrl = new AbortController();
       abortRef.current = ctrl;
 
-      // Build the variables map from the active environment (only enabled
-      // entries, mirroring useHttpRequest's existing extraction).
-      const variables: Record<string, string> = {};
-      const activeEnv = useEnvironmentStore.getState().getActiveEnvironment();
-      if (activeEnv) {
-        for (const v of activeEnv.variables) {
-          if (v.enabled) {
-            variables[v.key] = v.value;
-          }
-        }
-      }
+      // Build the variables map from every scope the active request can resolve:
+      // active environment + workspace globals + the request's collection vars
+      // (precedence globals < env < collection). gRPC unary substitution reads
+      // this map directly, so collection/global vars must live here, not only in
+      // the store resolver.
+      const variables = buildActiveRequestValueMap();
 
       // Capture script results emitted by the protocol so we can both push
       // them to the active tab (so the Console panel updates) AND surface
