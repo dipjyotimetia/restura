@@ -16,6 +16,8 @@ const isElectronBuild = process.env.VITE_IS_ELECTRON_BUILD === 'true';
 // because meta CSP ignores it (header-only) and a top-level desktop window is
 // never framed. Electron-build-only — never injected for web/dev (would break
 // Vite HMR's ws://localhost + inline dev scripts).
+// Keep in sync with the header CSP in electron/main/main.ts
+// (setupContentSecurityPolicy) — the two policies must stay identical.
 const ELECTRON_RENDERER_CSP = [
   "default-src 'self' file:",
   "script-src 'self' file: 'wasm-unsafe-eval'",
@@ -23,6 +25,10 @@ const ELECTRON_RENDERER_CSP = [
   "img-src 'self' data: file: https:",
   "font-src 'self' data: file:",
   "connect-src 'self' https: wss:",
+  // Monaco workers are Vite `?worker` chunks loaded same-origin
+  // (src/lib/shared/monaco-setup.ts) — no blob: needed.
+  "worker-src 'self' file:",
+  "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
 ].join('; ');

@@ -33,6 +33,7 @@ import * as crypto from 'crypto';
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';
 import { getOrCreateEncryptedKey } from './encrypted-key';
 
@@ -47,7 +48,7 @@ interface HandleRecord {
   scope?: string;
 }
 
-interface SecretStoreShape {
+export interface SecretStoreShape {
   get: (key: string) => HandleRecord | undefined;
   set: (key: string, value: HandleRecord) => void;
   delete: (key: string) => void;
@@ -57,6 +58,15 @@ interface SecretStoreShape {
 }
 
 let storeInstance: SecretStoreShape | null = null;
+
+/**
+ * Test-only seam: vitest's `vi.mock` cannot intercept the lazy CJS
+ * `require('electron-store')` in getStore(), so unit tests inject an
+ * in-memory store here instead. Never called in production code.
+ */
+export function __setSecretStoreForTests(store: SecretStoreShape | null): void {
+  storeInstance = store;
+}
 
 function getStore(): SecretStoreShape {
   if (storeInstance) return storeInstance;
@@ -159,6 +169,39 @@ const HandleIdSchema = z.object({
   id: z.uuid(),
 });
 
+// Generous budget: the SecretRef import migration
+// (src/lib/shared/secretRef-migrations.ts) stores one handle per sensitive
+// auth field in a tight loop when converting an imported collection, so a
+// legitimate burst can be large. 600/min still bounds a runaway renderer.
+export const secretRateLimiter = createKeyedRateLimiter(600, 60_000);
+
+/**
+ * Register one secret channel with the shared IPC policy stack: keyed rate
+ * limit → trusted-sender check → Zod validation. Unlike
+ * `createValidatedHandler` (which rejects the invoke on invalid input), this
+ * surface's renderer contract returns `{ ok: false, error }` for validation
+ * failures — the preload bridge types and call sites in SecretInput /
+ * SettingsDrawer / secretRef-migrations branch on `result.ok` rather than
+ * catching rejections, so that shape is preserved here.
+ */
+function handleSecretChannel<TInput>(
+  channel: string,
+  schema: z.ZodSchema<TInput>,
+  impl: (input: TInput) => Record<string, unknown>
+): void {
+  ipcMain.handle(
+    channel,
+    rateLimited(secretRateLimiter, (event, payload: unknown) => {
+      assertTrustedSender(channel, event);
+      const parsed = schema.safeParse(payload);
+      if (!parsed.success) {
+        return { ok: false, error: parsed.error.message };
+      }
+      return impl(parsed.data);
+    })
+  );
+}
+
 /**
  * Register IPC handlers. NOTE: `secret:resolve` is deliberately absent here —
  * resolution is a main-process-only operation. The renderer can never read
@@ -170,13 +213,7 @@ const HandleIdSchema = z.object({
  * the renderer side.
  */
 export function registerSecretHandleIPC(): void {
-  ipcMain.handle(IPC.secret.store, (event, payload: unknown) => {
-    assertTrustedSender(IPC.secret.store, event);
-    const parsed = StoreInputSchema.safeParse(payload);
-    if (!parsed.success) {
-      return { ok: false, error: parsed.error.message };
-    }
-    const args = parsed.data;
+  handleSecretChannel(IPC.secret.store, StoreInputSchema, (args) => {
     const { id } = storeSecretHandle({
       value: args.value,
       ...(args.label !== undefined ? { label: args.label } : {}),
@@ -186,28 +223,19 @@ export function registerSecretHandleIPC(): void {
     return { ok: true, id };
   });
 
-  ipcMain.handle(IPC.secret.delete, (event, payload: unknown) => {
-    assertTrustedSender(IPC.secret.delete, event);
-    const parsed = HandleIdSchema.safeParse(payload);
-    if (!parsed.success) {
-      return { ok: false, error: parsed.error.message };
-    }
-    deleteSecretHandle(parsed.data.id);
+  handleSecretChannel(IPC.secret.delete, HandleIdSchema, ({ id }) => {
+    deleteSecretHandle(id);
     return { ok: true };
   });
 
-  ipcMain.handle(IPC.secret.describe, (event, payload: unknown) => {
-    assertTrustedSender(IPC.secret.describe, event);
-    const parsed = HandleIdSchema.safeParse(payload);
-    if (!parsed.success) {
-      return { ok: false, error: parsed.error.message };
-    }
-    const desc = describeSecretHandle(parsed.data.id);
+  handleSecretChannel(IPC.secret.describe, HandleIdSchema, ({ id }) => {
+    const desc = describeSecretHandle(id);
     return { ok: true, handle: desc ?? null };
   });
 
-  ipcMain.handle(IPC.secret.list, (event) => {
-    assertTrustedSender(IPC.secret.list, event);
+  // `list` takes no payload — the renderer invokes with zero args, which
+  // arrives here as `undefined`.
+  handleSecretChannel(IPC.secret.list, z.undefined(), () => {
     return { ok: true, handles: listSecretHandles() };
   });
 }

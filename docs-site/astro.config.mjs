@@ -228,6 +228,10 @@ export default defineConfig({
                   label: '0025 — VS Code extension',
                   slug: 'architecture/adrs/0025-vscode-extension',
                 },
+                {
+                  label: '0026 — Electron CSP + permission hardening',
+                  slug: 'architecture/adrs/0026-electron-csp-and-permission-hardening',
+                },
               ],
             },
           ],

@@ -20,6 +20,7 @@ import { FlowSidebar } from './FlowSidebar';
 import { FlowToolbar } from './FlowToolbar';
 import { deriveGraphFromLinear, layoutGraph } from './layout/autoLayout';
 import { RunMonitorPanel } from './RunMonitorPanel';
+import { secureStorage } from '@/lib/shared/secure-storage';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { Workflow, WorkflowGraph, SubgraphPath } from '@/types';
 
@@ -84,17 +85,11 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
     setSelectedNodeId(null);
     // One-time toast — many users miss that drilling into a forEach /
     // tryCatch swaps the canvas for a separate editable slice.
-    if (typeof window !== 'undefined') {
-      try {
-        if (!window.localStorage.getItem(SUBGRAPH_TOUR_KEY)) {
-          toast.info('Now editing inside a sub-graph. Click "root" in the breadcrumb to go back.', {
-            duration: 8000,
-          });
-          window.localStorage.setItem(SUBGRAPH_TOUR_KEY, '1');
-        }
-      } catch {
-        // localStorage may be unavailable (private mode, etc.); swallow.
-      }
+    if (!secureStorage.get(SUBGRAPH_TOUR_KEY)) {
+      toast.info('Now editing inside a sub-graph. Click "root" in the breadcrumb to go back.', {
+        duration: 8000,
+      });
+      secureStorage.set(SUBGRAPH_TOUR_KEY, '1');
     }
   }, []);
 

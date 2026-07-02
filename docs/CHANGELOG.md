@@ -58,9 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` — the desktop app is a client only
 - All streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`) refactored to use `assertUrlHostnameSafe` before connect
 
-### Deprecated
+### Removed
 
-- Legacy `ipc-rate-limiter` API surface in `electron/main/ipc-rate-limiter.ts`. Per-handler rate limits remain; the legacy facade will be removed in a future minor.
+- Legacy single-bucket `ipc-rate-limiter` API surface. Every IPC handler now uses the per-handler keyed limiters (`createKeyedRateLimiter` in `electron/main/ipc/ipc-rate-limiter.ts`).
 
 ### Technical Details
 

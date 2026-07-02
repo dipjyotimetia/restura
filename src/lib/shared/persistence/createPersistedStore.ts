@@ -1,8 +1,7 @@
 /**
  * Factory that turns a `MigrationDescriptor` into a fully-wired zustand
  * `PersistOptions` object (Gap #6). Centralises:
- *   - storage adapter selection (via `dexieStorageAdapters[descriptor.store]`),
- *     optionally wrapped with the legacy-localStorage fallback
+ *   - storage adapter selection (via `dexieStorageAdapters[descriptor.store]`)
  *   - migrate (via `runMigrations` + optional quarantine)
  *   - onRehydrateStorage error logging
  *   - migration telemetry emit

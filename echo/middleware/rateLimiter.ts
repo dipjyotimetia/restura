@@ -1,3 +1,4 @@
-import { createRateLimiter } from '@shared/protocol/rate-limiter';
+import { createIsolateRateLimiter } from '@shared/protocol/rate-limiter';
 
-export const { middleware: rateLimitMiddleware, reset: resetRateLimiter } = createRateLimiter();
+export const { middleware: rateLimitMiddleware, reset: resetRateLimiter } =
+  createIsolateRateLimiter();

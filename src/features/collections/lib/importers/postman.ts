@@ -1,4 +1,5 @@
 import type {
+  CollectionDefinition,
   FormParam,
   Header,
   Item,
@@ -36,8 +37,10 @@ export async function importPostmanCollection(
   warnings?: ImportWarning[]
 ): Promise<Collection> {
   const { Collection: PostmanSDKCollection, ItemGroup } = await import('postman-collection');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PostmanSDKCollection constructor accepts loose postman data
-  const sdkCollection = new PostmanSDKCollection(postmanData as any);
+  // Restura's PostmanCollection type models the v2.1 JSON export, which is what
+  // the SDK constructor's CollectionDefinition accepts — bridge the two nominally
+  // different shapes without dropping to `any`.
+  const sdkCollection = new PostmanSDKCollection(postmanData as unknown as CollectionDefinition);
 
   const variables: KeyValue[] = [];
   if (sdkCollection.variables) {
@@ -185,17 +188,25 @@ function convertPostmanSDKParams(queryParams: Request['url']['query'] | undefine
   return result;
 }
 
+/**
+ * Fields the postman-collection SDK carries at runtime but its type
+ * definitions omit: raw-body language options and the graphql body mode.
+ */
+type RequestBodyWithExtras = RequestBody & {
+  options?: { raw?: { language?: string } };
+  graphql?: { query?: string; variables?: unknown };
+};
+
 function convertPostmanSDKBody(body: RequestBody | undefined): HttpRequest['body'] {
   if (!body) return { type: 'none' };
 
   const mode = body.mode;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- postman-collection body has dynamic options not in types
-  const bodyAny = body as any;
+  const bodyExt = body as RequestBodyWithExtras;
 
   switch (mode) {
     case 'raw': {
       const raw = body.raw || '';
-      const language = bodyAny.options?.raw?.language;
+      const language = bodyExt.options?.raw?.language;
       let type: HttpRequest['body']['type'] = 'text';
       if (language === 'json') type = 'json';
       else if (language === 'xml') type = 'xml';
@@ -205,13 +216,16 @@ function convertPostmanSDKBody(body: RequestBody | undefined): HttpRequest['body
     case 'formdata': {
       const formData: FormDataItem[] = [];
       body.formdata?.each((param: FormParam) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FormParam.type is not in the type definition
-        const paramAny = param as any;
-        const isFile = paramAny.type === 'file';
+        // FormParam.type / .src exist at runtime for file params but are
+        // missing from the SDK's type definition. `src` can be a string or an
+        // array of file paths (Postman multi-file params).
+        const fileParam = param as FormParam & { type?: string; src?: string | string[] };
+        const isFile = fileParam.type === 'file';
+        const src = Array.isArray(fileParam.src) ? (fileParam.src[0] ?? '') : fileParam.src || '';
         formData.push({
           id: uuidv4(),
           key: param.key || '',
-          value: isFile ? paramAny.src || '' : param.value || '',
+          value: isFile ? src : param.value || '',
           enabled: !param.disabled,
           description: getDescriptionContent(param.description),
           type: isFile ? 'file' : 'text',
@@ -236,7 +250,7 @@ function convertPostmanSDKBody(body: RequestBody | undefined): HttpRequest['body
     }
 
     case 'graphql': {
-      const graphql = bodyAny.graphql;
+      const graphql = bodyExt.graphql;
       const query = graphql?.query || '';
       const variables = graphql?.variables;
       let raw = query;
@@ -261,16 +275,15 @@ function convertPostmanSDKBody(body: RequestBody | undefined): HttpRequest['body
 
 function convertPostmanSDKAuth(auth: RequestAuth): AuthConfig {
   const type = auth.type;
+  // RequestAuth.parameters() IS typed in @types/postman-collection; keep the
+  // optional call as a runtime guard against SDK-version drift only.
+  const findParam = (key: string): Variable | undefined =>
+    auth.parameters?.().find((p: Variable) => p.key === key, null);
   const getParam = (key: string): string => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RequestAuth.parameters() is not typed
-    const params = (auth as any).parameters?.() || [];
-    const param = params.find((p: Variable) => p.key === key);
-    return param?.value?.toString() || '';
+    return findParam(key)?.value?.toString() || '';
   };
   const getParamOpt = (key: string): string | undefined => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RequestAuth.parameters() is not typed
-    const params = (auth as any).parameters?.() || [];
-    const param = params.find((p: Variable) => p.key === key);
+    const param = findParam(key);
     if (!param) return undefined;
     const v = param.value?.toString();
     return v && v.length > 0 ? v : undefined;

@@ -63,6 +63,16 @@ type TopicWithPartitionAndOffset = KafkaLib.TopicWithPartitionAndOffset;
 let _kafka: typeof KafkaLib | undefined;
 const getKafka = (): typeof KafkaLib => (_kafka ??= require('@platformatic/kafka'));
 
+/**
+ * Test-only seam. The lazy bare `require('@platformatic/kafka')` above is not
+ * interceptable by vitest's ESM-level `vi.mock` (same constraint documented in
+ * secret-handle-store's `__setSecretStoreForTests`), so tests inject a fake
+ * lib here. Pass `undefined` to restore the real lazy load.
+ */
+export function __setKafkaForTests(lib: typeof KafkaLib | undefined): void {
+  _kafka = lib;
+}
+
 // Confluent Schema Registry client (key + value encode/decode). Also lazy — only
 // constructed when a connection configures a registry URL.
 let _schemaRegistryLib: typeof SchemaRegistryLib | undefined;
