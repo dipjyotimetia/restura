@@ -1,10 +1,37 @@
 import { v4 as uuidv4 } from 'uuid';
 import { executeRequest } from './lib/requestExecutor';
 import type { ProtocolModule } from '@/features/registry/types';
+import type { PmExecutionLocation, PmRequestInfo } from '@/features/scripts/lib/scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
+
+/** Collection-runner context, threaded through `ctx.protocolOptions`. */
+interface HttpProtocolOptions {
+  collectionVars?: Record<string, string>;
+  iterationData?: Record<string, string>;
+  info?: Pick<PmRequestInfo, 'iteration' | 'iterationCount'>;
+  location?: PmExecutionLocation;
+}
+
+function readHttpProtocolOptions(raw: Record<string, unknown> | undefined): HttpProtocolOptions {
+  if (!raw) return {};
+  const out: HttpProtocolOptions = {};
+  if (raw.collectionVars && typeof raw.collectionVars === 'object') {
+    out.collectionVars = raw.collectionVars as Record<string, string>;
+  }
+  if (raw.iterationData && typeof raw.iterationData === 'object') {
+    out.iterationData = raw.iterationData as Record<string, string>;
+  }
+  if (raw.info && typeof raw.info === 'object') {
+    out.info = raw.info as Pick<PmRequestInfo, 'iteration' | 'iterationCount'>;
+  }
+  if (raw.location && typeof raw.location === 'object') {
+    out.location = raw.location as PmExecutionLocation;
+  }
+  return out;
+}
 
 function createDefaultHttpRequest(): HttpRequest {
   return {
@@ -84,11 +111,18 @@ export const httpProtocol: ProtocolModule = {
     }
     const globalSettings = useSettingsStore.getState().settings;
     const variables = ctx.variables ?? {};
+    const opts = readHttpProtocolOptions(ctx.protocolOptions);
     const result = await executeRequest({
       request,
       envVars: { ...variables },
       globalSettings,
       resolveVariables: (text) => defaultResolveVariables(text, variables),
+      ...(opts.collectionVars ? { collectionVars: opts.collectionVars } : {}),
+      ...(opts.iterationData ? { iterationData: opts.iterationData } : {}),
+      ...(opts.info
+        ? { info: { requestName: request.name, requestId: request.id, ...opts.info } }
+        : {}),
+      ...(opts.location ? { location: opts.location } : {}),
     });
     // Forward script results (pre-request + test) to the runner so the
     // Console panel sees logs/tests. `executeRequest` runs both scripts

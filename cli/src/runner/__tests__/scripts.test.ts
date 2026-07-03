@@ -100,3 +100,89 @@ pm.test('always fails', () => { throw new Error('nope'); });
     expect(echo!.passed).toBe(false);
   });
 });
+
+describe('runCollection — pm.collectionVariables / pm.iterationData / pm.info', () => {
+  it('pm.collectionVariables.get sees the collection-level variable', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'restura-scripts-'));
+    writeFileSync(
+      join(dir, '_collection.yaml'),
+      `name: Scripts\nvariables:\n  - { key: BASE, value: ${baseUrl}, enabled: true }\n  - { key: apiVersion, value: v2, enabled: true }\n`,
+      'utf-8'
+    );
+    writeFileSync(
+      join(dir, 'echo.http.yaml'),
+      `name: Echo\nmethod: GET\nurl: '{{BASE}}/echo'\ntestScript: |\n  pm.test('collection var', () => pm.expect(pm.collectionVariables.get('apiVersion')).to.equal('v2'));\n`,
+      'utf-8'
+    );
+    return runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    ).then((result) => {
+      const echo = find(result, 'Echo');
+      expect(echo!.assertions).toEqual([{ name: 'collection var', passed: true }]);
+    });
+  });
+
+  it('pm.collectionVariables.set carries forward to the next request in the same run', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'restura-scripts-'));
+    writeFileSync(
+      join(dir, '_collection.yaml'),
+      `name: Scripts\nvariables:\n  - { key: BASE, value: ${baseUrl}, enabled: true }\n`,
+      'utf-8'
+    );
+    writeFileSync(
+      join(dir, 'a.echo.http.yaml'),
+      `name: A\nmethod: GET\nurl: '{{BASE}}/echo'\ntestScript: |\n  pm.collectionVariables.set('token', 'abc123');\n`,
+      'utf-8'
+    );
+    writeFileSync(
+      join(dir, 'b.echo.http.yaml'),
+      `name: B\nmethod: GET\nurl: '{{BASE}}/echo'\ntestScript: |\n  pm.test('sees token from A', () => pm.expect(pm.collectionVariables.get('token')).to.equal('abc123'));\n`,
+      'utf-8'
+    );
+    const result = await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    const b = find(result, 'B');
+    expect(b!.assertions).toEqual([{ name: 'sees token from A', passed: true }]);
+  });
+
+  it('pm.info reflects the real request name and eventName per phase', async () => {
+    const dir = makeCollection(`
+pm.test('request name', () => pm.expect(pm.info.requestName).to.equal('Echo'));
+pm.test('event name', () => pm.expect(pm.info.eventName).to.equal('test'));
+`);
+    const result = await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    const echo = find(result, 'Echo');
+    expect(echo!.assertions).toEqual([
+      { name: 'request name', passed: true },
+      { name: 'event name', passed: true },
+    ]);
+  });
+
+  it('pm.iterationData reflects the real data row during a data-driven run', async () => {
+    const dir = makeCollection(`
+pm.test('row value', () => pm.expect(pm.iterationData.get('user')).to.equal('alice'));
+`);
+    const result = await runCollection(
+      dir,
+      {
+        envVars: {},
+        bail: false,
+        timeoutMs: 5000,
+        allowLocalhost: true,
+        iterations: [{ user: 'alice' }],
+      },
+      new NoopReporter()
+    );
+    const echo = find(result, 'Echo');
+    expect(echo!.assertions).toEqual([{ name: 'row value', passed: true }]);
+  });
+});

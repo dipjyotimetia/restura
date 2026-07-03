@@ -498,7 +498,7 @@ Auth that requires byte-for-byte signature fidelity (currently AWS SigV4) signs 
 
 ### Sandbox
 
-User test scripts run in a QuickJS WASM sandbox (`src/features/scripts/lib/scriptExecutor.ts`) with 10 MB memory and 5 s execution-time limits. No host bridge, no filesystem, no network. The previous source-level regex blocklist (`dangerousPatterns`) was deleted in Plan 3 — it provided no security (the sandbox is the boundary) but broke legitimate user code.
+User pre-request/test scripts run in a QuickJS WASM sandbox (`src/features/scripts/lib/scriptExecutor.ts`) with a 64 MB memory limit and a 5 s execution-time limit for sync-only scripts (30 s when a host bridge — `pm.sendRequest`/`pm.vault`/`pm.cookies`/`rs.judge` — is in use, since a sub-request or keychain unwrap legitimately takes longer). No capability is ambient; each is an explicit, audited host bridge (no filesystem, no raw network). The previous source-level regex blocklist (`dangerousPatterns`) was deleted in Plan 3 — it provided no security (the sandbox is the boundary) but broke legitimate user code.
 
 ### Network — SSRF prevention
 

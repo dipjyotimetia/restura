@@ -12,18 +12,24 @@ Restura runs scripts in a **QuickJS WASM sandbox** built around a native `rs.*` 
 | Postman API | Restura support |
 |---|---|
 | `pm.request` | Read access to method, URL, headers, body. |
-| `pm.response` | `.code`, `.status`, `.text()`, `.json()`, `.responseTime`, `.headers.get(...)`. |
-| `pm.environment` / `pm.collectionVariables` / `pm.globals` / `pm.variables` | Full `get`/`set`/`unset`/`has`. |
-| `pm.test(name, fn)` | Test assertions with named scope. |
+| `pm.response` | `.code`, `.status`, `.text()`, `.json()`, `.responseTime`, `.headers.get(...)`, `.to.have.status/header/body/jsonBody`, `.to.be.ok/json/html/info/success/redirection/clientError/serverError/error`. |
+| `pm.environment` / `pm.collectionVariables` / `pm.globals` / `pm.variables` | Full `get`/`set`/`unset`/`has`. `pm.collectionVariables` reads/writes the request's actual owning collection and persists mutations back to it. |
+| `pm.test(name, fn)` | Test assertions with named scope. Sync or `async`. |
 | `pm.expect(value)` | `chai`-style assertions: `.to.equal`, `.to.be.a`, `.to.include`, `.to.have.property`, etc. |
-| `pm.iterationData` | Data-driven runs (CSV / JSON rows). |
+| `pm.iterationData` | Data-driven runs (CSV / JSON rows) — `.get`/`.set`/`.has`/`.toObject()` reflect the actual current row during a collection run (single-send: empty). |
+| `pm.info` | `.requestName`, `.requestId`, `.iteration`, `.iterationCount`, `.eventName` (`'prerequest'` / `'test'`) — populated from the real request during a send or collection run. |
+| `pm.execution.location` | `.collectionName`, `.currentRequestName`, `.folderPath` — always a real object (never `undefined`), populated during collection/folder runs. |
 | `pm.cookies` | Cookie jar lookup, plus an async `.jar()` for get/set/clear. |
-| `pm.sendRequest(input, cb?)` | Fire an ad-hoc request through the SSRF-guarded proxy. Returns a promise. |
+| `pm.sendRequest(input, cb?)` | Fire an ad-hoc request through the SSRF-guarded proxy. Returns a promise. Works from every script surface — the interactive Send button, gRPC, and collection/CLI runs. |
 | `pm.execution.setNextRequest` / `skipRequest` | Runner flow control. |
 | `pm.visualizer.set(template, data)` | Custom HTML response visualizations. |
-| `pm.vault` | Encrypted secret vault (`await pm.vault.get(...)`). Restura-native. |
+| `pm.vault` | Encrypted secret vault (`await pm.vault.get(...)`). Restura-native. Desktop only. |
 | `require(name)` | Bundled library set: `ajv`, `chai`, `cheerio`, `crypto-js`, `csv-parse/sync`, `lodash`, `moment`, `postman-collection`, `tv4`, `uuid`, `xml2js`. |
 | `console.log/warn/error` | Output to the script panel. |
+| `postman.setEnvironmentVariable` / `getEnvironmentVariable` / `clearEnvironmentVariable` | Legacy pre-`pm` API — aliases for `pm.environment.*`. |
+| `postman.setGlobalVariable` / `getGlobalVariable` / `clearGlobalVariable` | Legacy aliases for `pm.globals.*`. |
+| `postman.setNextRequest(name)` | Legacy alias for `pm.execution.setNextRequest(name)`. |
+| `tests["assertion label"] = true/false` | Legacy object-literal test style — equivalent to `pm.test(label, () => ...)`. |
 
 ## Inline helpers (in `{{...}}`)
 

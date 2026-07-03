@@ -4,6 +4,7 @@ import type { RunnableRequest } from './flattenRunnables';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { Collection, Request, Response as ApiResponse } from '@/types';
 
 /**
@@ -173,6 +174,24 @@ export async function runCollection(
   // behaviour (Newman emits an error at ~1000).
   const MAX_NEXT_REQUEST_JUMPS = 1000;
 
+  // `pm.collectionVariables` backing map — separate from `allVars` (which
+  // folds env/globals/collection/data together for `{{var}}` substitution
+  // and `pm.variables`). Mutations persist to `useCollectionStore` as they
+  // happen, so later requests in the SAME run (and future runs) see them,
+  // matching Postman's collection-runner semantics.
+  const collectionVars: Record<string, string> = {};
+  (collection.variables ?? []).forEach((v) => {
+    if (v.enabled && v.key) collectionVars[v.key] = v.value;
+  });
+  const applyCollectionMutations = (mutations: Record<string, string | null> | undefined) => {
+    if (!mutations || Object.keys(mutations).length === 0) return;
+    for (const [k, v] of Object.entries(mutations)) {
+      if (v === null) delete collectionVars[k];
+      else collectionVars[k] = v;
+    }
+    useCollectionStore.getState().applyCollectionVarMutations(collection.id, mutations);
+  };
+
   outer: for (let iter = 0; iter < rows.length; iter++) {
     // Carry-forward map for this iteration: base + row, mutated by scripts as we go.
     const allVars: Record<string, string> = { ...baseVars, ...rows[iter] };
@@ -235,6 +254,19 @@ export async function runCollection(
         onScriptResult: (r: ProtocolScriptResult) => {
           scripts = r;
         },
+        protocolOptions: {
+          collectionVars: { ...collectionVars },
+          iterationData: { ...rows[iter] },
+          info: { iteration: iter, iterationCount: rows.length },
+          location: {
+            currentRequestName: runnable.name,
+            // flattenRunnables() doesn't retain per-runnable folder ancestry
+            // today, so pm.execution.location.folderPath is always empty —
+            // collectionName/currentRequestName are still accurate.
+            folderPath: [],
+            collectionName: collection.name,
+          },
+        },
       };
 
       const startedReq = Date.now();
@@ -268,6 +300,9 @@ export async function runCollection(
           }
           // Carry-forward pm.variables.set() mutations into the iteration map.
           if (phase?.variables) Object.assign(allVars, phase.variables);
+          // Persist pm.collectionVariables.set/unset mutations — later
+          // requests in this run (and future runs) see the updated value.
+          applyCollectionMutations(phase?.collectionMutations);
         }
         result.assertions = assertions;
 
