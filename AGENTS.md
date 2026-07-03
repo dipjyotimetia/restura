@@ -7,6 +7,18 @@ an architectural change documented in one should be reflected in the other.
 
 Codex MCP context lives in `.codex/config.toml` (chrome-devtools, next-devtools).
 
+## OpenWiki
+
+This repository has documentation located in the /openwiki directory.
+
+Start here:
+
+- [OpenWiki quickstart](openwiki/quickstart.md)
+
+OpenWiki includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
+
+When working in this repository, read the OpenWiki quickstart first, then follow its links to the relevant architecture, workflow, domain, operation, and testing notes.
+
 ## Project Overview
 
 Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC,
