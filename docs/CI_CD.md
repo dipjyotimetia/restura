@@ -12,17 +12,18 @@ secret scanning, required reviewers, secrets).
 
 ## Workflows at a glance
 
-| Workflow                  | File                                             | Trigger                                  | Purpose                                                                                                                                   |
-| ------------------------- | ------------------------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **CI**                    | `.github/workflows/ci.yml`                       | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy. |
-| **CodeQL**                | _GitHub default setup_ (no workflow file)        | PR + push to `main`, weekly              | SAST over `javascript-typescript`. Managed in **Settings → Code security → Code scanning**, not a committed workflow.                     |
-| **Scorecard**             | `.github/workflows/scorecard.yml`                | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                               |
-| **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                  |
-| **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                             |
-| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                              |
-| **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                     |
-| **VS Code extension**     | `.github/workflows/extension-vscode-release.yml` | tag `vscode-v*.*.*` + manual dry-run     | Package + publish `restura-vscode` to the VS Code Marketplace + Open VSX; attach `.vsix` to a GitHub release.                             |
-| **Chrome extension**      | `.github/workflows/extension-chrome-release.yml` | tag `chrome-v*.*.*` + manual dry-run     | Build + zip the MV3 bundle, upload to the Chrome Web Store; attach `.zip` to a GitHub release.                                            |
+| Workflow                  | File                                             | Trigger                                  | Purpose                                                                                                                                                                 |
+| ------------------------- | ------------------------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CI**                    | `.github/workflows/ci.yml`                       | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy.                               |
+| **CodeQL**                | _GitHub default setup_ (no workflow file)        | PR + push to `main`, weekly              | SAST over `javascript-typescript`. Managed in **Settings → Code security → Code scanning**, not a committed workflow.                                                   |
+| **Scorecard**             | `.github/workflows/scorecard.yml`                | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                                                             |
+| **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                                                |
+| **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
+| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                                                            |
+| **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | daily, manual                            | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
+| **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                                                   |
+| **VS Code extension**     | `.github/workflows/extension-vscode-release.yml` | tag `vscode-v*.*.*` + manual dry-run     | Package + publish `restura-vscode` to the VS Code Marketplace + Open VSX; attach `.vsix` to a GitHub release.                                                           |
+| **Chrome extension**      | `.github/workflows/extension-chrome-release.yml` | tag `chrome-v*.*.*` + manual dry-run     | Build + zip the MV3 bundle, upload to the Chrome Web Store; attach `.zip` to a GitHub release.                                                                          |
 
 > Releases are **never** cut on merge to `main`. Production ships only from a
 > manually-dispatched **Release** run (desktop/web/CLI) or a pushed `*-v*` tag
@@ -216,6 +217,32 @@ For an extra approval gate on the production Cloudflare deploy, create a
 **Settings → Environments → `production`** environment with **required
 reviewers**, then add `environment: production` to the `deploy-web` job in
 `release.yml`. The job will then pause for manual approval before deploying.
+
+### 8. OpenWiki documentation updates
+
+`openwiki-update.yml` runs [OpenWiki](https://github.com/langchain-ai/openwiki)
+daily to keep `openwiki/` — the machine-readable docs coding agents reference —
+in sync with recent commits. It opens a PR rather than pushing directly.
+
+- ✅ Set **`OPENROUTER_API_KEY`** in **Settings → Secrets and variables →
+  Actions**. This is the only required secret; the workflow defaults
+  `OPENWIKI_MODEL_ID` to `deepseek/deepseek-v4-pro` (1M context, cheaper on
+  both input and output than OpenWiki's own `z-ai/glm-5.2` default — chosen
+  for price; edit the `env:` block in the workflow to point at a different
+  model or provider, e.g. `deepseek/deepseek-v4-flash` for an even cheaper,
+  lower-fidelity run).
+- ✅ **Settings → Actions → General → Workflow permissions → "Allow GitHub
+  Actions to create and approve pull requests"** — on. `peter-evans/create-pull-request`
+  uses the default `GITHUB_TOKEN` to open the PR; without this setting the step
+  fails with a `GitHub Actions is not permitted to create or approve pull
+requests` error.
+- The workflow only ever touches `openwiki/` (`add-paths: openwiki`) and opens
+  against a stable `openwiki/update` branch, so repeated runs update the same
+  PR instead of piling up new ones.
+- First run must be a manual **Actions → OpenWiki Update → Run workflow**
+  dispatch (or `openwiki --init` run locally and committed) to seed the
+  `openwiki/` directory — the daily job only handles incremental `--update`
+  diffs.
 
 ---
 
