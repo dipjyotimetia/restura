@@ -226,8 +226,11 @@ in sync with recent commits. It opens a PR rather than pushing directly.
 
 - ✅ Set **`OPENROUTER_API_KEY`** in **Settings → Secrets and variables →
   Actions**. This is the only required secret; the workflow defaults
-  `OPENWIKI_MODEL_ID` to an OpenRouter-hosted model (edit the `env:` block in
-  the workflow to point at a different model or provider).
+  `OPENWIKI_MODEL_ID` to `deepseek/deepseek-v4-pro` (1M context, cheaper on
+  both input and output than OpenWiki's own `z-ai/glm-5.2` default — chosen
+  for price; edit the `env:` block in the workflow to point at a different
+  model or provider, e.g. `deepseek/deepseek-v4-flash` for an even cheaper,
+  lower-fidelity run).
 - ✅ **Settings → Actions → General → Workflow permissions → "Allow GitHub
   Actions to create and approve pull requests"** — on. `peter-evans/create-pull-request`
   uses the default `GITHUB_TOKEN` to open the PR; without this setting the step

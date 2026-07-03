@@ -43,8 +43,12 @@ jobs:
           # OpenRouter is the only configured provider — swap this block to
           # point at OpenAI/Anthropic/Fireworks/Baseten instead. See
           # https://github.com/langchain-ai/openwiki for the full provider list.
+          # deepseek-v4-pro: 1M context, ~$0.44/$0.87 per M tok (in/out) on
+          # OpenRouter as of Jul 2026 — cheaper on both legs and a larger
+          # context window than OpenWiki's z-ai/glm-5.2 default. Drop to
+          # deepseek/deepseek-v4-flash for a ~5x cheaper, lower-fidelity run.
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENWIKI_MODEL_ID: z-ai/glm-5.2
+          OPENWIKI_MODEL_ID: deepseek/deepseek-v4-pro
 
       - name: Create OpenWiki update pull request
         uses: peter-evans/create-pull-request@v7
