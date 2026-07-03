@@ -48,6 +48,13 @@ AWS SigV4, OAuth 1.0a, and WSSE are all signed in the **Worker / Electron main p
 
 `shared/protocol/header-policy.ts` strips hop-by-hop headers (`Connection`, `Keep-Alive`, `Proxy-Authenticate`, `Transfer-Encoding`, `TE`, `Trailers`, `Upgrade`) from both directions and rejects header names with control characters.
 
+## Renderer lockdown (desktop)
+
+The Electron renderer is sandboxed (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and pinned down by two policies in `electron/main/main.ts`:
+
+- **Default-deny web permissions** — `setPermissionRequestHandler`/`setPermissionCheckHandler` on the default session reject every web-platform permission except `clipboard-sanitized-write` (copy buttons). Everything privileged goes through the validated IPC surface instead. Growing the allowlist is an explicit, test-guarded change ([ADR 0026](/architecture/adrs/0026-electron-csp-and-permission-hardening/)).
+- **CSP** — production loads enforce `default-src 'self' file:` with `object-src 'none'`, `worker-src 'self' file:`, `wasm-unsafe-eval` only (QuickJS), and no `unsafe-eval`. The policy exists twice — a response header in `electron/main/main.ts` and a `<meta>` fallback injected at build time in `vite.config.mts` — and a structural test (`electron/main/__tests__/security-hardening.test.ts`) fails if the two ever diverge.
+
 ## Scripts
 
 Pre-request and test scripts run in a **QuickJS WASM sandbox** (`src/features/scripts/lib/scriptExecutor.ts`):

@@ -16,6 +16,7 @@ import { SAFE_OPEN_PROTOCOLS, createValidatedHandler, NoInputSchema } from './ip
 import { bindLimiterToWebContents } from './ipc/rate-limiter-cleanup';
 import { createApplicationMenu } from './lifecycle/menu';
 import { notificationRateLimiter } from './notifications';
+import { secretRateLimiter } from './security/secret-handle-store';
 
 const log = createLogger('window-manager');
 
@@ -226,6 +227,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       kafkaRateLimiter,
       gitRateLimiter,
       notificationRateLimiter,
+      secretRateLimiter,
     ],
     mainWindow.webContents
   );

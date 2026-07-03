@@ -108,18 +108,13 @@ export function createBindingRateLimiter(
   return { middleware };
 }
 
-/** Backwards-compatible alias — legacy isolate limiter constructor. */
+// Per-isolate sliding window. Good enough for burst protection; for cross-datacenter
+// enforcement provision a Cloudflare Rate Limiting namespace instead.
 export function createIsolateRateLimiter(
   maxRequests = 100,
   windowMs = 60_000,
   pruneIntervalMs = 5_000
 ) {
-  return createRateLimiter(maxRequests, windowMs, pruneIntervalMs);
-}
-
-// Per-isolate sliding window. Good enough for burst protection; for cross-datacenter
-// enforcement provision a Cloudflare Rate Limiting namespace instead.
-export function createRateLimiter(maxRequests = 100, windowMs = 60_000, pruneIntervalMs = 5_000) {
   const requestLog = new Map<string, number[]>();
   let lastPrune = 0;
 

@@ -195,7 +195,11 @@ function registerIPCHandlers(): void {
   for (const mod of IPC_MODULES) mod.register();
 }
 
-// Setup Content Security Policy for production
+// Setup Content Security Policy for production.
+// NOTE: this policy is mirrored by the <meta> CSP fallback injected at build
+// time in vite.config.mts (ELECTRON_RENDERER_CSP) — keep the two in sync.
+// connect-src stays broad ('self' https: wss:) deliberately: the renderer
+// talks directly to https origins in web-mode transport paths and Sentry.
 function setupContentSecurityPolicy(): void {
   if (!isDev) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -209,6 +213,10 @@ function setupContentSecurityPolicy(): void {
               "img-src 'self' data: file: https:; " +
               "font-src 'self' data: file:; " +
               "connect-src 'self' https: wss:; " +
+              // Monaco workers are Vite `?worker` chunks loaded same-origin
+              // (src/lib/shared/monaco-setup.ts) — no blob: needed.
+              "worker-src 'self' file:; " +
+              "object-src 'none'; " +
               "frame-ancestors 'none'; " +
               "base-uri 'self'; " +
               "form-action 'self';",
@@ -217,6 +225,28 @@ function setupContentSecurityPolicy(): void {
       });
     });
   }
+}
+
+/**
+ * Default-deny web permission handlers. Electron grants many permission
+ * requests by default; the renderer needs almost none of them — every
+ * privileged operation (notifications, filesystem, network) goes through the
+ * validated IPC surface instead. The only web-platform permission the app
+ * uses is `clipboard-sanitized-write` (navigator.clipboard.writeText behind
+ * the copy buttons). Applied in dev and prod alike — unlike the CSP there is
+ * no HMR reason to relax this.
+ */
+const ALLOWED_WEB_PERMISSIONS: ReadonlySet<string> = new Set(['clipboard-sanitized-write']);
+
+function setupPermissionHandlers(): void {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    const allowed = ALLOWED_WEB_PERMISSIONS.has(permission);
+    if (!allowed) log.warn('permission request denied', { permission });
+    callback(allowed);
+  });
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    return ALLOWED_WEB_PERMISSIONS.has(permission);
+  });
 }
 
 // Setup security measures
@@ -286,6 +316,7 @@ app.whenReady().then(async () => {
   }
 
   setupContentSecurityPolicy();
+  setupPermissionHandlers();
   registerIPCHandlers();
   registerTelemetryConsentIPC();
 

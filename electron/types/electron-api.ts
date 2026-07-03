@@ -54,12 +54,14 @@ interface ElectronFSAPI {
 }
 
 interface ElectronAppAPI {
+  // Keep in sync with AppPathNameSchema in electron/main/ipc/ipc-validators.ts.
   getPath: (
     name:
       | 'home'
       | 'appData'
       | 'userData'
       | 'sessionData'
+      | 'cache'
       | 'temp'
       | 'exe'
       | 'module'

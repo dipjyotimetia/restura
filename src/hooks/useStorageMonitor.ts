@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import { getDexieStorageStats } from '@/lib/shared/dexie-storage';
 import { useHistoryStore } from '@/store/useHistoryStore';
 
@@ -127,7 +128,8 @@ export function useStorageMonitor(options: UseStorageMonitorOptions = {}) {
       const toRemove = Math.max(10, Math.floor(history.length * 0.2));
       const removed = pruneOldHistory(toRemove);
       if (removed > 0) {
-        console.log(`Auto-pruned ${removed} old history items to free up storage`);
+        // Data was silently deleted on the user's behalf — surface it.
+        toast.info(`Storage almost full — removed ${removed} oldest history items to free space`);
         await checkStorage(); // Recheck after pruning
       }
     }

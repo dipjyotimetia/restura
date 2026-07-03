@@ -42,7 +42,67 @@ const hoppHeader = z
 
 const hoppParam = hoppHeader;
 
-const hoppRequest: z.ZodType<unknown> = z
+type HoppKeyValue = z.infer<typeof hoppHeader>;
+
+// Body/auth arrive as loose objects at the request level (permissive parse —
+// a malformed body must not fail the whole import). The converters below
+// re-parse them against these structured schemas and fall back to a warning.
+const hoppBody = z
+  .object({
+    contentType: z.string().nullable().optional(),
+    body: z.unknown().optional(),
+  })
+  .passthrough();
+
+const hoppFormEntry = z
+  .object({
+    key: z.string().optional(),
+    value: z.string().optional(),
+    active: z.boolean().optional(),
+    isFile: z.boolean().optional(),
+  })
+  .passthrough();
+
+const hoppAuth = z
+  .object({
+    authType: z.string().optional(),
+    authActive: z.boolean().optional(),
+    username: z.string().optional(),
+    password: z.string().optional(),
+    token: z.string().optional(),
+    key: z.string().optional(),
+    value: z.string().optional(),
+    addTo: z.string().optional(),
+    grantType: z.string().optional(),
+    clientID: z.string().optional(),
+    clientSecret: z.string().optional(),
+    authURL: z.string().optional(),
+    accessTokenURL: z.string().optional(),
+    scope: z.string().optional(),
+    accessKey: z.string().optional(),
+    secretKey: z.string().optional(),
+    region: z.string().optional(),
+    serviceName: z.string().optional(),
+  })
+  .passthrough();
+
+interface HoppRequest {
+  v?: string | number;
+  name: string;
+  method: string;
+  endpoint?: string;
+  url?: string;
+  headers: HoppKeyValue[];
+  params: HoppKeyValue[];
+  body?: Record<string, unknown>;
+  auth?: Record<string, unknown>;
+  preRequestScript: string;
+  testScript: string;
+  description?: string | null;
+  requestVariables?: Record<string, unknown>[];
+}
+
+const hoppRequest: z.ZodType<HoppRequest> = z
   .object({
     v: z.union([z.string(), z.number()]).optional(),
     name: z.string(),
@@ -51,16 +111,25 @@ const hoppRequest: z.ZodType<unknown> = z
     url: z.string().optional(),
     headers: z.array(hoppHeader).default([]),
     params: z.array(hoppParam).default([]),
-    body: z.object({}).passthrough().optional(),
-    auth: z.object({}).passthrough().optional(),
+    body: z.record(z.string(), z.unknown()).optional(),
+    auth: z.record(z.string(), z.unknown()).optional(),
     preRequestScript: z.string().default(''),
     testScript: z.string().default(''),
     description: z.string().nullable().optional(),
-    requestVariables: z.array(z.object({}).passthrough()).optional(),
+    requestVariables: z.array(z.record(z.string(), z.unknown())).optional(),
   })
   .passthrough();
 
-const hoppCollection: z.ZodType<unknown> = z.lazy(() =>
+interface HoppCollection {
+  v?: string | number;
+  name: string;
+  preRequestScript: string;
+  testScript: string;
+  folders: HoppCollection[];
+  requests: HoppRequest[];
+}
+
+const hoppCollection: z.ZodType<HoppCollection> = z.lazy(() =>
   z
     .object({
       v: z.union([z.string(), z.number()]).optional(),
@@ -95,9 +164,6 @@ const hoppEnvironment = z
     ),
   })
   .passthrough();
-
-// Internal — `passthrough` keeps unknown fields, so we work with `any` after parse.
-/* eslint-disable @typescript-eslint/no-explicit-any -- intentional: Hoppscotch fields are loosely typed */
 
 export function isHoppscotchEnvironment(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
@@ -140,31 +206,35 @@ export function importHoppscotchCollection(data: unknown): ImportResult {
     throw new Error(`Invalid Hoppscotch collection: ${formatZodIssues(r.error)}`);
   }
   const warnings: ImportWarning[] = [];
-  const root = r.data as any;
+  const root = r.data;
   const collection: Collection = {
     id: uuid(),
     name: root.name,
     items: [
-      ...root.folders.map((f: any) => folderToItem(f, warnings)),
-      ...root.requests.map((rq: any) => requestToItem(rq, root, warnings)),
+      ...root.folders.map((f) => folderToItem(f, warnings)),
+      ...root.requests.map((rq) => requestToItem(rq, root, warnings)),
     ],
   };
   return { collection, warnings };
 }
 
-function folderToItem(folder: any, warnings: ImportWarning[]): CollectionItem {
+function folderToItem(folder: HoppCollection, warnings: ImportWarning[]): CollectionItem {
   return {
     id: uuid(),
     name: folder.name,
     type: 'folder',
     items: [
-      ...folder.folders.map((f: any) => folderToItem(f, warnings)),
-      ...folder.requests.map((rq: any) => requestToItem(rq, folder, warnings)),
+      ...folder.folders.map((f) => folderToItem(f, warnings)),
+      ...folder.requests.map((rq) => requestToItem(rq, folder, warnings)),
     ],
   };
 }
 
-function requestToItem(rq: any, parent: any, warnings: ImportWarning[]): CollectionItem {
+function requestToItem(
+  rq: HoppRequest,
+  parent: HoppCollection,
+  warnings: ImportWarning[]
+): CollectionItem {
   return {
     id: uuid(),
     name: rq.name,
@@ -173,12 +243,16 @@ function requestToItem(rq: any, parent: any, warnings: ImportWarning[]): Collect
   };
 }
 
-function requestToInternal(rq: any, parent: any, warnings: ImportWarning[]): HttpRequest {
-  const url: string = rq.endpoint ?? rq.url ?? '';
-  const collectionPre: string = parent.preRequestScript ?? '';
-  const collectionTest: string = parent.testScript ?? '';
-  const reqPre: string = rq.preRequestScript ?? '';
-  const reqTest: string = rq.testScript ?? '';
+function requestToInternal(
+  rq: HoppRequest,
+  parent: HoppCollection,
+  warnings: ImportWarning[]
+): HttpRequest {
+  const url = rq.endpoint ?? rq.url ?? '';
+  const collectionPre = parent.preRequestScript ?? '';
+  const collectionTest = parent.testScript ?? '';
+  const reqPre = rq.preRequestScript ?? '';
+  const reqTest = rq.testScript ?? '';
   const combinedPre = combineScripts(collectionPre, reqPre);
   const combinedTest = combineScripts(collectionTest, reqTest);
   return {
@@ -216,8 +290,24 @@ function toKv(h: { key: string; value: string; active?: boolean; description?: s
   };
 }
 
-function hoppBodyToInternal(body: any, name: string, warnings: ImportWarning[]): RequestBody {
-  if (!body) return { type: 'none' };
+/** Narrow one loose form-data entry; malformed entries degrade to empty fields. */
+function toFormEntry(raw: unknown): z.infer<typeof hoppFormEntry> {
+  const parsed = hoppFormEntry.safeParse(raw);
+  return parsed.success ? parsed.data : {};
+}
+
+function hoppBodyToInternal(
+  rawBody: Record<string, unknown> | undefined,
+  name: string,
+  warnings: ImportWarning[]
+): RequestBody {
+  if (!rawBody) return { type: 'none' };
+  const parsed = hoppBody.safeParse(rawBody);
+  if (!parsed.success) {
+    warnings.push({ kind: 'unrecognized-body', requestName: name });
+    return { type: 'none' };
+  }
+  const body = parsed.data;
   const ct = String(body.contentType ?? '').toLowerCase();
   if (ct.includes('json')) {
     return {
@@ -232,7 +322,8 @@ function hoppBodyToInternal(body: any, name: string, warnings: ImportWarning[]):
     return { type: 'text', raw: typeof body.body === 'string' ? body.body : '' };
   }
   if (ct.includes('form-urlencoded')) {
-    const formData = (body.body ?? []).map((p: any) => ({
+    const entries = Array.isArray(body.body) ? body.body : [];
+    const formData = entries.map(toFormEntry).map((p) => ({
       id: uuid(),
       key: p.key ?? '',
       value: p.value ?? '',
@@ -242,7 +333,8 @@ function hoppBodyToInternal(body: any, name: string, warnings: ImportWarning[]):
     return { type: 'x-www-form-urlencoded', formData };
   }
   if (ct.includes('multipart')) {
-    const formData = (body.body ?? []).map((p: any) => ({
+    const entries = Array.isArray(body.body) ? body.body : [];
+    const formData = entries.map(toFormEntry).map((p) => ({
       id: uuid(),
       key: p.key ?? '',
       value: p.value ?? '',
@@ -258,8 +350,23 @@ function hoppBodyToInternal(body: any, name: string, warnings: ImportWarning[]):
   return { type: 'none' };
 }
 
-function hoppAuthToInternal(auth: any, name: string, warnings: ImportWarning[]): AuthConfig {
-  if (!auth || auth.authType === 'none' || auth.authActive === false) return { type: 'none' };
+function hoppAuthToInternal(
+  rawAuth: Record<string, unknown> | undefined,
+  name: string,
+  warnings: ImportWarning[]
+): AuthConfig {
+  if (!rawAuth) return { type: 'none' };
+  const parsed = hoppAuth.safeParse(rawAuth);
+  if (!parsed.success) {
+    warnings.push({
+      kind: 'unsupported-auth',
+      authType: String(rawAuth.authType ?? 'unknown'),
+      requestName: name,
+    });
+    return { type: 'none' };
+  }
+  const auth = parsed.data;
+  if (auth.authType === 'none' || auth.authActive === false) return { type: 'none' };
   switch (auth.authType) {
     case 'basic':
       return {
@@ -331,5 +438,3 @@ function mapHoppGrant(
       return undefined;
   }
 }
-
-/* eslint-enable @typescript-eslint/no-explicit-any */

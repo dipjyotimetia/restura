@@ -182,7 +182,16 @@ export async function convertInlineSecretsToHandles(
             : null;
       if (plaintext === null || plaintext === '') continue;
       const label = `${labelPrefix}/${method}.${field}`;
-      const result = await api.secrets.store({ value: plaintext, label });
+      // A rejected invoke (e.g. the secret channel's rate limit on a very
+      // large import burst) must degrade exactly like `!result.ok`: keep the
+      // inline value and move on. Letting it throw would abort the whole
+      // import via Promise.all and orphan every handle already stored.
+      let result: { ok: true; id: string } | { ok: false; error: string };
+      try {
+        result = await api.secrets.store({ value: plaintext, label });
+      } catch (err) {
+        result = { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
       if (result.ok) {
         block[field] = { kind: 'handle', id: result.id, label };
       }

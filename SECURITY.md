@@ -81,7 +81,8 @@ Send an email to the project maintainers with:
 - **Sandbox**: Renderer process sandboxed
 - **File Operations**: Path validation prevents path traversal attacks
 - **File Size Limits**: 50MB maximum for file operations
-- **Content Security Policy**: Strict CSP without unsafe-eval
+- **Content Security Policy**: Strict CSP without unsafe-eval; `object-src 'none'` and `worker-src 'self' file:` pinned, enforced identically as a response header (`electron/main/main.ts`) and a `<meta>` fallback (`vite.config.mts`) with a structural test guarding their parity
+- **Web Permissions**: Default-deny — `setPermissionRequestHandler`/`setPermissionCheckHandler` reject every web permission except `clipboard-sanitized-write`
 - **macOS Notarization**: Enabled for signed releases
 - **Hardened Runtime**: Enabled on macOS
 
@@ -122,17 +123,16 @@ Restura implements comprehensive URL validation to prevent Server-Side Request F
 - **Collections**: Stored in browser IndexedDB (via Dexie) on web, or encrypted electron-store on desktop
 - **Environment Variables**: Stored locally, can contain sensitive data
 - **Request History**: Stored locally
-- **Credentials**: Stored with optional encryption using AES-GCM (Web Crypto API)
-- **Encryption available**: `src/lib/encryption.ts` provides secure encryption utilities
+- **Credentials**: On desktop, secret-bearing auth fields use `SecretRef` handles — plaintext lives only in the main-process handle store (electron-store sealed via `safeStorage`/OS keychain) and is resolved at wire-signing time, never in the renderer (ADR-0007)
+- **Encryption available**: `src/lib/shared/encryption.ts` provides AES-GCM helpers used by the encrypted Dexie storage adapter
 
 **Security Features**:
 
 - Web Crypto API for AES-GCM encryption
 - PBKDF2 key derivation (100,000 iterations)
 - Random salt and IV per encryption operation
-- Automatic detection of sensitive fields
 
-**Recommendation**: Be cautious with sensitive data in requests. Consider using environment variables for secrets and clearing history regularly. Enable encryption for sensitive credentials.
+**Recommendation**: Be cautious with sensitive data in requests. Consider using environment variables for secrets and clearing history regularly. Store desktop credentials as secret handles rather than inline values.
 
 ### Proxy Support
 

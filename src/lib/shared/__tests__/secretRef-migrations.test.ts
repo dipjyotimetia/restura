@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { migrateAuthConfigToSecretRef } from '../secretRef-migrations';
 
 describe('migrateAuthConfigToSecretRef', () => {
@@ -180,5 +180,41 @@ describe('migrateAuthConfigToSecretRef', () => {
     expect(innerReq.auth.bearer.token).toEqual({ kind: 'inline', value: 'inner-token' });
     const outerReq = migrated.items![1]!.request as { auth: { basic: { password: unknown } } };
     expect(outerReq.auth.basic.password).toEqual({ kind: 'inline', value: 'p' });
+  });
+});
+
+describe('convertInlineSecretsToHandles — IPC failure degradation', () => {
+  it('keeps the inline value when secrets.store rejects (e.g. rate limit) instead of aborting', async () => {
+    vi.resetModules();
+    // First store call succeeds, second rejects mid-conversion — the helper
+    // must keep converting field-by-field, not throw and abort the caller's
+    // Promise.all (which would orphan already-stored handles).
+    const store = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, id: 'handle-1' })
+      .mockRejectedValueOnce(new Error('Rate limit exceeded'));
+    vi.doMock('../platform', () => ({
+      isElectron: () => true,
+      getElectronAPI: () => ({ secrets: { store } }),
+    }));
+    const { convertInlineSecretsToHandles } = await import('../secretRef-migrations');
+
+    const auth = {
+      type: 'oauth2' as const,
+      oauth2: { accessToken: 'tok-a', clientSecret: 'sec-b' },
+    };
+    const result = await convertInlineSecretsToHandles(auth, 'col/req');
+
+    expect(store).toHaveBeenCalledTimes(2);
+    const oauth2 = result!.oauth2 as Record<string, unknown>;
+    // First field converted to a handle…
+    expect(oauth2.accessToken).toEqual({
+      kind: 'handle',
+      id: 'handle-1',
+      label: 'col/req/oauth2.accessToken',
+    });
+    // …second kept inline after the rejected invoke (no throw, no data loss).
+    expect(oauth2.clientSecret).toBe('sec-b');
+    vi.doUnmock('../platform');
   });
 });
