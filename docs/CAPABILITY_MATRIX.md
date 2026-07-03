@@ -20,6 +20,8 @@ rather than discover it experimentally.
 | Manual redirect handling | ✅ | ✅ |  |
 | DNS-pinning SSRF guard | ❌ | ✅ | Browser fetch resolves DNS opaquely |
 | TLS cipher suite + server-order control | ❌ | ✅ | No per-request TLS handshake control in Cloudflare Workers / browsers |
+| Incremental HTTP response streaming | ✅ | ❌ | Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path) |
+| Load / performance testing | ✅ | ✅ | Fidelity differs: web is capped by ~6 browser connections per origin and the Worker proxy rate limit (100 req/min); desktop by the IPC rate budget. Results above those budgets include self-inflicted throttling |
 | WebSocket connect | ✅ | ✅ |  |
 | WebSocket custom request headers | ✅ | ✅ | Web build proxies through /api/ws-ticket → /api/ws since browser WS API forbids headers |
 | WS through Worker (SSRF gate, header policy) | ✅ | ❌ | Desktop uses Node ws directly with the same guards |
