@@ -23,6 +23,7 @@ import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import { isElectron } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
 import { executeProxiedRequest } from '@/lib/shared/transport';
+import { buildValueMap } from '@/lib/shared/variableScopes';
 import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import { useActiveRequest } from '@/store/selectors';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -127,10 +128,7 @@ export function useHttpRequestPage() {
       const collection = savedRequestId
         ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
         : undefined;
-      const collectionVars: Record<string, string> = {};
-      (collection?.variables ?? []).forEach((v) => {
-        if (v.enabled && v.key) collectionVars[v.key] = v.value;
-      });
+      const collectionVars = buildValueMap({ collection: collection?.variables });
       const collectionVarsMutations: Record<string, string | null> = {};
       const applyCollectionMutations = (mutations?: Record<string, string | null>) => {
         if (!mutations) return;

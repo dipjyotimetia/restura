@@ -25,13 +25,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { makeProxyGrpcRequest, makeElectronGrpcRequest } from './lib/grpcClient';
 import type { ProtocolModule } from '@/features/registry/types';
 import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
+import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
+import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
-import type {
-  ScriptResult,
-  PmRequestInfo,
-  PmExecutionLocation,
-} from '@/features/scripts/lib/scriptExecutor';
+import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
@@ -64,7 +62,7 @@ function defaultResolveVariables(text: string, vars: Record<string, string>): st
   return result;
 }
 
-interface GrpcProtocolOptions {
+interface GrpcProtocolOptions extends PmRunContextOptions {
   /** Raw proto file contents (uploaded `.proto`; or reconstructed fallback). */
   protoContent?: string;
   /** Proto file name for Electron logging / cache keying. */
@@ -75,19 +73,11 @@ interface GrpcProtocolOptions {
   timeoutMs?: number;
   /** Send gzip-compressed payloads (Electron only — web path ignores). */
   useCompression?: boolean;
-  /** Collection-scoped variables, backing `pm.collectionVariables` (collection runner). */
-  collectionVars?: Record<string, string>;
-  /** Current iteration's data-row, backing `pm.iterationData` (collection runner). */
-  iterationData?: Record<string, string>;
-  /** `pm.info` metadata (collection runner). */
-  info?: Pick<PmRequestInfo, 'iteration' | 'iterationCount'>;
-  /** `pm.execution.location` metadata (collection/folder run context). */
-  location?: PmExecutionLocation;
 }
 
 function readProtocolOptions(raw: Record<string, unknown> | undefined): GrpcProtocolOptions {
   if (!raw) return {};
-  const out: GrpcProtocolOptions = {};
+  const out: GrpcProtocolOptions = readPmRunContextOptions(raw);
   if (typeof raw.protoContent === 'string') out.protoContent = raw.protoContent;
   if (typeof raw.protoFileName === 'string') out.protoFileName = raw.protoFileName;
   if (Array.isArray(raw.descriptors) && raw.descriptors.every((d) => typeof d === 'string')) {
@@ -95,18 +85,6 @@ function readProtocolOptions(raw: Record<string, unknown> | undefined): GrpcProt
   }
   if (typeof raw.timeoutMs === 'number') out.timeoutMs = raw.timeoutMs;
   if (typeof raw.useCompression === 'boolean') out.useCompression = raw.useCompression;
-  if (raw.collectionVars && typeof raw.collectionVars === 'object') {
-    out.collectionVars = raw.collectionVars as Record<string, string>;
-  }
-  if (raw.iterationData && typeof raw.iterationData === 'object') {
-    out.iterationData = raw.iterationData as Record<string, string>;
-  }
-  if (raw.info && typeof raw.info === 'object') {
-    out.info = raw.info as Pick<PmRequestInfo, 'iteration' | 'iterationCount'>;
-  }
-  if (raw.location && typeof raw.location === 'object') {
-    out.location = raw.location as PmExecutionLocation;
-  }
   return out;
 }
 

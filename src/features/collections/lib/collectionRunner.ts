@@ -4,6 +4,8 @@ import type { RunnableRequest } from './flattenRunnables';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
+import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
+import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { Collection, Request, Response as ApiResponse } from '@/types';
 
@@ -179,16 +181,15 @@ export async function runCollection(
   // and `pm.variables`). Mutations persist to `useCollectionStore` as they
   // happen, so later requests in the SAME run (and future runs) see them,
   // matching Postman's collection-runner semantics.
-  const collectionVars: Record<string, string> = {};
-  (collection.variables ?? []).forEach((v) => {
-    if (v.enabled && v.key) collectionVars[v.key] = v.value;
-  });
-  const applyCollectionMutations = (mutations: Record<string, string | null> | undefined) => {
-    if (!mutations || Object.keys(mutations).length === 0) return;
-    for (const [k, v] of Object.entries(mutations)) {
-      if (v === null) delete collectionVars[k];
-      else collectionVars[k] = v;
-    }
+  const collectionVars = buildValueMap({ collection: collection.variables });
+  // Persist at most once per request (merging both script phases, test wins
+  // on conflict) rather than once per phase — `applyCollectionVarMutations`
+  // rewrites the entire persisted (encrypted, IndexedDB-backed) collections
+  // tree, so halving the call count halves that cost on every request that
+  // touches `pm.collectionVariables` in both its pre-request and test script.
+  const persistCollectionMutations = (mutations: Record<string, string | null>) => {
+    if (Object.keys(mutations).length === 0) return;
+    applyVarMutations(collectionVars, mutations);
     useCollectionStore.getState().applyCollectionVarMutations(collection.id, mutations);
   };
 
@@ -288,6 +289,7 @@ export async function runCollection(
 
         // Aggregate pm.test() assertions from both script phases.
         const assertions: RunnerAssertion[] = [];
+        const collectionMutations: Record<string, string | null> = {};
         for (const phase of [scripts?.preRequest, scripts?.test]) {
           if (phase?.tests) {
             for (const t of phase.tests) {
@@ -300,11 +302,15 @@ export async function runCollection(
           }
           // Carry-forward pm.variables.set() mutations into the iteration map.
           if (phase?.variables) Object.assign(allVars, phase.variables);
-          // Persist pm.collectionVariables.set/unset mutations — later
-          // requests in this run (and future runs) see the updated value.
-          applyCollectionMutations(phase?.collectionMutations);
+          // Merge pm.collectionVariables.set/unset mutations from both phases
+          // (test wins on conflict) — persisted once below, not per phase.
+          if (phase?.collectionMutations)
+            Object.assign(collectionMutations, phase.collectionMutations);
         }
         result.assertions = assertions;
+        // Persist merged pm.collectionVariables mutations — later requests
+        // in this run (and future runs) see the updated value.
+        persistCollectionMutations(collectionMutations);
 
         const scriptError = [scripts?.preRequest, scripts?.test]
           .flatMap((p) => p?.errors ?? [])

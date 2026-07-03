@@ -6,6 +6,7 @@ import { applyFilters, type FilterOptions } from './filter.js';
 import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
 import { runPreRequestScript, runTestScript, type RunScriptResult } from './scriptRunner.js';
 import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
+import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 
 export interface RunOptions {
   envVars: Record<string, string>;
@@ -64,13 +65,8 @@ export async function runCollection(
       collectionVars[v.key] = v.value;
     }
   }
-  const applyCollectionMutations = (mutations: Record<string, string | null> | undefined) => {
-    if (!mutations) return;
-    for (const [k, v] of Object.entries(mutations)) {
-      if (v === null) delete collectionVars[k];
-      else collectionVars[k] = v;
-    }
-  };
+  const applyCollectionMutations = (mutations: Record<string, string | null> | undefined) =>
+    applyVarMutations(collectionVars, mutations);
 
   const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
 
