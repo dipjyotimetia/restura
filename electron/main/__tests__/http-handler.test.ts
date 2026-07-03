@@ -99,7 +99,7 @@ describe('http-handler (registration/policy surface)', () => {
     const { event, senderId } = makeEvent();
     try {
       let guard = 0;
-      while (httpRateLimiter.check(senderId) && guard++ < 1000) {
+      while (httpRateLimiter.check(senderId) && guard++ < 10_000) {
         /* drain the sender's bucket */
       }
       // rateLimited() wraps the validated handler, so the drained bucket
