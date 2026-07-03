@@ -442,6 +442,41 @@ function SwitchInspector({
       ...d,
       cases: d.cases.map((x, xi) => (xi === i ? { ...x, ...patch } : x)),
     }));
+  const setWorkflowSubgraph = useWorkflowStore((s) => s.setWorkflowSubgraph);
+  const workflows = useWorkflowStore((s) => s.workflows);
+  // `update`/`useUpdateNode` only rewrites `nodes` — removing a case here
+  // also needs to prune any edge wired to that case's handle, or it lingers
+  // as permanently-unreachable dead wiring (dagExecutor's routing only ever
+  // matches handles still present in `cases`) that's only caught as an
+  // opaque "stale wiring?" validation error at Run time, with no indication
+  // in the editor of which case/edge is at fault.
+  const removeCase = (i: number) => {
+    const removedId = node.data.cases[i]?.id;
+    const wf = workflows.find((w) => w.id === workflow.id);
+    const slice = wf?.graph
+      ? subgraphPath.length === 0
+        ? wf.graph
+        : selectAtPath(wf.graph, subgraphPath)
+      : null;
+    if (!slice) return;
+    setWorkflowSubgraph(workflow.id, subgraphPath, {
+      ...slice,
+      nodes: slice.nodes.map((n) =>
+        n.id === node.id
+          ? {
+              ...(n as SwitchFlowNode),
+              data: {
+                ...(n as SwitchFlowNode).data,
+                cases: (n as SwitchFlowNode).data.cases.filter((_, xi) => xi !== i),
+              },
+            }
+          : n
+      ),
+      edges: removedId
+        ? slice.edges.filter((e) => !(e.source === node.id && e.sourceHandle === removedId))
+        : slice.edges,
+    });
+  };
 
   return (
     <>
@@ -496,12 +531,7 @@ function SwitchInspector({
                   size="sm"
                   variant="ghost"
                   className="h-7 w-7 p-0 flex-shrink-0"
-                  onClick={() =>
-                    update((d) => ({
-                      ...d,
-                      cases: d.cases.filter((_, xi) => xi !== i),
-                    }))
-                  }
+                  onClick={() => removeCase(i)}
                 >
                   <Trash2 className="h-3 w-3" />
                 </Button>

@@ -96,6 +96,19 @@ interface FlowCanvasProps {
   commit: (next: WorkflowGraph) => void;
   selectedNodeId: string | null;
   onSelectionChange: (nodeId: string | null) => void;
+  /**
+   * Whether `workflow.graph` has actually been persisted yet. `false`
+   * only at the top level before any real edit — `graph` is then a
+   * synthesised, in-memory view derived from `requests[]` (see
+   * FlowEditor's `renderedGraph`). React Flow's initial `fitView` fires
+   * `onMoveEnd` on mount purely from rendering that synthesised view;
+   * committing that viewport-only change would silently materialise
+   * (and persist) a graph just from opening the tab. Structural edits
+   * (add/move/connect/delete — the `commitLocal` calls below) always
+   * commit regardless, since those are genuine user intent to build a
+   * graph.
+   */
+  graphMaterialized: boolean;
 }
 
 function flowNodeToRf(node: FlowNode, workflowId: string): Node {
@@ -226,6 +239,7 @@ export default function FlowCanvas({
   commit,
   selectedNodeId,
   onSelectionChange,
+  graphMaterialized,
 }: FlowCanvasProps) {
   const addRequestNode = useWorkflowStore((s) => s.addRequestNode);
   const reactFlow = useReactFlow();
@@ -454,6 +468,10 @@ export default function FlowCanvas({
           ) {
             return;
           }
+          // Don't materialise a graph purely from panning/zooming (or the
+          // initial `fitView`) a synthesised view — only persist viewport
+          // once a real edit already created `workflow.graph`.
+          if (!graphMaterialized) return;
           commit({ ...graph, viewport });
         }}
         deleteKeyCode={['Backspace', 'Delete']}

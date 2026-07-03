@@ -35,6 +35,19 @@ export type {
   SubgraphPath,
 };
 
+/**
+ * Bumped when the persisted `WorkflowGraph` shape changes in a
+ * backward-incompatible way. There is currently NO migration path: this
+ * constant is only ever used to stamp brand-new graphs (here and in
+ * FlowCanvas's palette default), and `flowValidators.ts` hardcodes
+ * `version: z.literal(1)` rather than referencing it — nothing reads or
+ * upgrades an existing persisted graph's version at load time. Bumping
+ * this without first adding a migration step (e.g. in `workflowIO.ts`'s
+ * import path and wherever `useWorkflowStore` hydrates from storage) will
+ * hard-fail every previously-saved workflow's graph against the new Zod
+ * schema — validation, not silent corruption, but with no upgrade path
+ * offered to the user.
+ */
 export const CURRENT_GRAPH_VERSION = 1 as const;
 
 /**
