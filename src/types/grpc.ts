@@ -33,6 +33,18 @@ export interface GrpcRequest {
   auth: AuthConfig;
   preRequestScript?: string;
   testScript?: string;
+  /** Per-request timeout in ms. Defaults to 30000 when unset. */
+  timeoutMs?: number;
+  /** Total attempts (including the first) on a non-OK gRPC status. Defaults to 1 (no retry) when unset. */
+  retryMaxAttempts?: number;
+  /** Delay between retry attempts in ms. Defaults to 0 when unset. */
+  retryDelayMs?: number;
+  /** Send gzip-compressed payloads (Electron only — web path ignores). */
+  useCompression?: boolean;
+  /** Uploaded `.proto` file content (raw text), persisted so it survives tab switches and reloads. */
+  protoContent?: string;
+  /** Uploaded `.proto` file name, paired with `protoContent`. */
+  protoFileName?: string;
 }
 
 // gRPC Response (specialized for gRPC)

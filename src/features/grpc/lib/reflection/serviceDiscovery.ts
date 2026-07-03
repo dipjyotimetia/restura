@@ -1,6 +1,7 @@
 import { enumSchemaCache, messageSchemaCache } from './protoParser';
 import type { ServiceDescriptorProto } from './types';
 import type {
+  EnumSchema,
   FieldSchema,
   FieldType,
   MessageSchema,
@@ -317,6 +318,18 @@ function getProtoTypeName(type: FieldType): string {
   }
 }
 
+/**
+ * Reconstruct `.proto` text from a reflection result — lossy by nature (this
+ * is a display / web-Connect-path fallback; Electron prefers the raw
+ * descriptors, which are lossless). Enums referenced by a field are now
+ * declared, including ones nested inside a message and map-of-enum/message
+ * fields. Known remaining limitation: nested enums are flattened to top-level
+ * `enum` blocks using their short name rather than nested inside their
+ * parent `message`, so two different messages with same-named nested enums
+ * (e.g. both declaring an enum called `Status`) would collide in the
+ * generated text — rare in practice, and reflection descriptors/Electron are
+ * unaffected either way.
+ */
 export function generateProtoFromReflection(
   serviceName: string,
   serviceInfo: ReflectionServiceInfo
@@ -332,9 +345,24 @@ export function generateProtoFromReflection(
   }
 
   const messageTypes = new Set<string>();
+  const enumTypes = new Set<string>();
   for (const method of serviceInfo.methods) {
-    if (method.inputMessageSchema) collectMessageTypes(method.inputMessageSchema, messageTypes);
-    if (method.outputMessageSchema) collectMessageTypes(method.outputMessageSchema, messageTypes);
+    if (method.inputMessageSchema) {
+      collectMessageTypes(method.inputMessageSchema, messageTypes, enumTypes);
+    }
+    if (method.outputMessageSchema) {
+      collectMessageTypes(method.outputMessageSchema, messageTypes, enumTypes);
+    }
+  }
+
+  // Enums must be declared for every field that references them (via
+  // `TYPE_ENUM`) — collectMessageTypes walks fields of both kinds, so this
+  // covers enums nested inside messages, not just top-level ones.
+  for (const typeName of enumTypes) {
+    const enumSchema = enumSchemaCache.get(typeName);
+    if (enumSchema) {
+      lines.push(generateEnumDefinition(enumSchema), '');
+    }
   }
 
   for (const typeName of messageTypes) {
@@ -359,22 +387,57 @@ export function generateProtoFromReflection(
   return lines.join('\n');
 }
 
-function collectMessageTypes(schema: MessageSchema, types: Set<string>): void {
-  if (types.has(schema.fullName)) return;
-  types.add(schema.fullName);
+function collectMessageTypes(
+  schema: MessageSchema,
+  messageTypes: Set<string>,
+  enumTypes: Set<string>
+): void {
+  if (messageTypes.has(schema.fullName)) return;
+  messageTypes.add(schema.fullName);
 
   for (const field of schema.fields) {
     if (field.type === 'TYPE_MESSAGE' && field.typeName) {
       const nestedSchema = messageSchemaCache.get(field.typeName);
-      if (nestedSchema) collectMessageTypes(nestedSchema, types);
+      if (nestedSchema) collectMessageTypes(nestedSchema, messageTypes, enumTypes);
+    } else if (field.type === 'TYPE_ENUM' && field.typeName) {
+      enumTypes.add(field.typeName);
+    }
+    // Map fields carry their value type on `mapValue`, which can itself be a
+    // message or enum — walk it the same way so map-of-enum/map-of-message
+    // fields don't reference an undeclared type either.
+    if (field.mapValue?.type === 'TYPE_MESSAGE' && field.mapValue.typeName) {
+      const nestedSchema = messageSchemaCache.get(field.mapValue.typeName);
+      if (nestedSchema) collectMessageTypes(nestedSchema, messageTypes, enumTypes);
+    } else if (field.mapValue?.type === 'TYPE_ENUM' && field.mapValue.typeName) {
+      enumTypes.add(field.mapValue.typeName);
     }
   }
+}
+
+function generateEnumDefinition(schema: EnumSchema): string {
+  const lines: string[] = [`enum ${schema.name} {`];
+  for (const value of schema.values) {
+    lines.push(`  ${value.name} = ${value.number};`);
+  }
+  lines.push('}');
+  return lines.join('\n');
 }
 
 function generateMessageDefinition(schema: MessageSchema): string {
   const lines: string[] = [`message ${schema.name} {`];
 
   for (const field of schema.fields) {
+    if (field.mapKey && field.mapValue) {
+      // Proto3 map syntax — `map<key, value> name = N;`, not a repeated field.
+      const valueType =
+        field.mapValue.type === 'TYPE_MESSAGE' || field.mapValue.type === 'TYPE_ENUM'
+          ? field.mapValue.typeName?.split('.').pop() || 'string'
+          : getProtoTypeName(field.mapValue.type);
+      lines.push(
+        `  map<${getProtoTypeName(field.mapKey.type)}, ${valueType}> ${field.name} = ${field.number};`
+      );
+      continue;
+    }
     const label = field.label === 'LABEL_REPEATED' ? 'repeated ' : '';
     const type =
       field.type === 'TYPE_MESSAGE' || field.type === 'TYPE_ENUM'

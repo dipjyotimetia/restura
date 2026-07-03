@@ -1,5 +1,6 @@
 import { AlertCircle } from 'lucide-react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
+import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 
 const CodeEditor = lazyComponent(
@@ -29,6 +30,7 @@ export function GrpcMessageEditor({
   isValid,
   editorPath,
 }: GrpcMessageEditorProps) {
+  const getVariableStatus = useVariableStatus();
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sp-11 text-sp-muted font-mono">
@@ -58,6 +60,7 @@ export function GrpcMessageEditor({
           onChange={onChange}
           language="json"
           height="360px"
+          getVariableStatus={getVariableStatus}
           {...(editorPath ? { path: editorPath } : {})}
         />
       </div>

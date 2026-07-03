@@ -24,6 +24,7 @@ import {
   outputToJson,
 } from '@shared/protocol/grpc-registry';
 import { flattenHeaders } from '@shared/protocol/header-utils';
+import { validateURL } from '@shared/protocol/url-validation';
 import {
   buildAuthMetadata,
   grpcAuthNeedsMainSideApply,
@@ -34,6 +35,7 @@ import {
 } from './grpcClient';
 import { resolveGrpcTls } from './grpcTls';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import type { GrpcRequest } from '@/types';
 
@@ -143,6 +145,20 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
       throw new Error(`Invalid JSON in request message: ${msg}`);
     }
     throw err;
+  }
+
+  // Unlike unary/reflection, this connects straight from the browser to
+  // `prepared.url` — it never passes through the Worker's `/api/grpc` proxy,
+  // so it never gets that proxy's `validateURL` SSRF check. Apply the same
+  // shared guard here, honoring the same user-configurable "allow localhost"
+  // setting the Electron HTTP path already respects for its own direct
+  // (non-proxied) fetches, so local dev targets keep working.
+  const urlCheckResult = validateURL(prepared.url, {
+    allowPrivateIPs: false,
+    allowLocalhost: useSettingsStore.getState().settings.allowLocalhost ?? true,
+  });
+  if (!urlCheckResult.valid) {
+    throw new Error(`Invalid URL: ${urlCheckResult.error}`);
   }
 
   // The web path is a direct connection to the upstream, so a stored secret

@@ -1,4 +1,4 @@
-import { GrpcClientError, httpStatusToGrpcStatus } from '../grpcClient';
+import { GrpcClientError, grpcAuthNeedsMainSideApply, httpStatusToGrpcStatus } from '../grpcClient';
 import { resolveGrpcTls, type GrpcTlsOptions } from '../grpcTls';
 import { cacheMessageTypes, parseFileDescriptor } from './protoParser';
 import { buildServiceInfo } from './serviceDiscovery';
@@ -8,7 +8,7 @@ import {
   type RawReflectionResponse,
 } from './types';
 import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
-import type { ReflectionResult, ReflectionServiceInfo } from '@/types';
+import type { AuthConfig, ReflectionResult, ReflectionServiceInfo } from '@/types';
 import { GrpcStatusCode } from '@/types';
 
 export class GrpcReflectionClient {
@@ -19,11 +19,24 @@ export class GrpcReflectionClient {
   // reflection round-trip (listServices + each fileContainingSymbol/byFilename)
   // shares the same per-host TLS material instead of re-scanning the cert lists.
   private tls: GrpcTlsOptions | undefined;
+  // Metadata (incl. resolved inline auth) + the raw auth descriptor for
+  // handle-backed credentials the main process must resolve itself. Without
+  // these, a server that requires auth to expose its schema over reflection
+  // is undiscoverable even though the same credential works for the actual call.
+  private metadata: Record<string, string>;
+  private auth: AuthConfig | undefined;
 
-  constructor(baseUrl: string, timeout = 30000) {
+  constructor(
+    baseUrl: string,
+    timeout = 30000,
+    metadata?: Record<string, string>,
+    auth?: AuthConfig
+  ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.timeout = timeout;
     this.tls = resolveGrpcTls(this.baseUrl);
+    this.metadata = metadata ?? {};
+    this.auth = auth;
   }
 
   async discoverServices(): Promise<ReflectionResult> {
@@ -134,12 +147,19 @@ export class GrpcReflectionClient {
   }
 
   /**
-   * Parse + cache the symbol's file descriptors, then (Electron only) walk
-   * `dependency[]` via `fileByFilename` until the import graph is closed, so the
-   * resulting FileDescriptorSet has every type the proto-loader needs. Most
-   * spec-compliant servers already bundle transitive deps in the first response,
-   * so the loop is usually a no-op. Web skips it — descriptors are unused there
-   * (the Connect path is schema-less) and the extra round-trips would be waste.
+   * Parse + cache the symbol's file descriptors, then walk `dependency[]` via
+   * `fileByFilename` until the import graph is closed, so the resulting
+   * FileDescriptorSet has every type the proto-loader / runtime registry
+   * needs. Most spec-compliant servers already bundle transitive deps in the
+   * first response, so the loop is usually a no-op.
+   *
+   * Runs on both platforms: Electron loads the descriptor set directly, and
+   * web server-streaming (`grpcStreamingClient.ts`) now also builds a runtime
+   * registry from these same descriptors via `registryFromDescriptors` — an
+   * incomplete closure would silently break (de)serialization for any service
+   * with un-bundled external dependencies. `sendReflectionRequest` already
+   * routes through the same proxy path on both platforms, so no
+   * platform-specific branching is needed here.
    */
   private async fetchDescriptorClosure(
     initialEncoded: string[],
@@ -164,25 +184,23 @@ export class GrpcReflectionClient {
 
     initialEncoded.forEach(ingest);
 
-    if (isElectron()) {
-      let guard = 0;
-      while (needed.size > 0 && guard++ < 500) {
-        const filename = needed.values().next().value as string;
-        needed.delete(filename);
-        if (have.has(filename)) continue;
-        try {
-          const depResponse = await this.sendReflectionRequest(reflectionServiceName, {
-            fileByFilename: filename,
-          });
-          if (depResponse.fileDescriptorResponse) {
-            depResponse.fileDescriptorResponse.fileDescriptorProto.forEach(ingest);
-          }
-        } catch {
-          // Best-effort: a missing dep may still be a protobufjs-bundled
-          // well-known type. Mark resolved so the loop terminates.
+    let guard = 0;
+    while (needed.size > 0 && guard++ < 500) {
+      const filename = needed.values().next().value as string;
+      needed.delete(filename);
+      if (have.has(filename)) continue;
+      try {
+        const depResponse = await this.sendReflectionRequest(reflectionServiceName, {
+          fileByFilename: filename,
+        });
+        if (depResponse.fileDescriptorResponse) {
+          depResponse.fileDescriptorResponse.fileDescriptorProto.forEach(ingest);
         }
-        have.add(filename);
+      } catch {
+        // Best-effort: a missing dep may still be a protobufjs-bundled
+        // well-known type. Mark resolved so the loop terminates.
       }
+      have.add(filename);
     }
 
     return { descriptors: Array.from(rawByName.values()), parsed };
@@ -206,6 +224,11 @@ export class GrpcReflectionClient {
         reflectionService: reflectionServiceName,
         request: request as Record<string, unknown>,
         timeout: this.timeout,
+        ...(Object.keys(this.metadata).length > 0 ? { metadata: this.metadata } : {}),
+        // Handle-backed credentials can only be resolved main-side (OS
+        // keychain); inline credentials are already folded into `metadata`
+        // by the caller, so only forward `auth` when it actually needs that.
+        ...(this.auth && grpcAuthNeedsMainSideApply(this.auth) ? { auth: this.auth } : {}),
         ...(this.tls ?? {}),
       });
       return response as RawReflectionResponse;
@@ -226,7 +249,12 @@ export class GrpcReflectionClient {
       const response = await fetch(`${workerBaseUrl()}/api/grpc/reflection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
-        body: JSON.stringify({ url: this.baseUrl, request, timeout: this.timeout }),
+        body: JSON.stringify({
+          url: this.baseUrl,
+          request,
+          timeout: this.timeout,
+          ...(Object.keys(this.metadata).length > 0 ? { metadata: this.metadata } : {}),
+        }),
         signal: controller.signal,
       });
 

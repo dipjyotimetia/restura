@@ -1,5 +1,7 @@
 import { grpcStatusToHttpStatus } from '@shared/protocol/grpc-status';
-import { Fragment, useMemo } from 'react';
+import { Check, Copy, Download } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Floater, Stat, StatusPill } from '@/components/ui/spatial';
 import { useActiveResponse } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -12,8 +14,20 @@ function formatBytes(n: number | undefined): string {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+// Mirrors ResponseViewer's PRETTY_PRINT_MAX_BYTES — parsing + re-stringifying
+// a huge body/frame on every render can freeze the UI; skip it and show raw
+// text past this size instead.
+const PRETTY_PRINT_MAX_BYTES = 1_000_000;
+
+// A long-running server-streaming call can accumulate thousands of frames;
+// rendering every one as its own <pre> block would make the DOM (and typing
+// in the rest of the app) sluggish. Cap what's rendered — Copy/Download still
+// include everything via `copyableText`.
+const MAX_RENDERED_FRAMES = 500;
+
 function prettyJson(raw: string): string {
   if (!raw) return '';
+  if (raw.length > PRETTY_PRINT_MAX_BYTES) return raw;
   try {
     return JSON.stringify(JSON.parse(raw), null, 2);
   } catch {
@@ -35,7 +49,15 @@ export function GrpcResponsePanel() {
   const response =
     activeResponse && 'grpcStatus' in activeResponse ? (activeResponse as GrpcResponse) : null;
 
+  const [copied, setCopied] = useState(false);
   const body = useMemo(() => prettyJson(response?.body ?? ''), [response?.body]);
+  const copyableText = useMemo(() => {
+    if (!response) return '';
+    if (response.messages && response.messages.length > 0) {
+      return response.messages.map((m) => prettyJson(m)).join('\n\n');
+    }
+    return body;
+  }, [response, body]);
   const trailers = response?.trailers ?? {};
   const grpcStatus: GrpcStatusCode | undefined = response?.grpcStatus;
   const grpcStatusName =
@@ -52,6 +74,28 @@ export function GrpcResponsePanel() {
   // Try to read a content-encoding/grpc-encoding trailer for compression.
   const compression = trailers['grpc-encoding'] ?? trailers['content-encoding'] ?? 'identity';
 
+  const handleCopyBody = async () => {
+    try {
+      await navigator.clipboard.writeText(copyableText);
+      setCopied(true);
+      toast.success('Response body copied');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Failed to copy response body');
+    }
+  };
+
+  const handleDownloadBody = () => {
+    if (!response) return;
+    const blob = new Blob([copyableText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${response.requestId || 'grpc-response'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <Floater
       radius="panel"
@@ -67,6 +111,34 @@ export function GrpcResponsePanel() {
         <span className="text-sp-12 font-semibold text-sp-text">Response</span>
         <StatusPill status={pillStatus} text={`· ${pillText}`} />
         <div className="flex-1" />
+        {response && (
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={handleCopyBody}
+              disabled={!copyableText}
+              aria-label={copied ? 'Response body copied' : 'Copy response body'}
+              title={copied ? 'Copied!' : 'Copy response body'}
+              className="inline-flex items-center justify-center h-7 w-7 rounded-sp-btn text-sp-dim hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadBody}
+              disabled={!copyableText}
+              aria-label="Download response"
+              title="Download response"
+              className="inline-flex items-center justify-center h-7 w-7 rounded-sp-btn text-sp-dim hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         <Stat label="Time" value={`${response?.time ?? 0} ms`} />
       </div>
 
@@ -82,7 +154,7 @@ export function GrpcResponsePanel() {
           </div>
         ) : response.messages && response.messages.length > 0 ? (
           <div className="px-3.5 py-3 space-y-2">
-            {response.messages.map((m, i) => (
+            {response.messages.slice(0, MAX_RENDERED_FRAMES).map((m, i) => (
               <div key={i}>
                 <div className="sp-label mb-1">Frame {i + 1}</div>
                 <pre
@@ -93,6 +165,13 @@ export function GrpcResponsePanel() {
                 </pre>
               </div>
             ))}
+            {response.messages.length > MAX_RENDERED_FRAMES && (
+              <div className="text-sp-11 text-sp-muted font-mono pt-1">
+                {response.messages.length - MAX_RENDERED_FRAMES} more frame
+                {response.messages.length - MAX_RENDERED_FRAMES > 1 ? 's' : ''} received but not
+                rendered — still included in Copy/Download.
+              </div>
+            )}
           </div>
         ) : (
           <pre
@@ -107,47 +186,53 @@ export function GrpcResponsePanel() {
       {/* Trailers */}
       <div className="px-3.5 py-3 border-t border-sp-line">
         <div className="sp-label mb-2">Trailers</div>
-        <div
-          className="grid font-mono text-sp-11-5"
-          style={{
-            gridTemplateColumns: 'auto 1fr',
-            columnGap: 14,
-            rowGap: 4,
-          }}
-        >
-          <span className="text-sp-muted">grpc-status</span>
-          <span
+        <div className="max-h-40 overflow-y-auto">
+          <div
+            className="grid font-mono text-sp-11-5"
             style={{
-              color: isOk
-                ? 'var(--color-success)'
-                : grpcStatus != null
-                  ? 'var(--color-danger)'
-                  : 'var(--sp-text)',
+              gridTemplateColumns: 'auto 1fr',
+              columnGap: 14,
+              rowGap: 4,
             }}
           >
-            {grpcStatusName}
-          </span>
-          <span className="text-sp-muted">grpc-message</span>
-          <span className="text-sp-text truncate">
-            {response?.grpcStatusText && response.grpcStatusText.length > 0
-              ? response.grpcStatusText
-              : '—'}
-          </span>
-          {Object.entries(trailers)
-            .filter(([k]) => k !== 'grpc-status' && k !== 'grpc-message')
-            .slice(0, 6)
-            .map(([k, v]) => (
-              <Fragment key={k}>
-                <span className="text-sp-muted">{k}</span>
-                <span className="text-sp-text truncate">{v}</span>
+            <span className="text-sp-muted">grpc-status</span>
+            <span
+              style={{
+                color: isOk
+                  ? 'var(--color-success)'
+                  : grpcStatus != null
+                    ? 'var(--color-danger)'
+                    : 'var(--sp-text)',
+              }}
+            >
+              {grpcStatusName}
+            </span>
+            <span className="text-sp-muted">grpc-message</span>
+            <span className="text-sp-text truncate">
+              {response?.grpcStatusText && response.grpcStatusText.length > 0
+                ? response.grpcStatusText
+                : '—'}
+            </span>
+            {/* Every remaining trailer is rendered — nothing is silently
+                dropped. The section scrolls internally past a handful of
+                entries instead of truncating the list. */}
+            {Object.entries(trailers)
+              .filter(([k]) => k !== 'grpc-status' && k !== 'grpc-message')
+              .map(([k, v]) => (
+                <Fragment key={k}>
+                  <span className="text-sp-muted">{k}</span>
+                  <span className="text-sp-text truncate" title={v}>
+                    {v}
+                  </span>
+                </Fragment>
+              ))}
+            {Object.keys(trailers).length === 0 && (
+              <Fragment>
+                <span className="text-sp-muted">content-type</span>
+                <span className="text-sp-text">application/grpc</span>
               </Fragment>
-            ))}
-          {Object.keys(trailers).length === 0 && (
-            <Fragment>
-              <span className="text-sp-muted">content-type</span>
-              <span className="text-sp-text">application/grpc</span>
-            </Fragment>
-          )}
+            )}
+          </div>
         </div>
       </div>
 

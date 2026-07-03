@@ -2,29 +2,54 @@ import { TextField, ToggleField } from '@/components/ui/spatial';
 import { isElectron } from '@/lib/shared/platform';
 
 interface GrpcSettingsPanelProps {
+  timeoutMs: number;
   retryMaxAttempts: number;
   retryDelayMs: number;
   useCompression: boolean;
+  onTimeoutMsChange: (value: number) => void;
   onRetryMaxAttemptsChange: (value: number) => void;
   onRetryDelayMsChange: (value: number) => void;
   onUseCompressionChange: (value: boolean) => void;
 }
 
 /**
- * Settings tab body for the gRPC builder: retry policy + gzip compression
- * toggle. Pure leaf — owns no state. Uses Spatial Depth atoms for inputs
- * and the toggle row.
+ * Settings tab body for the gRPC builder: timeout, retry policy, and gzip
+ * compression toggle. Pure leaf — owns no state. Uses Spatial Depth atoms
+ * for inputs and the toggle row.
  */
 export function GrpcSettingsPanel({
+  timeoutMs,
   retryMaxAttempts,
   retryDelayMs,
   useCompression,
+  onTimeoutMsChange,
   onRetryMaxAttemptsChange,
   onRetryDelayMsChange,
   onUseCompressionChange,
 }: GrpcSettingsPanelProps) {
   return (
     <div className="space-y-6 max-w-sm">
+      <div className="space-y-3">
+        <p className="sp-label">Timeout</p>
+        <div className="flex flex-col gap-1.5 w-40">
+          <label htmlFor="grpc-timeout-ms" className="text-sp-11 text-sp-muted font-mono">
+            Timeout (ms)
+          </label>
+          <TextField
+            id="grpc-timeout-ms"
+            mono
+            size="sm"
+            type="number"
+            min={1000}
+            step={1000}
+            value={timeoutMs}
+            onChange={(e) =>
+              onTimeoutMsChange(Math.max(1000, parseInt(e.target.value, 10) || 30000))
+            }
+            aria-label="gRPC request timeout in milliseconds"
+          />
+        </div>
+      </div>
       <div className="space-y-3">
         <p className="sp-label">Retry Policy</p>
         <div className="grid grid-cols-2 gap-3">
@@ -95,6 +120,17 @@ export function GrpcSettingsPanel({
           </p>
         )}
       </div>
+      {!isElectron() && (
+        <div className="space-y-3">
+          <p className="sp-label">TLS</p>
+          <p className="text-sp-11 text-sp-muted font-mono">
+            Custom CA, client certificates, and the verify-SSL toggle configured in Settings →
+            Certificates apply to HTTP requests only. The browser build has no per-request TLS
+            control for gRPC — an mTLS-only or private-CA server will fail here even if it works for
+            HTTP. Use the desktop app for gRPC calls that need custom TLS material.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -357,6 +357,10 @@ export const ReflectionIpcConfigSchema = z.object({
   // trust material (otherwise Discover silently fails against a self-signed /
   // private-CA / mTLS server while the call would have worked).
   ...GrpcTlsFields,
+  // Same rationale as the call's metadata/auth: a server that requires auth to
+  // expose its schema over reflection would otherwise be undiscoverable.
+  metadata: z.record(z.string(), z.string()).optional(),
+  auth: AuthConfigSchema.optional(),
 });
 
 export type ReflectionIpcConfig = z.infer<typeof ReflectionIpcConfigSchema>;

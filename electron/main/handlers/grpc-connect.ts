@@ -771,6 +771,8 @@ export interface ConnectReflectionArgs {
   /** ServerReflectionRequest oneof, e.g. { fileContainingSymbol } or { listServices }. */
   request: Record<string, unknown>;
   timeoutMs: number;
+  /** Metadata (incl. resolved auth) sent with the reflection call — a server that requires auth to expose its schema is otherwise undiscoverable. */
+  metadata?: Record<string, string>;
   transport?: Transport;
   /** Inject the Connect-fallback transport for tests (second attempt). */
   fallbackTransport?: Transport;
@@ -808,7 +810,10 @@ export async function executeConnectReflection(
     }
 
     try {
-      const stream = invoke(once(), { timeoutMs: args.timeoutMs }) as AsyncIterable<unknown>;
+      const stream = invoke(once(), {
+        timeoutMs: args.timeoutMs,
+        ...(args.metadata ? { headers: args.metadata } : {}),
+      }) as AsyncIterable<unknown>;
       for await (const resp of stream) {
         // Returning breaks the for-await, which cancels the bidi after the single
         // response — exactly what the grpc-js path did with write()+end()+first data.

@@ -45,10 +45,14 @@ interface ActiveCall {
   cancel: () => void;
   write: (msg: unknown) => void;
   end: () => void;
-  createdAt: number; // Timestamp for stale connection detection
+  createdAt: number; // Timestamp the stream was registered
+  /** Bumped on every inbound/outbound message — the stale sweep keys off this, not createdAt, so an actively-streaming call is never force-closed. */
+  lastActivityAt: number;
   requestId: string; // Request ID for tracking
   /** webContents.id of the renderer that started the stream — used for renderer-destroyed teardown. */
   webContentsId: number;
+  /** Tell the renderer why the stream is being force-closed by the stale sweep, so its async iterator/`done` promise settles instead of hanging silently. */
+  notifyStale: () => void;
 }
 
 // Store active calls for streaming. The registry owns the map + renderer-destroyed
@@ -114,16 +118,31 @@ function sanitizeErrorMessage(message: string | undefined): string {
   return sanitized || 'Unknown error';
 }
 
-// Clean up stale streams periodically
+// Clean up stale streams periodically. Keys off last *activity*, not creation
+// time, so a long-lived call with continuous traffic (or one whose user-set
+// timeoutMs is deliberately longer than this cap) is never force-closed just
+// for having been open a while.
 const cleanupStaleStreams = () => {
   const now = Date.now();
   // Collect first, then cancel — cancel() disposes + removes, so mutating the
   // map mid-iteration is avoided.
   const staleIds: string[] = [];
   for (const call of activeCalls.values()) {
-    if (now - call.createdAt > STREAM_TIMEOUT_MS) staleIds.push(call.requestId);
+    if (now - call.lastActivityAt > STREAM_TIMEOUT_MS) staleIds.push(call.requestId);
   }
   staleIds.forEach((id) => {
+    const call = activeCalls.get(id);
+    try {
+      // Notify the renderer *before* cancelling — cancelling alone triggers
+      // `onCancelled`, which only does internal cleanup and sends nothing, so
+      // without this the renderer's message queue/`done` promise just hangs.
+      call?.notifyStale();
+    } catch (error) {
+      log.error('error notifying renderer of stale stream', {
+        streamId: id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     try {
       // cancel() runs dispose (c.cancel()) and removes the entry.
       activeCalls.cancel(id);
@@ -133,7 +152,10 @@ const cleanupStaleStreams = () => {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    log.info('cleaned up stale stream', { streamId: id });
+    log.info('cleaned up stale stream', {
+      streamId: id,
+      idleMs: call ? now - call.lastActivityAt : undefined,
+    });
   });
 };
 
@@ -161,9 +183,10 @@ export function stopStreamCleanup(): void {
 const addActiveCall = (
   id: string,
   sender: Electron.WebContents,
-  call: Omit<ActiveCall, 'createdAt' | 'requestId'>
+  call: Omit<ActiveCall, 'createdAt' | 'lastActivityAt' | 'requestId'>
 ): boolean => {
-  const entry: ActiveCall = { ...call, createdAt: Date.now(), requestId: id };
+  const now = Date.now();
+  const entry: ActiveCall = { ...call, createdAt: now, lastActivityAt: now, requestId: id };
   // tryAdd rejects a duplicate id (a renderer bug) rather than replacing.
   if (!activeCalls.tryAdd(id, sender, entry)) {
     log.warn('duplicate stream rejected', { streamId: id });
@@ -237,7 +260,28 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
   };
 }
 
+// `applyNonSignAtWireAuth` silently returns no headers for these — they're
+// signed at the HTTP wire by `shared/protocol/auth-signer.ts`, which gRPC's
+// metadata-based transport doesn't go through. Previously that meant the
+// request went out unauthenticated with no indication why; fail clearly
+// instead, the same way the SSRF pre-flight below does.
+const UNSUPPORTED_GRPC_AUTH_TYPES = new Set(['digest', 'oauth1', 'aws-signature', 'ntlm', 'wsse']);
+
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
+  if (config.auth && UNSUPPORTED_GRPC_AUTH_TYPES.has(config.auth.type)) {
+    const detail =
+      `[Auth] "${config.auth.type}" authentication is not supported for gRPC — the request ` +
+      `would otherwise be sent with no credentials. Use Bearer, Basic, API Key, or OAuth2 instead.`;
+    return {
+      status: 16,
+      statusText: 'UNAUTHENTICATED',
+      headers: {},
+      trailers: {},
+      error: detail,
+      details: detail,
+    };
+  }
+
   // SSRF pre-flight before any disk I/O or socket open. Failure surfaces as
   // INVALID_ARGUMENT (code 3) with an explicit "[URL policy]" prefix so the
   // renderer can distinguish URL-policy rejections from a gRPC server that
@@ -368,6 +412,17 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
 
+        if (config.auth && UNSUPPORTED_GRPC_AUTH_TYPES.has(config.auth.type)) {
+          pendingStreamMessages.delete(requestId);
+          safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+            status: 16,
+            details:
+              `[Auth] "${config.auth.type}" authentication is not supported for gRPC — the ` +
+              `stream would otherwise start with no credentials. Use Bearer, Basic, API Key, or OAuth2 instead.`,
+          });
+          return;
+        }
+
         // SSRF guard before any cleanup binding so a rejected URL doesn't leave a
         // renderer-destroy listener behind. Resolve + validate + pin the address
         // here (closes the rebind window).
@@ -445,8 +500,14 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             cleanup();
           };
 
+          const bumpActivity = () => {
+            const call = activeCalls.get(requestId);
+            if (call) call.lastActivityAt = Date.now();
+          };
+
           const handleData = (data: unknown) => {
             if (finalized) return;
+            bumpActivity();
             accumulatedSize += estimateSize(data);
             if (accumulatedSize > MAX_RESPONSE_SIZE) {
               // Cancel the still-registered call first; finalize() then sets the
@@ -478,9 +539,18 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           });
           const added = addActiveCall(requestId, event.sender, {
             cancel: controls.cancel,
-            write: controls.write,
+            write: (msg: unknown) => {
+              bumpActivity();
+              controls.write(msg);
+            },
             end: controls.end,
             webContentsId: event.sender.id,
+            notifyStale: () => {
+              safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+                status: 4, // DEADLINE_EXCEEDED
+                details: `Stream closed after ${STREAM_TIMEOUT_MS / 60_000} minutes of inactivity`,
+              });
+            },
           });
           if (!added) {
             controls.cancel();

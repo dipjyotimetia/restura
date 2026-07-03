@@ -29,8 +29,11 @@ rather than discover it experimentally.
 | SSE with custom headers | ❌ | ✅ | EventSource API in browsers has no headers option |
 | MCP streamable-http / http-sse | ✅ | ✅ |  |
 | MCP stdio (local subprocess) | ❌ | ✅ |  |
-| gRPC unary + streaming | ✅ | ✅ | Web uses Connect transport over HTTP/2; desktop uses native gRPC with automatic Connect-protocol fallback |
+| gRPC unary + server-streaming | ✅ | ✅ | Web uses Connect transport over HTTP/2 (unary via the Worker proxy, server-streaming direct from the browser); desktop uses native gRPC with automatic Connect-protocol fallback. See grpc.clientAndBidiStreaming for the two method types web cannot run at all. |
 | gRPC reflection | ✅ | ✅ |  |
+| gRPC client-streaming / bidirectional-streaming | ❌ | ✅ | Browser fetch cannot duplex a request body; unary and server-streaming still work on web. |
+| gRPC custom CA / client cert / verify-SSL | ❌ | ✅ | Settings → Certificates overrides apply to HTTP only on web — the Worker proxy has no per-request TLS control for gRPC, so an mTLS-only or private-CA gRPC server that works over HTTP will not work over gRPC on the same web build. |
+| gRPC gzip request compression | ❌ | ✅ |  |
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
 | MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
 | Socket.IO client | ✅ | ✅ |  |

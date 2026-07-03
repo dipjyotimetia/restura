@@ -113,6 +113,7 @@ export function GrpcMethodSelector({
             value={serviceValue}
             onChange={(e) => onServiceTextChange(e.target.value)}
             placeholder="Service (e.g., greet.v1.GreetService)"
+            aria-label="gRPC service name"
             className={cn('w-full', !serviceValidation.valid && 'border-red-500')}
           />
         )}
@@ -177,6 +178,7 @@ export function GrpcMethodSelector({
             value={methodValue}
             onChange={(e) => onMethodTextChange(e.target.value)}
             placeholder="Method (e.g., Greet)"
+            aria-label="gRPC method name"
             className={cn('w-full', !methodValidation.valid && 'border-red-500')}
           />
         )}

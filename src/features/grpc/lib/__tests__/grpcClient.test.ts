@@ -176,9 +176,9 @@ describe('grpcClient', () => {
       expect(result.valid).toBe(false);
     });
 
-    it('should reject service without package', () => {
+    it('should accept a package-less service name (proto3 does not require a package)', () => {
       const result = validateServiceName('GreetService');
-      expect(result.valid).toBe(false);
+      expect(result.valid).toBe(true);
     });
 
     it('should reject service with invalid characters', () => {

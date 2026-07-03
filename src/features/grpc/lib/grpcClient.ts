@@ -260,12 +260,17 @@ export function validateServiceName(service: string): { valid: boolean; error?: 
     return { valid: false, error: 'Service name is required' };
   }
 
-  // Service name should be in format: package.ServiceName
-  const servicePattern = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*\.[A-Z][a-zA-Z0-9]*$/;
+  // Service name should be `package.ServiceName`, or just `ServiceName` — proto3
+  // doesn't require a `package` statement, so a real, reflection-discoverable
+  // service can legitimately have no package prefix. The service's own short
+  // name must still be PascalCase (gRPC style convention) even when the
+  // (lowercase, dotted) package prefix is present.
+  const servicePattern = /^([a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*\.)?[A-Z][a-zA-Z0-9]*$/;
   if (!servicePattern.test(service)) {
     return {
       valid: false,
-      error: 'Service name should be in format: package.ServiceName (e.g., greet.v1.GreetService)',
+      error:
+        'Service name should be in format: package.ServiceName (e.g., greet.v1.GreetService) or just ServiceName',
     };
   }
 
@@ -680,6 +685,26 @@ export async function makeProxyGrpcRequest(
 
     const result = await response.json();
     const endTime = Date.now();
+
+    // The worker returns two distinct failure shapes: pre-flight validation
+    // errors (bad URL/service/method format) are `{ error: string }` with no
+    // gRPC status at all, while transport-level failures (timeout, oversized
+    // response, upstream unreachable) are already a full GrpcNormalizedResponse
+    // via `emptyGrpcResponse` and can fall through the normal path below. Only
+    // the first shape needs special handling — reading `result.grpcStatus`
+    // straight off it silently produces a blank, statusless "success".
+    if (!response.ok && typeof result.grpcStatus !== 'number') {
+      return createErrorResponse(
+        request.id,
+        new GrpcClientError(
+          typeof result.error === 'string'
+            ? result.error
+            : `Proxy request failed (HTTP ${response.status} ${response.statusText})`,
+          GrpcStatusCode.INTERNAL
+        ),
+        startTime
+      );
+    }
 
     const bodyStr = JSON.stringify(result.data || {}, null, 2);
 

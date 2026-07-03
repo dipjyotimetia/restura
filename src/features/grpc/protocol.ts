@@ -55,6 +55,24 @@ function defaultResolveVariables(text: string, vars: Record<string, string>): st
   return result;
 }
 
+/** Flatten enabled gRPC metadata entries into a plain header map for script contexts. */
+function flattenMetadata(metadata: GrpcRequest['metadata']): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of metadata) {
+    if (m.enabled && m.key) out[m.key] = m.value;
+  }
+  return out;
+}
+
+/** Coerce a possibly multi-valued header map to single strings for script contexts. */
+function flattenHeaderValues(headers: Record<string, string | string[]>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    out[key] = Array.isArray(value) ? value.join(', ') : value;
+  }
+  return out;
+}
+
 interface GrpcProtocolOptions {
   /** Raw proto file contents (uploaded `.proto`; or reconstructed fallback). */
   protoContent?: string;
@@ -130,8 +148,25 @@ export const grpcProtocol: ProtocolModule = {
 
     const variables = ctx.variables ?? {};
     const resolve = (text: string) => defaultResolveVariables(text, variables);
-    const opts = readProtocolOptions(ctx.protocolOptions);
+    // `ctx.protocolOptions` (set by the builder at send-time) takes precedence —
+    // it also carries `descriptors`, which are ephemeral reflection output never
+    // persisted on the request. Everything else falls back to the request's own
+    // persisted fields, so a request run without an explicit protocolOptions
+    // override (e.g. from a saved collection) still uses its own settings.
+    const rawOpts = readProtocolOptions(ctx.protocolOptions);
+    const opts: GrpcProtocolOptions = {
+      ...((rawOpts.protoContent ?? request.protoContent)
+        ? { protoContent: rawOpts.protoContent ?? request.protoContent }
+        : {}),
+      ...((rawOpts.protoFileName ?? request.protoFileName)
+        ? { protoFileName: rawOpts.protoFileName ?? request.protoFileName }
+        : {}),
+      ...(rawOpts.descriptors ? { descriptors: rawOpts.descriptors } : {}),
+      timeoutMs: rawOpts.timeoutMs ?? request.timeoutMs ?? 30000,
+      useCompression: rawOpts.useCompression ?? request.useCompression ?? false,
+    };
     const timeoutMs = opts.timeoutMs ?? 30000;
+    const requestHeaders = flattenMetadata(request.metadata);
 
     // Pre-request script — populated env vars merge into the script-side
     // sandbox only (we don't mutate the parent caller's `variables` map).
@@ -144,7 +179,7 @@ export const grpcProtocol: ProtocolModule = {
         request: {
           url: request.url,
           method: request.methodType,
-          headers: {},
+          headers: requestHeaders,
           body: request.message,
         },
       });
@@ -187,13 +222,13 @@ export const grpcProtocol: ProtocolModule = {
         request: {
           url: request.url,
           method: request.methodType,
-          headers: {},
+          headers: requestHeaders,
           body: request.message,
         },
         response: {
           status: response.grpcStatus ?? 0,
           statusText: response.grpcStatusText ?? '',
-          headers: {},
+          headers: flattenHeaderValues(response.headers ?? {}),
           body: response.body,
           time: response.time,
           size: response.size,

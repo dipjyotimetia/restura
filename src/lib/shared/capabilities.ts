@@ -31,6 +31,9 @@ export type CapabilityName =
   | 'mcp.stdioLocalProcess'
   | 'grpc.basic'
   | 'grpc.reflection'
+  | 'grpc.clientAndBidiStreaming'
+  | 'grpc.tlsOverrides'
+  | 'grpc.compression'
   | 'kafka.basic'
   | 'mqtt.basic'
   | 'socketio.basic'
@@ -156,13 +159,28 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'mcp.basic': { label: 'MCP streamable-http / http-sse', web: true, desktop: true },
   'mcp.stdioLocalProcess': { label: 'MCP stdio (local subprocess)', web: false, desktop: true },
   'grpc.basic': {
-    label: 'gRPC unary + streaming',
+    label: 'gRPC unary + server-streaming',
     web: true,
     desktop: true,
     notes:
-      'Web uses Connect transport over HTTP/2; desktop uses native gRPC with automatic Connect-protocol fallback',
+      'Web uses Connect transport over HTTP/2 (unary via the Worker proxy, server-streaming direct from the browser); desktop uses native gRPC with automatic Connect-protocol fallback. See grpc.clientAndBidiStreaming for the two method types web cannot run at all.',
   },
   'grpc.reflection': { label: 'gRPC reflection', web: true, desktop: true },
+  'grpc.clientAndBidiStreaming': {
+    label: 'gRPC client-streaming / bidirectional-streaming',
+    web: false,
+    desktop: true,
+    notes:
+      'Browser fetch cannot duplex a request body; unary and server-streaming still work on web.',
+  },
+  'grpc.tlsOverrides': {
+    label: 'gRPC custom CA / client cert / verify-SSL',
+    web: false,
+    desktop: true,
+    notes:
+      'Settings → Certificates overrides apply to HTTP only on web — the Worker proxy has no per-request TLS control for gRPC, so an mTLS-only or private-CA gRPC server that works over HTTP will not work over gRPC on the same web build.',
+  },
+  'grpc.compression': { label: 'gRPC gzip request compression', web: false, desktop: true },
   'kafka.basic': {
     label: 'Kafka produce / consume',
     web: false,

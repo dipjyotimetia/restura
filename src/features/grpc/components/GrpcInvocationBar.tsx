@@ -1,8 +1,11 @@
-import { AlertCircle, Loader2, Play, X } from 'lucide-react';
+import { AlertCircle, Laptop, Link2, Loader2, Play, X } from 'lucide-react';
 import GrpcStreamingControls from './GrpcStreamingControls';
+import { VariableInput } from '@/components/shared/VariableInput';
 import { Button } from '@/components/ui/button';
-import { Floater, Segmented } from '@/components/ui/spatial';
+import { Floater, Kbd, Segmented, VariableText, hasVariableToken } from '@/components/ui/spatial';
+import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import type { GrpcMethodType } from '@/types';
 
@@ -26,12 +29,34 @@ export interface GrpcInvocationBarProps {
   onCancelStream: () => void;
 }
 
-const METHOD_TYPE_OPTIONS = [
-  { value: 'unary', label: 'Unary' },
-  { value: 'server-streaming', label: 'Server' },
-  { value: 'client-streaming', label: 'Client' },
-  { value: 'bidirectional-streaming', label: 'Bidi' },
-] as const satisfies ReadonlyArray<{ value: GrpcMethodType; label: string }>;
+// Client- and bidirectional-streaming need a duplex connection the browser
+// can't provide, so they only work in the desktop app. Server-streaming and
+// unary both work on web (via the Web Stream tab and the proxy respectively).
+// Surface a "desktop only" icon directly on the primary selector — this is
+// the first control a user sees, so it's the place that needs to warn them,
+// not just the (secondary, reflection-only) method dropdown.
+const DESKTOP_ONLY_METHOD_TYPES: ReadonlySet<GrpcMethodType> = new Set([
+  'client-streaming',
+  'bidirectional-streaming',
+]);
+
+function buildMethodTypeOptions(desktopOnlyBadge: boolean) {
+  const base: ReadonlyArray<{ value: GrpcMethodType; label: string }> = [
+    { value: 'unary', label: 'Unary' },
+    { value: 'server-streaming', label: 'Server' },
+    { value: 'client-streaming', label: 'Client' },
+    { value: 'bidirectional-streaming', label: 'Bidi' },
+  ];
+  if (!desktopOnlyBadge) return base;
+  return base.map((opt) =>
+    DESKTOP_ONLY_METHOD_TYPES.has(opt.value)
+      ? {
+          ...opt,
+          icon: <Laptop className="size-2.5" aria-label="Desktop app required" />,
+        }
+      : opt
+  );
+}
 
 /**
  * Spatial Depth method invocation bar — Segmented method-type picker +
@@ -52,6 +77,10 @@ export function GrpcInvocationBar({
   onSend,
   onCancelStream,
 }: GrpcInvocationBarProps) {
+  const getVarStatus = useVariableStatus();
+  const methodTypeOptions = buildMethodTypeOptions(!isElectron());
+  const showVariableOverlay = hasVariableToken(url) && isUrlValid;
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
@@ -61,25 +90,58 @@ export function GrpcInvocationBar({
           style={{ background: 'var(--sp-surface)' }}
         >
           <Segmented<GrpcMethodType>
-            options={METHOD_TYPE_OPTIONS}
+            options={methodTypeOptions}
             value={methodType}
             onChange={onMethodTypeChange}
             size="sm"
             ariaLabel="gRPC method type"
           />
           <span className="text-sp-dim font-mono text-sp-12 select-none shrink-0">›</span>
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => onUrlChange(e.target.value)}
-            placeholder={ECHO_URLS.grpc}
-            aria-label="gRPC server URL"
-            className={cn(
-              'flex-1 min-w-0 h-7 bg-transparent border-0 outline-none px-1',
-              'font-mono text-sp-13 text-sp-text placeholder:text-sp-dim',
-              !isUrlValid && 'text-red-400'
+          <div className="relative flex-1 min-w-0 h-7 flex items-center">
+            <VariableInput
+              rawInput
+              type="text"
+              value={url}
+              onValueChange={onUrlChange}
+              placeholder={ECHO_URLS.grpc}
+              aria-label="gRPC server URL"
+              spellCheck={false}
+              className={cn(
+                'w-full bg-transparent border-0 outline-none px-1',
+                'font-mono text-sp-13 text-sp-text placeholder:text-sp-dim',
+                !isUrlValid && 'text-red-400',
+                showVariableOverlay && 'text-transparent caret-sp-accent'
+              )}
+            />
+            {showVariableOverlay && (
+              <div
+                aria-hidden="true"
+                className="absolute inset-0 pointer-events-none flex items-center overflow-hidden px-1"
+              >
+                <VariableText
+                  text={url}
+                  getStatus={getVarStatus}
+                  className="font-mono text-sp-13 text-sp-text whitespace-pre"
+                />
+              </div>
             )}
-          />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!url) return;
+              void navigator.clipboard?.writeText(url);
+            }}
+            disabled={!url}
+            aria-label="Copy gRPC server URL"
+            className={cn(
+              'inline-flex items-center justify-center h-6 w-6 rounded-sp-btn text-sp-dim shrink-0',
+              'hover:text-sp-text hover:bg-sp-hover transition-colors',
+              'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+            )}
+          >
+            <Link2 className="h-3.5 w-3.5" />
+          </button>
         </Floater>
 
         <Button
@@ -97,6 +159,11 @@ export function GrpcInvocationBar({
             <Play className="h-3.5 w-3.5" fill="currentColor" />
           )}
           {isLoading ? 'Invoking…' : 'Invoke'}
+          {!isLoading && (
+            <Kbd size="xs" className="ml-0.5 border-white/30 bg-white/15 text-white">
+              ⌘↵
+            </Kbd>
+          )}
         </Button>
       </div>
 

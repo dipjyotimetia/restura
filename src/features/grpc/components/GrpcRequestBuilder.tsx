@@ -13,7 +13,7 @@ import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
-import { Floater, SubTabBar, TextField } from '@/components/ui/spatial';
+import { Floater, SubTabBar } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
@@ -40,6 +40,7 @@ import {
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
@@ -78,11 +79,6 @@ function GrpcRequestBuilder() {
   const { resolveVariables } = useEnvironmentStore();
   const { run: runViaRegistry } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<GrpcSubTab>('message');
-  const [protoFile, setProtoFile] = useState<File | null>(null);
-  const [resolvedProto, setResolvedProto] = useState<{
-    content: string;
-    fileName: string;
-  } | null>(null);
   const [validation, setValidation] = useState<GrpcValidationState>(INITIAL_VALIDATION_STATE);
   const [streamingMessages, setStreamingMessages] = useState<string[]>([]);
   const [streamControl, setStreamControl] = useState<{
@@ -90,13 +86,21 @@ function GrpcRequestBuilder() {
     endStream: () => void;
     cancelStream: () => void;
   } | null>(null);
-  const [timeoutMs, setTimeoutMs] = useState(30000);
-  const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
-  const [retryDelayMs, setRetryDelayMs] = useState(0);
-  const [useCompression, setUseCompression] = useState(false);
 
   // Stable URL reference for use in callbacks and effects — must compute before early return
   const grpcUrl = currentRequest?.url;
+  // Settings that used to live in local useState leaked across tabs (the
+  // component wasn't remounted on tab switch) and were lost on reload since
+  // they were never part of the persisted request. They now live on
+  // GrpcRequest itself; these are just typed, defaulted reads of it.
+  const timeoutMs = currentRequest?.timeoutMs ?? 30000;
+  const retryMaxAttempts = currentRequest?.retryMaxAttempts ?? 1;
+  const retryDelayMs = currentRequest?.retryDelayMs ?? 0;
+  const useCompression = currentRequest?.useCompression ?? false;
+  const setTimeoutMs = (value: number) => updateRequest({ timeoutMs: value });
+  const setRetryMaxAttempts = (value: number) => updateRequest({ retryMaxAttempts: value });
+  const setRetryDelayMs = (value: number) => updateRequest({ retryDelayMs: value });
+  const setUseCompression = (value: boolean) => updateRequest({ useCompression: value });
 
   // All hooks must be called before any early return — Rules of Hooks
   const {
@@ -171,10 +175,23 @@ function GrpcRequestBuilder() {
     [updateRequest, validateMethod, validateMessage]
   );
 
+  // New gRPC tabs are pre-filled with the demo echo URL as a real value (not
+  // just a placeholder) so a first-time user can hit Send immediately — but
+  // that means an untouched, never-configured tab looks identical to a real
+  // request pointed at that URL. Auto-discovery firing a real network call
+  // the instant such a tab opens (before the user has done anything) is a
+  // surprise, not a convenience — so skip it specifically for that pristine
+  // case. Any deviation (a different URL, or a service/method already set —
+  // e.g. reopening a previously-configured request) re-enables it normally.
+  const isPristineDefault =
+    grpcUrl === ECHO_URLS.grpc && !currentRequest?.service && !currentRequest?.method;
+
   const reflection = useGrpcReflection({
     url: grpcUrl,
     resolveVariables,
-    autoDiscover: !!currentRequest,
+    metadata: currentRequest?.metadata,
+    auth: currentRequest?.auth,
+    autoDiscover: !!currentRequest && !isPristineDefault,
     onServiceSelected: handleReflectionServiceSelected,
     onMethodSelected: handleReflectionMethodSelected,
   });
@@ -193,6 +210,22 @@ function GrpcRequestBuilder() {
         /* ignore cleanup errors */
       }
     };
+  }, []);
+
+  // Cmd/Ctrl+Enter to invoke, matching HTTP. `handleSendRequest` is defined
+  // below (after the early return, since it closes over the non-null
+  // `grpcRequest`), so this effect calls through a ref kept fresh on every
+  // render instead of depending on the function directly.
+  const sendRequestRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        sendRequestRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   const activeMetadataCount = currentRequest?.metadata.filter((m) => m.enabled).length ?? 0;
@@ -232,6 +265,33 @@ function GrpcRequestBuilder() {
     hasScripts,
     streamingMessages.length,
   ]);
+
+  // Proto schema to drive a call: an explicitly uploaded .proto (persisted on
+  // the request) takes precedence; otherwise fall back to reconstructing text
+  // from the live reflection result. Derived reactively (not populated as a
+  // side effect of clicking Invoke) so the "Web Stream" tab has a usable
+  // schema as soon as one is available, without requiring a prior send.
+  const resolvedProto = useMemo((): {
+    content: string;
+    fileName: string;
+    descriptors: string[] | undefined;
+  } | null => {
+    if (currentRequest?.protoContent && currentRequest.protoFileName) {
+      return {
+        content: currentRequest.protoContent,
+        fileName: currentRequest.protoFileName,
+        descriptors: undefined,
+      };
+    }
+    if (currentRequest && reflection.result?.success && reflection.selectedService) {
+      return {
+        content: generateProtoFromReflection(currentRequest.service, reflection.selectedService),
+        fileName: 'generated.proto',
+        descriptors: reflection.selectedService.descriptors,
+      };
+    }
+    return null;
+  }, [currentRequest, reflection.result, reflection.selectedService]);
 
   if (!currentRequest) {
     return null;
@@ -308,42 +368,35 @@ function GrpcRequestBuilder() {
     setScriptResult(null);
     const startTime = Date.now();
 
+    if (!resolvedProto) {
+      toast.error('Proto file or reflection required', {
+        description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
+      });
+      return;
+    }
+
     try {
-      let protoContent: string;
-      let protoFileName: string;
-      // Raw reflection descriptors (Electron only) — preferred over the
-      // reconstructed `.proto` text, which is lossy (drops enums / well-known
-      // types / maps / oneofs). The text is still generated for display + the
-      // web Connect path; Electron loads the descriptor set instead.
-      let descriptors: string[] | undefined;
-
-      if (protoFile) {
-        protoContent = await protoFile.text();
-        protoFileName = protoFile.name;
-      } else if (reflection.result?.success && reflection.selectedService) {
-        descriptors = reflection.selectedService.descriptors;
-        protoContent = generateProtoFromReflection(grpcRequest.service, reflection.selectedService);
-        protoFileName = 'generated.proto';
-      } else {
-        toast.error('Proto file or reflection required', {
-          description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
-        });
-        setLoading(false);
-        return;
-      }
-
-      setResolvedProto({ content: protoContent, fileName: protoFileName });
+      const { content: protoContent, fileName: protoFileName, descriptors } = resolvedProto;
 
       if (grpcRequest.methodType !== 'unary') {
         // Streaming paths stay on the bespoke startGrpcStream handle — the
         // registry runner doesn't model long-lived streams yet
-        // (TODO(registry-streaming) on grpcProtocol). This builder gates
-        // streaming to Electron; the web Connect path lives in
-        // GrpcStreamingPanel (the "Web Stream" tab).
+        // (TODO(registry-streaming) on grpcProtocol). Only client- and
+        // bidirectional-streaming are desktop-only; server-streaming works on
+        // web too, but through the separate "Web Stream" tab (browser fetch
+        // can't duplex a request body the way the Invoke button here needs).
         if (!isElectron()) {
-          toast.error('Streaming gRPC requires the desktop app', {
-            description: 'Unary requests are supported in the browser via the proxy.',
-          });
+          if (grpcRequest.methodType === 'server-streaming') {
+            toast.info('Use the "Web Stream" tab', {
+              description:
+                "Server-streaming calls run from the Web Stream tab in the browser build — the Invoke button drives the desktop app's interactive stream.",
+            });
+          } else {
+            toast.error('Requires the desktop app', {
+              description:
+                "Client-streaming and bidirectional-streaming need a duplex connection the browser can't provide. Use the Restura desktop app for this method, or switch to server-streaming (Web Stream tab) / unary.",
+            });
+          }
           setLoading(false);
           return;
         }
@@ -519,6 +572,7 @@ function GrpcRequestBuilder() {
       }
     }
   };
+  sendRequestRef.current = handleSendRequest;
 
   const isFormValid = () => {
     return (
@@ -585,29 +639,7 @@ function GrpcRequestBuilder() {
           className="flex-1 flex flex-col min-h-0 overflow-hidden"
           style={{ background: 'var(--sp-surface)' }}
         >
-          <SubTabBar<GrpcSubTab>
-            tabs={subTabs}
-            value={activeTab}
-            onChange={setActiveTab}
-            right={
-              <div className="flex items-center gap-2 py-1.5">
-                <span className="sp-label">Timeout (ms)</span>
-                <TextField
-                  mono
-                  size="sm"
-                  type="number"
-                  value={timeoutMs}
-                  onChange={(e) =>
-                    setTimeoutMs(Math.max(1000, parseInt(e.target.value, 10) || 30000))
-                  }
-                  min={1000}
-                  step={1000}
-                  aria-label="gRPC request timeout in milliseconds"
-                  className="w-24"
-                />
-              </div>
-            }
-          />
+          <SubTabBar<GrpcSubTab> tabs={subTabs} value={activeTab} onChange={setActiveTab} />
 
           {/* Inline service/method picker — kept available so users can edit
                 service/method names directly. Reflection drives the dropdown,
@@ -642,8 +674,14 @@ function GrpcRequestBuilder() {
               {reflection.loading ? 'Discovering…' : 'Discover'}
             </Button>
             <GrpcProtoUploader
-              protoFile={protoFile}
-              onProtoFileChange={setProtoFile}
+              protoFileName={grpcRequest.protoFileName}
+              onProtoFileChange={(proto) =>
+                updateRequest(
+                  proto
+                    ? { protoContent: proto.content, protoFileName: proto.fileName }
+                    : { protoContent: undefined, protoFileName: undefined }
+                )
+              }
               onServiceChange={handleServiceChange}
               onMethodChange={handleMethodChange}
               onMethodTypeChange={handleMethodTypeChange}
@@ -659,6 +697,11 @@ function GrpcRequestBuilder() {
                   reflectionResult.error ?? ''
                 ) &&
                   ' — if the server uses a self-signed or private-CA certificate, add its CA in Settings → Certificates.'}
+                {!isElectron() &&
+                  /forbidden|unauthorized|not found|failed to fetch|networkerror/i.test(
+                    reflectionResult.error ?? ''
+                  ) &&
+                  ' — this can also mean the server only speaks native gRPC, not the Connect protocol the browser build requires. Try the desktop app, or upload a .proto file to skip reflection.'}
               </span>
             </div>
           )}
@@ -719,9 +762,11 @@ function GrpcRequestBuilder() {
             {activeTab === 'settings' && (
               <div className="p-3">
                 <GrpcSettingsPanel
+                  timeoutMs={timeoutMs}
                   retryMaxAttempts={retryMaxAttempts}
                   retryDelayMs={retryDelayMs}
                   useCompression={useCompression}
+                  onTimeoutMsChange={setTimeoutMs}
                   onRetryMaxAttemptsChange={setRetryMaxAttempts}
                   onRetryDelayMsChange={setRetryDelayMs}
                   onUseCompressionChange={setUseCompression}
@@ -749,8 +794,8 @@ function GrpcRequestBuilder() {
                 request={grpcRequest}
                 {...(resolvedProto?.content ? { protoContent: resolvedProto.content } : {})}
                 {...(resolvedProto?.fileName ? { protoFileName: resolvedProto.fileName } : {})}
-                {...(reflection.selectedService?.descriptors?.length
-                  ? { descriptors: reflection.selectedService.descriptors }
+                {...(resolvedProto?.descriptors?.length
+                  ? { descriptors: resolvedProto.descriptors }
                   : {})}
               />
             )}

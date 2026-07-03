@@ -219,6 +219,12 @@ export const grpcRequestSchema = z.object({
   auth: authConfigSchema,
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
+  timeoutMs: z.number().optional(),
+  retryMaxAttempts: z.number().optional(),
+  retryDelayMs: z.number().optional(),
+  useCompression: z.boolean().optional(),
+  protoContent: z.string().optional(),
+  protoFileName: z.string().optional(),
 });
 
 // SSE Request Schema

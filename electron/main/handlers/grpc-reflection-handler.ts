@@ -6,6 +6,7 @@ import {
   type ReflectionIpcConfig,
 } from '../ipc/ipc-validators';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
+import { mergeMainSideAuth } from './grpc-handler';
 
 /** The subset of ServerReflectionResponse the renderer consumes. */
 interface RawReflectionResponse {
@@ -34,6 +35,12 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
   const urlWithScheme = url.includes('://') ? url : `grpc://${url}`;
   const dial = await resolveGrpcDialAddress(urlWithScheme);
 
+  // A server that requires auth to expose its schema is otherwise
+  // undiscoverable — merge any handle-backed auth resolved main-side (the
+  // renderer already applies inline auth into `metadata` itself) the same
+  // way the call path does.
+  const metadata = mergeMainSideAuth(config.metadata ?? {}, config.auth);
+
   return executeConnectReflection({
     url: urlWithScheme,
     dial,
@@ -41,6 +48,7 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
     version,
     request: request as Record<string, unknown>,
     timeoutMs: timeout,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   });
 }
 

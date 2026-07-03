@@ -261,7 +261,11 @@ export default function Home() {
       case 'grpc':
         return (
           <ResizableLayout {...splitProps}>
-            <GrpcRequestBuilder />
+            {/* Keyed by tab id so switching gRPC tabs remounts the builder —
+                without this, per-tab-only local state (validation, streaming
+                messages, in-flight stream handles) silently carried over from
+                the previously active gRPC request. */}
+            <GrpcRequestBuilder key={activeTab?.id} />
             <GrpcResponsePanel />
           </ResizableLayout>
         );
