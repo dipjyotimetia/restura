@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
   schedule:
     # GitHub schedules use UTC; 08:00 UTC is midnight PST.
-    - cron: "0 8 * * *"
+    - cron: '0 8 * * *'
 
 concurrency:
   group: ${{ github.workflow }}
@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: ".nvmrc"
+          node-version-file: '.nvmrc'
 
       - name: Install OpenWiki
         run: npm install --global openwiki
@@ -51,12 +51,12 @@ jobs:
           OPENWIKI_MODEL_ID: deepseek/deepseek-v4-pro
 
       - name: Create OpenWiki update pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           add-paths: openwiki
           branch: openwiki/update
-          commit-message: "docs: update OpenWiki"
-          title: "docs: update OpenWiki"
+          commit-message: 'docs: update OpenWiki'
+          title: 'docs: update OpenWiki'
           body: |
             Automated OpenWiki documentation update.
 
