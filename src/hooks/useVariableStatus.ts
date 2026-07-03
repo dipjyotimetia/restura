@@ -29,17 +29,15 @@ export function useVariableStatus(): (name: string) => VariableStatus {
     savedRequestId ? s.getCollectionByItemId(savedRequestId) : undefined
   );
 
-  const scriptSetKeys = useMemo(() => parseScriptSetKeys(preRequestScript), [preRequestScript]);
-
   const knownNames = useMemo(
     () =>
       buildKnownNames({
         env: activeEnv?.variables,
         globals,
         collection: collection?.variables,
-        scriptSetKeys,
+        scriptSetKeys: parseScriptSetKeys(preRequestScript),
       }),
-    [activeEnv, globals, collection, scriptSetKeys]
+    [activeEnv, globals, collection, preRequestScript]
   );
 
   return useCallback(

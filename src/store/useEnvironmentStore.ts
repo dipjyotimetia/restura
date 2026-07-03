@@ -90,6 +90,11 @@ export const useEnvironmentStore = create<EnvironmentState>()(
       },
 
       resolveVariables: (text: string) => {
+        // No `{{token}}` anywhere — nothing to substitute (env, globals, or
+        // dynamics all require braces), so skip the regex work entirely. This
+        // is the common case for most fields on the per-field send hot path.
+        if (!text.includes('{{')) return text;
+
         const activeEnv = get().getActiveEnvironment();
         let resolved = text;
 
@@ -109,10 +114,13 @@ export const useEnvironmentStore = create<EnvironmentState>()(
         // first, so an env var with the same name wins (its token is already gone).
         // This gives every caller of resolveVariables — SSE / WebSocket / Socket.IO /
         // MCP / gRPC / workflows / the HTTP second pass — globals parity for free.
-        const globals = useGlobalsStore.getState().vars;
-        for (const [key, value] of Object.entries(globals)) {
-          const regex = new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, 'g');
-          resolved = resolved.replace(regex, () => value);
+        // Only compile the globals regexes if env didn't already resolve every token.
+        if (resolved.includes('{{')) {
+          const globals = useGlobalsStore.getState().vars;
+          for (const [key, value] of Object.entries(globals)) {
+            const regex = new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, 'g');
+            resolved = resolved.replace(regex, () => value);
+          }
         }
 
         // Resolve built-in dynamic variables (Postman-name compatible)
