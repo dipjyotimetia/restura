@@ -5,6 +5,7 @@ import {
   ReflectionIpcConfigSchema,
   type ReflectionIpcConfig,
 } from '../ipc/ipc-validators';
+import { describeUnsupportedGrpcAuth } from '../security/auth-applier';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
 import { mergeMainSideAuth } from './grpc-handler';
 
@@ -28,6 +29,14 @@ export function parseTargetAddress(url: string): { address: string; useTls: bool
 async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawReflectionResponse> {
   const { url, reflectionService, request, timeout = 30000 } = config;
   const version: 'v1' | 'v1alpha' = reflectionService.includes('v1alpha') ? 'v1alpha' : 'v1';
+
+  // Fail clearly instead of silently discovering with no credentials — same
+  // check as the call path (`grpc-handler.ts`), shared via
+  // `describeUnsupportedGrpcAuth` so it can't be missed here.
+  const authProblem = describeUnsupportedGrpcAuth(config.auth, 'the reflection request');
+  if (authProblem) {
+    return { errorResponse: { errorCode: 16, errorMessage: authProblem } };
+  }
 
   // Same SSRF resolve+pin (closes the DNS-rebind window) and TLS trust material
   // as the call path, then run reflection over a runtime registry via

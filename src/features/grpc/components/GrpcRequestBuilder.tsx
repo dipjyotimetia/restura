@@ -266,6 +266,15 @@ function GrpcRequestBuilder() {
     streamingMessages.length,
   ]);
 
+  // `currentRequest` gets a new reference on every store update (Zod's
+  // `.parse()` in validateRequestUpdate rebuilds the whole object, not just
+  // the changed field), so the useMemo below reads through these primitives
+  // instead of the object directly — otherwise it would regenerate the
+  // (recursive) reflection proto text on every unrelated keystroke.
+  const currentProtoContent = currentRequest?.protoContent;
+  const currentProtoFileName = currentRequest?.protoFileName;
+  const currentService = currentRequest?.service;
+
   // Proto schema to drive a call: an explicitly uploaded .proto (persisted on
   // the request) takes precedence; otherwise fall back to reconstructing text
   // from the live reflection result. Derived reactively (not populated as a
@@ -276,22 +285,30 @@ function GrpcRequestBuilder() {
     fileName: string;
     descriptors: string[] | undefined;
   } | null => {
-    if (currentRequest?.protoContent && currentRequest.protoFileName) {
+    if (currentProtoContent && currentProtoFileName) {
       return {
-        content: currentRequest.protoContent,
-        fileName: currentRequest.protoFileName,
+        content: currentProtoContent,
+        fileName: currentProtoFileName,
         descriptors: undefined,
       };
     }
-    if (currentRequest && reflection.result?.success && reflection.selectedService) {
+    // A null<->request transition always changes `currentService` too
+    // (undefined vs a real string), so no separate presence check is needed.
+    if (currentService !== undefined && reflection.result?.success && reflection.selectedService) {
       return {
-        content: generateProtoFromReflection(currentRequest.service, reflection.selectedService),
+        content: generateProtoFromReflection(currentService, reflection.selectedService),
         fileName: 'generated.proto',
         descriptors: reflection.selectedService.descriptors,
       };
     }
     return null;
-  }, [currentRequest, reflection.result, reflection.selectedService]);
+  }, [
+    currentProtoContent,
+    currentProtoFileName,
+    currentService,
+    reflection.result,
+    reflection.selectedService,
+  ]);
 
   if (!currentRequest) {
     return null;

@@ -387,6 +387,23 @@ export function generateProtoFromReflection(
   return lines.join('\n');
 }
 
+// Shared by a field itself and, for map fields, its `mapValue` (map entries
+// carry their value type there) — both can reference a message or enum type
+// that needs to be declared in the generated `.proto` text.
+function registerFieldType(
+  type: FieldType | undefined,
+  typeName: string | undefined,
+  messageTypes: Set<string>,
+  enumTypes: Set<string>
+): void {
+  if (type === 'TYPE_MESSAGE' && typeName) {
+    const nestedSchema = messageSchemaCache.get(typeName);
+    if (nestedSchema) collectMessageTypes(nestedSchema, messageTypes, enumTypes);
+  } else if (type === 'TYPE_ENUM' && typeName) {
+    enumTypes.add(typeName);
+  }
+}
+
 function collectMessageTypes(
   schema: MessageSchema,
   messageTypes: Set<string>,
@@ -396,21 +413,11 @@ function collectMessageTypes(
   messageTypes.add(schema.fullName);
 
   for (const field of schema.fields) {
-    if (field.type === 'TYPE_MESSAGE' && field.typeName) {
-      const nestedSchema = messageSchemaCache.get(field.typeName);
-      if (nestedSchema) collectMessageTypes(nestedSchema, messageTypes, enumTypes);
-    } else if (field.type === 'TYPE_ENUM' && field.typeName) {
-      enumTypes.add(field.typeName);
-    }
+    registerFieldType(field.type, field.typeName, messageTypes, enumTypes);
     // Map fields carry their value type on `mapValue`, which can itself be a
     // message or enum — walk it the same way so map-of-enum/map-of-message
     // fields don't reference an undeclared type either.
-    if (field.mapValue?.type === 'TYPE_MESSAGE' && field.mapValue.typeName) {
-      const nestedSchema = messageSchemaCache.get(field.mapValue.typeName);
-      if (nestedSchema) collectMessageTypes(nestedSchema, messageTypes, enumTypes);
-    } else if (field.mapValue?.type === 'TYPE_ENUM' && field.mapValue.typeName) {
-      enumTypes.add(field.mapValue.typeName);
-    }
+    registerFieldType(field.mapValue?.type, field.mapValue?.typeName, messageTypes, enumTypes);
   }
 }
 

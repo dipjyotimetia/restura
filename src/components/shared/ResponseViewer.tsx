@@ -22,16 +22,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { AiActionsMenu } from '@/features/ai/components/AiActionsMenu';
 import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
 import { detectLanguage } from '@/lib/shared/console-format';
+import { PRETTY_PRINT_MAX_BYTES } from '@/lib/shared/constants';
 import { isCsvResponse } from '@/lib/shared/csvParser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn, formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-
-// Bodies above this size skip pretty-print to avoid freezing the main thread
-// on multi-MB responses; raw text still renders fine through Monaco.
-const PRETTY_PRINT_MAX_BYTES = 1_000_000;
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),

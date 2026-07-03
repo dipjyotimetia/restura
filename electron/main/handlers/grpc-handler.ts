@@ -13,7 +13,7 @@ import {
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
-import { applyNonSignAtWireAuth } from '../security/auth-applier';
+import { applyNonSignAtWireAuth, describeUnsupportedGrpcAuth } from '../security/auth-applier';
 import {
   resolveGrpcDialAddress,
   executeConnectUnary,
@@ -260,25 +260,20 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
   };
 }
 
-// `applyNonSignAtWireAuth` silently returns no headers for these — they're
-// signed at the HTTP wire by `shared/protocol/auth-signer.ts`, which gRPC's
-// metadata-based transport doesn't go through. Previously that meant the
-// request went out unauthenticated with no indication why; fail clearly
-// instead, the same way the SSRF pre-flight below does.
-const UNSUPPORTED_GRPC_AUTH_TYPES = new Set(['digest', 'oauth1', 'aws-signature', 'ntlm', 'wsse']);
-
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
-  if (config.auth && UNSUPPORTED_GRPC_AUTH_TYPES.has(config.auth.type)) {
-    const detail =
-      `[Auth] "${config.auth.type}" authentication is not supported for gRPC — the request ` +
-      `would otherwise be sent with no credentials. Use Bearer, Basic, API Key, or OAuth2 instead.`;
+  // Fail clearly instead of silently sending the request unauthenticated —
+  // same reasoning as the SSRF pre-flight below. Shared with `grpc:start-stream`
+  // and reflection (`grpc-reflection-handler.ts`) via `describeUnsupportedGrpcAuth`
+  // so this can't be missed at one of those call sites.
+  const authProblem = describeUnsupportedGrpcAuth(config.auth, 'the request');
+  if (authProblem) {
     return {
       status: 16,
       statusText: 'UNAUTHENTICATED',
       headers: {},
       trailers: {},
-      error: detail,
-      details: detail,
+      error: authProblem,
+      details: authProblem,
     };
   }
 
@@ -412,13 +407,12 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
 
-        if (config.auth && UNSUPPORTED_GRPC_AUTH_TYPES.has(config.auth.type)) {
+        const streamAuthProblem = describeUnsupportedGrpcAuth(config.auth, 'the stream');
+        if (streamAuthProblem) {
           pendingStreamMessages.delete(requestId);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 16,
-            details:
-              `[Auth] "${config.auth.type}" authentication is not supported for gRPC — the ` +
-              `stream would otherwise start with no credentials. Use Bearer, Basic, API Key, or OAuth2 instead.`,
+            details: streamAuthProblem,
           });
           return;
         }

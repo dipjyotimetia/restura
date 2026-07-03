@@ -73,3 +73,31 @@ export function applyNonSignAtWireAuth(auth: AnyAuth | undefined): AppliedCreden
       return empty;
   }
 }
+
+/**
+ * The sign-at-wire types above are only actually signed for HTTP, via
+ * `shared/protocol/auth-signer.ts`'s `resolveSecret` option threaded through
+ * `executeHttpProxy`. gRPC's metadata-based transport has no equivalent
+ * signer, so `applyNonSignAtWireAuth` silently returning `{}` for these means
+ * "no credentials at all" rather than "handled elsewhere" when the caller is
+ * gRPC. Callers on the gRPC path (unary/streaming requests and reflection)
+ * should check this before proceeding, and fail clearly instead of sending
+ * the request unauthenticated.
+ */
+const GRPC_UNSUPPORTED_AUTH_TYPES = new Set(['digest', 'oauth1', 'aws-signature', 'ntlm', 'wsse']);
+
+/**
+ * Returns a user-facing explanation when `auth` is a type gRPC cannot apply
+ * credentials for, or `null` when it's fine to proceed. `subject` fills the
+ * tail of the message per call site (e.g. "the request", "the stream").
+ */
+export function describeUnsupportedGrpcAuth(
+  auth: { type?: string } | undefined,
+  subject: string
+): string | null {
+  if (!auth?.type || !GRPC_UNSUPPORTED_AUTH_TYPES.has(auth.type)) return null;
+  return (
+    `[Auth] "${auth.type}" authentication is not supported for gRPC — ${subject} would ` +
+    `otherwise be sent with no credentials. Use Bearer, Basic, API Key, or OAuth2 instead.`
+  );
+}

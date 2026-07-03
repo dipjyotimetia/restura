@@ -3,6 +3,8 @@ import { Check, Copy, Download } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Floater, Stat, StatusPill } from '@/components/ui/spatial';
+import { PRETTY_PRINT_MAX_BYTES } from '@/lib/shared/constants';
+import { downloadBlob } from '@/lib/shared/file-utils';
 import { useActiveResponse } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { GrpcStatusCodeName, type GrpcResponse, type GrpcStatusCode } from '@/types';
@@ -13,11 +15,6 @@ function formatBytes(n: number | undefined): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
-
-// Mirrors ResponseViewer's PRETTY_PRINT_MAX_BYTES — parsing + re-stringifying
-// a huge body/frame on every render can freeze the UI; skip it and show raw
-// text past this size instead.
-const PRETTY_PRINT_MAX_BYTES = 1_000_000;
 
 // A long-running server-streaming call can accumulate thousands of frames;
 // rendering every one as its own <pre> block would make the DOM (and typing
@@ -87,13 +84,7 @@ export function GrpcResponsePanel() {
 
   const handleDownloadBody = () => {
     if (!response) return;
-    const blob = new Blob([copyableText], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${response.requestId || 'grpc-response'}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(copyableText, `${response.requestId || 'grpc-response'}.json`);
   };
 
   return (

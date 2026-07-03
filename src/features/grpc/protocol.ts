@@ -154,14 +154,13 @@ export const grpcProtocol: ProtocolModule = {
     // persisted fields, so a request run without an explicit protocolOptions
     // override (e.g. from a saved collection) still uses its own settings.
     const rawOpts = readProtocolOptions(ctx.protocolOptions);
+    // exactOptionalPropertyTypes is off (tsconfig.json) — an explicit `undefined`
+    // behaves identically to an omitted key here, and every downstream read
+    // already tolerates it (`opts.protoContent ?? ''`, `!opts.protoContent`).
     const opts: GrpcProtocolOptions = {
-      ...((rawOpts.protoContent ?? request.protoContent)
-        ? { protoContent: rawOpts.protoContent ?? request.protoContent }
-        : {}),
-      ...((rawOpts.protoFileName ?? request.protoFileName)
-        ? { protoFileName: rawOpts.protoFileName ?? request.protoFileName }
-        : {}),
-      ...(rawOpts.descriptors ? { descriptors: rawOpts.descriptors } : {}),
+      protoContent: rawOpts.protoContent ?? request.protoContent,
+      protoFileName: rawOpts.protoFileName ?? request.protoFileName,
+      descriptors: rawOpts.descriptors,
       timeoutMs: rawOpts.timeoutMs ?? request.timeoutMs ?? 30000,
       useCompression: rawOpts.useCompression ?? request.useCompression ?? false,
     };

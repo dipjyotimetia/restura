@@ -41,3 +41,9 @@ export const PROTOCOL_COLORS: Record<string, string> = {
   sse: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20',
   mcp: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20',
 };
+
+// Above this size, skip JSON.parse/stringify pretty-printing of a response
+// body/frame and show raw text instead — re-serializing a huge payload on
+// every render can freeze the UI. Shared by ResponseViewer (HTTP) and
+// GrpcResponsePanel (gRPC).
+export const PRETTY_PRINT_MAX_BYTES = 1_000_000;

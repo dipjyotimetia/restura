@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { buildAuthMetadata } from '@/features/grpc/lib/grpcClient';
+import { buildAuthMetadata, flattenGrpcMetadataEntries } from '@/features/grpc/lib/grpcClient';
 import { GrpcReflectionClient } from '@/features/grpc/lib/grpcReflection';
 import { validateGrpcUrl } from '@/features/grpc/lib/grpcValidation';
 import type {
@@ -100,6 +100,17 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
   const [loading, setLoading] = useState(false);
   const [showSchema, setShowSchema] = useState(false);
 
+  // Read through refs rather than closed over directly in `discover` below.
+  // The caller's `currentRequest` gets a new reference on every store update
+  // — including edits unrelated to metadata/auth (Zod's `.parse()` in
+  // validateRequestUpdate rebuilds the whole object) — so closing over these
+  // directly would recreate `discover` (and re-arm the auto-discovery
+  // debounce effect) on every keystroke anywhere in the request form.
+  const metadataRef = useRef(metadata);
+  metadataRef.current = metadata;
+  const authRef = useRef(auth);
+  authRef.current = auth;
+
   const selectService = useCallback(
     (service: ReflectionServiceInfo) => {
       setSelectedService(service);
@@ -146,12 +157,13 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
 
       try {
         const resolvedUrl = resolveVariables(rawUrl);
-        const flatMetadata: Record<string, string> = {};
-        for (const m of metadata ?? []) {
-          if (m.enabled && m.key) flatMetadata[m.key.toLowerCase()] = resolveVariables(m.value);
-        }
-        Object.assign(flatMetadata, buildAuthMetadata(auth ?? { type: 'none' }));
-        const client = new GrpcReflectionClient(resolvedUrl, undefined, flatMetadata, auth);
+        const currentAuth = authRef.current;
+        const flatMetadata = flattenGrpcMetadataEntries(
+          metadataRef.current ?? [],
+          resolveVariables
+        );
+        Object.assign(flatMetadata, buildAuthMetadata(currentAuth ?? { type: 'none' }));
+        const client = new GrpcReflectionClient(resolvedUrl, undefined, flatMetadata, currentAuth);
         const discoveryResult = await client.discoverServices();
 
         if (discoveryResult.success) {
@@ -215,7 +227,7 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
         setLoading(false);
       }
     },
-    [url, resolveVariables, metadata, auth, selectService, selectMethod]
+    [url, resolveVariables, selectService, selectMethod]
   );
 
   // Debounced auto-discovery on URL change. We compare against the previous

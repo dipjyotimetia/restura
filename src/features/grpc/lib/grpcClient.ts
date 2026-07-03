@@ -343,6 +343,26 @@ export interface PreparedGrpcRequest {
   methodType: string;
 }
 
+/**
+ * Flatten enabled request metadata entries into a lowercase-keyed header map,
+ * resolving `{{variable}}` references. Shared by the wire request path
+ * (`prepareGrpcRequest`, which layers traceparent injection + size limits on
+ * top) and reflection (`useGrpcReflection`, which sends its own metadata but
+ * doesn't need those wire-only additions).
+ */
+export function flattenGrpcMetadataEntries(
+  metadata: GrpcRequest['metadata'],
+  resolveVariables: (text: string) => string
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  metadata
+    .filter((m) => m.enabled && m.key)
+    .forEach((m) => {
+      out[m.key.toLowerCase()] = resolveVariables(m.value);
+    });
+  return out;
+}
+
 export function prepareGrpcRequest(
   request: GrpcRequest,
   resolveVariables: (text: string) => string
@@ -351,14 +371,10 @@ export function prepareGrpcRequest(
   const resolvedUrl = resolveVariables(request.url);
 
   // Build metadata from request metadata + auth
-  const metadata: Record<string, string> = {};
-
-  // Add user-defined metadata
-  request.metadata
-    .filter((m) => m.enabled && m.key)
-    .forEach((m) => {
-      metadata[m.key.toLowerCase()] = resolveVariables(m.value);
-    });
+  const metadata: Record<string, string> = flattenGrpcMetadataEntries(
+    request.metadata,
+    resolveVariables
+  );
 
   if (!metadata['traceparent']) {
     metadata['traceparent'] = generateTraceparent();

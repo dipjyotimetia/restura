@@ -40,23 +40,23 @@ const DESKTOP_ONLY_METHOD_TYPES: ReadonlySet<GrpcMethodType> = new Set([
   'bidirectional-streaming',
 ]);
 
-function buildMethodTypeOptions(desktopOnlyBadge: boolean) {
-  const base: ReadonlyArray<{ value: GrpcMethodType; label: string }> = [
-    { value: 'unary', label: 'Unary' },
-    { value: 'server-streaming', label: 'Server' },
-    { value: 'client-streaming', label: 'Client' },
-    { value: 'bidirectional-streaming', label: 'Bidi' },
-  ];
-  if (!desktopOnlyBadge) return base;
-  return base.map((opt) =>
-    DESKTOP_ONLY_METHOD_TYPES.has(opt.value)
-      ? {
-          ...opt,
-          icon: <Laptop className="size-2.5" aria-label="Desktop app required" />,
-        }
-      : opt
-  );
-}
+const BASE_METHOD_TYPE_OPTIONS: ReadonlyArray<{ value: GrpcMethodType; label: string }> = [
+  { value: 'unary', label: 'Unary' },
+  { value: 'server-streaming', label: 'Server' },
+  { value: 'client-streaming', label: 'Client' },
+  { value: 'bidirectional-streaming', label: 'Bidi' },
+];
+
+// isElectron() doesn't change over the app's lifetime, so the option list
+// (including which entries carry the desktop-only icon) is computed once at
+// module load rather than rebuilt on every render.
+const METHOD_TYPE_OPTIONS = isElectron()
+  ? BASE_METHOD_TYPE_OPTIONS
+  : BASE_METHOD_TYPE_OPTIONS.map((opt) =>
+      DESKTOP_ONLY_METHOD_TYPES.has(opt.value)
+        ? { ...opt, icon: <Laptop className="size-2.5" aria-label="Desktop app required" /> }
+        : opt
+    );
 
 /**
  * Spatial Depth method invocation bar — Segmented method-type picker +
@@ -78,7 +78,6 @@ export function GrpcInvocationBar({
   onCancelStream,
 }: GrpcInvocationBarProps) {
   const getVarStatus = useVariableStatus();
-  const methodTypeOptions = buildMethodTypeOptions(!isElectron());
   const showVariableOverlay = hasVariableToken(url) && isUrlValid;
 
   return (
@@ -90,7 +89,7 @@ export function GrpcInvocationBar({
           style={{ background: 'var(--sp-surface)' }}
         >
           <Segmented<GrpcMethodType>
-            options={methodTypeOptions}
+            options={METHOD_TYPE_OPTIONS}
             value={methodType}
             onChange={onMethodTypeChange}
             size="sm"
