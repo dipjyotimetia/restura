@@ -380,17 +380,17 @@ function GrpcRequestBuilder() {
       }
     }
 
-    setLoading(true);
-    setStreamingMessages([]);
-    setScriptResult(null);
-    const startTime = Date.now();
-
     if (!resolvedProto) {
       toast.error('Proto file or reflection required', {
         description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
       });
       return;
     }
+
+    setLoading(true);
+    setStreamingMessages([]);
+    setScriptResult(null);
+    const startTime = Date.now();
 
     try {
       const { content: protoContent, fileName: protoFileName, descriptors } = resolvedProto;
