@@ -22,6 +22,8 @@ export interface PmRequestInfo {
   requestId?: string;
   iteration?: number;
   iterationCount?: number;
+  /** Postman-compatible: which script phase is running. */
+  eventName?: 'prerequest' | 'test';
 }
 
 /**
@@ -513,27 +515,30 @@ class ScriptExecutor {
       requestId: info.requestId ?? '',
       iteration: info.iteration ?? 0,
       iterationCount: info.iterationCount ?? 1,
+      eventName: info.eventName ?? '',
     });
     const infoR = vm.evalCode(`pm.info = ${infoPayload};`);
     if (infoR.error) infoR.error.dispose();
     else infoR.value.dispose();
 
+    // pm.execution is bootstrapped as an empty object during setup; just
+    // mutate its `.location` field per-eval. `setNextRequest` / `skipRequest`
+    // land in Phase C and read/write the same `pm.execution` object. Always
+    // set a (possibly empty) location object — a one-off request has no
+    // collection/folder context, but a script that reads
+    // `pm.execution.location.collectionName` unconditionally (matching real
+    // Postman usage inside a collection run) must not throw a TypeError.
     const location = context.location ?? this.defaultLocation;
-    if (location) {
-      // pm.execution is bootstrapped as an empty object during setup; just
-      // mutate its `.location` field per-eval. `setNextRequest` / `skipRequest`
-      // land in Phase C and read/write the same `pm.execution` object.
-      const locPayload = JSON.stringify({
-        currentRequestName: location.currentRequestName,
-        folderPath: location.folderPath,
-        collectionName: location.collectionName,
-      });
-      const locR = vm.evalCode(
-        `pm.execution = pm.execution || {}; pm.execution.location = ${locPayload};`
-      );
-      if (locR.error) locR.error.dispose();
-      else locR.value.dispose();
-    }
+    const locPayload = JSON.stringify({
+      currentRequestName: location?.currentRequestName ?? '',
+      folderPath: location?.folderPath ?? [],
+      collectionName: location?.collectionName ?? '',
+    });
+    const locR = vm.evalCode(
+      `pm.execution = pm.execution || {}; pm.execution.location = ${locPayload};`
+    );
+    if (locR.error) locR.error.dispose();
+    else locR.value.dispose();
   }
 
   /**
@@ -1394,7 +1399,7 @@ class ScriptExecutor {
     // pm.info — default empty; per-eval bindRequestResponse() overwrites with
     // the active request's name/id when available.
     const pmInfo = vm.evalCode(
-      "pm.info = { requestName: '', requestId: '', iteration: 0, iterationCount: 1 };"
+      "pm.info = { requestName: '', requestId: '', iteration: 0, iterationCount: 1, eventName: '' };"
     );
     if (pmInfo.error) pmInfo.error.dispose();
     else pmInfo.value.dispose();
@@ -1437,6 +1442,38 @@ class ScriptExecutor {
           };
         },
       };
+
+      // Legacy \`postman.*\` API — predates the \`pm.*\` namespace. Kept for
+      // backward compatibility with older Postman scripts/collections; new
+      // scripts should use \`pm.*\` (or \`rs.*\`) directly.
+      globalThis.postman = {
+        setEnvironmentVariable: function (key, value) { pm.environment.set(key, value); },
+        getEnvironmentVariable: function (key) { return pm.environment.get(key); },
+        clearEnvironmentVariable: function (key) { pm.environment.unset(key); },
+        setGlobalVariable: function (key, value) { pm.globals.set(key, value); },
+        getGlobalVariable: function (key) { return pm.globals.get(key); },
+        clearGlobalVariable: function (key) { pm.globals.unset(key); },
+        setNextRequest: function (name) { pm.execution.setNextRequest(name); },
+      };
+
+      // Legacy \`tests["assertion label"] = true/false;\` object-literal style
+      // — predates \`pm.test(name, fn)\`. Every property assignment records a
+      // pass/fail test with that label, exactly like Postman's original API.
+      globalThis.tests = new Proxy({}, {
+        set: function (target, prop, value) {
+          var label = String(prop);
+          var ok = Boolean(value);
+          pm.test(label, function () {
+            if (!ok) {
+              var err = new Error('Test failed: ' + label);
+              err.name = 'AssertionError';
+              throw err;
+            }
+          });
+          target[prop] = value;
+          return true;
+        },
+      });
     `);
     if (executionBootstrap.error) {
       const errorMsg = vm.dump(executionBootstrap.error);

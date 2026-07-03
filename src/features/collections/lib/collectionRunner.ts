@@ -4,6 +4,9 @@ import type { RunnableRequest } from './flattenRunnables';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
+import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
+import { buildValueMap } from '@/lib/shared/variableScopes';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { Collection, Request, Response as ApiResponse } from '@/types';
 
 /**
@@ -173,6 +176,23 @@ export async function runCollection(
   // behaviour (Newman emits an error at ~1000).
   const MAX_NEXT_REQUEST_JUMPS = 1000;
 
+  // `pm.collectionVariables` backing map — separate from `allVars` (which
+  // folds env/globals/collection/data together for `{{var}}` substitution
+  // and `pm.variables`). Mutations persist to `useCollectionStore` as they
+  // happen, so later requests in the SAME run (and future runs) see them,
+  // matching Postman's collection-runner semantics.
+  const collectionVars = buildValueMap({ collection: collection.variables });
+  // Persist at most once per request (merging both script phases, test wins
+  // on conflict) rather than once per phase — `applyCollectionVarMutations`
+  // rewrites the entire persisted (encrypted, IndexedDB-backed) collections
+  // tree, so halving the call count halves that cost on every request that
+  // touches `pm.collectionVariables` in both its pre-request and test script.
+  const persistCollectionMutations = (mutations: Record<string, string | null>) => {
+    if (Object.keys(mutations).length === 0) return;
+    applyVarMutations(collectionVars, mutations);
+    useCollectionStore.getState().applyCollectionVarMutations(collection.id, mutations);
+  };
+
   outer: for (let iter = 0; iter < rows.length; iter++) {
     // Carry-forward map for this iteration: base + row, mutated by scripts as we go.
     const allVars: Record<string, string> = { ...baseVars, ...rows[iter] };
@@ -235,6 +255,19 @@ export async function runCollection(
         onScriptResult: (r: ProtocolScriptResult) => {
           scripts = r;
         },
+        protocolOptions: {
+          collectionVars: { ...collectionVars },
+          iterationData: { ...rows[iter] },
+          info: { iteration: iter, iterationCount: rows.length },
+          location: {
+            currentRequestName: runnable.name,
+            // flattenRunnables() doesn't retain per-runnable folder ancestry
+            // today, so pm.execution.location.folderPath is always empty —
+            // collectionName/currentRequestName are still accurate.
+            folderPath: [],
+            collectionName: collection.name,
+          },
+        },
       };
 
       const startedReq = Date.now();
@@ -256,6 +289,7 @@ export async function runCollection(
 
         // Aggregate pm.test() assertions from both script phases.
         const assertions: RunnerAssertion[] = [];
+        const collectionMutations: Record<string, string | null> = {};
         for (const phase of [scripts?.preRequest, scripts?.test]) {
           if (phase?.tests) {
             for (const t of phase.tests) {
@@ -268,8 +302,15 @@ export async function runCollection(
           }
           // Carry-forward pm.variables.set() mutations into the iteration map.
           if (phase?.variables) Object.assign(allVars, phase.variables);
+          // Merge pm.collectionVariables.set/unset mutations from both phases
+          // (test wins on conflict) — persisted once below, not per phase.
+          if (phase?.collectionMutations)
+            Object.assign(collectionMutations, phase.collectionMutations);
         }
         result.assertions = assertions;
+        // Persist merged pm.collectionVariables mutations — later requests
+        // in this run (and future runs) see the updated value.
+        persistCollectionMutations(collectionMutations);
 
         const scriptError = [scripts?.preRequest, scripts?.test]
           .flatMap((p) => p?.errors ?? [])

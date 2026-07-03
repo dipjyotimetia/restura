@@ -43,6 +43,41 @@ describe('useCollectionStore', () => {
     });
   });
 
+  describe('applyCollectionVarMutations — write-back for pm.collectionVariables', () => {
+    it('creates new keys, updates existing ones, and removes unset keys', () => {
+      const { createNewCollection, addCollection, applyCollectionVarMutations } =
+        useCollectionStore.getState();
+      const collection: Collection = {
+        ...createNewCollection('Vars'),
+        variables: [{ id: 'v1', key: 'base', value: 'https://old.example.com', enabled: true }],
+      };
+      addCollection(collection);
+
+      applyCollectionVarMutations(collection.id, {
+        base: 'https://new.example.com',
+        token: 'abc123',
+        stale: null,
+      });
+
+      const stored = useCollectionStore.getState().getCollectionById(collection.id);
+      const byKey = Object.fromEntries((stored?.variables ?? []).map((v) => [v.key, v.value]));
+      expect(byKey).toEqual({ base: 'https://new.example.com', token: 'abc123' });
+    });
+
+    it('is a no-op for an unknown collection id', () => {
+      const { createNewCollection, addCollection, applyCollectionVarMutations } =
+        useCollectionStore.getState();
+      const collection = createNewCollection('Vars');
+      addCollection(collection);
+
+      applyCollectionVarMutations('does-not-exist', { x: 'y' });
+
+      expect(useCollectionStore.getState().getCollectionById(collection.id)?.variables).toEqual(
+        undefined
+      );
+    });
+  });
+
   describe('updateCollectionItem defeats a stale _oc bag on edit (audit Fix 7)', () => {
     it('re-exports a folder-nested request with the edit, not the stale imported bag', () => {
       const { addCollection, updateCollectionItem } = useCollectionStore.getState();

@@ -173,6 +173,18 @@ interface CollectionState {
   /** Find the collection that contains a given item (request) id, at any depth. */
   getCollectionByItemId: (itemId: string) => Collection | undefined;
   createNewCollection: (name: string) => Collection;
+  /**
+   * Bulk-apply `pm.collectionVariables.set/unset` mutations captured by a
+   * script run back onto the collection's `variables` list — the write-back
+   * half of `pm.collectionVariables` (mirrors `useGlobalsStore.
+   * applyMutations`, but against `KeyValue[]` instead of a flat map).
+   * `null` removes the key; a string sets/creates it (enabled: true).
+   * No-op if the collection doesn't exist.
+   */
+  applyCollectionVarMutations: (
+    collectionId: string,
+    mutations: Record<string, string | null>
+  ) => void;
 }
 
 export const useCollectionStore = create<CollectionState>()(
@@ -367,6 +379,33 @@ export const useCollectionStore = create<CollectionState>()(
         name,
         items: [],
       }),
+
+      applyCollectionVarMutations: (collectionId, mutations) =>
+        set((state) => ({
+          collections: state.collections.map((col) => {
+            if (col.id !== collectionId) return col;
+            let changed = false;
+            const next = [...(col.variables ?? [])];
+            for (const [key, value] of Object.entries(mutations)) {
+              const idx = next.findIndex((v) => v.key === key);
+              if (value === null) {
+                if (idx !== -1) {
+                  next.splice(idx, 1);
+                  changed = true;
+                }
+              } else if (idx !== -1) {
+                if (next[idx]!.value !== value) {
+                  next[idx] = { ...next[idx]!, value };
+                  changed = true;
+                }
+              } else {
+                next.push({ id: uuidv4(), key, value, enabled: true });
+                changed = true;
+              }
+            }
+            return changed ? { ...col, variables: next } : col;
+          }),
+        })),
     }),
     {
       name: 'collection-storage',

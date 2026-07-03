@@ -51,6 +51,14 @@ export interface RequestExecutionResult {
   envVars?: Record<string, string>;
   sentHeaders: Record<string, string>;
   refreshedAuth?: HttpRequest['auth'];
+  /**
+   * `pm.collectionVariables.set/unset` mutations from either script phase,
+   * merged (test phase wins on conflict). Callers persist these back to the
+   * owning collection's `variables` — see `useCollectionStore.
+   * applyCollectionVarMutations`. Undefined when neither script touched
+   * `pm.collectionVariables`.
+   */
+  collectionVarsMutations?: Record<string, string | null>;
 }
 
 export interface RequestExecutorOptions {
@@ -58,6 +66,18 @@ export interface RequestExecutorOptions {
   envVars: Record<string, string>;
   globalSettings: AppSettings;
   resolveVariables: (text: string, vars?: Record<string, string>) => string;
+  /** Collection-scoped variables, backing `pm.collectionVariables`. */
+  collectionVars?: Record<string, string>;
+  /** Current iteration's data-row, backing `pm.iterationData` (collection runner). */
+  iterationData?: Record<string, string>;
+  /** `pm.info` metadata. `requestName`/`requestId` default from `request` when omitted. */
+  info?: { requestName?: string; requestId?: string; iteration?: number; iterationCount?: number };
+  /** `pm.execution.location` metadata (collection/folder run context). */
+  location?: {
+    currentRequestName: string;
+    folderPath: string[];
+    collectionName: string;
+  };
 }
 
 interface BuiltSpec {
@@ -347,8 +367,17 @@ function normalizeBody(data: unknown): string {
 export async function executeRequest(
   options: RequestExecutorOptions
 ): Promise<RequestExecutionResult> {
-  const { request, envVars, globalSettings } = options;
+  const { request, envVars, globalSettings, collectionVars, iterationData, location } = options;
   const startTime = Date.now();
+  const baseInfo = {
+    requestName: options.info?.requestName ?? request.name,
+    requestId: options.info?.requestId ?? request.id,
+    ...(options.info?.iteration !== undefined ? { iteration: options.info.iteration } : {}),
+    ...(options.info?.iterationCount !== undefined
+      ? { iterationCount: options.info.iterationCount }
+      : {}),
+  };
+  const collectionVarsMutations: Record<string, string | null> = {};
 
   let preRequestResult: ScriptResult | undefined;
   if (request.preRequestScript) {
@@ -363,6 +392,10 @@ export async function executeRequest(
     const executor = new ScriptExecutor({
       envVars,
       globalVars,
+      collectionVars: { ...(collectionVars ?? {}) },
+      iterationData: { ...(iterationData ?? {}) },
+      info: { ...baseInfo, eventName: 'prerequest' },
+      ...(location ? { location } : {}),
       host: {
         sendRequest: makeRendererSendRequest({
           variables: envVars,
@@ -388,6 +421,9 @@ export async function executeRequest(
     }
     if (preRequestResult.globalsMutations) {
       useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
+    }
+    if (preRequestResult.collectionMutations) {
+      Object.assign(collectionVarsMutations, preRequestResult.collectionMutations);
     }
   }
 
@@ -452,6 +488,10 @@ export async function executeRequest(
     const executor = new ScriptExecutor({
       envVars,
       globalVars,
+      collectionVars: { ...(collectionVars ?? {}) },
+      iterationData: { ...(iterationData ?? {}) },
+      info: { ...baseInfo, eventName: 'test' },
+      ...(location ? { location } : {}),
       host: {
         sendRequest: makeRendererSendRequest({
           variables: envVars,
@@ -484,6 +524,9 @@ export async function executeRequest(
     if (testResult.globalsMutations) {
       useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
     }
+    if (testResult.collectionMutations) {
+      Object.assign(collectionVarsMutations, testResult.collectionMutations);
+    }
   }
 
   const result: RequestExecutionResult = {
@@ -494,6 +537,7 @@ export async function executeRequest(
     },
     envVars,
     sentHeaders,
+    ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
   };
   if (effectiveAuth !== request.auth) {
     result.refreshedAuth = effectiveAuth;

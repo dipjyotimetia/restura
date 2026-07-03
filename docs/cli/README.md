@@ -184,15 +184,16 @@ env file.
 
 ## Limitations
 
-v0.1 ships HTTP only. The following are tracked as follow-ups:
-
-- **gRPC / SSE / MCP requests are not executed.** Files of these types load
-  successfully but each yields a single `unsupported` result with a clear
-  message. They count as errors in the summary.
-- **Test scripts are not executed.** A request's `testScript` field is
-  ignored; pass / fail is determined by HTTP status (2xx = pass). Adding
-  `pm.test()` execution requires bundling QuickJS into the CLI.
-- **Pre-request scripts are not executed.** Same reason.
+- **Pre-request and test scripts run in the same QuickJS sandbox the app
+  uses** (`quickjs-emscripten`, bundled into the CLI). `pm.test()` /
+  `pm.expect()` assertions drive pass/fail alongside HTTP status;
+  `pm.environment` / `pm.globals` / `pm.collectionVariables` /
+  `pm.iterationData` are all live. `pm.sendRequest`, `pm.cookies`, and
+  `pm.vault` are **not** wired in the CLI (no persistent cookie jar or OS
+  keychain in a CI process) — those calls reject with a clear "not wired
+  in" error rather than hanging.
+- **HTTP, gRPC (unary), SSE, and MCP requests execute.** WebSocket has an
+  executor (`executeWebSocket`) but isn't wired into collection runs yet.
 - **Localhost is blocked by default.** Pass `--allow-localhost` if your CI
   runs against an in-job server (e.g., a sidecar in `services:`).
 - **Postman / Insomnia collection imports are renderer-only.** Convert once
