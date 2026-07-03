@@ -1,8 +1,9 @@
 'use client';
 
 import { Plus, Play, GitBranch, AlertTriangle } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { validateWorkflowGraph } from '../lib/flowValidators';
 import { VariableExtractorConfig } from './VariableExtractorConfig';
 import { WorkflowStep } from './WorkflowStep';
 import { Button } from '@/components/ui/button';
@@ -79,7 +80,6 @@ export function WorkflowBuilder({
   const addWorkflowRequest = useWorkflowStore((s) => s.addWorkflowRequest);
   const updateWorkflowRequest = useWorkflowStore((s) => s.updateWorkflowRequest);
   const removeWorkflowRequest = useWorkflowStore((s) => s.removeWorkflowRequest);
-  const updateWorkflow = useWorkflowStore((s) => s.updateWorkflow);
   const clearWorkflowGraph = useWorkflowStore((s) => s.clearWorkflowGraph);
 
   const [activeTab, setActiveTab] = useState<BuilderTab>('form');
@@ -91,23 +91,27 @@ export function WorkflowBuilder({
   const hasGraph = Boolean(workflow.graph);
   const formReadOnly = hasGraph;
 
-  // First-open-of-Graph-tab: stamp a tiny viewport stub on the workflow.
-  // The synthesised content (nodes/edges derived from requests[]) is
-  // rendered in-memory by FlowCanvas; persisting only the viewport
-  // preserves "I opened this tab" intent across reloads without
-  // committing to dual-write yet.
-  useEffect(() => {
-    if (activeTab !== 'graph') return;
-    if (workflow.graph) return;
-    updateWorkflow(workflow.id, {
-      graph: {
-        version: 1,
-        nodes: [],
-        edges: [],
-        viewport: { x: 0, y: 0, zoom: 1 },
-      },
-    });
-  }, [activeTab, workflow.graph, workflow.id, updateWorkflow]);
+  // Merely opening the Graph tab must NOT persist anything — `FlowEditor`
+  // renders a synthesised, in-memory view derived from `requests[]` when
+  // `workflow.graph` is absent (see its `renderedGraph`), and only an
+  // actual structural edit in the canvas (FlowCanvas's `commit` calls)
+  // materialises a real, persisted graph. Previously this effect stamped
+  // a `{nodes:[],edges:[]}` stub the instant the tab was clicked, which
+  // permanently flipped the workflow into graph mode — disabling the Form
+  // tab and routing Run through the DAG executor against a graph with no
+  // start node — even if the user never touched the canvas.
+
+  // Same structural-validity gate as FlowToolbar's in-canvas Run button —
+  // this footer button is a second entry point into the same run, so it
+  // needs the same guard or a user could bypass the canvas warning here.
+  // Only blocking ('error') issues gate Run — non-blocking warnings (e.g.
+  // dead wiring off an `end` node) are visible in FlowToolbar's popover,
+  // not worth a scary "won't run" message on this simpler footer button.
+  const graphIssues = useMemo(() => {
+    if (!workflow.graph) return [];
+    const result = validateWorkflowGraph(workflow.graph);
+    return result.issues.filter((i) => (i.severity ?? 'error') === 'error');
+  }, [workflow.graph]);
 
   const availableRequests = useMemo(() => {
     if (!collection) return [];
@@ -308,10 +312,20 @@ export function WorkflowBuilder({
           </Tabs>
 
           <DialogFooter>
+            {graphIssues.length > 0 && (
+              <div className="text-xs text-amber-600 dark:text-amber-400 mr-auto self-center">
+                {graphIssues.length} validation issue{graphIssues.length === 1 ? '' : 's'} — fix in
+                the Graph tab before running.
+              </div>
+            )}
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Close
             </Button>
-            <Button onClick={onRun} disabled={workflow.requests.length === 0}>
+            <Button
+              onClick={onRun}
+              disabled={workflow.requests.length === 0 || graphIssues.length > 0}
+              title={graphIssues.length > 0 ? 'Fix validation issues before running' : undefined}
+            >
               <Play className="h-4 w-4 mr-2" />
               Run Workflow
             </Button>

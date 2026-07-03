@@ -23,6 +23,7 @@ import { SseParser, type ParsedSseEvent } from './lib/sseParser';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import type { Request, SseRequest } from '@/types';
 
@@ -111,6 +112,22 @@ async function sseStartStream(
     throw new Error('SSE request has no URL');
   }
 
+  // Header-based auth (basic/bearer/api-key/oauth2); sign-at-wire types no-op.
+  const credential = buildAuthCredential(sseReq.auth);
+  const url = buildUrlWithParams(sseReq, credential.params);
+  const headers = flattenHeaders(sseReq, credential.headers);
+
+  // Desktop: `executeProxiedStreamingRequest` deliberately throws for
+  // Electron (streaming HTTP has no generic IPC channel — see its
+  // doc-comment), so the `sseSubscribe` workflow node would fail on every
+  // run in the packaged app. Route through the same `sse:connect` IPC
+  // channel + SSRF-guarded main-process fetch the interactive SSE client
+  // uses (`sseManager.connectViaElectron`), just without touching
+  // `useSseStore` — the executor owns event accumulation here.
+  if (isElectron()) {
+    return sseStartStreamElectron(url, headers, ctx);
+  }
+
   // Each call gets its own AbortController. The caller's signal feeds
   // ours; `close()` aborts ours too. Either fully terminates the
   // fetch reader.
@@ -118,11 +135,6 @@ async function sseStartStream(
   const linkAbort = () => ourCtrl.abort();
   if (ctx.signal.aborted) ourCtrl.abort();
   else ctx.signal.addEventListener('abort', linkAbort, { once: true });
-
-  // Header-based auth (basic/bearer/api-key/oauth2); sign-at-wire types no-op.
-  const credential = buildAuthCredential(sseReq.auth);
-  const url = buildUrlWithParams(sseReq, credential.params);
-  const headers = flattenHeaders(sseReq, credential.headers);
 
   const response = await executeProxiedStreamingRequest(
     {
@@ -224,6 +236,109 @@ async function sseStartStream(
       ctx.signal.removeEventListener('abort', linkAbort);
       // Wait for the drain loop to settle so we don't leak the reader.
       await drain;
+    },
+  };
+}
+
+/**
+ * Electron path for `sseStartStream`. Mirrors the queue+waiter
+ * async-iterable shape of the web path above, but sources events from the
+ * `sse:connect` IPC channel (electron/main/handlers/sse-handler.ts) —
+ * the same SSRF-guarded, DNS-pinned main-process fetch the interactive
+ * SSE client uses — instead of a renderer-side `fetch`. Each call mints
+ * its own `connectionId` so concurrent sseSubscribe nodes (e.g. inside a
+ * forEach) and any open interactive SSE tab never collide, and doesn't
+ * touch `useSseStore`.
+ */
+async function sseStartStreamElectron(
+  url: string,
+  headers: Record<string, string>,
+  ctx: { signal: AbortSignal }
+): Promise<ProtocolStreamHandle> {
+  const api = getElectronAPI();
+  if (!api?.sse) {
+    throw new Error('Electron SSE API is not available in this context.');
+  }
+  const sse = api.sse;
+  const connectionId = `flow-sse-${uuidv4()}`;
+
+  const queue: ParsedSseEvent[] = [];
+  let resolveWaiter: (() => void) | null = null;
+  let closed = false;
+  let closeError: string | null = null;
+  const wakeup = () => {
+    if (resolveWaiter) {
+      const r = resolveWaiter;
+      resolveWaiter = null;
+      r();
+    }
+  };
+
+  const cleanupListeners = () => {
+    sse.removeAllListeners(`sse:open:${connectionId}`);
+    sse.removeAllListeners(`sse:event:${connectionId}`);
+    sse.removeAllListeners(`sse:error:${connectionId}`);
+    sse.removeAllListeners(`sse:close:${connectionId}`);
+  };
+
+  sse.on(`sse:event:${connectionId}`, (payload: unknown) => {
+    queue.push(payload as ParsedSseEvent);
+    wakeup();
+  });
+  sse.on(`sse:error:${connectionId}`, (payload: unknown) => {
+    const err = payload as { message?: string };
+    closeError = err?.message ?? 'SSE stream error';
+  });
+  sse.on(`sse:close:${connectionId}`, () => {
+    closed = true;
+    wakeup();
+  });
+
+  let disconnected = false;
+  const disconnectOnce = () => {
+    if (disconnected) return;
+    disconnected = true;
+    sse.disconnect({ connectionId }).catch(() => undefined);
+  };
+  const onAbort = () => disconnectOnce();
+  if (ctx.signal.aborted) onAbort();
+  else ctx.signal.addEventListener('abort', onAbort, { once: true });
+
+  const connectResult = await sse.connect({ connectionId, url, headers });
+  if (!connectResult.success) {
+    cleanupListeners();
+    ctx.signal.removeEventListener('abort', onAbort);
+    throw new Error(connectResult.error || 'SSE connect failed');
+  }
+
+  async function* iterate(): AsyncGenerator<unknown, void, unknown> {
+    try {
+      while (true) {
+        if (queue.length > 0) {
+          yield queue.shift()!;
+          continue;
+        }
+        if (closed) {
+          if (closeError) throw new Error(closeError);
+          return;
+        }
+        await new Promise<void>((res) => {
+          resolveWaiter = res;
+        });
+      }
+    } finally {
+      disconnectOnce();
+      cleanupListeners();
+      ctx.signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  return {
+    events: iterate(),
+    close: async () => {
+      disconnectOnce();
+      cleanupListeners();
+      ctx.signal.removeEventListener('abort', onAbort);
     },
   };
 }

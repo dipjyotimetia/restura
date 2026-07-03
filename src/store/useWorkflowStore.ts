@@ -95,6 +95,66 @@ interface WorkflowState {
   createNewExtraction: (variableName: string, path: string) => VariableExtraction;
 }
 
+// `executions` is capped at 100 entries (see `saveExecution`), but nothing
+// bounded the SIZE of any one entry: a step's `response.body` can hold a
+// full response, and `extractedVariables`/`finalVariables` can hold a
+// `JSON.stringify`'d capture of up to 10,000 sseSubscribe events or a large
+// forEach's `.results` — persisted verbatim, 100 such runs could bloat
+// storage arbitrarily. Mirrors the truncate/limit convention already
+// established for console entries (`useConsoleStore.ts`'s
+// PERSIST_BODY_LIMIT / PERSIST_LOG_MESSAGE_LIMIT).
+const PERSIST_VALUE_LIMIT = 64 * 1024;
+const PERSIST_LOG_MESSAGE_LIMIT = 4 * 1024;
+const PERSIST_LOG_LIMIT = 500;
+
+function truncateForPersist(str: string, limit: number): string {
+  if (str.length <= limit) return str;
+  return `${str.slice(0, limit)}…[truncated ${str.length - limit} chars]`;
+}
+
+function truncateVariableMap(
+  vars: Record<string, string> | undefined
+): Record<string, string> | undefined {
+  if (!vars) return vars;
+  let changed = false;
+  const next: Record<string, string> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    if (v.length > PERSIST_VALUE_LIMIT) {
+      changed = true;
+      next[k] = truncateForPersist(v, PERSIST_VALUE_LIMIT);
+    } else {
+      next[k] = v;
+    }
+  }
+  return changed ? next : vars;
+}
+
+/** Bound the persisted footprint of one execution: response bodies,
+ *  extracted/final variables, and the log feed. The in-memory execution
+ *  object returned to the UI immediately after a run stays full-fidelity —
+ *  only the copy written to `executions` (and thus Dexie) is trimmed. */
+function trimExecutionForPersist(execution: WorkflowExecution): WorkflowExecution {
+  return {
+    ...execution,
+    steps: execution.steps.map((step) => ({
+      ...step,
+      ...(step.response && {
+        response: {
+          ...step.response,
+          body: truncateForPersist(step.response.body, PERSIST_VALUE_LIMIT),
+        },
+      }),
+      ...(step.extractedVariables && {
+        extractedVariables: truncateVariableMap(step.extractedVariables),
+      }),
+    })),
+    finalVariables: truncateVariableMap(execution.finalVariables) ?? execution.finalVariables,
+    executionLog: execution.executionLog
+      .slice(-PERSIST_LOG_LIMIT)
+      .map((l) => ({ ...l, message: truncateForPersist(l.message, PERSIST_LOG_MESSAGE_LIMIT) })),
+  };
+}
+
 /**
  * Throttle a function so successive invocations within `delay` ms fire
  * at most once (leading + trailing). Used to coalesce rapid graph
@@ -463,7 +523,11 @@ export const useWorkflowStore = create<WorkflowState>()(
         // Execution History
         saveExecution: (execution) =>
           set((state) => ({
-            executions: [...state.executions, execution].slice(-100), // Keep last 100 executions
+            // Keep last 100 executions, each bounded in size (see
+            // trimExecutionForPersist) — count alone doesn't cap storage
+            // when a single run's response bodies or captured variables
+            // (e.g. a large sseSubscribe/forEach) can be arbitrarily large.
+            executions: [...state.executions, trimExecutionForPersist(execution)].slice(-100),
           })),
 
         getExecutionsByWorkflowId: (workflowId) =>

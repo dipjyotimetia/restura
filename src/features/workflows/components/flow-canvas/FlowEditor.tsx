@@ -35,7 +35,15 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const renderedGraph: WorkflowGraph | null = useMemo(() => {
-    if (!workflow.graph) return null;
+    if (!workflow.graph) {
+      // No graph has been created yet — render a synthesised, in-memory
+      // view derived from `requests[]` instead of getting stuck on
+      // "Loading graph…" merely because the user opened this tab. This
+      // view is NOT persisted; `workflow.graph` is only materialised by
+      // an actual structural edit (see FlowCanvas's `commit` calls and
+      // its `graphMaterialized` guard on viewport-only changes).
+      return deriveGraphFromLinear(workflow.requests);
+    }
     if (subgraphPath.length === 0) {
       if (workflow.graph.nodes.length > 0) {
         const needsLayout = workflow.graph.nodes.every(
@@ -125,6 +133,7 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
                   commit={commit}
                   selectedNodeId={selectedNodeId}
                   onSelectionChange={setSelectedNodeId}
+                  graphMaterialized={Boolean(workflow.graph)}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-sm text-muted-foreground">

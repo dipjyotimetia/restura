@@ -13,7 +13,9 @@
  * subprotocols field is unused in v1 — both are omitted from the
  * inline shape rather than silently dropped.
  */
+import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
+import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 
 interface InlineWsRequestShape {
   type: 'websocket';
@@ -37,6 +39,16 @@ async function websocketStartStream(
     throw new Error('WebSocket startStream expects an inline-websocket request');
   }
   if (!request.url.trim()) throw new Error('WebSocket request has no URL');
+
+  // Desktop: packaged-app CSP allows `wss:` but not `ws:` (a bare `new
+  // WebSocket('ws://...')` would fail with an opaque CSP error), and even
+  // `wss:` connecting directly from the renderer bypasses the main-process
+  // DNS-pinned SSRF guard that `websocketManager.ts`'s interactive path
+  // relies on (`connectViaElectron` / electron/main/handlers/websocket-handler.ts).
+  // Route wsExchange nodes through the same IPC bridge for parity.
+  if (isElectron()) {
+    return websocketStartStreamElectron(request.url, ctx);
+  }
 
   const socket = new WebSocket(request.url);
 
@@ -171,6 +183,153 @@ async function websocketStartStream(
     },
   };
   return handle;
+}
+
+/**
+ * Electron path for `websocketStartStream`. Mirrors the queue+waiter
+ * async-iterable shape above, but sources frames from the `ws:connect`
+ * IPC channel (electron/main/handlers/websocket-handler.ts) — the same
+ * DNS-pinned, SSRF-guarded main-process socket the interactive WebSocket
+ * client uses (`websocketManager.connectViaElectron`) — instead of a
+ * renderer-side native `WebSocket`. Doesn't touch `useWebSocketStore`;
+ * the DAG executor owns event accumulation for wsExchange nodes.
+ */
+async function websocketStartStreamElectron(
+  url: string,
+  ctx: { signal: AbortSignal }
+): Promise<ProtocolStreamHandle & { send: (frame: string) => void }> {
+  const api = getElectronAPI();
+  if (!api?.websocket) {
+    throw new Error('Electron WebSocket API is not available in this context.');
+  }
+  const ws = api.websocket;
+  const connectionId = `flow-ws-${uuidv4()}`;
+
+  const queue: unknown[] = [];
+  let resolveWaiter: (() => void) | null = null;
+  let closed = false;
+  let openError: string | null = null;
+  const wakeup = () => {
+    if (resolveWaiter) {
+      const r = resolveWaiter;
+      resolveWaiter = null;
+      r();
+    }
+  };
+
+  const cleanupListeners = () => {
+    ws.removeAllListeners(`ws:open:${connectionId}`);
+    ws.removeAllListeners(`ws:message:${connectionId}`);
+    ws.removeAllListeners(`ws:error:${connectionId}`);
+    ws.removeAllListeners(`ws:close:${connectionId}`);
+  };
+
+  let disconnected = false;
+  const disconnectOnce = () => {
+    if (disconnected) return;
+    disconnected = true;
+    ws.disconnect({ connectionId }).catch(() => undefined);
+  };
+
+  // Settled by the "wait for open" promise below — also used by the
+  // `ws:close` handler so a connection that closes/errors *before* ever
+  // opening (e.g. handshake failure after the IPC `connect()` call itself
+  // already resolved `success: true`) rejects the open-wait instead of
+  // leaving it hanging forever.
+  let openSettle: { resolve: () => void; reject: (err: Error) => void } | null = null;
+
+  ws.on(`ws:open:${connectionId}`, () => {
+    openSettle?.resolve();
+    openSettle = null;
+  });
+  ws.on(`ws:message:${connectionId}`, (payload: unknown) => {
+    const msg = payload as { type: 'text' | 'binary'; data: string };
+    let parsed: unknown = msg.data;
+    if (msg.type === 'text') {
+      try {
+        parsed = JSON.parse(msg.data);
+      } catch {
+        parsed = msg.data;
+      }
+    }
+    queue.push(parsed);
+    wakeup();
+  });
+  ws.on(`ws:error:${connectionId}`, (payload: unknown) => {
+    const err = payload as { message?: string };
+    openError = err?.message ?? 'WebSocket connection failed';
+  });
+  ws.on(`ws:close:${connectionId}`, () => {
+    closed = true;
+    openSettle?.reject(new Error(openError ?? 'WebSocket connection failed'));
+    openSettle = null;
+    wakeup();
+  });
+
+  const onAbort = () => {
+    openSettle?.reject(new DOMException('Aborted', 'AbortError'));
+    openSettle = null;
+    disconnectOnce();
+  };
+  if (ctx.signal.aborted) onAbort();
+  else ctx.signal.addEventListener('abort', onAbort, { once: true });
+
+  // Wait for open BEFORE returning — matches the web path so the
+  // caller's first `send()` isn't racing a still-connecting socket.
+  try {
+    await new Promise<void>((resolve, reject) => {
+      if (ctx.signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      openSettle = { resolve, reject };
+      ws.connect({ connectionId, url }).then((result) => {
+        if (!result.success && openSettle) {
+          openSettle = null;
+          reject(new Error(result.error || 'WebSocket connection failed'));
+        }
+      }, reject);
+    });
+  } catch (err) {
+    cleanupListeners();
+    disconnectOnce();
+    ctx.signal.removeEventListener('abort', onAbort);
+    throw err;
+  }
+
+  async function* iterate(): AsyncGenerator<unknown, void, unknown> {
+    try {
+      while (true) {
+        if (queue.length > 0) {
+          yield queue.shift()!;
+          continue;
+        }
+        if (closed) {
+          if (openError) throw new Error(openError);
+          return;
+        }
+        await new Promise<void>((res) => {
+          resolveWaiter = res;
+        });
+      }
+    } finally {
+      disconnectOnce();
+      cleanupListeners();
+      ctx.signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  return {
+    events: iterate(),
+    send: (frame: string) => {
+      ws.send({ connectionId, message: frame }).catch(() => undefined);
+    },
+    close: async () => {
+      disconnectOnce();
+      cleanupListeners();
+      ctx.signal.removeEventListener('abort', onAbort);
+    },
+  };
 }
 
 export const websocketProtocol: ProtocolModule = {
