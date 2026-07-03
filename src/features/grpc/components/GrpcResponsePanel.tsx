@@ -48,13 +48,17 @@ export function GrpcResponsePanel() {
 
   const [copied, setCopied] = useState(false);
   const body = useMemo(() => prettyJson(response?.body ?? ''), [response?.body]);
-  const copyableText = useMemo(() => {
-    if (!response) return '';
-    if (response.messages && response.messages.length > 0) {
-      return response.messages.map((m) => prettyJson(m)).join('\n\n');
-    }
-    return body;
-  }, [response, body]);
+  // Pretty-printed once and reused for both the rendered frame list (sliced
+  // to MAX_RENDERED_FRAMES below) and copyableText — previously each was
+  // computed independently, so the first 500 frames were JSON.parsed/
+  // stringified twice, and the render-body copy wasn't memoized at all (it
+  // reran on every render, including the two the Copy button's own
+  // `copied` state triggers).
+  const prettyMessages = useMemo(
+    () => response?.messages?.map((m) => prettyJson(m)) ?? [],
+    [response?.messages]
+  );
+  const copyableText = prettyMessages.length > 0 ? prettyMessages.join('\n\n') : body;
   const trailers = response?.trailers ?? {};
   const grpcStatus: GrpcStatusCode | undefined = response?.grpcStatus;
   const grpcStatusName =
@@ -143,23 +147,23 @@ export function GrpcResponsePanel() {
           <div className="flex items-center justify-center h-full text-sp-dim text-sp-12 font-mono">
             No response yet. Invoke a method to see the result here.
           </div>
-        ) : response.messages && response.messages.length > 0 ? (
+        ) : prettyMessages.length > 0 ? (
           <div className="px-3.5 py-3 space-y-2">
-            {response.messages.slice(0, MAX_RENDERED_FRAMES).map((m, i) => (
+            {prettyMessages.slice(0, MAX_RENDERED_FRAMES).map((m, i) => (
               <div key={i}>
                 <div className="sp-label mb-1">Frame {i + 1}</div>
                 <pre
                   className="m-0 font-mono text-sp-12-5 text-sp-text whitespace-pre-wrap"
                   style={{ lineHeight: 1.55 }}
                 >
-                  {prettyJson(m)}
+                  {m}
                 </pre>
               </div>
             ))}
-            {response.messages.length > MAX_RENDERED_FRAMES && (
+            {prettyMessages.length > MAX_RENDERED_FRAMES && (
               <div className="text-sp-11 text-sp-muted font-mono pt-1">
-                {response.messages.length - MAX_RENDERED_FRAMES} more frame
-                {response.messages.length - MAX_RENDERED_FRAMES > 1 ? 's' : ''} received but not
+                {prettyMessages.length - MAX_RENDERED_FRAMES} more frame
+                {prettyMessages.length - MAX_RENDERED_FRAMES > 1 ? 's' : ''} received but not
                 rendered — still included in Copy/Download.
               </div>
             )}

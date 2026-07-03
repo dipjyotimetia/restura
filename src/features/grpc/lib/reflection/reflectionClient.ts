@@ -253,7 +253,11 @@ export class GrpcReflectionClient {
           url: this.baseUrl,
           request,
           timeout: this.timeout,
-          ...(Object.keys(this.metadata).length > 0 ? { metadata: this.metadata } : {}),
+          // `GrpcReflectionRequestBodySchema` (shared/protocol/grpc-schema.ts)
+          // has no `metadata` field — the worker's reflection proxy doesn't
+          // support per-call metadata, so it isn't forwarded here either.
+          // Metadata-aware reflection is Electron-only (see the native path
+          // above); revisit if `/api/grpc/reflection` grows metadata support.
         }),
         signal: controller.signal,
       });

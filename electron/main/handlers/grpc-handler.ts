@@ -124,19 +124,20 @@ function sanitizeErrorMessage(message: string | undefined): string {
 // for having been open a while.
 const cleanupStaleStreams = () => {
   const now = Date.now();
-  // Collect first, then cancel — cancel() disposes + removes, so mutating the
-  // map mid-iteration is avoided.
-  const staleIds: string[] = [];
+  // Collect the calls themselves (not just their ids) first, then cancel —
+  // cancel() disposes + removes, so mutating the map mid-iteration is
+  // avoided, and we don't need a second activeCalls.get() per id below.
+  const staleCalls: ActiveCall[] = [];
   for (const call of activeCalls.values()) {
-    if (now - call.lastActivityAt > STREAM_TIMEOUT_MS) staleIds.push(call.requestId);
+    if (now - call.lastActivityAt > STREAM_TIMEOUT_MS) staleCalls.push(call);
   }
-  staleIds.forEach((id) => {
-    const call = activeCalls.get(id);
+  staleCalls.forEach((call) => {
+    const { requestId: id, lastActivityAt } = call;
     try {
       // Notify the renderer *before* cancelling — cancelling alone triggers
       // `onCancelled`, which only does internal cleanup and sends nothing, so
       // without this the renderer's message queue/`done` promise just hangs.
-      call?.notifyStale();
+      call.notifyStale();
     } catch (error) {
       log.error('error notifying renderer of stale stream', {
         streamId: id,
@@ -152,10 +153,7 @@ const cleanupStaleStreams = () => {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    log.info('cleaned up stale stream', {
-      streamId: id,
-      idleMs: call ? now - call.lastActivityAt : undefined,
-    });
+    log.info('cleaned up stale stream', { streamId: id, idleMs: now - lastActivityAt });
   });
 };
 

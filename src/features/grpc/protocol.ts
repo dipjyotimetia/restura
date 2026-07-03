@@ -29,6 +29,7 @@ import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { isElectron } from '@/lib/shared/platform';
+import { flattenMultiValueHeaders } from '@/lib/shared/utils';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { GrpcRequest, GrpcResponse, Request, Response as ApiResponse } from '@/types';
 
@@ -60,15 +61,6 @@ function flattenMetadata(metadata: GrpcRequest['metadata']): Record<string, stri
   const out: Record<string, string> = {};
   for (const m of metadata) {
     if (m.enabled && m.key) out[m.key] = m.value;
-  }
-  return out;
-}
-
-/** Coerce a possibly multi-valued header map to single strings for script contexts. */
-function flattenHeaderValues(headers: Record<string, string | string[]>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    out[key] = Array.isArray(value) ? value.join(', ') : value;
   }
   return out;
 }
@@ -227,7 +219,7 @@ export const grpcProtocol: ProtocolModule = {
         response: {
           status: response.grpcStatus ?? 0,
           statusText: response.grpcStatusText ?? '',
-          headers: flattenHeaderValues(response.headers ?? {}),
+          headers: flattenMultiValueHeaders(response.headers ?? {}),
           body: response.body,
           time: response.time,
           size: response.size,

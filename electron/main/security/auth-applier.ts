@@ -1,16 +1,20 @@
 /**
- * Main-process auth applier for non-sign-at-wire auth types (basic, bearer,
- * api-key, oauth2). When the renderer's `AuthConfig` carries a `SecretRef`
- * with `kind:'handle'`, the renderer cannot read plaintext and skips applying
- * the Authorization header. The Electron HTTP handler calls this helper to
- * resolve the handle main-side and emit the header/query before dispatching.
+ * Main-process auth helpers.
+ *
+ * `applyNonSignAtWireAuth` handles basic/bearer/api-key/oauth2. When the
+ * renderer's `AuthConfig` carries a `SecretRef` with `kind:'handle'`, the
+ * renderer cannot read plaintext and skips applying the Authorization header.
+ * The Electron HTTP handler calls this helper to resolve the handle
+ * main-side and emit the header/query before dispatching.
  *
  * The remaining types (aws-signature, oauth1, wsse, ntlm, digest) are handled
- * downstream — most by `shared/protocol/auth-signer.ts` via the `resolveSecret`
- * option threaded through `executeHttpProxy`. This helper returns nothing for
- * them.
+ * downstream for HTTP — most by `shared/protocol/auth-signer.ts` via the
+ * `resolveSecret` option threaded through `executeHttpProxy`. This helper
+ * returns nothing for them; gRPC has no equivalent signer at all, which is
+ * what `describeUnsupportedGrpcAuth` below guards against.
  */
 
+import { GRPC_UNSUPPORTED_AUTH_TYPES } from '@shared/protocol/grpc-auth';
 import type { ProtocolAuthConfig } from '@shared/protocol/types';
 import { unwrapSecretValueMain } from './secret-handle-store';
 
@@ -63,30 +67,25 @@ export function applyNonSignAtWireAuth(auth: AnyAuth | undefined): AppliedCreden
       const tokenType = auth.oauth2?.tokenType || 'Bearer';
       return { headers: { Authorization: `${tokenType} ${token}` }, params: {} };
     }
-    // Sign-at-wire types — caller's `executeHttpProxy(resolveSecret)` handles these.
-    case 'digest':
-    case 'oauth1':
-    case 'aws-signature':
-    case 'ntlm':
-    case 'wsse':
+    // Sign-at-wire types (digest/oauth1/aws-signature/ntlm/wsse — see
+    // GRPC_UNSUPPORTED_AUTH_TYPES) and anything else fall through to the same
+    // `default` — for HTTP, `executeHttpProxy(resolveSecret)` signs them
+    // downstream; this function's job here is only the four types above.
     default:
       return empty;
   }
 }
 
 /**
- * The sign-at-wire types above are only actually signed for HTTP, via
- * `shared/protocol/auth-signer.ts`'s `resolveSecret` option threaded through
- * `executeHttpProxy`. gRPC's metadata-based transport has no equivalent
- * signer, so `applyNonSignAtWireAuth` silently returning `{}` for these means
- * "no credentials at all" rather than "handled elsewhere" when the caller is
- * gRPC. Callers on the gRPC path (unary/streaming requests and reflection)
- * should check this before proceeding, and fail clearly instead of sending
- * the request unauthenticated.
- */
-const GRPC_UNSUPPORTED_AUTH_TYPES = new Set(['digest', 'oauth1', 'aws-signature', 'ntlm', 'wsse']);
-
-/**
+ * `GRPC_UNSUPPORTED_AUTH_TYPES` (sign-at-wire types) are only actually signed
+ * for HTTP, via `shared/protocol/auth-signer.ts`'s `resolveSecret` option
+ * threaded through `executeHttpProxy`. gRPC's metadata-based transport has no
+ * equivalent signer, so `applyNonSignAtWireAuth` silently returning `{}` for
+ * these means "no credentials at all" rather than "handled elsewhere" when
+ * the caller is gRPC. Callers on the gRPC path (unary/streaming requests and
+ * reflection) should check this before proceeding, and fail clearly instead
+ * of sending the request unauthenticated.
+ *
  * Returns a user-facing explanation when `auth` is a type gRPC cannot apply
  * credentials for, or `null` when it's fine to proceed. `subject` fills the
  * tail of the message per call site (e.g. "the request", "the stream").

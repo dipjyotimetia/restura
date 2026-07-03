@@ -1,8 +1,9 @@
 'use client';
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Send, Code2, Loader2, Link2 } from 'lucide-react';
+import { Send, Code2, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { CopyUrlButton } from '@/components/shared/CopyUrlButton';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { Button } from '@/components/ui/button';
 import {
@@ -192,22 +193,7 @@ export function UrlBar({
             >
               <Code2 className="h-3.5 w-3.5" />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!url) return;
-                void navigator.clipboard?.writeText(url);
-              }}
-              disabled={!url}
-              aria-label="Copy URL"
-              className={cn(
-                'inline-flex items-center justify-center h-7 w-7 rounded-sp-btn text-sp-dim',
-                'hover:text-sp-text hover:bg-sp-hover transition-colors',
-                'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
-              )}
-            >
-              <Link2 className="h-3.5 w-3.5" />
-            </button>
+            <CopyUrlButton url={url} size="md" />
           </div>
         </Floater>
 

@@ -1,5 +1,6 @@
-import { AlertCircle, Laptop, Link2, Loader2, Play, X } from 'lucide-react';
+import { AlertCircle, Laptop, Loader2, Play, X } from 'lucide-react';
 import GrpcStreamingControls from './GrpcStreamingControls';
+import { CopyUrlButton } from '@/components/shared/CopyUrlButton';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { Button } from '@/components/ui/button';
 import { Floater, Kbd, Segmented, VariableText, hasVariableToken } from '@/components/ui/spatial';
@@ -35,6 +36,11 @@ export interface GrpcInvocationBarProps {
 // Surface a "desktop only" icon directly on the primary selector — this is
 // the first control a user sees, so it's the place that needs to warn them,
 // not just the (secondary, reflection-only) method dropdown.
+//
+// Same underlying fact as `GrpcMethodSelector.tsx`'s `requiresDesktop`
+// (`method.clientStreaming === true`), expressed over the `GrpcMethodType`
+// string this component works with rather than a `ReflectionMethodInfo`
+// flag — keep both in sync if this list ever changes.
 const DESKTOP_ONLY_METHOD_TYPES: ReadonlySet<GrpcMethodType> = new Set([
   'client-streaming',
   'bidirectional-streaming',
@@ -125,22 +131,12 @@ export function GrpcInvocationBar({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (!url) return;
-              void navigator.clipboard?.writeText(url);
-            }}
-            disabled={!url}
-            aria-label="Copy gRPC server URL"
-            className={cn(
-              'inline-flex items-center justify-center h-6 w-6 rounded-sp-btn text-sp-dim shrink-0',
-              'hover:text-sp-text hover:bg-sp-hover transition-colors',
-              'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
-            )}
-          >
-            <Link2 className="h-3.5 w-3.5" />
-          </button>
+          <CopyUrlButton
+            url={url}
+            size="sm"
+            ariaLabel="Copy gRPC server URL"
+            className="shrink-0"
+          />
         </Floater>
 
         <Button

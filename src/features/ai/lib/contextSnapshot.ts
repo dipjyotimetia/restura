@@ -1,5 +1,5 @@
 import type { ContextRef } from '@/features/ai/store';
-import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { flattenMultiValueHeaders, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { KeyValue } from '@/types';
@@ -25,14 +25,6 @@ interface RequestBodyLike {
   raw?: string;
   formData?: Array<{ key?: string; value?: string; enabled?: boolean }>;
   multipartParts?: Array<{ contentType?: string; content?: string }>;
-}
-
-function normalizeHeaders(headers: Record<string, string | string[]>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) {
-    out[k] = Array.isArray(v) ? v.join(', ') : v;
-  }
-  return out;
 }
 
 /**
@@ -107,7 +99,7 @@ export function captureActive(): RawSnapshot {
       ? {
           response: {
             status: response.status,
-            headers: normalizeHeaders(response.headers),
+            headers: flattenMultiValueHeaders(response.headers),
             body: response.body ?? '',
           },
         }

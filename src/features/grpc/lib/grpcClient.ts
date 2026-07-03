@@ -1,3 +1,4 @@
+import { GRPC_UNSUPPORTED_AUTH_TYPES } from '@shared/protocol/grpc-auth';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveGrpcTls } from './grpcTls';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
@@ -46,39 +47,32 @@ export class GrpcClientError extends Error {
 // flavour uses lowercase keys (canonical for HTTP/2 metadata) and requires
 // BOTH username AND password for Basic auth — both behaviours preserved.
 //
-// The protocol-specific bits live here: warnings for unsupported types
-// (digest, aws-signature). API-key in `query` mode is dropped on the floor
-// for gRPC (no URL query string in the metadata frame) — matched by
-// returning only `headers`.
+// The protocol-specific bit lives here: a warning for types
+// GRPC_UNSUPPORTED_AUTH_TYPES lists as having no gRPC-metadata equivalent
+// (shared with the Electron main process's `describeUnsupportedGrpcAuth`,
+// which blocks the request outright for handle-backed credentials — the
+// renderer only warns here since it can't be sure whether main-side handling
+// will pick the credential up for a non-handle value). API-key in `query`
+// mode is dropped on the floor for gRPC (no URL query string in the metadata
+// frame) — matched by returning only `headers`.
 export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
-  switch (auth.type) {
-    case 'digest':
-      // Digest auth requires challenge-response, not directly applicable to gRPC metadata
-      // This auth type is not supported for gRPC - use Basic or Bearer auth instead
-      console.warn(
-        'Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.'
-      );
-      return {};
-
-    case 'aws-signature':
-      console.warn(
-        'AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.'
-      );
-      return {};
-
-    default: {
-      const credential = buildAuthCredential(auth, {
-        headerCase: 'lower',
-        basicRequiresPassword: true,
-      });
-      // SecretRef-handle credentials resolve to empty headers here (the renderer
-      // can't read handle plaintext). On Electron they're resolved main-side by
-      // the gRPC IPC handler — see `grpcAuthNeedsMainSideApply` / the `auth`
-      // field threaded into the startStream/request payloads. The web path
-      // rejects them up front (handles are desktop-only).
-      return { ...credential.headers };
-    }
+  if (GRPC_UNSUPPORTED_AUTH_TYPES.has(auth.type)) {
+    console.warn(
+      `"${auth.type}" authentication is not supported for gRPC. Use Bearer, Basic, API Key, or OAuth2 instead.`
+    );
+    return {};
   }
+
+  const credential = buildAuthCredential(auth, {
+    headerCase: 'lower',
+    basicRequiresPassword: true,
+  });
+  // SecretRef-handle credentials resolve to empty headers here (the renderer
+  // can't read handle plaintext). On Electron they're resolved main-side by
+  // the gRPC IPC handler — see `grpcAuthNeedsMainSideApply` / the `auth`
+  // field threaded into the startStream/request payloads. The web path
+  // rejects them up front (handles are desktop-only).
+  return { ...credential.headers };
 }
 
 /**

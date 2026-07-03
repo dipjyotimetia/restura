@@ -105,7 +105,7 @@ describe('grpcClient', () => {
       // Digest auth is not supported for gRPC - should return empty metadata
       expect(result).toEqual({});
       expect(consoleSpy).toHaveBeenCalledWith(
-        'Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.'
+        '"digest" authentication is not supported for gRPC. Use Bearer, Basic, API Key, or OAuth2 instead.'
       );
       consoleSpy.mockRestore();
     });
@@ -125,7 +125,7 @@ describe('grpcClient', () => {
       // AWS Signature auth is not yet implemented for gRPC - should return empty metadata
       expect(result).toEqual({});
       expect(consoleSpy).toHaveBeenCalledWith(
-        'AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.'
+        '"aws-signature" authentication is not supported for gRPC. Use Bearer, Basic, API Key, or OAuth2 instead.'
       );
       consoleSpy.mockRestore();
     });

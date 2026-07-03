@@ -71,6 +71,17 @@ export function keyValuePairsToRecord(
   return out;
 }
 
+/** Coerce a possibly multi-valued header/metadata map to single strings, joining arrays with `, `. */
+export function flattenMultiValueHeaders(
+  headers: Record<string, string | string[]>
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    out[key] = Array.isArray(value) ? value.join(', ') : value;
+  }
+  return out;
+}
+
 export function debounce<T extends (...args: never[]) => unknown>(
   func: T,
   wait: number
